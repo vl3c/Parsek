@@ -553,6 +553,160 @@ namespace Parsek
             }
         }
 
+        /// <summary>One ended contract stock holds in neither list, filed late from its snapshot.</summary>
+        internal struct LateContractFiling
+        {
+            public Guid Id;
+            /// <summary>The walk's id string, the key the snapshot store uses.</summary>
+            public string ContractId;
+            public ContractTerminalOutcome Outcome;
+            public Contract.State FinishedState;
+            /// <summary>The walk's end UT for the outcome (always known and at or before the clock).</summary>
+            public double FinishedUT;
+        }
+
+        /// <summary>
+        /// Pure: which contracts the walk holds ended that stock holds in NEITHER of its
+        /// lists, and so go into the finished list now. A patch with no real clock takes an
+        /// ended Active contract off the active list without filing it
+        /// (<see cref="PlanRetiredActiveContractMoves"/> counts it <c>noClock</c>), and the
+        /// retire planner only sees contracts still on the active list, so without this the
+        /// contract never reaches the Mission Control Archive. The same holds for a contract a
+        /// clock jump carries from before its committed accept to after its committed
+        /// outcome in one patch: stock never held it Active. Rules, per walk-terminal id:
+        /// <list type="number">
+        ///   <item>Active in the walk, or present in either stock list in any state: skipped (never a second copy).</item>
+        ///   <item>A contract with a tombstoned ledger row: skipped (the removal and restore rules own it).</item>
+        ///   <item>An outcome stock does not archive (requirements lost): skipped.</item>
+        ///   <item>No real <paramref name="clockUT"/>: skipped, counted in <paramref name="noClock"/>; a clockless walk can hold terminal a contract whose committed outcome is still ahead.</item>
+        ///   <item>End UT unknown, or after the clock: skipped, counted in <paramref name="outcomeLater"/>; the Archive never shows an outcome before it happens, and an unknown UT proves nothing.</item>
+        ///   <item>No snapshot to build the contract from: skipped, counted in <paramref name="noSnapshot"/>.</item>
+        ///   <item>Otherwise: filed, in the walk's outcome state at its end UT.</item>
+        /// </list>
+        /// Filing writes no ledger row, pays nothing and charges nothing: the ledger already
+        /// applied the outcome. The result is sorted by id.
+        /// </summary>
+        internal static List<LateContractFiling> PlanMissingTerminalContractFilings(
+            IReadOnlyDictionary<string, ContractTerminalOutcome> terminalOutcomes,
+            IReadOnlyDictionary<string, double> terminalUTs,
+            HashSet<Guid> activeIdSet,
+            HashSet<Guid> inStockListIds,
+            HashSet<Guid> tombstonedContractGuids,
+            Func<string, bool> hasSnapshot,
+            double clockUT,
+            out int noClock,
+            out int outcomeLater,
+            out int noSnapshot)
+        {
+            var plan = new List<LateContractFiling>();
+            noClock = 0;
+            outcomeLater = 0;
+            noSnapshot = 0;
+            if (terminalOutcomes == null || terminalOutcomes.Count == 0)
+                return plan;
+            bool clockReady = IsRealClock(clockUT);
+            var plannedIds = new HashSet<Guid>();
+
+            foreach (var kvp in terminalOutcomes)
+            {
+                Guid id;
+                if (string.IsNullOrEmpty(kvp.Key) || !Guid.TryParse(kvp.Key, out id))
+                    continue;
+                // Two walk keys may spell one guid differently; plan each contract once.
+                if (plannedIds.Contains(id))
+                    continue;
+                if (activeIdSet != null && activeIdSet.Contains(id))
+                    continue;
+                if (inStockListIds != null && inStockListIds.Contains(id))
+                    continue;
+                if (tombstonedContractGuids != null && tombstonedContractGuids.Contains(id))
+                    continue;
+                Contract.State finishedState;
+                if (!TryMapOutcomeToFinishedState(kvp.Value, out finishedState))
+                    continue;
+                if (!clockReady)
+                {
+                    noClock++;
+                    continue;
+                }
+                double ut;
+                if (terminalUTs == null || !terminalUTs.TryGetValue(kvp.Key, out ut)
+                    || double.IsNaN(ut) || double.IsInfinity(ut)
+                    || ut > clockUT + ContractAcceptClockToleranceSeconds)
+                {
+                    outcomeLater++;
+                    continue;
+                }
+                if (hasSnapshot != null && !hasSnapshot(kvp.Key))
+                {
+                    noSnapshot++;
+                    continue;
+                }
+                plannedIds.Add(id);
+                plan.Add(new LateContractFiling
+                {
+                    Id = id,
+                    ContractId = kvp.Key,
+                    Outcome = kvp.Value,
+                    FinishedState = finishedState,
+                    FinishedUT = ut
+                });
+            }
+
+            plan.Sort((a, b) => string.CompareOrdinal(a.Id.ToString(), b.Id.ToString()));
+            return plan;
+        }
+
+        /// <summary>
+        /// Files each planned late contract into stock's finished list: builds it through
+        /// <paramref name="load"/> (null = could not be built), puts it in the outcome state
+        /// silently (<see cref="TryRetireContractSilently"/>: no <c>SetState</c>, no
+        /// GameEvents, no reward or penalty) and never registers it. One Info line per filing.
+        /// </summary>
+        internal static void FileMissingTerminalContracts(
+            List<LateContractFiling> plan,
+            Func<LateContractFiling, Contract> load,
+            List<Contract> finishedContracts,
+            ref int filed,
+            ref int failed)
+        {
+            if (plan == null || plan.Count == 0)
+                return;
+            for (int i = 0; i < plan.Count; i++)
+            {
+                LateContractFiling f = plan[i];
+                Contract c = null;
+                if (finishedContracts != null && load != null)
+                {
+                    try
+                    {
+                        c = load(f);
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Warn(Tag,
+                            $"PatchContracts: building ended contract {f.Id} for a late filing threw: {ex.Message}");
+                        c = null;
+                    }
+                }
+                if (c == null || c.ContractGuid != f.Id
+                    || !TryRetireContractSilently(c, f.FinishedState, f.FinishedUT))
+                {
+                    failed++;
+                    ParsekLog.Warn(Tag,
+                        $"PatchContracts: could not file ended contract {f.Id} late into stock's finished list " +
+                        $"(outcome={f.Outcome}, built={(c != null ? "yes" : "no")}) - it stays missing from the Archive");
+                    continue;
+                }
+                finishedContracts.Add(c);
+                filed++;
+                ParsekLog.Info(Tag,
+                    $"PatchContracts: late-filed ended contract {f.Id} '{c.Title ?? ""}' into stock's finished list " +
+                    $"as {f.FinishedState} (outcome={f.Outcome}, finishedUT={f.FinishedUT.ToString("R", IC)}): " +
+                    $"it was in neither stock list; silently: no GameEvents, no reward or penalty");
+            }
+        }
+
         /// <summary>
         /// Pure helper: composes a bounded, comma-joined sample of changed-identity
         /// descriptions for a default-level (Info) apply line. Returns string.Empty for a

@@ -22,7 +22,8 @@ namespace Parsek
             bool isDestroyed,
             Vessel snapshotVessel = null,
             ConfigNode destroyedFallbackSnapshot = null,
-            bool stopIsChainBoundary = false)
+            bool stopIsChainBoundary = false,
+            TrackSection? openSectionForDistance = null)
         {
             var capture = new Recording
             {
@@ -55,7 +56,8 @@ namespace Parsek
                 capture,
                 isDestroyed,
                 snapshotVessel,
-                destroyedFallbackSnapshot ?? lastGoodVesselSnapshot);
+                destroyedFallbackSnapshot ?? lastGoodVesselSnapshot,
+                openSectionForDistance);
             GetFinalizationCacheForRecording(capture);
             capture.StartResources = pendingStartResources;
             capture.EndResources = VesselSnapshotOps.ExtractResourceManifest(capture.VesselSnapshot);
@@ -341,6 +343,44 @@ namespace Parsek
                 }
             }
             return -1;
+        }
+
+        /// <summary>
+        /// Closes the open TrackSection on the vessel-switch stop
+        /// (<see cref="HandleVesselSwitchDuringRecording"/>, the ChainToVessel decision: an EVA
+        /// recording whose active vessel is now a non-EVA vessel, board confirmed or not), the
+        /// one stop that does not run <see cref="FinalizeRecordingState"/>. Every other stop
+        /// (StopRecording, StopRecordingForChainBoundary, ForceStop, TransitionToBackground)
+        /// closes it. <see cref="BuildCaptureRecording"/> copies only the CLOSED sections while
+        /// the flat Points carry every sample of the open one, so a capture built with it open
+        /// loses the leg's last section: the codec saves its samples as flat points no section
+        /// covers, so after a load an open Relative section's anchor-local metres read as
+        /// lat/lon (<see cref="FlatPointFrameDispatch"/> classifies an uncovered point as
+        /// body-fixed).
+        /// Only the section is closed here: no terminal events, RELATIVE state left as is
+        /// (the recorder is discarded on the board merge and only flushed otherwise).
+        /// </summary>
+        internal void CloseOpenTrackSectionForVesselSwitchStop(double ut)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            if (!trackSectionActive)
+            {
+                ParsekLog.Verbose("Recorder",
+                    $"Vessel-switch stop: no open TrackSection to close at UT={ut.ToString("F2", ic)} " +
+                    $"(closedSections={TrackSections.Count} points={Recording.Count})");
+                return;
+            }
+
+            ReferenceFrame frame = currentTrackSection.referenceFrame;
+            int frames = currentTrackSection.frames?.Count ?? 0;
+            int bodyFixedFrames = currentTrackSection.bodyFixedFrames?.Count ?? 0;
+            int sectionsBefore = TrackSections.Count;
+            CloseCurrentTrackSection(ut);
+            ParsekLog.Info("Recorder",
+                $"Vessel-switch stop: closed the open TrackSection before the capture " +
+                $"(ref={frame} frames={frames} bodyFixedFrames={bodyFixedFrames} " +
+                $"kept={(TrackSections.Count > sectionsBefore ? "yes" : "no")} " +
+                $"sections={TrackSections.Count} UT={ut.ToString("F2", ic)})");
         }
 
         public void StopRecording()

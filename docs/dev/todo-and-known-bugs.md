@@ -35,6 +35,43 @@ refreshes. That is the ballistic extrapolator's FORECAST of where an unpowered p
 if the recording stopped at that moment, not the recording's terminal: the committed recording
 finalized `terminal=Splashed`, and the produced save holds `Splashed 1`, `Destroyed 0`.
 
+## ~~EVA-SWITCH-STOP-DROPS-OPEN-SECTION~~: an EVA leg that ends by boarding loses its last track section [FILED 2026-11-16 from the D5 residual review (vessel-switch stop distance, branch `fix-residuals-contract-d5`), by code reading. FIXED 2026-11-16, branch fix-board-merge-open-section; xUnit; no lane gates it yet; medium (the ghost of a kerbal's walk or jetpack flight to the hatch is wrong after a save)]
+
+What was wrong. `FlightRecorder.HandleVesselSwitchDuringRecording` (the ChainToVessel decision:
+an EVA recording whose active vessel is now a non-EVA vessel) was the one stop that never closed
+the open TrackSection. StopRecording, StopRecordingForChainBoundary and ForceStop close it in
+`FinalizeRecordingState`, TransitionToBackground closes it itself. `BuildCaptureRecording` deep
+copies only the CLOSED sections, while the flat Points carry every sample of the open one, so
+`FlushStoppedRecorderIntoMergeParent` -> `AppendCapturedDataToRecording` (confirmed board) and
+`FinalizeTreeRecordings` -> `FlushRecorderToTreeRecording` (unconfirmed board, or a plain switch
+from an EVA kerbal to a vessel, which is the same ChainToVessel decision) both handed the EVA leg
+a flat tail no section covers. Nothing later adds it back: the stopped recorder is dropped on the
+board merge, and `FlushRecorderIntoActiveTreeForSerialization`'s section checkpoint only runs for
+the recorder the tree still holds. The codec then writes the uncovered tail as flat points
+(`AppendSafeFlatFallbackTailOutsideFrameSections` / the plain flat path) and, after a load,
+`FlatPointFrameDispatch.Classify` reads a point no section holds as body-fixed: a Relative open
+section (a kerbal walking to a hatch near the vessel, the common case) replays its anchor-local
+metres as degrees of latitude and longitude, and an EVA that never closed a section saves with
+no section at all. An Absolute open section keeps real lat/lon but no section, environment or
+frame metadata for the end of the leg. No analyzer invariant checks flat points outside every
+section, so nothing reported it. The committed fixture `cs-career-mun4` (from CS-6c) shows both
+Mun-orbit EVA legs ending about 1.8 s before their stamped board UT (`debce1a4...` last frame
+157914.246, `explicitEndUT` 157916.006), consistent with this but not proven by it.
+
+Fix: the switch stop calls `FlightRecorder.CloseOpenTrackSectionForVesselSwitchStop(UT)` before
+`BuildCaptureRecording`, so the capture (and the recorder lists the unconfirmed path flushes) holds
+the leg's last section. Only the section is closed: no terminal events, RELATIVE state untouched,
+the confirmed and unconfirmed paths otherwise as before. One Info line `Vessel-switch stop: closed
+the open TrackSection before the capture (...)`, or a Verbose `no open TrackSection to close`.
+With the D5 residual's `openSectionForDistance` (branch `fix-residuals-contract-d5`) the open
+section is now already closed when the capture is built, so the switch stop no longer passes that
+argument and the distance walks the closed list, which holds the section. Tests: `VesselSwitchStopOpenSectionTests`
+(three witnesses of the unfixed shape through a codec round trip, open Relative / open Absolute /
+whole EVA in one section; the fix for each; the no-open-section no-op; and a source-order gate
+that the close precedes `BuildCaptureRecording` in the switch stop). Lane that would prove it:
+EVA-2-orbital-board or EVA-1-pad-flag with a report-only check that the EVA leg's last section
+ends at its board UT and no flat point lies outside a section.
+
 ## ~~RECORDER-GEAR-SUSPENSION-AS-ROBOTICS~~: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. FIXED 2026-11-16, branch `gear-suspension-fix`, landed on `claude/project-thread-vpr29t`; xUnit; GS-6 re-pinned (two suspension-fed applier tokens out, the skip line in) and re-flown green 2026-11-16 `2026-11-16_2130`; low (recording size and log volume, plus a wrong ghost gear pose on replay)]
 
 What the log shows: while the stock Mallard rolled on the Runway, the active recorder wrote
@@ -426,6 +463,16 @@ Known residue, not built (from the fix's second review; neither reproduced):
       (line 1608) with no recording-id or cutoff check, and SETS that row's rewards. No concrete
       failing sequence was found: `Complete()` is terminal for the node and the pending event is
       tagged, so it has no direct row.
+      FIXED 2026-11-16 (branch `fix-residuals-limbo-enrich`): the row must carry the event's own
+      scope (both untagged, or both tagged to the same recording) and, under an armed restore
+      attempt, lie past that recording's cutoff (`IsMilestoneEnrichLedgerRowMatch`). A tagged
+      event does have a direct row: a recovery-owned milestone is written TAGGED to the
+      committed recording before stock's AwardProgress (`WriteRecoveryOwnedMilestoneIfAny`), so
+      the loop is kept for tagged events. Tests: `MilestoneRewardCaptureTests` (other scope,
+      KSC event past a newer tagged row, table), `RestoreAttemptRecordCoalesceTests`
+      (`MilestoneEnrich_LeavesTheResumedRecordingsHistoryRowUnchanged`),
+      `RecoveryScopedMilestoneTagTests` (`..._RealEnrichmentSetsTheTaggedRowsRewards`, red under
+      a skip-tagged-events guard).
   (b) An award at exactly the restore attempt's cutoff UT is history to every consumer (not
       re-homed, not purged), so repeated awards at that identical UT would each start their own
       seed. Bounded and not seen in a flight; pinned only as a boundary in
@@ -2207,21 +2254,21 @@ lines and the key.
 
 ## RESIDUALS-OF-ENTRIES-ARCHIVED-2026-11-07: small follow-ups left inside 20 finished entries moved to the archive [FILED 2026-11-07 (owner: mark the finished entries done). OPEN; each line names its archived entry in `done/todo-and-known-bugs-v11.md` ("Moved out 2026-11-07 (finished entries still listed)"); none is a known player-hit bug]
 
-- AUTOMERGE-ON-BY-DEFAULT: four residuals at the end of that entry (frequency of the resume miss, step 1 still injected, entrance A undriven, the dangling limbo dispatch).
+- AUTOMERGE-ON-BY-DEFAULT: four residuals at the end of that entry (frequency of the resume miss, step 1 still injected, entrance A undriven, the dangling limbo dispatch). (d) FIXED 2026-11-16 (branch `fix-residuals-limbo-enrich`): the outside-flight auto-commit (and the OnSave safety net) drops the flight-ready restore it leaves with no pending tree to restore (`ShouldDropScheduledRestoreAfterOutsideFlightCommit`, Info `autocommit-outside-flight (<ctx>): dropped the flight-ready <mode> restore scheduled for the committed tree '<name>'`); left armed it made the next FLIGHT entry defer its Tracking Station / KSC marker Fly intent to a restore that exited at once, skip the committed-tree restore that frame and walk the ledger without the current-UT cutoff. A commit that threw with the tree still stashed keeps it. Headless OnLoad cells in `ParsekScenarioOnLoadStepOrderTests.LimboSchedule.cs` (in-session SPACECENTER Limbo, Cold SPACECENTER `isActive`, commit-throw, truth table; the first two red on the old code with the schedule left at Quickload). Live: S0.9 / S0.10 reach it, neither requires the new line yet.
 - REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE: the A7 strategy / mod-grant follow-up.
 - KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: the spawned-vessel recovery arm is unit-proven only (no lane flies it), and a legacy recording with no launch guid is never an owner.
 - ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT: `RouteRunCargoManifest` is still scoped to the whole merged vessel; re-scope it in its own pass with the delta measured.
 - ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE: the read-side cell `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` self-skips until a committed recording carries a proof; un-skipping moves RVR-1's pin.
 - GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: in the Tracking Station, a vessel a flight despawned relays nothing before its first claim (deliberately dark).
 - ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: `SavePendingTreeIfAny` still skips a dirty pending-tree member that shares a committed id (lane QL-13).
-- DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock into a resumed Parsek-spawned vessel reads as a different launch (identity links are not consulted by `VesselLaunchIdentity`).
-- CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract either gate leaves unfiled is not filed later when the clock reaches its outcome.
-- D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: the capture's distance is measured from the promotion point, and a capture on the vessel-switch stop path with a Relative section still open takes the flat route.
+- ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock into a resumed Parsek-spawned vessel reads as a different launch (identity links are not consulted by `VesselLaunchIdentity`).~~ FIXED 2026-11-16, branch `fix-residual-dock-link`; xUnit; low. Reproduced headless first: the resumed recording keeps the original launch guid G0 at the spawn pid, the dock stamps the live guid G1, and the bare guid test refused every dock-claim read, so after a rewind the resumed recording was not an intermediate chain link and spawned its vessel beside the docked stack's spawn (the Missions partner and dock-event partner read `guidRejected`). Fix: `VesselLaunchIdentity.GuidsConclusivelyDifferAllowingLinks` (the bare test, then the link rows in both directions, so a link G1 -> G0 joins either argument order; two guids that only share an ancestor stay apart) at the seven dock-claim sites: `GhostChainWalker` (latest-launch filter, `FindIntermediateLinkChain`, `MergeCrossTreeLinks`, `ForkContinuesWalkedVessel`) and `MissionCrossTreeDock` (`FindSameTreeDockClaims`, `FindClaimedRecording`, which `DockEventGraph`'s cross-tree step reuses, and the journey's `FindBranchSuccessor`). Unlinked launches of one craft are still refused. Tests: `DockIntoResumedSpawnLinkTests` (each site mutation-checked). Not changed: `ParsekFlight.SelectChainPidsToGhost` and `GhostCommNet`'s chain filter compare live guids with claim guids the same bare way; no failing sequence was found for them. Lane owed: a CI-9 / VN-12 twin (fly a Real Spawn again, commit, dock a second launch into it, rewind before the spawn) requiring one spawn of the resumed vessel.
+- CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract either gate leaves unfiled is not filed later when the clock reaches its outcome. FIXED 2026-11-16 (branch `fix-residuals-contract-d5`): each patch with a real clock files, from its accept snapshot and silently (no ledger row, no `SetState`, nothing paid or charged), every walk-ended, non-tombstoned contract stock holds in neither list whose outcome end UT is at or before the clock (`KspStatePatcher.PlanMissingTerminalContractFilings` + `FileMissingTerminalContracts`; `archiveLateFiled` / `archiveLateFailed` on the `PatchContracts: removedStale=` summary, one `late-filed ended contract` Info line each; skips logged Verbose). The same covers a clock jump past both the accept and the outcome. Defect shown first on the pure planners (a no-clock removal, then a real-clock patch: the retire planner reads only the active list, so nothing filed it); cells in `ContractCrossedOutcomeArchiveTests` (files once, a repeat adds no copy, outcome after the clock or unknown stays unfiled, skips, load failure). Not flown: RW-20 would show it only on a run that crosses with `archiveNoClock=1` first.
+- D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: the capture's distance is measured from the promotion point, and a capture on the vessel-switch stop path with a Relative section still open takes the flat route. FIXED 2026-11-16 (branch `fix-residuals-contract-d5`), second half only: the vessel-switch stop (`FlightRecorder.HandleVesselSwitchDuringRecording`, EVA board / `ChainToVessel`) builds the capture without closing the section, so it now hands the open `currentTrackSection` (when it has payload, `TrackSectionHasResumePayload`) to `SnapshotVessel`, and the route, the body-fixed samples and the end-biome sample read `LiveVesselSnapshot.BuildDistanceRouteSections(closed, open)`; with no body-fixed sample the distances stay 0 so the finalize backfill still runs. Reachable for a kerbal boarding in RELATIVE mode (off the surface, near the vessel); the capture's distance is read by the unconfirmed-boarding / fallback paths (`TryAppendCapturedToTree` keeps the larger value, the standalone copy takes it). Cells in `PromotedDebrisSnapshotDistanceTests` (the switch-stop shape routes flat on the closed sections alone, body-fixed with the open one: 5 km, not >1000 km). The promotion-point half stays accepted (cosmetic, larger value kept). The vessel-switch stop now closes its open section before the capture (EVA-SWITCH-STOP-DROPS-OPEN-SECTION), so that half reads the closed list.
 - RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: lane owed, a formation flight through an SOI edge with a background wingman.
 - VB-1-KSP-HANG-AT-MAIN-MENU: a hang after the MAINMENU line is still caught only by the long timeout.
 - FAST-POLL-SETTLES-STILL-RACE: CI-6 still waits on a timer; a named-condition wait would replace it.
 
-## REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT: a replace commit can mark a surviving replacement destroyed and keep a stale situation [FILED 2026-11-07 from the review of the TreeCommitService unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2452), by code reading. OPEN; not reproduced in play, low]
+## ~~REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT~~: a replace commit can mark a surviving replacement destroyed and keep a stale situation [FILED 2026-11-07 from the review of the TreeCommitService unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2452), by code reading. FIXED 2026-11-16, branch fix-treecommit-trio; xUnit; low]
 
 **What is true.**
 - `TreeCommitService.PreserveFinalStateDiagnosticsOnReplace` (the last cluster of
@@ -2242,7 +2289,16 @@ terminal is not Destroyed (the spawn claim already refuses a vesselless terminal
 and read the destroyed state once before the cluster so both situation guards agree. The unit
 tests in `TreeCommitServiceUnitTests` cover each field alone and do not pin the mixed case.
 
-## TREE-START-UT-EMPTY-RECORDING-READS-ZERO: one empty recording pulls a continuation tree's start to UT 0 [FILED 2026-11-07 from the same review, by code reading. OPEN; not reproduced in play, low]
+Fix: `TreeCommitService.ShouldCopyDestroyedFlagOnReplace` copies `VesselDestroyed` only when the
+replacement's own `TerminalStateValue` is unset or Destroyed (a set terminal that is not
+Destroyed is the replacement's verdict that the vessel did not die; an Info line names the
+refusal). `PreserveFinalStateDiagnosticsOnReplace` decides the destroyed state the replacement
+ends with once, before any copy, and both situation guards read it, so a copied flag never sits
+beside a copied situation. Tests: `PreserveFinalStateDiagnostics_DestroyedCopyOntoUnterminatedReplacement_SituationsAgree`,
+`PreserveFinalStateDiagnostics_SurvivingReplacementNotMarkedDestroyed`,
+`ShouldCopyDestroyedFlagOnReplace_ByReplacementTerminal`.
+
+## ~~TREE-START-UT-EMPTY-RECORDING-READS-ZERO~~: one empty recording pulls a continuation tree's start to UT 0 [FILED 2026-11-07 from the same review, by code reading. FIXED 2026-11-16, branch fix-treecommit-trio; xUnit; low]
 
 **What is true.** `TreeCommitService.GetTreeStartUT` takes the minimum `Recording.StartUT` over
 the tree, and `StartUT` reads 0.0 for a recording with no trajectory and no explicit start. One
@@ -2253,6 +2309,16 @@ test stand between an unrelated later tree and a terminal spawn supersede mark.
 
 **Fix.** Skip recordings without trajectory bounds or an explicit start in `GetTreeStartUT`
 (NaN when none is left), with a unit test beside the existing `GetTreeStartUT_*` cells.
+
+Fix: `GetTreeStartUT` skips a recording with neither `TryGetActualTrajectoryBounds` nor an
+`ExplicitStartUT` and returns NaN when none is left. Its one caller,
+`MarkSupersededTerminalSpawnsForContinuedSources`, logs a Verbose line for a NaN tree start;
+`ShouldMarkSupersededTerminalSpawn` already refuses the contiguity branch on NaN (fails closed),
+so only the spawned-pid match can mark such a tree. Tests:
+`GetTreeStartUT_SkipsRecordingWithNoTrajectoryAndNoExplicitStart`,
+`GetTreeStartUT_TrajectoryOnlyRecordingCounts`, `GetTreeStartUT_OnlyEmptyRecordings_NaN`,
+`MarkSupersededForContinuedSources_EmptyRecordingDoesNotPullTreeStartToZero` (marked before the
+fix), `MarkSupersededForContinuedSources_NoStartedRecording_LogsAndKeepsPidMatch`.
 
 ## TRACE-SEP-DEBRIS-ROW-MISREPORTS: the PositionDebris trace row can blame playback math or the recorder for a diagnostic artifact [FILED 2026-11-07 from the review of the ghost positioner unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2457), by code reading. OPEN; trace-only (`ghostRenderTracing`), low]
 
@@ -2271,7 +2337,7 @@ test stand between an unrelated later tree and a terminal spawn supersede mark.
 compute the parent sample at the debris before-frame's UT on the parent's own body (or log the
 two UTs side by side). Flight behaviour is unaffected; only the trace row is misleading.
 
-## SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE: the scoped switch-segment Discard leaves three things the committed-tree prune repairs [FILED 2026-11-07 from the review of the discard-service unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2454), by code reading. OPEN; not reproduced in play, low]
+## ~~SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE~~: the scoped switch-segment Discard leaves three things the committed-tree prune repairs [FILED 2026-11-07 from the review of the discard-service unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2454), by code reading. FIXED 2026-11-16, branch fix-treecommit-trio; xUnit; low]
 
 **What is true.** `SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt` (pending-tree-prune
 disposition) removes the segment subtree from the tree it lives in, but unlike
@@ -2293,6 +2359,30 @@ helpers as they are and pin none of the three.
 is reset, and drop branch points left with an empty side (reuse
 `TreeDiscardService.ScrubBranchPointEndpointsAndDropEmpty` + `ClearRecordingBranchPointRefs`,
 keeping the switch-segment restore of an overwritten continuing link). Each needs a unit cell.
+
+Fix: after the removal, `TryDiscardActiveSwitchSegmentAttempt` runs
+`SwitchSegmentAttempts.DropBranchPointsLeftEmptyAfterSegmentDiscard` (the committed prune's
+empty-side drop rule, logged, SCOPED: only a branch point that named a removed recording before
+the removal scrubbed the endpoint lists, read by `CollectBranchPointIdsNamingRecordings`, may be
+dropped; a pre-existing branch point that already had an empty side, such as a focused breakup
+whose debris all failed `ShouldRecordDebris`, stays untouched and the parent's overwritten link
+to it is restored; the committed prune `TreeDiscardService.ScrubBranchPointEndpointsAndDropEmpty`
+keeps dropping every empty-sided branch point and is not called from SwitchIntent, because a
+direct SwitchIntent -> TreeDiscardService call raised the semantic cut residue from 124 to 140),
+feeds the session-authored
+plus dropped ids to `RepairBranchPointLinksAfterSegmentDiscard` (which plays
+`ClearRecordingBranchPointRefs`'s role and keeps the overwritten-continuing-link restore),
+resets a removed active AND root id through `RepairActiveAndRootAfterSegmentDiscard` (parent if
+it survives, else null), and ends with `RebuildBackgroundMap` (pure over the tree, safe headless).
+Tests: `DiscardServicesUnitTests.DropBranchPointsLeftEmpty_*` (including
+`KeepsAlreadyEmptyBranchNamingNoRemovedRecording`),
+`CollectBranchPointIdsNamingRecordings_EmptyOrNullInputs_Empty`,
+`RepairActiveAndRootAfterSegmentDiscard_ResetsRemovedRootToParent`, and end to end
+`SwitchSegmentDiscardScopeTests.Discard_RemovedBackgroundChild_LeavesBackgroundMap`,
+`Discard_RemovedRootRecording_ResetsRootToSessionParent`,
+`Discard_UnknownBaseline_DropsEmptiedContinuationBranch`,
+`Discard_PreSessionEmptyBreakupBranch_SurvivesAndParentLinkRestored` (known and unknown
+baseline; mutation-checked: dropping every empty-sided branch point reds both rows).
 
 ## ~~LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED: two loop-seam trace dictionaries in ParsekFlight are keyed by committed index and never shift~~ [FILED 2026-11-07 from the ParsekFlight seam inventory (`plan-parsekflight-seams-2026-11-07.md`, refactor branch `claude/project-thread-bkwmrr` at f3400b90a), by code reading. FIXED 2026-11-07, branch `refactor-loopseam-index-shift` (base `claude/project-thread-bkwmrr`); xUnit; diagnostics only, low]
 
