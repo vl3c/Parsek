@@ -514,6 +514,15 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   `RestoreParsekSidecarsFromSnapshot` and `ParsekScenario.TestBatchReconcile` keep the live
   `Race/` (move it aside before the delete, back after the copy). The folder name is one
   constant beside the other `Parsek/` subfolder names.
+  Built (2026-11-16): the other subfolder names are literals, not constants, and
+  `RecordingPaths.cs` is a P7 hot file, so the constant and the keep logic live in a new
+  `Recording/RaceDirectoryKeep.cs` (`DirectoryName = "Race"`, `IsInRaceDirectory`,
+  `MoveAside`, `MoveBack`; the move-aside goes to a sibling of `Parsek/` and never
+  overwrites). Both copy loops of the runner and the reconcile skip `Race/`, so an older
+  snapshot that holds one never restores it. `collect-logs.py` writes
+  `race-listing.txt` at the bundle root (`RACE_DIR_NAME` there; the harness cell
+  `test_collect_logs_race.py` keeps it equal to the C# constant). R1-08's `RaceFolder`
+  can reuse `RaceDirectoryKeep.DirectoryName` for its root.
 - **Proof:** harness `scripts` and `harness/lib` suites (`SnapshotSourceSyncTests` reads the
   collect-logs layout and must stay green); xUnit over the pure "which dirs" helpers of the
   runner and the reconcile with a temp folder holding `Race/`; log `[TestBatch] kept

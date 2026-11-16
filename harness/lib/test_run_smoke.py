@@ -8227,7 +8227,8 @@ def _collect_logs_problems(text):
     files, dirs = _copy_set()
     tree = ast.parse(text)
     exempt = {"detect_save", "_detect_save_from_ksp_log", "_detect_save_from_mtime"}
-    readers = {"copy_file", "copy_parsek_sidecar_dirs", "run_log_validation"}
+    readers = {"copy_file", "copy_parsek_sidecar_dirs", "write_race_listing",
+               "run_log_validation"}
     method_reads = {"is_file", "is_dir", "exists", "read_text", "read_bytes", "stat"}
     problems, reads = [], set()
     for fn in tree.body:
