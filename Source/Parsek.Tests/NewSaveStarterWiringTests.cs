@@ -102,6 +102,12 @@ namespace Parsek.Tests
             }
 
             Assert.Equal(new[] { StarterPath }, fireSites.ToArray());
+
+            // And it sits inside FirePlayerLoad's own body: a fire moved into another step
+            // (PrepareSpaceCenterStart) would fire on every SPACECENTER boot and never for a
+            // player load on the other routes.
+            string body = MethodBody(StarterPath, "internal static void FirePlayerLoad(Game game)");
+            Assert.Equal(1, Count(body, "GameEvents.onGameStatePostLoad.Fire(game.config);"));
         }
 
         [Fact]
@@ -161,6 +167,21 @@ namespace Parsek.Tests
                 "the load runs before the route is decided");
             AssertInOrder(body.Substring(from), new[] { calls[1], calls[2], calls[3], calls[4], calls[5], calls[6] },
                 "the LoadGame verb's SPACECENTER route");
+
+            // The call sits inside the guard's own block, not merely after it.
+            string masked = SourceScanText.StripCommentsAndMaskLiterals(
+                File.ReadAllText(SourcePath(SeamPath)));
+            int impl = masked.IndexOf("private void LoadGameImpl(", StringComparison.Ordinal);
+            Assert.True(impl >= 0, "LoadGameImpl moved; this gate is vacuous");
+            int fireCall = masked.IndexOf(calls[2], impl, StringComparison.Ordinal);
+            int guard = masked.LastIndexOf(calls[1], fireCall, StringComparison.Ordinal);
+            Assert.True(guard > impl, "the FirePlayerLoad call has no playerLoad guard in LoadGameImpl");
+            int open = masked.IndexOf('{', guard);
+            Assert.Equal(string.Empty, masked.Substring(guard + calls[1].Length,
+                open - guard - calls[1].Length).Trim());
+            List<int> stack = SourceScanText.OpenBlockStack(masked, fireCall);
+            Assert.True(stack.Count > 0 && stack[stack.Count - 1] == open,
+                "NewSaveStarter.FirePlayerLoad(game) sits outside the if (playerLoad) block");
         }
 
         private static void AssertInOrder(string text, string[] steps, string where)
@@ -194,10 +215,28 @@ namespace Parsek.Tests
 
         private static string Prepared(string relativePath)
         {
+            return SourceScanText.StripCSharpComments(File.ReadAllText(SourcePath(relativePath)));
+        }
+
+        private static string SourcePath(string relativePath)
+        {
             string path = Path.Combine(ResolveRepoRoot(), "Source", "Parsek",
                 relativePath.Replace('/', Path.DirectorySeparatorChar));
             Assert.True(File.Exists(path), "source moved, this gate is vacuous: " + path);
-            return SourceScanText.StripCSharpComments(File.ReadAllText(path));
+            return path;
+        }
+
+        // The brace-matched body of the method declared by signature, read from the
+        // comment-stripped, literal-masked source (a brace in a string cannot unbalance it).
+        private static string MethodBody(string relativePath, string signature)
+        {
+            string masked = SourceScanText.StripCommentsAndMaskLiterals(
+                File.ReadAllText(SourcePath(relativePath)));
+            int at = masked.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(at >= 0, signature + " not found; this gate is vacuous");
+            int open = masked.IndexOf('{', at + signature.Length);
+            Assert.True(open > at, signature + " has no body");
+            return SourceScanText.BraceMatchedBlock(masked, open);
         }
 
         private static string ResolveRepoRoot()

@@ -18212,7 +18212,7 @@ class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
     harness/: the key, the one value and the refusal reason of the comment-stripped
     TestCommands/TestCommandLoadGame.cs; the dispatcher's parse before the recorder term;
     and the applier's guarded call of LogIO/NewSaveStarter.cs's FirePlayerLoad (the one
-    onGameStatePostLoad fire, read there too) after the load and the failed-route check,
+    onGameStatePostLoad fire, pinned inside FirePlayerLoad's own body) after the load and the failed-route check,
     before every route's scene request."""
 
     def _source(self, *parts):
@@ -18221,6 +18221,20 @@ class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
                         "the C# LoadGame playerLoad tables moved; this mirror is vacuous: %s" % path)
         with open(path, encoding="utf-8-sig") as fh:
             return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def _brace_body(self, text, signature):
+        """The brace-matched body of the method declared by `signature`, braces included."""
+        self.assertIn(signature, text, "%s moved; this mirror is vacuous" % signature)
+        start = text.index("{", text.index(signature) + len(signature))
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+        self.fail("%s body is unbalanced" % signature)
 
     def test_the_key_value_and_reason_mirror_the_c_sharp(self):
         text = self._source("TestCommands", "TestCommandLoadGame.cs")
@@ -18260,9 +18274,10 @@ class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
         self.assertEqual(0, applier.count("onGameStatePostLoad.Fire("),
                          "the applier fires through NewSaveStarter only")
         starter = self._source("LogIO", "NewSaveStarter.cs")
-        self.assertEqual(1, starter.count("GameEvents.onGameStatePostLoad.Fire(game.config);"))
-        self.assertLess(starter.index("internal static void FirePlayerLoad(Game game)"),
-                        starter.index("GameEvents.onGameStatePostLoad.Fire(game.config);"))
+        post_load = "GameEvents.onGameStatePostLoad.Fire(game.config);"
+        fire_body = self._brace_body(starter, "internal static void FirePlayerLoad(Game game)")
+        self.assertEqual(1, fire_body.count(post_load), "the fire sits inside FirePlayerLoad")
+        self.assertEqual(1, starter.count(post_load), "and nowhere else in NewSaveStarter")
         guard = body.rindex("if (playerLoad)", 0, body.index(fire))
         # The fire sits inside the guard's own block (no block close at the guard's depth).
         self.assertNotIn(chr(10) + "            }", body[guard:body.index(fire)])
