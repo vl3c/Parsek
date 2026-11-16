@@ -2887,7 +2887,9 @@ python tools/harvest_bdock_station.py --save-dir results/<runId>_save \
   in.
 - The save half prunes the rival cache `Parsek/Race/rivals/` from EVERY
   `--keep-parsek` harvest, with or without the flag (see "What a fixture must NOT
-  carry"); the rest of `Parsek/Race/` (`local.cfg`, `race.cfg`, `own/`) is kept.
+  carry"); the rest of `Parsek/Race/` (`local.cfg`, `race.cfg`, `own/`) is kept,
+  with `local.cfg`'s `sharedFolderPath` reset to `${raceShared}` (the flying PC's
+  path never reaches the repository).
 - Committing a race fixture adds `.prec` payload under `harness/fixtures/`, which
   `TrajectoryCodecFixtureIdentityTests` pins: regenerate its manifest in the same
   commit (`PARSEK_WRITE_CODEC_MANIFEST=1` on its `RegenerateManifest` fact).
@@ -3279,7 +3281,7 @@ rebuilt from survives.
 ### What a fixture must NOT carry
 
 Harvesting a produced save brings along everything KSP and Parsek wrote beside
-the state a scenario needs. Four populations are exhaust, all pruned by
+the state a scenario needs. Five populations are exhaust, all pruned by
 `harvest_bdock_station.py` and gated in `lib/test_hlib.py`,
 `lib/test_saveparse.py` and `lib/test_harvest.py`:
 
@@ -3289,6 +3291,7 @@ the state a scenario needs. Four populations are exhaust, all pruned by
 | `Parsek/Saves/parsek_rw_*.sfs` + their `rewindSave =` hints | Rewind-to-LAUNCH quicksaves are RUN exhaust, not fixture payload: the `InvokeRewindToLaunch` seam verb (added 2026-08-27 with GS-4) reaches the one the run's OWN recording captured, never a committed one - a fixture-committed `parsek_rw_*` would be a stale world snapshot nothing can validate, and the one analyzer rule that looks (`Inv9RewindPoint`) only checks existence and parseability, never content | `CommittedFixtureRewindSaveTests` |
 | `quicksave.sfs` / `quicksave.loadmeta` | near-copy of the fixture's own `persistent.sfs`; every in-game quickload uses a NAMED slot | `test_no_fixture_commits_a_quicksave` |
 | `Parsek/Race/rivals/` (a race save's rival cache) | a cache rebuilt at the next sync and never part of the save (design 4.4); its `.prec.txt` mirrors would be read as own recordings by the `OptimizerTransferCohesionTests` glob over `fixtures/saves/`. Pruned at exactly that path; the rest of `Parsek/Race/` stays | `test_harvest.CommittedFixtureRivalCacheTests`, `RaceRivalCachePruneTests` |
+| the shared-folder path in `Parsek/Race/local.cfg` (`sharedFolderPath`, design 6.1) | the absolute path of the folder on the PC that flew the lane, so the operator's install path in a public repository. Every `--keep-parsek` harvest resets the value to `${raceShared}` (the same treatment as the `envInfo` launch arguments; the rest of the file stays byte for byte), and refuses, before writing, a local.cfg where another value still looks like an absolute path (drive letter, leading slash or backslash, `~`) | `test_harvest.CommittedFixtureRaceLocalTests`, `RaceLocalFolderPathTests` |
 
 Two look like exhaust and are **payload** - do not confuse them:
 

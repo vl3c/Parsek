@@ -283,6 +283,60 @@ def scrub_env_launch_args(text: str):
     return "\n".join(out), scrubbed
 
 
+# A race save keeps `Parsek/Race/local.cfg` beside it (design 6.1 `RaceLocal`), and
+# its `sharedFolderPath` is the absolute path of the shared folder on the machine
+# that flew the lane - the operator's install path, and this repository is public.
+# Every --keep-parsek harvest resets it to the harness's own shared-folder token, the
+# same treatment as the envInfo launch arguments above. The game reads a folder it
+# cannot use as "ask for the folder again" (design 15.7), and a staging overlay can
+# substitute the token with the staged folder.
+RACE_LOCAL_PARTS = ("Parsek", "Race", "local.cfg")
+RACE_FOLDER_PATH_KEY = "sharedFolderPath"
+RACE_FOLDER_PATH_PLACEHOLDER = hlib.RACE_SHARED_TOKEN
+_RACE_FOLDER_PATH_RE = re.compile(r"^(\s*%s\s*=\s*)(.*?)\s*$" % RACE_FOLDER_PATH_KEY)
+_ABSOLUTE_PATH_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/]|~)")
+_CFG_VALUE_RE = re.compile(r"^\s*([^=]+?)\s*=\s*(.*?)\s*$")
+
+
+def looks_like_absolute_path(value: str) -> bool:
+    """True for a drive-letter, rooted (slash or backslash, UNC included) or
+    home-relative (`~`) path: a value that names a place on one machine."""
+    return bool(_ABSOLUTE_PATH_RE.match((value or "").strip()))
+
+
+def blank_race_folder_path(text: str):
+    """Reset every `sharedFolderPath = <value>` line to the placeholder; returns
+    (text, blanked). Only that key's value changes: every other byte, the line
+    endings included, stays."""
+    out, blanked = [], 0
+    for line in text.split("\n"):
+        body, cr = (line[:-1], "\r") if line.endswith("\r") else (line, "")
+        m = _RACE_FOLDER_PATH_RE.match(body)
+        if m and m.group(2) != RACE_FOLDER_PATH_PLACEHOLDER:
+            out.append(m.group(1) + RACE_FOLDER_PATH_PLACEHOLDER + cr)
+            blanked += 1
+            continue
+        out.append(line)
+    return "\n".join(out), blanked
+
+
+def race_local_absolute_paths(text: str):
+    """`key = value` lines of a local.cfg whose value still looks like an absolute
+    path (after `blank_race_folder_path`): a machine path under a key the harvest
+    does not know. The caller refuses to commit those rather than guess."""
+    found = []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        m = _CFG_VALUE_RE.match(line.rstrip("\r"))
+        if m and looks_like_absolute_path(m.group(2)):
+            found.append("%d: %s" % (lineno, line.strip()))
+    return found
+
+
+def _read_latin1(path: str) -> str:
+    with open(path, "rb") as fh:
+        return fh.read().decode("latin-1")
+
+
 def rewind_point_quicksaves(save_dir: str):
     """Every file directly under `<save_dir>/Parsek/RewindPoints`, sorted; []
     when absent. Every file, not just `*.sfs`: the corpus cell scans the whole
@@ -589,6 +643,19 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
             raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
         log("warning: " + msg + " (writing anyway, --force)")
 
+    # Sanity 4b (--keep-parsek, race saves only), BEFORE the destructive write:
+    # after the folder path is blanked, no value in Parsek/Race/local.cfg may still
+    # name a place on the machine that flew the lane.
+    src_local = os.path.join(save_dir, *RACE_LOCAL_PARTS)
+    if keep_parsek and os.path.isfile(src_local):
+        left = race_local_absolute_paths(blank_race_folder_path(_read_latin1(src_local))[0])
+        if left:
+            msg = ("%s still names a machine path after %s is blanked: %s"
+                   % ("/".join(RACE_LOCAL_PARTS), RACE_FOLDER_PATH_KEY, "; ".join(left)))
+            if not force:
+                raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
+            log("warning: " + msg + " (writing anyway, --force)")
+
     # Sanity 5 (--race-folder only), BEFORE the destructive write: the race
     # folder must be a run's snapshot, read whole, and match its listing.
     race_check = None
@@ -661,6 +728,18 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
     # save still names (see _PRUNE_RECORDINGS_SUBDIRS).
     if keep_parsek:
         _restore_named_versions(save_dir, target, normalized)
+
+    # 3c) --keep-parsek, race saves only: the shared-folder path in local.cfg is
+    # the flying machine's path; reset it (see RACE_FOLDER_PATH_KEY).
+    local_cfg = os.path.join(target, *RACE_LOCAL_PARTS)
+    if keep_parsek and os.path.isfile(local_cfg):
+        new_text, blanked = blank_race_folder_path(_read_latin1(local_cfg))
+        if blanked:
+            with open(local_cfg, "wb") as fh:
+                fh.write(new_text.encode("latin-1"))
+            log("reset %s in %s to %s (%d line(s); the flying machine's folder path)"
+                % (RACE_FOLDER_PATH_KEY, "/".join(RACE_LOCAL_PARTS),
+                   RACE_FOLDER_PATH_PLACEHOLDER, blanked))
 
     # 4) belt-and-braces prune of any Parsek/backup dir that slipped in (e.g. at
     # the save root, not under a kept dir). In --keep-parsek mode only the

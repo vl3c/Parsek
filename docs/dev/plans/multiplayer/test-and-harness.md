@@ -1173,6 +1173,9 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   setter (the test project is a friend assembly) and calls the same manifest write codec,
   so every overlay carries `testGame = True`; no player-reachable path writes one. Player A takes
   slot 0, the stock KSC where the campaign fixtures were flown, so no campaign pin moves.
+  A save fixture harvested by T-59 already carries `sharedFolderPath = ${raceShared}` in
+  `Parsek/Race/local.cfg` (no committed fixture holds a machine path), so the splice
+  resolves that token the same way as the overlay's.
 - **Proof:** hlib validator cells; `test_run_smoke` (spliced, snapshotted, the committed
   fixture byte-equal after the run); the overlay currency test.
 - **Registers:** `harness/README.md` fixtures section; `fixtures/race-overlay/README.md`.
@@ -1370,7 +1373,11 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   `race_chain_facets` in the tool, the one place T-21's facets plug in. Committing a race
   fixture regenerates the `TrajectoryCodecFixtureIdentityTests` manifest (its `.prec`
   payload sits under `harness/fixtures/`), and T-17's `fixtures/race/README.md` list
-  when that lands.
+  when that lands. The same `--keep-parsek` harvest resets `Parsek/Race/local.cfg`'s
+  `sharedFolderPath` (design 6.1) to `${raceShared}` (supervisor ruling 2026-11-16: no
+  committed fixture carries a path from the PC that flew the lane) and refuses a local.cfg
+  whose other values still look like an absolute path; T-48's overlay can substitute the
+  token with the staged folder.
 - **Proof:** cells of the flag (copy, prune, refuse a folder outside `results/`).
 - **Registers:** `harness/README.md` fixtures section.
 - **Size:** S. **Depends on:** T-03, T-05; soft: T-21 (chain facets). **PC:** no.

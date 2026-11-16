@@ -1028,3 +1028,114 @@ class CommittedFixtureRivalCacheTests(unittest.TestCase):
                 offenders.append(os.path.relpath(os.path.join(dirpath, "rivals"), saves))
         self.assertEqual([], sorted(offenders),
                          "harvest_bdock_station.py prunes Parsek/Race/rivals; re-harvest")
+
+
+# The shared-folder path in a race save's Parsek/Race/local.cfg (design 6.1
+# `RaceLocal.sharedFolderPath`) is the flying machine's path; no committed fixture
+# may carry it (public repository).
+
+_LOCAL_CFG = ("displayName = Ana\r\n"
+              "sharedFolderPath = C:\\Users\\someone\\KSP\\automation\\stock-tree\\rs\\0\r\n"
+              "lastStandingDigest = 0123\r\n"
+              "SHOW\r\n{\r\n\tRIVAL\r\n\t{\r\n\t\tplayerId = p_b\r\n\t\tghosts = True\r\n\t}\r\n}\r\n")
+
+
+def scan_local_cfg_offenses(root):
+    """Every committed `Parsek/Race/local.cfg` under ``root`` that still carries a
+    machine path: a `sharedFolderPath` other than the placeholder, or any value
+    that looks like an absolute path."""
+    offenses = []
+    for dirpath, _dirs, files in os.walk(root):
+        if not (os.path.basename(dirpath) == "Race"
+                and os.path.basename(os.path.dirname(dirpath)) == "Parsek"
+                and "local.cfg" in files):
+            continue
+        path = os.path.join(dirpath, "local.cfg")
+        text = harvest._read_latin1(path)
+        rel = os.path.relpath(path, root)
+        if harvest.blank_race_folder_path(text)[1]:
+            offenses.append("%s: %s is not %s" % (rel, harvest.RACE_FOLDER_PATH_KEY,
+                                                 harvest.RACE_FOLDER_PATH_PLACEHOLDER))
+        offenses.extend("%s:%s" % (rel, o) for o in harvest.race_local_absolute_paths(text))
+    return sorted(offenses)
+
+
+class RaceLocalFolderPathTests(_RaceHarvestBase):
+    def test_the_value_is_blanked_and_every_other_byte_kept(self):
+        text, n = harvest.blank_race_folder_path(_LOCAL_CFG)
+        self.assertEqual(1, n)
+        self.assertEqual(_LOCAL_CFG.replace(
+            "C:\\Users\\someone\\KSP\\automation\\stock-tree\\rs\\0",
+            harvest.RACE_FOLDER_PATH_PLACEHOLDER), text)
+        self.assertEqual((text, 0), harvest.blank_race_folder_path(text))
+
+    def test_absolute_path_shapes(self):
+        for value in ("C:\\x", "d:/x", "/home/x", "\\\\server\\share", "~/x"):
+            self.assertTrue(harvest.looks_like_absolute_path(value), value)
+        for value in ("rs/0", "${raceShared}", "", "True", "p_b", "0123"):
+            self.assertFalse(harvest.looks_like_absolute_path(value), value)
+
+    def test_the_harvest_blanks_the_copy_only(self):
+        save = self.make_race_save()
+        src = os.path.join(save, "Parsek", "Race", "local.cfg")
+        with open(src, "wb") as fh:
+            fh.write(_LOCAL_CFG.encode("latin-1"))
+        self.assertEqual(0, self.run_harvest(save))
+        out = os.path.join(self.saves_out, "race-save", "Parsek", "Race", "local.cfg")
+        with open(out, "rb") as fh:
+            got = fh.read()
+        self.assertEqual(harvest.blank_race_folder_path(_LOCAL_CFG)[0].encode("latin-1"), got)
+        self.assertNotIn(b"someone", got)
+        with open(src, "rb") as fh:
+            self.assertEqual(_LOCAL_CFG.encode("latin-1"), fh.read(), "the source changed")
+        self.assertEqual([], scan_local_cfg_offenses(self.saves_out))
+
+    def test_a_save_with_no_race_folder_is_untouched(self):
+        save = os.path.join(self.results, "sp_save")
+        _write(os.path.join(save, "persistent.sfs"),
+               SFS + "RECORDING_STUB { id = %s }\n" % _OWN_REC)
+        _write(os.path.join(save, "Parsek", "Recordings", _OWN_REC + ".prec"), "own")
+        _write(os.path.join(save, "Parsek", "local.cfg"),
+               "sharedFolderPath = C:\\elsewhere\n")
+        self.assertEqual(0, self.run_harvest(save))
+        target = os.path.join(self.saves_out, "race-save", "Parsek")
+        self.assertFalse(os.path.exists(os.path.join(target, "Race")))
+        with open(os.path.join(target, "local.cfg")) as fh:
+            self.assertEqual("sharedFolderPath = C:\\elsewhere\n", fh.read(),
+                             "only Parsek/Race/local.cfg is a race machine file")
+
+    def test_another_machine_path_is_refused_before_any_write(self):
+        save = self.make_race_save()
+        _write(os.path.join(save, "Parsek", "Race", "local.cfg"),
+               "sharedFolderPath = /home/x/rs/0\nsomeNewKey = /home/x/other\n")
+        with self.assertRaises(SystemExit) as ctx:
+            self.run_harvest(save)
+        self.assertIn("someNewKey", str(ctx.exception.code))
+        self.assertEqual([], os.listdir(self.saves_out))
+
+    def test_the_corpus_scan_finds_a_planted_path(self):
+        root = os.path.join(self.root, "corpus")
+        _write(os.path.join(root, "fx", "Parsek", "Race", "local.cfg"), _LOCAL_CFG)
+        _write(os.path.join(root, "ok", "Parsek", "Race", "local.cfg"),
+               "sharedFolderPath = %s\n" % harvest.RACE_FOLDER_PATH_PLACEHOLDER)
+        offenses = scan_local_cfg_offenses(root)
+        self.assertEqual(2, len(offenses), offenses)
+        self.assertTrue(all(o.startswith(os.path.join("fx", "Parsek")) for o in offenses))
+
+
+class CommittedFixtureRaceLocalTests(unittest.TestCase):
+    def test_no_save_fixture_carries_a_machine_folder_path(self):
+        saves = os.path.join(os.path.dirname(_HERE), "fixtures", "saves")
+        self.assertEqual([], scan_local_cfg_offenses(saves),
+                         "harvest_bdock_station.py resets Parsek/Race/local.cfg's "
+                         "sharedFolderPath; re-harvest")
+
+    def test_the_local_cfg_codec_writes_the_key_the_harvest_blanks(self):
+        # R1-08 writes local.cfg in RaceCore/RaceManifest.cs; until it lands this
+        # self-skips, after that it reds if the key is spelled otherwise.
+        codec = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "Source", "Parsek",
+                             "RaceCore", "RaceManifest.cs")
+        if not os.path.isfile(codec):
+            self.skipTest("no local.cfg codec yet (multiplayer R1-08)")
+        with open(codec, encoding="utf-8") as fh:
+            self.assertIn('"%s"' % harvest.RACE_FOLDER_PATH_KEY, fh.read())
