@@ -693,7 +693,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   today: 42, after `KerbalDismissal = 41`; README rules 5 and 10: if main takes the id
   first, the branch renumbers at the next merge of main, and test saves made on the branch
   with the old id are thrown away), with a doc block like `VesselRecovered`'s;
-  fields: `RecordingId`, the vessel name, `EndCause { Destroyed = 1, Deleted = 2 }`.
+  fields: `RecordingId`, the vessel name (`EndedVesselName`, key `vesselName`),
+  `EndCause` (`VesselEndCause { Unknown = 0, Destroyed = 1, Deleted = 2 }`, key `endCause`;
+  `Unknown` is the unset default a missing or undefined value reads as).
   Serializer and deserializer next to `VesselRecovered`'s (`GameAction.cs:1375`, `:1559`).
   Every switch that names `VesselRecovered` handles it in the same group: no pool moves
   (`LedgerLoadMigration`, `KscActionExpectationClassifier`), `NoEffect` identity
@@ -701,7 +703,14 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   dedup key per owner recording (`LedgerOrchestrator.CommitRows`), tombstone eligible
   (`TombstoneEligibility`), the non-blocking list in `SupersedeCommit.cs:2218`. It is NOT
   spawn evidence (`TimelineBuilder.cs:1219`) and NOT read by `RecoveredRecordingEvidence`,
-  so spawns, crew and every single-player decision stay as they are. This task adds an
+  so spawns, crew and every single-player decision stay as they are. It draws no timeline row
+  (`TimelineBuilder.CollectGameActionEntries` skips it by type, with its own Verbose count,
+  and `TimelineEntryDisplay.MapGameActionType` maps it to `LegacyEvent` so the unknown-type
+  Warn never fires). Defaults it inherits, as `VesselRecovered` does: not a loss row
+  (`SupersedeCommit.IsLossRow`), so a retire set holding it seals a Re-Fly slot, and the
+  auto-seal preview names it `ChangedCareer` (`ReFlyAutoSealPreview.CollectSealingRowReasons`);
+  every pool helper (`AffectsFunds` / `AffectsScience` / `AffectsReputation`, earning /
+  spending type, `CommittedFutureIndex.TryClassify`) answers no. Landed at id 42. This task adds an
   enum member, fields and cases inside methods that are already live; the row builder
   (beside `Recovery.cs:415`'s) lands with R3E-13, its first caller (A1).
 - **Proof:** a test enumerating every `GameActionType` member through each switch helper
