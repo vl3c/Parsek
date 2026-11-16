@@ -40,6 +40,9 @@ Not released yet.
   around one moon and later passed low over another was timed as if it had launched from the
   second one. Its loops are now spaced around the moon it really started from.
   (MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH)
+- **The same holds when you never time-warp before that low pass.** A loop that started in orbit
+  and passed low over another moon before the first warp was still timed around that second moon.
+  It now keeps the moon it started from. (MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED)
 
 ## 1.0.2
 
