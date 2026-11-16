@@ -1103,9 +1103,14 @@ Each INCLUDED segment contributes only the phase constraint its own frame impose
      paths are drawn: the hop replays exactly as recorded, only the loop spacing changes
      (owner pick 2026-11-07, todo MOON-TO-MOON-LOOP-NOT-RETIMED).
    The **launch body** is the body of the earliest INCLUDED segment: the earliest
-   surface / atmospheric / Approach segment and the earliest included `OrbitSegment`
-   are compared by start UT and the earlier one names it, a tie going to the surface
-   segment (`MissionPeriodicity.ResolveLaunchBody`). A surface launch begins with its
+   surface / atmospheric / Approach segment and the earliest orbit start are compared
+   by start UT and the earlier one names it, a tie going to the surface segment
+   (`MissionPeriodicity.ResolveLaunchBody`). The orbit start is the earlier of the
+   earliest included `OrbitSegment` and the earliest off-rails (Absolute)
+   `ExoBallistic` / `ExoPropulsive` section, a tie keeping the `OrbitSegment`; an
+   off-rails coast writes no `OrbitSegment` until the vessel goes on rails, and it
+   feeds only this comparison, never the SOI rules or the rotation hand-off (todo
+   MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED). A surface launch begins with its
    ascent, so it names the pad's body; a mission that starts in orbit keeps that
    orbit's body even when it later makes a low Approach pass over another body (todo
    MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH: before the fix any surface-class

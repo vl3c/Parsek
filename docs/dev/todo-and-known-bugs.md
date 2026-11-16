@@ -63,14 +63,28 @@ dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseL
 P=211926.36 ... fixedCadenceResidual=2.18 withinTol=yes zeroDrift=yes scheduleWithinTol=yes
 scheduleWorstResidual=39.24`, the xUnit prediction.
 
-## MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED: a loop that starts in orbit off rails can still be timed around a later moon it passes low over [FILED 2026-11-16 from the review of PR #2640. OPEN; no lane covers it; low (needs a mission that never warps before its first Approach)]
+## ~~MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED~~: a loop that starts in orbit off rails can still be timed around a later moon it passes low over [FILED 2026-11-16 from the review of PR #2640. FIXED 2026-11-16, branch fix-loop-launch-body-exo; xUnit; no lane covers it; low (needs a mission that never warps before its first Approach)]
 
 `MissionPeriodicity.ExtractConstraints`' orbit side of the launch-body comparison counts only
 `OrbitSegments` and `OrbitalCheckpoint` checkpoints, never physics-frame Absolute `ExoBallistic` /
 `ExoPropulsive` sections. A mission that starts in orbit, stays off rails (no time warp) and whose
 first surface-class section is an Approach over another body before any on-rails segment still
 names the Approach body as its launch body. V43M escaped this only because its root goes on rails
-2.6 s in. Fix: let the Exo sections' body feed the launch-body comparison (not the SOI rules).
+2.6 s in.
+Fix: `ExtractConstraints` also scans each member's physics-frame (Absolute) `ExoBallistic` /
+`ExoPropulsive` sections inside the trimmed window (`ScanOffRailsExoSectionsWithinWindow`) and
+keeps the single earliest start and its body. The six-argument `ResolveLaunchBody` takes the
+earlier of that and the earliest OrbitSegment as the orbit side (a tie keeps the OrbitSegment),
+then compares it with the earliest surface-class segment as before (surface wins a tie). The Exo
+sections never enter the per-body orbit dictionary, so the SOI rules and rule 2's hand-off are
+unchanged. Relative and OrbitalCheckpoint sections are skipped. When the off-rails start names a
+body the first OrbitSegment does not, the launch-body line gains `, first off-rails coast <B>
+off=...` (an absent side prints `<none>`); V43M's line is unchanged (its coast and first
+checkpoint are both Vall). A scan of every committed fixture's `.prec.txt` (whole save, untrimmed)
+finds no launch body that moves. Pinned by `MissionPeriodicityTests.ResolveLaunchBody_WithOffRailsCoast_TruthTable`,
+`Extract_OffRailsVallStartThenTyloApproach_LaunchBodyIsVall`,
+`Extract_OffRailsVallStartBeforeOnRailsJoolAndTylo_IsMoonRootedAtVall` (both red with the Exo
+feed removed) and the mirror `Extract_TyloApproachBeforeOffRailsVallCoast_LaunchBodyStaysTylo`.
 
 ## ~~ROUTE-HELD-ROCK-HARVEST-UNCOUNTED~~: Ore drilled from a Klaw-held rock was not counted as harvest, so the route was refused [FILED 2026-11-15 from the AST-3 flight `2026-11-15_2035_AST-3-klaw-mine-route` (PR #2633; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15d`). FIXED 2026-11-15, same PR; xUnit; AST-3 re-flown green 2026-11-15 (folder ast-klaw-2026-11-15e); medium (a rock-mining route could never be made)]
 
