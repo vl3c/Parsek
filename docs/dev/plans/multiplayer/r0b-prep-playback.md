@@ -256,7 +256,10 @@ Tests and gates that pin these names:
   name at :450, fold rules at :169-186). Under a fold every `NEW::` token reads `OLD::`, the hop
   `ldfld class OLD NEW::<host>` and the lazy accessor `call(virt) instance class NEW OLD::get_*()`
   are dropped, callvirt reads call, and nested paths of NEW read OLD. A renamed field (a
-  positioner `lane` field in place of `host`) or a new parameter is not folded.
+  positioner `lane` field in place of `host`) or a new parameter is not folded. Measured on
+  main: only the after build's types were re-keyed (`fold_types`), so a step whose before
+  build already holds NEW (P2b-03 to P2b-06) reported NEW as `type-only-before`; P2b-01 folds
+  both builds.
 - Its tests are `scripts/refactor/test_parsekflight_tools.py` (fold cells at :119-446). CI does not
   run them: `.github/workflows/tests.yml` runs `harness/lib`, `missions/lib`, `provision` (:89-91)
   and `scripts/arch` (:100, :191) only.
@@ -560,13 +563,25 @@ after P2b-10.
 **P2b-01 il_compare folds a renamed reference field**
 
 - **Change:** `scripts/refactor/il_compare.py` gains a repeatable
-  `--alias-field TYPE::NEW=OLD`, applied after the folds: `ldfld class X TYPE::NEW` reads
-  `ldfld class X TYPE::OLD`, and the alias field's declaration is listed among the expected
-  leftovers. Docstring updated.
+  `--alias-field TYPE::NEW=OLD`, applied after the folds and to the after build only:
+  `ldfld class X TYPE::NEW` reads `ldfld class X TYPE::OLD` (X kept, so a read whose folded
+  type is not OLD's still differs); a store, an address, a nested or other type and a longer
+  name are not aliased, so NEW's declaration and the constructor that stores it are the
+  expected leftovers. Each alias is checked against the declarations (kind `alias-field`, a
+  difference): OLD declared once on TYPE before, NEW once after and not before, NEW's folded
+  type equal to OLD's. The run prints `aliased TYPE::NEW onto OLD: N reads`. Both builds are
+  now folded (3.4), so P2b-03 to P2b-06, whose before build already holds the lane, fold.
+  Docstring updated.
 - **Proof:** new cells in `scripts/refactor/test_parsekflight_tools.py`: an alias folds a
   `lane.x` body onto a `host.Lane.x` body; without the alias the difference is reported; an alias
-  on another type does not apply. Run locally with
-  `python3 -m unittest discover -s scripts/refactor -q` (not in CI, Corrections 11).
+  on another type does not apply; and still reported: a renamed field whose type differs, a read
+  redirected to another field of the same type (a second lane field, or another lane member),
+  and a body change beside the rename. Run locally with
+  `python3 -m unittest discover -s scripts/refactor -q` (not in CI, Corrections 11). Real IL
+  (2026-11-16, scratch Debug builds of main with two log-once sets moved onto a lane, then the
+  positioner given a `lane` field): 4 reads aliased and the leftovers are exactly the field, the
+  constructor pair and `ParsekFlight::get_Positioner`; each mutation above is reported in its
+  own method.
 - **Registers:** none.
 - **Size:** S. **Depends on:** none. **PC:** no.
 - **Risk:** low; tooling only, and a too-broad alias would hide differences, which the negative
@@ -650,7 +665,9 @@ after P2b-10.
   lazy `Positioner` (`ParsekFlight.cs:948-950`) passes `Lane`.
 - **Proof:** `il_compare --fold Parsek.ParsekFlight=Parsek.ParsekFlightPlaybackLane
   --alias-field Parsek.ParsekFlightGhostPositioner::lane=host` reports 0 moved-body differences;
-  leftovers: the field and the changed constructor. Full xUnit.
+  leftovers: the field, the changed constructor (`method-only-before` / `-after`) and the body of
+  `ParsekFlight::get_Positioner` (it now passes `Lane`); the alias line's read count equals the
+  number of `lane.` reads in the positioner. Full xUnit.
 - **Registers:** none.
 - **Size:** S. **Depends on:** P2b-01, P2b-05. **PC:** no.
 - **Risk:** low.
