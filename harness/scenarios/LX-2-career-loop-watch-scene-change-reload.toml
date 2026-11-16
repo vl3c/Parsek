@@ -1,0 +1,221 @@
+schema = 1
+id = "LX-2-career-loop-watch-scene-change-reload"
+tier = "operator"
+# =====================================================================================
+# LX-2 (test gap audit B7, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6, halves (b) and
+# (c)): a mission loop armed in a CAREER save, watched, carried through the Space Center
+# and the Tracking Station and back to flight, then saved and cold-reloaded (F5 / F9)
+# while watched. AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`).
+#
+# WHY. FAR-6 watches a loop across an F9 in a SANDBOX save and never leaves flight; no
+# lane changes scene while the camera follows a looping ghost, and no lane arms a loop in
+# a career save and reloads it. Both cross the two places the loop's phase could be lost:
+# the per-scene unit rebuild (each of Flight, KSC and the Tracking Station builds its own
+# unit from MissionStore) and the save round trip (LoopAnchorUT persisted "R").
+#
+# EXPECTED BEHAVIOR (the design citations):
+#   * docs/dev/done/design-camera-follow-ghost.md E3 "Scene change while watching (v1)":
+#     "Player goes to Space Center, Tracking Station, quickloads ... Watch mode exits in
+#     OnDestroy() / onGameSceneLoadRequested. Control locks removed. Transient fields
+#     cleared." and "No serialization needed - watch mode is always exited on scene
+#     change". So each scene change while watching logs `Watch mode cleared on scene
+#     change` and drops the `ParsekWatch` control lock, and watch can be entered again on
+#     return.
+#   * LoadReconcilePolicy.DecideMissions: Missions come from MEMORY on the in-session
+#     loads (the Tracking Station load, the re-entry) and from the SAVE on a Cold load
+#     (the F9, `coldReason=save-file`). Either way the stored LoopAnchorUT is the arm-time
+#     stamp (`MissionStore.SetLoopEnabled` stamps it only on enable), so every scene and
+#     the reload rebuild the unit with the same phase anchor and launch cadence.
+#   * docs/parsek-game-actions-and-resources-recorder-design.md: "the loop is visual
+#     only" (operator ruling 2026-09-27): no ledger row, no pool write. The ledger block
+#     below (sum model, empty manifest) expects the template's pools unchanged.
+#
+# THE HOST. `rover-route-recorded-career` (CAREER, the trees and clock of
+# `rover-route-recorded`: save UT 979.48, focus rover B pid 313889796, funds 500000,
+# science 100, rep 0, empty ledger). The loop is on tree A 6a2d7247996a43159a7b9f7595de708d
+# (one recording 3582d724892245c8939f6a354baff278, vessel A, Landed ~20 m from rover B, so
+# its ghost is inside the watch range). LX-1's header has the clock: Auto timing
+# self-overlaps the member (30 s launches over a 39.66 s span), so a ghost exists at
+# every instant after the anchor, and WarpToUT 1000 clears any phase-locked anchor.
+#
+# THE FLIGHT:
+#   boot     LoadGame (FLIGHT on rover B), kill pair, settings (verbose + ghostRenderTracing).
+#   arm      MissionConfig tree A loop=true; WarpToUT 1000; EnterWatchMode tree A.
+#   KSC      ExitToSpaceCenter while watching (the stock exit button's path); a step save.
+#   TS       LoadGame of that save with scene=trackstation (in-session); a step save.
+#   back     LoadGame of that save with focusPid = rover B (in-session, FLIGHT); watch again.
+#   F5 / F9  SaveGame quicksave and LoadGame quicksave playerLoad=true while watching (a
+#            Cold save-file load, FAR-6's shape); watch again.
+#
+# WHAT IS GATED:
+#   - watch entered on 3582d724 with no loop-phase reset (`reset=F`: the ghost is close,
+#     so its current phase is kept), three times;
+#   - both scene changes made while watching log `Scene change requested: <SCENE>`, then
+#     `Watch mode cleared on scene change`, then the `ParsekWatch` lock removal;
+#   - each scene the loop lands in (KSC, TrackingStation, the re-entry Flight, the
+#     reloaded Flight) publishes the unit live (`live=1 beforeFirstInstance=0`) and
+#     rebuilds it with the arm-time phaseAnchorUt and overlapCadenceSeconds (captured from
+#     MissionConfig's line, compared byte for byte, each build pinned to its own scene by
+#     the `KSC` / `TS` / flight rebuild line that follows it);
+#   - the F9 is a Cold save-file load;
+#   - the ledger: the two seeds and no funds / science / reputation write, plus the
+#     oracle's HARD pool diff (sum model, seed = the template).
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `enterwatchmode rejected reason=no-watchable-ghost` right after a load: the engine
+#     had not spawned the loop ghost yet (FAR-6 needed two RecordingState polls; add one
+#     more), or the loop did not come back (product).
+#   - no `Watch mode cleared on scene change` before the KSC: the watch had already ended
+#     (read `CameraFollow` lines between the marks: a cutoff or a cycle switch exit).
+#   - a phaseAnchor mismatch after the F9 with a `Load classified: early=Cold` line: the
+#     anchor did not survive the save round trip (product, the R format is lossless).
+#   - a `Patch(Funds|Science|Reputation)` write: a career pool moved under a visual loop
+#     or a scene change (product, read the recalculation that preceded it).
+#   - recordings other than 5: the host's five; a watch or a load recorded a stub.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): (1) reuse: H79's career
+# boot, FAR-6's watch + player load, IR-3's step-save re-entry, V6T's Tracking Station
+# load; no flight is flown; (2) one explicit-UT WarpToUT; (3) no dwell; (4) no coast;
+# (5) the first refused verb fails the run; (6) retry `once`; (7) recordings pinned 5..5;
+# (8) operator until flown, about 2-3 min expected (four loads); (9) flight_efficiency.py
+# after the first green flight.
+# =====================================================================================
+description = "LX-2 (audit B7, halves b and c): on rover-route-recorded-career a mission loop is armed on tree A and its ghost watched; the player exits to the Space Center while watching, opens the Tracking Station, returns to flight on rover B and watches again, then F5 / F9 (a Cold save-file load) while watching and watches a third time. Every scene change made while watching must end the watch (`Watch mode cleared on scene change`, the ParsekWatch lock removed), every scene must publish the loop unit live and rebuild it with the arm-time phase anchor and launch cadence (Missions from memory in session, from the save on the Cold load), and the career pools must not move (ledger oracle, sum model on the template seed). Design: camera-follow-ghost E3 (watch exits on scene change), the loop is visual only."
+instanceProfile = "stock-minimal"
+tags = ["LX-2", "career", "loop-playback", "mission-loop", "watch-mode", "scene-change",
+        "quickload", "ledger-oracle", "timeline-ops", "recorded-fixture", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-route-recorded-career"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 4 x 300 LoadGame + 180 WarpToUT + 3 x 120 EnterWatchMode + 120
+# ExitToSpaceCenter + 3 x 120 SaveGame = 2220; runtime 2700 adds the inert steps and
+# FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "ghostRenderTracing", value = "true" },  expect = "OK" },
+
+  # ---- the loop armed on tree A, the clock past any phase-locked anchor, watched ----
+  { cmd = "MissionConfig", args = { tree = "6a2d7247996a43159a7b9f7595de708d", loop = "true" }, expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1000", maxRate = "10" },               expect = "OK", budget = 180 },
+  { cmd = "EnterWatchMode", args = { tree = "6a2d7247996a43159a7b9f7595de708d" }, expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "lx2-watching" },                    expect = "OK" },
+
+  # ---- (c) the Space Center while watching, then the Tracking Station ----
+  { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "lx2-ksc" },                         expect = "OK" },
+  { cmd = "SaveGame",     args = { name = "lx2-ksc" },                          expect = "OK", budget = 120 },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "lx2-ksc", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "lx2-ts" },                          expect = "OK" },
+  { cmd = "SaveGame",     args = { name = "lx2-ts" },                           expect = "OK", budget = 120 },
+
+  # ---- back into FLIGHT on rover B (an in-session load), watched again ----
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "lx2-ts", focusPid = "313889796" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "EnterWatchMode", args = { tree = "6a2d7247996a43159a7b9f7595de708d" }, expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "lx2-back" },                        expect = "OK" },
+
+  # ---- (b) F5 / F9 while watching: a Cold save-file load ----
+  { cmd = "SaveGame",     args = { name = "quicksave" },                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "EnterWatchMode", args = { tree = "6a2d7247996a43159a7b9f7595de708d" }, expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "lx2-reloaded" },                    expect = "OK" },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule); D14
+# career on the fixture's Mode (test_d14_game_mode.py).
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's five (tree A 1, tree B 4); the loop, the watch and the loads record nothing.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+required = [
+  # THE ARM.
+  "missionconfig applied: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d loop=True [^\\r\\n]*unitBuilt=True ",
+  "SetLoopEnabled: loop ON for '[^'\\r\\n]*' \\(tree=6a2d7247996a43159a7b9f7595de708d\\); anchorUT=",
+  "(?s)missionconfig applied: (?:(?!MISSIONMARK label=lx2-watching ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=Flight: live=1 beforeFirstInstance=0",
+  # WATCH 1, kept on its current phase.
+  "(?s)missionconfig applied: (?:(?!MISSIONMARK label=lx2-watching ).)*Watch loop-phase decision: rec=#[0-9]+ id=3582d724892245c8939f6a354baff278 reset=F ",
+  "(?s)missionconfig applied: (?:(?!MISSIONMARK label=lx2-watching ).)*enterwatchmode complete: index=[0-9]+ recId=3582d724892245c8939f6a354baff278",
+  # THE SPACE CENTER WHILE WATCHING: the watch ends with the scene change, lock removed.
+  "(?s)MISSIONMARK label=lx2-watching (?:(?!MISSIONMARK label=lx2-ksc ).)*Scene change requested: SPACECENTER at UT=[0-9.]+(?:(?!MISSIONMARK label=lx2-ksc ).)*Watch mode cleared on scene change(?:(?!MISSIONMARK label=lx2-ksc ).)*InputLockManager control lock \"ParsekWatch\" removed",
+  # THE KSC UNIT: live, same anchor and cadence.
+  "(?s)MISSIONMARK label=lx2-watching (?:(?!MISSIONMARK label=lx2-ts ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=KSC: live=1 beforeFirstInstance=0",
+  "(?s)missionconfig applied: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d loop=True [^\\r\\n]*phaseAnchorUt=(\\S+) [^\\r\\n]*overlapCadenceSeconds=(\\S+) .*?MISSIONMARK label=lx2-watching (?:(?!MISSIONMARK label=lx2-ts ).)*MissionLoopUnit: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d [^\\r\\n]*overlapCadence=\\2 [^\\r\\n]*phaseAnchor=\\1[\\r\\n](?:(?!MissionLoopUnit: |MISSIONMARK ).)*KSC Mission loop units rebuilt \\(signature changed\\): committed=",
+  # THE TRACKING STATION UNIT.
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "(?s)MISSIONMARK label=lx2-ksc (?:(?!MISSIONMARK label=lx2-back ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=TrackingStation: live=1 beforeFirstInstance=0",
+  "(?s)missionconfig applied: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d loop=True [^\\r\\n]*phaseAnchorUt=(\\S+) [^\\r\\n]*overlapCadenceSeconds=(\\S+) .*?MISSIONMARK label=lx2-ksc (?:(?!MISSIONMARK label=lx2-back ).)*MissionLoopUnit: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d [^\\r\\n]*overlapCadence=\\2 [^\\r\\n]*phaseAnchor=\\1[\\r\\n](?:(?!MissionLoopUnit: |MISSIONMARK ).)*TS Mission loop units rebuilt \\(signature changed\\): committed=",
+  # BACK IN FLIGHT: the unit live, same phase, watched again.
+  "(?s)MISSIONMARK label=lx2-ts (?:(?!MISSIONMARK label=lx2-back ).)*loadgame complete scene=FLIGHT save=\\S+ game-loaded=true expected=Flight",
+  "(?s)MISSIONMARK label=lx2-ts (?:(?!MISSIONMARK label=lx2-back ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=Flight: live=1 beforeFirstInstance=0",
+  "(?s)missionconfig applied: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d loop=True [^\\r\\n]*phaseAnchorUt=(\\S+) [^\\r\\n]*overlapCadenceSeconds=(\\S+) .*?MISSIONMARK label=lx2-ts (?:(?!MISSIONMARK label=lx2-back ).)*MissionLoopUnit: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d [^\\r\\n]*overlapCadence=\\2 [^\\r\\n]*phaseAnchor=\\1[\\r\\n](?:(?!MissionLoopUnit: |MISSIONMARK ).)*\\[Mission\\] Mission loop units rebuilt \\(signature changed\\): committed=",
+  "(?s)MISSIONMARK label=lx2-ts (?:(?!MISSIONMARK label=lx2-back ).)*Watch loop-phase decision: rec=#[0-9]+ id=3582d724892245c8939f6a354baff278 reset=F ",
+  "(?s)MISSIONMARK label=lx2-ts (?:(?!MISSIONMARK label=lx2-back ).)*enterwatchmode complete: index=[0-9]+ recId=3582d724892245c8939f6a354baff278",
+  # F5 / F9 WHILE WATCHING: the watch ends, the load is Cold, the unit comes back from
+  # the save with the same phase, watched a third time.
+  "(?s)MISSIONMARK label=lx2-back (?:(?!MISSIONMARK label=lx2-reloaded ).)*Scene change requested: FLIGHT at UT=[0-9.]+(?:(?!MISSIONMARK label=lx2-reloaded ).)*Watch mode cleared on scene change(?:(?!MISSIONMARK label=lx2-reloaded ).)*InputLockManager control lock \"ParsekWatch\" removed",
+  "(?s)MISSIONMARK label=lx2-back (?:(?!MISSIONMARK label=lx2-reloaded ).)*loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "(?s)MISSIONMARK label=lx2-back (?:(?!MISSIONMARK label=lx2-reloaded ).)*Load classified: early=Cold (?:(?!MISSIONMARK label=lx2-reloaded ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=Flight: live=1 beforeFirstInstance=0",
+  "(?s)missionconfig applied: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d loop=True [^\\r\\n]*phaseAnchorUt=(\\S+) [^\\r\\n]*overlapCadenceSeconds=(\\S+) .*?MISSIONMARK label=lx2-back (?:(?!MISSIONMARK label=lx2-reloaded ).)*Load classified: early=Cold (?:(?!MISSIONMARK label=lx2-reloaded ).)*MissionLoopUnit: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d [^\\r\\n]*overlapCadence=\\2 [^\\r\\n]*phaseAnchor=\\1[\\r\\n](?:(?!MissionLoopUnit: |MISSIONMARK ).)*\\[Mission\\] Mission loop units rebuilt \\(signature changed\\): committed=",
+  "(?s)MISSIONMARK label=lx2-back (?:(?!MISSIONMARK label=lx2-reloaded ).)*Load classified: early=Cold (?:(?!MISSIONMARK label=lx2-reloaded ).)*Watch loop-phase decision: rec=#[0-9]+ id=3582d724892245c8939f6a354baff278 reset=F ",
+  "(?s)MISSIONMARK label=lx2-back (?:(?!MISSIONMARK label=lx2-reloaded ).)*Load classified: early=Cold (?:(?!MISSIONMARK label=lx2-reloaded ).)*enterwatchmode complete: index=[0-9]+ recId=3582d724892245c8939f6a354baff278",
+  # THE CAREER POOLS: seeded once from the save (H79's lines).
+  "Seeded initial funds: amount=500000,",
+  "Seeded initial science: amount=100,",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "missionconfig (?:rejected|error)",
+  "enterwatchmode rejected",
+  "loadgame (?:refused|rejected|failed|timeout)",
+  "SetLoopEnabled: loop OFF",
+  "(?s)SetLoopEnabled: loop ON .*SetLoopEnabled: loop ON ",
+  "(?s)MISSIONMARK label=lx2-watching .*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=[A-Za-z]+: live=0 ",
+  # No pool write: the loop is visual only (H79's forbids).
+  "refusing to treat current (funds|science|reputation) as initial",
+  "Patch(Funds|Science): -?[0-9]+\\.[0-9] -> ",
+  "PatchReputation: -?[0-9]+\\.[0-9]+ -> ",
+  "GUARDED (DRAWDOWN|UPLIFT) clamped resource=",
+]
+
+[expectations.ledger]
+seedFrom   = "template"   # the staged career save's pools: funds 500000, science 100, rep 0.
+tolerances = "default"    # FacetTolerances.Default (funds 1.0, science 0.1, rep 0.1).
+# No entry: nothing earned or spent, so the expected pools are the seed (sum model; no
+# rewind or merge verb in the steps, so the model is admissible).
+
+[runtime]
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
