@@ -1718,7 +1718,7 @@ its own commit before a route can name it, and the route captures the pending ad
 pass's flush (`RouteSourceRef.EffectiveSidecarEpoch`). Other post-creation dirty sites on a
 committed source are filed as ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE.
 
-## ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE: a content-neutral rewrite of a route's source recording may pause the route as SourceChanged for good [SUSPECTED 2026-11-16 by code read, no test proves it. OPEN; low]
+## ~~ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE~~: a content-neutral rewrite of a route's source recording may pause the route as SourceChanged for good [SUSPECTED 2026-11-16 by code read. CONFIRMED by code trace and FIXED 2026-11-16, branch fix-route-source-epoch; xUnit; low]
 
 A route compares each source's `SidecarEpoch` (`RouteStore.FirstDifferingField`), and the next
 OnSave advances the epoch of any recording marked `FilesDirty`, whatever changed. Several sites
@@ -1731,6 +1731,54 @@ recreate clear it). Not audited per site and not reproduced. Options for the own
 route proof hash and UT bounds only (drop the epoch from the drift check; the epoch is a cache
 counter, not a content fingerprint), or audit and gate each dirty site against route sources as
 ROUTE-SOURCE-OPTIMIZER-REWRITE did for the optimizer.
+
+Audit (code trace, no live run). The epoch advances only when a sidecar is rewritten:
+`ParsekScenario.EnsureRecordingFilesCurrentForSave` calls `SaveRecordingFiles(incrementEpoch:
+true)` for a recording that is `FilesDirty`, owes a deferred advance
+(`SidecarEpochAdvancePending`, set by the commit / optimizer flush) or whose files are not
+current; `tree.Save` writes every recording's .sfs node on every OnSave regardless. So a
+metadata-only edit moves the epoch only when its site also sets `FilesDirty`. No UI rename does:
+group rename (`RecordingGroupStore.RenameGroup` / `ReplaceGroupOnAll`), mission rename
+(`MissionGroupLink.RenameMissionGroup`), the vessel-name apply pass (`VesselNameStore.ApplyAll`),
+ledger tagging and loop settings never dirty or re-save a sidecar (grep of `FilesDirty` /
+`MarkFilesDirty` / `SaveRecordingFiles` over `Missions`, `UI`, `GameActions`, `Crew` and the
+vessel-name files: no hit). Of the ~70 dirty sites, every one but four acts on the active or
+pending tree, the recorders, a Re-Fly supersede / split (a designed source change) or a load-time
+repair of a broken sidecar (the malformed-flat-fallback heal already keeps the epoch). The four
+that dirty an already-committed route source with no sidecar change:
+(1) `TreeCommitService.MergeTreeRecordingsIntoCommitted` forced `FilesDirty` on every member of a
+re-committed tree, so a resumed committed vessel merged back (committed-spawned-clone restore of
+the run's tree, e.g. flying the transport again after building the route) or a Re-Fly union of
+that tree advanced every [root..dock] source's epoch through the commit flush; reachable in
+ordinary play. (2) `MarkSupersededTerminalSpawnsForContinuedSources` and (3)
+`MarkTerminalSpawnSupersededByDockMerge` set `FilesDirty` for .sfs-only spawn fields; they reach a
+source only when it is a spawned / adopted leaf (a run that ended docked), and (2) also runs over
+every committed tree on a rewind (`ResetAllPlaybackState`). (4)
+`RecordingGroupStore.RepairAutoGroupMembership` (group list, .sfs) runs only from the Re-Fly
+discard restore of a detached tree and only when membership drifted. Not changed:
+`RecordingFinalizationCacheApplier` and the `ParsekScenario.HydrationRepair.cs` sites act on the
+live / loaded active tree (finalization moves `EndUT` anyway; the hydration copies are real
+restores); the hydration refresh of a quickloaded resumed-tree member is a possible narrow edge
+(it re-dirties a member copied from the committed copy) and is left open.
+
+Fix: (1) `CommitTreeCore` collects, before the session merge, the route sources the incoming
+tree carries unchanged (`TreeCommitService.CollectUnchangedRouteSourceIds` over
+`RouteStore.CollectSourceRecordingIds`, pure `IsUnchangedCommittedRecording`: neither copy dirty
+nor owing an advance, and the same instance or the same epoch, `PrecHash`, vessel / ghost
+snapshot hashes, start and end UT); those skip the session merge overwrite and the forced dirty in
+`MergeTreeRecordingsIntoCommitted`, so memory keeps exactly the bytes on disk; one Verbose
+`route sources in tree ... keptUnchanged=` summary per commit. A changed source (dirty, re-saved,
+extended) and every non-source member are merged and rewritten as before. (2)-(4) no longer set
+`FilesDirty` (comment at each site: .sfs metadata only). The epoch comparison stays, so a real
+sidecar change still reads as SourceChanged. Layer pin: `TreeCommitService -> RouteStore` added
+to `Recording -> Logistics` (47). Tests: `RouteSourceEpochMetadataRewriteTests` (9: the re-commit
+keeps sources clean and the route Active, the kept source keeps its committed lists, a changed
+source still flips SourceChanged through `sidecar-epoch`, a non-source member is still rewritten,
+the two predicates, the two supersede marks and the group repair); with the fix reverted 6 red.
+Live proof not run: the right lane is a route lane that flies the transport again after creating
+the route and merges that flight (e.g. extend RCN-1's host: create the route, switch to the real
+transport, fly a short segment, merge, F5/F9, assert the route still reads Active and
+`RevalidateSources` logs no `sidecar-epoch` drift).
 
 ## ~~PRESWITCH-CASE-C-LIVE-TREE-MEMBER~~: switching back to the ship a kerbal just left ended the recording when that ship ended an earlier committed flight [FILED 2026-11-14 from lane FAR-4's first flight, runs `2026-11-14_1525` and `_1526_a2` (INVALID driver-gate, the seam refused `dialog-required case=C-loaded-separate-committed`). FIXED 2026-11-14, branch `pc-lanes-fix`; xUnit; FAR-4 green `2026-11-14_2324`; medium]
 

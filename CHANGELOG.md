@@ -24,6 +24,10 @@ Not released yet.
 
 ### Fixed
 
+- **Flying a supply route's ship again no longer breaks the route.** Merging a later flight of
+  the ship a route was built from could pause the route as "source changed" for good, although
+  its recorded run was untouched. The route now keeps running.
+  (ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE)
 - **Supply routes no longer make cargo out of nothing.** A route starting docked at a depot
   could take fuel another route had set aside there, and a route whose pickup came up short still
   delivered the full amount. It now waits until the depot has enough beyond what other routes
