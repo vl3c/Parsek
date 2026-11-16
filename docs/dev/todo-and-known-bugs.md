@@ -1743,7 +1743,7 @@ epoch; `FindSplitCandidatesForOptimizer`'s `EnsureCheckpointSectionsForTopLevelO
 (markDirty: true)` runs over sources too. Whether that can drift a source ref to SourceChanged is
 unproven (follow-up below).
 
-## ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW: a route whose docked origin is a depot may drain cargo another route reserved there [SUSPECTED 2026-11-14 by code read, no test proves it. OPEN]
+## ~~ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW~~: a route whose docked origin is a depot may drain cargo another route reserved there [SUSPECTED 2026-11-14 by code read. CONFIRMED by code trace and FIXED 2026-11-16, branch fix-route-origin-escrow; xUnit; medium]
 
 `LiveRouteRuntimeEnvironment.OriginProvenanceHasCargo` probes `route.Origin` without
 `RouteStore.OtherRoutesReservedFor`; only `PickupSourcesHaveCargo` nets the escrow. So route A
@@ -1753,6 +1753,76 @@ recorded `DeliveryManifest` (`RouteDeliveryPlanner` never reads what was picked 
 created. Proving it needs a live origin resolve (FlightGlobals), so an in-game test or a seam.
 Also check here: whether a sidecar flush of a source recording (see ROUTE-SOURCE-OPTIMIZER-REWRITE)
 can move a route to SourceChanged.
+
+Confirmed by trace (no live run): `OriginProvenanceHasCargo` gated `route.CostManifest` on the raw
+origin probe, and a multi-stop cycle reserves its pickup escrow at dispatch
+(`ProcessMultiStopCrossings` -> `ReserveCycleEscrow`) but debits the source only at the pickup
+window, so in that gap a docked-origin route A at depot D passed its gate on B's reserved cargo and
+its loop-path dispatch physically drained D (`EmitDispatchDebit` -> `ApplyOriginDebit`, clamped
+to stored). B's later `EmitPickupHalf` then clamped short (row actual < requested), while B's
+delivery (`ApplyDelivery` -> `RouteDeliveryPlanner.PrepareDelivery`) planned from the stop's
+recorded `DeliveryManifest` only and wrote the full amount. The same short-pickup-full-delivery
+path was reachable without a second route (the player draining the depot between B's dispatch and
+its pickup window, or a pickup / origin endpoint unresolved at the debit).
+
+Fix, two halves. (1) The origin gate nets other routes' escrow on the origin pid exactly as the
+pickup gate does: the pure `RoutePickupSourceGate.OriginCoversNetOfOtherRoutes` (raw reader +
+`RouteStore.OtherRoutesReservedFor` reader, `NettedAvailable` net, own reservation not netted,
+`IsEscrowCausedShort` classification); an escrow-caused origin short holds with the existing
+`source-reserved:` token, so the Logistics window says "<depot> has <resource> reserved by route
+'<name>'"; one `OriginHasCargo ... short-cause=` Verbose line per blocked check. (2) A delivery
+never writes more than the cycle put on board: `RouteOrchestrator.ComputeCycleSupplyDeficit`
+walks this route and cycle's persisted debit / pickup / delivery rows in Sequence order (a debit
+or pickup row adds `requested - actual`, an earlier delivery row subtracts what it kept on board,
+floored at zero) and `PrepareDelivery(..., supplyDeficit)` caps each resource at recorded minus
+deficit (the line keeps the recorded amount as Requested, so it reads as a partial delivery in
+the row and the existing last-partial-delivery line); `ApplyDelivery` computes it from
+`RouteEventLog.Events` and logs a `supply short this cycle - capping delivery` Warn. Both halves
+are pure and headless; the live origin resolve stays in `LiveRouteRuntimeEnvironment`. Tests:
+`RouteDockedOriginEscrowTests` (16: the netted origin gate incl. own-reservation, physical vs
+escrow cause, other pid / resource, ordinal first-short, null readers; the deficit walk for a
+short pickup, a short or unresolved origin debit, full supply, other cycle / route / later
+window, an earlier capped delivery absorbing its share, an earlier capacity clamp flooring at
+zero; the planner cap; two source pins for the live wiring). The first test asserts the pre-fix
+raw gate passes the scenario the netted gate holds.
+
+Left open: (a) a route whose OWN docked origin and OWN later pickup are the same vessel is gated
+per provenance (cost and pickup each against the full tank, not their sum); the delivery cap now
+keeps that conservation-safe, but the gate can still dispatch a cycle that comes up short.
+(b) Inventory: no delivery row carries its stored-part actuals, so the cap covers resources only;
+a short stored-part pickup still delivers the recorded parts. (c) Live proof: no in-game or
+harness lane drives two routes contending for one depot through the origin gate; the right home
+is the `RouteEscrowContention` in-game category (a docked-origin route A at the depot B reserves
+at, asserting A holds with `source-reserved:` and that B's pickup and delivery both read full),
+plus a lane-level conservation read like RCN-1's on a host where a pickup comes up short
+(delivered == picked up).
+
+Side question (sidecar flush -> SourceChanged): the mechanism is real and by design (section
+10.16 lists a sidecar epoch change): `RouteStore.FirstDifferingField` compares
+`RouteSourceRef.SidecarEpoch`, and any `FilesDirty` source re-saved by OnSave bumps
+`Recording.SidecarEpoch` (`RecordingSidecarStore.SaveRecordingFiles(incrementEpoch: true)`), which
+reads as `SourceChanged/sidecar-epoch-drift` and never auto-recovers. The specific case named
+above cannot fire in practice: `FindSplitCandidatesForOptimizer`'s
+`EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` dirties a recording only on
+an actual mutation, Ensure is idempotent (pinned by `EnsurePassIntegrityTests
+.AnalysisPass_WhenEnsureIsANoOp_LeavesRecordingClean`), every recording runs through that pass at
+its own commit before a route can name it, and the route captures the pending advance of that
+pass's flush (`RouteSourceRef.EffectiveSidecarEpoch`). Other post-creation dirty sites on a
+committed source are filed as ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE.
+
+## ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE: a content-neutral rewrite of a route's source recording may pause the route as SourceChanged for good [SUSPECTED 2026-11-16 by code read, no test proves it. OPEN; low]
+
+A route compares each source's `SidecarEpoch` (`RouteStore.FirstDifferingField`), and the next
+OnSave advances the epoch of any recording marked `FilesDirty`, whatever changed. Several sites
+dirty an already-committed recording without touching what a route reads (window, manifests, UT
+bounds, proof hash): `RecordingGroupStore.RepairAutoGroupMembership` (group list, a .sfs-side
+field), `RecordingFinalizationCacheApplier`, the hydration repairs in
+`ParsekScenario.HydrationRepair.cs`. If any of them fires on a route source after the route is
+built, the route turns SourceChanged at the next save and stays there (design 10.16 lets only a
+recreate clear it). Not audited per site and not reproduced. Options for the owner: compare the
+route proof hash and UT bounds only (drop the epoch from the drift check; the epoch is a cache
+counter, not a content fingerprint), or audit and gate each dirty site against route sources as
+ROUTE-SOURCE-OPTIMIZER-REWRITE did for the optimizer.
 
 ## ~~PRESWITCH-CASE-C-LIVE-TREE-MEMBER~~: switching back to the ship a kerbal just left ended the recording when that ship ended an earlier committed flight [FILED 2026-11-14 from lane FAR-4's first flight, runs `2026-11-14_1525` and `_1526_a2` (INVALID driver-gate, the seam refused `dialog-required case=C-loaded-separate-committed`). FIXED 2026-11-14, branch `pc-lanes-fix`; xUnit; FAR-4 green `2026-11-14_2324`; medium]
 
@@ -2243,7 +2313,7 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   production `ApplyOriginDebit` against an unloaded depot, 300 seeds, and `RouteTimelineFuzzerTests`
   gains a vessel-origin timeline where depot drawdown equals the debited rows across warps, saves
   and Re-Fly; the loaded-vessel and inventory halves stay in-game only; one suspected gap filed as
-  ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW): no per-resource conservation check (origin debit = delivered + by-design loss)
+  ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW, fixed 2026-11-16): no per-resource conservation check (origin debit = delivered + by-design loss)
   in an in-game category or the harness (HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES).
   Progress 2026-11-06 (branch `routecons`): lane `RCN-1-route-conservation-across-loads` (LIVE-PROVEN
   `2026-11-07_0010`) reads both ends of the two-stop relay route on `rover-relay-c-recorded` and gates

@@ -28,6 +28,10 @@ Not released yet.
   boarding a vessel, the last stretch of the walk or jetpack flight could replay far from where
   the kerbal went once the game was saved and loaded. It now replays on the kerbal's real path.
   (EVA-SWITCH-STOP-DROPS-OPEN-SECTION)
+- **Supply routes no longer make cargo out of nothing.** A route starting docked at a depot
+  could take fuel another route had set aside there, and a route whose pickup came up short still
+  delivered the full amount. It now waits until the depot has enough beyond what other routes
+  reserved, and delivers only what it picked up. (ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW)
 - **Rock-mining trips carry no more ore than the drills produce.** A route whose ship drilled a
   grabbed asteroid or comet had no ore limit; it now credits at most what the drill could mine
   from that rock in the recorded time. (ROCK-DRILL-HARVEST-UNCAPPED)
