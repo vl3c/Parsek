@@ -3062,7 +3062,8 @@ LISTHANDLES_ROUTE_LOG_KEYS: Tuple[str, ...] = (
     "name", "status", "completed", "skipped", "cursor", "windowAnchor", "loopAnchorUT",
     "segment", "pendingStop", "cycleStartUT", "pendingDeliveryUT", "sendOnce", "pauseAfter",
     "origin", "stops", "stopPids", "stopFired", "dispatched", "debited", "pickedUp",
-    "delivered", "paused", "resumed", "held",
+    "delivered", "paused", "resumed", "held", "sources", "sourceIds", "sourceEpochs",
+    "sourceDrift",
 )
 
 # `ListHandles kind=timeline` (TL-1) writes one summary Info line, `listhandles timeline

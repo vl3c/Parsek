@@ -1725,10 +1725,20 @@ The digest exists so the D18 `chain-state-rederived` readback can be compared
   route<i>cycleStartUT=<UT or none> route<i>pendingDeliveryUT=<UT or none>
   route<i>sendOnce=<b> route<i>pauseAfter=<b> route<i>origin=<pid or ksc> route<i>stops=<m>
   route<i>stopPids=<pid,...> route<i>stopFired=<LastFiredCycleIndex,...>
-  route<i>dispatched= debited= pickedUp= delivered= paused= resumed= held=<n>` from
-  `RouteStore.CommittedRoutes` in store order, capped at 16 routes and 8 listed stops per
-  route (a stop cut raises `truncated`; `stops` is the full count); the seven event
-  counts are the route event log rows carrying the route's id, by type. Scene-agnostic:
+  route<i>dispatched= debited= pickedUp= delivered= paused= resumed= held=<n>
+  route<i>sources=<m> route<i>sourceIds=<short id,...>
+  route<i>sourceEpochs=<captured/live,...> route<i>sourceDrift=<token>` from
+  `RouteStore.CommittedRoutes` in store order, capped at 16 routes and 8 listed stops and 8
+  listed sources per route (a stop or source cut raises `truncated`; `stops` and `sources`
+  are the full counts); the seven event counts are the route event log rows carrying the
+  route's id, by type. The source keys are the route's fixed source set read against the
+  current ERS by `RouteStore.DescribeSourceState` (read-only, no status change, no
+  per-route log): each ref's short recording id, its captured sidecar epoch beside the
+  live recording's effective epoch (a pending advance counted, as the revalidation
+  compares it; `missing` when the recording is not in ERS), and the first problem the
+  next `RevalidateSources` would see: `none`, `missing:<id>`, `<field>:<id>` (the drift
+  field, e.g. `sidecar-epoch`) or `no-sources`. RSF-1 reads them to show a reflight of
+  the route's transport left the sources unchanged. Scene-agnostic:
   the route store is a process static every scene ticks. This is the route read-back the
   reload lanes take right after a load and before the next tick (roadmap C2, IR-1 / IR-2):
   the cursor and the event counts separate "the load put the route back where the loaded

@@ -326,6 +326,86 @@ namespace Parsek.Tests.Logistics
         }
 
         // -----------------------------------------------------------------
+        // The automation read-back (ListHandles kind=routes source keys)
+        // -----------------------------------------------------------------
+
+        // catches: the read-back the RSF-1 lane asserts on disagreeing with the revalidation.
+        // After a clean re-commit the captured and live epochs are equal and no drift is named.
+        [Fact]
+        public void DescribeSourceState_AfterCleanReCommit_ReadsEqualEpochsAndNone()
+        {
+            InstallScenario();
+            Recording launch = Leg("src-launch", 17000, 17100);
+            Recording dock = Leg("src-dock", 17100, 17400);
+            RecordingTree committed = CommitRunTree("tree-run", launch, dock);
+            AddRoute("route-run", launch, dock);
+            TreeCommitService.CommitTree(CloneWithContinuation(committed, "after-run", 17400, 17900));
+            EffectiveState.ResetCachesForTesting();
+            Assert.True(RouteStore.TryGetRoute("route-run", out Route route));
+            var ids = new List<string>();
+            var epochs = new List<string>();
+
+            string drift = RouteStore.DescribeSourceState(route, ids, epochs);
+
+            Assert.Equal(RouteStore.SourceStateNone, drift);
+            Assert.Equal(new[] { "src-laun", "src-dock" }, ids.ToArray());
+            Assert.Equal(new[] { "3/3", "3/3" }, epochs.ToArray());
+            Assert.DoesNotContain("after-ru", ids);
+            Assert.Equal(RouteStatus.Active, StatusOf("route-run"));
+        }
+
+        // catches: the read-back hiding the pre-fix shape. A changed source reads captured/live
+        // with the pending advance counted and names the field the revalidation would flip on,
+        // while the read itself changes no status.
+        [Fact]
+        public void DescribeSourceState_ChangedSource_NamesSidecarEpochDrift_AndChangesNoStatus()
+        {
+            InstallScenario();
+            Recording launch = Leg("src-launch", 17000, 17100);
+            Recording dock = Leg("src-dock", 17100, 17400);
+            RecordingTree committed = CommitRunTree("tree-run", launch, dock);
+            AddRoute("route-run", launch, dock);
+            RecordingTree clone = CloneWithContinuation(committed, "after-run", 17400, 17900);
+            Recording edited = clone.Recordings["src-dock"];
+            edited.Points[1] = new TrajectoryPoint { ut = 17250, altitude = 61000, bodyName = Mun };
+            edited.MarkFilesDirty();
+            TreeCommitService.CommitTree(clone);
+            EffectiveState.ResetCachesForTesting();
+            Assert.True(RouteStore.TryGetRoute("route-run", out Route route));
+            var ids = new List<string>();
+            var epochs = new List<string>();
+
+            string drift = RouteStore.DescribeSourceState(route, ids, epochs);
+
+            Assert.Equal("sidecar-epoch:src-dock", drift);
+            Assert.Equal(new[] { "3/3", "3/4" }, epochs.ToArray());
+            Assert.Equal(RouteStatus.Active, StatusOf("route-run"));
+        }
+
+        // catches: a source outside ERS read as clean, or a route with no refs read as none.
+        [Fact]
+        public void DescribeSourceState_MissingSource_AndNoSources_AreNamed()
+        {
+            InstallScenario();
+            Recording dock = Leg("src-dock", 17100, 17400);
+            CommitRunTree("tree-run", dock);
+            AddRoute("route-run", dock);
+            Assert.True(RouteStore.TryGetRoute("route-run", out Route route));
+            var ids = new List<string>();
+            var epochs = new List<string>();
+
+            string drift = RouteStore.DescribeSourceState(
+                route, new Dictionary<string, Recording>(StringComparer.Ordinal), ids, epochs);
+
+            Assert.Equal("missing:src-dock", drift);
+            Assert.Equal(new[] { "3/" + RouteStore.SourceEpochMissing }, epochs.ToArray());
+            Assert.Equal(RouteStore.SourceStateNoSources,
+                RouteStore.DescribeSourceState(new Route(), null, null));
+            Assert.Equal(RouteStore.SourceStateNoSources,
+                RouteStore.DescribeSourceState(null, null, null));
+        }
+
+        // -----------------------------------------------------------------
         // The pure predicates
         // -----------------------------------------------------------------
 
