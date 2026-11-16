@@ -1502,6 +1502,18 @@ These complement the pure-logic visual-handoff tests in §16.1: unit tests prove
 - Unloaded inventory delivery edits `STOREDPARTS` ConfigNodes directly and survives scene reload. *Catches: fragile inventory ConfigNode mutation path.*
 - Flight-scene entry during an in-transit cycle starts/seeks the route ghost at scheduler elapsed time. *Catches: visual replay from the beginning after scene change.*
 
+### 16.6 Behaviour rules and the tests that pin them
+
+Each owner rule below is pinned in several layers (store, gate, fire, commit). A change to one of these rules updates every row it names. Test classes live in `Source/Parsek.Tests/Logistics/`; lanes live in `harness/scenarios/`.
+
+| Rule | Unit tests | Lanes |
+|---|---|---|
+| A route never takes cargo another route has reserved, including from a docked origin (section 10.12). | `RouteCargoEscrowTests` (escrow store), `RoutePickupSourceGateTests` (pickup gate, `source-reserved:` vs physical cause), `RouteEscrowFireTests` (reserve and debit across a cycle, reload), `RouteDockedOriginEscrowTests` (docked origin netted against other routes' escrow) | H60 (all five `RouteEscrowContention` cells, `docked-origin-holds` among them) |
+| A cycle never delivers more than it picked up; a met harvest route is never capped. | `RouteDockedOriginEscrowTests` (deficit, holdback, planner cap, mid-cycle reload) | H60 `short-pickup-caps-delivery` |
+| A route is fixed to the recordings it was created from. Later flights of its real vessels stay separate, and only a real change to a source pauses it (section 10.16). | `RouteSourceEpochMetadataRewriteTests` (re-commit of the route's tree keeps unchanged sources clean; continuations never join the source set; a real change still pauses), `RouteSourceOptimizerTests` (the optimizer never merges, splits or trims a source), `RouteLoadTimeSidecarEpochTests` (a load or memory-only repair does not move an epoch), `RouteStoreValidationTests` (missing, replaced or changed source pauses, and the pause never lifts by itself), `RouteSourceRefTests` (source identity) | RSF-1 (fly the transport again, merge, F5 / F9), MINE-4, IR-3, H58 (rewind and Re-Fly of a route's flight) |
+
+Known gap: `EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` can still pause an orbital source that lacks checkpoint sections. It fails safe (a pause, never a wrong delivery) and is tracked under ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE in `docs/dev/todo-and-known-bugs.md`.
+
 ---
 
 ## 17. Deferred Work
