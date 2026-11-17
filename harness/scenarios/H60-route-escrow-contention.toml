@@ -5,6 +5,24 @@ tier = "nightly"
 # TIER C ITEM 10 - TWO ROUTES COMPETING FOR ONE PHYSICAL SOURCE.
 # *** FLOWN AND READ 2026-09-02. PINNED WHOLE OFF THE RUN'S OWN BYTES. ***
 #
+# 2026-11-16: TWO MORE cells, FLOWN GREEN 2026-11-16 (see below), the live proof for todo
+# ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW. `docked-origin-holds`: the competitor is a
+# DOCKED-ORIGIN route on the shared source (cost manifest 8 LF, served by the ORIGIN
+# gate rather than the pickup-source gate); it must net the holder's escrow, hold with
+# the M6 token and leave the source alone, after which the holder's delivery writes
+# exactly the 10 it picked up. `short-pickup-caps-delivery`: no competitor; the source
+# is drained to 2 LF between the holder's windows, so its second window picks up 2 of 6
+# and the delivery must write 6 (not the recorded 10) under the supply-cap Warn. The
+# tally moved 3 -> 5. First flight `2026-11-16_2348` red the docked-origin cell on a
+# test needle (`PickupDebit: route <A>` also matched the benign Verbose
+# `InventoryPickupDebit: ... empty inventory pickup manifest` line; the product held and
+# debited correctly), narrowed to the `SHORT at apply` literal in 102a296245. Reading run
+# `2026-11-16_2354_H60-route-escrow-contention`, PASS attempt 1 on 72ae5057ff (automation
+# DLL 3e019761...): `total=5 passed=5 failed=0 skipped=0`, pinned whole; the docked-origin
+# holder delivered its full 10 (`requested=10 written=10`) with no supply-cap line, and
+# the drained-source cell logged `deficit LiquidFuel=4 heldBackHere LiquidFuel=4`. Their tokens sit in their own block
+# below; every amount there is a cell literal or derives from one (see that block).
+#
 # 2026-10-16: a THIRD cell (`scene-switch-rebuilds-hold`) is the live proof for roadmap
 # IR-10 / todo ROUTE-ESCROW-LOST-ON-SCENE-SWITCH. Its tokens sit in their own block in
 # the logContracts below, and the tally moved 2 -> 3. The two original cells and their
@@ -212,7 +230,7 @@ tier = "nightly"
 # exact row to add in the commit that reads those two runs green is spelled out in the
 # `[dimensionsCovered]` block below so it cannot drift into a broader claim.
 # =====================================================================================
-description = "AUTHORED 2026-09-02, NEVER FLOWN. Roadmap Tier C item 10: TWO STORED routes competing for ONE physical source, driven through the production RouteOrchestrator.Tick over the logi-cargo-pad rig. The isolated RouteEscrowContention batch - two self-provisioning cells that spawn a shared unloaded LiquidFuel source capped into the [12,18) band, put a MULTI-STOP holder route A (two pickup windows on that one source, summing to 10) and a single-stop competitor route B (needing 8) into RouteStore at DispatchPriority 0 and 1, and tick them. Cell 1 (phases 1-3): A's dispatch RESERVES the summed manifest (ReserveCycleEscrow reservedSources=1), fires only its first window, and the still-held second window blocks B on its OWN crossing with the M6 token source-reserved:<pid>:<name>:<routeA-name> and short-cause=escrow; then A's second window fires, releasing the hold and PHYSICALLY DEBITING the same amount in the same instant, so B stays blocked on UNCHANGED numbers with the cause flipped to physical. That flip is the reserve/release PRE-IMAGE invariant driven live - the escrow withholds exactly what the debit takes, no double-claim and no over-block - and it is why the todo's original 'B becomes eligible after ReleaseWindowEscrow' assertion was refuted and replaced. Cell 2 (phases 1-2 then 4): the only shape in which a release DOES free a competitor - RouteStore.RemoveRoute on the holder mid-cycle drops the reservation without debiting anything, and B is eligible on its next crossing and physically picks the cargo up. Cell 3 (roadmap IR-10, ROUTE-ESCROW-LOST-ON-SCENE-SWITCH): after A's first window the production scene-switch handler clears every hold; on the next tick, with no window of A due, the tick pre-pass must rebuild A's un-fired window hold before B gates, so B stays blocked on escrow and A's second window later debits its full amount. total=3 is attribute-exact and failed=0 is a literal; passed=/skipped= are regex classes until the first census, and the eight phase tokens (six production [Route] lines plus the per-cell EscrowContention summaries) carry the per-cell obligation the interim split cannot"
+description = "AUTHORED 2026-09-02, NEVER FLOWN. Roadmap Tier C item 10: TWO STORED routes competing for ONE physical source, driven through the production RouteOrchestrator.Tick over the logi-cargo-pad rig. The isolated RouteEscrowContention batch - two self-provisioning cells that spawn a shared unloaded LiquidFuel source capped into the [12,18) band, put a MULTI-STOP holder route A (two pickup windows on that one source, summing to 10) and a single-stop competitor route B (needing 8) into RouteStore at DispatchPriority 0 and 1, and tick them. Cell 1 (phases 1-3): A's dispatch RESERVES the summed manifest (ReserveCycleEscrow reservedSources=1), fires only its first window, and the still-held second window blocks B on its OWN crossing with the M6 token source-reserved:<pid>:<name>:<routeA-name> and short-cause=escrow; then A's second window fires, releasing the hold and PHYSICALLY DEBITING the same amount in the same instant, so B stays blocked on UNCHANGED numbers with the cause flipped to physical. That flip is the reserve/release PRE-IMAGE invariant driven live - the escrow withholds exactly what the debit takes, no double-claim and no over-block - and it is why the todo's original 'B becomes eligible after ReleaseWindowEscrow' assertion was refuted and replaced. Cell 2 (phases 1-2 then 4): the only shape in which a release DOES free a competitor - RouteStore.RemoveRoute on the holder mid-cycle drops the reservation without debiting anything, and B is eligible on its next crossing and physically picks the cargo up. Cell 3 (roadmap IR-10, ROUTE-ESCROW-LOST-ON-SCENE-SWITCH): after A's first window the production scene-switch handler clears every hold; on the next tick, with no window of A due, the tick pre-pass must rebuild A's un-fired window hold before B gates, so B stays blocked on escrow and A's second window later debits its full amount. Cells 4-5 (ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW, authored 2026-11-16, flown green 2026-11-16_2354): a DOCKED-ORIGIN competitor whose cost manifest needs cargo only A's reservation covers holds with source-reserved: and leaves the source alone, so A delivers exactly what it picked up; and a source drained between A's windows caps A's delivery at what it picked up under the supply-cap Warn. total=5 passed=5 failed=0 skipped=0 is pinned whole off the reading run 2026-11-16_2354; the per-cell phase tokens carry the per-cell obligation"
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "logistics", "route", "escrow",
         "contention", "tier-c", "H60"]
@@ -280,11 +298,13 @@ required  = [
   # flies automation/stock-minimal, not the `dotnet build` dev instance.
   "runtests start category=RouteEscrowContention isolated=true",
   # Emitted ONLY by PrepareBatchFlightRestoreExecution, so it proves the isolated path
-  # independently of the tally. Literal 3 = all three cells carry the restore flag.
-  "Using batch baseline slot .* for 3 restore-after-run test\\(s\\)",
-  # PINNED WHOLE off census `_1314` (two cells), widened to three by the IR-10 cell:
-  # total attribute-exact, the split all literals.
-  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=RouteEscrowContention scene=FLIGHT",
+  # independently of the tally. Literal 5 = all five cells carry the restore flag.
+  "Using batch baseline slot .* for 5 restore-after-run test\\(s\\)",
+  # PINNED WHOLE off census `_1314` (two cells), widened to three by the IR-10 cell
+  # (flown whole at 3/3/0/0). The two ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW cells made it
+  # total=5; the reading run `2026-11-16_2354` (PASS attempt 1) measured 5/5/0/0, so
+  # the pin is whole again.
+  "BATCH_COMPLETE v1 total=5 passed=5 failed=0 skipped=0 category=RouteEscrowContention scene=FLIGHT",
 
   # ---- PHASE 1, reserved. The production dispatch-time reserve, naming ONE summed
   #      source (both of A's pickup windows resolve to the same live pid). `ut=1560` is
@@ -337,6 +357,33 @@ required  = [
   "ReEstablishInFlightCycleEscrow: route escrowA- cycle=cycle-0 cycleIdx=0 escrow re-established for un-fired windows at ut=1660",
   "ReserveCycleEscrow: route escrowA- cycle=cycle-0 context=resume-reestablish reservedSources=1 reservedResourceEntries=1 at ut=1660",
   "LoopRoute: route escrowB- cycle=cycle-1 BLOCKED kind=OriginLacksCargo reason=source-reserved:[0-9]+:[^:]*:LiquidFuel:Parsek Escrow Holder In-Game shortfall=3",
+
+  # ---- ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW (cells 4 and 5), AUTHORED 2026-11-16, NEVER
+  #      FLOWN. A READING RUN comes first: these are written from the source and the
+  #      cell literals, and are re-pinned off that run's bytes before anything is armed.
+  #      Cell 4 (`docked-origin-holds`): at the cell literal Tick1UT=1560 the holder A
+  #      has reserved 4 + 6 and taken 4, so the source holds raw 11 with 6 reserved; the
+  #      docked-origin competitor O (`escrowO-`, the 8-character prefix that keeps it
+  #      apart from cells 1-3's `escrowB-`) needs NeedB=8 and nets 5, so it holds with the
+  #      M6 token naming the HOLDER and shortfall 8-5=3, from the ORIGIN gate's own
+  #      `OriginHasCargo:` line rather than the pickup gate's. At Tick2UT=2060 A's second
+  #      window takes its full 6 and O's short reads physical on raw 5 netted 5 (the
+  #      same pre-image identity cell 1 pins for the pickup gate). At Tick3UT=2560 A
+  #      delivers, and the summary carries pickedUpByA == deliveredByA == 10 with
+  #      originDebited=0 and supplyCapped=0. Before the fix O passed on raw 11, debited
+  #      8, A's second window came up short and A still delivered 10. ----
+  "LoopRoute: route escrowO- cycle=cycle-0 BLOCKED kind=OriginLacksCargo reason=source-reserved:[0-9]+:[^:]*:LiquidFuel:Parsek Escrow Holder In-Game shortfall=3(?![0-9.])",
+  "OriginHasCargo: route escrowO- short-cause=escrow pid=[0-9]+ resource=LiquidFuel raw=11 netted=5 reservingRouteId=escrowA- reservedByRoute=6(?![0-9.])",
+  "OriginHasCargo: route escrowO- short-cause=physical pid=[0-9]+ resource=LiquidFuel raw=5 netted=5 reservingRouteId=<none> reservedByRoute=0(?![0-9.])",
+  "EscrowContention: cell=docked-origin-holds reserved=1 originBlocked=1 originCauseAfterWindow=physical originDebited=0 supplyCapped=0 routeA=escrowA- routeO=escrowO- sourcePid=[0-9]+ stored=15 heldAcrossGap=6 originNeed=8 originRaw=11 originNetted=5 rawAfterDebit=5 pickedUpByA=10 deliveredByA=10",
+  #      Cell 5 (`short-pickup-caps-delivery`): the source is drained to the cell literal
+  #      DrainedStored=2 between A's windows (one tank kept, so the pickup's actual is an
+  #      exact difference), A's second window picks up 2 of 6 under the production
+  #      `SHORT at apply` Warn, and A's delivery is capped by the 6-2=4 deficit under the
+  #      supply-cap Warn, writing 4+2=6 rather than the recorded 10. ----
+  "PickupDebit: route escrowA- cycle=cycle-0 SHORT at apply",
+  "Delivery: route escrowA- cycle=cycle-0 stop=2 supply short this cycle - capping delivery to what was picked up: deficit LiquidFuel=4 heldBackHere LiquidFuel=4(?![0-9.])",
+  "EscrowContention: cell=short-pickup-caps-delivery reserved=1 shortPickup=1 deliveryCapped=1 routeA=escrowA- sourcePid=[0-9]+ stored=15 drainedTo=2 pickedUpWindow0=4 pickedUpWindow1=2 recordedDelivery=10 supplyDeficit=4 pickedUp=6 delivered=6",
 
   # ---- per-cell summaries: the four phase outcomes AND the measured invariant in one
   #      grep-stable line each. `sourcePid` is per-run (census read 1592478814 /

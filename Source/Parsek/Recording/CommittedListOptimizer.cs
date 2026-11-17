@@ -19,6 +19,19 @@ namespace Parsek
         // ─── Recording optimization ─────────────────────────────────────────
 
         /// <summary>
+        /// The route sources <paramref name="tree"/> carries unchanged into a commit
+        /// (<see cref="TreeCommitService.CollectUnchangedRouteSourceIds(RecordingTree, ICollection{string})"/>
+        /// over the ids a committed or dormant supply route names). This type already reads that
+        /// source immutability set (design 4.7) for the pass below; the tree commit asks here so
+        /// it does not read the route store itself. Never null.
+        /// </summary>
+        internal static HashSet<string> CollectUnchangedRouteSourceIds(RecordingTree tree)
+        {
+            HashSet<string> routeSourceIds = Logistics.RouteStore.CollectSourceRecordingIds();
+            return TreeCommitService.CollectUnchangedRouteSourceIds(tree, routeSourceIds);
+        }
+
+        /// <summary>
         /// Runs the optimization pass: find merge candidates among committed recordings,
         /// execute merges, re-index chains, then split multi-environment recordings at
         /// environment boundaries. Called on save load after migrations, and mid-session

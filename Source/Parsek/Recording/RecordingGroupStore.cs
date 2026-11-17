@@ -464,11 +464,11 @@ namespace Parsek
                 changed++;
             }
 
+            // Group membership is .sfs metadata (written by every OnSave), so no
+            // MarkFilesDirty: a sidecar rewrite would advance the epoch a supply route built
+            // from this recording compares (todo ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE).
             if (changed > 0)
-            {
-                rec.MarkFilesDirty();
                 ClearAutoAssignedStandaloneGroup(rec);
-            }
 
             return changed;
         }
