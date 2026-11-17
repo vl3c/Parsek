@@ -222,8 +222,8 @@ namespace Parsek.Tests.Logistics
             Assert.Same(tree, nearMisses[0].Tree);
         }
 
-        // catches: the re-flyable count not summing every non-Immutable recording.
-        // Two re-flyable recordings (one NotCommitted, one CommittedProvisional) ->
+        // catches: the re-flyable count missing an open flight. Two independent open
+        // recordings (one NotCommitted, one CommittedProvisional, different slots) ->
         // ReflyableCount == 2.
         [Fact]
         public void DeriveNearMisses_TwoReflyable_CountsBoth()

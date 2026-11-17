@@ -804,6 +804,40 @@ namespace Parsek.Tests
                 TestCommandRouteCommand.RefusalMsg(refusal, RouteAnalysisStatus.Eligible));
         }
 
+        // SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL at the create gate: the dock child
+        // split into a chain whose head kept CommittedProvisional while the seal closed
+        // the tip. The gate must read the tree sealed and walk on to the analysis.
+        [Fact]
+        public void CreateGate_SealedSplitChain_ReadsSealed()
+        {
+            RecordingTree tree = BuildSupplyTree();
+            Recording head = tree.Recordings[DockChildRecordingId];
+            head.ChainId = "seam-dock-chain";
+            head.ChainIndex = 0;
+            head.MergeState = MergeState.CommittedProvisional;
+            tree.AddOrReplaceRecording(new Recording
+            {
+                RecordingId = "seam-dock-chain-tip",
+                TreeId = TreeId,
+                ChainId = "seam-dock-chain",
+                ChainIndex = 1,
+                MergeState = MergeState.Immutable,
+            });
+
+            bool treeSealed = RouteCandidateFinder.IsTreeFullySealed(tree);
+            Assert.True(treeSealed);
+            Assert.Empty(TestCommandSealSlot.RecordingIdsNeedingSeal(tree));
+            RouteCreateRefusal refusal = TestCommandRouteCommand.ClassifyCreateRefusal(
+                true, false, treeSealed, analysisEligible: true, alreadyPromoted: false);
+            Assert.Equal(RouteCreateRefusal.None, refusal);
+
+            // The mirror: the same chain with the tip still open stays TreeNotSealed.
+            tree.Recordings["seam-dock-chain-tip"].MergeState = MergeState.CommittedProvisional;
+            Assert.Equal(RouteCreateRefusal.TreeNotSealed,
+                TestCommandRouteCommand.ClassifyCreateRefusal(
+                    true, false, RouteCandidateFinder.IsTreeFullySealed(tree), true, false));
+        }
+
         // A sealed but analysis-rejected tree must carry the ANALYSIS token, not a
         // generic refusal: the fix for "no route proof" is a different flight, and the
         // status is the only thing that says so.

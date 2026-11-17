@@ -20,6 +20,143 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL~~: sealing an Unfinished Flight whose recording was split kept its tree "not finished" forever, so no supply route could be made from it [FILED 2026-11-17 from AST-3's red, run `2026-11-17_1636_AST-3-klaw-mine-route` (PARSEK-FAIL(expectation)), by log and code reading plus a headless repro. FIXED 2026-11-17, branch `item31-seal-split-chain`, PR #2714; xUnit + mutation; NO REGRESSION 2026-11-17: all 36 seal / route lanes PASS on the fix (run `item31-proof`), but no flight reached the split-then-seal shape, so the fix itself is proven headless only; OPEN: a lane for that shape, todo SEAL-SPLIT-CHAIN-LANE-OWED; medium (route creation blocked for that tree for good, no data loss)]
+
+What happened. The "AST Depot" re-entered and was destroyed after its undock, so its slot under
+the undock's Rewind Point committed as an open Unfinished Flight (CommittedProvisional). At the
+tree commit the optimizer split its recording at the ExoBallistic -> Atmospheric boundary
+(`Split candidate (PersistedPhaseChange): rec=fae42b9b... splitUT=1291.94`, then `Split:
+MergeState=CommittedProvisional carried with terminal=Destroyed onto the second half`): chain
+`c98f39e5` = head `fae42b9b` (UT 1030.39-1291.94) + tip `8e79fc01` (1291.94-1469.54, Destroyed).
+`SealSlot mode=Tree` then logged `Sealed slot=0 rec=fae42b9b... tip=8e79fc01...
+mergeState=CommittedProvisional->Immutable` and `Sealed slot=1 rec=990818d4...` (the Miner), and
+ended `sealslot incomplete ... total=8 sealed=2 failed=0 remaining=1
+firstReason=member-not-slot-tip`; the route-create gate refused `sealed=False ...
+refusal=TreeNotSealed`. The produced save holds `fae42b9b` at CommittedProvisional.
+
+Cause. Every slot seal flips ONE recording, the slot's effective chain+supersede tip: the
+player's Seal button (`UnfinishedFlightSealHandler.TrySeal`), the missing-quicksave and
+value-sealed load sweeps (`LoadTimeSweep`) and the seam (which calls `TrySeal`). Two producers
+leave a non-tip chain member CommittedProvisional: the commit promotion demotes a qualifying head
+AND its chain tip separately (`TreeCommitService.ApplyRewindProvisionalMergeStates`), and the
+split COPIES the state onto the new tip and keeps the head's copy
+(`RecordingOptimizer.TransferTerminalFieldsToSecondHalf`; `MergeDialog.MergeCommit` promotes,
+then runs the optimizer pass). No writer ever demotes that head. Re-Fly open / closed reads only
+the tip, but `RouteCandidateFinder.IsTreeFullySealed` read every member's RAW MergeState, and it
+gates route candidates, the near-miss list ("Not finished yet", N "still re-flyable") and the
+seam's create gate. The seal also reaps the Rewind Point once its last slot closes, after which
+the head resolves no slot (`TrySeal` -> `noMatchingRP`), so nothing could ever close it. The
+player reached this without the seam: any sealed tree with a Rewind Point slot whose recording is
+a chain (a commit-time phase-change split, or a chain born in flight).
+
+Fix (reader side). `EffectiveState.ResolveMemberSealState` (new,
+`Rewind/EffectiveState.MemberSealState.cs`) reads a member through the walk every slot consumer
+uses (`EffectiveTipRecordingId` with the tree as context and the loaded scenario's supersede
+rows): the recording it resolves to decides. A NotCommitted member never reads sealed; a member
+that resolves to itself, or to a recording that cannot be found, reads its own state; an
+Immutable member whose walk ends on an open tip reads open. `IsTreeFullySealed`,
+`CountReflyableFlights` and the seam (`TestCommandSealSlot.RecordingIdsNeedingSeal` /
+`IsMemberSealed`, and the applier's re-read and remaining count) all use it; `IsTreeFullySealed`
+logs one rate-limited Verbose line per tree when it reads sealed only through tips, built only
+when verbose logging is on (the Logistics window polls it about once a second).
+
+Re-flyable count. The near-miss hover reads "not finished yet (N flights can still be re-flown)".
+It counted every non-Immutable RECORDING, so an open split chain (head + tip) read 2 even before
+this fix, and the through-tip read would have made a whole superseded subtree pointing at one
+open fork count each of its recordings. `RouteCandidateFinder.CountReflyableFlights` (was
+`CountReflyableRecordings`) now counts DISTINCT deciding recordings (the open tip a member
+resolves to, from `ResolveMemberSealState`'s `out` overload; a NotCommitted member counts as its
+own), so N is the number of flights the player can re-fly. Only the number changes; the wording
+and the tooltip budget are untouched.
+
+Re-Fly leftovers, settled by xUnit (`TreeSealedThroughTipTests`): an old recording superseded by
+a concluded fork reads sealed (was open), by an open fork reads open (unchanged); the splitter's
+HEAD kept visible walks HEAD -> chain -> TIP -> supersede -> fork and reads the fork (was open
+whatever the fork); a provisional retired empty leaves no row, so its origin reads its own open
+state (unchanged). Must-stay-open cases: an open split chain, a NotCommitted head with a sealed
+tip, a NotCommitted tip, a Stash-reopened slot (head included, which before read sealed on its
+own), a tip in another committed tree that is open, and a dangling supersede row on an open
+member. The walk is deterministic, so every slot tip resolves to itself and an open slot always
+reads open.
+
+Other raw "sealed" reads, from a grep of every `MergeState.Immutable` / `CommittedProvisional`
+read in `Source/Parsek`: the seal, stash, reaper, load sweeps, disk-usage and list-handles reads
+already read the slot's tip; the classifier's qualify checks, the promotion loop, the optimizer
+carry and the codec are not seal gates. One per-member read is reached by the head leftover and
+left as is: `AnchorDetector.IsSealedRecordingAnchor` ranks a sealed recording first among
+equally valid relative-frame anchor candidates. It is the first tie-break among eligible candidates, not a
+gate (a head of a closed slot stays eligible and only loses to an otherwise-equal sealed
+candidate, both valid anchors), and reading through the tip there would add a new backward
+Recording -> Rewind dependency.
+
+Proof. `CollapseSealMergeStateRegressionTests.SealOfOptimizerSplitSlot_LeavesTreeFullySealed`
+drives the real `CommitTree` -> `RunOptimizationPass` -> `TrySeal` and asserts the tree reads
+sealed and the create gate moves past `TreeNotSealed` (red on the old reader at its final
+assertion); `TestCommandLogisticsVerbSeamTests.CreateGate_SealedSplitChain_ReadsSealed` pins the
+gate and its open mirror. Mutation: reverting `IsTreeFullySealed`, `CountReflyableFlights`,
+`IsMemberSealed`, the NotCommitted guard or the committed-store tip lookup each reds at least one
+named test. The applier's re-read is Unity-only and has no xUnit cell. Review follow-up
+(PR #2714): the two 1 Hz Logistics derivations read the loaded scenario's rows, pinned by
+`TreeSealedThroughTipTests.DeriveCandidates_ReadsTheLoadedScenarioRows`,
+`DeriveNearMisses_ReadsTheLoadedScenarioRows` and `DeriveNearMisses_ReflyableCount_...`;
+passing empty rows in `DeriveCandidates`, in `DeriveNearMisses`, or to the near-miss count each
+reds one of them, and dropping the tip as the deciding id reds six flight-count cells. Walk
+boundary cells (Undock, foreign Board, own EVA, a different ChainBranch, the same ChainId in
+another tree, a NotCommitted in-place fork, a switch continuation) pin where the read must stop.
+
+Flights. Run `item31-proof` (V's PC, parallel runner, 3 slots, 2026-11-17 22:45Z to 23:07Z,
+automation DLL sha256 prefix 58c54586 built from 5887933a7) flew every committed lane that seals
+in tree mode or creates a route, 36 lanes, and all 36 PASS on attempt 1: 36 `sealslot complete`
+lines, 0 `sealslot incomplete`, 0 `routecommand create gate` lines with `sealed=False`. That is a
+no-regression result only: the 36 logs hold 0 "read through their slot's closed effective tip"
+lines, so no lane exercised the new through-tip read. `AST-3-klaw-mine-route` `2026-11-17_2245`
+PASS with the Depot left in orbit (0 vessel-destroyed lines): `sealslot complete mode=tree ...
+total=7 sealed=1 remaining=0` and the create gate `sealed=True eligible=True status=Eligible
+refusal=None`; its red `2026-11-17_1636` (the one this entry was filed from) flew the PR #2687
+build, before the fix.
+
+Still open. The fix is proven only headless (the real `CommitTree` -> `RunOptimizationPass` ->
+`TrySeal` cell above); no flight has reached a split chain that is sealed and then made a route.
+A deterministic lane for that shape is owed: todo SEAL-SPLIT-CHAIN-LANE-OWED. AST-3 is not that
+lane: its flight variance is a lane-robustness matter for the mission, not a Parsek defect. Two of
+its three recent flights (`2026-11-15_2130`, `2026-11-17_2245`) kept the Depot in orbit; the
+`2026-11-17_1636` flight docked 106 s longer (449 s against 343 s) and both vessels re-entered,
+which split the Depot's recording and reached this defect by chance.
+
+OPEN residue, left unfixed by decision: `AnchorDetector.IsSealedRecordingAnchor` still reads a
+member's own MergeState, so the CommittedProvisional head of a sealed split chain ranks below an
+otherwise-equal Immutable anchor candidate. Reason it stays: it is a tie-break among candidates
+that are all valid anchors, not a gate, and reading through the tip there needs a new backward
+Recording -> Rewind type dependency the layer ratchet forbids. Reopen it if a flight shows a
+relative-frame anchor choice that a sealed split head should have won.
+
+OPEN residue, left unguarded by decision: a supersede cycle through a recording outside the tree
+(rows X -> Z and Z -> X, Z Immutable) makes an open X read sealed. `EffectiveTipRecordingId`'s
+cycle guard stops on Z (and warns), and every slot consumer reads that same Z, so the Unfinished
+Flights list already shows the slot closed and the route gate agrees with it. A guard only in
+`ResolveMemberSealState` would make the gate disagree with the slot list and leave the tree
+unsealed with no slot left to seal. No writer produces the shape (each Re-Fly row points at a
+fresh fork id, and the load sweep drops self rows), so it needs hand-edited rows; pinned as
+`SupersedeCycleThroughAnOutsideRecording_ReadsWhatTheSlotWalkReads`. A fix belongs in the walk
+or the row loader, for every consumer at once.
+
+## SEAL-SPLIT-CHAIN-LANE-OWED: no lane flies a split chain that is sealed and then made a route [FILED 2026-11-17 from PR #2714's proof batch (run `item31-proof`); harness only, no lane yet; low (the fix is proven headless and the 36 seal / route lanes read no regression)]
+
+The fix for SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL is proven only by xUnit. Every committed lane
+that seals in tree mode or creates a route flew green on it, but none of them reached the shape it
+fixes: the 36 logs of `item31-proof` hold 0 "read through their slot's closed effective tip"
+lines. The one flight that did reach it, AST-3 `2026-11-17_1636`, got there by flight variance
+(the docked pair re-entered), so no lane reaches it on purpose.
+
+Owed: a deterministic lane whose re-flyable vessel crosses an environment boundary so the commit's
+optimizer pass splits its recording (an atmosphere edge on a suborbital hop is the cheapest), is
+kept open as an Unfinished Flight, then sealed (`SealSlot` in tree mode), then made a route
+(`RouteCommand action=create`). Pins: `sealslot complete mode=tree`, the through-tip line
+`IsTreeFullySealed: tree=... reads sealed with 1 member(s) not Immutable themselves` (a
+rate-limited Verbose line, so confirm the lane's verbose setting before pinning it), and the
+create gate `sealed=True`. Reuse a host that already flies a boundary crossing before adding a
+flight (`harness/README.md` -> "Authoring a fast lane").
+
 ## ~~COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN~~: loading a save into FLIGHT after a recording's end, before its vessel spawned, drops the vessel for good [FILED 2026-11-17 by code reading during the end-spawn lane program (todo END-SPAWN-LANES-2026-11-17); no flight yet; SPW-8 and SPW-9 are pre-registered to red on it; high (a vessel the player was owed never appears, silently apart from one log line); FIXED 2026-11-17 under the id COLD-LOAD-DROPS-OWED-SPAWN (the same defect, found twice the same day); SPW-8 and SPW-9 should now read green]
 
 What happens. Every Cold load (a save-file load: the Load menu, and stock F9, which classifies Cold
