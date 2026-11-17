@@ -2165,7 +2165,8 @@ in parallel in the cloud):
 3. [ ] (AUTHORED 2026-11-16 as `AIR-1-runway-circuit-splashdown` / `AIR-2-runway-circuit-ksc-ghost`:
    mission `air1_runway_circuit`, the stock Mallard from the Runway around a circuit to a
    splashdown east of KSC. AIR-1 LIVE-PROVEN 2026-11-16 on its fourth flight and harvested as
-   `air-circuit-recorded`; AIR-2 handed over the same day (operator, never flown).
+   `air-circuit-recorded`; AIR-2 handed over the same day and LIVE-PROVEN 2026-11-17 on its first
+   flight (`2026-11-17_1402`, PASS attempt 1, 558 s, parallel runner run `next-tests-2026-11-17`, Debug DLL sha256 prefix 7d9f2510 from main 65ac33ee8, diagnostics on branch `forge-logs-2026-11-17-next-tests`; LeafVesselPlacement 1/1, pinned whole).
    FIRST FLIGHT 2026-11-16 DRIVER-INVALID: runs `2026-11-16_1955` and `_1956_a2` (PC,
    `gs1-two-stage-pad`, diagnostics on branch `forge-logs-2026-11-16-air1`), MISSION-FLAKE both
    times, no Parsek verdict. Rollout, staging and the auto-record start were fine. Under the
@@ -2216,7 +2217,7 @@ in parallel in the cloud):
    same pruned files. AIR-2 now flies `air1_runway_circuit` itself on `gs1-two-stage-pad` (AIR-1's
    parameters, BAY-1's commit-then-rewind recipe), rewinds, warps to UT 900 at 10x and reads the
    KSC ghost, the end spawn and `LeafVesselPlacement`; count {1,40}. `air-circuit-recorded` stays
-   for a replay lane that needs no rewind. Next: fly AIR-2.
+   for a replay lane that needs no rewind. AIR-2 flew green 2026-11-17 (above).
    Follow-up: AIR1-GLIDE-SLOPE-STEEPER-THAN-PLANNED.)
    Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center. Open after AIR-2: no in-game check reads a
@@ -2266,8 +2267,10 @@ in parallel in the cloud):
    (V33T). Later: Mun / Minmus continuations and the optional Ike / Gilly landing continuations.
    The three Group A fixtures carry the stray root tail of COMMITTED-RESTORE-APPENDS-TO-ROOT
    (fixed 2026-11-14) and are re-harvested with a build carrying the fix.
-5. [ ] (AUTHORED 2026-11-16, never flown: FLIGHT in-game category `RouteGhostPlacement`, wired
-   as a `RunTests` step into H59 and V27M on interim pins; one reading run of each owed.)
+5. [x] ~~(AUTHORED 2026-11-16: FLIGHT in-game category `RouteGhostPlacement`, wired as a `RunTests`
+   step into H59 and V27M. Flown green 2026-11-17: H59 `2026-11-17_1429` and V27M `_1430`, PASS
+   attempt 1, each `compared=30 ok=30 bad=0 worstHorizM=0.01`, `total=1 passed=1 failed=0
+   skipped=0`, pinned whole.)~~ Done 2026-11-17.
    Supply-route ghosts checked by position: route render lanes (H59, V26M, V26T, V27M, V18T)
    still pin counts and log lines, so a route ghost drawn in the wrong place passes (audit B3).
    The category reads the route's delivery clock, interpolates the member recording's own
@@ -2278,9 +2281,10 @@ in parallel in the cloud):
    Tracking Station lanes V18T / V26T (proto-vessel map ghosts placed by orbit propagation, a
    different comparison); V26M was deleted 2026-11-12. Unsupported unit shapes (re-aim,
    descent trigger, overlapping members, orbital checkpoint sections) are counted, not judged.
-6. [ ] (AUTHORED 2026-11-16, never flown: lanes `LX-1-loop-armed-refly-discard-merge` and
-   `LX-2-career-loop-watch-scene-change-reload`, operator, tag `pending-flight`, branch
-   `loop-crossings`, harness only.) Loops meeting a Re-Fly, a career save and a scene change in
+6. [x] ~~(AUTHORED 2026-11-16: lanes `LX-1-loop-armed-refly-discard-merge` and
+   `LX-2-career-loop-watch-scene-change-reload`, operator, branch `loop-crossings`, harness only.
+   Both LIVE-PROVEN 2026-11-17 on their first flights: LX-1 `2026-11-17_1412` (145 s) and LX-2
+   `_1414` (78 s), PASS attempt 1.)~~ Done 2026-11-17. Loops meeting a Re-Fly, a career save and a scene change in
    watch mode (audit B7; LF-1 and LF-2 cover only a plain Rewind-to-Launch with a loop armed).
    LX-1 loops tree A of `rover-route-recorded` while IR-3's Flea flight is Re-Flown, discarded,
    re-entered and Re-Flown again and merged: every scene publishes the unit live with the
@@ -2290,10 +2294,11 @@ in parallel in the cloud):
    arms the loop in `rover-route-recorded-career`, watches it, exits to the Space Center, opens
    the Tracking Station, returns to flight and F5 / F9s while watching: each scene change ends
    the watch, each scene and the Cold reload rebuild the unit with the arm-time phase, and the
-   ledger oracle reads the template pools unchanged. Close the item after both fly green.
-7. [ ] (AUTHORED 2026-11-16, never flown: FLIGHT in-game category `GhostFxIntegrity` and lane
-   `FXR-1-ghost-engine-fx-across-refly-and-retry`, plus three cycle-2 FX tokens on GS-9; one
-   reading run of FXR-1 and the next GS-9 flight owed.)
+   ledger oracle reads the template pools unchanged.
+7. [ ] (AUTHORED 2026-11-16: FLIGHT in-game category `GhostFxIntegrity` and lane
+   `FXR-1-ghost-engine-fx-across-refly-and-retry`, plus three cycle-2 FX tokens on GS-9. GS-9's
+   half flown green 2026-11-17 (`2026-11-17_1402`, PASS attempt 1, 516 s: the three FX tokens
+   matched). FXR-1 is not yet green; its 2026-11-17 flight is read separately.)
    Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
    T48, has never been re-run). FXR-1 re-flies the open Probe slot of `refly-split-crewed-merged`
    with the committed Kerbal X re-fly as the live ghost, Retries from the Rewind Point (the stock
@@ -2317,7 +2322,9 @@ in parallel in the cloud):
 9. [ ] Missing mission shapes (audit B9): a live atmospheric landing off Kerbin (Eve or Laythe),
    a Minmus or orbital miner, a boat, and the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT formation
    flight through an SOI edge with a background wingman. THREE LANES AUTHORED 2026-11-17
-   (harness only, no C# change), all NEVER FLOWN (tier operator, tag `pending-flight`):
+   (harness only, no C# change, tier operator). BOAT-1 (`2026-11-17_1419`, 207 s) and SOI-2
+   (`_1422`, 291 s) LIVE-PROVEN on their first flights, PASS attempt 1; LAY-1 is not yet green
+   (its 2026-11-17 flight is read separately):
    - `LAY-1-laythe-reentry-splashdown`: the crewed Duna Rocket parked in Laythe orbit
      (`laythe-park-nerv`) deorbits on its NERV, drops its radial tanks and core stack, reenters
      on the heat shield and comes down under its chutes on Laythe. `b4_reentry` gained an
@@ -2539,7 +2546,7 @@ lines and the key.
 - ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock into a resumed Parsek-spawned vessel reads as a different launch (identity links are not consulted by `VesselLaunchIdentity`).~~ FIXED 2026-11-16, branch `fix-residual-dock-link`; xUnit; low. Reproduced headless first: the resumed recording keeps the original launch guid G0 at the spawn pid, the dock stamps the live guid G1, and the bare guid test refused every dock-claim read, so after a rewind the resumed recording was not an intermediate chain link and spawned its vessel beside the docked stack's spawn (the Missions partner and dock-event partner read `guidRejected`). Fix: `VesselLaunchIdentity.GuidsConclusivelyDifferAllowingLinks` (the bare test, then the link rows in both directions, so a link G1 -> G0 joins either argument order; two guids that only share an ancestor stay apart) at the seven dock-claim sites: `GhostChainWalker` (latest-launch filter, `FindIntermediateLinkChain`, `MergeCrossTreeLinks`, `ForkContinuesWalkedVessel`) and `MissionCrossTreeDock` (`FindSameTreeDockClaims`, `FindClaimedRecording`, which `DockEventGraph`'s cross-tree step reuses, and the journey's `FindBranchSuccessor`). Unlinked launches of one craft are still refused. Tests: `DockIntoResumedSpawnLinkTests` (each site mutation-checked). Not changed: `ParsekFlight.SelectChainPidsToGhost` and `GhostCommNet`'s chain filter compare live guids with claim guids the same bare way; no failing sequence was found for them. Lane owed: a CI-9 / VN-12 twin (fly a Real Spawn again, commit, dock a second launch into it, rewind before the spawn) requiring one spawn of the resumed vessel.
 - CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract either gate leaves unfiled is not filed later when the clock reaches its outcome. FIXED 2026-11-16 (branch `fix-residuals-contract-d5`): each patch with a real clock files, from its accept snapshot and silently (no ledger row, no `SetState`, nothing paid or charged), every walk-ended, non-tombstoned contract stock holds in neither list whose outcome end UT is at or before the clock (`KspStatePatcher.PlanMissingTerminalContractFilings` + `FileMissingTerminalContracts`; `archiveLateFiled` / `archiveLateFailed` on the `PatchContracts: removedStale=` summary, one `late-filed ended contract` Info line each; skips logged Verbose). The same covers a clock jump past both the accept and the outcome. Defect shown first on the pure planners (a no-clock removal, then a real-clock patch: the retire planner reads only the active list, so nothing filed it); cells in `ContractCrossedOutcomeArchiveTests` (files once, a repeat adds no copy, outcome after the clock or unknown stays unfiled, skips, load failure). Not flown: RW-20 would show it only on a run that crosses with `archiveNoClock=1` first.
 - D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: the capture's distance is measured from the promotion point, and a capture on the vessel-switch stop path with a Relative section still open takes the flat route. FIXED 2026-11-16 (branch `fix-residuals-contract-d5`), second half only: the vessel-switch stop (`FlightRecorder.HandleVesselSwitchDuringRecording`, EVA board / `ChainToVessel`) builds the capture without closing the section, so it now hands the open `currentTrackSection` (when it has payload, `TrackSectionHasResumePayload`) to `SnapshotVessel`, and the route, the body-fixed samples and the end-biome sample read `LiveVesselSnapshot.BuildDistanceRouteSections(closed, open)`; with no body-fixed sample the distances stay 0 so the finalize backfill still runs. Reachable for a kerbal boarding in RELATIVE mode (off the surface, near the vessel); the capture's distance is read by the unconfirmed-boarding / fallback paths (`TryAppendCapturedToTree` keeps the larger value, the standalone copy takes it). Cells in `PromotedDebrisSnapshotDistanceTests` (the switch-stop shape routes flat on the closed sections alone, body-fixed with the open one: 5 km, not >1000 km). The promotion-point half stays accepted (cosmetic, larger value kept). The vessel-switch stop now closes its open section before the capture (EVA-SWITCH-STOP-DROPS-OPEN-SECTION), so that half reads the closed list.
-- RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: lane owed, a formation flight through an SOI edge with a background wingman. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): lane owed, SOI-1 host with a decouple before the boundary. AUTHORED 2026-11-17, NEVER FLOWN: `SOI-2-mun-exit-formation-wingman` (NEXT-TESTS-TO-BUILD-2026-11-11 item 9).
+- RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: lane owed, a formation flight through an SOI edge with a background wingman. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): lane owed, SOI-1 host with a decouple before the boundary. AUTHORED 2026-11-17: `SOI-2-mun-exit-formation-wingman` (NEXT-TESTS-TO-BUILD-2026-11-11 item 9), LIVE-PROVEN 2026-11-17 on its first flight (`2026-11-17_1422`): the loaded wingman's `Relative -> Relative ... source=Background ... closingSample=0` split for the same pid and rec as its off-rails SOI line.
 - VB-1-KSP-HANG-AT-MAIN-MENU: a hang after the MAINMENU line is still caught only by the long timeout. DONE: the boot watchdog's main-menu phase (`hlib` rule `no-seam-receipt`) now catches a hang after MAINMENU.
 - FAST-POLL-SETTLES-STILL-RACE: CI-6 still waits on a timer; a named-condition wait would replace it. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): ACCEPTED: CI-6 is green on `WarpToUT`; a named wait is a harness nicety.
 
@@ -2742,12 +2749,14 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   rewind. Still open: no in-game category, and no host with a nonzero loss term (the relay on
   `rover-relay-recorded` would show the 73.2 residual, but its endpoints are post-relay, B empty).
 - [ ] B3 / item 3: route render lanes still pin counts and log lines, not where the route ghost or
-  its line is (only the SLM lanes read a loop ghost's position).
-- [ ] B7: loops never meet a Re-Fly, a career save or a scene change in watch mode (LX-1 / LX-2
-  authored 2026-11-16, never flown; NEXT-TESTS-TO-BUILD-2026-11-11 item 6).
-- [ ] B8: ghost FX across a Re-Fly or a revert has no lane. Authored 2026-11-16 (never flown):
-  `FXR-1-ghost-engine-fx-across-refly-and-retry` with the `GhostFxIntegrity` category, and three
-  FX tokens on GS-9's second Rewind-to-Launch cycle (item 7).
+  its line is (only the SLM lanes read a loop ghost's position). H59 and V27M now read the route
+  ghost by position (`RouteGhostPlacement`, green 2026-11-17, item 5); the Tracking Station lanes
+  V18T / V26T do not.
+- [x] ~~B7: loops never meet a Re-Fly, a career save or a scene change in watch mode~~ Done
+  2026-11-17: LX-1 / LX-2 LIVE-PROVEN on their first flights (NEXT-TESTS-TO-BUILD-2026-11-11 item 6).
+- [ ] B8: ghost FX across a Re-Fly or a revert has no lane. Authored 2026-11-16:
+  `FXR-1-ghost-engine-fx-across-refly-and-retry` with the `GhostFxIntegrity` category (not yet
+  green), and three FX tokens on GS-9's second Rewind-to-Launch cycle (green 2026-11-17, item 7).
 - [ ] B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost,
   GhostReapplyFrame, GuiMock, JointBreakCheckCoroutine and TreeRestoreCoroutine: no committed spec
   names any of them). Wired 2026-11-16 (no new lane) except GuiMock: the five FLIGHT categories
@@ -2767,8 +2776,9 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   `ParsekKSC.ShowUIForTesting` (restored in a finally).
 - [ ] B9: no lane flies an aircraft, a boat, a live atmospheric landing off Kerbin or a Minmus /
   orbital miner (the claw has only the synthetic H41 / H42 cells). Aircraft: AIR-1 green
-  2026-11-16. Orbital miner: AST-3 green 2026-11-15. Boat and Laythe landing: BOAT-1 and LAY-1
-  authored 2026-11-17, never flown. Minmus miner: open (NEXT-TESTS-TO-BUILD-2026-11-11 item 9).
+  2026-11-16. Orbital miner: AST-3 green 2026-11-15. Boat: BOAT-1 green 2026-11-17. Laythe
+  landing: LAY-1 authored 2026-11-17, not yet green. Minmus miner: open
+  (NEXT-TESTS-TO-BUILD-2026-11-11 item 9).
 - [ ] Fixes proven by xUnit only, never seen in game: ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER,
   RESCUE-PLACED-MARKER-SESSION-ONLY,
   RESCUE-PLACED-MARKER-NEVER-RETIRES, the drop path of

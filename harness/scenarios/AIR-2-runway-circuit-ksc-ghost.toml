@@ -1,7 +1,13 @@
 schema = 1
 id = "AIR-2-runway-circuit-ksc-ghost"
 # =====================================================================================
-# AIR-2: THE PLANE'S GHOST REPLAYS AT THE SPACE CENTER. AUTHORED 2026-11-16, NEVER FLOWN.
+# AIR-2: THE PLANE'S GHOST REPLAYS AT THE SPACE CENTER. AUTHORED 2026-11-16.
+# LIVE-PROVEN 2026-11-17 on its first flight (run 2026-11-17_1402, PASS attempt 1, 558 s;
+# parallel runner run next-tests-2026-11-17, Debug DLL sha256 prefix 7d9f2510 from main
+# 65ac33ee8): 2 recordings (the optimizer's split at the splash, AIR-1's shape), the KSC
+# ghost entered range for both legs (the second terminal=Splashed), the real Mallard
+# spawned SPLASHED, `LeafPlacement summary: ... compared=1 ok=1 bad=0` and the batch read
+# `total=1 passed=1 failed=0 skipped=0`, now pinned whole.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3, the replay half of AIR-1.
 #
 # RE-SHAPED 2026-11-16, BEFORE ITS FIRST FLIGHT: IT FLIES THE CIRCUIT ITSELF. As handed
@@ -68,9 +74,9 @@ id = "AIR-2-runway-circuit-ksc-ghost"
 # record nothing new (nothing launches in the Space Center).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-16, NEVER FLOWN; re-shaped before its first flight to fly AIR-1's circuit itself, because AIR-1's harvest carries no rewind save. Flies the stock Mallard from the Runway around AIR-1's circuit to a splashdown (mission air1_runway_circuit, AIR-1's parameters), commits, Rewinds-to-Launch and lets the Space Center replay it: the Mallard's KSC ghost enters range, plays its absolute pose on Kerbin and leaves range at its Splashed end, the real Mallard spawns there, and LeafVesselPlacement reads the spawn's position against the recorded terminal place."
+description = "AUTHORED 2026-11-16, LIVE-PROVEN 2026-11-17 (run 2026-11-17_1402); re-shaped before its first flight to fly AIR-1's circuit itself, because AIR-1's harvest carries no rewind save. Flies the stock Mallard from the Runway around AIR-1's circuit to a splashdown (mission air1_runway_circuit, AIR-1's parameters), commits, Rewinds-to-Launch and lets the Space Center replay it: the Mallard's KSC ghost enters range, plays its absolute pose on Kerbin and leaves range at its Splashed end, the real Mallard spawns there, and LeafVesselPlacement reads the spawn's position against the recorded terminal place."
 instanceProfile = "stock-minimal"
-tags = ["AIR2", "aircraft", "ksc-ghost", "rewind-to-launch", "leaf-placement", "ingame-batch", "pending-flight"]
+tags = ["AIR2", "aircraft", "ksc-ghost", "rewind-to-launch", "leaf-placement", "ingame-batch", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
@@ -151,7 +157,7 @@ required  = [
   "\\[KSCGhost\\] Ghost #[0-9]+ \"Mallard\" exited range at UT ",
   "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"Mallard\" pid=[0-9]+ sit=(?:SPLASHED|LANDED) ",
   "MISSIONMARK label=air2-past-end ut=[\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=SPACECENTER",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

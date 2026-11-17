@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 151 |
 | seam-only lanes | 460 |
-| LIVE-PROVEN date in status row | 485 |
-| no LIVE-PROVEN date | 126 |
+| LIVE-PROVEN date in status row | 490 |
+| no LIVE-PROVEN date | 121 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -34,7 +34,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | family | lanes | daily | nightly | operator | longhaul | autopilot | live-proven |
 |---|---|---|---|---|---|---|---|
 | AH | 1 | - | 1 | - | - | - | 1 |
-| AIR | 3 | - | - | 3 | - | 3 | 1 |
+| AIR | 3 | - | - | 3 | - | 3 | 2 |
 | AJ | 1 | - | - | 1 | - | - | 1 |
 | AP | 1 | - | 1 | - | - | - | 1 |
 | AST | 4 | - | 4 | - | - | 4 | 4 |
@@ -42,7 +42,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | B | 41 | 1 | 12 | 23 | 5 | 40 | 31 |
 | BAY | 1 | - | - | 1 | - | 1 | 1 |
 | BDOCK | 2 | - | 1 | 1 | - | 2 | 2 |
-| BOAT | 1 | - | - | 1 | - | 1 | - |
+| BOAT | 1 | - | - | 1 | - | 1 | 1 |
 | CA | 1 | - | 1 | - | - | 1 | 1 |
 | CI | 11 | 1 | 7 | 3 | - | 2 | 10 |
 | CL | 2 | - | 1 | 1 | - | 2 | 2 |
@@ -76,7 +76,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | LF | 2 | - | 2 | - | - | - | 2 |
 | LS | 1 | - | 1 | - | - | - | 1 |
 | LT | 5 | - | 5 | - | - | - | 4 |
-| LX | 2 | - | - | 2 | - | - | - |
+| LX | 2 | - | - | 2 | - | - | 2 |
 | M | 3 | 2 | 1 | - | - | 1 | 3 |
 | MC | 5 | - | 3 | 2 | - | 1 | 4 |
 | MINE | 14 | - | 14 | - | - | - | 14 |
@@ -113,7 +113,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | SH | 1 | - | - | 1 | - | - | 1 |
 | SLM | 3 | - | - | 3 | - | - | 3 |
 | SN | 1 | - | 1 | - | - | - | 1 |
-| SOI | 2 | - | - | 2 | - | 2 | 1 |
+| SOI | 2 | - | - | 2 | - | 2 | 2 |
 | SS | 1 | - | 1 | - | - | - | - |
 | ST | 4 | - | 4 | - | - | 1 | 4 |
 | STR | 4 | - | - | 4 | - | 2 | 4 |
@@ -313,8 +313,8 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 369 | 120 | 294 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +70 |
-| Mun | 56 | 14 | 45 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, SOI 2, EVA 1, GUI 1 +6 |
+| Kerbin | 369 | 120 | 297 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +70 |
+| Mun | 56 | 14 | 46 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, SOI 2, EVA 1, GUI 1 +6 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
 | Eve | 12 | 4 | 6 | V 7, B 4, FAR 1 |
@@ -330,7 +330,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Pol | 4 | 2 | 4 | B 2, V 2 |
 | Eeloo | 3 | 1 | - | V 2, B 1 |
 | Sun | 10 | - | 6 | TP 6, V 4 |
-| (none derived) | 159 | 6 | 132 | H 62, RVR 19, S 9, CS 8, GUI 7, IR 6, VN 6, L 5, CN 4 +23 |
+| (none derived) | 159 | 6 | 134 | H 62, RVR 19, S 9, CS 8, GUI 7, IR 6, VN 6, L 5, CN 4 +23 |
 
 ## Lanes per timeline operation
 
@@ -827,7 +827,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | AIR-1-runway-circuit-splashdown | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | - | - | LIVE-PROVEN 2026-11-16 |
-| AIR-2-runway-circuit-ksc-ghost | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | rewind-to-launch, warp | LeafVesselPlacement | NEVER FLOWN; re-shaped 2026-11-16 to fly... |
+| AIR-2-runway-circuit-ksc-ghost | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | rewind-to-launch, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
 | AIR-3-plane-drone-midair-collision | operator | gs1-two-stage-pad | air3_drone_intercept | Kerbin | rewind-to-launch, warp, scene-change | - | NEVER FLOWN, tag pending-flight |
 
 ### AJ (1)
@@ -920,7 +920,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| BOAT-1-mallard-water-taxi | operator | mallard-splashed | boat1_water_taxi | Kerbin | rewind-to-launch, save, warp | LeafVesselPlacement | NEVER FLOWN, tag pending-flight |
+| BOAT-1-mallard-water-taxi | operator | mallard-splashed | boat1_water_taxi | Kerbin | rewind-to-launch, save, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
 
 ### CA (1)
 
@@ -1194,7 +1194,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | H56-route-dock-capture-landed | nightly | rover-route-recorded | seam | - | - | RouteDockCapture | LIVE-PROVEN 2026-09-02 |
 | H57-route-start-docked-origin-landed | nightly | rover-route-recorded | seam | - | - | RouteStartDockedOrigin | LIVE-PROVEN 2026-09-02 |
 | H58-route-rewind-to-launch | nightly | rover-route-recorded | seam | - | rewind-to-launch, save, time-jump | - | LIVE-PROVEN 2026-09-02 |
-| H59-surface-route-map-lines | operator | rover-route-recorded | seam | - | reload, save, warp, time-jump, scene-change | RouteGhostPlacement | SPEC CHANGED 2026-11-16, NOT RE-FLOWN: RO... |
+| H59-surface-route-map-lines | operator | rover-route-recorded | seam | - | reload, save, warp, time-jump, scene-change | RouteGhostPlacement | RE-FLOWN GREEN 2026-11-17 WITH THE ROUTE... |
 | H6-route-rewind-timeline | daily | gloops-airshow | seam | - | - | RouteRewindTimeline | LIVE-PROVEN 2026-07-24 |
 | H60-route-escrow-contention | nightly | logi-cargo-pad | seam | - | - | RouteEscrowContention | LIVE-PROVEN 2026-11-16 |
 | H61-autorecord-isolated | nightly | gs1-two-stage-pad | seam | - | - | AutoRecord | LIVE-PROVEN 2026-09-06 |
@@ -1351,8 +1351,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| LX-1-loop-armed-refly-discard-merge | operator | rover-route-recorded | seam | - | re-fly, revert, reload, save, warp +1 | - | NEVER FLOWN, tag pending-flight |
-| LX-2-career-loop-watch-scene-change-reload | operator | rover-route-recorded-career | seam | - | reload, save, warp, scene-change | - | NEVER FLOWN, tag pending-flight |
+| LX-1-loop-armed-refly-discard-merge | operator | rover-route-recorded | seam | - | re-fly, revert, reload, save, warp +1 | - | LIVE-PROVEN 2026-11-17 |
+| LX-2-career-loop-watch-scene-change-reload | operator | rover-route-recorded-career | seam | - | reload, save, warp, scene-change | - | LIVE-PROVEN 2026-11-17 |
 
 ### M (3)
 
@@ -1723,7 +1723,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | SOI-1-mun-exit-physics-burn | operator | mun-park-kerbalx | soi1_mun_exit_burn | Kerbin, Mun | - | - | LIVE-PROVEN 2026-11-04 |
-| SOI-2-mun-exit-formation-wingman | operator | mun-park-kerbalx | soi1_mun_exit_burn | Kerbin, Mun | - | - | NEVER FLOWN, tag pending-flight |
+| SOI-2-mun-exit-formation-wingman | operator | mun-park-kerbalx | soi1_mun_exit_burn | Kerbin, Mun | - | - | LIVE-PROVEN 2026-11-17 |
 
 ### SS (1)
 
@@ -1824,7 +1824,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V24W-duna-one-warp-stair | operator | duna-one-recorded | m3_loop_arrival_dwell | Kerbin, Duna | - | - | DISCIPLINE-COMPLETE 2026-08-25 ACROSS SIX... |
 | V25M-duna-park-player-loop | nightly | duna-park-recorded | seam | Kerbin, Duna, Sun | time-jump | - | RE-FLOWN 2026-11-12 on the REAIM-PARKING-... |
 | V26T-interbody-route-ts-arrival | operator | interbody-route-recorded | seam | Kerbin, Duna | reload, save, scene-change | - | SPEC CHANGED 2026-11-12, RE-FLOWN GREEN 2... |
-| V27M-rover-route-endpoint-substituted-map-lines | operator | rover-route-recorded | seam | - | reload, save, warp, time-jump, scene-change | RouteGhostPlacement | SPEC CHANGED 2026-11-16, NOT RE-FLOWN: RO... |
+| V27M-rover-route-endpoint-substituted-map-lines | operator | rover-route-recorded | seam | - | reload, save, warp, time-jump, scene-change | RouteGhostPlacement | RE-FLOWN GREEN 2026-11-17 WITH THE ROUTE... |
 | V28M-tylo-player-loop | operator | tylo-orbit-recorded | seam | Jool, Tylo | warp, time-jump | - | LIVE-PROVEN 2026-09-26 |
 | V29M-bop-player-loop | operator | bop-orbit-recorded | seam | Jool, Bop | warp, time-jump | - | LIVE-PROVEN 2026-09-26 |
 | V30M-pol-player-loop | operator | pol-orbit-recorded | seam | Jool, Pol | warp, time-jump | - | LIVE-PROVEN 2026-09-26 |
