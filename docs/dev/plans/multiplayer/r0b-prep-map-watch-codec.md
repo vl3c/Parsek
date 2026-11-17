@@ -320,6 +320,18 @@ section 9), and any change to what is written to disk.
 - **Size:** S. **Depends on:** P3-01, P2a-07 (order: same partial class, E.3.8). **PC:** no
   (the in-game test is re-run with P3-04).
 - **Risk:** low; same object, same calls, proven by the unchanged suite.
+- **As built (2026-11-17):** as specified. `GhostMapVessels.ResetForTesting` clears the set and
+  zeroes the depth; `GhostMapPresence.ResetForTesting` calls it in place of its two old lines,
+  and `ResetBetweenTestRuns` keeps its `ghostMapVesselPids.Clear()` through the forwarder (a
+  call on the same instance, not a static write). `GhostMapVesselsTests` holds 8 cells (same
+  instance, register / unregister and count, the test seam, nesting and the zero floor, the
+  presence entry points on the same depth, both resets, no log line). Pins: `lifetime_pins.toml`
+  drops the two `GhostMapPresence` keys; `layer_pins.toml` renames seven pairs
+  (`BackgroundRecorder`, `ChainTipStaleVessel`, `FlightRecorder`, `CrewReservationManager`,
+  `KerbalRosterFacade`, `GameStateRecorder`, `RecoveryDispatchScope` reached `GhostMapPresence`
+  only through the moved members, so the semantic graph's forwarder rule now lands them on
+  `GhostMapVessels`) with every count unchanged; `facts_pins.toml` unchanged (55 cross-type
+  static writes, 374 unreached, before and after).
 
 **P3-03 Owner record and a teardown that leaves other lanes' pids alone**
 - **Change:** in `GhostMapVessels.cs`, `internal readonly struct GhostMapVesselOwner` with two

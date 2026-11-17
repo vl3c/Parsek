@@ -10,7 +10,7 @@
 # someone re-pins, so re-pin in the PR that lowers a count, and raise one only for a
 # deliberate change the PR explains.
 # 52 backward module pairs, 440 type pairs.
-# Pinned from Parsek.dll 2026-11-15
+# Pinned from Parsek.dll 2026-11-17
 
 [[backward]]
 edge = "Rewind -> Controllers"
@@ -298,7 +298,7 @@ edge = "Recording -> Ghost"
 layers = "model -> features"
 count = 21
 pairs = [
-    "BackgroundRecorder -> GhostMapPresence",
+    "BackgroundRecorder -> GhostMapVessels",
     "ChainTipRouteCargo -> ChainLink",
     "ChainTipRouteCargo -> GhostChain",
     "ChainTipRouteCargo -> GhostChainWalker",
@@ -307,12 +307,12 @@ pairs = [
     "ChainTipStaleVessel -> ChainLink",
     "ChainTipStaleVessel -> GhostChain",
     "ChainTipStaleVessel -> GhostChainWalker",
-    "ChainTipStaleVessel -> GhostMapPresence",
+    "ChainTipStaleVessel -> GhostMapVessels",
     "ChainTipStaleVessel -> GhostPlaybackLogic",
     "ChainTipStaleVessel -> PlaybackScopeTracker",
     "DebrisRelativeRecorderPolicy -> DebrisRelativeCoveragePrimitives",
     "FlightRecorder -> GhostFairingStructureStamp",
-    "FlightRecorder -> GhostMapPresence",
+    "FlightRecorder -> GhostMapVessels",
     "RecordingEndpointResolver -> GhostExtender",
     "RecordingOptimizer -> GhostPlaybackLogic",
     "RecordingOptimizer -> GhostingTriggerClassifier",
@@ -611,8 +611,8 @@ edge = "Crew -> Ghost"
 layers = "model -> features"
 count = 2
 pairs = [
-    "CrewReservationManager -> GhostMapPresence",
-    "KerbalRosterFacade -> GhostMapPresence",
+    "CrewReservationManager -> GhostMapVessels",
+    "KerbalRosterFacade -> GhostMapVessels",
 ]
 
 [[backward]]
@@ -638,8 +638,8 @@ edge = "GameActions -> Ghost"
 layers = "model -> features"
 count = 2
 pairs = [
-    "GameStateRecorder -> GhostMapPresence",
-    "RecoveryDispatchScope -> GhostMapPresence",
+    "GameStateRecorder -> GhostMapVessels",
+    "RecoveryDispatchScope -> GhostMapVessels",
 ]
 
 [[backward]]

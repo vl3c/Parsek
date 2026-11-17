@@ -7,7 +7,7 @@
 # `bound`; a swap inside the bound passes, and slack after a fall is not enforced until
 # a re-pin, so re-pin in the PR that lowers a count and raise one only for a change
 # the PR explains.
-# Pinned from Parsek.dll 2026-11-14
+# Pinned from Parsek.dll 2026-11-17
 
 [untagged]
 keys = [
@@ -77,7 +77,6 @@ keys = [
     "Parsek.GhostMapPresence::ghostIconDrivePropagation",
     "Parsek.GhostMapPresence::ghostLastAppliedOrbitBody",
     "Parsek.GhostMapPresence::ghostLastAppliedOrbitElements",
-    "Parsek.GhostMapPresence::ghostMapVesselPids",
     "Parsek.GhostMapPresence::ghostNamesAppliedVersion",
     "Parsek.GhostMapPresence::ghostNoBoundsSuppressLastFrame",
     "Parsek.GhostMapPresence::ghostOrbitBounds",
@@ -85,7 +84,6 @@ keys = [
     "Parsek.GhostMapPresence::ghostOrbitLoopShiftedPids",
     "Parsek.GhostMapPresence::ghostParkingConicLineHoldUntilUT",
     "Parsek.GhostMapPresence::ghostTargetRequestSequence",
-    "Parsek.GhostMapPresence::ghostTeardownDepth",
     "Parsek.GhostMapPresence::ghostsWithSuppressedIcon",
     "Parsek.GhostMapPresence::lastFlightMapLifecycleUT",
     "Parsek.GhostMapPresence::lastKnownByChainPid",
