@@ -733,13 +733,17 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   `DeserializeTrajectorySidecar` does. `TrySummarizeExistingTrajectorySidecar`
   (`:1300-1352`) calls it with `quietProbe: true` and reads counts and the section-authoritative
   fact from the payload (list-level `HasTrackSectionPayloadMatchingFlatTrajectory` from
-  P6-02), keeping its `SuppressLogging` scope and the same non-monotonic Warn with the
-  caller's recording id. `LoadTrajectorySidecarForTesting` keeps its name and body (the
-  analyzer and 7 test files call it). Uncalled-method ratchet (A1): the entry's first
+  P6-02), and the same non-monotonic Warn with the caller's recording id (corrected
+  2026-11-17: the plan said "keeping its `SuppressLogging` scope"; the scope only silenced
+  `Read`'s Verbose read summary and heal line, which `Decode` does not write, and wrapping
+  the entry in it would also silence the probe's unsupported-sidecar Warns, so it goes).
+  `LoadTrajectorySidecarForTesting` keeps its name and body (the analyzer and 7 test
+  files call it). Uncalled-method ratchet (A1): the entry's first
   production caller is `TrySummarizeExistingTrajectorySidecar`, in this pull request
-  (reached from the save path at `RecordingSidecarStore.cs:1233`), so it does not wait for
-  R3W-04, which is its second caller.
-- **Proof:** the shrink-diagnostic tests in `RecordingStorageRoundTripTests` /
+  (reached from the save path through `TryBuildTrajectoryShrinkageWarningForSave`, called by
+  `SaveRecordingFiles`), so it does not wait for R3W-04, which is its second caller.
+- **Proof:** the shrink-diagnostic tests in `RecordingSidecarStoreUnitTests` (corrected
+  2026-11-17: `RecordingStorageRoundTripTests` has none) /
   `Bug585FollowupSaveSkipTests`; new xUnit cases for the entry (missing file, magic
   mismatch, unsupported version, a FormatGolden file, a truncated file); P6-01 manifest
   unchanged; a log-capture case that a save's shrink diagnostic writes the same lines.
@@ -748,6 +752,36 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   consumes it).
 - **Size:** S. **Depends on:** P6-04. **PC:** no.
 - **Risk:** low; the summary feeds one diagnostic Warn on save, nothing written.
+- **As built:** `TryLoadTrajectoryPayloadFromPath` sets `payload = null`, returns false on a
+  failed probe or an unsupported one (before any decode), throws `InvalidOperationException`
+  on a supported probe of another encoding (unreachable today: a supported probe is always
+  `BinaryV0`), decodes into a fresh payload and writes no line of its own (the decode logs
+  nothing; the probe keeps its Warns). The summary calls it with `quietProbe: true`, writes
+  `LogDroppedNonMonotonic` with the id a cold load into the caller would carry (the caller's,
+  or the sidecar's when the caller has none, as `Read` stamped the scratch recording), then
+  computes the section-authoritative fact with the list-level predicate under the same id
+  (so its rate-limited slow-check Warn keys as before). Lines: unchanged. New
+  `TrajectoryPayloadFromPathTests`: eleven characterization cells committed first and green
+  on the unchanged code (clean, dropping, dropping below the threshold, no caller id,
+  `SuppressLogging`, section-authoritative, healed, unsupported version, foreign magic,
+  truncated payload, a full save up to its shrink Warn; each pins every Parsek line exactly),
+  then seven entry cells (missing / empty / null path, truncated header, foreign magic,
+  unsupported version with and without `quietProbe`, every FormatGolden `.prec` equal to what
+  `LoadTrajectorySidecarForTesting` reads, a dropping file whose Warn is left to the caller,
+  a truncated payload throwing `EndOfStreamException`). Mutants, each restored: the Warn given
+  the sidecar's id, the entry accepting an unsupported probe, the summary counting points
+  before the drop, a loud probe, the entry writing the Warn itself all red named cells; the
+  summary reading the file's flag instead of the predicate survives, because nothing reads the
+  existing side's `SectionAuthoritative` (the warning prints the incoming side's), so that
+  value is computed only to keep the slow-check line as it was. The existing shrink tests
+  red on none of these mutants. P6-01 manifest unchanged. Registers: `facts_pins.toml`
+  re-pinned, `crossTypeStaticWrites` 55 -> 54 (`RecordingStore::SuppressLogging` is no longer
+  written by `RecordingSidecarStore`, its last production writer outside its type); 374
+  unreached before and after (the entry is reached through the save path);
+  `RecordingOptimizer::MergeInto`, which the tool still proposes for the watch band, is left
+  out as before. `layers.py` and `lifetimes.py` moved nothing. Design 15.5 left alone: this
+  section says it "can" name the entry, not that this task edits it; R3W-04 is the natural
+  place.
 
 ## 5. Parallel tracks
 

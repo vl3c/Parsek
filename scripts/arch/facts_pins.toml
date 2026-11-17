@@ -12,7 +12,7 @@
 # Pinned from Parsek.dll 2026-11-17
 
 [crossTypeStaticWrites]
-bound = 55
+bound = 54
 keys = [
     "Parsek.DockEventGraph::SuppressLogging",
     "Parsek.FlagPickUp::PendingFlagPid",
@@ -47,7 +47,6 @@ keys = [
     "Parsek.Recording::OnTerminalStamped",
     "Parsek.RecordingStore::RewindUTAdjustmentPending",
     "Parsek.RecordingStore::RewindUTAdjustmentTargetUT",
-    "Parsek.RecordingStore::SuppressLogging",
     "Parsek.RewindInvokeContext::CapturedBundle",
     "Parsek.RewindInvokeContext::HasCapturedBundle",
     "Parsek.RewindInvokeContext::Pending",
