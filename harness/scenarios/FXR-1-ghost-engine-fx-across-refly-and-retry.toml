@@ -45,20 +45,20 @@ id = "FXR-1-ghost-engine-fx-across-refly-and-retry"
 #       time: flight 1 read the merge at UT 128.88, the save at 128.94 and the load
 #       complete at 129.84, so s3 re-enters FLIGHT still inside the Kerbal X FIRST Poodle
 #       burn (119.58-136.02) with the ghost about 0.9 km from the Probe (1.4 km at 132.8,
-#       read off flight 1's GhostRenderTrace positions). A 1x WarpToUT to UT 132 and the
+#       read off flight 1's GhostRenderTrace positions). A 1x WarpToUT to UT 133 and the
 #       batch judge that burn after a cold scene rebuild with the merge's rows (the merge
 #       inserted the retried attempt into the committed list).
 #       WHY NOT THE SECOND BURN (236.36-313.38, the spec as first authored): engine FX
-#       draw only in the full-fidelity zone, within 5 km of the active vessel
+#       draw only in the full-fidelity zone, within 10 km of the active vessel
 #       (`RenderingZone.Physics`, `DistanceThresholds.GhostFlight.FullFidelityRangeMeters`);
-#       5-120 km is the Visual zone, a silhouette with no FX. Flight 1 warped to 240,
+#       10-120 km is the Visual zone, a silhouette with no FX (flight 1 crossed it at dist=10004m). Flight 1 warped to 240,
 #       where the ghost was 30.5 km out (`Zone transition: ... Physics->Visual
 #       dist=30468m`, `FX suppressed: ghost #10 ... anchorDist=30468m`), and the engine
 #       cell read `ok=30 bad=0 lit=0 dark=0 fxHidden=30`: the power matched, the plume
 #       was correctly not drawn, and nothing was left to judge it lit.
 #       WHAT s3 CAN JUDGE: the engine cell over a lit burn after the merge and a cold
 #       scene load, ownership after that load, and the inactive set with the merge's
-#       rows. Both superseded branches are in window at UT 132, so both MeshSpawned
+#       rows. Both superseded branches are in window at UT 133, so both MeshSpawned
 #       forbids are live in s3 too: TIP (118.40-139.32) and the Probe recording
 #       `6abe5ea7` (to 325.75; it would replay beside the real Probe if the supersede
 #       were lost).
@@ -128,7 +128,7 @@ id = "FXR-1-ghost-engine-fx-across-refly-and-retry"
 # window. The first reading run replaces each with its measured value.
 # =====================================================================================
 tier = "operator"
-description = "Ghost engine FX across a Re-Fly, a stock revert inside it and the merge (todo item 7, audit B8): re-fly the open Probe slot of refly-split-crewed-merged with the committed Kerbal X re-fly as the live ghost, warp at 1x into its Poodle burn and run GhostFxIntegrity; Retry from Rewind Point and run it again; merge, fly the Probe back in from the Space Center (SaveGame + LoadGame focusPid), still inside the same burn, warp at 1x to UT 132 and run it a third time. Pins the ignition apply line per session, the Poodle FX fingerprint equal across the revert, the plume lit while the recording burns, every FX system owned once, and no ghost of the superseded TIP or the re-flown Probe."
+description = "Ghost engine FX across a Re-Fly, a stock revert inside it and the merge (todo item 7, audit B8): re-fly the open Probe slot of refly-split-crewed-merged with the committed Kerbal X re-fly as the live ghost, warp at 1x into its Poodle burn and run GhostFxIntegrity; Retry from Rewind Point and run it again; merge, fly the Probe back in from the Space Center (SaveGame + LoadGame focusPid), still inside the same burn, warp at 1x to UT 133 and run it a third time. Pins the ignition apply line per session, the Poodle FX fingerprint equal across the revert, the plume lit while the recording burns, every FX system owned once, and no ghost of the superseded TIP or the re-flown Probe."
 instanceProfile = "stock-minimal"
 tags = ["FXR-1", "rewind", "refly", "revert", "merge", "ghost", "engine-fx",
         "fx-fingerprint", "render-tracing", "runtime-handles", "kerbin", "sandbox",
@@ -173,10 +173,11 @@ steps = [
   # AST-4's re-entry: save at the Space Center, load it flying the Probe.
   { cmd = "SaveGame",          args = { name = "fxr1-s3" },                              expect = "OK" },
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "fxr1-s3", focusPid = "1081074492" }, expect = "OK", budget = 300 },
-  # 1x to UT 132, still inside the FIRST Poodle burn (119.58-136.02) with the ghost
-  # inside the 5 km FX zone. Flight 1 read the load complete at UT 129.84, so 132 is
-  # ahead of it by ~2 s and the batch (~1 s of game time) ends before the cut-off.
-  { cmd = "WarpToUT",          args = { ut = "132", maxRate = "1" },                     expect = "OK", budget = 120 },
+  # 1x to UT 133, still inside the FIRST Poodle burn (119.58-136.02) with the ghost
+  # inside the 10 km FX zone. Flight 1 received WarpToUT at about UT 130.06, so 133
+  # leaves ~3 s of lead (a target not ahead is refused) and the batch (~1 s of game
+  # time) still ends before the cut-off.
+  { cmd = "WarpToUT",          args = { ut = "133", maxRate = "1" },                     expect = "OK", budget = 120 },
   { cmd = "RunTests",          args = { category = "GhostFxIntegrity" },                 expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                                expect = "OK" },
 ]
@@ -215,7 +216,7 @@ required = [
   "savegame name=fxr1-s3 folder=\\S+ saved=true",
   "loadgame focus pid=1081074492 idx=[0-9]+ name='[^']+' saveActiveVesselIdx=[0-9]+",
   "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?loadgame complete scene=FLIGHT save=\\S+ game-loaded=true",
-  "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?warptout complete reachedUT=[0-9.]+ ut=132 ",
+  "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?warptout complete reachedUT=[0-9.]+ ut=133 ",
   # ---- THE BATCHES: three, each in its own session -------------------------------
   "\\A(?:[\\s\\S]*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostFxIntegrity scene=FLIGHT){3}",
   "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostFxIntegrity scene=FLIGHT",
@@ -254,7 +255,7 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   # THE SUPERSEDED BRANCH IS GONE: TIP never gets a ghost (in window in every session),
   # and neither does the Probe (the vessel being re-flown in s1 / s2, superseded by the
-  # merge and in window at s3's UT 132).
+  # merge and in window at s3's UT 133).
   "phase=MeshSpawned rec=\\S+ recId=2e31fb1e46d34f8b92aacb9cff38507d ",
   "phase=MeshSpawned rec=\\S+ recId=6abe5ea7a1f14ec5a2666bd15d3f7352 ",
   # A Poodle fingerprint after the revert that differs from one before it.

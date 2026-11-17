@@ -2355,14 +2355,14 @@ in parallel in the cloud):
    half flown green 2026-11-17 (`2026-11-17_1402`, PASS attempt 1, 516 s: the three FX tokens
    matched). FXR-1's first flight `2026-11-17_1415` red on two spec errors only (the WarpToUT
    reached-UT pins, and a third session at UT 240 where the ghost is 30 km out and draws no FX
-   by design); re-pinned 2026-11-17 to `ut=<target>` pins and a third session at UT 132 inside
+   by design); re-pinned 2026-11-17 to `ut=<target>` pins and a third session at UT 133 inside
    the first burn. Re-flight of FXR-1 owed.)
    Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
    T48, has never been re-run). FXR-1 re-flies the open Probe slot of `refly-split-crewed-merged`
    with the committed Kerbal X re-fly as the live ghost, Retries from the Rewind Point (the stock
    revert inside a Re-Fly) and merges, running `GhostFxIntegrity` after each (the merge leaves
    FLIGHT, so the third run flies the Probe back in from the Space Center with SaveGame + LoadGame
-   `focusPid`, still inside the first Poodle burn, and warps at 1x to UT 132): engine power equals
+   `focusPid`, still inside the first Poodle burn, and warps at 1x to UT 133): engine power equals
    the recording's consumed part events and the plume is lit exactly when it is above zero; every
    FX system is alive, under its own ghost and owned once, with no unowned ghost root; no ghost of
    a superseded or retired recording. Per session it pins the Poodle's ignition apply line and its
