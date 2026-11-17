@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## KSC-END-SPAWN-SKIPS-OFF-KERBIN: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. OPEN; medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
+## ~~KSC-END-SPAWN-SKIPS-OFF-KERBIN~~: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. FIXED 2026-11-17, branch `kscspawn`; xUnit; re-flights owed (LAY-1 goes green, the lanes below confirm nothing new spawns); medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
 
 What happened. LAY-1 landed the crewed Duna Rocket's pod on Laythe and committed it
 (`CommitTreeFlight terminal: rec=ba455ab6a039477ab19b9b362b1d4240 terminalState=Splashed
@@ -69,6 +69,60 @@ past an off-Kerbin end (FAR-1's DD1, which the fixture already holds, must be ad
 duplicated; V20K's Jool -> Kerbin recording stays deferred by #171; the moon loop lanes), add
 xUnit cells over the split predicate (`IsKscStructurallyEligible` is `internal static`) and
 re-fly them with LAY-1.
+
+Fix: `ParsekKSC.ClassifyKscStructuralRoute` splits the old `IsKscStructurallyEligible` into
+a draw half and a spawn half: `Render` (two or more points, first point on Kerbin; the old
+predicate, now `IsKscDrawEligible`), `SpawnOnly` (two or more points, first point off Kerbin;
+the spawn half is every route but `Skip`) and `Skip` (null or fewer than two points: no ghost, no spawn, the #433
+premise kept for the case it fits). A `SpawnOnly` recording is never drawn (ghosts and overlap
+ghosts torn down, `ShouldShowInKSC` and the init `eligible` count unchanged) and goes through
+`RunKscSpawnOnlyPaths`, which makes the calls the render branches would make past the end
+(pure `DecideKscSpawnOnlyAction`): a loop-driven recording (its own LoopPlayback or a Mission
+loop-unit member) through `TryLoopFirstRunSpawnKsc`, any other once past its end unless
+historical (BUG-B) through `TrySpawnAtRecordingEnd`, the #433 detour's rule. No new spawn rule:
+every refusal (chain mid-segment, non-leaf, debris, branch > 0, superseded / retired (checked
+before the split), already spawned, Destroyed / Recovered terminals, the per-scene attempt
+latch) stays in `ShouldSpawnAtKscEnd` / `ShouldSpawnAtRecordingEnd`, which have no body rule,
+and the #171 Orbiting / Docked deferral keeps every far-body orbit to the flight scene. One
+gap closed on the way, because the split widens it to every far-body leaf: an UN-FINALIZED
+recording (no terminal state) whose snapshot is ORBITING passed the #171 check, which reads
+only the terminal; `ShouldSpawnAtKscEnd` now defers it too (`IsUnfinalizedOrbitalSnapshot`,
+the same situation mirror `ShouldSpawnAtRecordingEnd` already applies), so the Space Center
+never loads an orbiting ProtoVessel; the Tracking Station and flight still spawn it. Logging:
+one `[KSCSpawn] KSC structural pass: drawable=N spawnOnly=M ... skipped=K ...` Verbose line per
+change of the split (VerboseOnChange, never per frame), one `Spawn-only past-end: attempting
+spawn for #i ... reason=off-kerbin firstBody=<body>` line per recording per scene, the ghost
+teardown line now names the reason, and the existing `Spawn not needed ...: <reason>` /
+`Loop first-run spawn:` / `Attempting spawn for` lines follow. xUnit:
+`KscOffKerbinSpawnSplitTests` (both halves both ways, too-few-points on either body, the spawn
+predicate for an off-Kerbin Splashed / Destroyed / Orbiting / null-terminal ORBITING /
+non-leaf / debris / ghost-only / spawned recording, the action table, the once-per-recording
+line, the pass summary); `PlaybackEnabledScopeTests` / `SyntheticRecordingTests` renamed to
+`IsKscDrawEligible`.
+
+Mirror check (every reader of the old combined predicate): `ShouldShowInKSC` (the init count
+and breakdown, `KscGhostPlaybackTests` / `KscSpawnTests` / `LaunchSiteOnlyGhostTests`) keeps the
+draw half, so V20K's pinned `1 committed recordings, 0 eligible` and `ineligible(Orbiting=1)`
+hold; `ParsekKSC.Update` was the one other caller. Not readers of it, unchanged: the KSC
+auto-loop queue (`RebuildAutoLoopLaunchScheduleCache`) and the Mission loop-unit build
+(`DriveMissionLoopUnits`) already walked every recording; the per-point / per-segment Kerbin
+gates in `ParsekKSC.Playback.cs` serve only the render branches a `SpawnOnly` recording never
+enters; the Tracking Station handoff (`ShouldSpawnAtTrackingStationEnd`) and its map presence
+(`GhostMapPresence`) never read it; flight's `ShouldSpawnAtRecordingEnd` has no body rule.
+Fixture scan (every committed `harness/fixtures/saves/*/persistent.sfs`, recordings with
+`startBodyName` off Kerbin): every spawnable off-Kerbin leaf already carries a `spawnedPid`
+(duna-one, duna-park, duna-ike(-career) 9e2f5bfa, kerbin-return) and every other one is a chain
+mid-segment, a non-leaf or has no `_vessel.craft`, so no committed fixture starts spawning at
+the Space Center on load.
+
+Re-fly with the fix: LAY-1 (the gate below; goes green). Confirmation lanes, which cross the
+Space Center past the end of an off-Kerbin recording and must read unchanged: FAR-1 (R and the
+fixture leaf are Orbiting Ike, so DD1 is deferred, neither duplicated nor re-spawned:
+`compared=1 ... duplicate=0 ... bodies=[Ike]`), FAR-2 (the Duna leaves are already spawned,
+`compared=3 ... duplicate=0`), V20K (the Jool recording is spawned and Orbiting, so no spawn;
+`0 eligible` and the breakdown hold), EVA-10 (its Mun members at the Space Center
+after `ExitToSpaceCenter` are historical, so none spawns there), and the moon continuation loop
+lanes that boot at the Space Center on off-Kerbin continuations: V31M-V39M and V31T-V33T.
 
 Gate. LAY-1 keeps `LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]*
 bad=0 ... bodies=[...Laythe...]` and `BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* ...

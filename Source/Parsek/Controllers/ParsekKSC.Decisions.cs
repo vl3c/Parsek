@@ -120,6 +120,76 @@ namespace Parsek
             return string.Join(",", ids.ToArray());
         }
 
+        /// <summary>
+        /// Per-Update tally of <see cref="ClassifyKscStructuralRoute"/> over the recordings
+        /// that reached the structural check (timeline-inactive ones never do).
+        /// </summary>
+        internal struct KscStructuralPassCounts
+        {
+            internal int Render;
+            internal int SpawnOnly;
+            internal int Skip;
+
+            internal int Total => Render + SpawnOnly + Skip;
+
+            internal void Count(KscStructuralRoute route)
+            {
+                switch (route)
+                {
+                    case KscStructuralRoute.Render: Render++; break;
+                    case KscStructuralRoute.SpawnOnly: SpawnOnly++; break;
+                    default: Skip++; break;
+                }
+            }
+
+            internal string StateKey()
+            {
+                return Render.ToString(CultureInfo.InvariantCulture) + "|"
+                    + SpawnOnly.ToString(CultureInfo.InvariantCulture) + "|"
+                    + Skip.ToString(CultureInfo.InvariantCulture);
+            }
+        }
+
+        internal static string FormatKscStructuralPassSummary(KscStructuralPassCounts counts)
+        {
+            return "KSC structural pass: drawable=" + counts.Render.ToString(CultureInfo.InvariantCulture)
+                + " spawnOnly=" + counts.SpawnOnly.ToString(CultureInfo.InvariantCulture)
+                + " (off Kerbin: no KSC ghost, end spawn still decided)"
+                + " skipped=" + counts.Skip.ToString(CultureInfo.InvariantCulture)
+                + " (fewer than 2 points: no ghost, no spawn)";
+        }
+
+        /// <summary>
+        /// Once per recording per scene: the Space Center is about to run the past-end spawn
+        /// for a recording it cannot draw. Returns true when the line was written.
+        /// </summary>
+        internal static bool LogKscSpawnOnlyAttemptOnce(
+            Recording rec,
+            int recIdx,
+            string drawRejectReason,
+            ISet<string> loggedKeys)
+        {
+            string reason = string.IsNullOrEmpty(drawRejectReason)
+                ? KscStructuralReasonOffKerbin
+                : drawRejectReason;
+            string id = !string.IsNullOrEmpty(rec?.RecordingId)
+                ? rec.RecordingId
+                : "idx:" + recIdx.ToString(CultureInfo.InvariantCulture);
+            string key = "spawn-only|" + reason + "|" + id;
+            if (loggedKeys != null && !loggedKeys.Add(key))
+                return false;
+
+            string firstBody = rec?.Points != null && rec.Points.Count > 0
+                ? rec.Points[0].bodyName ?? "(null)"
+                : "(none)";
+            ParsekLog.Verbose("KSCSpawn",
+                "Spawn-only past-end: attempting spawn for #" + recIdx.ToString(CultureInfo.InvariantCulture)
+                + " \"" + (rec?.VesselName ?? "(null)") + "\" id=" + (rec?.RecordingId ?? "(null)")
+                + " reason=" + reason + " firstBody=" + firstBody
+                + " (no KSC ghost; the end spawn is decided as in any scene)");
+            return true;
+        }
+
         internal static bool LogPlaybackDisabledPastEndSpawnAttemptOnce(
             Recording rec,
             int recIdx,

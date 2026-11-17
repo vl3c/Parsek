@@ -10266,7 +10266,7 @@ namespace Parsek.Tests
 
             Recording rec = MaterializeSpawnSafetyRecording(
                 RescanSubstituteRecording(), RescanSubstituteRecordingId);
-            Assert.True(ParsekKSC.IsKscStructurallyEligible(rec));
+            Assert.True(ParsekKSC.IsKscDrawEligible(rec));
             Assert.Equal(RescanSubstituteStartUT, rec.StartUT, 6);
             Assert.Equal(RescanSubstituteEndUT, rec.EndUT, 6);
             // The boot UT sits before the start (the replay-scope latch), and the window

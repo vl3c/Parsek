@@ -921,10 +921,34 @@ namespace Parsek
             // Scene-agnostic #573 rewind lift: a standalone Rewind-to-Launch target the
             // player did not re-fly (no live same-craft vessel present) still spawns its
             // recorded terminal at KSC, identical to Flight and the Tracking Station.
-            return ShouldSpawnAtRecordingEnd(
+            var result = ShouldSpawnAtRecordingEnd(
                 rec, false,
                 treeContext: null,
                 ResolveRewindSuppressionLiveLaunchPresence(rec));
+
+            // The #171 deferral for an un-finalized recording: with no terminal state the
+            // snapshot's own situation is what the finalize path would have decided (the
+            // same mirror ShouldSpawnAtRecordingEnd applies), so an ORBITING snapshot defers
+            // to the flight scene like an Orbiting terminal. Read after the spawn decision,
+            // which re-hydrates the snapshot.
+            if (result.needsSpawn && IsUnfinalizedOrbitalSnapshot(rec))
+                return (false, "orbital vessel deferred to flight scene "
+                    + "(unfinalized, snapshot situation maps to terminal Orbiting)");
+            return result;
+        }
+
+        /// <summary>
+        /// True when the recording has no terminal state and its vessel snapshot's situation
+        /// maps to <see cref="TerminalState.Orbiting"/> through
+        /// <see cref="TryMapSituationNameToTerminalState"/>.
+        /// </summary>
+        internal static bool IsUnfinalizedOrbitalSnapshot(Recording rec)
+        {
+            return rec != null
+                && !rec.TerminalStateValue.HasValue
+                && rec.VesselSnapshot != null
+                && TryMapSituationNameToTerminalState(rec.VesselSnapshot.GetValue("sit"), out TerminalState mirrored)
+                && mirrored == TerminalState.Orbiting;
         }
 
         /// <summary>
