@@ -6,10 +6,12 @@ namespace Parsek
     /// <summary>
     /// [ERS-exempt] The own-timeline <see cref="IPlaybackCatalog"/>: answers
     /// from <see cref="RecordingStore"/> and <see cref="PendingTreeSlot"/>.
-    /// Anchor and loop resolution look up an exact recording id, and ERS
-    /// filtering would hide NotCommitted active Re-Fly attempts, which are
-    /// valid focus or anchor records during the session; so the flat-list
-    /// fallback reads the raw committed list, as the sites it serves did.
+    /// Anchor and loop resolution and the flight positioner's tail-lift plan
+    /// look up an exact recording id, and ERS filtering would hide
+    /// NotCommitted active Re-Fly attempts, which are valid focus or anchor
+    /// records during the session; so the flat-list fallback and the
+    /// committed-list scope read the raw committed list, as the sites they
+    /// serve did.
     /// Each variant is a verbatim copy of the lookup it replaced (search
     /// order, match rule, null handling) and logs nothing, because the
     /// lookups run per ghost per frame. Stateless: <see cref="Own"/> is the

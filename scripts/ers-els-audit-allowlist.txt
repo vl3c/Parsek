@@ -168,12 +168,6 @@ Source/Parsek/Controllers/ParsekFlight.BlockedChainTipGhost.cs
 # recording id and to walk the spawn / proximity candidates by slot, the same index-keyed
 # exemption as ParsekFlight.cs; it decides no visibility.
 Source/Parsek/Controllers/ParsekFlightSpawnHost.cs
-# ParsekFlight's IGhostPositioner, lifted out of the positioning partials with its bodies
-# verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF2) and cut into partial files by group. Its one
-# raw read sits in the tail-lift file: ResolveRecordingById walks the committed list to find
-# the recording a preview's tail lift names by id, outside the active playback scope (a
-# lookup by identity, not a visibility decision). The other positioner files read none.
-Source/Parsek/Controllers/ParsekFlightGhostPositioner.TailLift.cs
 # ParsekFlight's timeline playback host, lifted out of the playback partials with its bodies
 # verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF4); it builds the engine's per-frame trajectory
 # list and flags over the committed list by INDEX (the engine's index-keyed slots), the same
@@ -531,7 +525,9 @@ Source/Parsek/Missions/VesselIdentity.cs
 Source/Parsek/Missions/VesselNameStore.cs
 
 # RecordingPlaybackCatalog is the own-timeline IPlaybackCatalog: playback
-# looks a recording up by exact id for anchor and loop resolution, and its
+# looks a recording up by exact id for anchor and loop resolution and for the
+# flight positioner's tail-lift plan (a lookup by identity, outside the active
+# playback scope, not a visibility decision), and its
 # flat-list fallback and committed-list scope read the raw committed list
 # because ERS would hide a NotCommitted active Re-Fly attempt, a valid focus
 # or anchor record during the session (the reason the sites it replaces

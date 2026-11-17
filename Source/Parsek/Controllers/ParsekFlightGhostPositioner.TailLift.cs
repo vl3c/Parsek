@@ -9,26 +9,21 @@ namespace Parsek
     {
         /// <summary>
         /// Resolves a recording by id without driving the active scene's
-        /// playback context. Walks <see cref="RecordingStore.CommittedRecordings"/>
-        /// directly so the preview-source tail-lift resolver can locate a
-        /// recording outside the active playback scope.
+        /// playback context: the catalog's flat committed list, so the
+        /// preview-source tail-lift resolver can locate a recording outside
+        /// the active playback scope. A null catalog reads
+        /// <see cref="RecordingPlaybackCatalog.Own"/>.
         /// </summary>
-        private static Recording ResolveRecordingById(string recordingId)
+        internal static Recording ResolveRecordingById(
+            string recordingId, IPlaybackCatalog catalog = null)
         {
             if (string.IsNullOrEmpty(recordingId)) return null;
             try
             {
-                IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
-                if (committed != null)
-                {
-                    for (int i = 0; i < committed.Count; i++)
-                    {
-                        Recording r = committed[i];
-                        if (r == null) continue;
-                        if (string.Equals(r.RecordingId, recordingId, StringComparison.Ordinal))
-                            return r;
-                    }
-                }
+                Recording found;
+                if ((catalog ?? RecordingPlaybackCatalog.Own).TryFindRecording(
+                        recordingId, CatalogRecordingScope.CommittedListOnly, out found))
+                    return found;
             }
             catch
             {
@@ -37,9 +32,10 @@ namespace Parsek
             return null;
         }
 
-        private static Recording ResolveRecordingForTailLift(string recordingId)
+        private static Recording ResolveRecordingForTailLift(
+            string recordingId, IPlaybackCatalog catalog = null)
         {
-            Recording committed = ResolveRecordingById(recordingId);
+            Recording committed = ResolveRecordingById(recordingId, catalog);
             if (committed != null) return committed;
 
             Recording preview = ParsekFlight.s_previewRecordingForTailLift;
@@ -52,8 +48,15 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// The tail-lift plan of recording <paramref name="recordingId"/> on
+        /// <paramref name="body"/>, looked up through <paramref name="catalog"/>
+        /// (null reads <see cref="RecordingPlaybackCatalog.Own"/>). The plan
+        /// caches are keyed by recording id only, so they are shared by every
+        /// catalog.
+        /// </summary>
         internal static TerrainCorrector.TailLiftPlan ResolveTailLiftPlan(
-            string recordingId, CelestialBody body)
+            string recordingId, CelestialBody body, IPlaybackCatalog catalog = null)
         {
             if (string.IsNullOrEmpty(recordingId))
                 return TerrainCorrector.TailLiftPlan.Inactive;
@@ -71,7 +74,7 @@ namespace Parsek
                 return TerrainCorrector.TailLiftPlan.Inactive;
             }
 
-            Recording rec = ResolveRecordingForTailLift(recordingId);
+            Recording rec = ResolveRecordingForTailLift(recordingId, catalog);
             if (rec == null || rec.Points == null || rec.Points.Count == 0)
             {
                 string reason = ResolveTailLiftInactiveReason(rec, body, double.NaN);

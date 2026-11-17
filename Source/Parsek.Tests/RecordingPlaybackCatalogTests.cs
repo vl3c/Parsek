@@ -647,6 +647,31 @@ namespace Parsek.Tests
             }
         }
 
+        [Theory]
+        [MemberData(nameof(Fixtures))]
+        public void Sweep_TailLiftLookup_MatchesTheRemovedCommittedListWalk(int fixture)
+        {
+            // L7 through the catalog (P2a-04): the production lookup, with a
+            // null catalog and with Own, against the walk it replaced.
+            string name = BuildFixture(fixture);
+            foreach (string id in ProbeRecordingIds)
+            {
+                Recording expected = LegacyResolveRecordingById(id);
+                Recording viaDefault = ParsekFlightGhostPositioner.ResolveRecordingById(id);
+                Recording viaOwn = ParsekFlightGhostPositioner.ResolveRecordingById(
+                    id, RecordingPlaybackCatalog.Own);
+                Assert.True(ReferenceEquals(expected, viaDefault),
+                    $"fixture={name} id='{id}' legacy={Describe(expected)} default={Describe(viaDefault)}");
+                Assert.True(ReferenceEquals(expected, viaOwn),
+                    $"fixture={name} id='{id}' legacy={Describe(expected)} own={Describe(viaOwn)}");
+            }
+        }
+
+        private static string Describe(Recording rec)
+        {
+            return rec == null ? "null" : rec.RecordingId + "@" + rec.TreeId;
+        }
+
         // ==================================================================
         // Equivalence sweep: the replaced resolver lookups vs the catalog
         // ==================================================================
@@ -663,7 +688,7 @@ namespace Parsek.Tests
                 yield return new object[] { i };
         }
 
-        private const int FixtureCount = 14;
+        private const int FixtureCount = 16;
 
         [Theory]
         [MemberData(nameof(Fixtures))]
@@ -813,6 +838,18 @@ namespace Parsek.Tests
                     RecordingStore.AddCommittedTreeForTesting(Tree("", Rec("r2", "")));
                     PendingTreeSlot.StashPendingTree(Tree("", Rec("r1", "")));
                     return "blank-tree-ids";
+                case 14:
+                    RecordingStore.AddCommittedTreeForTesting(Tree("A", Rec("r1", "A")));
+                    RecordingStore.AddCommittedInternal(Rec("r1", "L1"));
+                    RecordingStore.AddCommittedInternal(null);
+                    RecordingStore.AddCommittedInternal(Rec("r1", "L2"));
+                    RecordingStore.AddCommittedInternal(Rec("r9", "X"));
+                    return "duplicate-id-in-flat-list";
+                case 15:
+                    RecordingStore.AddCommittedInternal(Rec("R1", "X"));
+                    RecordingStore.AddCommittedInternal(Rec("r9 ", "X"));
+                    RecordingStore.AddCommittedInternal(Rec("r1", "L"));
+                    return "case-and-space-variants-before-the-match";
                 default:
                     throw new ArgumentOutOfRangeException(nameof(fixture));
             }
@@ -959,9 +996,10 @@ namespace Parsek.Tests
             return false;
         }
 
-        // Oracle: ParsekFlightGhostPositioner.ResolveRecordingById (L7), copied
-        // verbatim. L8 is RecordingStore.TryFindCommittedRecordingById itself,
-        // which the sweep calls directly.
+        // Oracle: ParsekFlightGhostPositioner.ResolveRecordingById (L7) before
+        // it called the catalog, copied verbatim. L8 is
+        // RecordingStore.TryFindCommittedRecordingById itself, which the sweep
+        // calls directly.
         private static Recording LegacyResolveRecordingById(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return null;
