@@ -459,6 +459,24 @@ section 9), and any change to what is written to disk.
   change).
 - **Size:** S. **Depends on:** P3-03. **PC:** no.
 - **Risk:** low; dead in single player, covered by unit cases.
+- **As built (2026-11-17):** as specified. `GhostMapVessels.TryGetForeignOwner` sits after
+  `UnregisterAllOwnTimeline` (the test seam `TryGetForeignOwnerForTesting` is left as it was).
+  The shared branch is `ForeignLaneGhostRefusal.TryRefuse(pid, site)` in
+  `Patches/GhostVesselLoadPatch.cs` (query plus the one Verbose line; site tokens `icon-click`,
+  `vessel-switch`, `ts-select`; a null recording id prints `(none)`), and each site has its own
+  `internal static ShouldRefuseForeignLaneGhost(uint)` decider: `GhostIconClickPatch` (asked after
+  the left-click filter, so a right-click on any ghost still reaches stock's pin-text; a foreign
+  left-click returns false, so neither menu opens), `GhostVesselSwitchPatch` (asked right after the
+  ghost guard, before `FindRecordingIndexByVesselPid`; returns false, no ScreenMessage, no watch
+  request) and `GhostTrackingStationSelection` (asked in `SelectGhost` after the null check;
+  returns with the current selection untouched; its five callers keep their own refusal text,
+  which R3W-19 revisits). The plan's `:526` anchor named the chain-ghost ScreenMessage; the branch
+  sits before the recording lookup above it. `design-gui-inventory.md` checked: it counts the
+  ghost click refusals (section 3.14) but lists no conditions of the "will materialize" message, so
+  it is unchanged. xUnit: `GhostVesselLoadPatchTests` +6 (icon click and switch, foreign / own /
+  non-ghost, the decision following the owner record, the query itself),
+  `GhostTrackingStationPatchTests` +2. Pins unchanged (55 cross-type static writes, 374 unreached;
+  lifetimes and layers green with no re-pin).
 
 ### P3b: the lane-qualified watch target (deferred)
 
@@ -627,6 +645,19 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   (`SidecarEpoch`, `ProbeRecordingId`, read by P6-05 and R3W-04) adds no method; `Decode` and
   `OverListsOf` are called by `Read`, which every committed recording load reaches. The
   payload has one constructor (no arguments), called by `OverListsOf`.
+  As built: the payload's lists start as empty lists, so a fresh payload is ready to decode
+  into, and `OverListsOf` swaps in the recording's six instances. The stats struct
+  `RecordingTrajectoryDecodeStats` replaces the private `SparsePointReadStats` (the readers
+  fill its sparse counts by `ref`) and adds `HealedFlatFallback`, the pre-heal counts, the
+  two deduped-copy counts and `DroppedNonMonotonicPoints`. Because `Decode` runs the
+  non-monotonic drop before `Read` logs, every count today's lines printed before the drop
+  is recomputed as `Points.Count + DroppedNonMonotonicPoints`: the `postPoints=` and
+  `rebuiltPoints=` fields, and the heal line's `points=`, so `ApplyFlatFallbackHealSideEffects`
+  gained a third parameter `healedPointCount` (the `Recording` heal overload passes
+  `rec.Points.Count`). The manifest cannot see this: a mutation that printed the post-drop
+  count left all 566 rows green (no committed fixture both drops and logs differently), so
+  `RecordingTrajectoryPayloadTests` pins the three lines on synthetic files, including an
+  orbit-only heal over non-monotonic points.
 - **Proof:** P6-01 manifest unchanged (this is the step the log digest exists for); new
   xUnit `RecordingTrajectoryPayloadTests`: for every FormatGolden `.prec`, `Decode` into a
   fresh payload equals what `Read` put into a `Recording`; list identity kept (the
@@ -637,7 +668,11 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   real save shows as an INV10 finding.
 - **Registers:** facts and layers re-pin; `CLAUDE.md` only if the key-file list names the
   codec (it does not today); no save format change, no golden folder, no `SaveFormat.cs`
-  step.
+  step. As built: no re-pin. After a Debug build, `layers.py --write-pins` moved only its
+  date line (52 backward module pairs, 440 type pairs) and `ilanalysis.py --write-pins` its
+  date line plus `RecordingOptimizer::MergeInto` in the complexity watch band, a method this
+  task does not touch (374 unreached, as on the base; the suite is green without it), so
+  neither file changed.
 - **Size:** M. **Depends on:** P6-02. **PC:** no; the analyzer pass rides on whatever lanes
   are flown next.
 - **Risk:** medium; every committed recording loads through this path, so an ordering slip
@@ -647,8 +682,10 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
 **P6-04 `TryValidatePayload` decodes without a `Recording`**
 - **Change:** `TrajectorySidecarBinary.TryValidatePayload` (`TrajectorySidecarBinary.cs:180-200`)
   decodes into a scratch payload instead of `new Recording()`. It keeps the unconditional Warn for
-  dropped non-monotonic points (today `Read` emits it with the probe's id because the scratch
-  recording's id is empty) through one shared `LogDroppedNonMonotonic(string id, int n)`
+  dropped non-monotonic points (corrected 2026-11-17: before P6-04 that Warn carried the scratch
+  recording's own random id, because `new Recording()` initializes `RecordingId` to a fresh
+  GUID and `Read` stamps the probe's id only over an empty one; P6-04 gives it the probe's id)
+  through one shared `LogDroppedNonMonotonic(string id, int n)`
   helper that `Read` uses too. Uncalled-method ratchet (A1): both new call paths are
   production (`LogDroppedNonMonotonic` from `Read` and `TryValidatePayload`; `Decode`'s
   second caller is `TryValidatePayload`, called in production at
@@ -659,6 +696,34 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
 - **Registers:** facts re-pin (`Decode` now has a second production caller).
 - **Size:** S. **Depends on:** P6-03. **PC:** no.
 - **Risk:** low; the only output of this path is a bool and a reason string.
+- **As built:** `TryValidatePayload` decodes into `new RecordingTrajectoryPayload()` and then
+  calls `LogDroppedNonMonotonic(probe.RecordingId, Stats.DroppedNonMonotonicPoints)`; `Read`
+  calls the same helper with `rec.RecordingId` where it wrote the Warn inline. The helper is
+  `internal` (P6-05's summary calls it with the caller's id), returns at a count of 0, and
+  ignores `RecordingStore.SuppressLogging` as the inline Warn did. Return value, failure
+  reasons and exception classification are unchanged: the code `Read` ran after `Decode` on
+  the scratch recording (list assignment, field stamps, string formatting) could not throw.
+  Log change, for the one production caller `AreRecordingFilesCurrentAtPaths` (the save gate,
+  run up to twice per recording per `OnSave`): a validation no longer writes the Verbose
+  `ReadBinaryTrajectoryFile: recording=<random> ...` summary nor, for a sidecar the read-path
+  heal applies to, the Verbose `TryHealMalformedFlatFallbackTrajectory: recording=<random>
+  healed in memory only ... sidecarEpoch=0` line; its drop Warn now names the recording
+  (the probe's id, which the gate has already matched to the caller's) instead of a random
+  id. Every load-side line is unchanged: the cold load and every other caller reach `Read`,
+  not `TryValidatePayload`. The two harness specs that pin `ReadBinaryTrajectoryFile` (`QR-1`,
+  `ST-4`) pin the cold-load line by recording id and rebuilt-point count, which a validation
+  never printed (it logged a random id). The P6-01 manifest reads through
+  `TryProbeTrajectorySidecar` + `DeserializeTrajectorySidecar` and passes with the manifest
+  file untouched. `RecordingTrajectoryPayloadTests` pins the new lines on synthetic files
+  (flat, section-authoritative and heal shapes, each with one dropped point: exactly the
+  Warn with the probe's id; a clean file: no line; the Warn under `SuppressLogging` on both
+  paths; the save gate end to end: current, one Warn with the recording's id); run against
+  the P6-03 head the six new cells red with the random id and the extra Verbose lines.
+  Registers: no re-pin. `Decode` was already reached through `Read`, so a second caller moves
+  nothing: after a Debug build `ilanalysis.py --write-pins` changed only its date line plus
+  `RecordingOptimizer::MergeInto` in the complexity watch band (as on the P6-03 head; this
+  task does not touch it), 374 unreached as before, and `layers.py --write-pins` only its date
+  line, so neither file changed.
 
 **P6-05 A production entry to load a trajectory from a given path**
 - **Change:** `RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(string path, bool
@@ -668,13 +733,17 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   `DeserializeTrajectorySidecar` does. `TrySummarizeExistingTrajectorySidecar`
   (`:1300-1352`) calls it with `quietProbe: true` and reads counts and the section-authoritative
   fact from the payload (list-level `HasTrackSectionPayloadMatchingFlatTrajectory` from
-  P6-02), keeping its `SuppressLogging` scope and the same non-monotonic Warn with the
-  caller's recording id. `LoadTrajectorySidecarForTesting` keeps its name and body (the
-  analyzer and 7 test files call it). Uncalled-method ratchet (A1): the entry's first
+  P6-02), and the same non-monotonic Warn with the caller's recording id (corrected
+  2026-11-17: the plan said "keeping its `SuppressLogging` scope"; the scope only silenced
+  `Read`'s Verbose read summary and heal line, which `Decode` does not write, and wrapping
+  the entry in it would also silence the probe's unsupported-sidecar Warns, so it goes).
+  `LoadTrajectorySidecarForTesting` keeps its name and body (the analyzer and 7 test
+  files call it). Uncalled-method ratchet (A1): the entry's first
   production caller is `TrySummarizeExistingTrajectorySidecar`, in this pull request
-  (reached from the save path at `RecordingSidecarStore.cs:1233`), so it does not wait for
-  R3W-04, which is its second caller.
-- **Proof:** the shrink-diagnostic tests in `RecordingStorageRoundTripTests` /
+  (reached from the save path through `TryBuildTrajectoryShrinkageWarningForSave`, called by
+  `SaveRecordingFiles`), so it does not wait for R3W-04, which is its second caller.
+- **Proof:** the shrink-diagnostic tests in `RecordingSidecarStoreUnitTests` (corrected
+  2026-11-17: `RecordingStorageRoundTripTests` has none) /
   `Bug585FollowupSaveSkipTests`; new xUnit cases for the entry (missing file, magic
   mismatch, unsupported version, a FormatGolden file, a truncated file); P6-01 manifest
   unchanged; a log-capture case that a save's shrink diagnostic writes the same lines.
@@ -683,6 +752,36 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   consumes it).
 - **Size:** S. **Depends on:** P6-04. **PC:** no.
 - **Risk:** low; the summary feeds one diagnostic Warn on save, nothing written.
+- **As built:** `TryLoadTrajectoryPayloadFromPath` sets `payload = null`, returns false on a
+  failed probe or an unsupported one (before any decode), throws `InvalidOperationException`
+  on a supported probe of another encoding (unreachable today: a supported probe is always
+  `BinaryV0`), decodes into a fresh payload and writes no line of its own (the decode logs
+  nothing; the probe keeps its Warns). The summary calls it with `quietProbe: true`, writes
+  `LogDroppedNonMonotonic` with the id a cold load into the caller would carry (the caller's,
+  or the sidecar's when the caller has none, as `Read` stamped the scratch recording), then
+  computes the section-authoritative fact with the list-level predicate under the same id
+  (so its rate-limited slow-check Warn keys as before). Lines: unchanged. New
+  `TrajectoryPayloadFromPathTests`: eleven characterization cells committed first and green
+  on the unchanged code (clean, dropping, dropping below the threshold, no caller id,
+  `SuppressLogging`, section-authoritative, healed, unsupported version, foreign magic,
+  truncated payload, a full save up to its shrink Warn; each pins every Parsek line exactly),
+  then seven entry cells (missing / empty / null path, truncated header, foreign magic,
+  unsupported version with and without `quietProbe`, every FormatGolden `.prec` equal to what
+  `LoadTrajectorySidecarForTesting` reads, a dropping file whose Warn is left to the caller,
+  a truncated payload throwing `EndOfStreamException`). Mutants, each restored: the Warn given
+  the sidecar's id, the entry accepting an unsupported probe, the summary counting points
+  before the drop, a loud probe, the entry writing the Warn itself all red named cells; the
+  summary reading the file's flag instead of the predicate survives, because nothing reads the
+  existing side's `SectionAuthoritative` (the warning prints the incoming side's), so that
+  value is computed only to keep the slow-check line as it was. The existing shrink tests
+  red on none of these mutants. P6-01 manifest unchanged. Registers: `facts_pins.toml`
+  re-pinned, `crossTypeStaticWrites` 55 -> 54 (`RecordingStore::SuppressLogging` is no longer
+  written by `RecordingSidecarStore`, its last production writer outside its type); 374
+  unreached before and after (the entry is reached through the save path);
+  `RecordingOptimizer::MergeInto`, which the tool still proposes for the watch band, is left
+  out as before. `layers.py` and `lifetimes.py` moved nothing. Design 15.5 left alone: this
+  section says it "can" name the entry, not that this task edits it; R3W-04 is the natural
+  place.
 
 ## 5. Parallel tracks
 

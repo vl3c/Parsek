@@ -103,6 +103,17 @@ namespace Parsek
             Pids.IntersectWith(foreignOwners.Keys);
         }
 
+        /// <summary>
+        /// Whose ghost is <paramref name="pid"/>: true with the owner when a foreign lane owns
+        /// it; false for an own-timeline ghost map pid and for any pid that is not a ghost map
+        /// vessel. Never true in single player. The ghost click patch sites ask this before
+        /// their own-timeline path.
+        /// </summary>
+        internal static bool TryGetForeignOwner(uint pid, out GhostMapVesselOwner owner)
+        {
+            return foreignOwners.TryGetValue(pid, out owner);
+        }
+
         /// <summary>Test seam: registers <paramref name="pid"/> under a foreign lane's owner.</summary>
         internal static void RegisterForeignForTesting(uint pid, string laneId, string recordingId)
         {

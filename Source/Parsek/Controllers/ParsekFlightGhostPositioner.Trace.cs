@@ -131,8 +131,10 @@ namespace Parsek
                 && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
             {
                 CelestialBody body = FindBodyByNameOrNull(FlightGlobals.Bodies, beforeFrame.Value.bodyName);
-                Recording parentRec = RecordingStore.TryFindCommittedRecordingById(
-                    traj.ParentAnchorRecordingId);
+                catalog.TryFindRecording(
+                    traj.ParentAnchorRecordingId,
+                    CatalogRecordingScope.CommittedListOnly,
+                    out Recording parentRec);
                 if (body != null
                     && parentRec != null
                     && parentRec.TrackSections != null)

@@ -145,9 +145,11 @@ Callers that thread a catalog:
   `GhostPlaybackLogic.IsWatchProtectedRecording` (`GhostPlaybackLogic.cs:691-721`). That is a
   watch-protection query over the own list, not a by-id lookup; P2b-08 handles it.
 - `scripts/ers-els-audit-allowlist.txt` lists `GhostMapPresence.StateVectors.cs`,
-  `ParsekFlight.GhostPositioner.cs`, `RecordedRelativeAnchorPoseResolver.cs`,
+  `ParsekFlight.GhostPositioner.cs`, `RecordedRelativeAnchorPoseResolver.cs` (dropped by
+  P2a-03: no raw read left after P2a-05),
   `ParsekFlightPlaybackHost.cs` and, of the twelve positioner files, only
-  `ParsekFlightGhostPositioner.TailLift.cs` (L7's raw read); the allowlist says the other
+  `ParsekFlightGhostPositioner.TailLift.cs` (L7's raw read; dropped by P2a-04, which moved it
+  into the catalog); the allowlist says the other
   positioner files read none. L2 reads `CommittedTrees`, which the gate's pattern
   (`.CommittedRecordings`, `Ledger.Actions`) does not match. A P2a or P2b edit that writes
   `.CommittedRecordings` in any other positioner file reds `GrepAuditTests`. The gate has no
@@ -476,10 +478,15 @@ The port as specified:
   (`ParsekFlightGhostPositioner.RelativeAnchor.cs:200`) becomes an instance
   call of `catalog.TryFindTreeHolding(id, CommittedFirstContainsKey, ...)`; the diagnostic at
   `ParsekFlightGhostPositioner.Trace.cs:134` uses `TryFindRecording(id, CommittedListOnly, ...)`.
-  `BuildFlightRelativeAnchorResolverContext` (`ParsekFlight.TimelinePlayback.cs:553`) takes an
-  `IPlaybackCatalog` parameter and reads `PendingTree` from it; its two callers (positioner
-  `ParsekFlightGhostPositioner.RelativeAnchor.cs:123`, `ParsekFlightPlaybackHost.cs:2367`) pass the
-  own catalog. L7 is P2a-04.
+  `BuildFlightRelativeAnchorResolverContext` (`ParsekFlight.TimelinePlayback.cs:553`) takes a
+  trailing required `IPlaybackCatalog` parameter and reads `PendingTree` from it; the positioner
+  (`ParsekFlightGhostPositioner.RelativeAnchor.cs:123`) passes its own `catalog` field and
+  `ParsekFlightPlaybackHost.cs:2367` passes `RecordingPlaybackCatalog.Own` (P2b-09 swaps it for
+  `host.Lane.Catalog`). `TryFindRelativeAnchorFocusTree` stays a one-line instance method (the
+  fake-catalog cell calls it); `ResolveRecordingById` (L7) is untouched and is P2a-04's. As
+  built: the ERS allowlist entry for `RecordedRelativeAnchorPoseResolver.cs` is dropped here
+  (P2a-05 moved its last raw read into the catalog); `RelativeAnchor.cs` and `Trace.cs` were
+  never listed (L2 and L8 do not match the gate's pattern).
 - **Proof:** `RelativeAnchorResolutionTests`, `RecordedRelativeAnchorResolver*` tests,
   `GrepAuditNonLoopLivePidTests` green; a test that `TryFindRelativeAnchorFocusTree` sees a tree
   only the fake catalog holds. In-game `Pipeline-Anchor`, `PlaybackFidelity`; lanes H11, LT-1,
@@ -503,6 +510,15 @@ The port as specified:
 - **Registers:** none.
 - **Size:** S. **Depends on:** P2a-03 (same positioner constructor). **PC:** in-game, lane S1.4.
 - **Risk:** low.
+- **As built:** `ResolveRecordingById` became `internal static` with its own trailing optional
+  catalog (null reads `Own`), so the old-versus-new sweep in `RecordingPlaybackCatalogTests`
+  drives the production lookup; the sweep's fixtures grew to 16 (a duplicate id in the flat list,
+  and case or space variants of the id ahead of the match). The tail-lift file's ERS allowlist
+  entry is dropped (its one raw read moved into the catalog), and the `[ERS-exempt]` comments of
+  `RecordingPlaybackCatalog.cs` and its allowlist entry now name the tail-lift lookup. The plan
+  caches stay keyed by recording id alone, so a plan cached through one catalog answers every
+  catalog; a miss is transient and never cached. The fake-catalog cells and a source gate on the
+  positioner's three calls sit in `Rendering/FlightRecorderTerrainTests`.
 
 **P2a-05 RecordedRelativeAnchorPoseResolver through the catalog (L3, L5, L9, P2)**
 
@@ -544,6 +560,11 @@ The port as specified:
 - **Registers:** layer pins: Rendering -> Recording is forward; none move.
 - **Size:** S. **Depends on:** P2a-05. **PC:** in-game, lanes S1.6, S1.7, H44.
 - **Risk:** low.
+- **As built (2026-11-16):** the resolver already had two constructors (a public parameterless
+  one for the two production sites and an internal modelled-world one that tests use); the
+  catalog is the trailing optional parameter of the internal one, which the parameterless one
+  chains to, so there is still one constructor that takes a catalog and no overload was added.
+  The context builder's own null-or-empty id guard stays in front of the lookup.
 
 **P2a-07 Map state vectors through the catalog (L6)**
 

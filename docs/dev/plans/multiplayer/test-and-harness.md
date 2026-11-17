@@ -513,6 +513,8 @@ writes `testGame = False`.
   renumbers if main adds a dimension first) with value `stock-sites`;
   `autotest-status.md` row; `INTERIM_PIN_IDS` not needed (no batch).
 - **Size:** M. **Depends on:** nothing. **PC:** yes (one flight of RACE-0).
+- **Flown:** RACE-0's first flight, `2026-11-17_0035`, PASS attempt 1 (46 s); the lane is
+  re-pinned from its KSP.log (count=11: three KSC facility points, eight Making History sites).
 - **Risk:** low; read-only.
 
 ### T-08 Race grep gates: shared scanner and "no store in the rules"
@@ -953,7 +955,9 @@ the B2 shape (B2 has 1 PASS in 11 index rows and needs a pad craft a created rac
 
 ### T-34 Lane RACE-13-paired-copies (optional; a spec on T-54)
 
-Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its first spec.
+Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its first race spec
+(corrected 2026-11-17: T-54 shipped its own plumbing pair, PAIR-1a / PAIR-1b, as the first
+paired spec).
 
 - **Change:** operator lane, a `[pair]` of two specs (roles A and B) on two `stock-tree` slot
   copies sharing `automation/rs/<run>/<group>/` (T-54): both start in race overlays of one
@@ -1338,11 +1342,76 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   shared folder; a partner that ends or times out reads `INVALID(partner-lost)` on the
   survivor, flake-exempt and listed apart from the machine refusals. No new lock.
 - **Proof:** `parallel` and hlib cells (both-or-neither, barrier order, partner lost); one
-  paired flight on the owner's PC (T-34 is its first spec).
+  paired flight on the owner's PC (corrected 2026-11-17: the pair PAIR-1a / PAIR-1b below is
+  its first spec, since T-34 waits on T-21 and T-30).
 - **Registers:** `harness/README.md` parallel runs; harness-core verdict subkinds.
 - **Size:** M. **Depends on:** T-03, T-06. **PC:** lanes (one pair).
 - **Risk:** medium; pairing is new to the runner, and the second `stock-tree` copy needs
   `provision.py --profile stock-tree --copy 2` once.
+- **As built (2026-11-17, branch `mp/t-54-paired-lanes`):** where the plan left a choice
+  open, the rule taken is the one that can never report PASS for a pair whose partner did
+  not run.
+  - Selection: selecting a half adds its partner (`parallel.complete_pairs`); a broken pair
+    (no partner, two of one role, a profile / tier / barrier / shared-folder mismatch) or an
+    exclusive half refuses the whole selection (exit 2); a profile with fewer than two
+    provisioned copies refuses the run (exit 2, naming `provision.py --copy 2`).
+  - Every paired spec carries at least one barrier and `[retry] policy = "none"` (a retry
+    would fly one half alone); barrier timeouts are 1..3600 s and under `budgetSeconds`;
+    both halves name the same barriers in the same order (`hlib.validate_pair_block`,
+    `hlib.pair_problems`).
+  - Dispatch: the pair is one ordering unit (its longer half's p50, A then B) and reserves
+    the dispatch while it waits for two free slots, so single lanes cannot starve it. With
+    `slots` below 2 it never starts and the run ends red with lanes left unflown
+    (`set-slots 2`, then `resume`). The memory guard charges both copies
+    (`memory_holds(new_copies=2)`; with nothing running, the first half is free as any
+    first lane is). A pair held by memory with nothing running does not reserve the
+    dispatch: later lanes start, and when nothing else can start the run ends with the pair
+    pending (see the second follow-up below).
+  - Barrier files: `<name>.<role>.arrived` and `<role>.ended`, the latter written by run.py
+    when its drive is over, when it skips a barrier or when a harness step fails, and by the
+    runner as a backstop when a child exits. A partner's arrival wins over its ended marker.
+  - Verdicts: `partner-lost` is terminal, not retried, flake-exempt and kept in its own tuple
+    `hlib.PAIR_INVALID_SUBKINDS`. A paired lane flown without `--pair-dir` (a serial
+    `run.py`) is refused pre-boot `INVALID(partner-lost)`. The runner's `parallel.pair_guard`
+    rewrites a green half to `INVALID` (attempts=1, note `partner-lost: partner X left ...`)
+    when its partner left no verdict (NO-REPORT, NOT-RUN or no line). `resume` re-flies both
+    halves when either is unsettled, unless one already settled red (a finding is never
+    re-flown away).
+  - Children never wipe the shared folder (staging only checks it is exactly
+    `<umbrella>/automation/rs/<run>/<group>/` with no link on the way); `${raceShared}` and
+    the `results/<runId>_race/` snapshot resolve to it.
+  - The first spec is a plumbing pair, not T-34: `PAIR-1a-shared-folder-handshake` (A) and
+    `PAIR-1b-shared-folder-handshake` (B), operator, stock-minimal, `fresh-career`, no `race`
+    tag (no Parsek race feature). A copies the committed `fixtures/race/pair-handshake` token
+    into the shared folder, B appends to it (refused `INVALID(harness-step)` unless the
+    folder really is shared), with barriers `placed` and `edited`. Never flown yet.
+  - Tests: `harness/lib/test_pairs.py` (pure cells, run.py barrier steps over real folders,
+    full no-game runner runs through `_fake_parallel_child.py`).
+  - Follow-up (2026-11-17, the PC run and the review): the child folds the spec's group id
+    with the same `os.path.normcase` as the paths (Windows lower-cased them and refused
+    every upper-case group, PAIR-1 included); at each pair dispatch the runner writes a
+    NOT-RUN `pair-dispatched` line for both halves before either starts, so a runner death
+    between the two reports can never leave an earlier flight's PASS settling the pair; a
+    half that gives a barrier up writes `<name>.<role>.gaveup`, which a late partner reads
+    as lost even though the arrival file is still there; barrier names and group ids are
+    refused when they differ only in case; the memory guard reads memory before a pair
+    starts from idle, so its second copy is charged; `run.py --dry-run` prints a `[PAIR   ]`
+    line. The linked-shared-folder refusal is tested with a symlink on Linux only; its
+    Windows twin (a junction made with `mklink /J`, `test_a_junction_shared_folder_is_refused_at_staging`)
+    is committed but has not yet been run (it skips off Windows).
+  - Second follow-up (2026-11-17, review of the first): the idle memory read could hang the
+    runner (a pair held by memory with nothing running reserved the dispatch forever and
+    starved unpaired lanes); such a pair is now passed over, and when nothing else can start
+    the run ends DONE with the pair pending and the memory arithmetic named. A
+    pair-dispatched line counts as pending but neither as a verdict nor red, so a stop
+    honoured by both halves reads STOPPED and `status` shows a flying half as running.
+  - Third follow-up (2026-11-17, review of the second): the idle judgement read a memory
+    value cached while the last lane still ran, so the run could end with the pair unflown,
+    or pass it over after every finish and starve it. The runner now clears its memory
+    cache at every reap, and the pass-over / DONE needs a reading taken at least
+    `IDLE_SETTLE_SECONDS` (10 s) after the last finish; until then the pair keeps the
+    dispatch, and the runner re-reads once the settle has passed (bounded). A reading older
+    than the last start never admits another start.
 
 ### T-55 Race integration variants (lanes RCI-1 to RCI-9)
 
