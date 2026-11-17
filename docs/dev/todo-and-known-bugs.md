@@ -2073,8 +2073,25 @@ in parallel in the cloud):
    the Tracking Station, returns to flight and F5 / F9s while watching: each scene change ends
    the watch, each scene and the Cold reload rebuild the unit with the arm-time phase, and the
    ledger oracle reads the template pools unchanged. Close the item after both fly green.
-7. [ ] Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
-   T48, has never been re-run).
+7. [ ] (AUTHORED 2026-11-16, never flown: FLIGHT in-game category `GhostFxIntegrity` and lane
+   `FXR-1-ghost-engine-fx-across-refly-and-retry`, plus three cycle-2 FX tokens on GS-9; one
+   reading run of FXR-1 and the next GS-9 flight owed.)
+   Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
+   T48, has never been re-run). FXR-1 re-flies the open Probe slot of `refly-split-crewed-merged`
+   with the committed Kerbal X re-fly as the live ghost, Retries from the Rewind Point (the stock
+   revert inside a Re-Fly) and merges, running `GhostFxIntegrity` after each (the merge leaves
+   FLIGHT, so the third run flies the Probe back in from the Space Center with SaveGame + LoadGame
+   `focusPid` and warps into the Poodle's second burn at UT 240): engine power equals
+   the recording's consumed part events and the plume is lit exactly when it is above zero; every
+   FX system is alive, under its own ghost and owned once, with no unowned ghost root; no ghost of
+   a superseded or retired recording. Per session it pins the Poodle's ignition apply line and its
+   FX fingerprint equal across the revert, and forbids any ghost of the superseded TIP or the
+   re-flown Probe. The engine-fx start witness is not gated (wall-clock rate limit, hidden
+   prime); the cell's `lit=` count is. The Rewind-to-Launch half rides GS-9's two-cycle flight (fingerprint equal
+   across the cycles, the replayed ignition and its witness). A second Re-Fly on the same host is
+   not possible: the merge closes the point's last open slot. T48 is a separate stock-vs-modded
+   A/B with no spec and no pins (nothing is stale); re-running it needs a spec that injects the
+   `part-showcase` preset on the modded-compat profile, which this item does not need.
 8. [x] ~~A load-time optimizer pass over a route WITH source recording refs, asserting the route
    does not flip to SourceChanged (audit C8, xUnit).~~ Done 2026-11-14: `RouteSourceOptimizerTests`
    went red (the pass merged, split and trimmed route sources) and found
@@ -2481,7 +2498,9 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   its line is (only the SLM lanes read a loop ghost's position).
 - [ ] B7: loops never meet a Re-Fly, a career save or a scene change in watch mode (LX-1 / LX-2
   authored 2026-11-16, never flown; NEXT-TESTS-TO-BUILD-2026-11-11 item 6).
-- [ ] B8: ghost FX across a Re-Fly or a revert has no lane.
+- [ ] B8: ghost FX across a Re-Fly or a revert has no lane. Authored 2026-11-16 (never flown):
+  `FXR-1-ghost-engine-fx-across-refly-and-retry` with the `GhostFxIntegrity` category, and three
+  FX tokens on GS-9's second Rewind-to-Launch cycle (item 7).
 - [ ] B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost,
   GhostReapplyFrame, GuiMock, JointBreakCheckCoroutine and TreeRestoreCoroutine: no committed spec
   names any of them). Wired 2026-11-16 (no new lane) except GuiMock: the five FLIGHT categories
