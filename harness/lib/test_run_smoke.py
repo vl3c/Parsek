@@ -181,7 +181,7 @@ class FakeRuntime(run.Runtime):
         for rel, text in self.launch_files.items():
             path = os.path.join(cwd, *rel.split("/"))
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(text)
         if self.render_manifest_text is not None:
             with open(os.path.join(cwd, run.RENDER_MANIFEST_FILENAME),
@@ -8552,7 +8552,7 @@ class RaceSharedFolderStagingSmokeTests(unittest.TestCase):
         for rel, text in self.FIXTURE_FILES.items():
             path = os.path.join(src, *rel.split("/"))
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(text)
         self._orig = (run.RESULTS_DIR, run.RACE_FIXTURES_DIR)
         run.RESULTS_DIR = os.path.join(self.tmp, "results")
@@ -8616,7 +8616,7 @@ class RaceSharedFolderStagingSmokeTests(unittest.TestCase):
     def _plant(self, rel, text="stale\n"):
         path = os.path.join(self.instance, *rel.split("/"))
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
         return path
 
@@ -8943,7 +8943,7 @@ class RaceFolderHarnessStepSmokeTests(unittest.TestCase):
             for rel, text in files.items():
                 path = os.path.join(self.fixtures, name, *rel.split("/"))
                 os.makedirs(os.path.dirname(path), exist_ok=True)
-                with open(path, "w", encoding="utf-8") as fh:
+                with open(path, "w", encoding="utf-8", newline="\n") as fh:
                     fh.write(text)
         # Files a step must never touch: beside the shared folder, in the instance,
         # and outside the instance.
@@ -8964,7 +8964,7 @@ class RaceFolderHarnessStepSmokeTests(unittest.TestCase):
     def _plant_outside(self):
         for path, text in self.outside.items():
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(text)
 
     def _assert_outside_untouched(self):
@@ -9317,7 +9317,7 @@ class RaceParseRowSmokeTests(unittest.TestCase):
         }.items():
             path = os.path.join(self.fixtures, self.FIXTURE, *rel.split("/"))
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(text)
         self._orig = (run.RESULTS_DIR, run.RACE_FIXTURES_DIR)
         run.RESULTS_DIR = os.path.join(self.tmp, "results")
