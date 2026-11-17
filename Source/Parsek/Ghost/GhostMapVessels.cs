@@ -581,6 +581,254 @@ namespace Parsek
                 if (bodies[i].name == bodyName || bodies[i].bodyName == bodyName) return bodies[i];
             return null;
         }
+
+        // ------------------------------------------------------------------
+        // Landed variant
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Builds a LANDED ghost map vessel named <paramref name="vesselName"/> (finished by the
+        /// caller, prefix included) at <paramref name="lat"/> / <paramref name="lon"/> /
+        /// <paramref name="alt"/> on <paramref name="body"/>: the same one-part
+        /// <c>sensorBarometer</c> marker as <see cref="TryLoadGhostProtoVessel"/>, registered
+        /// under <paramref name="owner"/> before <c>ProtoVessel.Load</c>, hardened, with its
+        /// orbit driver identity normalized. It relies on the same guards as the orbit build:
+        /// <c>GhostVesselLoadPatch</c> refuses <c>GoOffRails</c>, so a landed marker inside
+        /// physics range stays packed, and <c>GhostVesselLoadedInertPatch</c> disables its
+        /// colliders when KSP loads its part. Invalid input is refused before anything is built
+        /// (one Warn line). On success <paramref name="load"/> carries the vessel and one Info
+        /// line is written; on failure the ProtoVessel is unregistered and removed.
+        /// </summary>
+        internal static bool BuildLanded(
+            CelestialBody body,
+            double lat,
+            double lon,
+            double alt,
+            string vesselName,
+            VesselType vtype,
+            GhostMapVesselOwner owner,
+            string logContext,
+            out GhostMapVesselLoad load)
+        {
+            load = default(GhostMapVesselLoad);
+            string context = string.IsNullOrEmpty(logContext) ? "(none)" : logContext;
+            string refusal = ClassifyLandedRefusal(
+                !object.ReferenceEquals(body, null), lat, lon, alt, vesselName);
+            if (refusal != null)
+            {
+                ParsekLog.Warn(Tag, string.Format(ic,
+                    "BuildLanded refused: reason={0} name='{1}' body={2} lat={3:R} lon={4:R} alt={5:R} vtype={6} owner={7} for {8}",
+                    refusal, vesselName ?? "(null)", VesselSnapshotOps.DescribeBodyForLog(body),
+                    lat, lon, alt, vtype, DescribeOwner(owner), context));
+                return false;
+            }
+            return BuildLandedCore(body, lat, lon, alt, vesselName, vtype, owner, context, out load);
+        }
+
+        /// <summary>
+        /// Pure input check for <see cref="BuildLanded"/>: null when the inputs can build a
+        /// landed marker, otherwise the refusal token (<c>no-body</c>, <c>no-name</c>,
+        /// <c>lat-invalid</c> for a non-finite latitude or one outside [-90, 90],
+        /// <c>lon-invalid</c>, <c>alt-invalid</c> for a non-finite value), first match wins.
+        /// </summary>
+        internal static string ClassifyLandedRefusal(
+            bool hasBody, double lat, double lon, double alt, string vesselName)
+        {
+            if (!hasBody) return "no-body";
+            if (string.IsNullOrEmpty(vesselName)) return "no-name";
+            if (double.IsNaN(lat) || double.IsInfinity(lat) || lat < -90.0 || lat > 90.0)
+                return "lat-invalid";
+            if (double.IsNaN(lon) || double.IsInfinity(lon)) return "lon-invalid";
+            if (double.IsNaN(alt) || double.IsInfinity(alt)) return "alt-invalid";
+            return null;
+        }
+
+        // The live half of BuildLanded. Kept out of line so a headless caller of the refusal
+        // path never JITs the game types it names (the Release JIT would inline it back).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool BuildLandedCore(
+            CelestialBody body,
+            double lat,
+            double lon,
+            double alt,
+            string vesselName,
+            VesselType vtype,
+            GhostMapVesselOwner owner,
+            string context,
+            out GhostMapVesselLoad load)
+        {
+            load = default(GhostMapVesselLoad);
+            FlightState flightState = HighLogic.CurrentGame != null
+                ? HighLogic.CurrentGame.flightState
+                : null;
+            string bodyLabel = VesselSnapshotOps.DescribeBodyForLog(body);
+            if (flightState == null)
+            {
+                ParsekLog.Warn(Tag, string.Format(ic,
+                    "BuildLanded refused: reason=no-flight-state name='{0}' body={1} owner={2} for {3}",
+                    vesselName, bodyLabel, DescribeOwner(owner), context));
+                return false;
+            }
+            if (!LiveVesselSnapshot.TryResolveBodyIndex(body, out int bodyIndex))
+            {
+                ParsekLog.Warn(Tag, string.Format(ic,
+                    "BuildLanded refused: reason=body-index-unresolved name='{0}' body={1} owner={2} for {3}",
+                    vesselName, bodyLabel, DescribeOwner(owner), context));
+                return false;
+            }
+
+            ProtoVessel pv = null;
+            try
+            {
+                ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);
+                ConfigNode discovery = ProtoVessel.CreateDiscoveryNode(
+                    DiscoveryLevels.Owned, UntrackedObjectClass.C,
+                    double.PositiveInfinity, double.PositiveInfinity);
+                ConfigNode vesselNode = BuildLandedGhostVesselNode(
+                    vesselName, vtype, bodyIndex, lat, lon, alt,
+                    FlightGlobals.GetUniquepersistentId(),
+                    Guid.NewGuid().ToString("N"),
+                    Planetarium.GetUniversalTime(),
+                    partNode, discovery);
+
+                pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
+
+                // Registered before Load: Load fires onVesselCreate, and every guard must see
+                // the pid as a ghost during that cascade.
+                Register(pv.persistentId, owner);
+                flightState.protoVessels.Add(pv);
+                pv.Load(flightState);
+
+                if (pv.vesselRef == null)
+                {
+                    ParsekLog.Error(Tag, string.Format(ic,
+                        "BuildLanded: vesselRef is null after Load for name='{0}' pid={1} body={2} for {3}",
+                        vesselName, pv.persistentId, bodyLabel, context));
+                    RemoveGhostProtoVessel(pv, nullSafeFlightState: false);
+                    return false;
+                }
+
+                Vessel v = pv.vesselRef;
+                HardenGhostVesselPartPhysics(v, context);
+                NormalizeGhostOrbitDriverTargetIdentity(v, context);
+
+                // The vessel's own map icon only: a landed vessel has no orbit to draw, and
+                // apsis markers of the surface placeholder orbit would be meaningless.
+                bool rendererForceEnabled = false;
+                if (v.orbitRenderer != null)
+                {
+                    v.orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
+                    if (!v.orbitRenderer.enabled)
+                    {
+                        rendererForceEnabled = true;
+                        v.orbitRenderer.enabled = true;
+                        ParsekLog.Verbose(Tag, string.Format(ic,
+                            "Force-enabled OrbitRenderer for landed ghost '{0}'", vesselName));
+                    }
+                }
+
+                if (v.vesselType != vtype)
+                {
+                    ParsekLog.Verbose(Tag, string.Format(ic,
+                        "Landed ghost vessel type overridden by KSP: {0} -> {1}, restoring to {0}",
+                        vtype, v.vesselType));
+                    v.vesselType = vtype;
+                }
+
+                string state = string.Format(ic,
+                    "sit={0} landed={1} loaded={2} packed={3} registered={4}",
+                    v.situation, v.Landed, v.loaded, v.packed, IsVesselRegistered(v));
+                load = new GhostMapVesselLoad(v, pv, vtype, vesselName, state, rendererForceEnabled);
+
+                ParsekLog.Info(Tag, string.Format(ic,
+                    "Created landed ghost map vessel: name='{0}' pid={1} body={2} lat={3:R} lon={4:R} alt={5:R} " +
+                    "vtype={6} owner={7} {8} rendererForceEnabled={9} for {10}",
+                    vesselName, v.persistentId, bodyLabel, lat, lon, alt, vtype,
+                    DescribeOwner(owner), state, rendererForceEnabled, context));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (pv != null)
+                    RemoveGhostProtoVessel(pv, nullSafeFlightState: true);
+                ParsekLog.Error(Tag, string.Format(ic,
+                    "BuildLanded failed for name='{0}' body={1} for {2}: {3}",
+                    vesselName, bodyLabel, context, ex.Message));
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure: the VESSEL node of a landed ghost map vessel. The keys are the ones stock
+        /// <c>ProtoVessel.CreateVesselNode</c> writes, set for a vessel resting at
+        /// <paramref name="lat"/> / <paramref name="lon"/> / <paramref name="alt"/>:
+        /// <c>sit</c> LANDED with <c>landed</c> True, the canonical surface ORBIT tuple on
+        /// <paramref name="bodyIndex"/> (<see cref="VesselSnapshotOps.WriteCanonicalSurfaceOrbitValues"/>),
+        /// <c>rot</c> the identity surface-relative rotation (<c>VESSEL.rot</c> loads as
+        /// <c>srfRelRotation</c>; the marker's attitude is never shown), and the orbit build's
+        /// settings: <c>vesselSpawning</c> False, <c>prst</c> True, <c>cln</c> False, plus
+        /// <c>skipGroundPositioning</c> True so KSP never moves the marker onto terrain. Every
+        /// number is written with the invariant culture. <paramref name="vesselName"/> is
+        /// written as given.
+        /// </summary>
+        internal static ConfigNode BuildLandedGhostVesselNode(
+            string vesselName,
+            VesselType vtype,
+            int bodyIndex,
+            double lat,
+            double lon,
+            double alt,
+            uint persistentId,
+            string launchGuid,
+            double ut,
+            ConfigNode partNode,
+            ConfigNode discoveryNode)
+        {
+            var node = new ConfigNode("VESSEL");
+            node.AddValue("pid", launchGuid ?? string.Empty);
+            node.AddValue("name", vesselName ?? string.Empty);
+            node.AddValue("type", vtype.ToString());
+            node.AddValue("persistentId", persistentId.ToString(ic));
+            node.AddValue("sit", "LANDED");
+            node.AddValue("landed", "True");
+            node.AddValue("skipGroundPositioning", "True");
+            node.AddValue("vesselSpawning", "False");
+            node.AddValue("landedAt", string.Empty);
+            node.AddValue("splashed", "False");
+            node.AddValue("alt", alt.ToString("R", ic));
+            node.AddValue("lat", lat.ToString("R", ic));
+            node.AddValue("lon", lon.ToString("R", ic));
+            node.AddValue("hgt", "-1");
+            node.AddValue("nrm", "0,1,0");
+            node.AddValue("rot", "0,0,0,1");
+            node.AddValue("met", "0");
+            node.AddValue("lct", ut.ToString("R", ic));
+            node.AddValue("root", "0");
+            node.AddValue("PQSMin", "0");
+            node.AddValue("PQSMax", "0");
+            node.AddValue("altDispState", "DEFAULT");
+            node.AddValue("prst", "True");
+            node.AddValue("cln", "False");
+
+            ConfigNode orbitNode = node.AddNode("ORBIT");
+            VesselSnapshotOps.WriteCanonicalSurfaceOrbitValues(orbitNode, bodyIndex);
+
+            if (partNode != null)
+                node.AddNode(partNode);
+            if (discoveryNode != null)
+                node.AddNode(discoveryNode);
+            node.AddNode("ACTIONGROUPS");
+            EnsureDefensiveVesselNodes(node);
+            return node;
+        }
+
+        private static string DescribeOwner(GhostMapVesselOwner owner)
+        {
+            if (owner.IsOwnTimeline) return "own";
+            return string.Format(ic, "lane={0}/recording={1}",
+                owner.LaneId, owner.RecordingId ?? "(none)");
+        }
     }
 
     /// <summary>
