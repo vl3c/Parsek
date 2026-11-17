@@ -1,0 +1,107 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "refly-split-crewed-merged",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 1,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [
+    {
+      "ruleId": "INV11-EMPTY-SECTION",
+      "level": "WARN",
+      "target": "2e31fb1e46d34f8b92aacb9cff38507d",
+      "sectionIndex": 0,
+      "message": "INV11 empty-section recording=2e31fb1e46d34f8b92aacb9cff38507d#0 env=Atmospheric ref=Absolute ut=[118.47999999999357,118.49999999999356] frames=0 bodyFixedFrames=0 checkpoints=0",
+      "citedContract": "TrackSectionCloseClassifier.Classify",
+      "baselined": false
+    }
+  ],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 128.85999999999211,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "FirstLaunch"
+    ],
+    "vessels": [
+      {
+        "pid": "60e7fd84291d4c3ea5e74fe1fc93f9b2",
+        "persistentId": 1490391000,
+        "name": "Ast. VPA-167",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "bc40f022f2f04fc6ade920dff14be680",
+        "persistentId": 1081074492,
+        "name": "Kerbal X Probe",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 3999.1248000196219,
+          "LiquidFuel": 2066.7890941514906,
+          "Oxidizer": 2526.0754268749297
+        }
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Missing"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Missing"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Missing"
+      },
+      {
+        "name": "Milfurt Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Mitvey Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Missing"
+      }
+    ]
+  }
+}

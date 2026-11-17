@@ -1,0 +1,300 @@
+[Harness][Info][Select] select expr='--ids-file C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\parallel\refly-2026-11-17\lanes\RVC-1-two-rover-head-on-crash.ids' -> 1 scenarios: ['RVC-1-two-rover-head-on-crash']
+[Harness][Info][Select] slot mode slot=stock-minimal-2 instance=C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal-2 window=desktop
+[Harness][Info][Lock] runner check ok: runner pid=41156 holds the machine lock
+[Harness][Info][Lock] slot-lock acquired slot=stock-minimal-2 (acquired-free) path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-slot-stock-minimal-2.lock pid=19404
+[Harness][Info][Build] tests prebuild skipped (--tests-prebuilt: the caller built C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\Source\Parsek.Tests\bin\Debug\net472\Parsek.Tests.dll); verifiers run -NoBuild
+[Harness][Info][Admit] admit parsek-dll vs stock-minimal: match instance=7d9f2510d4d3 reference=7d9f2510d4d3
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Verbose][Preflight] kRPC settings already carry rpc=50002 stream=50003
+[Harness][Info][Preflight] port-check rpc=50002 stream=50003 result=CLEAR
+[Harness][Verbose][Stage] shared-ship overlay: no rows for save=rover-crash-watched (Ships/VAB carries 0 committed craft)
+[Harness][Info][Settings] settings-sidecar baseline written phase=stage tracers=off readableMirrors=on
+[Harness][Info][Stage] stage save=rover-crash-watched template=fixtures/saves/rover-crash-watched inject=none craft=0 results-rotated=False manifest-rotated=False
+[Harness][Info][Launch] launch exe=C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal-2\KSP_x64.exe pid=41232 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0 ISOLATED=0 RENDER_MANIFEST=0] batchIsolated=False budget=2100s
+[Harness][Info][Launch] launch args=-logFile C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal-2\Player.log -screen-fullscreen 0 -screen-width 1280 -screen-height 720 window=desktop desktopId=8611d2b8-3fd1-40e7-b7ed-966d22e4f24c returnForeground=263394
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Info][Boot-Wait] boot at main menu elapsed=28.4s kspLogBytes=1332948; watching until the seam's first receipt (rule no-seam-receipt)
+[Harness][Info][Boot-Wait] boot ready via=seam-receipt elapsed=28.9s kspLogBytes=1335536; boot-stall watchdog off for this attempt
+[Harness][Info][Window] window mode=desktop placement=desktop=moved foreground=not-foreground action=none (Parsek moved its window to the target desktop)
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Info][Drive] drive resp id=0001 verdict=OK met=True
+[Harness][Info][Drive] captured id=0001 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=1 id=0002 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0002 verdict=OK met=True
+[Harness][Info][Drive] captured id=0002 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=2 id=0003 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] captured id=0003 label=- fields=ut,nothing
+[Harness][Info][Drive] drive step=3 id=0004 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Drive] captured id=0004 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=4 id=0005 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0005 verdict=OK met=True
+[Harness][Info][Drive] captured id=0005 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=5 id=0006 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0006 verdict=OK met=True
+[Harness][Info][Drive] captured id=0006 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=6 id=0007 cmd=PartAction expect=OK
+[Harness][Info][Drive] drive resp id=0007 verdict=OK met=True
+[Harness][Info][Drive] captured id=0007 label=- fields=ut,button,pid,part,partId,event,newPid,newName,vesselsBefore,vesselsAfter,activePid,activeName,converter,state,count,packed,warpIndex,warpRate
+[Harness][Info][Drive] drive step=7 id=0008 cmd=StartRecording expect=OK
+[Harness][Info][Drive] drive resp id=0008 verdict=OK met=True
+[Harness][Info][Drive] captured id=0008 label=- fields=ut,recordingId
+[Harness][Info][Drive] drive step=8 id=0009 cmd=RecordingState expect=OK
+[Harness][Info][Drive] drive resp id=0009 verdict=OK met=True
+[Harness][Info][Drive] captured id=0009 label=- fields=ut,recording,tree,points,scene
+[Harness][Info][Drive] drive step=9 id=0010 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0010 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0010 elapsed=20/660
+[Harness][Info][Drive] drive resp id=0010 verdict=OK met=True
+[Harness][Info][Drive] captured id=0010 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=10 id=0011 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0011 verdict=OK met=True
+[Harness][Info][Drive] captured id=0011 label=- fields=ut,label
+[Harness][Info][Drive] drive step=11 id=0012 cmd=DriveVessel expect=OK
+[Harness][Info][Drive] drive resp id=0012 verdict=OK met=True
+[Harness][Info][Drive] captured id=0012 label=dk fields=ut,docked,gameSeconds,maxSrfSpeed,pathMeters,dockUT,partnerPid,partnerName,activePid,activeName,activeParts
+[Harness][Info][Drive] drive step=12 id=0013 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0013 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0013 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0013 elapsed=30/660
+[Harness][Info][Drive] drive resp id=0013 verdict=OK met=True
+[Harness][Info][Drive] captured id=0013 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=13 id=0014 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0014 verdict=OK met=True
+[Harness][Info][Drive] captured id=0014 label=- fields=ut,label
+[Harness][Info][Drive] drive step=14 id=0015 cmd=PartAction expect=OK
+[Harness][Info][Drive] drive resp id=0015 verdict=OK met=True
+[Harness][Info][Drive] captured id=0015 label=und fields=ut,button,pid,part,partId,event,newPid,newName,vesselsBefore,vesselsAfter,activePid,activeName,converter,state,count,packed,warpIndex,warpRate
+[Harness][Info][Drive] drive step=15 id=0016 cmd=WarpToUT expect=OK
+[Harness][Info][Drive] drive resp id=0016 verdict=OK met=True
+[Harness][Info][Drive] captured id=0016 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=16 id=0017 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0017 verdict=OK met=True
+[Harness][Info][Drive] captured id=0017 label=- fields=ut,label
+[Harness][Info][Drive] drive step=17 id=0018 cmd=DriveVessel expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0018 elapsed=10/120
+[Harness][Info][Drive] drive resp id=0018 verdict=OK met=True
+[Harness][Info][Drive] captured id=0018 label=rv fields=ut,moved,gameSeconds,maxSrfSpeed,pathMeters,displacementMeters,situation
+[Harness][Info][Drive] drive step=18 id=0019 cmd=DriveVessel expect=OK
+[Harness][Info][Drive] drive resp id=0019 verdict=OK met=True
+[Harness][Info][Drive] captured id=0019 label=- fields=ut,settled,gameSeconds,srfSpeed,situation
+[Harness][Info][Drive] drive step=19 id=0020 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0020 verdict=OK met=True
+[Harness][Info][Drive] captured id=0020 label=- fields=ut,label
+[Harness][Info][Drive] drive step=20 id=0021 cmd=DriveVessel expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=10/120
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=20/120
+[Harness][Info][Drive] drive resp id=0021 verdict=ERROR met=False
+[Harness][Warn][Drive] step UNMET id=0021 cmd=DriveVessel verdict=ERROR expect=OK -> driver-INVALID(driver-verdict-mismatch); stopping the drive: skipping 26 of 30 remaining step(s) [0022:WarpToUT(world-mutating), 0023:PartAction(world-mutating), 0024:WarpToUT(world-mutating), 0025:MissionMark(inert), 0026:RecordingState(inert), 0027:ExitToSpaceCenter(world-mutating), 0028:SaveGame(world-mutating), 0029:LoadGame(world-mutating), 0031:DiscardTree(world-mutating), 0032:ListHandles(inert), 0033:MissionMark(inert), 0035:InvokeRewindToLaunch(world-mutating), 0036:SaveGame(world-mutating), 0037:LoadGame(world-mutating), 0039:DiscardTree(world-mutating), 0040:SetSetting(world-mutating), 0041:SetSetting(world-mutating), 0042:SetSetting(world-mutating), 0043:MissionMark(inert), 0044:WarpToUT(world-mutating), 0045:ListHandles(inert), 0046:MissionMark(inert), 0047:WarpToUT(world-mutating), 0048:ListHandles(inert), 0049:MissionMark(inert), 0050:SaveGame(world-mutating)]; driving cleanup [0030:StopRecording, 0034:StopRecording, 0038:StopRecording, 0051:FlushAndQuit]
+[Harness][Info][Drive] drive step=21 id=0022 cmd=WarpToUT SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=22 id=0023 cmd=PartAction SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=23 id=0024 cmd=WarpToUT SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=24 id=0025 cmd=MissionMark SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=25 id=0026 cmd=RecordingState SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=26 id=0027 cmd=ExitToSpaceCenter SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=27 id=0028 cmd=SaveGame SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=28 id=0029 cmd=LoadGame SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=29 id=0030 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0030 verdict=OK met=True
+[Harness][Info][Drive] captured id=0030 label=- fields=ut,stopped
+[Harness][Info][Drive] drive step=30 id=0031 cmd=DiscardTree SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=31 id=0032 cmd=ListHandles SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=32 id=0033 cmd=MissionMark SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=33 id=0034 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0034 verdict=OK met=True
+[Harness][Info][Drive] captured id=0034 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=34 id=0035 cmd=InvokeRewindToLaunch SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=35 id=0036 cmd=SaveGame SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=36 id=0037 cmd=LoadGame SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=37 id=0038 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0038 verdict=OK met=True
+[Harness][Info][Drive] captured id=0038 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=38 id=0039 cmd=DiscardTree SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=39 id=0040 cmd=SetSetting SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=40 id=0041 cmd=SetSetting SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=41 id=0042 cmd=SetSetting SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=42 id=0043 cmd=MissionMark SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=43 id=0044 cmd=WarpToUT SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=44 id=0045 cmd=ListHandles SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=45 id=0046 cmd=MissionMark SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=46 id=0047 cmd=WarpToUT SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=47 id=0048 cmd=ListHandles SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=48 id=0049 cmd=MissionMark SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=49 id=0050 cmd=SaveGame SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=50 id=0051 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0051 verdict=OK met=True
+[Harness][Info][Drive] captured id=0051 label=- fields=ut,saved
+[Harness][Info][Verify] verify driverValidity status=FAIL allMet=False (over the 25 driven step(s); 26 tail step(s) skipped) subkind=driver-verdict-mismatch
+[Harness][Info][Verify] verify unmetStepTail skipped=26 [0022:WarpToUT, 0023:PartAction, 0024:WarpToUT, 0025:MissionMark, 0026:RecordingState, 0027:ExitToSpaceCenter, 0028:SaveGame, 0029:LoadGame, 0031:DiscardTree, 0032:ListHandles, 0033:MissionMark, 0035:InvokeRewindToLaunch, 0036:SaveGame, 0037:LoadGame, 0039:DiscardTree, 0040:SetSetting, 0041:SetSetting, 0042:SetSetting, 0043:MissionMark, 0044:WarpToUT, 0045:ListHandles, 0046:MissionMark, 0047:WarpToUT, 0048:ListHandles, 0049:MissionMark, 0050:SaveGame] stoppedAt=0021:DriveVessel verdict=ERROR; the produced save is deliberately incomplete and every save-reading verifier is triage-only/SKIPPED on driver-invalid
+[Harness][Info][Verify] verify batchComplete status=SKIPPED found=False failed=None multi=False perCategory=0 runs=0/1
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None (triage-only)
+[Harness][Info][Verify] verify saveParse status=SKIPPED reason=driver-invalid
+[Harness][Info][Verify] verify renderCompose status=SKIPPED reason=driver-invalid
+[Harness][Info][Verify] verify ghostLifecycle status=SKIPPED reason=driver-invalid
+[Harness][Info][Classify] verdict=INVALID scenario=RVC-1-two-rover-head-on-crash attempt=1 reason=driver stage failed
+[Harness][Info][Collect] collect-logs label=RVC-1-two-rover-head-on-crash -> Collecting logs into: 2026-11-17_1734_RVC-1-two-rover-head-on-crash/
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1531_RVC-1-two-rover-head-on-crash.json
+[Harness][Info][Snapshot] produced-save snapshot run=2026-11-17_1531_RVC-1-two-rover-head-on-crash result=copied bytes=2035774 files=34 reason=every-verdict-default verdict=INVALID path=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1531_RVC-1-two-rover-head-on-crash_save
+[Harness][Verbose][Snapshot] save-snapshot retention skipped (slot mode; the runner sweeps)
+[Harness][Verbose][Artifacts] screenshots skipped: 165 prior-run, 0 over-cap, 0 copy-failed
+[Harness][Info][Artifacts] artifacts collected run=2026-11-17_1531_RVC-1-two-rover-head-on-crash kspLog=True truncated=False screenshots=0 renderManifest=False -> C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1531_RVC-1-two-rover-head-on-crash_shots
+[Harness][Verbose][Artifacts] shots-dir retention skipped (slot mode; the runner sweeps)
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1531_RVC-1-two-rover-head-on-crash.json
+[Harness][Info][Sheet] contact sheet written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1531_RVC-1-two-rover-head-on-crash_contact.html (+ index.html)
+[Harness][Info][Settings] settings-sidecar baseline written phase=teardown tracers=off readableMirrors=on
+[Harness][Info][Retry] retry scenario=RVC-1-two-rover-head-on-crash attempt=2 reason=INVALID
+[Harness][Info][Admit] admit parsek-dll vs stock-minimal: match instance=7d9f2510d4d3 reference=7d9f2510d4d3
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Verbose][Preflight] kRPC settings already carry rpc=50002 stream=50003
+[Harness][Info][Preflight] port-check rpc=50002 stream=50003 result=CLEAR
+[Harness][Verbose][Stage] shared-ship overlay: no rows for save=rover-crash-watched (Ships/VAB carries 0 committed craft)
+[Harness][Info][Settings] settings-sidecar baseline written phase=stage tracers=off readableMirrors=on
+[Harness][Info][Stage] stage save=rover-crash-watched template=fixtures/saves/rover-crash-watched inject=none craft=0 results-rotated=False manifest-rotated=False
+[Harness][Info][Launch] launch exe=C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal-2\KSP_x64.exe pid=40204 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0 ISOLATED=0 RENDER_MANIFEST=0] batchIsolated=False budget=2100s
+[Harness][Info][Launch] launch args=-logFile C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal-2\Player.log -screen-fullscreen 0 -screen-width 1280 -screen-height 720 window=desktop desktopId=8611d2b8-3fd1-40e7-b7ed-966d22e4f24c returnForeground=263394
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Info][Boot-Wait] boot at main menu elapsed=28.4s kspLogBytes=1335536; watching until the seam's first receipt (rule no-seam-receipt)
+[Harness][Info][Boot-Wait] boot ready via=seam-receipt elapsed=28.4s kspLogBytes=1335536; boot-stall watchdog off for this attempt
+[Harness][Info][Window] window mode=desktop placement=desktop=moved foreground=not-foreground action=none (Parsek moved its window to the target desktop)
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Info][Drive] drive resp id=0001 verdict=OK met=True
+[Harness][Info][Drive] captured id=0001 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=1 id=0002 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0002 verdict=OK met=True
+[Harness][Info][Drive] captured id=0002 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=2 id=0003 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] captured id=0003 label=- fields=ut,nothing
+[Harness][Info][Drive] drive step=3 id=0004 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Drive] captured id=0004 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=4 id=0005 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0005 verdict=OK met=True
+[Harness][Info][Drive] captured id=0005 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=5 id=0006 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0006 verdict=OK met=True
+[Harness][Info][Drive] captured id=0006 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=6 id=0007 cmd=PartAction expect=OK
+[Harness][Info][Drive] drive resp id=0007 verdict=OK met=True
+[Harness][Info][Drive] captured id=0007 label=- fields=ut,button,pid,part,partId,event,newPid,newName,vesselsBefore,vesselsAfter,activePid,activeName,converter,state,count,packed,warpIndex,warpRate
+[Harness][Info][Drive] drive step=7 id=0008 cmd=StartRecording expect=OK
+[Harness][Info][Drive] drive resp id=0008 verdict=OK met=True
+[Harness][Info][Drive] captured id=0008 label=- fields=ut,recordingId
+[Harness][Info][Drive] drive step=8 id=0009 cmd=RecordingState expect=OK
+[Harness][Info][Drive] drive resp id=0009 verdict=OK met=True
+[Harness][Info][Drive] captured id=0009 label=- fields=ut,recording,tree,points,scene
+[Harness][Info][Drive] drive step=9 id=0010 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0010 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0010 elapsed=20/660
+[Harness][Info][Drive] drive resp id=0010 verdict=OK met=True
+[Harness][Info][Drive] captured id=0010 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=10 id=0011 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0011 verdict=OK met=True
+[Harness][Info][Drive] captured id=0011 label=- fields=ut,label
+[Harness][Info][Drive] drive step=11 id=0012 cmd=DriveVessel expect=OK
+[Harness][Info][Drive] drive resp id=0012 verdict=OK met=True
+[Harness][Info][Drive] captured id=0012 label=dk fields=ut,docked,gameSeconds,maxSrfSpeed,pathMeters,dockUT,partnerPid,partnerName,activePid,activeName,activeParts
+[Harness][Info][Drive] drive step=12 id=0013 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0013 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0013 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0013 elapsed=30/660
+[Harness][Info][Drive] drive resp id=0013 verdict=OK met=True
+[Harness][Info][Drive] captured id=0013 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=13 id=0014 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0014 verdict=OK met=True
+[Harness][Info][Drive] captured id=0014 label=- fields=ut,label
+[Harness][Info][Drive] drive step=14 id=0015 cmd=PartAction expect=OK
+[Harness][Info][Drive] drive resp id=0015 verdict=OK met=True
+[Harness][Info][Drive] captured id=0015 label=und fields=ut,button,pid,part,partId,event,newPid,newName,vesselsBefore,vesselsAfter,activePid,activeName,converter,state,count,packed,warpIndex,warpRate
+[Harness][Info][Drive] drive step=15 id=0016 cmd=WarpToUT expect=OK
+[Harness][Info][Drive] drive resp id=0016 verdict=OK met=True
+[Harness][Info][Drive] captured id=0016 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=16 id=0017 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0017 verdict=OK met=True
+[Harness][Info][Drive] captured id=0017 label=- fields=ut,label
+[Harness][Info][Drive] drive step=17 id=0018 cmd=DriveVessel expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0018 elapsed=10/120
+[Harness][Info][Drive] drive resp id=0018 verdict=OK met=True
+[Harness][Info][Drive] captured id=0018 label=rv fields=ut,moved,gameSeconds,maxSrfSpeed,pathMeters,displacementMeters,situation
+[Harness][Info][Drive] drive step=18 id=0019 cmd=DriveVessel expect=OK
+[Harness][Info][Drive] drive resp id=0019 verdict=OK met=True
+[Harness][Info][Drive] captured id=0019 label=- fields=ut,settled,gameSeconds,srfSpeed,situation
+[Harness][Info][Drive] drive step=19 id=0020 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0020 verdict=OK met=True
+[Harness][Info][Drive] captured id=0020 label=- fields=ut,label
+[Harness][Info][Drive] drive step=20 id=0021 cmd=DriveVessel expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=10/120
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=20/120
+[Harness][Info][Drive] drive resp id=0021 verdict=ERROR met=False
+[Harness][Warn][Drive] step UNMET id=0021 cmd=DriveVessel verdict=ERROR expect=OK -> driver-INVALID(driver-verdict-mismatch); stopping the drive: skipping 26 of 30 remaining step(s) [0022:WarpToUT(world-mutating), 0023:PartAction(world-mutating), 0024:WarpToUT(world-mutating), 0025:MissionMark(inert), 0026:RecordingState(inert), 0027:ExitToSpaceCenter(world-mutating), 0028:SaveGame(world-mutating), 0029:LoadGame(world-mutating), 0031:DiscardTree(world-mutating), 0032:ListHandles(inert), 0033:MissionMark(inert), 0035:InvokeRewindToLaunch(world-mutating), 0036:SaveGame(world-mutating), 0037:LoadGame(world-mutating), 0039:DiscardTree(world-mutating), 0040:SetSetting(world-mutating), 0041:SetSetting(world-mutating), 0042:SetSetting(world-mutating), 0043:MissionMark(inert), 0044:WarpToUT(world-mutating), 0045:ListHandles(inert), 0046:MissionMark(inert), 0047:WarpToUT(world-mutating), 0048:ListHandles(inert), 0049:MissionMark(inert), 0050:SaveGame(world-mutating)]; driving cleanup [0030:StopRecording, 0034:StopRecording, 0038:StopRecording, 0051:FlushAndQuit]
+[Harness][Info][Drive] drive step=21 id=0022 cmd=WarpToUT SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=22 id=0023 cmd=PartAction SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=23 id=0024 cmd=WarpToUT SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=24 id=0025 cmd=MissionMark SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=25 id=0026 cmd=RecordingState SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=26 id=0027 cmd=ExitToSpaceCenter SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=27 id=0028 cmd=SaveGame SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=28 id=0029 cmd=LoadGame SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=29 id=0030 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0030 verdict=OK met=True
+[Harness][Info][Drive] captured id=0030 label=- fields=ut,stopped
+[Harness][Info][Drive] drive step=30 id=0031 cmd=DiscardTree SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=31 id=0032 cmd=ListHandles SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=32 id=0033 cmd=MissionMark SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=33 id=0034 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0034 verdict=OK met=True
+[Harness][Info][Drive] captured id=0034 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=34 id=0035 cmd=InvokeRewindToLaunch SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=35 id=0036 cmd=SaveGame SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=36 id=0037 cmd=LoadGame SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=37 id=0038 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0038 verdict=OK met=True
+[Harness][Info][Drive] captured id=0038 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=38 id=0039 cmd=DiscardTree SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=39 id=0040 cmd=SetSetting SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=40 id=0041 cmd=SetSetting SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=41 id=0042 cmd=SetSetting SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=42 id=0043 cmd=MissionMark SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=43 id=0044 cmd=WarpToUT SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=44 id=0045 cmd=ListHandles SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=45 id=0046 cmd=MissionMark SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=46 id=0047 cmd=WarpToUT SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=47 id=0048 cmd=ListHandles SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=48 id=0049 cmd=MissionMark SKIPPED role=inert reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=49 id=0050 cmd=SaveGame SKIPPED role=world-mutating reason=step-unmet (no channel line written)
+[Harness][Info][Drive] drive step=50 id=0051 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0051 verdict=OK met=True
+[Harness][Info][Drive] captured id=0051 label=- fields=ut,saved
+[Harness][Info][Verify] verify driverValidity status=FAIL allMet=False (over the 25 driven step(s); 26 tail step(s) skipped) subkind=driver-verdict-mismatch
+[Harness][Info][Verify] verify unmetStepTail skipped=26 [0022:WarpToUT, 0023:PartAction, 0024:WarpToUT, 0025:MissionMark, 0026:RecordingState, 0027:ExitToSpaceCenter, 0028:SaveGame, 0029:LoadGame, 0031:DiscardTree, 0032:ListHandles, 0033:MissionMark, 0035:InvokeRewindToLaunch, 0036:SaveGame, 0037:LoadGame, 0039:DiscardTree, 0040:SetSetting, 0041:SetSetting, 0042:SetSetting, 0043:MissionMark, 0044:WarpToUT, 0045:ListHandles, 0046:MissionMark, 0047:WarpToUT, 0048:ListHandles, 0049:MissionMark, 0050:SaveGame] stoppedAt=0021:DriveVessel verdict=ERROR; the produced save is deliberately incomplete and every save-reading verifier is triage-only/SKIPPED on driver-invalid
+[Harness][Info][Verify] verify batchComplete status=SKIPPED found=False failed=None multi=False perCategory=0 runs=0/1
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None (triage-only)
+[Harness][Info][Verify] verify saveParse status=SKIPPED reason=driver-invalid
+[Harness][Info][Verify] verify renderCompose status=SKIPPED reason=driver-invalid
+[Harness][Info][Verify] verify ghostLifecycle status=SKIPPED reason=driver-invalid
+[Harness][Info][Classify] verdict=INVALID scenario=RVC-1-two-rover-head-on-crash attempt=2 reason=driver stage failed
+[Harness][Info][Collect] collect-logs label=RVC-1-two-rover-head-on-crash -> Collecting logs into: 2026-11-17_1737_RVC-1-two-rover-head-on-crash/
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2.json
+[Harness][Info][Snapshot] produced-save snapshot run=2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2 result=copied bytes=2037632 files=34 reason=every-verdict-default verdict=INVALID path=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2_save
+[Harness][Verbose][Snapshot] save-snapshot retention skipped (slot mode; the runner sweeps)
+[Harness][Verbose][Artifacts] screenshots skipped: 165 prior-run, 0 over-cap, 0 copy-failed
+[Harness][Info][Artifacts] artifacts collected run=2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2 kspLog=True truncated=False screenshots=0 renderManifest=False -> C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2_shots
+[Harness][Verbose][Artifacts] shots-dir retention skipped (slot mode; the runner sweeps)
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2.json
+[Harness][Info][Sheet] contact sheet written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2_contact.html (+ index.html)
+[Harness][Info][Settings] settings-sidecar baseline written phase=teardown tracers=off readableMirrors=on
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2.json
+[Harness][Info][Sheet] contact sheet written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2_contact.html (+ index.html)
+[Harness][Info][Cost] scenario cost attempts=2 wallTotal=320s terminal=INVALID
+[Harness][Info][Archive] results archived run=2026-11-17_1531_RVC-1-two-rover-head-on-crash files=3 bytes=226924 missing=3 -> C:\Users\USER\Documents\Code\Parsek\automation\results-archive\2026-11-17_1531_RVC-1-two-rover-head-on-crash
+[Harness][Info][Archive] results archived run=2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2 files=3 bytes=227449 missing=3 -> C:\Users\USER\Documents\Code\Parsek\automation\results-archive\2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2
+[Harness][Verbose][Archive] run index append skipped (slot mode; the runner appends 2026-11-17_1531_RVC-1-two-rover-head-on-crash, 2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2)
+[Harness][Info][Lock] run-lock released path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-slot-stock-minimal-2.lock (slot=stock-minimal-2)
+[Harness][Info][Report] run report -> C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\parallel\refly-2026-11-17\lanes\RVC-1-two-rover-head-on-crash.2.report.json lanes=1 exit=1

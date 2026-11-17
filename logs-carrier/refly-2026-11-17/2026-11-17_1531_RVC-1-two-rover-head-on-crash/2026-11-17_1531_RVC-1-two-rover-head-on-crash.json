@@ -1,0 +1,928 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_1531_RVC-1-two-rover-head-on-crash_shots"
+  },
+  "attempt": 1,
+  "collectLogs": {
+    "path": "Collecting logs into: 2026-11-17_1734_RVC-1-two-rover-head-on-crash/",
+    "ran": true
+  },
+  "driver": {
+    "allExpectedMet": false,
+    "skippedTailSteps": [
+      {
+        "cmd": "WarpToUT",
+        "id": "0022",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "PartAction",
+        "id": "0023",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "WarpToUT",
+        "id": "0024",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "MissionMark",
+        "id": "0025",
+        "reason": "step-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "RecordingState",
+        "id": "0026",
+        "reason": "step-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "ExitToSpaceCenter",
+        "id": "0027",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "SaveGame",
+        "id": "0028",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "LoadGame",
+        "id": "0029",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "DiscardTree",
+        "id": "0031",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "ListHandles",
+        "id": "0032",
+        "reason": "step-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "MissionMark",
+        "id": "0033",
+        "reason": "step-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "InvokeRewindToLaunch",
+        "id": "0035",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "SaveGame",
+        "id": "0036",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "LoadGame",
+        "id": "0037",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "DiscardTree",
+        "id": "0039",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "SetSetting",
+        "id": "0040",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "SetSetting",
+        "id": "0041",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "SetSetting",
+        "id": "0042",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "MissionMark",
+        "id": "0043",
+        "reason": "step-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "WarpToUT",
+        "id": "0044",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "ListHandles",
+        "id": "0045",
+        "reason": "step-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "MissionMark",
+        "id": "0046",
+        "reason": "step-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "WarpToUT",
+        "id": "0047",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "ListHandles",
+        "id": "0048",
+        "reason": "step-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "MissionMark",
+        "id": "0049",
+        "reason": "step-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "SaveGame",
+        "id": "0050",
+        "reason": "step-unmet",
+        "role": "world-mutating"
+      }
+    ],
+    "steps": [
+      {
+        "captured": {
+          "save": "rover-crash-watched",
+          "scene": "FLIGHT",
+          "ut": "31.339999999999971"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "31.379999999999971"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "31.41999999999997"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "31.41999999999997",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "31.459999999999969",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoMerge",
+          "ut": "31.479999999999968",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "Mining Rover RC",
+          "activePid": "110406740",
+          "button": "controlfrom",
+          "converter": "",
+          "count": "1",
+          "event": "MakeReference",
+          "newName": "",
+          "newPid": "0",
+          "packed": "0",
+          "part": "probeStackSmall",
+          "partId": "1765263169",
+          "pid": "110406740",
+          "state": "exp:data=0",
+          "ut": "31.519999999999968",
+          "vesselsAfter": "3",
+          "vesselsBefore": "3",
+          "warpIndex": "0",
+          "warpRate": "1"
+        },
+        "cmd": "PartAction",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "f596100bc2b0463f8ca6c91f1af1b77a",
+          "ut": "31.539999999999967"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "1",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "e1e72ba57b364d8f9205435fce426d1a",
+          "ut": "31.559999999999967"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "28.400000000000034",
+          "maxRate": "1",
+          "target": "60",
+          "ut": "59.7800000000043"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-dock",
+          "ut": "59.880000000004316"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "Mining Rover RC",
+          "activeParts": "52",
+          "activePid": "110406740",
+          "dockUT": "63.86",
+          "docked": "true",
+          "gameSeconds": "3.98",
+          "maxSrfSpeed": "0.80",
+          "partnerName": "Ore Depot",
+          "partnerPid": "3950359723",
+          "pathMeters": "1.5",
+          "ut": "63.880000000004941"
+        },
+        "cmd": "DriveVessel",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "30.859999999995068",
+          "maxRate": "1",
+          "target": "95",
+          "ut": "94.799999999998832"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-undock",
+          "ut": "94.9399999999988"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "Mining Rover RC",
+          "activePid": "110406740",
+          "button": "undock",
+          "converter": "",
+          "count": "1",
+          "event": "Undock",
+          "newName": "Ore Depot",
+          "newPid": "2852784353",
+          "packed": "0",
+          "part": "dockingPort3",
+          "partId": "3980733521",
+          "pid": "110406740",
+          "state": "",
+          "ut": "94.9599999999988",
+          "vesselsAfter": "3",
+          "vesselsBefore": "2",
+          "warpIndex": "0",
+          "warpRate": "1"
+        },
+        "cmd": "PartAction",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "0.58000000000120622",
+          "maxRate": "1",
+          "target": "95.6",
+          "ut": "95.399999999998712"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-reverse",
+          "ut": "95.419999999998709"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "displacementMeters": "89.2",
+          "gameSeconds": "10.02",
+          "maxSrfSpeed": "15.92",
+          "moved": "true",
+          "pathMeters": "88.9",
+          "situation": "LANDED",
+          "ut": "105.45999999999671"
+        },
+        "cmd": "DriveVessel",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "gameSeconds": "7.72",
+          "settled": "true",
+          "situation": "LANDED",
+          "srfSpeed": "0.002",
+          "ut": "113.41999999999513"
+        },
+        "cmd": "DriveVessel",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-crash",
+          "ut": "113.45999999999512"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "cmd": "DriveVessel",
+        "expect": "OK",
+        "id": "0021",
+        "met": false,
+        "msg": "drivevessel-did-not-crash",
+        "verdict": "ERROR"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "143.52000000000015"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0030",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "143.56000000000017"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0034",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "143.58000000000018"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0038",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "143.60000000000019"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0051",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T15:34:32Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-17_1531_RVC-1-two-rover-head-on-crash",
+  "scenarioId": "RVC-1-two-rover-head-on-crash",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 2035774,
+    "files": 34,
+    "path": "2026-11-17_1531_RVC-1-two-rover-head-on-crash_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=INVALID"
+  },
+  "startedUtc": "2026-11-17T15:31:51Z",
+  "subkind": "driver-verdict-mismatch",
+  "tier": "operator",
+  "verdict": "INVALID",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-2\\saves\\rover-crash-watched\\analysis\\rover-crash-watched.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-2\\saves\\rover-crash-watched\\analysis\\rover-crash-watched.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": true
+    },
+    "anomalySweep": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": false,
+      "status": "FAIL",
+      "subkind": "driver-verdict-mismatch"
+    },
+    "expectations": {
+      "observed": {
+        "recordings": {
+          "count": 4
+        }
+      },
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [
+        "ghostLifecycle"
+      ],
+      "declared": {
+        "gating": false,
+        "requireBalanced": true,
+        "spawned": {
+          "min": 2
+        }
+      },
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "driver-invalid",
+      "status": "SKIPPED"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "driver-invalid",
+      "status": "SKIPPED",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "blocks": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 221,
+            "recordings": 4,
+            "smallest": 17,
+            "total": 409,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "Dock": 1,
+              "Undock": 1
+            },
+            "committedTrees": 0,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {},
+            "recordings": 4,
+            "spaceObjectParts": {},
+            "spawnedVessels": 0,
+            "terminalStates": {
+              "Docked": 1
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "Miner Watcher": 1,
+              "Mining Rover RC": 1,
+              "Ore Depot": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 1,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "driver-invalid",
+      "scenarioFound": true,
+      "status": "SKIPPED"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "failures": 0,
+      "reason": "short-circuit-or-invalid-driver",
+      "status": "SKIPPED"
+    },
+    "unityExceptions": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "unmetStepTail": {
+      "reason": "step-unmet",
+      "skippedSteps": [
+        {
+          "cmd": "WarpToUT",
+          "id": "0022",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "PartAction",
+          "id": "0023",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "WarpToUT",
+          "id": "0024",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "MissionMark",
+          "id": "0025",
+          "reason": "step-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "RecordingState",
+          "id": "0026",
+          "reason": "step-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "ExitToSpaceCenter",
+          "id": "0027",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "SaveGame",
+          "id": "0028",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "LoadGame",
+          "id": "0029",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "DiscardTree",
+          "id": "0031",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "ListHandles",
+          "id": "0032",
+          "reason": "step-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "MissionMark",
+          "id": "0033",
+          "reason": "step-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "InvokeRewindToLaunch",
+          "id": "0035",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "SaveGame",
+          "id": "0036",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "LoadGame",
+          "id": "0037",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "DiscardTree",
+          "id": "0039",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "SetSetting",
+          "id": "0040",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "SetSetting",
+          "id": "0041",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "SetSetting",
+          "id": "0042",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "MissionMark",
+          "id": "0043",
+          "reason": "step-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "WarpToUT",
+          "id": "0044",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "ListHandles",
+          "id": "0045",
+          "reason": "step-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "MissionMark",
+          "id": "0046",
+          "reason": "step-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "WarpToUT",
+          "id": "0047",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "ListHandles",
+          "id": "0048",
+          "reason": "step-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "MissionMark",
+          "id": "0049",
+          "reason": "step-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "SaveGame",
+          "id": "0050",
+          "reason": "step-unmet",
+          "role": "world-mutating"
+        }
+      ],
+      "status": "SKIPPED",
+      "stoppedAt": {
+        "cmd": "DriveVessel",
+        "id": "0021",
+        "msg": "drivevessel-did-not-crash",
+        "subkind": "driver-verdict-mismatch",
+        "verdict": "ERROR"
+      }
+    }
+  },
+  "wallSeconds": 160
+}

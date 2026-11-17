@@ -1,0 +1,11 @@
+{"epoch":1794929479.1408396,"kind":"start","lanes":3,"pid":41156,"utc":"2026-11-17T15:31:19Z"}
+{"epoch":1794929494.459449,"kind":"dispatch","lane":"FXR-1-ghost-engine-fx-across-refly-and-retry","pid":900,"reason":"p50=120s","seq":1,"slot":"stock-minimal","utc":"2026-11-17T15:31:34Z","window":"desktop"}
+{"epoch":1794929494.4994755,"kind":"wait","reason":"the last start was 0 s ago (< 15 s dispatch gap)","utc":"2026-11-17T15:31:34Z","waitKind":"dispatch-gap"}
+{"epoch":1794929510.5503314,"kind":"dispatch","lane":"RVC-1-two-rover-head-on-crash","pid":19404,"reason":"p50=120s","seq":2,"slot":"stock-minimal-2","utc":"2026-11-17T15:31:50Z","window":"desktop"}
+{"epoch":1794929510.59875,"kind":"wait","reason":"2 running, slots=2","utc":"2026-11-17T15:31:50Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794929590.9415045,"exit":0,"kind":"finish","lane":"FXR-1-ghost-engine-fx-across-refly-and-retry","runIds":["2026-11-17_1531_FXR-1-ghost-engine-fx-across-refly-and-retry"],"seq":1,"slot":"stock-minimal","utc":"2026-11-17T15:33:10Z","verdict":"PASS","wall":96}
+{"epoch":1794929590.9846218,"kind":"dispatch","lane":"AIR-3-plane-drone-midair-collision","pid":36496,"reason":"p50=120s","seq":3,"slot":"stock-minimal","utc":"2026-11-17T15:33:10Z","window":"desktop"}
+{"epoch":1794929590.9850378,"kind":"wait","reason":"no lane left to start; 2 running","utc":"2026-11-17T15:33:10Z","waitKind":"drain"}
+{"attempts":2,"epoch":1794929851.0624921,"exit":1,"kind":"finish","lane":"RVC-1-two-rover-head-on-crash","runIds":["2026-11-17_1531_RVC-1-two-rover-head-on-crash","2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2"],"seq":2,"slot":"stock-minimal-2","utc":"2026-11-17T15:37:31Z","verdict":"INVALID","wall":341}
+{"attempts":2,"epoch":1794931013.3836398,"exit":1,"kind":"finish","lane":"AIR-3-plane-drone-midair-collision","runIds":["2026-11-17_1533_AIR-3-plane-drone-midair-collision","2026-11-17_1545_AIR-3-plane-drone-midair-collision_a2"],"seq":3,"slot":"stock-minimal","utc":"2026-11-17T15:56:53Z","verdict":"INVALID","wall":1422}
+{"detail":"PASS=1 INVALID=2 pending=0 of 3","epoch":1794931014.7968717,"exit":1,"kind":"end","outcome":"RED","utc":"2026-11-17T15:56:54Z"}

@@ -1,0 +1,21 @@
+{
+ "exitCode": 0,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "",
+   "id": "FXR-1-ghost-engine-fx-across-refly-and-retry",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests-2\\harness\\results\\2026-11-17_1531_FXR-1-ghost-engine-fx-across-refly-and-retry.json"
+   ],
+   "runIds": [
+    "2026-11-17_1531_FXR-1-ghost-engine-fx-across-refly-and-retry"
+   ],
+   "subkind": "",
+   "verdict": "PASS",
+   "wallSeconds": 95
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal"
+}

@@ -1,0 +1,115 @@
+{
+  "assertions": [
+    {
+      "expectedVesselName": "AIR Drone Carrier",
+      "launchSite": "Runway",
+      "met": true,
+      "name": "rolloutObserved",
+      "value": "AIR Drone Carrier"
+    },
+    {
+      "met": true,
+      "name": "stagedAtPrelaunch",
+      "note": "Parsek's first-staging auto-record trigger requires PRELAUNCH",
+      "stageUT": 30.719999999999434,
+      "value": "PRE_LAUNCH"
+    },
+    {
+      "abortThrottleReadback": null,
+      "groundSteerConfirmed": true,
+      "groundSteerFlipped": false,
+      "groundSteerSign": 1.0,
+      "limitMeters": 1500.0,
+      "maxGroundHeadingErr": 3.1769561767578125,
+      "maxRollPitch": 2.955047607421875,
+      "met": true,
+      "name": "airborne",
+      "rotatePitchConfirmed": true,
+      "rotatePitchFlipped": false,
+      "rotatePitchSign": 1.0,
+      "rotateStartPitch": 0.439361572265625,
+      "rotateUT": 50.66000000000232,
+      "takeoffSpeed": 75.70933697531922,
+      "takeoffUT": 59.34000000000368,
+      "value": 814.011062676892
+    },
+    {
+      "droneParts": -1,
+      "loiterCaptures": 7,
+      "met": false,
+      "name": "droneReleased",
+      "ownPartsAfterRelease": -1,
+      "releaseAltitude": null,
+      "releaseLat": null,
+      "releaseLon": null,
+      "releaseUT": null,
+      "targetVesselName": "AIR Drone Carrier Probe",
+      "value": null
+    },
+    {
+      "bankSign": 1.0,
+      "bankSignFlipped": false,
+      "closestRange": null,
+      "collisionUT": null,
+      "droneParts": null,
+      "limitMeters": 250.0,
+      "met": false,
+      "name": "midAirCollision",
+      "ownParts": null,
+      "passRanges": [],
+      "passesBefore": 0,
+      "rangeMeters": null,
+      "rollInputSign": 1.0,
+      "value": null
+    },
+    {
+      "chaserDownUT": null,
+      "droneDownUT": null,
+      "met": false,
+      "name": "bothDown",
+      "phasesReached": [
+        "AIR",
+        "ASCEND"
+      ],
+      "value": [
+        null,
+        null
+      ]
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.14124240004457533,
+    "rpcPort": 50000
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "air3_drone_intercept",
+  "phasesReached": [
+    "AIR",
+    "ASCEND"
+  ],
+  "reason": "phase ASCEND: release altitude 2500 m not reached within 600 s (alt 2507.1 m, longitude -73.9)",
+  "schema": 1,
+  "verdict": "MISSION-FLAKE",
+  "wallSeconds": 654.9,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 50.96,
+      "gameSecondsPerWallSecond": 0.935,
+      "phase": "AIR",
+      "wallSeconds": 54.479,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 600.28,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "ASCEND",
+      "wallSeconds": 600.279,
+      "warpCommands": 0
+    }
+  ]
+}

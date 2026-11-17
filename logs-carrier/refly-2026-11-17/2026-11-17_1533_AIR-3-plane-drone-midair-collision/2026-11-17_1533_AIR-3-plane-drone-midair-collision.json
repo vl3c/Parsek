@@ -1,0 +1,446 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_1533_AIR-3-plane-drone-midair-collision_shots"
+  },
+  "attempt": 1,
+  "collectLogs": {
+    "path": "Collecting logs into: 2026-11-17_1744_AIR-3-plane-drone-midair-collision/",
+    "ran": true
+  },
+  "driver": {
+    "allExpectedMet": false,
+    "skippedTailSteps": [
+      {
+        "cmd": "MissionMark",
+        "id": "0007",
+        "reason": "mission-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "ExitToSpaceCenter",
+        "id": "0008",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "MissionMark",
+        "id": "0009",
+        "reason": "mission-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "InvokeRewindToLaunch",
+        "id": "0010",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "SetSetting",
+        "id": "0011",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "MissionMark",
+        "id": "0012",
+        "reason": "mission-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "WarpToUT",
+        "id": "0013",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "MissionMark",
+        "id": "0014",
+        "reason": "mission-unmet",
+        "role": "inert"
+      }
+    ],
+    "steps": [
+      {
+        "captured": {
+          "save": "gs1-two-stage-pad",
+          "scene": "FLIGHT",
+          "ut": "26.67999999999952"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "26.779999999999518",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoMerge",
+          "ut": "26.799999999999518",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "26.839999999999517",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "air3-flight",
+          "ut": "26.839999999999517"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "expect": "MISSION-OK",
+        "id": "0006",
+        "met": false,
+        "missionVerdict": "MISSION-FLAKE",
+        "phase": "mission",
+        "subkind": "autopilot-flake",
+        "verdict": "INVALID"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "678.6399999996728"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T15:44:54Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": 655,
+  "note": "",
+  "runId": "2026-11-17_1533_AIR-3-plane-drone-midair-collision",
+  "scenarioId": "AIR-3-plane-drone-midair-collision",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 2316947,
+    "files": 22,
+    "path": "2026-11-17_1533_AIR-3-plane-drone-midair-collision_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=INVALID"
+  },
+  "startedUtc": "2026-11-17T15:33:11Z",
+  "subkind": "autopilot-flake",
+  "tier": "operator",
+  "verdict": "INVALID",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\gs1-two-stage-pad\\analysis\\gs1-two-stage-pad.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\gs1-two-stage-pad\\analysis\\gs1-two-stage-pad.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": true
+    },
+    "anomalySweep": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "FAIL",
+      "subkind": "autopilot-flake"
+    },
+    "expectations": {
+      "observed": {
+        "recordings": {
+          "count": 1
+        }
+      },
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "driver-invalid",
+      "status": "SKIPPED"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "mission": {
+      "missionVerdict": "MISSION-FLAKE",
+      "status": "FAIL",
+      "subkind": "autopilot-flake"
+    },
+    "missionOutcome": {
+      "firstUnmet": null,
+      "gatingVerbs": [],
+      "reason": "no-gating-verbs",
+      "status": "SKIPPED"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "driver-invalid",
+      "status": "SKIPPED",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "blocks": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 1583,
+            "recordings": 1,
+            "smallest": 1583,
+            "total": 1583,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {},
+            "committedTrees": 0,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {},
+            "recordings": 1,
+            "spaceObjectParts": {
+              "Ast. VPA-167": 1
+            },
+            "spawnedVessels": 0,
+            "terminalStates": {},
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "AIR Drone Carrier": 1,
+              "GS1 Auto-Chute Booster": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "driver-invalid",
+      "scenarioFound": true,
+      "status": "SKIPPED"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "failures": 0,
+      "reason": "short-circuit-or-invalid-driver",
+      "status": "SKIPPED"
+    },
+    "unityExceptions": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "unmetMissionTail": {
+      "reason": "mission-unmet",
+      "skippedSteps": [
+        {
+          "cmd": "MissionMark",
+          "id": "0007",
+          "reason": "mission-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "ExitToSpaceCenter",
+          "id": "0008",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "MissionMark",
+          "id": "0009",
+          "reason": "mission-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "InvokeRewindToLaunch",
+          "id": "0010",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "SetSetting",
+          "id": "0011",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "MissionMark",
+          "id": "0012",
+          "reason": "mission-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "WarpToUT",
+          "id": "0013",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "MissionMark",
+          "id": "0014",
+          "reason": "mission-unmet",
+          "role": "inert"
+        }
+      ],
+      "status": "SKIPPED"
+    }
+  },
+  "wallSeconds": 702
+}

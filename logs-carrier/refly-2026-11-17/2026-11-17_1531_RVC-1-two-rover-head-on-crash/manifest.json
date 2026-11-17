@@ -1,0 +1,33 @@
+{
+  "archivedUtc": "2026-11-17T15:37:29Z",
+  "files": [
+    {
+      "bytes": 22212,
+      "name": "2026-11-17_1531_RVC-1-two-rover-head-on-crash.json",
+      "sourceBytes": 22212
+    },
+    {
+      "bytes": 3656,
+      "name": "2026-11-17_153150_stock-minimal-2_harness.log.gz",
+      "sourceBytes": 32349
+    },
+    {
+      "bytes": 201056,
+      "name": "KSP.log.gz",
+      "sourceBytes": 4784961
+    }
+  ],
+  "gitHead": "2badf642caad8079d23a2be783fe9d7b063b74b3",
+  "harnessLog": "slice",
+  "missing": [
+    "2026-11-17_1531_RVC-1-two-rover-head-on-crash_status.json",
+    "2026-11-17_1531_RVC-1-two-rover-head-on-crash_mission.json",
+    "2026-11-17_1531_RVC-1-two-rover-head-on-crash_mission.stdout.log"
+  ],
+  "origin": "run",
+  "parsekDllSha256": "7d9f2510d4d321e9eb43cff3b9ff65f6bc7b7abd54485a48d21dc3ad4dde6eea",
+  "runId": "2026-11-17_1531_RVC-1-two-rover-head-on-crash",
+  "schema": 1,
+  "totalBytes": 226924,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests-2"
+}

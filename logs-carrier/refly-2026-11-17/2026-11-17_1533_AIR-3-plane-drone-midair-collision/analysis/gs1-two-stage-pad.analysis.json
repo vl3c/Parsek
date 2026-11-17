@@ -1,0 +1,97 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "gs1-two-stage-pad",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 0,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 678.6399999996728,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "FirstLaunch"
+    ],
+    "vessels": [
+      {
+        "pid": "4b954655e434499abcfb72a82eb1d080",
+        "persistentId": 2098606383,
+        "name": "AIR Drone Carrier",
+        "type": "Plane",
+        "resourceTotals": {
+          "ElectricCharge": 505.15940000001342,
+          "IntakeAir": 14,
+          "LiquidFuel": 2191.1569551480779,
+          "MonoPropellant": 0,
+          "Oxidizer": 0
+        }
+      },
+      {
+        "pid": "60e7fd84291d4c3ea5e74fe1fc93f9b2",
+        "persistentId": 1490391000,
+        "name": "Ast. VPA-167",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "ec23bab238d64b1f895871ce96ffe2bb",
+        "persistentId": 2200110033,
+        "name": "GS1 Auto-Chute Booster",
+        "type": "Ship",
+        "resourceTotals": {
+          "ElectricCharge": 52.830400048494596,
+          "LiquidFuel": 18,
+          "MonoPropellant": 10,
+          "Oxidizer": 22
+        }
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Assigned"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Assigned"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Missing"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Assigned"
+      }
+    ]
+  }
+}

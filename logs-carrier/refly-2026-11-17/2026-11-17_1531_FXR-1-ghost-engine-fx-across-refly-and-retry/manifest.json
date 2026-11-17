@@ -1,0 +1,33 @@
+{
+  "archivedUtc": "2026-11-17T15:33:10Z",
+  "files": [
+    {
+      "bytes": 16250,
+      "name": "2026-11-17_1531_FXR-1-ghost-engine-fx-across-refly-and-retry.json",
+      "sourceBytes": 16250
+    },
+    {
+      "bytes": 3077,
+      "name": "2026-11-17_153134_stock-minimal_harness.log.gz",
+      "sourceBytes": 12015
+    },
+    {
+      "bytes": 606904,
+      "name": "KSP.log.gz",
+      "sourceBytes": 5719295
+    }
+  ],
+  "gitHead": "2badf642caad8079d23a2be783fe9d7b063b74b3",
+  "harnessLog": "slice",
+  "missing": [
+    "2026-11-17_1531_FXR-1-ghost-engine-fx-across-refly-and-retry_status.json",
+    "2026-11-17_1531_FXR-1-ghost-engine-fx-across-refly-and-retry_mission.json",
+    "2026-11-17_1531_FXR-1-ghost-engine-fx-across-refly-and-retry_mission.stdout.log"
+  ],
+  "origin": "run",
+  "parsekDllSha256": "7d9f2510d4d321e9eb43cff3b9ff65f6bc7b7abd54485a48d21dc3ad4dde6eea",
+  "runId": "2026-11-17_1531_FXR-1-ghost-engine-fx-across-refly-and-retry",
+  "schema": 1,
+  "totalBytes": 626231,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests-2"
+}

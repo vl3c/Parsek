@@ -1,0 +1,40 @@
+{
+  "createdUtc": "2026-11-17T15:31:19Z",
+  "gitHead": "2badf642caad8079d23a2be783fe9d7b063b74b3",
+  "includeExclusive": false,
+  "lanes": [
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "FXR-1-ghost-engine-fx-across-refly-and-retry",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "RVC-1-two-rover-head-on-crash",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "AIR-3-plane-drone-midair-collision",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    }
+  ],
+  "name": "refly-2026-11-17",
+  "notFlown": [],
+  "schema": "parsek-parallel-plan/1",
+  "skipped": [],
+  "slotsAtStart": 2,
+  "windowMode": "desktop"
+}

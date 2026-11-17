@@ -1,0 +1,32 @@
+[Parallel][Info][Plan] plan written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\parallel\refly-2026-11-17\plan.json
+[Parallel][Info][Slots] slots in use: stock-minimal, stock-minimal-2, stock-minimal-3
+[Parallel][Info][Lock] machine lock acquired (acquired-free) kind=parallel-runner pid=41156
+[Parallel][Info][Job] child job object armed (KILL_ON_JOB_CLOSE)
+[Parallel][Info][Window] window=desktop desktop 2 of 2 (current=b3f15e00-3c2c-4e97-82a3-9dca2c1eace1) desktop=8611d2b8-3fd1-40e7-b7ed-966d22e4f24c
+[Parallel][Info][UnityPrefs] unity prefs snapshot -> C:\Users\USER\Documents\Code\Parsek\automation\.unity-prefs-snapshot.json (Screenmanager Fullscreen mode Default_h401710285=1, Screenmanager Fullscreen mode_h3630240806=3, Screenmanager Resolution Height Default_h1380706816=720, Screenmanager Resolution Height_h2627697771=720, Screenmanager Resolution Use Native Default_h1405981789=1, Screenmanager Resolution Use Native_h1405027254=0, +4 more)
+[Parallel][Info][UnityPrefs] begin: snapshot
+[Parallel][Info][Build] tests prebuild: dotnet build C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\Source\Parsek.Tests\Parsek.Tests.csproj (once per selection; the verifiers then run -NoBuild)
+[Parallel][Info][Build] tests prebuild ok wall=15.2s; verifiers run -NoBuild
+[Parallel][Info][Plan] 3 lane(s) to fly, 0 already settled, 0 not flown
+[Parallel][Info][Dispatch] lane=FXR-1-ghost-engine-fx-across-refly-and-retry slot=stock-minimal seq=1 pid=900 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\parallel\refly-2026-11-17\lanes\FXR-1-ghost-engine-fx-across-refly-and-retry.1.log
+[Parallel][Info][Wait] dispatch-gap: the last start was 0 s ago (< 15 s dispatch gap)
+[Parallel][Info][Dispatch] lane=RVC-1-two-rover-head-on-crash slot=stock-minimal-2 seq=2 pid=19404 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\parallel\refly-2026-11-17\lanes\RVC-1-two-rover-head-on-crash.2.log
+[Parallel][Info][Wait] slots: 2 running, slots=2
+[Parallel][Info][Finish] lane=FXR-1-ghost-engine-fx-across-refly-and-retry slot=stock-minimal verdict=PASS attempts=1 wall=96s exit=0 runIds=2026-11-17_1531_FXR-1-ghost-engine-fx-across-refly-and-retry
+[Parallel][Info][Dispatch] lane=AIR-3-plane-drone-midair-collision slot=stock-minimal seq=3 pid=36496 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\parallel\refly-2026-11-17\lanes\AIR-3-plane-drone-midair-collision.3.log
+[Parallel][Info][Wait] drain: no lane left to start; 2 running
+[Parallel][Warn][Finish] lane=RVC-1-two-rover-head-on-crash slot=stock-minimal-2 verdict=INVALID attempts=2 wall=341s exit=1 runIds=2026-11-17_1531_RVC-1-two-rover-head-on-crash,2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2
+[Parallel][Warn][Finish] lane=AIR-3-plane-drone-midair-collision slot=stock-minimal verdict=INVALID attempts=2 wall=1422s exit=1 runIds=2026-11-17_1533_AIR-3-plane-drone-midair-collision,2026-11-17_1545_AIR-3-plane-drone-midair-collision_a2
+[Parallel][Info][Archive] run index C:\Users\USER\Documents\Code\Parsek\automation\results-archive\index.jsonl: added=5 replaced=0 unchanged=0 skipped=0
+[Harness][Info][Lock] maintenance under the parallel runner: runner pid=41156 holds the machine lock
+[Harness][Warn][Coverage] flake quarantine scenario=AIR-3-plane-drone-midair-collision stage=run rate=1.00 over 7d
+[Harness][Warn][Coverage] flake quarantine scenario=RVC-1-two-rover-head-on-crash stage=run rate=1.00 over 7d
+[Harness][Warn][Duration] duration regression scenario=GUI-24-census-timeline-filters last=123s p50=73s p95=123s n=6 lastVsP50=1.69x
+[Harness][Info][Duration] duration record scenarios=364 measured-this-run=1 (PASS results only) -> C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\coverage\duration.json
+[Harness][Info][Coverage] coverage: values=251 covered=249 uncovered=2 expectedFail=0 xpass=0
+[Harness][Info][Lock] maintenance under the parallel runner: runner pid=41156 holds the machine lock
+[Harness][Info][Artifacts] sweep: results retention done (C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results)
+[Parallel][Info][UnityPrefs] unity prefs restored: wrote 0 value(s), deleted 0 (Screenmanager Fullscreen mode Default_h401710285=1, Screenmanager Fullscreen mode_h3630240806=3, Screenmanager Resolution Height Default_h1380706816=720, Screenmanager Resolution Height_h2627697771=720, Screenmanager Resolution Use Native Default_h1405981789=1, Screenmanager Resolution Use Native_h1405027254=0, +4 more)
+[Parallel][Info][UnityPrefs] end: restored
+[Parallel][Info][Lock] run-lock released path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-machine.lock
+[Parallel][Warn][Done] run refly-2026-11-17 outcome=RED exit=1 PASS=1 INVALID=2 pending=0 of 3; summary C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests-2\harness\results\parallel\refly-2026-11-17\summary.txt

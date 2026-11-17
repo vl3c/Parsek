@@ -1,0 +1,4 @@
+2026-11-17T15:33:10Z PASS FXR-1-ghost-engine-fx-across-refly-and-retry attempts=1 wall=96s slot=stock-minimal runIds=2026-11-17_1531_FXR-1-ghost-engine-fx-across-refly-and-retry
+2026-11-17T15:37:31Z INVALID RVC-1-two-rover-head-on-crash attempts=2 wall=341s slot=stock-minimal-2 runIds=2026-11-17_1531_RVC-1-two-rover-head-on-crash,2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2
+2026-11-17T15:56:53Z INVALID AIR-3-plane-drone-midair-collision attempts=2 wall=1422s slot=stock-minimal runIds=2026-11-17_1533_AIR-3-plane-drone-midair-collision,2026-11-17_1545_AIR-3-plane-drone-midair-collision_a2
+# totals PASS=1 INVALID=2 pending=0 of 3

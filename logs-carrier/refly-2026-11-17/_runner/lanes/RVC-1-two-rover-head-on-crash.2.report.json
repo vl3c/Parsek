@@ -1,0 +1,23 @@
+{
+ "exitCode": 1,
+ "lanes": [
+  {
+   "attempts": 2,
+   "failureClass": "driver-verdict-mismatch",
+   "id": "RVC-1-two-rover-head-on-crash",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests-2\\harness\\results\\2026-11-17_1531_RVC-1-two-rover-head-on-crash.json",
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests-2\\harness\\results\\2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2.json"
+   ],
+   "runIds": [
+    "2026-11-17_1531_RVC-1-two-rover-head-on-crash",
+    "2026-11-17_1534_RVC-1-two-rover-head-on-crash_a2"
+   ],
+   "subkind": "driver-verdict-mismatch",
+   "verdict": "INVALID",
+   "wallSeconds": 320
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal-2"
+}

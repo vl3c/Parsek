@@ -1,0 +1,5 @@
+{
+  "schema": "parsek-parallel-control/1",
+  "slots": 2,
+  "stop": false
+}
