@@ -20,6 +20,166 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RACE-0-ALT-PIN-FROM-ONE-FLIGHT~~: RACE-0's confirming flight read PARSEK-FAIL on a launch-site altitude window sized from one flight [FILED 2026-11-17 from run `2026-11-17_0317` (PC, scratch build ca454c963, PARSEK-FAIL(expectation)). FIXED 2026-11-17, branch `mp/t-07c-race-0-widen-alt-windows`; harness spec only, not a Parsek defect; third flight `2026-11-17_0340` PASS; low]
+
+The one failing row was `listhandles sites launchSite index=4 name='Crater_Launch_Site' ...
+alt=169\.(7[8-9]|8[0-7])[0-9]`: the flight read `alt=169.751`, the first flight `2026-11-17_0035`
+read 169.834. Every other row matched. Cause: the RACE-0 windows were pinned from that one first
+flight with about +-0.05 m on the altitude, and the stock values of the two flights differ by a
+few centimetres. Stock fills each spawn point's cache (`src=cache`) in `LaunchSite.SpawnPoint.SetSpawnPointLatLonAlt`,
+called from `PQSCity.Orientate` / `PQSCity2.Orientate`, as `body.GetLatLonAlt` of the spawn
+point's float32 `Transform.position`; Orientate writes the site's `localPosition` as a float32
+vector about 600 km long (step 0.0625 m) under the rotating body, so each value carries a few
+float32 roundings whose sum depends on the body's rotation at that instant (up to about 0.15 m).
+Measured between the two flights: altitude up to 0.083 m (Crater), ground position up to 0.10 m
+(the space center's longitude). The terrain heights (PQS height in double at fixed lat / lon)
+were byte-identical.
+
+Fix: every `alt=` window (spaceCenter and the eleven spawn points) is now the midpoint of the two
+flights +-0.30 m, snapped outward to the centimetre; the GlacierLake and MahiMahi longitude
+windows (1e-4 deg there is only 0.30 m / 0.68 m on the ground) are the midpoint +-0.5 m on the
+ground. Every other lat / lon window kept its pin (margin to both flights at least 3.8 times their
+spread and 0.33 m on the ground); the terrain rows are unchanged. Checked offline through
+`hlib.evaluate_expectations` with both flights' lines: both PASS (the old spec reproduced the PC's
+one red row on 0317); every altitude row moved 1 m either way, both widened longitudes moved 1 m on
+the ground, a renamed site and two sites trading places all red, 60 of 60 mutations.
+
+Third flight (PC, same install and build as 0317): `2026-11-17_0340` PASS attempt 1, 52 s
+(`flight_efficiency.py` total 45 s: boot 24.4 s, seam steps 6.1 s, post-quit tail 9.3 s). It read
+every site value byte-identical to 0317. So two boots of one provisioned install did NOT move the
+values; only 0035 (an earlier provisioning, another build) differs from them. The float32 chain
+above explains the size of the difference, but "moves between boots" is not what was observed, and
+what changed between 0035 and the later pair is not established. Open question, no action owed: if
+a later flight on a new provisioning reads a third set of values, record it here.
+
+## MP-P2A-PLAYBACK-CATALOG, P2a-06 as built: the production anchor world-frame resolver reads the catalog [DONE 2026-11-16, branch `mp/p2a-06-anchor-world-frame-catalog`; refactor, no product change; part of MP-P2A-PLAYBACK-CATALOG below]
+
+`ProductionAnchorWorldFrameResolver` (`Source/Parsek/Rendering/`) holds an `IPlaybackCatalog`
+from a trailing optional parameter of its one modelled-world constructor (null reads
+`RecordingPlaybackCatalog.Own`; the parameterless constructor and both construction sites,
+`AnchorPropagator` and `RenderSessionState`, pass nothing). The relative-boundary context
+builder takes the focus tree from `catalog.TryFindFocusTree(rec.RecordingId, rec.TreeId, ...)`
+(the L4 order: committed trees, then pending, id-or-containment) and the pending tree from
+`catalog.PendingTree`; the private `TryFindFocusTree(Recording)` copy is deleted. Proof: two
+fake-catalog cells in `ProductionAnchorWorldFrameResolverTests` (a tree only the catalog holds
+resolves; a tree only the store holds fails `focus-tree-missing`). Owed on the PC: in-game
+`MapRender` and `GhostMap`, lanes S1.6, S1.7 and H44.
+
+## MP-P2A-PLAYBACK-CATALOG: playback looks recordings up by id through one port, so a second playback lane can answer from its own data [FILED 2026-11-16 for the multiplayer prerefactor P2a (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, P2a-01 to P2a-07). IN PROGRESS: P2a-05 done (branch `mp/p2a-05-anchor-resolver-catalog`), P2a-03 done (branch `mp/p2a-03-positioner-catalog`), P2a-04 done (branch `mp/p2a-04-tail-lift-catalog`), P2a-06 done (branch `mp/p2a-06-anchor-world-frame-catalog`), P2a-07 done (branch `mp/p2a-07-map-state-vectors-catalog`); P2a-02 open; refactor, no product change]
+
+`IPlaybackCatalog` and its own-timeline `RecordingPlaybackCatalog.Own` (both in
+`Source/Parsek/Recording/`) carry each lookup family as a named variant that keeps its search
+order. P2a-05 added the pending read, the focus-tree lookup and the
+trees-then-pending-then-list recording lookup, and routed `RecordedRelativeAnchorPoseResolver`
+through them (trailing optional catalog; null reads `Own`). Proof: `RecordingPlaybackCatalogTests`
+(truth table, plus a sweep that drives verbatim copies of the deleted resolver lookups and the
+catalog over the same 14 fixtures), fake-catalog cells in
+`RecordedRelativeAnchorPoseResolverTests`. Owed on the PC: in-game `Pipeline-Anchor` and
+`GhostMap`, lanes H11 and H44. P2a-03 added the committed-first containment tree lookup
+(`TryFindTreeHolding`, `CatalogTreeOrder.CommittedFirstContainsKey`) and the committed-list
+recording scope (`CatalogRecordingScope.CommittedListOnly`), and routed the flight positioner
+through them: a `catalog` field from a trailing optional constructor parameter (null reads `Own`),
+the relative-anchor focus tree, the Trace-Sep parent lookup, and the pending tree of
+`BuildFlightRelativeAnchorResolverContext` (now a catalog parameter). Proof: truth-table rows and
+sweeps against verbatim copies of the replaced lookups, a fake-catalog positioner cell. Owed on
+the PC: in-game `Pipeline-Anchor` and `PlaybackFidelity`, lanes H11, LT-1 and H36. P2a-04
+routed the tail-lift recording lookup (`ParsekFlightGhostPositioner.ResolveRecordingById`)
+through `CommittedListOnly` inside its try/catch; `ResolveTailLiftPlan` and
+`ParsekFlight.ResolveEffectiveAltitudeWithTailLift` take a trailing optional catalog (null reads
+`Own`) and the positioner's three tail-lift calls pass its own. The preview fallback and the
+plan caches (keyed by recording id, shared by every catalog) are unchanged, and the tail-lift
+file left the ERS allowlist (its last raw read moved into the catalog). Proof: a sweep of the
+production lookup against a verbatim copy of the removed walk over 16 fixtures, fake-catalog
+plan cells and a source gate on the three calls in `FlightRecorderTerrainTests`. Owed on the PC:
+in-game `GhostPlayback`, lane S1.4. Each later P2a task adds its variant's rows; the entry
+closes when P2a-07 and the last of P2a-02 to P2a-04 land.
+
+## MP-P2A-PLAYBACK-CATALOG, P2a-07 as built: the map's body-fixed anchor pid lookup reads the catalog [DONE 2026-11-16, branch `mp/p2a-07-map-state-vectors-catalog`; refactor, no product change; part of MP-P2A-PLAYBACK-CATALOG above]
+
+`GhostMapPresence.TryFindRecordingByIdForBodyFixedAnchorPid` (`GhostMapPresence.StateVectors.cs`,
+L6) keeps its own `IsNullOrWhiteSpace` guard and then calls
+`RecordingPlaybackCatalog.Own.TryFindRecording(id, TreesThenPendingThenList, ...)` (committed
+trees with a non-null value, then the pending tree, then the flat committed list); its copy of
+that walk is deleted. The file stays in `scripts/ers-els-audit-allowlist.txt`: the two
+active Re-Fly suppression reads (create time and `TrySuppressStateVectorUpdateForActiveReFly`)
+of `CommittedTrees`, the pending tree and `CommittedRecordings`, which the plan leaves for P3,
+remain. Proof: three cells in
+`GhostMapPresenceTests` pinning the order through `ResolveBodyFixedPrimaryAnchorPid`. Owed on
+the PC: in-game `GhostMap`, lanes H44 and S1.6.
+
+## MP-P3-GHOST-MAP-VESSELS, P3-04 as built: the ghost ProtoVessel mechanics live in `GhostMapVessels` [DONE 2026-11-17, branch `mp/p3-04-proto-mechanics-to-service`; refactor, no product change; part of the P3 track of `docs/dev/plans/multiplayer/r0b-prep-map-watch-codec.md`]
+
+Moved verbatim from `GhostMapPresence.ProtoVesselLifecycle.cs` / `.TargetingAndSelection.cs` into
+`Source/Parsek/Ghost/GhostMapVessels.cs`: `BuildGhostProtoVesselNode` (now handed the finished
+name), `EnsureDefensiveVesselNodes`, `ResolveVesselType`, `HardenGhostVesselPartPhysics`,
+`MakeLoadedGhostVesselPhysicsInert`, `LogGhostVesselMadeInert`,
+`NormalizeGhostOrbitDriverTargetIdentity`, `BuildGhostOrbitDriverIdentity`, `IsVesselRegistered`,
+`RemoveGhostProtoVessel`, `StripFromSave`, `FindBodyByName`, plus `IsSameVessel` (Normalize calls
+it) and the `FindBodyByNameForTesting` seam (cleared by `GhostMapVessels.ResetForTesting`), so
+the service reads nothing of `GhostMapPresence`. `BuildAndLoadGhostProtoVesselCore` keeps its
+signature and callers: it names the vessel (`BuildGhostProtoVesselName`), calls
+`TryLoadGhostProtoVessel(..., GhostMapVesselOwner.OwnTimeline, ...)` (node build through the type
+restore, its own Error lines and cleanup) and keeps the "Created ghost vessel" line and the
+`GhostCreated` trace; an exception after a good load still removes the ProtoVessel with the same
+Error line, which is why `GhostMapVesselLoad` also carries `ProtoVessel`. Forwarders stay on
+`GhostMapPresence` for the members called from elsewhere (`StripFromSave`, `ResolveVesselType`,
+`FindBodyByName`, `HardenGhostVesselPartPhysics`, `MakeLoadedGhostVesselPhysicsInert`,
+`NormalizeGhostOrbitDriverTargetIdentity`, `BuildGhostOrbitDriverIdentity`, `IsVesselRegistered`,
+`IsSameVessel`). Proof: `scripts/refactor/il_compare.py` with `--fold
+Parsek.GhostMapPresence=Parsek.GhostMapVessels` against a build of 3df7e0dc6: eleven bodies equal;
+`StripFromSave` and its lambda differ only by reading `Pids` instead of the
+`ghostMapVesselPids` getter; `BuildGhostProtoVesselNode` only by the name parameter; the core is
+the split. `GhostMapVesselsTests` gains a source gate that `RemoveAllGhostVessels` tears down
+through `UnregisterAllOwnTimeline` (both `Pids.Clear()` mutants red it) and cells for the moved
+headless members. Pins unchanged (uncalled 374, cross-type static writes 55, no lifetime or layer
+change); `lifetimes.toml` notes for `Pids` / `foreignOwners` now say the own teardown keeps foreign
+pids. Owed on the PC: in-game `GhostMap`, `MapPresence`, `MapRender`, `MapView`, `GhostMapOrbits`
+in FLIGHT and TRACKSTATION; lanes H44, S1.6, GC-4, GUI-9, CN-5, RF-7M, RF-8, FAR-1, V14T, V21T,
+V23T. Plan note: P3-04 says the positioner calls `GhostMapPresence.FindBodyByName`; it has its own
+`FindBodyByName(List<CelestialBody>, string)`, and the forwarder stays for the presence partials.
+
+## CS-LADDER-CHAIN-PINS: a campaign-chained replay of the scripted career cannot yet fly CS-0 to CS-7 unbroken [FILED 2026-11-16 by multiplayer T-49 (the campaign chain runner, branch `mp/t-49-campaign-chain-runner`), by reading the CS specs against the ladder `harness/campaigns/cs-career.toml`. OPEN; harness, no product change; low (the committed fixtures still fly every lane alone)]
+
+`tools/campaign_runner.py` stages each CS lane from the previous lane's fresh save instead of its
+committed fixture. Three gaps keep a full replay from chaining every edge:
+
+- CS-0 -> CS-3 and CS-3 -> CS-3b are declared `handover = "fixture"`. A genuine New Game offers
+  random contract GUIDs, and CS-3 accepts FIRSTLAUNCH and SCIENCE by the GUIDs of the committed
+  `cs-career-new`; CS-3b accepts the RT-10 PartTest by a GUID stock offered during CS-3's own
+  committed flight and hires Verhat Kerman, an applicant added to `cs-career-contracts` by hand.
+  Fix: T-58's accept-by-type selector, plus an applicant seed step; then drop the two fixture
+  edges from the ladder.
+- Past CS-6 the pins were read off the committed host: CS-6b pins `recordings.count` to exactly
+  21 (CS-6 allows 20-22) and its advRocketry `observedAfter=science=5.5`, while CS-6 pins no
+  science, so a chained CS-6 that recorded 20 or 22, or earned other science, reds CS-6b. CS-6c
+  (33-35) and CS-7 (49-55) are windows that a chained run is likely to meet. Fix: widen CS-6b's
+  count to CS-6's window and regex its science value, or pin CS-6's science.
+- Verified by the PC replay of 2026-11-16 (`cs-replay-1`, CS-3 to CS-4b on stock-tree, 4 of 4
+  stages green on attempt 1): CS-4b's `observedAfter` science values (27.5, 9.5) held when CS-4b
+  was staged from a re-flown CS-4, which was itself staged from CS-3b's save. That replay's
+  harvest asked for a `"cs-career-ts1" = ["Jumping Flea"]` row in
+  `harness/fixtures/shared-ships.toml`; it was not added, and whether a chained stage needs it
+  is open.
+
+Done 2026-11-16 on the same branch: CS-4b's and CS-6b's `GuidDiffers` lines no longer pin the
+committed predecessor's own Flea guid and UT (they are regexed), so a chained CS-4b / CS-6b can
+pass.
+
+## ~~RECORDING-ID-CHECK-OS-DEPENDENT~~: the recording id check depended on the operating system [FILED 2026-11-16 from the multiplayer analysis (section 10) and plan `docs/dev/plans/multiplayer/r0b-prep-small.md` P7-01, by code reading. FIXED 2026-11-16, branch `mp/p7-01-id-check-floor`; xUnit; no lane needed; low (no producer or committed save carries such an id)]
+
+`RecordingPaths.ValidateRecordingId`, which guards every sidecar and rewind-point path built
+from an id, refused the chars `Path.GetInvalidFileNameChars()` reports: 41 on Windows, only NUL
+and `/` on Mono for Linux and macOS. So `rec:id` passed on Linux and failed on Windows, and an id
+read from a file written elsewhere was judged by the reader's platform.
+
+Fix: the pure check moved to `Core/SafeFileId.cs` (`Check`, `IsInvalidChar`) with a fixed set,
+the 41 Windows chars (NUL, 1 to 31, `" < > | : * ? \ /`), plus the `..` rule; it calls no
+`System.IO` and compares ordinally. `ValidateRecordingId` keeps its name, callers, log texts and
+levels and maps the verdict. Nothing changes on Windows; a space, a dot and non-ASCII letters
+still pass. Tests: `SafeFileIdTests` (each verdict, all 41 chars, the set exact over every char,
+`:` refused on any host, the produced shapes, culture independence, and every recording and
+rewind-point id in the committed fixtures accepted); `RecordingPathsLoggingTests` pins `:`.
+
 ## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
 
 The `vall-tylo-recorded` tree 91205f57 is one vessel's chain: the root ef182ffd starts IN ORBIT

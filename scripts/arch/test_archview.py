@@ -4176,12 +4176,16 @@ class RealTreeSmokeTests(unittest.TestCase):
         # knot, so RouteOriginCargoCheck leaves it: 437. R1-02's shared scenario-node lookup
         # (LogIO's ScenarioNodeLookup.ParsekScenarioName in place of nameof(ParsekScenario))
         # removes the only knot reference of LedgerHeldWindow and PlaybackScopeTracker: 435.
+        # Multiplayer P2a-05 adds the playback catalog port and its own-timeline class:
+        # RecordingPlaybackCatalog reads RecordingStore and PendingTreeSlot, IPlaybackCatalog
+        # names Recording and RecordingTree, and the recorded-anchor pose resolver (a knot
+        # member) calls both: 437.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [435, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [437, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4192,7 +4196,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # VesselSnapshotOps.cs joined them in the 2026-09-14 VesselSpawner
         # split, which named it in the Core rule; file-placement PR 9 moved
         # VesselSpawner.cs itself to Controllers, so the kernel is 8 files.
-        self.assertEqual(self.by_name["Core"]["files"], 8)
+        # SafeFileId.cs (the id check under every sidecar path) made it 9.
+        self.assertEqual(self.by_name["Core"]["files"], 9)
 
     def test_kernel_files_resolve_to_core(self):
         kernel = [
@@ -4204,6 +4209,7 @@ class RealTreeSmokeTests(unittest.TestCase):
             "Core/GroupHierarchyStore.cs",
             "Core/InventoryManifest.cs",
             "Core/PlaybackTrajectoryBoundsResolver.cs",
+            "Core/SafeFileId.cs",
         ]
         for name in kernel:
             self.assertEqual(self.model["fileModules"][name], "Core")
@@ -4359,10 +4365,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # 405 -> 383, 383 -> 365). R1-02's two types leaving the knot (see above) sat on the
         # uncut side of all three cuts, so each lands two lower (435 -> 403, 403 -> 381,
         # 381 -> 363).
+        # P2a-05's two catalog types (see the knot sizes above) stay on the uncut side through
+        # the first three cuts, so each lands two higher again (437 -> 405, 405 -> 383,
+        # 383 -> 365).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 435)
-        self.assertEqual(first["sizeAfter"], 403)
+        self.assertEqual(first["sizeBefore"], 437)
+        self.assertEqual(first["sizeAfter"], 405)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
@@ -4370,8 +4379,8 @@ class RealTreeSmokeTests(unittest.TestCase):
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "GhostPlaybackLogic")
-        self.assertEqual(second["sizeBefore"], 403)
-        self.assertEqual(second["sizeAfter"], 381)
+        self.assertEqual(second["sizeBefore"], 405)
+        self.assertEqual(second["sizeAfter"], 383)
         for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
             self.assertIn(dropped, second["droppedReferences"])
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
@@ -4391,10 +4400,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (436 -> 419). Wave 2 W1a made launch identity a sink (installed rules), so it is
         # no longer a cut; the third cut was the scenario module (419 -> 404 then, 410 -> 395
         # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b;
-        # 383 -> 364 after W6's window set; 383 -> 365 after item 25; 381 -> 363 after R1-02).
+        # 383 -> 364 after W6's window set; 383 -> 365 after item 25; 381 -> 363 after R1-02;
+        # 383 -> 365 after multiplayer P2a-05's catalog types).
         self.assertEqual(third["sink"], "Route")
-        self.assertEqual(third["sizeBefore"], 381)
-        self.assertEqual(third["sizeAfter"], 363)
+        self.assertEqual(third["sizeBefore"], 383)
+        self.assertEqual(third["sizeAfter"], 365)
         self.assertEqual(
             third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
 

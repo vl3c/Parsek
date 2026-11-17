@@ -241,16 +241,35 @@ injectedRecordings = "none"
 # seam-only scenarios; reserved for M-B1 flying).
 craft = []
 # Optional [fixture.race] (multiplayer race lanes only; no other spec has it):
-#   sharedFolder = "empty" | "fixtures/race/<name>"
+#   sharedFolder = "empty" | "fixtures/race/<name>" | "pair"
+# ("pair": a paired lane's ${raceShared} is the pair's one folder, wiped by the
+# parallel runner at dispatch, never by staging; "Paired lanes" below)
 # stages <instance>/rs/0 (the whole rs/ wiped first), the seam-step arg value
 # "${raceShared}" (whole value only) becomes its absolute path, and run.py copies
 # it to results/<runId>_race/ at KSP exit. Contract: harness/README.md
 # "The race shared folder".
+# A race lane may also carry a HARNESS step (multiplayer T-06): a driver step with
+# `harness = "raceFolder"` and `args = { op = "replace"|"edit"|"delete", from, path }`
+# instead of `cmd`. run.py runs it itself between two seam steps (no channel line):
+# it changes the staged folder, every path refused unless it stays inside it; a
+# refusal is the terminal INVALID(harness-step). It runs only while every step
+# driven before it is met; after an unmet step it is skipped and that step keeps
+# its own verdict (no harness step hides a Parsek fault). Contract: harness/README.md
+# "The harness-side folder step".
+# The second kind, `harness = "barrier"` with `args = { name, timeout }`, is the
+# rendezvous of a paired lane ([pair] group / role, multiplayer T-54); a lost
+# partner is the terminal INVALID(partner-lost). Contract: "Paired lanes" below.
 # Optional snapshotSaves = ["${runSave}-b", ...] (multiplayer T-04): the other
 # saves the lane creates, removed at staging and copied after the run like the run
 # save to results/<runId>_save-<suffix>/; one absent after a valid driver stage reds
 # PARSEK-FAIL(snapshot-save-missing). Contract: harness/README.md "Named-save
 # snapshots".
+# A spec with [fixture.race] also gets the raceParse row (multiplayer T-38): the
+# leak scan of every save it produced for the ids of every other player of the
+# shared folder. Optional [expectations.race] gating = true arms it (pinned by
+# RACEPARSE_ARMED_SPECS in lib/test_hlib.py): a leak reds PARSEK-FAIL(race-isolation),
+# a scan that proves nothing is INVALID(race-parse). Contract: harness/README.md
+# "The raceParse row (the gated leak scan)".
 
 [driver]
 kind = "seam"                        # v1 ONLY. "autopilot" is RESERVED (M-B1) -> spec-validation reject.
@@ -1229,7 +1248,9 @@ shell `harness/tools/unity_prefs.py`; a failure is one Warn.
 **INVALID subkinds.** `port-busy`, `runner-token`, `slot-locked` and
 `slot-profile-mismatch` (`hlib.PARALLEL_RUN_INVALID_SUBKINDS`) are pre-boot
 refusals about the machine: not retryable, and in
-`FLAKE_EXEMPT_INVALID_SUBKINDS`.
+`FLAKE_EXEMPT_INVALID_SUBKINDS`. `partner-lost` (`hlib.PAIR_INVALID_SUBKINDS`, kept
+apart) is a paired lane's lost partner, also terminal and flake-exempt ("Paired
+lanes" below).
 
 #### The parallel runner (`harness/tools/parallel_runner.py`)
 
@@ -1295,6 +1316,76 @@ in `harness/results/parallel/<run>/` (`plan.json`, `control.json`,
 
 Live validation on the owner's PC is owed (todo PARALLEL-HARNESS-RUNS); status
 lives in `autotest-status.md`.
+
+#### Paired lanes (AMENDED 2026-11-17, multiplayer T-54)
+
+Two lanes that must fly at once on two copies of one profile and share one
+folder (a race lane's publisher and reader). Each half carries `[pair] group =
+"<id>" role = "A" | "B"`; the pure rules are `hlib` "Paired lanes" and
+`parallel` (`complete_pairs`, `order_lanes`, `_pair_decision`, `pair_guard`,
+`remaining_lane_ids(partners=)`).
+
+- **Spec rules** (`hlib.validate_pair_block`, `hlib.pair_problems`). Each half
+  has at least one `barrier` step, `[retry] policy = "none"` (a retry would fly
+  one half alone), no `exclusive = true`, unique barrier names and timeouts in
+  1..3600 s under `runtime.budgetSeconds` (names compared ignoring case: they
+  are file names on Windows). A group has exactly one A and one B,
+  on the same profile and tier, with the same barrier names in the same order,
+  and both or neither on `sharedFolder = "pair"`; two group ids that differ only
+  in case are refused (one folder on Windows). A broken pair refuses the whole
+  runner selection.
+- **Selection and dispatch.** Selecting a half adds its partner. The pair is
+  one unit in the order (its longer half's p50, A then B) and starts whole or
+  not at all: two free slots of the profile inside `slots`, and the memory
+  guard charging both copies (`memory_holds(new_copies=2)`; with nothing
+  running the first half is the free first lane and the second is charged, so
+  the runner reads memory before a pair starts from idle too). While it waits
+  for slots, or for memory while a lane runs, no later lane starts. A pair held
+  by memory with nothing running is passed over instead (nothing would free the
+  memory): later lanes start in order, and when nothing else can start the run
+  ends (DONE) with the pair pending, naming the pair and the memory arithmetic;
+  no dispatch line is written for it. The idle judgement needs a reading
+  taken with nothing running and at least `IDLE_SETTLE_SECONDS` after the last
+  lane of the invocation ended (`parallel.idle_reading_settled`, fed the
+  reading's epoch and the last reap epoch): the runner clears its memory cache
+  at every start and every reap, and a just-exited game may not have released
+  its memory yet. Before such a reading the pair keeps the dispatch (a
+  `memory` wait); the runner re-reads as soon as the settle has passed, so the
+  wait is bounded by the settle plus one poll. A reading older than the last
+  start never admits a further start (`reading_predates_start`). A profile with fewer than two provisioned copies refuses the run
+  (exit 2); with `slots` below 2 the pair never starts and the run ends red with
+  lanes left unflown.
+- **Folders.** At dispatch, under the machine lock, the runner wipes and makes
+  the shared folder `<umbrella>/automation/rs/<run>/<group>/` and the barrier
+  folder `results/parallel/<run>/pairs/<group>/` (never through a link) and
+  passes both to the two children (`run.py --slot <s> --pair-shared <dir>
+  --pair-dir <dir>`). The child refuses any other path or a link on the way
+  (`hlib.pair_child_refusal`, which folds the spec's group id with the same
+  `os.path.normcase` the paths went through, so Windows' lower-cased paths match
+  an upper-case group) and never wipes the shared folder. Barrier files
+  never live in the shared folder. No new lock: the machine lock covers the
+  wipe, and each child holds only its slot lock.
+- **Barrier.** The child writes `<name>.<role>.arrived` and polls for its
+  partner's (`run.wait_at_barrier`, `hlib.barrier_decision`): met when the
+  partner arrived (an arrival wins over an ended marker) and has not given this
+  barrier up, lost when the partner wrote `<name>.<role>.gaveup` (it gave the
+  barrier up; its arrival file stays behind), wrote `<role>.ended` (its drive is
+  over, it skipped a barrier, or the runner wrote it when the child exited) or
+  the timeout passed. A half that loses a barrier writes its own `.gaveup`.
+- **Verdict.** A lost partner is the terminal `INVALID(partner-lost)`, not
+  retried and flake-exempt (`hlib.PAIR_INVALID_SUBKINDS`, kept apart from the
+  machine refusals in `PARALLEL_RUN_INVALID_SUBKINDS`). A paired lane flown
+  without `--pair-dir` (a serial run) is refused pre-boot with the same
+  subkind. The runner's backstop `parallel.pair_guard` rewrites a green half to
+  `INVALID` when its partner left no verdict (no report, NOT-RUN, or no line),
+  so no pair reads PASS unless both halves flew. `resume` re-flies both halves
+  when either is unsettled, unless one already settled red. Before spawning a
+  pair the runner writes a NOT-RUN `pair-dispatched` line for both halves to
+  `summary.txt`, so after a runner death between the two reports the
+  unreported half reads pending (the run red, lanes left unflown), never an
+  earlier flight's PASS. Such a line is pending but neither a verdict nor red
+  (`parallel.is_pair_dispatch_marker`): `tally` and `status` count it as pending
+  only, and a stop honoured by both halves before they flew reads STOPPED.
 
 ### Fixture staging
 
@@ -2250,7 +2341,9 @@ retry_policy)` maps to the taxonomy:
   verifier flag; there is no repeated variant, a second boot-hang is terminal by the
   attempt cap), instance-locked (lock race) / instance-busy (zombie KSP), verifier tooling
   timeout, analyzer-error, spec invalid, or fixture STALE / fixture-authoring
-  (BASELINE-FORBIDDEN-only). Retryable-once for driver / tooling
+  (BASELINE-FORBIDDEN-only), or an armed raceParse leak scan that proved nothing
+  (race-parse, multiplayer T-38: terminal, and checked after every red, so it only
+  ever replaces a PASS). Retryable-once for driver / tooling
   stages (`retry.policy = once`): a first INVALID triggers one retry; a second
   INVALID is terminal and adds a flake-ledger entry (plan section 10 "two invalids
   => quarantine entry"). The one exception is a deterministic seam error, which is
@@ -2266,7 +2359,10 @@ retry_policy)` maps to the taxonomy:
   expect on a valid stage (unmet-step), OR a declared `[fixture] snapshotSaves` save
   is absent after a valid stage (snapshot-save-missing, multiplayer T-04, the last
   red: every step met its expect, so the step that names the save answered OK
-  without leaving it). NOT retried (a defect is a
+  without leaving it), OR an armed raceParse leak scan found a rival id in a save
+  the race lane produced (race-isolation, multiplayer T-38, design 6.4; checked
+  first among the verifier reds, ahead of the analyzer, because a leaked rival file
+  is the cause the later rows would each red on as a symptom). NOT retried (a defect is a
   defect). Wording note on `mission-outcome`: it is the one subkind that is not
   strictly "a Parsek defect" - a kerbal killed by stock physics is a FLIGHT failure -
   but it is classified here rather than as a driver-INVALID because a driver-stage

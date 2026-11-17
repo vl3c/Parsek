@@ -206,6 +206,11 @@ namespace Parsek.Tests
             // a record that the player recovered the owner's vessel; no pool moves and the
             // merge retires it via IsSupersedeTombstoneEligible. The strict gate does not block; the value gate seals.
             yield return new object[] { GameActionType.VesselRecovered, true, false };
+            // VesselEnded (A2 race fact): a record that the owner's vessel ended outside a
+            // recording; no pool moves and the merge retires it via
+            // IsSupersedeTombstoneEligible, like the recovery above. The strict gate does not
+            // block; the value gate seals.
+            yield return new object[] { GameActionType.VesselEnded, true, false };
             // ResourceScanUnlocked (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED): a record of a scan
             // stock already applied; the merge retires it via IsSupersedeTombstoneEligible
             // and the rewind quicksave predates the scan. The strict gate does not block; the value gate seals.

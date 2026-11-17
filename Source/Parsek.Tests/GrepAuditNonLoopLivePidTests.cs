@@ -133,6 +133,7 @@ namespace Parsek.Tests
             new AuditCheck("Source/Parsek/Ghost/GhostMapPresence.OrbitLines.cs", @"ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFly\w*Point|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId", "map Relative live PID playback"),
             new AuditCheck("Source/Parsek/Ghost/GhostMapPresence.OverlapInstances.cs", @"ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFly\w*Point|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId", "map Relative live PID playback"),
             new AuditCheck("Source/Parsek/Ghost/GhostMapPresence.FlightMapLifecycle.cs", @"ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFly\w*Point|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId", "map Relative live PID playback"),
+            new AuditCheck("Source/Parsek/Ghost/GhostMapVessels.cs", @"ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFly\w*Point|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId", "map Relative live PID playback"),
         };
 
         private static readonly AuditCheck[] RequiredChecks =

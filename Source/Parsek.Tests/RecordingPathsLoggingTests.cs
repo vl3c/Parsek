@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using Xunit;
 
 namespace Parsek.Tests
@@ -56,8 +55,9 @@ namespace Parsek.Tests
         {
             var lines = new List<string>();
             ParsekLog.TestSinkForTesting = line => lines.Add(line);
-            char invalidChar = GetInvalidFileNameCharForTesting();
-            string invalidId = $"abc{invalidChar}def";
+            // ':' is refused on every operating system (the fixed set), so this cell does not
+            // depend on what the test host's Path.GetInvalidFileNameChars() reports.
+            string invalidId = "abc:def";
 
             Assert.False(RecordingPaths.ValidateRecordingId(
                 invalidId,
@@ -67,19 +67,6 @@ namespace Parsek.Tests
             Assert.Equal(
                 $"[Parsek][VERBOSE][Paths] Recording id validation failed for '{invalidId}': contains invalid file-name char",
                 lines[0]);
-        }
-
-        private static char GetInvalidFileNameCharForTesting()
-        {
-            char[] invalidChars = Path.GetInvalidFileNameChars();
-            char[] preferredChars = { '<', '>', ':', '"', '|', '?', '*' };
-            for (int i = 0; i < preferredChars.Length; i++)
-            {
-                if (Array.IndexOf(invalidChars, preferredChars[i]) >= 0)
-                    return preferredChars[i];
-            }
-
-            return invalidChars[0];
         }
     }
 }

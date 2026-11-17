@@ -30,6 +30,10 @@ namespace Parsek.Rendering
         private readonly Func<TrajectoryPoint, Vector3d> absoluteWorldPosition;
         private readonly Func<TrajectoryPoint, Quaternion> bodyWorldRotation;
 
+        // The recordings the relative-boundary chain resolves against: the focus tree and the
+        // pending tree come from this catalog, never from RecordingStore directly.
+        private readonly IPlaybackCatalog catalog;
+
         public ProductionAnchorWorldFrameResolver()
             : this(ResolveBody, null, null)
         {
@@ -38,8 +42,10 @@ namespace Parsek.Rendering
         internal ProductionAnchorWorldFrameResolver(
             Func<string, CelestialBody> bodyLookup,
             Func<TrajectoryPoint, Vector3d> absoluteWorldPosition,
-            Func<TrajectoryPoint, Quaternion> bodyWorldRotation)
+            Func<TrajectoryPoint, Quaternion> bodyWorldRotation,
+            IPlaybackCatalog catalog = null)
         {
+            this.catalog = catalog ?? RecordingPlaybackCatalog.Own;
             this.bodyLookup = bodyLookup ?? ResolveBody;
             this.absoluteWorldPosition = absoluteWorldPosition ?? ResolveAbsoluteWorldPositionFrom(this.bodyLookup);
             this.bodyWorldRotation = bodyWorldRotation ?? ResolveBodyWorldRotationFrom(this.bodyLookup);
@@ -392,7 +398,7 @@ namespace Parsek.Rendering
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                 return false;
 
-            if (!TryFindFocusTree(rec, out RecordingTree focusTree))
+            if (!catalog.TryFindFocusTree(rec.RecordingId, rec.TreeId, out RecordingTree focusTree))
                 return false;
 
             context = new RelativeAnchorResolverContext(
@@ -400,48 +406,12 @@ namespace Parsek.Rendering
                 focusRecordingId: rec.RecordingId,
                 focusTreeId: focusTree?.Id,
                 activeReFlyMarker: ParsekScenario.Instance?.ActiveReFlySessionMarker,
-                pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
+                pendingTree: catalog.PendingTree,
                 absoluteWorldPositionResolver: absoluteWorldPosition,
                 bodyWorldRotationResolver: bodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPoseAtBoundaryInstant,
                 tryResolveLiveAnchorTransform: ParsekFlight.TryGetLiveAnchorTransformDelegate());
             return true;
-        }
-
-        private static bool TryFindFocusTree(Recording rec, out RecordingTree focusTree)
-        {
-            focusTree = null;
-            List<RecordingTree> committedTrees = RecordingStore.CommittedTrees;
-            if (committedTrees != null)
-            {
-                for (int i = 0; i < committedTrees.Count; i++)
-                {
-                    RecordingTree tree = committedTrees[i];
-                    if (tree?.Recordings == null)
-                        continue;
-                    if ((!string.IsNullOrEmpty(rec.TreeId)
-                            && string.Equals(tree.Id, rec.TreeId, StringComparison.Ordinal))
-                        || tree.Recordings.ContainsKey(rec.RecordingId))
-                    {
-                        focusTree = tree;
-                        return true;
-                    }
-                }
-            }
-
-            RecordingTree pending = PendingTreeSlot.HasPendingTree
-                ? PendingTreeSlot.PendingTree
-                : null;
-            if (pending?.Recordings != null
-                && (pending.Recordings.ContainsKey(rec.RecordingId)
-                    || (!string.IsNullOrEmpty(rec.TreeId)
-                        && string.Equals(pending.Id, rec.TreeId, StringComparison.Ordinal))))
-            {
-                focusTree = pending;
-                return true;
-            }
-
-            return false;
         }
 
         private static Func<TrajectoryPoint, Vector3d> ResolveAbsoluteWorldPositionFrom(

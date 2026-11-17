@@ -67,7 +67,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 SCHEMA_VERSION = 1
 
@@ -2299,6 +2299,9 @@ def handle_ref_fault(ref: str, consumer_index: int, steps: Sequence[Dict],
                 "reference; a payload exists only once its step has answered"
                 % (ref, target))
     ref_step = steps[target] or {}
+    if is_harness_step(ref_step):
+        return ("%r names driver.steps[%d], a harness step: it writes nothing to the "
+                "seam channel and has no response payload" % (ref, target))
     if ref_step.get("phase") == "mission":
         return ("%r names driver.steps[%d], a mission-phase step: it writes "
                 "nothing to the seam channel and has no response payload"
@@ -3032,7 +3035,7 @@ RUNTESTS_STRICT_VALUES: Tuple[str, ...] = ("true", "false")
 # and a missing key is not a value.
 LISTHANDLES_KIND_KEY = "kind"
 LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active",
-                                             "chains", "routes", "timeline")
+                                             "chains", "routes", "timeline", "sites")
 
 # `ListHandles kind=chains expectDigest=<hex8>`: the OPTIONAL readback comparison.
 # NOT a closed-value arg (its value is a digest, normally `${<label>.digest}` from an
@@ -3089,6 +3092,22 @@ LISTHANDLES_TIMELINE_LOG_KEYS: Tuple[str, ...] = (
 LISTHANDLES_TIMELINE_RETIRED_LOG_KEYS: Tuple[str, ...] = (
     "type", "subject", "ut", "twinCopies", "twinRows",
 )
+
+# `ListHandles kind=sites` (multiplayer T-07, the stock site baseline RACE-0 pins) writes
+# one Info line per fact: `listhandles sites spaceCenter body=.. lat=.. lon=.. alt=..`,
+# `listhandles sites recovery lat=.. lon=..`, one `listhandles sites launchSite index=<i>
+# name='..' <LISTHANDLES_SITES_LAUNCH_SITE_LOG_KEYS>` per spawn point and one
+# `listhandles sites terrain index=<j> name=.. <LISTHANDLES_SITES_TERRAIN_LOG_KEYS>` per
+# fixed sample point (`LISTHANDLES_SITES_SAMPLE_NAMES`, in table order). Degrees carry
+# seven decimals and metres three, invariant. Byte-equal to `TestCommandSitesReadback`
+# (pinned by ListHandlesSourceSyncTests).
+LISTHANDLES_SITES_LOG_PREFIX = "listhandles sites"
+LISTHANDLES_SITES_FACTS: Tuple[str, ...] = ("spaceCenter", "recovery", "launchSite", "terrain")
+LISTHANDLES_SITES_LAUNCH_SITE_LOG_KEYS: Tuple[str, ...] = (
+    "point", "kind", "editor", "lat", "lon", "alt", "src",
+)
+LISTHANDLES_SITES_TERRAIN_LOG_KEYS: Tuple[str, ...] = ("lat", "lon", "height")
+LISTHANDLES_SITES_SAMPLE_NAMES: Tuple[str, ...] = ("pad", "runwayWest", "runwayEast")
 
 # arg key -> (the ONLY verb that reads it, its closed value set). Iterated by
 # validate_spec, so a fifth such arg is one row rather than a fifth copied block.
@@ -7886,6 +7905,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     # `[fixture.race]` - the race shared folder run.py stages (multiplayer T-03).
     errors.extend(validate_race_fixture(fixture, race_fixtures))
     race_declared = spec_race_fixture(spec) is not None
+    # `[pair]` - one half of a paired lane (multiplayer T-54).
+    errors.extend(validate_pair_block(spec))
+    pair_declared = spec_pair(spec) is not None
     # `[fixture] snapshotSaves` - the second saves a lane creates, snapshotted like
     # the run save (multiplayer T-04).
     _snap_errors, _snap_warnings = validate_snapshot_saves(
@@ -7965,6 +7987,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         if STEP_LABEL_KEY not in step:
             continue
         label = step.get(STEP_LABEL_KEY)
+        if is_harness_step(step):
+            # validate_harness_step reports the key; registering it would let a later
+            # ${label.field} name a step that has no response payload.
+            continue
         if step.get("phase") == "mission":
             errors.append(
                 "driver.steps[%d].%s: a mission-phase step writes nothing to the seam "
@@ -7999,6 +8025,15 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     first_loadgame_index: Optional[int] = None
     for i, step in enumerate(steps):
         step = step or {}
+        # A harness step (multiplayer T-06) is run by run.py itself and writes nothing
+        # to the channel, so the seam-verb rules below do not apply to it; checked
+        # before the mission branch so a step carrying both keys is refused here.
+        if is_harness_step(step):
+            errors.extend(validate_harness_step(
+                i, steps, race_declared, race_fixtures, pair_declared,
+                (spec.get("runtime") or {}).get("budgetSeconds")
+                if isinstance(spec.get("runtime"), dict) else None))
+            continue
         # A mission-kind step (design M-B1) is a HARNESS-SIDE handoff, NOT a seam
         # command: it writes nothing to the channel, so it is EXEMPT from the
         # seam-verb / reserved-verb / seam-expect checks (which apply only to
@@ -8763,6 +8798,23 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     warnings.extend(ghostlife.ghost_lifecycle_expectation_warnings(
         expectations, steps))
 
+    # [expectations.race] (multiplayer T-38): the raceParse row's spec block. The row
+    # reads the lane's race shared-folder snapshot, so the block needs [fixture.race];
+    # a race lane that leaves the leak scan unarmed is legal (the report-only reading)
+    # but warned, because a rival id in the own save is never legitimate.
+    if raceparse.race_block_declared(expectations):
+        errors.extend(raceparse.validate_race_expectations(
+            expectations.get(raceparse.RACE_BLOCK)))
+        if not race_declared:
+            errors.append("expectations.%s needs [fixture.%s]: the raceParse row reads the "
+                          "lane's race shared folder" % (raceparse.RACE_BLOCK,
+                                                         RACE_FIXTURE_TABLE))
+    if race_declared and not raceparse.race_gating_armed(expectations):
+        warnings.append("[fixture.%s] without [expectations.%s] %s = true: the raceParse "
+                        "leak scan runs report-only and a rival id in the produced save "
+                        "cannot red the run" % (RACE_FIXTURE_TABLE, raceparse.RACE_BLOCK,
+                                                raceparse.GATING_KEY))
+
     # VERB / BLOCK COUPLING. `PARSEK_RENDER_MANIFEST` is armed at launch by the
     # DECLARATION of [expectations.renderComposition] and by nothing else, so a
     # spec that drives ExportRenderManifest expecting OK without declaring the
@@ -8977,6 +9029,11 @@ RACE_FIXTURE_TABLE = "race"
 RACE_SHARED_FOLDER_KEY = "sharedFolder"
 RACE_FIXTURE_KEYS: Tuple[str, ...] = (RACE_SHARED_FOLDER_KEY,)
 RACE_SHARED_EMPTY = "empty"
+# `sharedFolder = "pair"` (multiplayer T-54): a paired lane's folder is the one its
+# pair shares, `<umbrella>/automation/rs/<run>/<group>/`, which the parallel runner
+# wipes at the pair's dispatch and hands each half as `run.py --pair-shared`. The
+# lane stages nothing and wipes nothing itself; it needs a `[pair]` block.
+RACE_SHARED_PAIR = "pair"
 RACE_FIXTURE_PREFIX = "fixtures/race/"
 # One fixture folder name: a letter or digit, then letters, digits, dash, underscore.
 # No dots and no separators, so a name can never step out of fixtures/race/.
@@ -8989,6 +9046,14 @@ RACE_SHARED_DEFAULT_LEAF = "0"
 RACE_FOLDER_ARG_BY_VERB: Dict[str, str] = {"RaceSetup": "folder", "RaceCommand": "path"}
 # The run's copy of the folder and its listing, both directly under results/.
 RACE_SNAPSHOT_DIR_SUFFIX = "_race"
+# The raceParse row (multiplayer T-38) reads that snapshot and the lane's produced
+# saves. An ARMED scan (`[expectations.race] gating = true`) that finds a rival id in
+# a save reds PARSEK-FAIL(RACE_ISOLATION_SUBKIND); an armed scan that cannot prove
+# anything (a snapshot or save it cannot read whole, a save whose own player it cannot
+# tell, a save with no rival id to look for) is the terminal
+# INVALID(RACE_PARSE_INVALID_SUBKIND), never PASS and never a Parsek failure.
+RACE_ISOLATION_SUBKIND = "race-isolation"
+RACE_PARSE_INVALID_SUBKIND = "race-parse"
 RACE_LISTING_SUFFIX = "_race.listing.txt"
 RACE_LISTING_HEADER = "# parsek race shared-folder listing v1"
 
@@ -9043,14 +9108,14 @@ def validate_race_fixture(fixture: Dict,
         errors.append("%s.%s: required (%r or %s<name>)"
                       % (where, RACE_SHARED_FOLDER_KEY, RACE_SHARED_EMPTY,
                          RACE_FIXTURE_PREFIX))
-    elif value == RACE_SHARED_EMPTY:
+    elif value in (RACE_SHARED_EMPTY, RACE_SHARED_PAIR):
         pass
     elif not is_race_fixture_path(value):
-        errors.append("%s.%s: %r must be %r or %s<name> (a plain folder name of "
+        errors.append("%s.%s: %r must be %r, %r or %s<name> (a plain folder name of "
                       "letters, digits, dash, underscore; forward slashes; nothing "
                       "outside harness/fixtures/race/)"
                       % (where, RACE_SHARED_FOLDER_KEY, value, RACE_SHARED_EMPTY,
-                         RACE_FIXTURE_PREFIX))
+                         RACE_SHARED_PAIR, RACE_FIXTURE_PREFIX))
     elif race_fixtures is not None and race_fixture_name(value) not in set(race_fixtures):
         errors.append("%s.%s: %r names no committed race fixture under "
                       "harness/fixtures/race/" % (where, RACE_SHARED_FOLDER_KEY, value))
@@ -9084,6 +9149,569 @@ def format_race_listing(run_id: str, rows: Sequence[Tuple[str, int, str]]) -> st
              "# run=%s files=%d bytes=%d" % (run_id, len(norm), sum(b for _, b, _ in norm))]
     lines.extend("%s %d %s" % (h, b, p) for p, b, h in norm)
     return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Harness-side steps (multiplayer plan, test-and-harness T-06).
+#
+# A driver step that carries `harness = "<kind>"` instead of `cmd` is executed by
+# run.py itself, between two seam steps, and is never written to the command
+# channel. The one kind is `raceFolder`, which changes the lane's staged race
+# shared folder (`${raceShared}`, `<instance>/rs/0`) the way a rival's sync client
+# or a tampering player would:
+#
+#   { harness = "raceFolder", args = { op = "replace", from = "fixtures/race/<name>" } }
+#   { harness = "raceFolder", args = { op = "replace", from = "fixtures/race/<name>", path = "<rel>" } }
+#   { harness = "raceFolder", args = { op = "edit",    path = "<rel>" } }
+#   { harness = "raceFolder", args = { op = "delete",  path = "<rel>" } }
+#
+#   replace  without `path`: the whole folder becomes a copy of the committed
+#            fixture `harness/fixtures/race/<name>/`. With `path`: the entry at
+#            `<rel>` (file or folder) becomes a copy of the fixture's entry at the
+#            same `<rel>`, whatever was there before.
+#   edit     appends RACE_FOLDER_EDIT_BYTES to the existing regular file `<rel>`,
+#            so its bytes (and any hash over them) change while a ConfigNode
+#            reader still parses it (the appended line is a comment).
+#   delete   removes the existing file or folder `<rel>`.
+#
+# `<rel>` is relative to the shared folder: forward slashes, no empty, `.` or `..`
+# segment, nothing absolute, no drive or stream colon, no backslash, no Windows
+# device name, each segment a plain name (race_folder_path_problem). The args are
+# literal: no `${...}` token is substituted in them. validate_spec refuses a bad
+# step before any boot; run.py re-checks the same args at run time and then refuses
+# any target or fixture entry whose path on disk passes through a link or junction
+# or resolves outside its folder. A refused or failed step is the HARNESS's fault:
+# the attempt stops driving (cleanup tail only) and classifies the terminal
+# INVALID(HARNESS_STEP_INVALID_SUBKIND), never PARSEK-FAIL. A harness step runs
+# only while every step driven before it is met (harness_step_skip_reason): after an
+# unmet step that did not stop the drive it is skipped, the drive goes on, and the
+# earlier step keeps its own verdict, so a harness step can neither hide a Parsek
+# fault nor turn a red run green.
+# ---------------------------------------------------------------------------
+
+HARNESS_STEP_KEY = "harness"
+RACE_FOLDER_STEP = "raceFolder"
+# The pair rendezvous (multiplayer T-54, "Paired lanes" below).
+BARRIER_STEP = "barrier"
+HARNESS_STEP_KINDS: Tuple[str, ...] = (RACE_FOLDER_STEP, BARRIER_STEP)
+# The step-level keys a harness step may carry (no cmd / phase / expect / budget /
+# label: it writes nothing to the channel and has no response payload).
+HARNESS_STEP_ALLOWED_KEYS: Tuple[str, ...] = (HARNESS_STEP_KEY, "args")
+RACE_FOLDER_OP_KEY = "op"
+RACE_FOLDER_FROM_KEY = "from"
+RACE_FOLDER_PATH_KEY = "path"
+RACE_FOLDER_ARG_KEYS: Tuple[str, ...] = (RACE_FOLDER_OP_KEY, RACE_FOLDER_FROM_KEY,
+                                         RACE_FOLDER_PATH_KEY)
+RACE_FOLDER_OP_REPLACE = "replace"
+RACE_FOLDER_OP_EDIT = "edit"
+RACE_FOLDER_OP_DELETE = "delete"
+RACE_FOLDER_OPS: Tuple[str, ...] = (RACE_FOLDER_OP_REPLACE, RACE_FOLDER_OP_EDIT,
+                                    RACE_FOLDER_OP_DELETE)
+RACE_FOLDER_EDIT_BYTES = b"\n// parsek harness raceFolder edit\n"
+RACE_FOLDER_PATH_MAX_CHARS = 200
+RACE_FOLDER_PATH_MAX_SEGMENTS = 16
+# One path segment: starts with a letter, digit or underscore (so never `.`, `..`
+# or a hidden name), ends with one of those or a dash (Windows strips a trailing
+# dot or space, so `a.` and `a` would be one file), with dots, spaces and dashes
+# allowed inside.
+# Matched with fullmatch: a `$` anchor would also accept one trailing newline.
+_RACE_FOLDER_SEGMENT_RE = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_. -]*[A-Za-z0-9_-])?")
+_WINDOWS_DEVICE_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"] + ["COM%d" % n for n in range(0, 10)]
+    + ["LPT%d" % n for n in range(0, 10)])
+# The terminal (non-retryable) INVALID subkind of a refused or failed harness step.
+# Absent from RETRYABLE_INVALID_SUBKINDS: a refusal is a property of the spec or of
+# the staged folder, not of the boot.
+HARNESS_STEP_INVALID_SUBKIND = "harness-step"
+
+
+def is_harness_step(step: Any) -> bool:
+    """True for a driver step run by run.py itself (it carries ``harness``)."""
+    return isinstance(step, dict) and HARNESS_STEP_KEY in step
+
+
+def harness_step_kind(step: Any) -> str:
+    """The step's ``harness`` value as a string ("" when it is not a harness step)."""
+    if not is_harness_step(step):
+        return ""
+    return str(step.get(HARNESS_STEP_KEY))
+
+
+def harness_step_display(step: Any) -> str:
+    """How a harness step is named in a log line or a tail summary."""
+    return "harness:%s" % harness_step_kind(step)
+
+
+def harness_step_skip_reason(ev: "ResponseEvaluation",
+                             mission: Optional[Dict]) -> Optional[str]:
+    """Why a harness step must NOT run, or None when it may. A harness step runs only
+    while every step driven before it is met: the mission (when one was driven) and
+    every seam step. A step that is already unmet has decided the verdict (a driver
+    INVALID, PARSEK-FAIL(mission-outcome) or PARSEK-FAIL(unmet-step)), and a harness
+    step premised on its work would otherwise fail in turn and replace that cause
+    with the terminal INVALID(HARNESS_STEP_INVALID_SUBKIND). Skipping it leaves the
+    run exactly as red as the same driver without the harness step."""
+    if mission is not None and not mission.get("met"):
+        return "skipped: the mission step %s is unmet" % (mission.get("id") or "?")
+    first = ev.first_unmet
+    if first is not None:
+        return ("skipped: the earlier step %s (%s) is unmet (verdict=%s)"
+                % (first.step_id, first.cmd, first.verdict or "<no-response>"))
+    return None
+
+
+def race_folder_path_problem(path: Any) -> Optional[str]:
+    """Why ``path`` is not a safe path relative to the race shared folder, or None."""
+    if not isinstance(path, str):
+        return "must be a string, got %s" % type(path).__name__
+    if not path:
+        return "is empty"
+    if len(path) > RACE_FOLDER_PATH_MAX_CHARS:
+        return "is longer than %d characters" % RACE_FOLDER_PATH_MAX_CHARS
+    if "\\" in path:
+        return "contains a backslash (use forward slashes)"
+    if ":" in path:
+        return "contains a colon (a drive or an alternate stream)"
+    if path.startswith("/"):
+        return "is absolute"
+    segments = path.split("/")
+    if len(segments) > RACE_FOLDER_PATH_MAX_SEGMENTS:
+        return "has more than %d segments" % RACE_FOLDER_PATH_MAX_SEGMENTS
+    for seg in segments:
+        if seg == "":
+            return "has an empty segment (a doubled or trailing slash)"
+        if seg in (".", ".."):
+            return "has a %r segment" % seg
+        if not _RACE_FOLDER_SEGMENT_RE.fullmatch(seg):
+            return ("segment %r is not a plain name (letters, digits, underscore first; "
+                    "dot, space, dash inside; no trailing dot or space)" % seg)
+        if seg.split(".", 1)[0].strip().upper() in _WINDOWS_DEVICE_NAMES:
+            return "segment %r is a Windows device name" % seg
+    return None
+
+
+def race_folder_path_parts(path: str) -> Tuple[str, ...]:
+    """The segments of a path race_folder_path_problem accepted."""
+    return tuple(path.split("/"))
+
+
+def race_folder_args_problems(where: str, args: Any, race_declared: bool,
+                              race_fixtures: Optional[Iterable[str]] = None) -> List[str]:
+    """Errors for one raceFolder step's ``args``. validate_spec calls it before any
+    boot and run.py again before it touches the folder. ``race_fixtures`` as in
+    validate_race_fixture (None defers the existence check to run time)."""
+    errors: List[str] = []
+    if not race_declared:
+        errors.append("%s: a %s step needs a [fixture.%s] block, which stages the folder "
+                      "it changes" % (where, RACE_FOLDER_STEP, RACE_FIXTURE_TABLE))
+    if not isinstance(args, dict):
+        errors.append("%s.args: must be a table { op = ..., ... }, got %s"
+                      % (where, type(args).__name__))
+        return errors
+    for key in sorted(str(k) for k in args if k not in RACE_FOLDER_ARG_KEYS):
+        errors.append("%s.args.%s: unknown key (accepted: %s)"
+                      % (where, key, ", ".join(RACE_FOLDER_ARG_KEYS)))
+    for key in RACE_FOLDER_ARG_KEYS:
+        value = args.get(key)
+        if key in args and not isinstance(value, str):
+            errors.append("%s.args.%s: must be a string, got %s"
+                          % (where, key, type(value).__name__))
+        elif isinstance(value, str) and "${" in value:
+            errors.append("%s.args.%s: %r carries a ${...} token; raceFolder args are "
+                          "literal (the target is always under %s)"
+                          % (where, key, value, RACE_SHARED_TOKEN))
+    op = args.get(RACE_FOLDER_OP_KEY)
+    if op not in RACE_FOLDER_OPS:
+        errors.append("%s.args.%s: %r must be one of %s"
+                      % (where, RACE_FOLDER_OP_KEY, op,
+                         " or ".join(repr(o) for o in RACE_FOLDER_OPS)))
+        return errors
+    source = args.get(RACE_FOLDER_FROM_KEY)
+    if op == RACE_FOLDER_OP_REPLACE:
+        if source is None:
+            errors.append("%s.args.%s: required for op=%s (%s<name>)"
+                          % (where, RACE_FOLDER_FROM_KEY, op, RACE_FIXTURE_PREFIX))
+        elif isinstance(source, str) and not is_race_fixture_path(source):
+            errors.append("%s.args.%s: %r must be %s<name> (a plain folder name of "
+                          "letters, digits, dash, underscore; nothing outside "
+                          "harness/fixtures/race/)"
+                          % (where, RACE_FOLDER_FROM_KEY, source, RACE_FIXTURE_PREFIX))
+        elif isinstance(source, str) and race_fixtures is not None \
+                and race_fixture_name(source) not in set(race_fixtures):
+            errors.append("%s.args.%s: %r names no committed race fixture under "
+                          "harness/fixtures/race/" % (where, RACE_FOLDER_FROM_KEY, source))
+    elif RACE_FOLDER_FROM_KEY in args:
+        errors.append("%s.args.%s: op=%s reads no fixture; drop the key"
+                      % (where, RACE_FOLDER_FROM_KEY, op))
+    if RACE_FOLDER_PATH_KEY in args:
+        problem = race_folder_path_problem(args.get(RACE_FOLDER_PATH_KEY))
+        if problem is not None:
+            errors.append("%s.args.%s: %r %s; it must name an entry inside the race "
+                          "shared folder" % (where, RACE_FOLDER_PATH_KEY,
+                                             args.get(RACE_FOLDER_PATH_KEY), problem))
+    elif op in (RACE_FOLDER_OP_EDIT, RACE_FOLDER_OP_DELETE):
+        errors.append("%s.args.%s: required for op=%s (a path relative to the race "
+                      "shared folder)" % (where, RACE_FOLDER_PATH_KEY, op))
+    return errors
+
+
+def validate_harness_step(index: int, steps: Sequence[Any], race_declared: bool,
+                          race_fixtures: Optional[Iterable[str]] = None,
+                          pair_declared: bool = False,
+                          budget_seconds: Any = None) -> List[str]:
+    """Errors for the harness step ``steps[index]``: its kind, its step-level keys,
+    its place (after the boot, before a later seam step, not after the quit) and
+    its kind's args. ``pair_declared`` / ``budget_seconds`` are what a ``barrier``
+    step is checked against (the spec's ``[pair]`` block, ``runtime.budgetSeconds``)."""
+    where = "driver.steps[%d]" % index
+    step = steps[index]
+    errors: List[str] = []
+    kind = step.get(HARNESS_STEP_KEY)
+    if kind not in HARNESS_STEP_KINDS:
+        errors.append("%s.%s: %r is not a harness step kind (known: %s)"
+                      % (where, HARNESS_STEP_KEY, kind, ", ".join(HARNESS_STEP_KINDS)))
+    for key in sorted(str(k) for k in step if k not in HARNESS_STEP_ALLOWED_KEYS):
+        errors.append("%s.%s: not allowed on a harness step (it writes nothing to the "
+                      "command channel; accepted keys: %s)"
+                      % (where, key, ", ".join(HARNESS_STEP_ALLOWED_KEYS)))
+    earlier = [s for s in steps[:index] if isinstance(s, dict)]
+    later = [s for s in steps[index + 1:] if isinstance(s, dict)]
+    if any(s.get("cmd") == "FlushAndQuit" for s in earlier):
+        errors.append("%s: a harness step after FlushAndQuit runs once the game has "
+                      "quit; it must sit between two seam steps" % where)
+    elif not any(isinstance(s.get("cmd"), str) and not is_harness_step(s) for s in later):
+        errors.append("%s: no seam step follows this harness step; it must sit between "
+                      "two seam steps" % where)
+    if kind == RACE_FOLDER_STEP:
+        errors.extend(race_folder_args_problems(where, step.get("args"), race_declared,
+                                                race_fixtures))
+    elif kind == BARRIER_STEP:
+        earlier_names = [barrier_name(s) for s in earlier
+                         if harness_step_kind(s) == BARRIER_STEP]
+        errors.extend(barrier_args_problems(where, step.get("args"), pair_declared,
+                                            budget_seconds, earlier_names))
+    return errors
+
+
+def format_race_folder_step_args(args: Any) -> str:
+    """``op=... from=... path=...`` for a harness log line ("-" for an absent key)."""
+    args = args if isinstance(args, dict) else {}
+    return " ".join("%s=%s" % (k, args.get(k) if args.get(k) is not None else "-")
+                    for k in RACE_FOLDER_ARG_KEYS)
+
+
+def format_harness_step_args(step: Any) -> str:
+    """A harness step's args for a log line, in its kind's key order."""
+    args = step.get("args") if isinstance(step, dict) else None
+    if harness_step_kind(step) == BARRIER_STEP:
+        args = args if isinstance(args, dict) else {}
+        return " ".join("%s=%s" % (k, args.get(k) if args.get(k) is not None else "-")
+                        for k in BARRIER_ARG_KEYS)
+    return format_race_folder_step_args(args)
+
+
+# ---------------------------------------------------------------------------
+# Paired lanes (multiplayer plan, test-and-harness T-54).
+#
+# Two specs that declare the same `[pair] group` with roles "A" and "B" are one
+# unit for tools/parallel_runner.py: it dispatches both halves at once on two free
+# slots of their profile, or neither, and never flies one alone. They may share a
+# race folder (`[fixture.race] sharedFolder = "pair"`, RACE_SHARED_PAIR) and meet at
+# harness-side `barrier` steps:
+#
+#   { harness = "barrier", args = { name = "<name>", timeout = <seconds> } }
+#
+# A barrier writes `<name>.<role>.arrived` into the pair's barrier folder
+# `results/parallel/<run>/pairs/<group>/` (never into the shared folder) and waits
+# until the partner's `<name>.<partner>.arrived` is there. The partner is LOST when
+# its `<partner>.ended` marker appears first (run.py writes it once its drive is over
+# or it skips a barrier; the runner writes it when the partner's child exits) or the
+# timeout passes: the survivor's drive stops (cleanup tail only) and the lane reads
+# the terminal INVALID(PARTNER_LOST_SUBKIND), flake-exempt. So a half can never read
+# PASS past a barrier its partner did not reach.
+#
+# What every pair spec must carry (validate_pair_block), so that rule cannot be
+# side-stepped: at least one barrier (a pair with none could PASS while its partner
+# never booted), `[retry] policy = "none"` (a half re-flown alone meets a partner
+# that has moved on), no `[runtime] exclusive = true` (a pair flies two copies at
+# once). Across the two specs (pair_problems): exactly one A and one B per group, the
+# same instanceProfile and tier, the same barrier names in the same order, and both
+# or neither on the shared folder. A paired lane run by run.py outside the runner
+# (no `--pair-dir`) is refused pre-boot INVALID(PARTNER_LOST_SUBKIND).
+# ---------------------------------------------------------------------------
+
+PAIR_TABLE = "pair"
+PAIR_GROUP_KEY = "group"
+PAIR_ROLE_KEY = "role"
+PAIR_KEYS: Tuple[str, ...] = (PAIR_GROUP_KEY, PAIR_ROLE_KEY)
+PAIR_ROLE_A = "A"
+PAIR_ROLE_B = "B"
+# Dispatch order inside a pair: A starts first.
+PAIR_ROLES: Tuple[str, ...] = (PAIR_ROLE_A, PAIR_ROLE_B)
+# A group id or a barrier name: one plain path segment (it names a folder and a
+# file), a letter or digit first, at most 32 characters.
+_PAIR_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,31}")
+BARRIER_NAME_KEY = "name"
+BARRIER_TIMEOUT_KEY = "timeout"
+BARRIER_ARG_KEYS: Tuple[str, ...] = (BARRIER_NAME_KEY, BARRIER_TIMEOUT_KEY)
+BARRIER_TIMEOUT_MAX_SECONDS = 3600
+BARRIER_POLL_SECONDS = 0.5
+BARRIER_ARRIVED_SUFFIX = ".arrived"
+PAIR_ENDED_SUFFIX = ".ended"
+# Written by a half that gave a barrier up (timeout or partner ended): its arrival
+# file stays behind, and a late partner must not read that as a meeting.
+BARRIER_GAVE_UP_SUFFIX = ".gaveup"
+BARRIER_MET = "met"
+BARRIER_WAIT = "wait"
+BARRIER_LOST = "lost"
+
+
+def is_pair_name(value: Any) -> bool:
+    """True for a valid group id or barrier name."""
+    return isinstance(value, str) and bool(_PAIR_NAME_RE.fullmatch(value))
+
+
+def spec_pair(spec: Optional[Dict]) -> Optional[Dict]:
+    """The spec's ``[pair]`` table, or None when it declares none ({} for a
+    non-table value, so callers treat it as declared and the validator reports it)."""
+    if not isinstance(spec, dict) or PAIR_TABLE not in spec:
+        return None
+    table = spec.get(PAIR_TABLE)
+    return table if isinstance(table, dict) else {}
+
+
+def spec_pair_identity(spec: Optional[Dict]) -> Optional[Tuple[str, str]]:
+    """``(group, role)`` of a well-formed ``[pair]`` block, else None."""
+    table = spec_pair(spec)
+    if not table:
+        return None
+    group, role = table.get(PAIR_GROUP_KEY), table.get(PAIR_ROLE_KEY)
+    if not is_pair_name(group) or role not in PAIR_ROLES:
+        return None
+    return group, role
+
+
+def pair_partner_role(role: str) -> str:
+    return PAIR_ROLE_B if role == PAIR_ROLE_A else PAIR_ROLE_A
+
+
+def barrier_name(step: Any) -> Optional[str]:
+    """A barrier step's ``name`` arg (None when absent or not a string)."""
+    args = step.get("args") if isinstance(step, dict) else None
+    name = args.get(BARRIER_NAME_KEY) if isinstance(args, dict) else None
+    return name if isinstance(name, str) else None
+
+
+def spec_barrier_names(spec: Optional[Dict]) -> List[Optional[str]]:
+    """The spec's barrier step names, in step order."""
+    steps = (((spec or {}).get("driver") or {}).get("steps") or [])
+    return [barrier_name(s) for s in steps if harness_step_kind(s) == BARRIER_STEP]
+
+
+def spec_uses_pair_folder(spec: Optional[Dict]) -> bool:
+    race = spec_race_fixture(spec)
+    return race is not None and race.get(RACE_SHARED_FOLDER_KEY) == RACE_SHARED_PAIR
+
+
+def barrier_args_problems(where: str, args: Any, pair_declared: bool, budget_seconds: Any,
+                          earlier_names: Sequence[Optional[str]] = ()) -> List[str]:
+    """Errors for one barrier step's ``args``."""
+    errors: List[str] = []
+    if not pair_declared:
+        errors.append("%s: a %s step needs a [%s] block (a barrier meets the lane's "
+                      "partner)" % (where, BARRIER_STEP, PAIR_TABLE))
+    if not isinstance(args, dict):
+        errors.append("%s.args: must be a table { %s = ..., %s = ... }, got %s"
+                      % (where, BARRIER_NAME_KEY, BARRIER_TIMEOUT_KEY, type(args).__name__))
+        return errors
+    for key in sorted(str(k) for k in args if k not in BARRIER_ARG_KEYS):
+        errors.append("%s.args.%s: unknown key (accepted: %s)"
+                      % (where, key, ", ".join(BARRIER_ARG_KEYS)))
+    name = args.get(BARRIER_NAME_KEY)
+    if not is_pair_name(name):
+        errors.append("%s.args.%s: %r must be a plain name (letter or digit first, then "
+                      "letters, digits, dash, underscore; at most 32)"
+                      % (where, BARRIER_NAME_KEY, name))
+    elif name.casefold() in {n.casefold() for n in earlier_names if isinstance(n, str)}:
+        # Case-insensitive: on Windows `Sync` and `sync` are one marker file.
+        errors.append("%s.args.%s: %r is already an earlier barrier of this spec (names are "
+                      "compared ignoring case: they are file names on Windows); a barrier "
+                      "name is passed once" % (where, BARRIER_NAME_KEY, name))
+    timeout = args.get(BARRIER_TIMEOUT_KEY)
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0 \
+            or timeout > BARRIER_TIMEOUT_MAX_SECONDS:
+        errors.append("%s.args.%s: %r must be a number of seconds in (0, %d]"
+                      % (where, BARRIER_TIMEOUT_KEY, timeout, BARRIER_TIMEOUT_MAX_SECONDS))
+    elif isinstance(budget_seconds, (int, float)) and not isinstance(budget_seconds, bool) \
+            and timeout >= budget_seconds:
+        errors.append("%s.args.%s: %r must be under runtime.budgetSeconds (%r), so a lost "
+                      "partner reads INVALID(%s) before the budget kills the run"
+                      % (where, BARRIER_TIMEOUT_KEY, timeout, budget_seconds,
+                         PARTNER_LOST_SUBKIND))
+    return errors
+
+
+def validate_pair_block(spec: Dict) -> List[str]:
+    """Errors for the spec's ``[pair]`` block and the rules a paired lane carries;
+    also a ``sharedFolder = "pair"`` with no ``[pair]`` block. None without both."""
+    table = spec_pair(spec)
+    errors: List[str] = []
+    if table is None:
+        if spec_uses_pair_folder(spec):
+            errors.append("fixture.%s.%s: %r is the folder a pair shares and needs a [%s] "
+                          "block" % (RACE_FIXTURE_TABLE, RACE_SHARED_FOLDER_KEY,
+                                     RACE_SHARED_PAIR, PAIR_TABLE))
+        return errors
+    if not isinstance(spec.get(PAIR_TABLE), dict):
+        return ["%s: must be a table { %s = ..., %s = ... }, got %s"
+                % (PAIR_TABLE, PAIR_GROUP_KEY, PAIR_ROLE_KEY,
+                   type(spec.get(PAIR_TABLE)).__name__)]
+    for key in sorted(str(k) for k in table if k not in PAIR_KEYS):
+        errors.append("%s.%s: unknown key (accepted: %s)" % (PAIR_TABLE, key, ", ".join(PAIR_KEYS)))
+    if not is_pair_name(table.get(PAIR_GROUP_KEY)):
+        errors.append("%s.%s: %r must be a plain name (letter or digit first, then letters, "
+                      "digits, dash, underscore; at most 32)"
+                      % (PAIR_TABLE, PAIR_GROUP_KEY, table.get(PAIR_GROUP_KEY)))
+    if table.get(PAIR_ROLE_KEY) not in PAIR_ROLES:
+        errors.append("%s.%s: %r must be %s" % (PAIR_TABLE, PAIR_ROLE_KEY,
+                                                table.get(PAIR_ROLE_KEY),
+                                                " or ".join(repr(r) for r in PAIR_ROLES)))
+    policy = ((spec.get("retry") or {}) if isinstance(spec.get("retry"), dict) else {}).get("policy")
+    if policy != "none":
+        errors.append("retry.policy: %r must be \"none\" on a paired lane (a half re-flown "
+                      "alone meets a partner that has moved on)" % (policy,))
+    if not spec_barrier_names(spec):
+        errors.append("driver.steps: a paired lane needs at least one { %s = \"%s\" } step "
+                      "(without one a half could PASS while its partner never ran)"
+                      % (HARNESS_STEP_KEY, BARRIER_STEP))
+    runtime = spec.get("runtime") if isinstance(spec.get("runtime"), dict) else {}
+    if runtime.get(EXCLUSIVE_SPEC_KEY) is True:
+        errors.append("runtime.%s: a paired lane flies beside its partner and cannot fly "
+                      "alone" % EXCLUSIVE_SPEC_KEY)
+    return errors
+
+
+def pair_problems(specs: Sequence[Dict]) -> List[str]:
+    """Problems across the specs that declare a ``[pair]`` block, one text per
+    problem, sorted by group: each group needs exactly one A and one B, the same
+    instanceProfile and tier, the same barrier names in the same order, and both or
+    neither on the pair's shared folder."""
+    groups: Dict[str, List[Tuple[str, Dict]]] = {}
+    for spec in specs:
+        ident = spec_pair_identity(spec)
+        if ident is not None:
+            groups.setdefault(ident[0], []).append((ident[1], spec))
+    problems: List[str] = []
+    folded: Dict[str, List[str]] = {}
+    for group in sorted(groups):
+        folded.setdefault(group.casefold(), []).append(group)
+    for variants in sorted(v for v in folded.values() if len(v) > 1):
+        problems.append("pair groups %s differ only in case; on Windows they would share one "
+                        "folder (rename one)" % " and ".join(variants))
+    for group in sorted(groups):
+        members = groups[group]
+        ids = ", ".join(str(s.get("id")) for _, s in members)
+        roles = sorted(r for r, _ in members)
+        if roles != sorted(PAIR_ROLES):
+            problems.append("pair %s: needs exactly one role A and one role B, has %s (%s)"
+                            % (group, "/".join(roles) or "none", ids))
+            continue
+        a = next(s for r, s in members if r == PAIR_ROLE_A)
+        b = next(s for r, s in members if r == PAIR_ROLE_B)
+        for key in ("instanceProfile", "tier"):
+            if a.get(key) != b.get(key):
+                problems.append("pair %s: %s differs (%s %r, %s %r)"
+                                % (group, key, a.get("id"), a.get(key), b.get("id"), b.get(key)))
+        if spec_barrier_names(a) != spec_barrier_names(b):
+            problems.append("pair %s: the barriers differ (%s %s, %s %s); both halves pass the "
+                            "same barriers in the same order"
+                            % (group, a.get("id"), spec_barrier_names(a), b.get("id"),
+                               spec_barrier_names(b)))
+        if spec_uses_pair_folder(a) != spec_uses_pair_folder(b):
+            problems.append("pair %s: only one half declares [fixture.%s] %s = %r"
+                            % (group, RACE_FIXTURE_TABLE, RACE_SHARED_FOLDER_KEY,
+                               RACE_SHARED_PAIR))
+    return problems
+
+
+def barrier_arrival_file(name: str, role: str) -> str:
+    return "%s.%s%s" % (name, role, BARRIER_ARRIVED_SUFFIX)
+
+
+def pair_ended_file(role: str) -> str:
+    return "%s%s" % (role, PAIR_ENDED_SUFFIX)
+
+
+def barrier_gave_up_file(name: str, role: str) -> str:
+    return "%s.%s%s" % (name, role, BARRIER_GAVE_UP_SUFFIX)
+
+
+def barrier_decision(partner_arrived: bool, partner_ended: bool, elapsed: float,
+                     timeout: float, name: str = "?", partner: str = "?",
+                     partner_gave_up: bool = False) -> Tuple[str, str]:
+    """``(BARRIER_MET | BARRIER_WAIT | BARRIER_LOST, reason)`` for one poll of a
+    barrier. A partner that gave THIS barrier up (``<name>.<role>.gaveup``) is lost
+    even though its arrival file is still there: the two never met. Otherwise the
+    partner's arrival wins over its ended marker (a partner that passed this
+    barrier and then finished is not lost)."""
+    if partner_gave_up:
+        return BARRIER_LOST, ("partner %s gave barrier %s up before this half arrived"
+                              % (partner, name))
+    if partner_arrived:
+        return BARRIER_MET, "partner %s arrived at %s" % (partner, name)
+    if partner_ended:
+        return BARRIER_LOST, ("partner %s ended without reaching barrier %s"
+                              % (partner, name))
+    if elapsed >= timeout:
+        return BARRIER_LOST, ("partner %s did not reach barrier %s within %gs"
+                              % (partner, name, timeout))
+    return BARRIER_WAIT, ""
+
+
+def _norm_parts(path: str) -> List[str]:
+    return [p for p in str(path).replace("\\", "/").split("/") if p]
+
+
+def pair_child_refusal(slot_mode: bool, selected: Sequence[Dict], pair_dir: str,
+                       shared_dir: str, parallel_root: str, rs_root: str,
+                       fold: Optional[Callable[[str], str]] = None) -> Optional[str]:
+    """Why ``run.py --pair-dir / --pair-shared`` is refused, or None. The paths
+    are real, normalised paths: the barrier folder must be
+    ``<parallel_root>/<run>/pairs/<group>`` and the shared folder
+    ``<rs_root>/<run>/<group>`` for the one selected lane's own group. ``fold`` is
+    the normalisation the caller applied to the paths (``os.path.normcase`` on
+    Windows lower-cases them); the spec's group id and the ``pairs`` folder name
+    go through it too, so like is compared with like on every host."""
+    fold = fold or (lambda text: text)
+    if not slot_mode:
+        return "--pair-dir is accepted only with --slot (a parallel runner's pair child)"
+    if len(selected) != 1:
+        return "a pair child flies exactly one lane, %d selected" % len(selected)
+    ident = spec_pair_identity(selected[0])
+    if ident is None:
+        return "lane %s declares no valid [%s] block" % (selected[0].get("id"), PAIR_TABLE)
+    group = ident[0]
+    group_part = fold(group)
+    pairs_part = fold(PAIRS_DIRNAME)
+
+    def under(path: str, root: str) -> Optional[List[str]]:
+        p, r = _norm_parts(path), _norm_parts(root)
+        if len(p) <= len(r) or p[:len(r)] != r:
+            return None
+        return p[len(r):]
+
+    bar = under(pair_dir, parallel_root)
+    if bar is None or len(bar) != 3 or bar[1] != pairs_part or bar[2] != group_part:
+        return ("--pair-dir %s is not <results>/parallel/<run>/%s/%s"
+                % (pair_dir, PAIRS_DIRNAME, group))
+    shared = under(shared_dir, rs_root)
+    if shared is None or shared != [bar[0], group_part]:
+        return ("--pair-shared %s is not <automation>/%s/%s/%s"
+                % (shared_dir, RACE_SHARED_ROOT, bar[0], group))
+    return None
+
+
+PAIRS_DIRNAME = "pairs"
 
 
 # An explicit ordered id list (`run.py --ids-file`): the selection a planned run
@@ -9169,6 +9797,7 @@ import savepatch  # noqa: E402  (the pure FLIGHTSTATE patcher behind [[fixture.l
 import rendercompose  # noqa: E402  (the M-A7 pure sibling; same reason - the render-composition spec surface is validated by the module that evaluates it)
 import ghostlife  # noqa: E402  (the ghost-lifecycle pure sibling; same reason - the [expectations.ghostLifecycle] surface is validated by the module that evaluates it)
 import samplingq  # noqa: E402  (the recording-sampling pure sibling; same reason - the [expectations.recordings.sampling] surface is validated by the module that evaluates it)
+import raceparse  # noqa: E402  (the race evaluator, multiplayer T-05 / T-38; same reason - the [expectations.race] surface is validated by the module that evaluates it)
 
 
 def build_expected_admission(
@@ -12295,6 +12924,11 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # Multiplayer T-04: a `[fixture] snapshotSaves` save absent after a run whose driver
     # stage stayed valid. After unmet-step, which names a richer cause.
     "snapshot-save-missing",
+    # Multiplayer T-38: the ARMED raceParse leak scan found a rival id in a save the
+    # race lane produced (design 6.4: no rival data is written into the save). Only a
+    # spec with [expectations.race] gating = true can raise it (RACEPARSE_ARMED_SPECS
+    # in test_hlib.py pins that set).
+    RACE_ISOLATION_SUBKIND,
 )
 
 # Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
@@ -12303,7 +12937,11 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
 # compute_coverage and exits 0), so a scenario quarantined for one Parsek defect would
 # silently absorb an unrelated subject death too. A quarantine must never be able to
 # turn "the flight killed the kerbal it existed to save" green; demoting that requires
-# spelling the subkind out.
+# spelling the subkind out. The gated verifier subkinds (save-structure,
+# render-composition, ghost-lifecycle, race-isolation) are deliberately NOT members:
+# each names a Parsek defect its armed verifier found, the same kind of red a filed
+# bugId quarantines, while mission-outcome is a lost flight subject no single defect
+# id can claim.
 NEVER_BUGID_ONLY_SUBKINDS: Tuple[str, ...] = ("mission-outcome",)
 
 # The keys an `[expectedFail]` table may carry. Checked at validation because a
@@ -13425,6 +14063,14 @@ PARALLEL_RUN_INVALID_SUBKINDS: Tuple[str, ...] = (
     PORT_BUSY_SUBKIND, RUNNER_TOKEN_SUBKIND, SLOT_LOCKED_SUBKIND,
     SLOT_PROFILE_MISMATCH_SUBKIND,
 )
+# Paired lanes (multiplayer T-54, "Paired lanes"). Listed apart from the machine
+# refusals above: it is about the PARTNER, not the machine.
+#   partner-lost  the lane's partner ended or timed out before a barrier the lane
+#                 reached, or the paired lane was flown without its partner (a serial
+#                 run.py, no --pair-dir). Terminal (a half is never re-flown alone)
+#                 and flake-exempt (it says nothing about this lane's own stability).
+PARTNER_LOST_SUBKIND = "partner-lost"
+PAIR_INVALID_SUBKINDS: Tuple[str, ...] = (PARTNER_LOST_SUBKIND,)
 
 
 def classify_expected_fail(base: Verdict, bug_id: str, signature_matched: bool) -> Verdict:
@@ -13467,7 +14113,11 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
           save-structure / render-composition / ghost-lifecycle / ledger
           -> PARSEK-FAIL
       unmet step, then a missing snapshotSaves save -> PARSEK-FAIL
+      an armed raceParse scan that proved nothing -> INVALID(race-parse) (terminal)
       else -> PASS
+    An armed raceParse leak (PARSEK-FAIL(race-isolation)) is checked first among
+    the verifier reds, ahead of the analyzer: a rival file in the save is the
+    cause the analyzer, the expectations and the ledger would each see a symptom of.
     ``retryable`` is a recommendation; ``should_retry`` is the authority
     combining attempt + policy.
     """
@@ -13517,12 +14167,22 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
         # second boot might clear; this one says the verb answered OK and does not emit
         # that field, which is a property of the build, not of the run.
         base = V(VERDICT_INVALID, subkind, "driver stage failed",
-                 retryable=(subkind != DRIVER_UNRESOLVED_HANDLE_SUBKIND))
+                 retryable=(subkind not in (DRIVER_UNRESOLVED_HANDLE_SUBKIND,
+                                            HARNESS_STEP_INVALID_SUBKIND,
+                                            PARTNER_LOST_SUBKIND)))
     elif verifiers.get("batch_expected", False) and not verifiers.get("batch_present", True):
         base = V(VERDICT_PARSEK_FAIL, "batch-crashed", "expected BATCH_COMPLETE absent")
     elif verifiers.get("tooling_invalid", False):
         base = V(VERDICT_INVALID, verifiers.get("tooling_subkind", "tooling"),
                  "verifier subprocess tooling failure", retryable=True)
+    elif verifiers.get("race_isolation_leak", False):
+        # Multiplayer T-38. Only an ARMED leak scan sets it (inert for every spec
+        # without [expectations.race] gating = true). First among the verifier reds:
+        # the scan reads the produced save's files directly, a leaked rival recording
+        # is what the analyzer / expectations / ledger rows below would each red on as
+        # a symptom, and the subkind that names the cause is the one a reader needs.
+        base = V(VERDICT_PARSEK_FAIL, RACE_ISOLATION_SUBKIND,
+                 "the armed raceParse leak scan found a rival id in a produced save")
     else:
         analyzer = verifiers.get("analyzer")
         if analyzer is not None:
@@ -13605,6 +14265,15 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                 # the step that names a declared save answered OK without leaving it.
                 base = V(VERDICT_PARSEK_FAIL, SNAPSHOT_SAVE_MISSING_SUBKIND,
                          "a declared snapshotSaves save is absent after the run")
+            elif verifiers.get("race_parse_unevaluable", False):
+                # Multiplayer T-38: an ARMED leak scan that proved nothing. Last, so it
+                # only ever turns a would-be PASS: every red above is evidence about
+                # Parsek whether or not this row could run, and a missing named save
+                # (the line above) already names why its scan could not. Terminal: an
+                # unreadable snapshot or an unknown own player does not change on a
+                # second flight.
+                base = V(VERDICT_INVALID, RACE_PARSE_INVALID_SUBKIND,
+                         "the armed raceParse leak scan could not prove the saves clean")
             else:
                 base = V(VERDICT_PASS, "", "driver valid, every verifier PASS/SKIPPED")
 
@@ -14051,7 +14720,8 @@ def spec_skips_tail_on_unmet_mission(spec: Dict) -> bool:
 class TailStepDisposition:
     index: int          # zero-based index into driver.steps
     step_id: str        # the id the drive loop assigns that index
-    cmd: str            # "" for a mission-kind step (never reachable in a tail)
+    cmd: str            # "" for a mission-kind step (never reachable in a tail);
+                        # "harness:<kind>" for a harness step
     role: str           # one of TAIL_ROLES
     run: bool           # True = still driven, False = skipped
 
@@ -14115,7 +14785,11 @@ def plan_unmet_mission_tail(steps: Sequence[Dict], mission_index: int,
     skipped_indices: List[int] = []
     for i in range(mission_index + 1, len(steps)):
         step = steps[i] or {}
-        if step.get("phase") == "mission":
+        if is_harness_step(step):
+            # A harness step changes files the run reads back (the race shared
+            # folder), so it is world-mutating and never driven in a tail.
+            cmd, role = harness_step_display(step), TAIL_ROLE_WORLD_MUTATING
+        elif step.get("phase") == "mission":
             # A second mission-kind step is rejected by validate_spec ("exactly one"),
             # so this is unreachable for an admitted spec; classify it world-mutating
             # (it flies a vessel) rather than silently treating it as runnable.
@@ -14761,7 +15435,7 @@ FLAKE_EXEMPT_INVALID_SUBKINDS: Tuple[str, ...] = (
     # every selected scenario receives the same row before any KSP boot.
     TESTS_BUILD_INVALID_SUBKIND,
     # Parallel-run refusals (see PARALLEL_RUN_INVALID_SUBKINDS): machine state.
-) + PARALLEL_RUN_INVALID_SUBKINDS
+) + PARALLEL_RUN_INVALID_SUBKINDS + PAIR_INVALID_SUBKINDS
 
 
 def flake_entry_is_exempt(attempt: Dict) -> bool:

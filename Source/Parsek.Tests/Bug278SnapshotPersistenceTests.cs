@@ -42,8 +42,8 @@ namespace Parsek.Tests
         /// log carries it. Any rename or format change to the call site at
         /// BackgroundRecorder.cs:~787 must also update this assertion.
         ///
-        /// We use an invalid recording id to force the failure path (the
-        /// success path requires a live KSP save folder). The breadcrumb
+        /// The write fails because unit tests have no live KSP save folder
+        /// (the id itself is valid; the success path needs that folder). The breadcrumb
         /// itself — `EndDebrisRecording pid=12345` — is the load-bearing
         /// observable for next-playtest triage of "did the persist actually
         /// fire from the TTL path?".
@@ -54,7 +54,7 @@ namespace Parsek.Tests
             uint vesselPid = 12345;
             var rec = new Recording
             {
-                RecordingId = "invalid id with spaces", // rejected by ValidateRecordingId
+                RecordingId = "invalid id with spaces", // a valid id; the write fails for the missing save context
                 VesselName = "Synthetic Debris"
             };
 

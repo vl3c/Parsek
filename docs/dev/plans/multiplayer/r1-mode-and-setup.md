@@ -144,7 +144,8 @@ and accepts only `kind = HUMAN`.
   `persistent.sfs` from disk, which is why the save is written before `Start`.
 - `LoadReconcilePolicy.KnownLoadInitiators`
   (`Source/Parsek/Controllers/LoadReconcilePolicy.cs:242-280`) lists the files allowed to call
-  `GamePersistence.LoadGame(`; `ParsekTestCommandAddon.cs` is one of them.
+  `GamePersistence.LoadGame(`; `ParsekTestCommandAddon.cs` is one of them (after R1-16:
+  `LogIO/NewSaveStarter.cs` instead, whose `LoadSave` the verb calls).
 
 ### 3.3 The copies of "find the Parsek scenario node" (A7)
 
@@ -828,8 +829,10 @@ Dropped: replaced by T-13 (OV-02).
     parsed `local.cfg`, parsed local `race.cfg`); `RaceWorld/RaceSaveScanner.cs` reads
     `saves/*/Parsek/Race/` (the LOCAL directories only).
   - Continue loads through the load-and-start route (section 9, item 12):
-    `ParsekRaceSetup.Continue(saveFolder)` calls the lifted route; its file joins
-    `KnownLoadInitiators` if it holds the `LoadGame(` call.
+    `ParsekRaceSetup.Continue(saveFolder)` calls the lifted route (R1-16's steps
+    `NewSaveStarter.LoadSave` / `FirePlayerLoad` / `PrepareSpaceCenterStart` / `StartGame`,
+    so the `LoadGame(` call stays declared under `LogIO/NewSaveStarter.cs`); its file joins
+    `KnownLoadInitiators` only if it calls `LoadGame(` itself.
   - `.claude/CLAUDE.md` "Hard rules": a fourth exception bullet, added as a new bullet under
     the "No new player-facing UI surfaces" rule and touching no existing line (README rule
     10), naming the three firm owner exceptions of four (the main menu Multiplayer entry, the
@@ -902,12 +905,24 @@ Dropped: replaced by T-13 (OV-02).
 ### R1-16 Lift the load-and-start route beside P10's core
 
 - **Change:** move the seam's SPACECENTER load route (`ParsekTestCommandAddon.cs:2260`,
-  `:2314-2324`, `:2384-2430`) into the production file P10-01 created, as
-  `LoadAndStart(saveFolder)`; the seam verb calls it, logging unchanged.
+  `:2314-2324`, `:2384-2430`) into the production file P10-01 created
+  (`LogIO/NewSaveStarter.cs`); the seam verb calls it, logging unchanged.
   `KnownLoadInitiators` moves the `LoadGame(` count from `TestCommands/
   ParsekTestCommandAddon.cs` to that file.
-- **Proof:** `LoadReconcileWiringGateTests`, `LoadReconcilePolicyTests`; every harness lane
-  that loads a save through the seam (a flight tier on the owner's PC before merge).
+  As built (2026-11-16): one `LoadAndStart(saveFolder)` cannot serve the verb, which loads
+  before it picks a route (its FLIGHT and TRACKSTATION routes use the same load) and logs
+  between the persist write and `game.Start()`. So the route lands as steps, like P10-01's:
+  `Game LoadSave(saveFolder, slotName)` (the one `LoadGame(` call), `void
+  FirePlayerLoad(game)` (`onGameStatePostLoad`) and `string PrepareSpaceCenterStart(game,
+  saveFolder)` (adopt, `startScene`, `UpdateScenarioModules`, the `persistent.sfs` write;
+  returns the path), then P10-01's `StartGame`. They write no log line (the verb's lines
+  stay byte-identical, `TestCommands` tag); the verb keeps `game.Start()` itself so it adds
+  no `NewSave` line. R1-14's `ParsekRaceSetup.Continue` composes the four steps, or adds a
+  logging `LoadAndStart(saveFolder)` with them as its first caller (A1).
+- **Proof:** `LoadReconcileWiringGateTests`, `LoadReconcilePolicyTests`,
+  `NewSaveStarterWiringTests` (the one `onGameStatePostLoad` fire, the persist order, the
+  verb's step order); every harness lane that loads a save through the seam (a flight tier
+  on the owner's PC before merge).
 - **Registers:** `KnownLoadInitiators`; the file-delete gate if a delete moves.
 - **Size:** S. **Depends on:** P10-01. **PC:** yes (one tier run).
 - **Risk:** medium; every harness load passes through this route.

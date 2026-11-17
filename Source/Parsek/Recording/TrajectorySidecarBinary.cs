@@ -159,11 +159,14 @@ namespace Parsek
 
         // Full-payload validation. The header probe (TryProbe) above stops
         // after reading magic+version+epoch+recordingId; a .prec truncated
-        // past the header still satisfies that. Run the full Read into a
-        // throwaway Recording and surface any reader throw as a structured
-        // failure reason. The binary trajectory codec has no payload
-        // checksum, so the only signal that the payload is corrupt is the
-        // reader throwing — and the reader has several throw sites beyond
+        // past the header still satisfies that. Run the full Decode into a
+        // scratch payload and surface any reader throw as a structured
+        // failure reason. No Recording is involved, so the only line this
+        // writes is the non-monotonic drop Warn, under the probe's id (the
+        // save gate matched it to the caller's recording before calling).
+        // The binary trajectory codec has no payload checksum, so the only
+        // signal that the payload is corrupt is the reader throwing, and
+        // the reader has several throw sites beyond
         // the obvious EndOfStream / Format / Argument / IO families: the
         // string-table indexers throw InvalidDataException for an
         // out-of-range index (this file, around the ReadIndexedString /
@@ -188,8 +191,9 @@ namespace Parsek
             }
             try
             {
-                Recording scratch = new Recording();
-                Read(path, scratch, probe);
+                var scratch = new RecordingTrajectoryPayload();
+                Decode(path, probe, scratch);
+                LogDroppedNonMonotonic(probe.RecordingId, scratch.Stats.DroppedNonMonotonicPoints);
                 return true;
             }
             catch (Exception ex)
@@ -291,8 +295,94 @@ namespace Parsek
         {
             if (rec == null)
                 throw new ArgumentNullException(nameof(rec));
+
+            // Decode fills the recording's own lists in place; a throw leaves them as far
+            // as the decode got, with nothing stamped on the recording.
+            RecordingTrajectoryPayload payload = RecordingTrajectoryPayload.OverListsOf(rec);
+            Decode(path, probe, payload);
+            RecordingTrajectoryDecodeStats stats = payload.Stats;
+
+            if (stats.HealedFlatFallback)
+            {
+                // The heal hands back a NEW list for whatever it replaced. Its side
+                // effects run before the id is stamped, and log the point count right
+                // after the heal, before the non-monotonic drop.
+                rec.Points = payload.Points;
+                rec.OrbitSegments = payload.OrbitSegments;
+                TrajectoryTextSidecarCodec.ApplyFlatFallbackHealSideEffects(
+                    rec, markDirty: false,
+                    healedPointCount: rec.Points.Count + stats.DroppedNonMonotonicPoints);
+            }
+
+            rec.RecordingFormatVersion = payload.FormatVersion;
+            rec.RecordingSchemaGeneration = payload.SchemaGeneration;
+            if (string.IsNullOrEmpty(rec.RecordingId))
+                rec.RecordingId = payload.ProbeRecordingId;
+
+            // Both lines report the flat point count before the non-monotonic drop.
+            int pointsBeforeDrop = rec.Points.Count + stats.DroppedNonMonotonicPoints;
+            if (payload.SectionAuthoritative)
+            {
+                if (!RecordingStore.SuppressLogging)
+                {
+                    ParsekLog.Verbose("RecordingStore",
+                        $"ReadBinaryTrajectoryFile: recording={rec.RecordingId} version={probe.FormatVersion} " +
+                        $"using section-authoritative path sections={rec.TrackSections.Count} rebuiltPoints={pointsBeforeDrop} " +
+                        $"dedupedPointCopies={stats.DedupedPointCopies} rebuiltOrbitSegments={rec.OrbitSegments.Count} " +
+                        $"dedupedOrbitCopies={stats.DedupedOrbitSegmentCopies} sparsePointLists={stats.SparsePointLists} " +
+                        $"defaultedBody={stats.DefaultedBody} defaultedFunds={stats.DefaultedFunds} " +
+                        $"defaultedScience={stats.DefaultedScience} defaultedRep={stats.DefaultedReputation}");
+                }
+            }
+            else if (!RecordingStore.SuppressLogging)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"ReadBinaryTrajectoryFile: recording={rec.RecordingId} version={probe.FormatVersion} " +
+                    $"used flat fallback path healed={(stats.HealedFlatFallback ? "true" : "false")} " +
+                    $"prePoints={stats.PreHealPointCount} postPoints={pointsBeforeDrop} " +
+                    $"preOrbitSegments={stats.PreHealOrbitSegmentCount} postOrbitSegments={rec.OrbitSegments.Count} " +
+                    $"trackSections={rec.TrackSections.Count} sparsePointLists={stats.SparsePointLists} " +
+                    $"defaultedBody={stats.DefaultedBody} defaultedFunds={stats.DefaultedFunds} " +
+                    $"defaultedScience={stats.DefaultedScience} defaultedRep={stats.DefaultedReputation}");
+            }
+
+            LogDroppedNonMonotonic(rec.RecordingId, stats.DroppedNonMonotonicPoints);
+        }
+
+        /// <summary>
+        /// The Warn for flat points a decode dropped as non-monotonic; nothing when none
+        /// were. Written whatever <see cref="RecordingStore.SuppressLogging"/> says.
+        /// </summary>
+        internal static void LogDroppedNonMonotonic(string recordingId, int droppedPoints)
+        {
+            if (droppedPoints <= 0)
+                return;
+            ParsekLog.Warn("RecordingStore",
+                $"ReadBinaryTrajectoryFile: recording={recordingId} dropped {droppedPoints} " +
+                "non-monotonic flat trajectory point(s) on load (#419-class)");
+        }
+
+        /// <summary>
+        /// Decodes a probed BinaryV0 sidecar into <paramref name="into"/>: clears and fills
+        /// its six lists in place, then either heals a malformed flat fallback (the healed
+        /// list is a NEW list in the payload's field) or rebuilds the flat lists from the
+        /// sections of a section-authoritative file, then drops non-monotonic flat points.
+        /// Touches no <see cref="Recording"/> and logs nothing; a reader throw leaves the
+        /// lists as far as the decode got.
+        /// </summary>
+        internal static void Decode(string path, TrajectorySidecarProbe probe, RecordingTrajectoryPayload into)
+        {
+            if (into == null)
+                throw new ArgumentNullException(nameof(into));
             if (!probe.Success || !probe.Supported)
                 throw new InvalidOperationException("Binary trajectory file probe must succeed before read.");
+
+            into.FormatVersion = probe.FormatVersion;
+            into.SchemaGeneration = probe.SchemaGeneration;
+            into.SidecarEpoch = probe.SidecarEpoch;
+            into.ProbeRecordingId = probe.RecordingId;
+            into.SectionAuthoritative = false;
+            into.Stats = default(RecordingTrajectoryDecodeStats);
 
             using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
             using (var reader = new BinaryReader(stream, Encoding.UTF8))
@@ -300,86 +390,58 @@ namespace Parsek
                 SkipHeader(reader);
 
                 bool sectionAuthoritative = (reader.ReadByte() & FlagSectionAuthoritative) != 0;
+                into.SectionAuthoritative = sectionAuthoritative;
                 List<string> stringTable = ReadStringTable(reader);
 
-                rec.Points.Clear();
-                rec.OrbitSegments.Clear();
-                rec.PartEvents.Clear();
-                rec.FlagEvents.Clear();
-                rec.SegmentEvents.Clear();
-                rec.TrackSections.Clear();
+                into.Points.Clear();
+                into.OrbitSegments.Clear();
+                into.PartEvents.Clear();
+                into.FlagEvents.Clear();
+                into.SegmentEvents.Clear();
+                into.TrackSections.Clear();
 
-                SparsePointReadStats stats = default(SparsePointReadStats);
-                ReadPointList(reader, rec.Points, stringTable, probe.FormatVersion, ref stats);
-                ReadOrbitSegmentList(reader, rec.OrbitSegments, stringTable, probe.FormatVersion);
-                ReadPartEventList(reader, rec.PartEvents, stringTable);
-                ReadFlagEventList(reader, rec.FlagEvents, stringTable);
-                ReadSegmentEventList(reader, rec.SegmentEvents, stringTable);
-                ReadTrackSections(reader, rec.TrackSections, stringTable, probe.FormatVersion, ref stats);
-                int preHealPointCount = rec.Points.Count;
-                int preHealOrbitSegmentCount = rec.OrbitSegments.Count;
-                bool healedMalformedFlatFallback = false;
+                ReadPointList(reader, into.Points, stringTable, probe.FormatVersion, ref into.Stats);
+                ReadOrbitSegmentList(reader, into.OrbitSegments, stringTable, probe.FormatVersion);
+                ReadPartEventList(reader, into.PartEvents, stringTable);
+                ReadFlagEventList(reader, into.FlagEvents, stringTable);
+                ReadSegmentEventList(reader, into.SegmentEvents, stringTable);
+                ReadTrackSections(reader, into.TrackSections, stringTable, probe.FormatVersion, ref into.Stats);
+                into.Stats.PreHealPointCount = into.Points.Count;
+                into.Stats.PreHealOrbitSegmentCount = into.OrbitSegments.Count;
                 if (!sectionAuthoritative &&
-                    rec.TrackSections.Count > 0)
+                    into.TrackSections.Count > 0)
                 {
                     // No checkpoint-section promotion on READ: Write runs the write-path
                     // Ensure before every file it writes, so a current file is already
                     // normalized.
-                    // markDirty: false - the heal repairs the DERIVED flat list in memory
-                    // (which is what stops anchor-local metres reaching playback and the
-                    // maxDist walk); the on-disk sidecar is left byte-identical so its
-                    // SidecarEpoch does not advance. A read that dirtied the file bumped
-                    // the epoch every committed route captured as proof-of-source, parking
-                    // the route in SourceChanged with no witnessed proof datum changed
-                    // (todo ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT).
-                    healedMalformedFlatFallback = TrajectoryTextSidecarCodec.TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
-                        rec, allowRelativeSections: true, markDirty: false);
+                    // The heal repairs the DERIVED flat list in memory (which is what stops
+                    // anchor-local metres reaching playback and the maxDist walk); Read
+                    // applies it with markDirty: false, so the on-disk sidecar is left
+                    // byte-identical and its SidecarEpoch does not advance. A read that
+                    // dirtied the file bumped the epoch every committed route captured as
+                    // proof-of-source, parking the route in SourceChanged with no witnessed
+                    // proof datum changed (todo
+                    // ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT).
+                    into.Stats.HealedFlatFallback =
+                        TrajectoryTextSidecarCodec.TryHealMalformedFlatFallbackListsFromTrackSections(
+                            into.TrackSections, ref into.Points, ref into.OrbitSegments,
+                            allowRelativeSections: true);
                 }
-
-                rec.RecordingFormatVersion = probe.FormatVersion;
-                rec.RecordingSchemaGeneration = probe.SchemaGeneration;
-                if (string.IsNullOrEmpty(rec.RecordingId))
-                    rec.RecordingId = probe.RecordingId;
 
                 if (sectionAuthoritative)
                 {
-                    int dedupedPointCopies = TrajectoryTextSidecarCodec.RebuildPointsFromTrackSections(rec.TrackSections, rec.Points);
-                    int dedupedOrbitCopies = TrajectoryTextSidecarCodec.RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rec.OrbitSegments);
-
-                    if (!RecordingStore.SuppressLogging)
-                    {
-                        ParsekLog.Verbose("RecordingStore",
-                            $"ReadBinaryTrajectoryFile: recording={rec.RecordingId} version={probe.FormatVersion} " +
-                            $"using section-authoritative path sections={rec.TrackSections.Count} rebuiltPoints={rec.Points.Count} " +
-                            $"dedupedPointCopies={dedupedPointCopies} rebuiltOrbitSegments={rec.OrbitSegments.Count} " +
-                            $"dedupedOrbitCopies={dedupedOrbitCopies} sparsePointLists={stats.SparsePointLists} " +
-                            $"defaultedBody={stats.DefaultedBody} defaultedFunds={stats.DefaultedFunds} " +
-                            $"defaultedScience={stats.DefaultedScience} defaultedRep={stats.DefaultedReputation}");
-                    }
-                }
-                else if (!RecordingStore.SuppressLogging)
-                {
-                    ParsekLog.Verbose("RecordingStore",
-                        $"ReadBinaryTrajectoryFile: recording={rec.RecordingId} version={probe.FormatVersion} " +
-                        $"used flat fallback path healed={(healedMalformedFlatFallback ? "true" : "false")} " +
-                        $"prePoints={preHealPointCount} postPoints={rec.Points.Count} " +
-                        $"preOrbitSegments={preHealOrbitSegmentCount} postOrbitSegments={rec.OrbitSegments.Count} " +
-                        $"trackSections={rec.TrackSections.Count} sparsePointLists={stats.SparsePointLists} " +
-                        $"defaultedBody={stats.DefaultedBody} defaultedFunds={stats.DefaultedFunds} " +
-                        $"defaultedScience={stats.DefaultedScience} defaultedRep={stats.DefaultedReputation}");
+                    into.Stats.DedupedPointCopies =
+                        TrajectoryTextSidecarCodec.RebuildPointsFromTrackSections(into.TrackSections, into.Points);
+                    into.Stats.DedupedOrbitSegmentCopies =
+                        TrajectoryTextSidecarCodec.RebuildOrbitSegmentsFromTrackSections(into.TrackSections, into.OrbitSegments);
                 }
 
                 // #419-class load-time invariant: drop any non-monotonic flat point
                 // (e.g. a sub-1s stale-UT seam from a recording made before the
                 // foreground recorder gained its monotonicity guard) so it loads
                 // clean instead of tripping CommittedRecordingsHaveValidData.
-                int droppedNonMonotonic = TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints(rec.Points);
-                if (droppedNonMonotonic > 0)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"ReadBinaryTrajectoryFile: recording={rec.RecordingId} dropped {droppedNonMonotonic} " +
-                        "non-monotonic flat trajectory point(s) on load (#419-class)");
-                }
+                into.Stats.DroppedNonMonotonicPoints =
+                    TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints(into.Points);
             }
         }
 
@@ -537,7 +599,7 @@ namespace Parsek
             return count;
         }
 
-        private static void ReadPointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int binaryVersion, ref SparsePointReadStats stats)
+        private static void ReadPointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int binaryVersion, ref RecordingTrajectoryDecodeStats stats)
         {
             // Pessimistic per-point lower bound: every point payload
             // consumes at least one byte. WritePoint actually emits ~120
@@ -821,7 +883,7 @@ namespace Parsek
             }
         }
 
-        private static void ReadTrackSections(BinaryReader reader, List<TrackSection> tracks, List<string> stringTable, int binaryVersion, ref SparsePointReadStats stats)
+        private static void ReadTrackSections(BinaryReader reader, List<TrackSection> tracks, List<string> stringTable, int binaryVersion, ref RecordingTrajectoryDecodeStats stats)
         {
             int count = ReadBoundedCount(reader, 1, "track-sections");
             for (int i = 0; i < count; i++)
@@ -956,7 +1018,7 @@ namespace Parsek
             }
         }
 
-        private static void ReadSparsePointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int count, int binaryVersion, ref SparsePointReadStats stats)
+        private static void ReadSparsePointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int count, int binaryVersion, ref RecordingTrajectoryDecodeStats stats)
         {
             byte listFlags = reader.ReadByte();
             if ((listFlags & SparsePointListFlagEnabled) == 0)
@@ -1272,16 +1334,6 @@ namespace Parsek
             public int OmittedFunds;
             public int OmittedScience;
             public int OmittedReputation;
-        }
-
-        private struct SparsePointReadStats
-        {
-            public int SparsePointLists;
-            public int SparsePoints;
-            public int DefaultedBody;
-            public int DefaultedFunds;
-            public int DefaultedScience;
-            public int DefaultedReputation;
         }
 
         private sealed class BinaryStringTable

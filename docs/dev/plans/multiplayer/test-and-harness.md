@@ -124,7 +124,8 @@ expansions, for R5-09), the older-build check of edge 22 (an older DLL through `
   `ParsekScenario` headlessly; `:189` `RunSaveWriters(scenario)` runs the production save
   writers in OnSave's phase order and returns the PARSEK node; `:87` `ResetAllStores()`.
   The writer is skipped unless `PARSEK_WRITE_FORMAT_GOLDEN=v1` (`:20`, `:117`). This is the
-  base of the byte-identity tests; today it is private to one test class.
+  base of the byte-identity tests; today it is private to one test class. (T-01 moved the three
+  into `Source/Parsek.Tests/Generators/SaveWriterDriver.cs`.)
 - `Source/Parsek/Controllers/ParsekScenario.cs:484` is `OnSave`. Its token stream is pinned by
   `ParsekScenarioOnSaveCharacterizationTests` against
   `Source/Parsek.Tests/Fixtures/SourceCharacterization/ParsekScenario.OnSave.tokens.txt`; the
@@ -298,6 +299,28 @@ writes `testGame = False`.
 - **Proof:** `SaveWriterDriverDeterminismTests`: two runs with an empty hook are
   byte-identical; the same under `de-DE` and `ro-RO` thread cultures; the v1 golden writer
   still produces its checksums when armed (env-gated, run by hand once).
+- **As built (2026-11-16):** `Run(between, saveRoot = null)` builds the state into an empty
+  save folder, writes twice into that folder and returns `(First, Second)`: each the
+  `WriteToText` form of the node (`\n` line ends; the `saveStamp` value, a fresh GUID on every
+  save by design, masked) followed by `SaveFolderText`, one `sha256  relative/path` line per
+  written file. The pin compares a rebuilt state's write, the `de-DE` and `ro-RO` writes against
+  the invariant write (not only each culture with itself), and writes in two save folders of
+  different depth; three anti-vacuity cells change one saved value through the hook, flip one
+  byte of a written file, and change one node value. Two corrections to the text above: the
+  armed v1 writer cannot reproduce every v1 checksum, because `persistent.sfs` (and its rewind
+  point copy) carries the per-save stamp and the build's `parsekWrittenBy`, and the v1 state
+  had random mission ids, a random milestone id (also in `milestones.pgsm`) and random
+  held-vessel pids; run after the verbatim move it reproduced the other 46 of 49 files byte for
+  byte and differed only in those values. And "bodies verbatim" held for the move commit only:
+  to make two builds byte-equal, `BuildState` then fixes the mission and milestone ids and
+  resets the two process-wide counters of the save round-trip specs
+  (`RouteSaveRoundTripTests.guidCounter`, `StoreSaveRoundTripTests.heldVesselCounter`, which
+  replaced a `Guid.NewGuid` pid). A later golden generator built on the driver therefore
+  writes reproducible files apart from `saveStamp` and `parsekWrittenBy`.
+  `ResetAllStores` also restores the three stock pool identities, which the small-store fill
+  overwrites (`StaticRoundTrip.Fill` copies the readonly `Pool` field); a caller that builds
+  the state must reset through it, or later funds and reputation pool tests read the wrong
+  node.
 - **Registers:** none (test-only).
 - **Size:** S. **Depends on:** nothing. **PC:** no.
 - **Risk:** low; a non-deterministic writer (dictionary order) would show here first, which
@@ -325,6 +348,25 @@ writes `testGame = False`.
 - **Size:** M. **Depends on:** nothing. **PC:** no.
 - **Risk:** low; the store models what sync clients do, and S8 may add a behaviour, which is
   one more control.
+- **As built (2026-11-16), what R3E-16 and T-18 build on:** namespace
+  `Parsek.Tests.Race.Sim`, all types `internal`, in memory only (no file system, no thread, no
+  wall clock). Paths are relative, `/`-separated and ordinal (a `\` reads as `/`). Time is the
+  store's own integer tick (`Advance`, `DeliverDue`, `RunUntilQuiet`); `FakeClock` is not
+  coupled to it, so a simulator advances both. Controls are a per-machine `FakeSyncPolicy`
+  (delay range in ticks; reorder, partial and placeholder chances in thousandths) plus
+  `SetOnline`, `ForeignEdit` / `ForeignRename` / `ForeignDelete` (straight to the cloud) and a
+  machine's `Write` / `Delete` / `Rename`. Rules: an upload is accepted only on the cloud's
+  current version, otherwise a write becomes `name (conflict <machine> <n>).ext` and a
+  delete is lost; a view never goes back to an older version of a path; an offline
+  machine's downloads are dropped and it is brought to the cloud's state on reconnect, while
+  its uploads wait; a placeholder opens only online; the rest of a partial file is due at
+  least one tick after its head, so the truncated file is readable between two ticks.
+  `SimSchedule` uses its own SplitMix64 (not `System.Random`), logs every draw and event,
+  `SimSchedule.Replay` reruns from the recorded draws and throws at the first draw or event
+  that differs (a run that stops short does not throw: check `ReplayComplete`), and
+  `SimSchedule.ControlKinds` names the event kind per control for T-18's anti-vacuity count
+  (`PartialLanded` carries the length a reader saw, `RestLanded` the full length). `FakeClock.UtcNow`
+  (`DateTime`, UTC only) is the member `IRaceClock` binds.
 
 ### T-03 Shared-folder staging in run.py
 
@@ -427,8 +469,25 @@ writes `testGame = False`.
   sent to the game: `{ harness = "raceFolder", args = { op = "replace|edit|delete", from =
   "fixtures/race/<name>", path = "<relative>" } }`. Every target resolves under
   `${raceShared}`; anything else is refused at validation. Logged on the harness log.
+  - As built (2026-11-16, corrected here): `replace` takes `from` (a committed fixture) and
+    an optional `path` (without it the whole folder is swapped; with it that one entry);
+    `edit` takes only `path` and appends `hlib.RACE_FOLDER_EDIT_BYTES` (a ConfigNode comment
+    line) to an existing file, so no fixture has to predict a file the game names at run
+    time; `delete` takes only `path`. The args are literal: `${...}` is refused, so a target
+    whose name is known only at run time (T-25's own subfolder) needs a later extension
+    (a `${label.field}` path, which the run-time containment check already covers). The
+    step takes only `harness` and `args`, needs `[fixture.race]`, and must sit after the
+    boot and before a later seam step. A refused step is the terminal
+    `INVALID(harness-step)` with the cleanup tail only. It runs only while every step
+    driven before it is met; after an unmet step that did not stop the drive (a
+    post-mission ERROR on a MISSION-OK run) it is skipped and that step keeps its own
+    verdict. Rows land in the result JSON's `driver.harnessSteps`, outside `driver.steps`. The lane catalog and the timeline ops
+    needed no change (a harness step is no seam verb and no timeline operation); the tail
+    planner names it `harness:raceFolder`, world-mutating. T-54's `barrier` adds a kind to
+    `hlib.HARNESS_STEP_KINDS` and a branch to `run.run_harness_step`.
 - **Proof:** `test_hlib` validator cells; `test_run_smoke` cell that the step runs in order
-  and touches nothing outside the folder.
+  and touches nothing outside the folder. As built: `RaceFolderHarnessStepSpecTests`,
+  `RaceFolderHarnessStepSmokeTests`, `RaceFolderHarnessStepAfterAnUnmetStepSmokeTests`.
 - **Registers:** `design-autotest-harness-core.md` (step kinds); `harness/README.md`.
 - **Size:** S. **Depends on:** T-03. **PC:** no.
 - **Risk:** medium; it is the first non-seam step, so the step grammar, the lane catalog and
@@ -454,6 +513,14 @@ writes `testGame = False`.
   renumbers if main adds a dimension first) with value `stock-sites`;
   `autotest-status.md` row; `INTERIM_PIN_IDS` not needed (no batch).
 - **Size:** M. **Depends on:** nothing. **PC:** yes (one flight of RACE-0).
+- **Flown:** RACE-0's first flight, `2026-11-17_0035`, PASS attempt 1 (46 s); the lane is
+  re-pinned from its KSP.log (count=11: three KSC facility points, eight Making History sites).
+  The confirming flight `2026-11-17_0317` read PARSEK-FAIL on the Crater altitude window sized
+  from that one flight (the stock site values of the two flights differ by a few centimetres);
+  the altitude windows were re-sized from both flights (todo RACE-0-ALT-PIN-FROM-ONE-FLIGHT).
+  The third flight `2026-11-17_0340` read PASS attempt 1 (52 s) with every site value
+  byte-identical to 0317 (same install and build), so only 0035 differs. SITES-2 must compare
+  with tolerances of this size or wider, never exact.
 - **Risk:** low; read-only.
 
 ### T-08 Race grep gates: shared scanner and "no store in the rules"
@@ -894,7 +961,9 @@ the B2 shape (B2 has 1 PASS in 11 index rows and needs a pad craft a created rac
 
 ### T-34 Lane RACE-13-paired-copies (optional; a spec on T-54)
 
-Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its first spec.
+Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its first race spec
+(corrected 2026-11-17: T-54 shipped its own plumbing pair, PAIR-1a / PAIR-1b, as the first
+paired spec).
 
 - **Change:** operator lane, a `[pair]` of two specs (roles A and B) on two `stock-tree` slot
   copies sharing `automation/rs/<run>/<group>/` (T-54): both start in race overlays of one
@@ -956,13 +1025,35 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
 ### T-38 `raceParse` verifier row with the gated leak scan (early half of T-21)
 
 - **Change:** the `raceParse` verifier row in `run.py` with spec block `[expectations.race]`,
-  running T-05's leak scan over every race lane's produced save, GATED from the first lane
-  (`PARSEK-FAIL(race-isolation)`); the structure facets join it later (T-21). A
+  running T-05's leak scan over every race lane's produced save, gated from the first lane
+  (`PARSEK-FAIL(race-isolation)`; armed per spec, see "As built"); the structure facets
+  join it later (T-21). A
   `mutation_check.py` mutator, `race-leak`, plants a rival id in a sidecar of an archived race
   run's save (through `mutsave`) and must turn the verdict red.
+  - As built (2026-11-16, corrected here): "gated" is the saveParse discipline, not an
+    always-on gate. The row runs for every spec with `[fixture.race]` (no row, flag or log
+    line otherwise) and reports by default; `[expectations.race] gating = true` (its only
+    key; the block needs `[fixture.race]`, and an unarmed race lane validates with a
+    warning) arms it, and the armed set is pinned by `RACEPARSE_ARMED_SPECS` in
+    `test_hlib.py`. "From the first lane" holds because no reading run is owed (a rival
+    id in the own save is never legitimate): each race lane arms the scan in its own
+    pull request and names itself there. The row reads `results/<runId>_race/` and the
+    run save plus each T-04 `snapshotSaves` save from the post-quit copy, never the live
+    instance, and scans each save for the ids of every player other than the save's own,
+    read from its race mark (`SCENARIO` `ParsekRaceScenario`, key `playerId`, R1-03; no
+    mark means every player is a rival; R1-03's pull request owes the source-sync cell for
+    those two literals). Armed, a leak reds `PARSEK-FAIL(race-isolation)`, checked first
+    among the verifier reds (the cause the analyzer, expectation and ledger rows would see
+    a symptom of), and a scan that proves nothing (unreadable snapshot or save, unknown own
+    player, a save with no rival id) is the terminal `INVALID(race-parse)`, checked after
+    every red including `snapshot-save-missing`, so it only replaces a PASS. The mutator is
+    `mutation_check.py --race-only` (`mutsave.mutate_race_leak`); it appends the rival id
+    to a sidecar of each archived save and asks `hlib.classify_verdict` for the red.
 - **Proof:** a `_fake_ksp` smoke cell with a planted rival id in the produced save (red) and
   one without (green); the mutator's own cell; a cell that `race-isolation` is in hlib's
-  verdict table.
+  verdict table. As built: `RaceParseRowTests` (test_raceparse), `RaceParseRowSpecTests`
+  (test_hlib), `RaceParseRowSmokeTests` (test_run_smoke), `RaceLeakMutatorTests`
+  (test_mutsave).
 - **Registers:** `harness/README.md` verifier list; `design-autotest-harness-core.md`
   verdict subkinds; `mutation_check.py`'s mutator list.
 - **Size:** S. **Depends on:** T-03, T-05. **PC:** no.
@@ -1133,6 +1224,9 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   setter (the test project is a friend assembly) and calls the same manifest write codec,
   so every overlay carries `testGame = True`; no player-reachable path writes one. Player A takes
   slot 0, the stock KSC where the campaign fixtures were flown, so no campaign pin moves.
+  A save fixture harvested by T-59 already carries `sharedFolderPath = ${raceShared}` in
+  `Parsek/Race/local.cfg` (no committed fixture holds a machine path), so the splice
+  resolves that token the same way as the overlay's.
 - **Proof:** hlib validator cells; `test_run_smoke` (spliced, snapshotted, the committed
   fixture byte-equal after the run); the overlay currency test.
 - **Registers:** `harness/README.md` fixtures section; `fixtures/race-overlay/README.md`.
@@ -1151,9 +1245,23 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   single-player roadmap's CS-ALL runner and its stage-to-fixture promotion tool
   (`autotest-roadmap.md:6555`, `:6560-6562`): one task serves both programs. It needs no
   race code.
+- **As built (2026-11-16):** the ladder is `harness/campaigns/cs-career.toml`, and not every
+  edge chains yet. CS-0 -> CS-3 and CS-3 -> CS-3b are `fixture` edges (each stages its
+  committed fixture, with the reason): CS-3 accepts contracts by the GUIDs of the committed
+  New Game and CS-3b by a GUID offered during CS-3's committed flight, plus a hand-seeded
+  applicant, so neither replays until T-58's accept-by-type selector and an applicant seed.
+  The CS-3 to CS-4b replay therefore flies CS-3 as a gate and chains CS-3b -> CS-4 -> CS-4b.
+  CS-4b's and CS-6b's pins on the predecessor's own Flea guid and UT were regexed so a chained
+  stage can pass; CS-6b's exact count and science pins remain (todo CS-LADDER-CHAIN-PINS).
+  The handover reads the run's produced-save snapshot, never the instance save, and
+  `run.py --stage-from` is accepted only in a runner's `--slot` child whose token the stage's
+  handover marker carries. Contract: `harness/README.md` "Campaign chains".
 - **Proof:** `test_campaign.py` (ladder parse, resume point, the two-chain pipeline schedule,
-  refusal of `--stage-from` outside the runner); one replay of the CS chain CS-3 to CS-4b
-  (about 1413 s of p50) on the owner's PC.
+  refusal of `--stage-from` outside the runner, and a shell smoke of the real runner: the
+  handover, a middle stage that fails, a resume, every snapshot overwritten mid-chain); one
+  replay of the CS chain CS-3 to CS-4b (about 1413 s of p50) on the owner's PC:
+  `cd harness && python tools/campaign_runner.py run --ladder cs-career --name cs-replay-1
+  --from CS-3 --to CS-4b --slots 1`.
 - **Registers:** `harness/README.md` (a "Campaign chains" section), status.
 - **Size:** M. **Depends on:** the owner's go. **PC:** lanes (one CS chain replay).
 - **Risk:** medium; it chains stages through snapshots, so a stage that leaves a bad save
@@ -1240,11 +1348,76 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   shared folder; a partner that ends or times out reads `INVALID(partner-lost)` on the
   survivor, flake-exempt and listed apart from the machine refusals. No new lock.
 - **Proof:** `parallel` and hlib cells (both-or-neither, barrier order, partner lost); one
-  paired flight on the owner's PC (T-34 is its first spec).
+  paired flight on the owner's PC (corrected 2026-11-17: the pair PAIR-1a / PAIR-1b below is
+  its first spec, since T-34 waits on T-21 and T-30).
 - **Registers:** `harness/README.md` parallel runs; harness-core verdict subkinds.
 - **Size:** M. **Depends on:** T-03, T-06. **PC:** lanes (one pair).
 - **Risk:** medium; pairing is new to the runner, and the second `stock-tree` copy needs
   `provision.py --profile stock-tree --copy 2` once.
+- **As built (2026-11-17, branch `mp/t-54-paired-lanes`):** where the plan left a choice
+  open, the rule taken is the one that can never report PASS for a pair whose partner did
+  not run.
+  - Selection: selecting a half adds its partner (`parallel.complete_pairs`); a broken pair
+    (no partner, two of one role, a profile / tier / barrier / shared-folder mismatch) or an
+    exclusive half refuses the whole selection (exit 2); a profile with fewer than two
+    provisioned copies refuses the run (exit 2, naming `provision.py --copy 2`).
+  - Every paired spec carries at least one barrier and `[retry] policy = "none"` (a retry
+    would fly one half alone); barrier timeouts are 1..3600 s and under `budgetSeconds`;
+    both halves name the same barriers in the same order (`hlib.validate_pair_block`,
+    `hlib.pair_problems`).
+  - Dispatch: the pair is one ordering unit (its longer half's p50, A then B) and reserves
+    the dispatch while it waits for two free slots, so single lanes cannot starve it. With
+    `slots` below 2 it never starts and the run ends red with lanes left unflown
+    (`set-slots 2`, then `resume`). The memory guard charges both copies
+    (`memory_holds(new_copies=2)`; with nothing running, the first half is free as any
+    first lane is). A pair held by memory with nothing running does not reserve the
+    dispatch: later lanes start, and when nothing else can start the run ends with the pair
+    pending (see the second follow-up below).
+  - Barrier files: `<name>.<role>.arrived` and `<role>.ended`, the latter written by run.py
+    when its drive is over, when it skips a barrier or when a harness step fails, and by the
+    runner as a backstop when a child exits. A partner's arrival wins over its ended marker.
+  - Verdicts: `partner-lost` is terminal, not retried, flake-exempt and kept in its own tuple
+    `hlib.PAIR_INVALID_SUBKINDS`. A paired lane flown without `--pair-dir` (a serial
+    `run.py`) is refused pre-boot `INVALID(partner-lost)`. The runner's `parallel.pair_guard`
+    rewrites a green half to `INVALID` (attempts=1, note `partner-lost: partner X left ...`)
+    when its partner left no verdict (NO-REPORT, NOT-RUN or no line). `resume` re-flies both
+    halves when either is unsettled, unless one already settled red (a finding is never
+    re-flown away).
+  - Children never wipe the shared folder (staging only checks it is exactly
+    `<umbrella>/automation/rs/<run>/<group>/` with no link on the way); `${raceShared}` and
+    the `results/<runId>_race/` snapshot resolve to it.
+  - The first spec is a plumbing pair, not T-34: `PAIR-1a-shared-folder-handshake` (A) and
+    `PAIR-1b-shared-folder-handshake` (B), operator, stock-minimal, `fresh-career`, no `race`
+    tag (no Parsek race feature). A copies the committed `fixtures/race/pair-handshake` token
+    into the shared folder, B appends to it (refused `INVALID(harness-step)` unless the
+    folder really is shared), with barriers `placed` and `edited`. Never flown yet.
+  - Tests: `harness/lib/test_pairs.py` (pure cells, run.py barrier steps over real folders,
+    full no-game runner runs through `_fake_parallel_child.py`).
+  - Follow-up (2026-11-17, the PC run and the review): the child folds the spec's group id
+    with the same `os.path.normcase` as the paths (Windows lower-cased them and refused
+    every upper-case group, PAIR-1 included); at each pair dispatch the runner writes a
+    NOT-RUN `pair-dispatched` line for both halves before either starts, so a runner death
+    between the two reports can never leave an earlier flight's PASS settling the pair; a
+    half that gives a barrier up writes `<name>.<role>.gaveup`, which a late partner reads
+    as lost even though the arrival file is still there; barrier names and group ids are
+    refused when they differ only in case; the memory guard reads memory before a pair
+    starts from idle, so its second copy is charged; `run.py --dry-run` prints a `[PAIR   ]`
+    line. The linked-shared-folder refusal is tested with a symlink on Linux only; its
+    Windows twin (a junction made with `mklink /J`, `test_a_junction_shared_folder_is_refused_at_staging`)
+    is committed but has not yet been run (it skips off Windows).
+  - Second follow-up (2026-11-17, review of the first): the idle memory read could hang the
+    runner (a pair held by memory with nothing running reserved the dispatch forever and
+    starved unpaired lanes); such a pair is now passed over, and when nothing else can start
+    the run ends DONE with the pair pending and the memory arithmetic named. A
+    pair-dispatched line counts as pending but neither as a verdict nor red, so a stop
+    honoured by both halves reads STOPPED and `status` shows a flying half as running.
+  - Third follow-up (2026-11-17, review of the second): the idle judgement read a memory
+    value cached while the last lane still ran, so the run could end with the pair unflown,
+    or pass it over after every finish and starve it. The runner now clears its memory
+    cache at every reap, and the pass-over / DONE needs a reading taken at least
+    `IDLE_SETTLE_SECONDS` (10 s) after the last finish; until then the pair keeps the
+    dispatch, and the runner re-reads once the settle has passed (bounded). A reading older
+    than the last start never admits another start.
 
 ### T-55 Race integration variants (lanes RCI-1 to RCI-9)
 
@@ -1308,6 +1481,19 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   payload with `raceparse` (T-21's facets when they exist). Its docstring already says a
   further forge reuses it rather than forking it. Replaces T-33's own tool. The harvested
   player folders are design 15.10's recorded opponents, R8's opponent source.
+  As built (2026-11-16): the `Parsek/Race/rivals/` prune runs on every `--keep-parsek`
+  harvest, with or without the flag (a race save harvested without it would otherwise put
+  the cache under `fixtures/saves/`; the default mode already drops `Parsek/` whole). The
+  folder is checked against its `_race.listing.txt` and the folder grammar
+  (`raceparse.collect_rival_ids`); the chain is logged `unchecked` by
+  `race_chain_facets` in the tool, the one place T-21's facets plug in. Committing a race
+  fixture regenerates the `TrajectoryCodecFixtureIdentityTests` manifest (its `.prec`
+  payload sits under `harness/fixtures/`), and T-17's `fixtures/race/README.md` list
+  when that lands. The same `--keep-parsek` harvest resets `Parsek/Race/local.cfg`'s
+  `sharedFolderPath` (design 6.1) to `${raceShared}` (supervisor ruling 2026-11-16: no
+  committed fixture carries a path from the PC that flew the lane) and refuses a local.cfg
+  whose other values still look like an absolute path; T-48's overlay can substitute the
+  token with the staged folder.
 - **Proof:** cells of the flag (copy, prune, refuse a folder outside `results/`).
 - **Registers:** `harness/README.md` fixtures section.
 - **Size:** S. **Depends on:** T-03, T-05; soft: T-21 (chain facets). **PC:** no.
@@ -1788,8 +1974,9 @@ AGENTS.md`); `design-gui-inventory.md` is untouched.
 4. **"Identical saved games" (6.4) is not reachable byte for byte across two flown
    sessions**: explicit-UT warps land near the UT and flight physics is not repeatable. The
    plan uses a canonical diff with a pinned, reasoned mask (T-05, T-27); byte identity is
-   headless only (T-23). Settled: the masked comparison is assumed (question 2), RACE-4 is
-   the one whole-save lane (OV-05), and the headless byte-identity test is R3W-29's (OV-20).
+   headless only (T-23). Settled: the masked comparison (question 2, answered 2026-11-16:
+   (a)), RACE-4 is the one whole-save lane (OV-05), and the headless byte-identity test is
+   R3W-29's (OV-20).
 5. **The seam's `LoadGame` bypasses the main menu** (`run.py:1978-1979`), as other mods
    can. A site restore tied to the main menu would miss it. RACE-5 drives both routes; the
    plan assumes R2 restores on the loaded save's gate, not on MAINMENU. Settled: SITES-2
@@ -1850,7 +2037,8 @@ AGENTS.md`); `design-gui-inventory.md` is untouched.
    each with a written reason (recommended); (b) insist on byte-identical saves, which
    forces a session where no time passes and so cannot see a rival flag or a rival landing.
 
-   Assumed until the owner says otherwise: (a), applied in T-05 and T-27.
+   Answered 2026-11-16 by the owner: (a). The two saves are compared as identical except for
+   a fixed, listed set of clock values, applied in T-05 and T-27.
 3. **Two game copies racing on one PC.** With the parallel runner's copies, a lane can run two
    copies writing one folder at the same moment. Options: (a) build it as an operator lane
    (recommended: the only proof of two live writers short of your two-PC test); (b) leave

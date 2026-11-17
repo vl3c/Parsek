@@ -47,6 +47,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import campaign  # noqa: E402  (the campaign-chain decisions behind --stage-from)
 import ghostlife  # noqa: E402  (the pure sibling behind the ghostLifecycle row)
 import hlib  # noqa: E402
 import ledgerverify  # noqa: E402  (the ledger-oracle verifier's decision core, shared with mutledger)
@@ -54,6 +55,7 @@ import missionverify  # noqa: E402  (the mission-verdict decision core, shared w
 import machinelock  # noqa: E402  (shared lock I/O; pure decisions live in provlib)
 import oracle  # noqa: E402
 import provlib  # noqa: E402
+import raceparse  # noqa: E402  (the race evaluator behind the raceParse row, multiplayer T-38)
 import rendercompose  # noqa: E402  (the M-A7 pure sibling behind the renderCompose row)
 import savepatch  # noqa: E402  (the pure FLIGHTSTATE patcher behind [[fixture.liveState]])
 import slotrun  # noqa: E402  (install-slot decisions: ports, runner token, launch args, report)
@@ -1241,6 +1243,14 @@ class SelectionContext:
         self.window_mode = window_mode
         self.desktop_id = desktop_id
         self.umbrella_root = umbrella_root
+        # --stage-from: the save stage_fixture copies instead of the template
+        # (a campaign runner's chained stage), checked by _stage_from_refusal.
+        self.stage_from: Optional[str] = None
+        # --pair-dir / --pair-shared (multiplayer T-54): a pair child's barrier folder
+        # (results/parallel/<run>/pairs/<group>) and the pair's shared folder
+        # (<umbrella>/automation/rs/<run>/<group>), checked by _pair_args_refusal.
+        self.pair_dir: Optional[str] = None
+        self.pair_shared: Optional[str] = None
         # slot name -> held lock path
         self.slot_locks: Dict[str, str] = {}
         self.report_results: List[Tuple[Dict, str]] = []
@@ -1345,6 +1355,9 @@ def _lane_instance(spec: Dict, umbrella_root: str, args) -> Tuple[Optional[str],
     """(instance dir, refusal subkind) for one lane. A slot child flies only lanes
     of its slot's profile, in its slot's dir."""
     profile = spec.get("instanceProfile")
+    if hlib.spec_pair(spec) is not None and _CTX.pair_dir is None:
+        # A paired lane flies only beside its partner (multiplayer T-54).
+        return None, hlib.PARTNER_LOST_SUBKIND
     if _CTX.slot_mode:
         if profile != _CTX.slot_profile:
             return None, hlib.SLOT_PROFILE_MISMATCH_SUBKIND
@@ -1957,6 +1970,20 @@ def stage_race_shared(spec: Dict, instance_dir: str, logger: HarnessLogger) -> b
     if race is None:
         return True
     source = race.get(hlib.RACE_SHARED_FOLDER_KEY)
+    if source == hlib.RACE_SHARED_PAIR:
+        # The pair's folder: the runner wiped it at the pair's dispatch and the
+        # partner may already be writing it, so staging only checks it is there.
+        pair_root = _pair_shared_root()
+        if pair_root is None:
+            logger.error("Stage", "race shared folder: sharedFolder=%r but no usable "
+                                  "--pair-shared folder (%s); aborting pre-boot (INVALID "
+                                  "staging)" % (source, _CTX.pair_shared))
+            return False
+        rows = _tree_rows(pair_root)
+        logger.info("Stage", "race shared folder is the pair's path=%s files=%d bytes=%d "
+                             "(wiped by the runner at dispatch; nothing staged here)"
+                    % (pair_root, len(rows), sum(r[1] for r in rows)))
+        return True
     root = os.path.join(instance_dir, RACE_SHARED_ROOT_DIRNAME)
     target = os.path.join(root, RACE_SHARED_LEAF)
     if not _is_strictly_inside(target, instance_dir) \
@@ -2001,6 +2028,285 @@ def stage_race_shared(spec: Dict, instance_dir: str, logger: HarnessLogger) -> b
     return True
 
 
+def _pair_shared_root() -> Optional[str]:
+    """The pair's shared folder (``--pair-shared``) when it is a plain folder
+    reached through no link: ``<umbrella>/automation/rs/<run>/<group>``, each
+    level a plain child of the one before. None otherwise."""
+    path = _CTX.pair_shared
+    if not path or _CTX.umbrella_root is None or not os.path.isdir(path):
+        return None
+    automation = os.path.join(_CTX.umbrella_root, slots.AUTOMATION_DIR)
+    group_dir = os.path.abspath(path)
+    run_dir = os.path.dirname(group_dir)
+    rs_dir = os.path.dirname(run_dir)
+    if os.path.normcase(rs_dir) != os.path.normcase(
+            os.path.abspath(os.path.join(automation, hlib.RACE_SHARED_ROOT))):
+        return None
+    if not (_is_plain_child(rs_dir, automation) and _is_plain_child(run_dir, rs_dir)
+            and _is_plain_child(group_dir, run_dir)):
+        return None
+    return group_dir
+
+
+def race_shared_root(spec: Dict, instance_dir: str) -> Optional[str]:
+    """The folder ``${raceShared}`` names for this lane: the pair's shared folder
+    for ``sharedFolder = "pair"`` (multiplayer T-54; None when it is unusable, which
+    staging already refused), else ``<instance>/rs/0``."""
+    if hlib.spec_uses_pair_folder(spec):
+        return _pair_shared_root()
+    return hlib.race_shared_dir(instance_dir)
+
+
+def _race_folder_entry(root: str, parts: Sequence[str]) -> Optional[str]:
+    """``root``/<parts> when every part of it that exists on disk is a plain child
+    of the one before (no link, no junction, no other resolution) and the whole path
+    resolves strictly inside ``root``; None otherwise. The entry itself may be
+    absent (a replace creates it)."""
+    expected = os.path.normcase(os.path.realpath(root))
+    path = root
+    for part in parts:
+        path = os.path.join(path, part)
+        expected = os.path.join(expected, os.path.normcase(part))
+        if not os.path.lexists(path):
+            break
+        if os.path.islink(path) or os.path.normcase(os.path.realpath(path)) != expected:
+            return None
+    if not _is_strictly_inside(path, root):
+        return None
+    return path
+
+
+def _tree_has_link(path: str) -> bool:
+    """True when ``path`` or anything below it is a link or a junction (a folder
+    whose real path is not its parent's real path plus its name)."""
+    if os.path.islink(path):
+        return True
+    if not os.path.isdir(path):
+        return False
+    for dirpath, dirs, files in os.walk(path, followlinks=False):
+        for name in dirs + files:
+            child = os.path.join(dirpath, name)
+            if os.path.islink(child):
+                return True
+            if os.path.isdir(child) and not _is_plain_child(child, dirpath):
+                return True
+    return False
+
+
+def _remove_entry(path: str) -> bool:
+    """Remove the file or folder ``path`` (already contained and link-free)."""
+    if os.path.isdir(path) and not os.path.islink(path):
+        return _rmtree_contained(path, os.path.dirname(path))
+    os.remove(_io_path(path))
+    return not os.path.lexists(path)
+
+
+def apply_race_folder_step(args: Dict, instance_dir: str,
+                           pair_folder: bool = False) -> Tuple[bool, str]:
+    """Carry out one ``raceFolder`` harness step on the lane's race shared folder.
+    ``(True, "done")`` or ``(False, <why>)``; nothing is touched on a refusal. The
+    args are re-checked with the validator spec validation used, then every path
+    on disk is checked: the shared folder must be the plain ``<instance>/rs/0``,
+    and the target and the fixture entry must resolve through no link or junction
+    inside their folders (hlib "Harness-side steps")."""
+    problems = hlib.race_folder_args_problems("raceFolder", args, True,
+                                              list_race_fixtures())
+    if problems:
+        return False, "args refused: %s" % "; ".join(problems)
+    op = args.get(hlib.RACE_FOLDER_OP_KEY)
+    rel = args.get(hlib.RACE_FOLDER_PATH_KEY)
+    parts = hlib.race_folder_path_parts(rel) if rel is not None else ()
+    if pair_folder:
+        root = _pair_shared_root()
+        if root is None:
+            return False, ("the pair's shared folder %s is missing, or is not the plain "
+                           "<automation>/%s/<run>/<group>"
+                           % (_CTX.pair_shared, RACE_SHARED_ROOT_DIRNAME))
+    else:
+        rs_dir = os.path.join(instance_dir, RACE_SHARED_ROOT_DIRNAME)
+        root = os.path.join(rs_dir, RACE_SHARED_LEAF)
+        if not (os.path.isdir(root) and _is_strictly_inside(root, instance_dir)
+                and _is_plain_child(rs_dir, instance_dir) and _is_plain_child(root, rs_dir)
+                and not _is_strictly_inside(root, FIXTURES_DIR)):
+            return False, ("the race shared folder %s is missing, or is not the plain "
+                           "<instance>/%s/%s"
+                           % (root, RACE_SHARED_ROOT_DIRNAME, RACE_SHARED_LEAF))
+    target = _race_folder_entry(root, parts) if parts else root
+    if target is None:
+        return False, "path %r resolves through a link or outside the shared folder" % rel
+    src = None
+    if op == hlib.RACE_FOLDER_OP_REPLACE:
+        src_root = os.path.join(RACE_FIXTURES_DIR,
+                                hlib.race_fixture_name(args[hlib.RACE_FOLDER_FROM_KEY]))
+        if not (os.path.isdir(src_root) and _is_strictly_inside(src_root, RACE_FIXTURES_DIR)
+                and _is_plain_child(src_root, RACE_FIXTURES_DIR)):
+            return False, "fixture %s missing or outside %s" % (src_root, RACE_FIXTURES_DIR)
+        src = _race_folder_entry(src_root, parts) if parts else src_root
+        if src is None or not os.path.lexists(src):
+            return False, "the fixture has no entry %r" % rel
+        if _tree_has_link(src):
+            return False, "the fixture entry %s holds a link or junction" % src
+        if not (os.path.isdir(src) or os.path.isfile(src)):
+            return False, "the fixture entry %s is neither a file nor a folder" % src
+    elif not os.path.lexists(target):
+        return False, "op=%s: %r does not exist in the shared folder" % (op, rel)
+    if os.path.lexists(target) and _tree_has_link(target):
+        return False, "%r holds a link or junction" % (rel or ".")
+    if op == hlib.RACE_FOLDER_OP_EDIT:
+        if not os.path.isfile(target):
+            return False, "op=edit: %r is not a regular file" % rel
+        with open(_io_path(target), "ab") as fh:
+            fh.write(hlib.RACE_FOLDER_EDIT_BYTES)
+        return True, "done"
+    if os.path.lexists(target) and not _remove_entry(target):
+        return False, "could not remove %r" % (rel or ".")
+    if op == hlib.RACE_FOLDER_OP_REPLACE:
+        if parts:
+            os.makedirs(_io_path(os.path.dirname(target)), exist_ok=True)
+        if os.path.isdir(src):
+            shutil.copytree(_io_path(src), _io_path(target))
+        else:
+            shutil.copyfile(_io_path(src), _io_path(target))
+    return True, "done"
+
+
+def harness_step_row(step: Dict, step_id: str) -> Dict:
+    """The result row a harness step starts from (``driver.harnessSteps``)."""
+    kind = hlib.harness_step_kind(step)
+    args = step.get("args")
+    args = dict(args) if isinstance(args, dict) else {}
+    if kind == hlib.BARRIER_STEP:
+        return {"id": step_id, "harness": kind, "name": args.get(hlib.BARRIER_NAME_KEY),
+                "timeout": args.get(hlib.BARRIER_TIMEOUT_KEY), "met": False, "reason": "",
+                "waited": 0.0}
+    return {"id": step_id, "harness": kind,
+            "op": args.get(hlib.RACE_FOLDER_OP_KEY),
+            "path": args.get(hlib.RACE_FOLDER_PATH_KEY),
+            "from": args.get(hlib.RACE_FOLDER_FROM_KEY),
+            "met": False, "reason": "", "files": 0, "bytes": 0}
+
+
+def _write_marker(path: str, text: str) -> None:
+    """Write a small marker file whole (tmp + rename), so a reader polling for it
+    never sees it half written."""
+    tmp = "%s.tmp-%d" % (path, os.getpid())
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+
+
+def wait_at_barrier(barrier_dir: str, name: str, role: str, timeout: float,
+                    now_fn: Callable[[], float] = time.monotonic,
+                    sleep_fn: Callable[[float], None] = time.sleep,
+                    poll_seconds: float = hlib.BARRIER_POLL_SECONDS) -> Tuple[bool, str, float]:
+    """One half's barrier (multiplayer T-54): write ``<name>.<role>.arrived`` into
+    the pair's barrier folder, then poll until the partner's arrival (met), the
+    partner's ``.ended`` marker or the timeout (lost; hlib.barrier_decision).
+    Returns (met, reason, seconds waited)."""
+    partner = hlib.pair_partner_role(role)
+    _write_marker(os.path.join(barrier_dir, hlib.barrier_arrival_file(name, role)),
+                  "%s pid=%d\n" % (utcnow_iso(), os.getpid()))
+    arrived = os.path.join(barrier_dir, hlib.barrier_arrival_file(name, partner))
+    ended = os.path.join(barrier_dir, hlib.pair_ended_file(partner))
+    gave_up = os.path.join(barrier_dir, hlib.barrier_gave_up_file(name, partner))
+    start = now_fn()
+    while True:
+        elapsed = now_fn() - start
+        decision, reason = hlib.barrier_decision(os.path.exists(arrived), os.path.exists(ended),
+                                                 elapsed, float(timeout), name, partner,
+                                                 os.path.exists(gave_up))
+        if decision == hlib.BARRIER_LOST:
+            # Our arrival file stays; this marker tells a late partner we left.
+            try:
+                _write_marker(os.path.join(barrier_dir, hlib.barrier_gave_up_file(name, role)),
+                              "%s pid=%d %s\n" % (utcnow_iso(), os.getpid(), reason))
+            except OSError:
+                pass
+        if decision != hlib.BARRIER_WAIT:
+            return decision == hlib.BARRIER_MET, reason, elapsed
+        sleep_fn(poll_seconds)
+
+
+def mark_pair_ended(spec: Dict, logger, why: str) -> None:
+    """Write this half's ``<role>.ended`` marker once (multiplayer T-54): it
+    reaches no further barrier, so a partner waiting at one is released as
+    partner-lost at once instead of at its timeout. A no-op for an unpaired lane."""
+    ident = hlib.spec_pair_identity(spec)
+    if ident is None or not _CTX.pair_dir:
+        return
+    path = os.path.join(_CTX.pair_dir, hlib.pair_ended_file(ident[1]))
+    if os.path.exists(path):
+        return
+    try:
+        _write_marker(path, "%s pid=%d %s\n" % (utcnow_iso(), os.getpid(), why))
+        logger.info("Pair", "pair %s role %s ended (%s): %s" % (ident[0], ident[1], why, path))
+    except OSError as exc:
+        logger.warn("Pair", "could not write the ended marker %s (%s); the partner waits "
+                            "for its barrier timeout instead" % (path, exc))
+
+
+def run_barrier_step(step: Dict, row: Dict, spec: Dict) -> Tuple[bool, str]:
+    """Carry out one barrier step for this half; (met, reason)."""
+    ident = hlib.spec_pair_identity(spec)
+    if ident is None or not _CTX.pair_dir or not os.path.isdir(_CTX.pair_dir):
+        return False, ("no pair barrier folder (a paired lane flies only from "
+                       "tools/parallel_runner.py)")
+    args = step.get("args") if isinstance(step.get("args"), dict) else {}
+    problems = hlib.barrier_args_problems("barrier", args, True, None)
+    if problems:
+        return False, "args refused: %s" % "; ".join(problems)
+    met, reason, waited = wait_at_barrier(_CTX.pair_dir, args[hlib.BARRIER_NAME_KEY],
+                                          ident[1], float(args[hlib.BARRIER_TIMEOUT_KEY]))
+    row["waited"] = round(waited, 3)
+    return met, reason
+
+
+def run_harness_step(step: Dict, index: int, step_id: str, instance_dir: str,
+                     logger: HarnessLogger, spec: Optional[Dict] = None) -> Dict:
+    """Run one harness step (multiplayer T-06, T-54) and return its result row.
+    Failure isolation: any exception is a refused step (the caller stops the
+    drive), never a crash of the attempt. A barrier whose partner is lost carries
+    ``subkind = partner-lost``; every other failure is INVALID(harness-step)."""
+    kind = hlib.harness_step_kind(step)
+    args = step.get("args")
+    args = dict(args) if isinstance(args, dict) else {}
+    row = harness_step_row(step, step_id)
+    subkind = hlib.HARNESS_STEP_INVALID_SUBKIND
+    pair_folder = hlib.spec_uses_pair_folder(spec)
+    try:
+        if kind == hlib.BARRIER_STEP:
+            subkind = hlib.PARTNER_LOST_SUBKIND
+            ok, reason = run_barrier_step(step, row, spec or {})
+        elif kind != hlib.RACE_FOLDER_STEP:
+            ok, reason = False, "unknown harness step kind %r" % kind
+        else:
+            ok, reason = apply_race_folder_step(args, instance_dir, pair_folder=pair_folder)
+        if ok and kind == hlib.RACE_FOLDER_STEP:
+            rows = _tree_rows(race_shared_root(spec or {}, instance_dir))
+            row["files"], row["bytes"] = len(rows), sum(r[1] for r in rows)
+    except Exception as exc:  # noqa: BLE001 - a harness fault is an INVALID, not a crash
+        ok, reason = False, "%s: %s" % (type(exc).__name__, exc)
+        subkind = hlib.HARNESS_STEP_INVALID_SUBKIND
+    row["met"], row["reason"] = ok, reason
+    if not ok:
+        row["subkind"] = subkind
+    if ok and kind == hlib.BARRIER_STEP:
+        logger.info("Drive", "harness step=%d id=%s %s %s result=met waited=%.1fs: %s "
+                             "(no channel line written)"
+                    % (index, step_id, kind, hlib.format_harness_step_args(step),
+                       row["waited"], reason))
+    elif ok:
+        logger.info("Drive", "harness step=%d id=%s %s %s result=done files=%d bytes=%d "
+                             "(no channel line written)"
+                    % (index, step_id, kind, hlib.format_race_folder_step_args(args),
+                       row["files"], row["bytes"]))
+    else:
+        logger.warn("Drive", "harness step=%d id=%s %s %s REFUSED: %s -> INVALID(%s)"
+                    % (index, step_id, kind, hlib.format_harness_step_args(step),
+                       reason, subkind))
+    return row
+
+
 def _snapshot_race_shared(run_id: str, spec: Dict, instance_dir: str,
                           logger: HarnessLogger) -> Optional[Dict]:
     """Copy the lane's race shared folder to ``results/<runId>_race/`` and write its
@@ -2015,8 +2321,8 @@ def _snapshot_race_shared(run_id: str, spec: Dict, instance_dir: str,
     dst = os.path.join(RESULTS_DIR, run_id + hlib.RACE_SNAPSHOT_DIR_SUFFIX)
     tmp = dst + SAVE_SNAPSHOT_TMP_SUFFIX
     try:
-        src = os.path.join(instance_dir, RACE_SHARED_ROOT_DIRNAME, RACE_SHARED_LEAF)
-        if not os.path.isdir(src):
+        src = race_shared_root(spec, instance_dir)
+        if not src or not os.path.isdir(src):
             snap["reason"] = "no-shared-folder"
             logger.info("Snapshot", "race shared-folder snapshot run=%s result=skipped "
                                     "reason=no-shared-folder" % run_id)
@@ -2078,6 +2384,12 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
 
     # (1) remove any prior staged save, (2) copy the template verbatim.
     template_abs = os.path.join(HARNESS_ROOT, save_template)
+    if _CTX.stage_from:
+        # A campaign runner's chained stage: the previous stage's harvested save,
+        # staged under this spec's own leaf (the shared-ship overlay keys on it).
+        template_abs = _CTX.stage_from
+        logger.info("Stage", "campaign handover: staging %s instead of %s as save=%s"
+                    % (template_abs, save_template, run_save_name))
     if not os.path.isdir(template_abs):
         # Fixtures may not be committed (heavy); a missing template is a staging
         # failure, surfaced by the caller as INVALID(admission-adjacent staging).
@@ -2665,6 +2977,11 @@ class DriveResult:
         # Multiplayer T-03: the race shared-folder snapshot record, taken right after
         # the KSP exits (run_attempt); None for a spec without [fixture.race].
         self.race_snapshot: Optional[Dict] = None
+        # Multiplayer T-06: one row per harness step run (run_harness_step), and the
+        # first refused one. Empty / None for every spec without a harness step, so
+        # their result record is unchanged.
+        self.harness_steps: List[Dict] = []
+        self.harness_step_failure: Optional[Dict] = None
 
 
 def _read_mission_result(result_path: str) -> Optional[Dict]:
@@ -3053,8 +3370,9 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
     tail_reason = hlib.TAIL_SKIP_REASON_MISSION_UNMET
     response_tail = ResponseTail(responses_path)
     # ${raceShared}: the lane's staged race folder, absolute (multiplayer T-03).
-    race_shared_value = (os.path.abspath(hlib.race_shared_dir(instance_dir))
-                         if hlib.spec_race_fixture(spec) is not None else None)
+    _race_root = (race_shared_root(spec, instance_dir)
+                  if hlib.spec_race_fixture(spec) is not None else None)
+    race_shared_value = os.path.abspath(_race_root) if _race_root else None
 
     for i, step in enumerate(steps):
         step_id = hlib.step_id_for_index(i)
@@ -3064,7 +3382,10 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
             role = hlib.seam_verb_tail_role(step.get("cmd", ""))
             row = {"id": step_id, "cmd": step.get("cmd", ""), "role": role,
                    "reason": tail_reason}
-            if step.get("phase") == "mission":
+            if hlib.is_harness_step(step):
+                row["role"] = hlib.TAIL_ROLE_WORLD_MUTATING
+                row["harness"] = hlib.harness_step_kind(step)
+            elif step.get("phase") == "mission":
                 row["role"] = hlib.TAIL_ROLE_WORLD_MUTATING
                 row["phase"] = "mission"
             result.skipped_tail_steps.append(row)
@@ -3072,7 +3393,51 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
             # KSP.log / harness log is the only place the omission is auditable.
             logger.info("Drive", "drive step=%d id=%s cmd=%s SKIPPED role=%s reason=%s "
                                  "(no channel line written)"
-                        % (i, step_id, row["cmd"] or "mission", row["role"], tail_reason))
+                        % (i, step_id, row["cmd"] or (hlib.harness_step_display(step)
+                                                      if "harness" in row else "mission"),
+                           row["role"], tail_reason))
+            continue
+        # Multiplayer T-06: a harness step runs here, after the previous seam step's
+        # terminal reply and before the next line is written; nothing reaches the
+        # channel. It runs only while every step driven before it is met
+        # (hlib.harness_step_skip_reason): after an unmet step that did not stop the
+        # drive (a post-mission ERROR on a MISSION-OK run) it is skipped and the drive
+        # goes on, so that step keeps its own verdict. A refused step is the
+        # harness's fault: drive the cleanup tail only and classify
+        # INVALID(harness-step) in run_verifiers.
+        if hlib.is_harness_step(step):
+            skip_reason = hlib.harness_step_skip_reason(
+                hlib.evaluate_response_stream(result.response_lines,
+                                              result.steps_with_ids),
+                result.mission_step)
+            if skip_reason is not None:
+                row = harness_step_row(step, step_id)
+                row.update({"skipped": True, "reason": skip_reason})
+                result.harness_steps.append(row)
+                logger.info("Drive", "harness step=%d id=%s %s %s SKIPPED (%s); the "
+                                     "earlier step owns the verdict; driving on"
+                            % (i, step_id, hlib.harness_step_kind(step),
+                               hlib.format_harness_step_args(step), skip_reason))
+                if hlib.harness_step_kind(step) == hlib.BARRIER_STEP:
+                    mark_pair_ended(spec, logger, "barrier %s skipped"
+                                    % hlib.barrier_name(step))
+                continue
+            row = run_harness_step(step, i, step_id, instance_dir, logger, spec=spec)
+            result.harness_steps.append(row)
+            if not row["met"] and result.harness_step_failure is None:
+                stop_subkind = row.get("subkind") or hlib.HARNESS_STEP_INVALID_SUBKIND
+                result.harness_step_failure = dict(row)
+                result.stopped_at_step = {"id": step_id, "cmd": "",
+                                          "harness": row["harness"],
+                                          "verdict": hlib.VERDICT_INVALID,
+                                          "msg": row["reason"],
+                                          "subkind": stop_subkind}
+                tail_plan = hlib.plan_unmet_step_tail(steps, i)
+                tail_reason = hlib.TAIL_SKIP_REASON_STEP_UNMET
+                logger.warn("Drive", "harness step REFUSED id=%s -> driver-INVALID(%s); "
+                                     "stopping the drive: %s"
+                            % (step_id, stop_subkind, tail_plan.summary))
+                mark_pair_ended(spec, logger, "harness step %s refused" % step_id)
             continue
         # M-B1 handoff (design "The handoff"): a phase=mission step is NOT written to
         # the channel; run.py spawns the mission subprocess and bounded-waits it, then
@@ -3531,6 +3896,77 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
     return verdict.result, verdict.drift, verdict.tooling
 
 
+def _race_parse_skipped_row(expectations: Dict, reason: str) -> Dict:
+    """The raceParse row when the scan does not run (same keys as a run row)."""
+    return {"status": "SKIPPED", "reason": reason,
+            "gating": raceparse.race_gating_armed(expectations), "leaked": False,
+            "unevaluable": False, "raceSnapshot": None, "folderFiles": 0,
+            "folderErrors": [], "unrecognised": [], "saves": [], "mismatches": []}
+
+
+def _race_parse_row(rp: "raceparse.RaceParseResult", drive: DriveResult) -> Dict:
+    snap = drive.race_snapshot or {}
+    return {"status": rp.status, "reason": "", "gating": rp.gating, "leaked": rp.leaked,
+            "unevaluable": rp.unevaluable, "raceSnapshot": snap.get("path"),
+            "folderFiles": rp.folder_files, "folderErrors": list(rp.folder_errors),
+            "unrecognised": list(rp.unrecognised[:raceparse.ROW_FINDINGS_CAP]),
+            "saves": [r.to_dict() for r in rp.saves],
+            "mismatches": rp.mismatches[:raceparse.ROW_FINDINGS_CAP]}
+
+
+def _run_race_parse(spec: Dict, save_dir: str, run_save_name: str, instance_dir: str,
+                    drive: DriveResult, run_id: Optional[str],
+                    logger: HarnessLogger) -> "raceparse.RaceParseResult":
+    """Read the lane's race snapshot and produced saves and evaluate the raceParse
+    row (thin I/O; every decision is raceparse.evaluate_race_parse)."""
+    expectations = spec.get("expectations", {}) or {}
+    snap = drive.race_snapshot or {}
+    listing: Optional[List[str]] = None
+    folder_errors: List[str] = []
+    if not snap.get("ran") or not run_id:
+        folder_errors.append("race shared-folder snapshot not taken (%s)"
+                             % (snap.get("reason") or "no record"))
+    else:
+        listing, problems = raceparse.walk_folder(
+            os.path.join(RESULTS_DIR, run_id + hlib.RACE_SNAPSHOT_DIR_SUFFIX))
+        if problems:
+            folder_errors.extend(problems)
+            listing = None
+    saves: List[raceparse.RaceSaveInput] = []
+    if os.path.isdir(save_dir):
+        files, problems = raceparse.read_save_tree(save_dir)
+        saves.append(raceparse.RaceSaveInput(run_save_name, files, problems))
+    else:
+        saves.append(raceparse.RaceSaveInput(run_save_name, None, ("no produced save",)))
+    for snapshot_save_name, _suffix in hlib.spec_snapshot_saves(spec, run_save_name):
+        named_dir = os.path.join(instance_dir, "saves", snapshot_save_name)
+        if os.path.isdir(named_dir):
+            files, problems = raceparse.read_save_tree(named_dir)
+            saves.append(raceparse.RaceSaveInput(snapshot_save_name, files, problems))
+        else:
+            saves.append(raceparse.RaceSaveInput(snapshot_save_name, None,
+                                                 ("no produced save",)))
+    rp = raceparse.evaluate_race_parse(expectations, listing, folder_errors, saves)
+    logger.info("Verify", "verify raceParse status=%s gating=%s leaked=%s folderFiles=%d "
+                          "saves=%s unrecognised=%d"
+                % (rp.status, rp.gating, rp.leaked, rp.folder_files,
+                   ",".join("%s:%s:own=%s:ids=%d:files=%d:findings=%d"
+                            % (r.label, r.status, r.own_player or "-", r.ids_scanned,
+                               r.files_scanned, len(r.findings)) for r in rp.saves) or "-",
+                   len(rp.unrecognised)))
+    mismatches = rp.mismatches
+    if mismatches and not rp.gating:
+        logger.warn("Verify", "raceParse recorded %d report-only finding(s) (not gating; "
+                              "arm with [expectations.race] gating = true): %s"
+                    % (len(mismatches), mismatches[:raceparse.ROW_FINDINGS_CAP]))
+    elif mismatches:
+        logger.warn("Verify", "raceParse (armed) %s: %s"
+                    % ("LEAK -> PARSEK-FAIL(%s)" % hlib.RACE_ISOLATION_SUBKIND if rp.leaked
+                       else "proved nothing -> INVALID(%s)" % hlib.RACE_PARSE_INVALID_SUBKIND,
+                       mismatches[:raceparse.ROW_FINDINGS_CAP]))
+    return rp
+
+
 def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                   drive: DriveResult, runtime: Runtime, logger: HarnessLogger,
                   seed_capture: Optional["SeedCapture"] = None,
@@ -3629,6 +4065,16 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
             stage_subkind = (_stage_subkind_for(ev.first_unmet)
                              or hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND)
         detail["unresolvedHandle"] = dict(drive.unresolved_handle)
+    # Multiplayer T-06: a refused harness step is the harness's fault, so the driver
+    # stage is INVALID (terminal, never PARSEK-FAIL). A harness step runs only while
+    # every step driven before it is met (drive_seam skips it otherwise), so a
+    # refusal is always the first thing that went wrong and owns the subkind; a step
+    # unmet after it is a cleanup-tail step the stop drove.
+    if drive.harness_step_failure is not None:
+        stage_subkind = (drive.harness_step_failure.get("subkind")
+                         or hlib.HARNESS_STEP_INVALID_SUBKIND)
+        driver_valid = False
+        detail["harnessStep"] = dict(drive.harness_step_failure)
     detail["driverValidity"] = {
         "status": "PASS" if driver_valid else ("SKIPPED" if killed else "FAIL"),
         "allExpectedMet": ev.all_expected_met, "subkind": stage_subkind,
@@ -3668,11 +4114,15 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                "deliberately incomplete and every save-reading verifier is "
                                "triage-only/SKIPPED on driver-invalid"
                     % (row_key, len(drive.skipped_tail_steps),
-                       ", ".join("%s:%s" % (r["id"], r["cmd"] or "mission")
+                       ", ".join("%s:%s" % (r["id"], r["cmd"] or (
+                                     "harness:%s" % r["harness"] if "harness" in r
+                                     else "mission"))
                                  for r in drive.skipped_tail_steps),
                        "" if stopped is None
-                       else " stoppedAt=%s:%s verdict=%s" % (stopped["id"], stopped["cmd"],
-                                                             stopped["verdict"])))
+                       else " stoppedAt=%s:%s verdict=%s" % (
+                           stopped["id"],
+                           stopped["cmd"] or "harness:%s" % stopped.get("harness", "?"),
+                           stopped["verdict"])))
 
     # 2. BATCH_COMPLETE presence (parsed even on short-circuit; cheap triage).
     # M-A5.1 (N3): a multi-category selector ("all" / "A,B") emits per-category lines
@@ -3872,6 +4322,10 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                 or expectations.get("world") is not None)
         detail["ledgerOracle"] = {"status": "SKIPPED",
                                   "reason": "killed" if ledger_active_killed else "no-ledger-block-declared"}
+        # Multiplayer T-38: a torn save is never ground truth, so the leak scan is
+        # SKIPPED on a killed attempt (KILLED precedes every verifier flag anyway).
+        if hlib.spec_race_fixture(spec) is not None:
+            detail["raceParse"] = _race_parse_skipped_row(expectations, "killed")
         detail["subprocessRetry"] = subprocess_retries
         return {"driver": driver_facts, "verifiers": verifiers, "detail": detail,
                 "recordingCount": None}
@@ -4393,6 +4847,24 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                   "(not gating; arm with gating = true inside the "
                                   "declared block after reading report-only runs): %s"
                         % (len(gl_report_only), gl_report_only))
+
+    # 7e. raceParse (multiplayer T-38): the leak scan over every save a race lane
+    # produced. Runs only for a spec with [fixture.race] (no row, no flag, no log line
+    # otherwise, so no other lane's result JSON changes). Reads the race shared-folder
+    # snapshot results/<runId>_race/ (taken at KSP exit, before the next lane stages)
+    # and the run save plus each snapshotSaves save under verify_root (the post-quit
+    # private copy on the pipelined path), never the live shared folder. Report-only
+    # unless [expectations.race] gating = true; armed, a leak reds
+    # PARSEK-FAIL(race-isolation) and a scan that proved nothing is INVALID(race-parse).
+    if hlib.spec_race_fixture(spec) is not None:
+        if not driver_valid:
+            detail["raceParse"] = _race_parse_skipped_row(expectations, "driver-invalid")
+            logger.info("Verify", "verify raceParse status=SKIPPED reason=driver-invalid")
+        else:
+            rp = _run_race_parse(spec, save_dir, run_save_name, instance_dir, drive, run_id,
+                                 logger)
+            detail["raceParse"] = _race_parse_row(rp, drive)
+            verifiers.update(raceparse.verdict_flags(rp))
 
     # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
     # OR [expectations.world]; else SKIPPED(no-ledger-block-declared), the reserved
@@ -5207,6 +5679,8 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         drive = drive_seam(spec, instance_dir, run_save_name, proc, runtime, logger,
                            run_budget, mission_ctx=mission_ctx, run_id=run_id,
                            boot_watch=boot_watch)
+        # A paired half reaches no further barrier once its drive is over.
+        mark_pair_ended(spec, logger, "drive over")
         # The race shared folder, copied out before the next lane can stage over it
         # (both loops; the pipelined copy set below does not carry it).
         drive.race_snapshot = _snapshot_race_shared(run_id, spec, instance_dir, logger)
@@ -6241,6 +6715,13 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     # Emitted only when non-empty, so every other run's record is unchanged.
     if drive is not None and drive.skipped_tail_steps:
         driver_rec["skippedTailSteps"] = list(drive.skipped_tail_steps)
+    # Multiplayer T-06: the harness steps run, outside driver.steps (they are not seam
+    # exchanges). Emitted only when the spec has one, so every other record is
+    # unchanged; a refused one makes allExpectedMet false.
+    if drive is not None and drive.harness_steps:
+        driver_rec["harnessSteps"] = [dict(r) for r in drive.harness_steps]
+        if not all(r.get("met") for r in drive.harness_steps):
+            driver_rec["allExpectedMet"] = False
     # The mirror case: an UNMET mission whose spec opted OUT, so the full tail was driven
     # by policy. Named after the spec key a reader would go looking for. Emitted only in
     # that case, so a default-policy run's record is unchanged.
@@ -6645,6 +7126,11 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
         is_autopilot = driver.get("kind") == "autopilot"
         print("  [SELECT ] %s tier=%s profile=%s kind=%s"
               % (sid, spec.get("tier"), profile, driver.get("kind")))
+        pair_ident = hlib.spec_pair_identity(spec)
+        if pair_ident is not None:
+            print("  [PAIR   ] group=%s role=%s: flies only beside its partner under "
+                  "tools/parallel_runner.py; a run without --pair-dir refuses it pre-boot "
+                  "INVALID(%s)" % (pair_ident[0], pair_ident[1], hlib.PARTNER_LOST_SUBKIND))
         print("  [ADMIT  ] read %s/GameData/Parsek/provision-manifest.json" % inst)
         # M-B1: an autopilot spec ALSO admits the mission venv at pre-launch ADMIT
         # (terminal INVALID(tooling-venv) with no KSP boot); surface it in the plan.
@@ -6671,7 +7157,18 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
               % (inst, (spec.get("runtime", {}) or {}).get("budgetSeconds"),
                  " PARSEK_RENDER_MANIFEST=1" if rc_declared else ""))
         for i, step in enumerate(steps):
-            if step.get("phase") == "mission":
+            if hlib.harness_step_kind(step) == hlib.BARRIER_STEP:
+                # Multiplayer T-54: the pair rendezvous; no channel line.
+                print("  [HARNESS] step=%d %s %s (run.py meets the partner; lost -> INVALID(%s))"
+                      % (i, hlib.harness_step_kind(step), hlib.format_harness_step_args(step),
+                         hlib.PARTNER_LOST_SUBKIND))
+            elif hlib.is_harness_step(step):
+                # Multiplayer T-06: run by run.py on the race shared folder; no channel line.
+                print("  [HARNESS] step=%d %s %s (run.py edits ${raceShared}; refusal -> INVALID(%s))"
+                      % (i, hlib.harness_step_kind(step),
+                         hlib.format_race_folder_step_args(step.get("args")),
+                         hlib.HARNESS_STEP_INVALID_SUBKIND))
+            elif step.get("phase") == "mission":
                 # M-B1 handoff: spawn the mission SUBPROCESS with the venv python
                 # (no channel traffic); bounded by the mission-step budget.
                 print("  [MISSION] step=%d handoff mission=%s expect=%s budget=%s (venv-python subprocess; kRPC autopilot)"
@@ -6778,6 +7275,13 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
                             "copied to results/<runId>_save-<suffix>/)"
                             % (", ".join(n for n, _ in named_saves),
                                hlib.SNAPSHOT_SAVE_MISSING_SUBKIND))
+        if hlib.spec_race_fixture(spec) is not None:
+            if raceparse.race_gating_armed(exp):
+                verify_line += (", raceParse(armed: leak scan -> PARSEK-FAIL(%s) on a leak, "
+                                "INVALID(%s) when it proves nothing)"
+                                % (hlib.RACE_ISOLATION_SUBKIND, hlib.RACE_PARSE_INVALID_SUBKIND))
+            else:
+                verify_line += ", raceParse(report-only leak scan)"
         print(verify_line)
         print("")
     print("=== end plan ===")
@@ -6844,6 +7348,19 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
     parser.add_argument("--desktop-id",
                         help="virtual desktop GUID handed to KSP as %s"
                              % slotrun.DESKTOP_ID_ENV)
+    parser.add_argument("--stage-from",
+                        help="stage this save instead of the spec's saveTemplate: a "
+                             "tools/campaign_runner.py chained stage (<run>/<chain>/<stage>/in "
+                             "under results/campaign/, with the runner's handover marker); "
+                             "--slot only, one lane")
+    parser.add_argument("--pair-dir",
+                        help="a paired lane's barrier folder (results/parallel/<run>/pairs/"
+                             "<group>), handed by tools/parallel_runner.py; --slot only, one "
+                             "lane, with --pair-shared")
+    parser.add_argument("--pair-shared",
+                        help="the pair's shared folder (<umbrella>/automation/rs/<run>/<group>), "
+                             "what ${raceShared} names for sharedFolder = \"pair\"; with "
+                             "--pair-dir")
     parser.add_argument("--sweep-results", action="store_true",
                         help="maintenance: run the results retention sweeps (old _shots, old "
                              "and orphaned _save / _save-<suffix> / _race snapshots, stale "
@@ -6863,6 +7380,12 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
             parser.error("--slot and --instance-dir are mutually exclusive")
     if args.tests_prebuilt and slot is None:
         parser.error("--tests-prebuilt is accepted only with --slot")
+    if args.stage_from and slot is None:
+        parser.error("--stage-from is accepted only with --slot (a campaign runner's child)")
+    if bool(args.pair_dir) != bool(args.pair_shared):
+        parser.error("--pair-dir and --pair-shared go together")
+    if args.pair_dir and slot is None:
+        parser.error("--pair-dir is accepted only with --slot (a parallel runner's pair child)")
 
     runtime = runtime or Runtime()
     umbrella_root = os.path.abspath(args.umbrella_root) if args.umbrella_root else DEFAULT_UMBRELLA_ROOT
@@ -6974,6 +7497,27 @@ def _run_invocation(args, runtime, umbrella_root: str, logger, selected_ids: Lis
     if getattr(args, "admit_only", False):
         return admit_only(selected, umbrella_root, args, runtime, logger)
 
+    if _arg_str(args, "stage_from"):
+        refusal, real = _stage_from_refusal(args.stage_from, selected_ids)
+        if refusal:
+            logger.error("Select", "refusing --stage-from: %s" % refusal)
+            return 2
+        _CTX.stage_from = real
+        logger.info("Select", "campaign handover accepted: --stage-from %s" % real)
+
+    if _arg_str(args, "pair_dir"):
+        refusal = _pair_args_refusal(args.pair_dir, args.pair_shared, selected, umbrella_root)
+        if refusal:
+            logger.error("Select", "refusing --pair-dir: %s" % refusal)
+            return 2
+        # Kept as given (absolute, not resolved), so _pair_shared_root still sees a
+        # link on the way and refuses it.
+        _CTX.pair_dir = os.path.abspath(args.pair_dir)
+        _CTX.pair_shared = os.path.abspath(args.pair_shared)
+        logger.info("Select", "pair child accepted: lane=%s pair=%s barriers=%s shared=%s"
+                    % (selected[0].get("id"), "/".join(hlib.spec_pair_identity(selected[0])),
+                       _CTX.pair_dir, _CTX.pair_shared))
+
     if _CTX.slot_mode:
         return _run_slot_child(selected, specs, registry, umbrella_root, args, runtime,
                                logger, expr)
@@ -7007,6 +7551,54 @@ def _run_invocation(args, runtime, umbrella_root: str, logger, selected_ids: Lis
         _unity_prefs_step(runtime, umbrella_root, logger, begin=False)
         release_slot_locks(logger)
         release_run_lock(lock_path, logger)
+
+
+def _pair_args_refusal(pair_dir: str, pair_shared: str, selected: Sequence[Dict],
+                       umbrella_root: str) -> Optional[str]:
+    """Refusal text or None for ``--pair-dir`` / ``--pair-shared``: the file reads
+    around ``hlib.pair_child_refusal`` (both folders must exist)."""
+    for flag, path in (("--pair-dir", pair_dir), ("--pair-shared", pair_shared)):
+        if not os.path.isdir(path):
+            return "%s %s is not a folder" % (flag, path)
+
+    def fold(text: str) -> str:
+        # The one normalisation: every path AND every spec name compared with a
+        # path part goes through it (Windows lower-cases in normcase).
+        return os.path.normcase(text).replace(os.sep, "/")
+
+    def norm(p: str) -> str:
+        return fold(os.path.realpath(p))
+
+    return hlib.pair_child_refusal(
+        _CTX.slot_mode, list(selected), norm(pair_dir), norm(pair_shared),
+        norm(os.path.join(RESULTS_DIR, "parallel")),
+        norm(os.path.join(umbrella_root, slots.AUTOMATION_DIR, hlib.RACE_SHARED_ROOT)),
+        fold=fold)
+
+
+def _stage_from_refusal(stage_from: str, selected_ids: Sequence[str],
+                        env: Optional[Dict[str, str]] = None) -> Tuple[Optional[str], str]:
+    """(refusal or None, resolved path) for ``--stage-from``: the file reads
+    around ``campaign.stage_from_refusal`` (the handover marker beside the
+    folder, the save's persistent.sfs)."""
+    env = os.environ if env is None else env
+    real = os.path.realpath(stage_from)
+    root = os.path.realpath(os.path.join(RESULTS_DIR, campaign.CAMPAIGN_RESULTS_DIRNAME))
+    try:
+        with open(os.path.join(os.path.dirname(real), campaign.HANDOVER_FILE), "r",
+                  encoding="utf-8") as fh:
+            marker = json.load(fh)
+    except (OSError, ValueError):
+        marker = None
+
+    def norm(p: str) -> str:
+        return os.path.normcase(p).replace(os.sep, "/")
+
+    refusal = campaign.stage_from_refusal(
+        norm(real), norm(root), list(selected_ids), _CTX.slot_mode,
+        env.get(slotrun.RUNNER_TOKEN_ENV), marker,
+        os.path.isfile(os.path.join(real, "persistent.sfs")))
+    return refusal, real
 
 
 def _unity_prefs_step(runtime, umbrella_root: str, logger, begin: bool) -> None:
@@ -7796,6 +8388,9 @@ def _lane_refusal_note(subkind: str, profile, instance_dir: Optional[str]) -> st
     if subkind == hlib.SLOT_LOCKED_SUBKIND:
         return ("the slot lock of %s is held by another live process"
                 % (slotrun.instance_slot_name(instance_dir) or instance_dir))
+    if subkind == hlib.PARTNER_LOST_SUBKIND:
+        return ("a paired lane flies only beside its partner: run its pair with "
+                "tools/parallel_runner.py (no --pair-dir here)")
     return subkind
 
 

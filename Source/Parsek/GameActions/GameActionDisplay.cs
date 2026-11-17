@@ -152,6 +152,9 @@ namespace Parsek
                 case GameActionType.VesselRecovered:
                     return "Vessel recovered: " + (action.RecoveredVesselName ?? "unknown");
 
+                case GameActionType.VesselEnded:
+                    return "Vessel lost: " + (action.EndedVesselName ?? "unknown");
+
                 case GameActionType.ResourceScanUnlocked:
                     return string.IsNullOrEmpty(action.ScanBiomeName)
                         ? "Resource scan: " + (action.ScanBodyName ?? "unknown")

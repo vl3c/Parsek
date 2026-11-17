@@ -319,8 +319,10 @@ Common to every spike task below:
   name in UTF-8 (CLAUDE.md "Verify the deployed DLL"); pin the deployed SHA-256 in the
   spike's raw folder.
 - **Proof:** one session with `PARSEK_SPIKE` unset logs no `[Spike` line and loads a career
-  save; one with `PARSEK_SPIKE=S0` logs the armed line; the no-DLC copy's KSP.log shows
-  `MakingHistory` and `Serenity` as not installed.
+  save; one with `PARSEK_SPIKE=S0` logs the armed line; the no-DLC copy's KSP.log shows the
+  one stock line `No Expansions detected` and no `Expansion <name> detected in path` line.
+  KSP logs no per-expansion "not installed" line: `Expansions.ExpansionsLoader` logs that
+  one line when `GameData/SquadExpansion` is absent.
 - **Size:** S. **Depends on:** go. **PC:** yes (provisioning, about 1 hour).
 - **Risk:** medium; a careless delete of the no-DLC junction would destroy the dev
   install's DLC content, so the procedure names the exact command and the check after it.
@@ -345,7 +347,10 @@ Common to every spike task below:
   scan. `--selftest` grows cells for the new functions on a synthetic height field.
   `harness/README.md:3087` section gains the new flags.
 - **Procedure:** spike instance at the Space Center with kRPC up, machine lock held by
-  the owner (no `run.py` / `provision.py` in flight). One degree of Kerbin is about
+  the owner (no `run.py` / `provision.py` in flight). Every scan call passes the spike
+  profile's ports, `--rpc-port 50060 --stream-port 50061`: the tool defaults to 50000 /
+  50001, and the spike profiles use kRPC ports 50060 and 50080, away from the harness
+  profiles' ports. One degree of Kerbin is about
   10.5 km. (1) Stock KSC grid: `--spot -0.0737,-74.6438 --spot-radius-km 6 --spot-step
   0.002` (about 21 m, about 330,000 samples, about 40 s at the measured 8,000 samples/s;
   0.001 deg is 1.3 million samples, about 3 minutes, if the ring metric needs it).
@@ -1003,7 +1008,7 @@ Sessions (one KSP process each, on the spike instance unless named):
 | Session | Spikes | Game | Notes |
 |---------|--------|------|-------|
 | A | S10a (fixtures), S1b tooling PR, KSCSwitcher source read | none | agent work |
-| B | S1b scan | spike-r0, kRPC | needs one kRPC port pair (default 50000 / 50001) |
+| B | S1b scan | spike-r0, kRPC | needs one kRPC port pair (spike-r0's 50060 / 50061: `--rpc-port 50060 --stream-port 50061`) |
 | C1 | S4a, then S4b, S2, S5 | spike-r0 | one process, Space Center and flight |
 | C2 | S6, S7, S9 | second copy (spike-r0-nodlc is fine; S6 lane can use any, except step (f), which runs on spike-r0-content, a `stock-tree` copy) | no kRPC needed; seam only |
 | C3 | S3 | spike-r0 then spike-r0-nodlc | needs both instances |
@@ -1233,7 +1238,9 @@ KSP 1.12.5, DLCs <yes/no>, mods <list from the instance manifest>
 2. **May the spikes use their own KSP copy?** S0 provisions `automation/spike-r0/` and a
    copy without the DLCs, so the dev install and the harness instances stay as they are.
    Options: (a) yes; (b) run spikes in the dev install. Recommendation: (a); it costs about
-   one hour once and keeps your own game clean.
+   one hour once and keeps your own game clean. Answered 2026-11-16 by the owner: (a), the
+   spikes run on their own separate game copies, not on the dev game and not on the harness
+   copies.
 3. **A milestone completed with the debug menu (Max Progression, the console's
    b4d455):** should the race (a) drop those completions from the board and mark the
    player as having used debug tools, (b) only mark the player, or (c) ignore it?
@@ -1242,4 +1249,6 @@ KSP 1.12.5, DLCs <yes/no>, mods <list from the instance manifest>
    is S9's finding of which completions a mod can observe (OV-34).
 4. **Keep the spike branch?** Options: (a) push `spike/mp-r0` to GitHub as a record, never
    merged and never opened as a pull request; (b) keep it local only. Recommendation: (a);
-   the reports cite its commits.
+   the reports cite its commits. Answered 2026-11-16 by the owner: (a), the branch is pushed
+   to GitHub and kept there, never merged; it exists as `spike/mp-r0`, cut from
+   `multiplayer`.

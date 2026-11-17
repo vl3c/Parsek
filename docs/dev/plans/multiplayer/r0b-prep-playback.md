@@ -114,7 +114,7 @@ ghost-map-vessel primitive (P3), the trajectory codec change (P6), the ghost-cou
 | L3 | `RecordedRelativeAnchorPoseResolver.cs:165-200` `TryFindFocusTree` | committed trees in order, match `(TreeId nonempty && tree.Id == TreeId) || Recordings.ContainsKey(id)` (a null `Recordings` is skipped); then pending (:189), same match | false |
 | L4 | `Rendering/ProductionAnchorWorldFrameResolver.cs:411-445` `TryFindFocusTree(Recording)` | identical to L3 (pending at :433) | false |
 | L5 | `RecordedRelativeAnchorPoseResolver.cs:203-258` `TryFindRecordingById` | committed trees (`TryGetValue`, non-null), then pending (:227, same), then the flat `RecordingStore.CommittedRecordings` list | false |
-| L6 | `GhostMapPresence.StateVectors.cs:735-785` `TryFindRecordingByIdForBodyFixedAnchorPid` | identical to L5 (pending at :765) | false |
+| L6 | `GhostMapPresence.StateVectors.cs:735-785` `TryFindRecordingByIdForBodyFixedAnchorPid` | as L5 (pending at :765), except its guard rejects a whitespace-only id (`IsNullOrWhiteSpace`, :745) where L5 rejects only null or empty | false |
 | L7 | `ParsekFlightGhostPositioner.TailLift.cs:16` `ResolveRecordingById` | committed list only, inside try/catch | null; `ResolveRecordingForTailLift` (:40) then falls back to `ParsekFlight.s_previewRecordingForTailLift` |
 | L8 | `ParsekFlightGhostPositioner.Trace.cs:134` (diagnostic) | `RecordingStore.TryFindCommittedRecordingById` = committed list only (`RecordingStore.cs:1211-1222`) | no diagnostic distance |
 | L9 | `RecordedRelativeAnchorPoseResolver.cs:120-133` `TryFindFocusRecording` | `trajectory as Recording` cast first, else L5 | false |
@@ -146,9 +146,11 @@ Callers that thread a catalog:
   `GhostPlaybackLogic.IsWatchProtectedRecording` (`GhostPlaybackLogic.cs:691-721`). That is a
   watch-protection query over the own list, not a by-id lookup; P2b-08 handles it.
 - `scripts/ers-els-audit-allowlist.txt` lists `GhostMapPresence.StateVectors.cs`,
-  `ParsekFlight.GhostPositioner.cs`, `RecordedRelativeAnchorPoseResolver.cs`,
+  `ParsekFlight.GhostPositioner.cs`, `RecordedRelativeAnchorPoseResolver.cs` (dropped by
+  P2a-03: no raw read left after P2a-05),
   `ParsekFlightPlaybackHost.cs` and, of the twelve positioner files, only
-  `ParsekFlightGhostPositioner.TailLift.cs` (L7's raw read); the allowlist says the other
+  `ParsekFlightGhostPositioner.TailLift.cs` (L7's raw read; dropped by P2a-04, which moved it
+  into the catalog); the allowlist says the other
   positioner files read none. L2 reads `CommittedTrees`, which the gate's pattern
   (`.CommittedRecordings`, `Ledger.Actions`) does not match. A P2a or P2b edit that writes
   `.CommittedRecordings` in any other positioner file reds `GrepAuditTests`. The gate has no
@@ -411,6 +413,9 @@ The port as specified:
     - `bool TryFindRecording(string id, CatalogRecordingScope scope, out Recording rec)` with
       `CatalogRecordingScope { CommittedListOnly, TreesThenPendingThenList }`.
     The enum members name the orders of section 3.2 so each call site states its own order.
+    `TryFindFocusTree` and `TryFindRecording` answer false for a null or empty id (as built
+    by P2a-05): every L3 / L4 caller rejects such an id before the lookup, and without the
+    guard L3's `ContainsKey(null)` would throw.
   - New `Source/Parsek/Recording/RecordingPlaybackCatalog.cs` (module Recording):
     `internal sealed class RecordingPlaybackCatalog : IPlaybackCatalog` over `RecordingStore`
     and `PendingTreeSlot`, each variant a verbatim copy of the site it will replace, and
@@ -476,10 +481,15 @@ The port as specified:
   (`ParsekFlightGhostPositioner.RelativeAnchor.cs:200`) becomes an instance
   call of `catalog.TryFindTreeHolding(id, CommittedFirstContainsKey, ...)`; the diagnostic at
   `ParsekFlightGhostPositioner.Trace.cs:134` uses `TryFindRecording(id, CommittedListOnly, ...)`.
-  `BuildFlightRelativeAnchorResolverContext` (`ParsekFlight.TimelinePlayback.cs:553`) takes an
-  `IPlaybackCatalog` parameter and reads `PendingTree` from it; its two callers (positioner
-  `ParsekFlightGhostPositioner.RelativeAnchor.cs:123`, `ParsekFlightPlaybackHost.cs:2367`) pass the
-  own catalog. L7 is P2a-04.
+  `BuildFlightRelativeAnchorResolverContext` (`ParsekFlight.TimelinePlayback.cs:553`) takes a
+  trailing required `IPlaybackCatalog` parameter and reads `PendingTree` from it; the positioner
+  (`ParsekFlightGhostPositioner.RelativeAnchor.cs:123`) passes its own `catalog` field and
+  `ParsekFlightPlaybackHost.cs:2367` passes `RecordingPlaybackCatalog.Own` (P2b-09 swaps it for
+  `host.Lane.Catalog`). `TryFindRelativeAnchorFocusTree` stays a one-line instance method (the
+  fake-catalog cell calls it); `ResolveRecordingById` (L7) is untouched and is P2a-04's. As
+  built: the ERS allowlist entry for `RecordedRelativeAnchorPoseResolver.cs` is dropped here
+  (P2a-05 moved its last raw read into the catalog); `RelativeAnchor.cs` and `Trace.cs` were
+  never listed (L2 and L8 do not match the gate's pattern).
 - **Proof:** `RelativeAnchorResolutionTests`, `RecordedRelativeAnchorResolver*` tests,
   `GrepAuditNonLoopLivePidTests` green; a test that `TryFindRelativeAnchorFocusTree` sees a tree
   only the fake catalog holds. In-game `Pipeline-Anchor`, `PlaybackFidelity`; lanes H11, LT-1,
@@ -503,17 +513,28 @@ The port as specified:
 - **Registers:** none.
 - **Size:** S. **Depends on:** P2a-03 (same positioner constructor). **PC:** in-game, lane S1.4.
 - **Risk:** low.
+- **As built:** `ResolveRecordingById` became `internal static` with its own trailing optional
+  catalog (null reads `Own`), so the old-versus-new sweep in `RecordingPlaybackCatalogTests`
+  drives the production lookup; the sweep's fixtures grew to 16 (a duplicate id in the flat list,
+  and case or space variants of the id ahead of the match). The tail-lift file's ERS allowlist
+  entry is dropped (its one raw read moved into the catalog), and the `[ERS-exempt]` comments of
+  `RecordingPlaybackCatalog.cs` and its allowlist entry now name the tail-lift lookup. The plan
+  caches stay keyed by recording id alone, so a plan cached through one catalog answers every
+  catalog; a miss is transient and never cached. The fake-catalog cells and a source gate on the
+  positioner's three calls sit in `Rendering/FlightRecorderTerrainTests`.
 
 **P2a-05 RecordedRelativeAnchorPoseResolver through the catalog (L3, L5, L9, P2)**
 
 - **Change:** both `TryResolveSectionAnchorPose` overloads
   (`RecordedRelativeAnchorPoseResolver.cs:49`, :63) gain a trailing optional
-  `IPlaybackCatalog catalog = null` (null reads `Own`) that flows to `TryFindFocusRecording`,
-  `TryBuildContext` (`pendingTree: catalog.PendingTree`), `TryFindFocusTree`
-  (`catalog.TryFindFocusTree`) and `TryFindRecordingById`
-  (`catalog.TryFindRecording(id, TreesThenPendingThenList, ...)`). The `is Recording` cast at
-  :120-133 stays first. Callers `ParsekKSC.Playback.cs:549` and
-  `GhostMapPresence.StateVectors.cs:1106` pass nothing.
+  `IPlaybackCatalog catalog = null` (null reads `Own`) that flows to `TryBuildContext`
+  (`pendingTree: catalog.PendingTree`), whose `TryFindFocusTree` becomes
+  `catalog.TryFindFocusTree`. `TryFindFocusRecording` (:122) is a separate entry point (the
+  map calls it before the pose, `GhostMapPresence.StateVectors.cs:1105`), so it gains its own
+  trailing optional catalog, and its `TryFindRecordingById` becomes
+  `catalog.TryFindRecording(id, TreesThenPendingThenList, ...)`. The private `TryFindFocusTree`
+  and `TryFindRecordingById` are deleted. The `is Recording` cast at :127 stays first. Callers
+  `ParsekKSC.Playback.cs:549` and `GhostMapPresence.StateVectors.cs:1105-1106` pass nothing.
 - **First P2a task (P2a-01):** this task creates `IPlaybackCatalog.cs`,
   `RecordingPlaybackCatalog.cs` and `Own` with only the members its call sites use:
   `PendingTree`, `TryFindFocusTree`, and `TryFindRecording` with the enum
@@ -542,12 +563,19 @@ The port as specified:
 - **Registers:** layer pins: Rendering -> Recording is forward; none move.
 - **Size:** S. **Depends on:** P2a-05. **PC:** in-game, lanes S1.6, S1.7, H44.
 - **Risk:** low.
+- **As built (2026-11-16):** the resolver already had two constructors (a public parameterless
+  one for the two production sites and an internal modelled-world one that tests use); the
+  catalog is the trailing optional parameter of the internal one, which the parameterless one
+  chains to, so there is still one constructor that takes a catalog and no overload was added.
+  The context builder's own null-or-empty id guard stays in front of the lookup.
 
 **P2a-07 Map state vectors through the catalog (L6)**
 
 - **Change:** `TryFindRecordingByIdForBodyFixedAnchorPid` (`GhostMapPresence.StateVectors.cs:735`)
   becomes a call of `RecordingPlaybackCatalog.Own.TryFindRecording(id, TreesThenPendingThenList,
-  ...)`. The raw reads at :1274-1288 and :1591-1598 are not lookups by id and stay (they are P3's).
+  ...)`, keeping its own `IsNullOrWhiteSpace` guard (:745) in front of the call: the catalog
+  rejects only a null or empty id (section 3.2, L6), so a whitespace-only id would otherwise be
+  searched. The raw reads at :1274-1288 and :1591-1598 are not lookups by id and stay (they are P3's).
   No catalog member is added (P2a-05 added the variant).
 - **Proof:** `GhostMapPresence` state-vector tests green. In-game `GhostMap`; lanes H44, S1.6.
 - **Registers:** none.
@@ -555,6 +583,10 @@ The port as specified:
 - **PC:** in-game, lanes H44, S1.6.
 - **Risk:** low; the one map-side site, kept on the own catalog because map presence is own-lane
   until P3 adds rival presence.
+- **As built (2026-11-16):** the method stays (guard, then the catalog call); its only caller,
+  `ResolveBodyFixedPrimaryAnchorPid`, already rejects a whitespace id, so the guard is a second
+  line. The method-local `[ERS-exempt]` comment went with the raw walk; the file keeps its
+  allowlist entry for the two raw reads that remain (now at about :1242-1251 and :1554-1561).
 
 ### P2b: the lane object
 

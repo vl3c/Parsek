@@ -19,6 +19,13 @@ namespace Parsek
     ///
     /// <para>The delete step names no game type, so xUnit drives it on a temp folder; every
     /// KSP read is in a <c>NoInlining</c> core.</para>
+    ///
+    /// <para>It also holds the load-and-start route, a saved game resumed at the Space Center
+    /// the way stock's Load menu does it: <see cref="LoadSave"/>, <see cref="FirePlayerLoad"/>
+    /// for a player's load, <see cref="PrepareSpaceCenterStart"/>, then <c>Game.Start</c>.
+    /// These steps write no log line: the <c>LoadGame</c> seam verb (their caller, which loads
+    /// before it picks a route and logs between the steps) owns lines the harness pins
+    /// byte for byte, so each caller names its own load.</para>
     /// </summary>
     internal static class NewSaveStarter
     {
@@ -126,6 +133,55 @@ namespace Parsek
             if (game == null) throw new ArgumentNullException(nameof(game));
             ParsekLog.Info(Tag, "start requested title='" + game.Title + "' (Game.Start -> SPACECENTER)");
             game.Start();
+        }
+
+        /// <summary>
+        /// Reads <c>saves/&lt;saveFolder&gt;/&lt;slotName&gt;.sfs</c>: points
+        /// <c>HighLogic.SaveFolder</c> at the folder when one is named, then
+        /// <c>GamePersistence.LoadGame(slotName, saveFolder, true, false)</c> (null when the
+        /// save is missing or incompatible, no stock popup). Exceptions propagate. Nothing is
+        /// adopted or started: the caller picks the route from the returned game.
+        /// </summary>
+        internal static Game LoadSave(string saveFolder, string slotName)
+        {
+            if (!string.IsNullOrEmpty(saveFolder))
+                HighLogic.SaveFolder = saveFolder;
+            return GamePersistence.LoadGame(slotName, saveFolder, true, false);
+        }
+
+        /// <summary>
+        /// Announces a player's load of a save file the way stock's own load paths do (F9, the
+        /// pause-menu and main-menu Load fire <c>onGameStatePostLoad</c> with the loaded game's
+        /// node after a compatible load and before the scene request);
+        /// <c>GamePersistence.LoadGame</c> fires nothing. Parsek's save-file load intent arms
+        /// on it, so the next OnLoad classifies the load as a save-file load.
+        /// </summary>
+        internal static void FirePlayerLoad(Game game)
+        {
+            GameEvents.onGameStatePostLoad.Fire(game.config);
+        }
+
+        /// <summary>
+        /// Readies a loaded game for <c>Game.Start</c> at the Space Center exactly as the stock
+        /// Load-menu resume does (decompiled <c>MainMenu.OnLoadDialogPipelineFinished</c>, KSP
+        /// 1.12.5): adopt it as <c>HighLogic.CurrentGame</c>, point <c>startScene</c> at the
+        /// KSC, re-add the <c>AddToAllGames</c> scenario modules (ParsekScenario) the save lacks,
+        /// and write the result to <c>persistent.sfs</c>. Returns <c>SaveGame</c>'s path, empty
+        /// when nothing was written. The caller then calls <c>game.Start()</c>.
+        ///
+        /// <para>The write is load-bearing: <c>Game.Start</c> routes through
+        /// <c>HighLogic.LoadScene(SPACECENTER)</c>, and <c>SpaceCenterMain.Start</c> re-reads
+        /// <c>persistent.sfs</c> from disk and runs <c>ScenarioRunner.SetProtoModules</c> on
+        /// THAT game, never on the in-memory one. Without the write a save with no ParsekScenario
+        /// node (the fresh career fixtures) boots with no ParsekScenario and OnLoad never
+        /// runs.</para>
+        /// </summary>
+        internal static string PrepareSpaceCenterStart(Game game, string saveFolder)
+        {
+            HighLogic.CurrentGame = game;
+            game.startScene = GameScenes.SPACECENTER;
+            GamePersistence.UpdateScenarioModules(game);
+            return GamePersistence.SaveGame(game, "persistent", saveFolder, SaveMode.OVERWRITE);
         }
     }
 }

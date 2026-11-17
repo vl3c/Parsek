@@ -281,6 +281,11 @@ $checks = @(
         Path = "Source/Parsek/Ghost/GhostMapPresence.FlightMapLifecycle.cs"
         Pattern = "ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFly\w*Point|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId"
         Label = "map Relative live PID playback"
+    },
+    @{
+        Path = "Source/Parsek/Ghost/GhostMapVessels.cs"
+        Pattern = "ResolveAnchorInScene|AnchorResolvableForTesting|TryResolveActiveReFly\w*Point|FindVesselByPid\(resolution\.AnchorPid|section\.anchorVesselId|currentSection\.Value\.anchorVesselId"
+        Label = "map Relative live PID playback"
     }
 )
 
