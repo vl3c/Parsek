@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL~~: sealing an Unfinished Flight whose recording was split kept its tree "not finished" forever, so no supply route could be made from it [FILED 2026-11-17 from AST-3's red, run `2026-11-17_1636_AST-3-klaw-mine-route` (PARSEK-FAIL(expectation)), by log and code reading plus a headless repro. FIXED 2026-11-17, branch `item31-seal-split-chain`; xUnit + mutation; NO FLIGHT HAS PROVEN THE FIX YET; medium (route creation blocked for that tree for good, no data loss)]
+## ~~SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL~~: sealing an Unfinished Flight whose recording was split kept its tree "not finished" forever, so no supply route could be made from it [FILED 2026-11-17 from AST-3's red, run `2026-11-17_1636_AST-3-klaw-mine-route` (PARSEK-FAIL(expectation)), by log and code reading plus a headless repro. FIXED 2026-11-17, branch `item31-seal-split-chain`, PR #2714; xUnit + mutation; NO REGRESSION 2026-11-17: all 36 seal / route lanes PASS on the fix (run `item31-proof`), but no flight reached the split-then-seal shape, so the fix itself is proven headless only; OPEN: a lane for that shape, todo SEAL-SPLIT-CHAIN-LANE-OWED; medium (route creation blocked for that tree for good, no data loss)]
 
 What happened. The "AST Depot" re-entered and was destroyed after its undock, so its slot under
 the undock's Rewind Point committed as an open Unfinished Flight (CommittedProvisional). At the
@@ -104,11 +104,24 @@ reds one of them, and dropping the tip as the deciding id reds six flight-count 
 boundary cells (Undock, foreign Board, own EVA, a different ChainBranch, the same ChainId in
 another tree, a NotCommitted in-place fork, a switch continuation) pin where the read must stop.
 
-Still open. No flight has proven the fix: AST-3 re-flown green, or any lane that seals a split
-Unfinished Flight and then creates a route, would. Separate from this entry: AST-3's flight
-variance (the Depot and Miner re-entering after a 449 s docked phase, against 343 s in the green
-flight `2026-11-15_2130`) is a lane robustness matter for the mission; with the fix the lane may
-still need its route shape (a Depot left in orbit) to pass its later steps.
+Flights. Run `item31-proof` (V's PC, parallel runner, 3 slots, 2026-11-17 22:45Z to 23:07Z,
+automation DLL sha256 prefix 58c54586 built from 5887933a7) flew every committed lane that seals
+in tree mode or creates a route, 36 lanes, and all 36 PASS on attempt 1: 36 `sealslot complete`
+lines, 0 `sealslot incomplete`, 0 `routecommand create gate` lines with `sealed=False`. That is a
+no-regression result only: the 36 logs hold 0 "read through their slot's closed effective tip"
+lines, so no lane exercised the new through-tip read. `AST-3-klaw-mine-route` `2026-11-17_2245`
+PASS with the Depot left in orbit (0 vessel-destroyed lines): `sealslot complete mode=tree ...
+total=7 sealed=1 remaining=0` and the create gate `sealed=True eligible=True status=Eligible
+refusal=None`; its red `2026-11-17_1636` (the one this entry was filed from) flew the PR #2687
+build, before the fix.
+
+Still open. The fix is proven only headless (the real `CommitTree` -> `RunOptimizationPass` ->
+`TrySeal` cell above); no flight has reached a split chain that is sealed and then made a route.
+A deterministic lane for that shape is owed: todo SEAL-SPLIT-CHAIN-LANE-OWED. AST-3 is not that
+lane: its flight variance is a lane-robustness matter for the mission, not a Parsek defect. Two of
+its three recent flights (`2026-11-15_2130`, `2026-11-17_2245`) kept the Depot in orbit; the
+`2026-11-17_1636` flight docked 106 s longer (449 s against 343 s) and both vessels re-entered,
+which split the Depot's recording and reached this defect by chance.
 
 OPEN residue, left unfixed by decision: `AnchorDetector.IsSealedRecordingAnchor` still reads a
 member's own MergeState, so the CommittedProvisional head of a sealed split chain ranks below an
@@ -126,6 +139,23 @@ unsealed with no slot left to seal. No writer produces the shape (each Re-Fly ro
 fresh fork id, and the load sweep drops self rows), so it needs hand-edited rows; pinned as
 `SupersedeCycleThroughAnOutsideRecording_ReadsWhatTheSlotWalkReads`. A fix belongs in the walk
 or the row loader, for every consumer at once.
+
+## SEAL-SPLIT-CHAIN-LANE-OWED: no lane flies a split chain that is sealed and then made a route [FILED 2026-11-17 from PR #2714's proof batch (run `item31-proof`); harness only, no lane yet; low (the fix is proven headless and the 36 seal / route lanes read no regression)]
+
+The fix for SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL is proven only by xUnit. Every committed lane
+that seals in tree mode or creates a route flew green on it, but none of them reached the shape it
+fixes: the 36 logs of `item31-proof` hold 0 "read through their slot's closed effective tip"
+lines. The one flight that did reach it, AST-3 `2026-11-17_1636`, got there by flight variance
+(the docked pair re-entered), so no lane reaches it on purpose.
+
+Owed: a deterministic lane whose re-flyable vessel crosses an environment boundary so the commit's
+optimizer pass splits its recording (an atmosphere edge on a suborbital hop is the cheapest), is
+kept open as an Unfinished Flight, then sealed (`SealSlot` in tree mode), then made a route
+(`RouteCommand action=create`). Pins: `sealslot complete mode=tree`, the through-tip line
+`IsTreeFullySealed: tree=... reads sealed with 1 member(s) not Immutable themselves` (a
+rate-limited Verbose line, so confirm the lane's verbose setting before pinning it), and the
+create gate `sealed=True`. Reuse a host that already flies a boundary crossing before adding a
+flight (`harness/README.md` -> "Authoring a fast lane").
 
 ## ~~COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN~~: loading a save into FLIGHT after a recording's end, before its vessel spawned, drops the vessel for good [FILED 2026-11-17 by code reading during the end-spawn lane program (todo END-SPAWN-LANES-2026-11-17); no flight yet; SPW-8 and SPW-9 are pre-registered to red on it; high (a vessel the player was owed never appears, silently apart from one log line); FIXED 2026-11-17 under the id COLD-LOAD-DROPS-OWED-SPAWN (the same defect, found twice the same day); SPW-8 and SPW-9 should now read green]
 
