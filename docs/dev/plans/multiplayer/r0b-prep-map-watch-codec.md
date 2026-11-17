@@ -361,6 +361,20 @@ section 9), and any change to what is written to disk.
 - **Size:** S. **Depends on:** P3-02. **PC:** no.
 - **Risk:** low; the only production behavior edge is a whole-set clear replaced by a
   per-pid filter over an empty dictionary.
+- **As built (2026-11-17):** as specified; `GhostMapVesselOwner` sits in `GhostMapVessels.cs`.
+  `UnregisterAllOwnTimeline` clears the set when `foreignOwners` is empty and otherwise keeps
+  `Pids.IntersectWith(foreignOwners.Keys)` (no removal while enumerating). Writers re-pointed:
+  `Register(.., OwnTimeline)` at `ProtoVesselLifecycle.cs:1770`, `OverlapInstances.cs:691` and the
+  test seam `RegisterGhostMapVesselPidForTesting` (`GhostMapPresence.cs:727`); `Unregister` at
+  `ProtoVesselLifecycle.cs:225`, `:779`, `:2027`, `OverlapInstances.cs:767` and the between-run
+  removal `GhostMapPresence.cs:1468`; `UnregisterAllOwnTimeline` at `ProtoVesselLifecycle.cs:353`.
+  Whole clears left: `GhostMapVessels.ResetForTesting` (now also clears `foreignOwners`) and
+  `ResetBetweenTestRuns` (`GhostMapPresence.cs:1537`, set only: it cannot reach the private
+  dictionary, so a foreign owner would outlive it; empty in single player, R3W-18 decides).
+  Test seams `RegisterForeignForTesting`, `TryGetForeignOwnerForTesting`,
+  `ForeignOwnerCountForTesting`. `GhostMapVesselsTests` gains 8 cells (16 in all). Pins:
+  `lifetime_pins.toml` and `layer_pins.toml` unchanged by their tools; `facts_pins.toml`
+  unchanged (55 cross-type static writes, 374 unreached).
 
 **P3-04 Move the ProtoVessel mechanics into `GhostMapVessels`**
 - **Change:** move, bodies verbatim apart from re-homing, from

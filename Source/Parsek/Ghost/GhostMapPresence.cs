@@ -724,7 +724,7 @@ namespace Parsek
         /// <summary>Test seam: marks a pid as a ghost map vessel (cleared by ResetForTesting).</summary>
         internal static void RegisterGhostMapVesselPidForTesting(uint persistentId)
         {
-            ghostMapVesselPids.Add(persistentId);
+            GhostMapVessels.Register(persistentId, GhostMapVesselOwner.OwnTimeline);
         }
 
         /// <summary>
@@ -1465,7 +1465,7 @@ namespace Parsek
                 }
 
                 for (int i = 0; i < toKill.Count; i++)
-                    ghostMapVesselPids.Remove(toKill[i].persistentId);
+                    GhostMapVessels.Unregister(toKill[i].persistentId);
             }
 
             if (plan.RunTrackedRemoval)

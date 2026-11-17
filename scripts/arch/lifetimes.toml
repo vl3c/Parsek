@@ -569,6 +569,7 @@ reason = "the ghost map vessel guard state"
 [type.fields]
 Pids = "scene: guard set of live ghost map vessels, emptied by every scene teardown"
 teardownDepth = "scoped: depth counter, back to 0 at the end of each teardown"
+foreignOwners = "scene: owner of a non-own ghost map pid; empty in single player"
 
 [[type]]
 name = "Parsek.WatchModeController"
