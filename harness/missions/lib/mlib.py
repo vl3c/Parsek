@@ -4932,6 +4932,22 @@ class B4Params:
     autostage_limit: Optional[int] = None
     skip_circularization: Optional[bool] = None
     ascent_type: Optional[int] = None
+    # --- ORBIT-START OPT-IN (LAY-1, a live atmospheric landing off Kerbin). Off, the
+    # walk is the committed one action for action. On, PRELAUNCH launches nothing: it
+    # waits for the handed-over vessel to read ORBITING around ``start_body`` with a
+    # periapsis at or above ``start_min_periapsis`` on ``start_debounce_frames``
+    # consecutive frames, then enters the ORBIT waypoint (deorbit next frame). A
+    # handoff that never passes within ``start_gate_max_frames`` frames is a
+    # MISSION-ASSERT-FAIL naming what it read (the fixture is deterministic, so a
+    # retry would read the same thing). ``start_body`` "" accepts any body.
+    start_in_orbit: bool = False
+    start_body: str = ""
+    start_min_periapsis: float = 0.0
+    start_debounce_frames: int = 3
+    start_gate_max_frames: int = 40
+    # When set, the evaluator adds ``landedOnBody``: the final frame's body must be
+    # this one (a landing ON ANOTHER BODY is a checked claim, not an inference).
+    landing_body: str = ""
 
 
 def b1_params_from_dict(params: Dict) -> B1Params:
@@ -5073,7 +5089,17 @@ def b4_params_from_dict(params: Dict) -> B4Params:
                               if params.get("skipCircularization") is not None else None),
         ascent_type=(int(params["ascentType"])
                      if params.get("ascentType") is not None else None),
+        start_in_orbit=bool(params.get("startInOrbit", False)),
+        start_body=str(params.get("startInOrbitBodyName", "") or ""),
+        start_min_periapsis=float(params.get("startInOrbitMinPeriapsisMeters", 0.0)),
+        start_debounce_frames=int(params.get("startInOrbitDebounceFrames", 3)),
+        start_gate_max_frames=int(params.get("startInOrbitGateMaxFrames", 40)),
+        landing_body=str(params.get("landingBodyName", "") or ""),
     )
+    if p.start_in_orbit and (p.mj_engage_confirm_frames > 0
+                             or p.circularize_mode != "mechjeb"):
+        raise ValueError("startInOrbit skips the ascent; mjEngageConfirmFrames and "
+                         "circularizeMode configure an ascent it never flies")
     setters = [name for name, value in (("autostageLimit", p.autostage_limit),
                                         ("skipCircularization", p.skip_circularization),
                                         ("ascentType", p.ascent_type))
@@ -12176,6 +12202,32 @@ class B4State:
     native_last_pitch: float = float("nan")
     circ_start_altitude: float = float("nan")
     circ_cut_periapsis: float = float("nan")
+    # ORBIT-START evidence (start_in_orbit): the gate's consecutive-pass streak, the
+    # frames it has judged, and the handoff it accepted (stamped on the accepting
+    # frame; empty / NaN when it never accepted, so the startedInOrbit row fails
+    # closed).
+    start_streak: int = 0
+    start_gate_frames: int = 0
+    start_entry_body: str = ""
+    start_entry_situation: str = ""
+    start_entry_periapsis: float = float("nan")
+    start_entry_apoapsis: float = float("nan")
+
+
+def b4_start_gate_refusal(params: B4Params, snapshot: TelemetrySnapshot) -> str:
+    """Why this frame is NOT the orbit-start handoff (start_in_orbit), or "" when it
+    is: ORBITING, around ``start_body`` when one is named, with a finite periapsis at
+    or above ``start_min_periapsis``. Pure, so each refusal is unit-covered by name."""
+    if snapshot.situation != "ORBITING":
+        return "situation=%s, not ORBITING" % (snapshot.situation or "<unread>")
+    if params.start_body and snapshot.body != params.start_body:
+        return "body=%s, not %s" % (snapshot.body or "<unread>", params.start_body)
+    if not _is_finite(snapshot.periapsis):
+        return "periapsis unread"
+    if snapshot.periapsis < params.start_min_periapsis:
+        return "periapsis %.0f m below %.0f m" % (snapshot.periapsis,
+                                                  params.start_min_periapsis)
+    return ""
 
 
 def b4_initial_state(params: B4Params) -> B4State:
@@ -12316,6 +12368,32 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
                     state, "vessel-lost (telemetry frozen %d consecutive samples "
                            "while airborne; vessel presumed destroyed)" % limit)), []
         state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+
+    if state.phase == B4_PRELAUNCH and state.params.start_in_orbit:
+        # ORBIT-START (LAY-1): nothing is launched. Accept the handed-over vessel once
+        # it reads the declared park on K consecutive frames, cut the throttle, and
+        # enter the ORBIT waypoint; the next frame points retrograde exactly as the
+        # ascent walk does.
+        params = state.params
+        frames = state.start_gate_frames + 1
+        refusal = b4_start_gate_refusal(params, snapshot)
+        streak = 0 if refusal else state.start_streak + 1
+        st = replace(state, peak_apoapsis=peak, start_gate_frames=frames,
+                     start_streak=streak)
+        if not refusal and streak >= max(1, params.start_debounce_frames):
+            st = replace(st, start_entry_body=snapshot.body,
+                         start_entry_situation=snapshot.situation,
+                         start_entry_periapsis=snapshot.periapsis,
+                         start_entry_apoapsis=snapshot.apoapsis)
+            return (_b4_enter(st, B4_ORBIT, snapshot.ut, peak),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)])
+        if frames >= max(1, params.start_gate_max_frames):
+            return replace(
+                st, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("orbit-start handoff refused on %d frames: %s"
+                             % (frames, refusal or "in-gate streak never reached %d"
+                                % params.start_debounce_frames))), []
+        return st, []
 
     if state.phase == B4_PRELAUNCH:
         confirm = state.params.mj_engage_confirm_frames
@@ -22316,7 +22394,8 @@ def evaluate_b4_assertions(frames, params: B4Params,
                            phases_reached=(), craft_canopy_observed: bool = False,
                            arm_commanded: bool = False,
                            last_chute_state: str = "",
-                           k: int = DEFAULT_DEBOUNCE_K) -> List[AssertionOutcome]:
+                           k: int = DEFAULT_DEBOUNCE_K,
+                           state=None) -> List[AssertionOutcome]:
     """Evaluate the four B4 driver-validity assertions: terminal-focused and
     derivable from the frames + the machine's phase evidence, NEVER
     orbital-precision post-deorbit (the orbit is a waypoint, and the deorbit burn
@@ -22371,7 +22450,31 @@ def evaluate_b4_assertions(frames, params: B4Params,
          "lastChuteState": last_chute_state or "UNREAD",
          "deployAltitude": params.chute_deploy_alt})
 
-    return [orbit, apo, sit, chute]
+    rows = [orbit, apo, sit, chute]
+    # ORBIT-START / LANDING-BODY rows (LAY-1): added only when their opt-in is set,
+    # so every committed lane's row list is unchanged.
+    if params.start_in_orbit:
+        entry_body = str(getattr(state, "start_entry_body", "") or "")
+        entry_sit = str(getattr(state, "start_entry_situation", "") or "")
+        entry_pe = getattr(state, "start_entry_periapsis", float("nan"))
+        started = bool(entry_sit == "ORBITING"
+                       and (not params.start_body or entry_body == params.start_body)
+                       and _is_finite(entry_pe)
+                       and entry_pe >= params.start_min_periapsis)
+        rows.append(AssertionOutcome(
+            "startedInOrbit", started, entry_sit or None,
+            {"body": entry_body or None, "requiredBody": params.start_body or None,
+             "periapsis": entry_pe,
+             "apoapsis": getattr(state, "start_entry_apoapsis", float("nan")),
+             "minPeriapsis": params.start_min_periapsis,
+             "gateFrames": int(getattr(state, "start_gate_frames", 0) or 0)}))
+    if params.landing_body:
+        final_body = frames[-1].body if frames else None
+        rows.append(AssertionOutcome(
+            "landedOnBody",
+            bool(final_body == params.landing_body and sit_met), final_body,
+            {"required": params.landing_body, "finalSituation": final_situation}))
+    return rows
 
 
 def evaluate_b5_assertions(frames, params: B5Params,
@@ -35899,8 +36002,12 @@ SOI1_COAST = "SOI1-COAST"
 SOI1_APPROACH = "SOI1-APPROACH"
 SOI1_STRADDLE = "SOI1-STRADDLE-BURN"
 SOI1_DONE = "SOI1-IN-PARENT"
+# FORMATION opt-in (SOI-2, ``formationStageLeadSeconds`` > 0): instead of the straddle
+# burn, APPROACH drops the lower stack ``formationStageLeadSeconds`` before the exit and
+# the pod coasts through the boundary at 1x beside it (the loaded background wingman).
+SOI1_FORMATION = "SOI1-FORMATION-COAST"
 SOI1_PHASES: Tuple[str, ...] = (SOI1_START, SOI1_ALIGN, SOI1_ESCAPE, SOI1_COAST,
-                                SOI1_APPROACH, SOI1_STRADDLE, SOI1_DONE)
+                                SOI1_APPROACH, SOI1_STRADDLE, SOI1_FORMATION, SOI1_DONE)
 # KSP physics warp factor INDEX -> rate (TimeWarp.physicsWarpRates, stock 1/2/3/4).
 SOI1_PHYSICS_WARP_RATES: Tuple[float, ...] = (1.0, 2.0, 3.0, 4.0)
 # Frames between two native warp issues: the WarpService target reads back on the
@@ -35935,6 +36042,18 @@ class Soi1Params:
     straddle_throttle: float = 0.1
     straddle_timeout_seconds: float = 300.0
     min_observed_burn_lead_seconds: float = 10.0
+    # FORMATION opt-in (SOI-2). 0 = off: the walk is SOI-1's, action for action. > 0:
+    # APPROACH stages once at time_to_soi <= this (the decoupled stack is the background
+    # wingman) and the pod coasts the boundary unpowered at 1x; the straddle burn never
+    # runs. ``formation_max_stage_age_seconds`` bounds the stage-to-crossing time, so the
+    # wingman crosses inside Parsek's 60 s debris recording window
+    # (BackgroundRecorder.DebrisTTLSeconds).
+    formation_stage_lead_seconds: float = 0.0
+    formation_max_stage_age_seconds: float = 50.0
+
+    @property
+    def formation(self) -> bool:
+        return self.formation_stage_lead_seconds > 0.0
 
     @property
     def align_physics_warp_rate(self) -> float:
@@ -35985,6 +36104,10 @@ def soi1_params_from_dict(params: Dict) -> Soi1Params:
                                                   d.straddle_timeout_seconds)),
         min_observed_burn_lead_seconds=float(params.get(
             "minObservedBurnLeadSeconds", d.min_observed_burn_lead_seconds)),
+        formation_stage_lead_seconds=float(params.get(
+            "formationStageLeadSeconds", d.formation_stage_lead_seconds)),
+        formation_max_stage_age_seconds=float(params.get(
+            "formationMaxStageAgeSeconds", d.formation_max_stage_age_seconds)),
     )
 
 
@@ -36045,6 +36168,10 @@ class Soi1State:
     end_ut: float = float("nan")
     end_body: str = ""
     end_liquid_fuel: float = float("nan")
+    # FORMATION (opt-in): the stage that made the wingman, stamped on its frame.
+    formation_stage_ut: float = float("nan")
+    formation_stage_time_to_soi: float = float("nan")
+    formation_stage_warp_rate: float = float("nan")
 
 
 def soi1_initial_state(params: Soi1Params) -> Soi1State:
@@ -36294,6 +36421,19 @@ def soi1_decide(state: Soi1State,
                     _soi1_stop_actions())
         if not soi1_at_1x(snapshot):
             return st, [Action(ACTION_CANCEL_WARP)]
+        if p.formation:
+            if snapshot.time_to_soi <= p.formation_stage_lead_seconds:
+                # Drop the lower stack (the wingman) and coast the boundary beside it.
+                st = replace(st, formation_stage_ut=snapshot.ut,
+                             formation_stage_time_to_soi=snapshot.time_to_soi,
+                             formation_stage_warp_rate=snapshot.warp_rate)
+                return (_soi1_enter(st, SOI1_FORMATION, snapshot.ut),
+                        [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_ACTIVATE_STAGE)])
+            if _soi1_elapsed(st, snapshot) > p.approach_timeout_seconds:
+                return (_soi1_flake(st, "approach exceeded %.0f game s (time_to_soi=%.1f)"
+                                    % (p.approach_timeout_seconds, snapshot.time_to_soi)),
+                        _soi1_stop_actions())
+            return st, []
         if snapshot.time_to_soi <= p.burn_lead_seconds:
             st = replace(st, ignite_ut=snapshot.ut,
                          ignite_time_to_soi=snapshot.time_to_soi,
@@ -36349,6 +36489,43 @@ def soi1_decide(state: Soi1State,
                     _soi1_stop_actions())
         return st, actions
 
+    if state.phase == SOI1_FORMATION:
+        st = replace(state, phase_frames=state.phase_frames + 1)
+        actions = []
+        if not soi1_at_1x(snapshot):
+            st = replace(st, straddle_warp_frames=st.straddle_warp_frames + 1)
+            actions.append(Action(ACTION_CANCEL_WARP))
+        if snapshot.body == p.home_body:
+            st = replace(st, last_home_ut=snapshot.ut,
+                         last_home_throttle=snapshot.throttle,
+                         last_home_thrust=snapshot.available_thrust,
+                         last_home_warp_rate=snapshot.warp_rate)
+        elif snapshot.body == p.parent_body:
+            if not _is_finite(st.cross_ut):
+                st = replace(st, cross_ut=snapshot.ut, cross_throttle=snapshot.throttle,
+                             cross_thrust=snapshot.available_thrust,
+                             cross_warp_mode=snapshot.warp_mode,
+                             cross_warp_rate=snapshot.warp_rate)
+            if (_is_finite(snapshot.ut)
+                    and snapshot.ut - st.cross_ut >= p.burn_trail_seconds):
+                st = replace(st, end_ut=snapshot.ut, end_body=snapshot.body,
+                             end_liquid_fuel=snapshot.liquid_fuel)
+                return (_soi1_enter(st, SOI1_DONE, snapshot.ut),
+                        actions + [Action(ACTION_AP_DISENGAGE)])
+        else:
+            return (_soi1_fail(st, "unexpected body %s during the formation coast"
+                               % (snapshot.body or "<unread>")),
+                    _soi1_stop_actions())
+        if not _is_finite(st.cross_ut) and not _is_finite(snapshot.time_to_soi):
+            return (_soi1_fail(st, "no SOI change on the trajectory after the stage"),
+                    _soi1_stop_actions())
+        if _soi1_elapsed(st, snapshot) > p.straddle_timeout_seconds:
+            return (_soi1_fail(st, "formation coast exceeded %.0f game s without %.0f s "
+                                   "in %s" % (p.straddle_timeout_seconds,
+                                              p.burn_trail_seconds, p.parent_body)),
+                    _soi1_stop_actions())
+        return st, actions
+
     return _soi1_flake(state, "unknown phase %s" % state.phase), []
 
 
@@ -36382,6 +36559,43 @@ def evaluate_soi1_assertions(frames, params: Soi1Params,
                    and _is_finite(lead)
                    and lead >= params.min_observed_burn_lead_seconds)
     in_parent = bool(st.phase == SOI1_DONE and st.end_body == params.parent_body)
+    if params.formation:
+        stage_age = (st.cross_ut - st.formation_stage_ut
+                     if _is_finite(st.cross_ut) and _is_finite(st.formation_stage_ut)
+                     else float("nan"))
+        crossed_row = AssertionOutcome(
+            "crossedInFormationAt1x",
+            bool(_is_finite(stage_age) and 0.0 < stage_age
+                 <= params.formation_max_stage_age_seconds
+                 and _is_finite(st.last_home_ut)
+                 and one_x(st.formation_stage_warp_rate)
+                 and one_x(st.last_home_warp_rate) and one_x(st.cross_warp_rate)
+                 and st.straddle_warp_frames == 0),
+            st.cross_ut,
+            {"stageUT": st.formation_stage_ut,
+             "stageTimeToSoi": st.formation_stage_time_to_soi,
+             "stageWarpRate": st.formation_stage_warp_rate,
+             "stageAgeAtCrossing": stage_age,
+             "maxStageAgeSeconds": params.formation_max_stage_age_seconds,
+             "lastHomeUT": st.last_home_ut, "lastHomeWarpRate": st.last_home_warp_rate,
+             "crossWarpMode": st.cross_warp_mode or None,
+             "crossWarpRate": st.cross_warp_rate,
+             "formationWarpFrames": st.straddle_warp_frames,
+             "warpIssues": st.warp_issues})
+    else:
+        crossed_row = AssertionOutcome(
+            "crossedUnderThrustAt1x", crossed, st.cross_ut,
+            {"igniteUT": st.ignite_ut, "igniteTimeToSoi": st.ignite_time_to_soi,
+             "igniteApError": st.ignite_ap_error, "observedLeadSeconds": lead,
+             "minLeadSeconds": params.min_observed_burn_lead_seconds,
+             "lastHomeUT": st.last_home_ut, "lastHomeThrottle": st.last_home_throttle,
+             "lastHomeThrust": st.last_home_thrust,
+             "lastHomeWarpRate": st.last_home_warp_rate,
+             "crossThrottle": st.cross_throttle, "crossThrust": st.cross_thrust,
+             "crossWarpMode": st.cross_warp_mode or None,
+             "crossWarpRate": st.cross_warp_rate,
+             "straddleWarpFrames": st.straddle_warp_frames,
+             "warpIssues": st.warp_issues})
     return [
         AssertionOutcome(
             "handoffHomePark", handoff, st.start_situation or None,
@@ -36395,19 +36609,7 @@ def evaluate_soi1_assertions(frames, params: Soi1Params,
              "cutUT": st.escape_cut_ut, "cutPeriapsis": st.escape_cut_periapsis,
              "cutTimeToSoi": st.escape_cut_time_to_soi,
              "peakThrust": st.escape_peak_thrust}),
-        AssertionOutcome(
-            "crossedUnderThrustAt1x", crossed, st.cross_ut,
-            {"igniteUT": st.ignite_ut, "igniteTimeToSoi": st.ignite_time_to_soi,
-             "igniteApError": st.ignite_ap_error, "observedLeadSeconds": lead,
-             "minLeadSeconds": params.min_observed_burn_lead_seconds,
-             "lastHomeUT": st.last_home_ut, "lastHomeThrottle": st.last_home_throttle,
-             "lastHomeThrust": st.last_home_thrust,
-             "lastHomeWarpRate": st.last_home_warp_rate,
-             "crossThrottle": st.cross_throttle, "crossThrust": st.cross_thrust,
-             "crossWarpMode": st.cross_warp_mode or None,
-             "crossWarpRate": st.cross_warp_rate,
-             "straddleWarpFrames": st.straddle_warp_frames,
-             "warpIssues": st.warp_issues}),
+        crossed_row,
         AssertionOutcome(
             "endedInParentSoi", in_parent, st.end_body or None,
             {"parentBody": params.parent_body, "endUT": st.end_ut,
@@ -38155,5 +38357,330 @@ def evaluate_air_assertions(frames, params: AirParams,
             "cameToRest", bool(st is not None and st.phase == AIR_DONE),
             st.rest_ut if st is not None else None,
             {"stopSpeed": params.stop_speed,
+             "phasesReached": list(st.phases_reached) if st is not None else []}),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# BOAT-1 water taxi (mission boat1_water_taxi). Pure.
+#
+# The first lane that drives a vessel ON WATER (todo NEXT-TESTS-TO-BUILD-2026-11-11
+# item 9, audit B9: "no lane drives a boat"). The host (`mallard-splashed`) hands over
+# the stock Mallard already afloat with both jets lit at zero throttle, so there is no
+# launch and no rollout: the machine checks the handoff, releases the brakes, holds
+# SAS, and drives the jets on a proportional speed governor until the straight-line
+# distance from the handoff point reaches ``targetDistanceMeters``; then it cuts the
+# throttle, sets the brakes and waits for the boat to come to rest. No steering: the
+# claim is "a surface run on water was recorded and replays", not a course.
+#
+# What can go wrong is named, never retried into a pass: a wrong handoff (not the
+# Mallard, not SPLASHED, a dark position channel) is a MISSION-ASSERT-FAIL after
+# ``handoffMaxFrames``; a run that leaves the water (any situation other than SPLASHED
+# on more than ``offWaterFrames`` consecutive frames: airborne on a bounce that did
+# not settle, or beached) or overspeeds past ``maxSpeedMps`` (a takeoff run) ends at
+# once with the throttle cut; a run or a stop that out-lasts its game-time budget is
+# a MISSION-FLAKE naming the phase.
+# ---------------------------------------------------------------------------
+
+BOAT_HANDOFF = "BOAT-HANDOFF"
+BOAT_TAXI = "BOAT-TAXI"
+BOAT_STOP = "BOAT-STOP"
+BOAT_DONE = "BOAT-DONE"
+BOAT_PHASES: Tuple[str, ...] = (BOAT_HANDOFF, BOAT_TAXI, BOAT_STOP, BOAT_DONE)
+BOAT_WATER_SITUATION = "SPLASHED"
+# The throttle is re-sent only when it moved by more than this (the runner logs every
+# action), the AIR machine's dead band.
+BOAT_THROTTLE_DEADBAND = 0.05
+
+
+@dataclass(frozen=True)
+class BoatParams:
+    expected_vessel_name: str = "Mallard"
+    handoff_debounce_frames: int = 3
+    handoff_max_frames: int = 40
+    target_distance: float = 300.0
+    cruise_speed: float = 12.0
+    max_speed: float = 30.0
+    throttle_base: float = 0.3
+    throttle_gain: float = 0.05
+    throttle_max: float = 1.0
+    off_water_frames: int = 6
+    taxi_timeout: float = 180.0
+    rest_speed: float = 1.0
+    rest_debounce_frames: int = 6
+    stop_timeout: float = 120.0
+
+
+def boat_params_from_dict(params: Dict) -> BoatParams:
+    p = BoatParams(
+        expected_vessel_name=str(params.get("expectedVesselName", "Mallard") or ""),
+        handoff_debounce_frames=int(params.get("handoffDebounceFrames", 3)),
+        handoff_max_frames=int(params.get("handoffMaxFrames", 40)),
+        target_distance=float(params.get("targetDistanceMeters", 300.0)),
+        cruise_speed=float(params.get("cruiseSpeedMps", 12.0)),
+        max_speed=float(params.get("maxSpeedMps", 30.0)),
+        throttle_base=float(params.get("throttleBase", 0.3)),
+        throttle_gain=float(params.get("throttleGainPerMps", 0.05)),
+        throttle_max=float(params.get("throttleMax", 1.0)),
+        off_water_frames=int(params.get("offWaterFrames", 6)),
+        taxi_timeout=float(params.get("taxiTimeoutSeconds", 180.0)),
+        rest_speed=float(params.get("restSpeedMps", 1.0)),
+        rest_debounce_frames=int(params.get("restDebounceFrames", 6)),
+        stop_timeout=float(params.get("stopTimeoutSeconds", 120.0)),
+    )
+    if not p.expected_vessel_name:
+        raise ValueError("expectedVesselName is required (the handoff gate compares it)")
+    if p.target_distance <= 0.0:
+        raise ValueError("targetDistanceMeters must be positive")
+    if not (0.0 < p.cruise_speed < p.max_speed):
+        raise ValueError("cruiseSpeedMps must be positive and below maxSpeedMps")
+    if not (0.0 <= p.throttle_base <= p.throttle_max <= 1.0):
+        raise ValueError("throttleBase must be within [0, throttleMax] and throttleMax <= 1")
+    if not (0.0 < p.rest_speed < p.cruise_speed):
+        raise ValueError("restSpeedMps must be positive and below cruiseSpeedMps")
+    return p
+
+
+@dataclass(frozen=True)
+class BoatState:
+    params: BoatParams
+    phase: str = BOAT_HANDOFF
+    phase_entry_ut: Optional[float] = None
+    phases_reached: Tuple[str, ...] = (BOAT_HANDOFF,)
+    done: bool = False
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    # Handoff evidence.
+    handoff_streak: int = 0
+    handoff_frames: int = 0
+    last_vessel_name: str = ""
+    last_situation: str = ""
+    start_ut: Optional[float] = None
+    start_lat: Optional[float] = None
+    start_lon: Optional[float] = None
+    start_situation: Optional[str] = None
+    # The run.
+    last_throttle_sent: float = float("nan")
+    distance: float = 0.0
+    max_distance: float = 0.0
+    max_speed_seen: float = 0.0
+    off_water_streak: int = 0
+    off_water_max_streak: int = 0
+    off_water_situations: Tuple[str, ...] = ()
+    reach_ut: Optional[float] = None
+    reach_distance: Optional[float] = None
+    # The stop.
+    rest_streak: int = 0
+    rest_ut: Optional[float] = None
+    rest_speed_read: Optional[float] = None
+    rest_situation: Optional[str] = None
+
+
+def boat_initial_state(params: BoatParams) -> BoatState:
+    return BoatState(params=params)
+
+
+def boat_throttle_command(params: BoatParams, speed: float) -> float:
+    """The speed governor: base + gain * (cruise - speed), clamped to [0, throttleMax].
+    An unread speed holds the base (never full throttle on a dark channel)."""
+    if not _is_finite(speed):
+        return params.throttle_base
+    cmd = params.throttle_base + params.throttle_gain * (params.cruise_speed - speed)
+    return max(0.0, min(params.throttle_max, cmd))
+
+
+def boat_handoff_refusal(params: BoatParams, snapshot: TelemetrySnapshot) -> str:
+    """Why this frame is NOT the handoff, or "" when it is: the expected vessel,
+    SPLASHED, with a finite position and speed."""
+    if snapshot.vessel_name != params.expected_vessel_name:
+        return "vessel=%s, not %s" % (snapshot.vessel_name or "<unread>",
+                                      params.expected_vessel_name)
+    if snapshot.situation != BOAT_WATER_SITUATION:
+        return "situation=%s, not %s" % (snapshot.situation or "<unread>",
+                                         BOAT_WATER_SITUATION)
+    if not all(_is_finite(v) for v in (snapshot.latitude, snapshot.longitude,
+                                       snapshot.surface_speed)):
+        return "position / speed channel unread"
+    return ""
+
+
+def _boat_enter(state: BoatState, phase: str, ut: float) -> BoatState:
+    return replace(state, phase=phase,
+                   phase_entry_ut=(float(ut) if _is_finite(ut) else state.phase_entry_ut),
+                   phases_reached=state.phases_reached + (phase,))
+
+
+def _boat_elapsed(state: BoatState, ut: float) -> float:
+    if state.phase_entry_ut is None or not _is_finite(ut):
+        return 0.0
+    return float(ut) - float(state.phase_entry_ut)
+
+
+def _boat_fail(state: BoatState, reason: str) -> BoatState:
+    return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                   loss_reason="phase %s: %s" % (state.phase, reason))
+
+
+def _boat_flake(state: BoatState, reason: str) -> BoatState:
+    return replace(state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason="phase %s: %s" % (state.phase, reason))
+
+
+def _boat_track_water(state: BoatState, snapshot: TelemetrySnapshot) -> BoatState:
+    """Count consecutive frames off the water (any situation but SPLASHED)."""
+    if snapshot.situation == BOAT_WATER_SITUATION:
+        return replace(state, off_water_streak=0)
+    streak = state.off_water_streak + 1
+    seen = state.off_water_situations
+    sit = snapshot.situation or "<unread>"
+    if sit not in seen:
+        seen = seen + (sit,)
+    return replace(state, off_water_streak=streak,
+                   off_water_max_streak=max(state.off_water_max_streak, streak),
+                   off_water_situations=seen)
+
+
+def boat_decide(state: BoatState, snapshot: TelemetrySnapshot) -> Tuple[BoatState, List[Action]]:
+    """Advance the BOAT-1 water-taxi machine one frame; return (new_state, actions).
+
+    Transitions:
+      - BOAT-HANDOFF: the expected vessel, SPLASHED, position and speed read, on
+        ``handoffDebounceFrames`` consecutive frames -> stamp the start point, SAS on,
+        brakes off, throttle to the governor's command -> BOAT-TAXI. A handoff still
+        refused after ``handoffMaxFrames`` frames -> MISSION-ASSERT-FAIL naming the
+        refusal.
+      - BOAT-TAXI: every frame the governor's throttle (re-sent past the dead band);
+        the distance from the start point reaching ``targetDistanceMeters`` -> throttle
+        cut, brakes on -> BOAT-STOP. Off the water for more than ``offWaterFrames``
+        frames, or a surface speed over ``maxSpeedMps`` -> throttle cut and
+        MISSION-ASSERT-FAIL. Over ``taxiTimeoutSeconds`` -> MISSION-FLAKE.
+      - BOAT-STOP: surface speed under ``restSpeedMps`` while SPLASHED on
+        ``restDebounceFrames`` frames -> BOAT-DONE (done, verdict None: the
+        assertions decide). Off the water as in TAXI -> MISSION-ASSERT-FAIL. Over
+        ``stopTimeoutSeconds`` -> MISSION-FLAKE.
+    A lost vessel in any phase is a MISSION-ASSERT-FAIL. Idempotent once done.
+    """
+    if state.done:
+        return state, []
+    p = state.params
+    if snapshot.vessel_lost:
+        return _boat_fail(state, "vessel-lost (unreadable after repeated telemetry "
+                                 "failures)"), []
+    state = replace(state, last_vessel_name=snapshot.vessel_name or state.last_vessel_name,
+                    last_situation=snapshot.situation or state.last_situation)
+
+    if state.phase == BOAT_HANDOFF:
+        frames = state.handoff_frames + 1
+        refusal = boat_handoff_refusal(p, snapshot)
+        streak = 0 if refusal else state.handoff_streak + 1
+        st = replace(state, handoff_frames=frames, handoff_streak=streak)
+        if not refusal and streak >= max(1, p.handoff_debounce_frames):
+            st = replace(_boat_enter(st, BOAT_TAXI, snapshot.ut),
+                         start_ut=float(snapshot.ut) if _is_finite(snapshot.ut) else None,
+                         start_lat=float(snapshot.latitude),
+                         start_lon=float(snapshot.longitude),
+                         start_situation=snapshot.situation)
+            cmd = boat_throttle_command(p, snapshot.surface_speed)
+            return (replace(st, last_throttle_sent=cmd),
+                    [Action(ACTION_SET_SAS), Action(ACTION_SET_BRAKES, 0.0),
+                     Action(ACTION_SET_THROTTLE, cmd)])
+        if frames >= max(1, p.handoff_max_frames):
+            return _boat_fail(st, "handoff refused on %d frames: %s" % (
+                frames, refusal or "in-gate streak never reached %d"
+                % p.handoff_debounce_frames)), []
+        return st, []
+
+    st = _boat_track_water(state, snapshot)
+    distance = air_ground_distance(st.start_lat, st.start_lon,
+                                   snapshot.latitude, snapshot.longitude)
+    if _is_finite(distance):
+        st = replace(st, distance=distance, max_distance=max(st.max_distance, distance))
+    if _is_finite(snapshot.surface_speed):
+        st = replace(st, max_speed_seen=max(st.max_speed_seen, float(snapshot.surface_speed)))
+    if st.off_water_streak > max(0, p.off_water_frames):
+        return (_boat_fail(st, "left the water: situation %s on %d consecutive frames"
+                           % (snapshot.situation or "<unread>", st.off_water_streak)),
+                [Action(ACTION_CUT_THROTTLE, 0.0)])
+
+    if st.phase == BOAT_TAXI:
+        if _is_finite(snapshot.surface_speed) and snapshot.surface_speed > p.max_speed:
+            return (_boat_fail(st, "overspeed: %.1f m/s over %.1f m/s (a takeoff run)"
+                               % (snapshot.surface_speed, p.max_speed)),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)])
+        if _is_finite(distance) and distance >= p.target_distance:
+            st = replace(_boat_enter(st, BOAT_STOP, snapshot.ut),
+                         reach_ut=float(snapshot.ut) if _is_finite(snapshot.ut) else None,
+                         reach_distance=distance, last_throttle_sent=0.0)
+            return st, [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_SET_BRAKES, 1.0)]
+        if _boat_elapsed(st, snapshot.ut) > p.taxi_timeout:
+            return (_boat_flake(st, "%.0f m of %.0f m after %.0f s"
+                                % (st.max_distance, p.target_distance, p.taxi_timeout)),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)])
+        cmd = boat_throttle_command(p, snapshot.surface_speed)
+        last = st.last_throttle_sent
+        if not _is_finite(last) or abs(cmd - last) > BOAT_THROTTLE_DEADBAND:
+            return replace(st, last_throttle_sent=cmd), [Action(ACTION_SET_THROTTLE, cmd)]
+        return st, []
+
+    if st.phase == BOAT_STOP:
+        resting = (snapshot.situation == BOAT_WATER_SITUATION
+                   and _is_finite(snapshot.surface_speed)
+                   and snapshot.surface_speed < p.rest_speed)
+        streak = st.rest_streak + 1 if resting else 0
+        st = replace(st, rest_streak=streak)
+        if streak >= max(1, p.rest_debounce_frames):
+            st = replace(_boat_enter(st, BOAT_DONE, snapshot.ut), done=True,
+                         rest_ut=float(snapshot.ut) if _is_finite(snapshot.ut) else None,
+                         rest_speed_read=float(snapshot.surface_speed),
+                         rest_situation=snapshot.situation)
+            return st, []
+        if _boat_elapsed(st, snapshot.ut) > p.stop_timeout:
+            return _boat_flake(st, "still moving after %.0f s (last %.2f m/s)"
+                               % (p.stop_timeout, snapshot.surface_speed)), []
+        return st, []
+
+    return _boat_flake(st, "unknown phase"), []
+
+
+def evaluate_boat_assertions(frames, params: BoatParams,
+                             state: Optional[BoatState] = None) -> List[AssertionOutcome]:
+    """Machine-carried evidence only; the frames are not read."""
+    st = state
+    return [
+        AssertionOutcome(
+            "handoffAfloat",
+            bool(st is not None and st.start_situation == BOAT_WATER_SITUATION
+                 and st.last_vessel_name == params.expected_vessel_name),
+            st.start_situation if st is not None else None,
+            {"expectedVesselName": params.expected_vessel_name,
+             "vessel": st.last_vessel_name if st is not None else None,
+             "startLat": st.start_lat if st is not None else None,
+             "startLon": st.start_lon if st is not None else None,
+             "handoffFrames": st.handoff_frames if st is not None else None}),
+        AssertionOutcome(
+            "travelledOnWater",
+            bool(st is not None and st.reach_distance is not None
+                 and st.reach_distance >= params.target_distance),
+            st.max_distance if st is not None else None,
+            {"targetMeters": params.target_distance,
+             "reachUT": st.reach_ut if st is not None else None,
+             "maxSpeed": st.max_speed_seen if st is not None else None,
+             "cruiseSpeed": params.cruise_speed}),
+        AssertionOutcome(
+            "stayedOnWater",
+            bool(st is not None and st.phase == BOAT_DONE
+                 and st.off_water_max_streak <= params.off_water_frames),
+            st.off_water_max_streak if st is not None else None,
+            {"allowedFrames": params.off_water_frames,
+             "situationsSeen": list(st.off_water_situations) if st is not None else []}),
+        AssertionOutcome(
+            "cameToRest",
+            bool(st is not None and st.phase == BOAT_DONE
+                 and st.rest_situation == BOAT_WATER_SITUATION),
+            st.rest_speed_read if st is not None else None,
+            {"restSpeed": params.rest_speed,
+             "restUT": st.rest_ut if st is not None else None,
              "phasesReached": list(st.phases_reached) if st is not None else []}),
     ]

@@ -12,6 +12,12 @@ ParachuteState read Deployed, never merely "we sent deploy") -- all
 terminal-focused DRIVER-VALIDITY assertions, never a golden trajectory and never
 orbital precision post-deorbit.
 
+ORBIT-START mode (``startInOrbit = true``, LAY-1): the vessel is handed over
+already parked (any body, e.g. Laythe), PRELAUNCH launches nothing and enters the
+ORBIT waypoint once the park reads in-gate on K frames, and the rest is the walk
+above. Two extra rows then ride the result: ``startedInOrbit`` (the accepted
+handoff) and, with ``landingBodyName``, ``landedOnBody`` (the final frame's body).
+
 This is a THIN shell: every decision is the pure ``mlib.b4_decide`` phase machine
 and ``mlib.evaluate_b4_assertions``; the flight, connect, logging, and result
 write are the shared ``mission_runner`` runtime. ``import krpc`` is lazy inside
@@ -55,7 +61,8 @@ def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
         phases_reached=tuple(getattr(state, "phases_reached", ()) or ()),
         craft_canopy_observed=bool(getattr(state, "craft_chute_full_seen", False)),
         arm_commanded=bool(getattr(state, "chute_deployed", False)),
-        last_chute_state=str(getattr(state, "last_chute_state", "") or ""))
+        last_chute_state=str(getattr(state, "last_chute_state", "") or ""),
+        state=state)
 
 
 def make_control() -> mission_runner.MissionControl:
