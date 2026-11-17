@@ -1,0 +1,266 @@
+schema = 1
+id = "LX-1-loop-armed-refly-discard-merge"
+tier = "operator"
+# =====================================================================================
+# LX-1 (test gap audit B7, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6, half (a)): a
+# mission loop armed and PLAYING while a Re-Fly of ANOTHER tree is started, discarded,
+# started again and merged. AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`).
+#
+# WHY. LF-1 / LF-2 cover a loop under a plain Rewind-to-Launch only. No lane has a loop
+# armed while a Re-Fly loads its rewind point, when Discard Re-fly lands at the Space
+# Center, or when the merge commits the attempt. All three move the committed list, the
+# clock and the scene under a live loop unit.
+#
+# WHY ANOTHER TREE. A loop armed on the Re-Fly's own tree can never be playing during that
+# Re-Fly: `MissionStore.SetLoopEnabled` stamps LoopAnchorUT = the arm UT, the unit's
+# PhaseAnchorUT is that anchor floored at the span end (MissionLoopUnitBuilder 7b-i), and a
+# unit is "before its first instance" while currentUT < PhaseAnchorUT (operator ruling
+# 2026-09-24, MissionLoopUnitBuilder.ResolveLiveUnits). A rewind point of the looped tree
+# lies inside the recorded span, which ends before the arm, so its Re-Fly always runs
+# before the anchor and the first run plays as an ordinary recording: LF-2's territory.
+# The case a player meets is a loop on tree A replaying while they Re-Fly a later flight
+# G, and that is what this lane flies.
+#
+# EXPECTED BEHAVIOR (the design citations):
+#   * docs/parsek-rewind-to-separation-design.md section 8, "What Doesn't Change": "Loop /
+#     overlap / chain. Read ERS through the same filter; no per-feature code change." The
+#     Re-Fly suppresses only its own tree's subtree; tree A's members stay in ERS and keep
+#     replaying.
+#   * LoadReconcilePolicy.DecideMissions: Missions come from MEMORY on ReFlyStart and
+#     DiscardReFly ("MissionStore is loaded on the cold path only (the Re-Fly bundle does
+#     not carry it)"), so the loop stays armed with the SAME LoopAnchorUT, and every scene
+#     rebuilds the unit with the same phase anchor and cadence.
+#   * docs/parsek-game-actions-and-resources-recorder-design.md: "the loop is visual
+#     only" (operator ruling 2026-09-27): the loop touches no ledger and no recording.
+#   * The rewind point sits after the anchor, so each Re-Fly start and the discard land
+#     with the unit LIVE (`live=1 beforeFirstInstance=0`), never back before its first
+#     instance.
+#
+# THE HOST. `rover-route-recorded` (SANDBOX, save clock UT 979.48, focus rover B pid
+# 313889796): tree A 6a2d7247996a43159a7b9f7595de708d holds one recording
+# 3582d724892245c8939f6a354baff278 (vessel A, span 392.58 .. 432.24, Landed ~2 km from
+# the pad). No MISSIONS node: MissionConfig seeds the defaults. The Flea flight G is
+# IR-3's (`CS Flea Probe`, `PartAction decouple` on the pad leaves two controllable
+# vessels, so the split authors a rewind point; IR-3's header has the derivation).
+#
+# THE CLOCK. The loop is armed at ~979.5 in FLIGHT. With Auto timing the span-clock cadence
+# is the span (39.66 s) and the launch-to-launch cadence the auto interval (30 s), so the
+# member self-overlaps and always has a ghost after the anchor. A phase lock may snap the
+# anchor to the next faithful window (IR-6 measured P = 5 s on tree B of this host), so a
+# WarpToUT 1000 runs before G is flown: G launches at ~1002 (IR-3 measured ~1.7 s of KSC
+# time for the exit + editor), the rewind point lands at ~1003, after any anchor. Each
+# Re-Fly warps to 1060 at 10x (under the >50x ghost hide), the merge then warps to 1110
+# (past at least one 30 s relaunch; the merge ends at the Space Center, which publishes the unit live).
+#
+# THE FLIGHT:
+#   boot     LoadGame (FLIGHT on rover B), kill pair, settings (verbose + ghostRenderTracing).
+#   arm      MissionConfig tree A loop=true; WarpToUT 1000; mark lx1-armed.
+#   G        ExitToSpaceCenter, GoToEditor VAB `CS Flea Probe`, LaunchFromEditor,
+#            StartRecording, decouple, WarpToUT 1025 at 1x, stop, CommitTree, stop,
+#            ListHandles rewindpoints, StashSlot slot 0 (RW-5 / IR-3's shape); mark lx1-split.
+#   Re-Fly 1 InvokeRewind slot 0, the flight-ready wait, WarpToUT 1060.
+#   discard  ReFlyRevert discard (lands at the Space Center at the rewind point's UT, RW-5
+#            measured), a step save, LoadGame of it with focusPid = rover B (IR-3's
+#            re-entry, an InSessionOther load at the same instant).
+#   Re-Fly 2 InvokeRewind slot 0 again, WarpToUT 1060, AnswerMergeDialog merge,
+#            WarpToUT 1110.
+#
+# WHAT IS GATED, per scene the loop crosses (Flight before the split, the Re-Fly 1 flight,
+# the Space Center after the discard, the re-entry flight, the Re-Fly 2 flight, and after
+# the merge):
+#   - the scene publishes the unit LIVE: `[MissionLoopFirstRun] Loop units live at UT=..
+#     scene=<Flight|KSC>: live=1 beforeFirstInstance=0` (each scene starts from an empty
+#     live set, so its first publish logs);
+#   - the unit's PHASE: the phaseAnchorUt and overlapCadenceSeconds MissionConfig printed
+#     at the arm are captured and the Re-Fly 1 flight and the post-discard Space Center
+#     rebuild the unit (`MissionLoopUnit: ... overlapCadence=X ... phaseAnchor=Y`) with the
+#     same two values, byte for byte (both "R" formatted);
+#   - the loop ghost REPLAYS: a tracing-gated `phase=MeshSpawned` for recording 3582d724
+#     inside each flight window, and the unit published live at the Space Center after the merge;
+#   - nothing toggles the loop (`SetLoopEnabled: loop OFF` and a second `loop ON` are
+#     forbidden) and no scene after the arm publishes the unit before its first instance.
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `live=0` after lx1-armed: the Re-Fly or the discard moved the unit before its anchor:
+#     a Missions-from-memory break (LoadReconcilePolicy) or a re-stamped anchor (product).
+#   - a phaseAnchor mismatch in a later scene with no `loop ON` line: the rebuild is not
+#     deterministic across scenes (product), or the summary line's anchor diverges from the
+#     unit's (MissionLoopUnitBuilder logs the summary before the re-aim reassignments, which
+#     do not apply to a landed Kerbin rover; read the `PhaseLock` line).
+#   - no MeshSpawned for 3582d724 in a Re-Fly window: read `skipGhost` / ERS lines first; a
+#     supersede or session suppression touching tree A is a product defect. A zone hide
+#     (the rover ~2 km from the pad) is a calibration reading.
+#   - `backward-warp` on WarpToUT 1025: G launched later than ~1002; move the G targets.
+#   - `Single-controllable split: no RP`, `invokerewind refused`: IR-3's readings.
+#   - recordings other than 9: IR-3's measured count (host 5, G's two legs, the merged
+#     attempt's legs); the loop adds none.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): (1) reuse: IR-3's boot,
+# G flight, Re-Fly / discard / re-entry / merge chain verbatim, minus the route, plus one
+# MissionConfig; no new flight shape; (2) explicit-UT WarpToUT waits only; (3) no dwell
+# beyond the 1x G window (~22 s) and the 10x windows; (4) no coast lead needed; (5) the
+# first refused verb fails the run (no fallback steps); (6) retry `once`; (7) recordings
+# pinned 9..9 from IR-3's measurement; (8) operator until flown, IR-3 measured ~172 s for
+# the same chain; (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+description = "LX-1 (audit B7, half a): on rover-route-recorded a mission loop is armed on tree A (rover A, span 392.58..432.24) and plays while a CS Flea Probe pad flight G is decoupled into a rewind point, committed and stashed, then Re-Flown, discarded (Space Center), re-entered and Re-Flown again and merged. The loop must stay armed with the same anchor through every load (Missions from memory on ReFlyStart / DiscardReFly), every scene must publish its unit live (never back before its first instance), the Re-Fly 1 flight and the post-discard Space Center must rebuild the unit with the arm-time phase anchor and overlap cadence, and the loop ghost must replay in each flight, and the Space Center the merge ends in must publish the unit live. Design: rewind-to-separation section 8 (loops read ERS through the same filter, no per-feature change)."
+instanceProfile = "stock-minimal"
+tags = ["LX-1", "loop-playback", "refly", "refly-discard", "refly-merge", "mission-loop",
+        "timeline-ops", "runtime-handles", "recorded-fixture", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 2 x 300 LoadGame + 2 x 300 InvokeRewind + 300 ReFlyRevert + 4 x 180
+# WarpToUT + 120 WarpToUT (1x) + 120 ExitToSpaceCenter + 120 GoToEditor + 180
+# LaunchFromEditor + 180 StartRecording + 120 CommitTree + 240 AnswerMergeDialog + 120
+# SaveGame = 3420; runtime 4200 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # The kill pair, as on every rover-route-recorded lane (RVR-3's header).
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "ghostRenderTracing", value = "true" },  expect = "OK" },
+
+  # ---- the loop armed on tree A, then the clock past any phase-locked anchor ----
+  { cmd = "MissionConfig", args = { tree = "6a2d7247996a43159a7b9f7595de708d", loop = "true" }, expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1000", maxRate = "10" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "lx1-armed" },                       expect = "OK" },
+
+  # ---- G: IR-3's Flea pad flight, decoupled into a rewind point, committed, stashed ----
+  { cmd = "ExitToSpaceCenter",                                                  expect = "OK", budget = 120 },
+  { cmd = "GoToEditor",   args = { facility = "VAB", craft = "CS Flea Probe" },  expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",    expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                     expect = "OK", budget = 180 },
+  { cmd = "PartAction",   args = { button = "decouple", part = "radialDecoupler" }, label = "dec", expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1025", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "CommitTree",                                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  { cmd = "StashSlot",    args = { rp = "${handles.rp0}", slot = "0" },         expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "lx1-split" },                       expect = "OK" },
+
+  # ---- Re-Fly 1 under the playing loop ----
+  { cmd = "MissionMark",  args = { label = "lx1-refly1-armed" },                expect = "OK" },
+  { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "0" },         expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY, RF-3's order).
+  { cmd = "ListHandles",  args = { kind = "chains" },                           expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },             expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "lx1-refly1-started" },              expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1060", maxRate = "10" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "lx1-refly1-warped" },               expect = "OK" },
+
+  # ---- Discard Re-fly: back to the rewind point at the Space Center ----
+  { cmd = "ReFlyRevert",  args = { choice = "discard", target = "launch" },     expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "lx1-discarded" },                   expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SaveGame",     args = { name = "lx1-after-discard" },                expect = "OK", budget = 120 },
+
+  # ---- back into FLIGHT on rover B (IR-3's re-entry) ----
+  { cmd = "MissionMark",  args = { label = "lx1-reenter" },                     expect = "OK" },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "lx1-after-discard", focusPid = "313889796" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "ghostRenderTracing", value = "true" },  expect = "OK" },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "handles2", expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "lx1-reentered" },                   expect = "OK" },
+
+  # ---- Re-Fly 2, merged ----
+  { cmd = "MissionMark",  args = { label = "lx1-refly2-armed" },                expect = "OK" },
+  { cmd = "InvokeRewind", args = { rp = "${handles2.rp0}", slot = "0" },        expect = "OK", budget = 300 },
+  { cmd = "ListHandles",  args = { kind = "chains" },                           expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },             expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "lx1-refly2-started" },              expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1060", maxRate = "10" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "lx1-merge-armed" },                 expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                     expect = "OK", budget = 240 },
+  { cmd = "MissionMark",  args = { label = "lx1-merged" },                      expect = "OK" },
+  { cmd = "WarpToUT",     args = { ut = "1110", maxRate = "10" },               expect = "OK", budget = 180 },
+  { cmd = "MissionMark",  args = { label = "lx1-after-merge" },                 expect = "OK" },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# IR-3's measured chain on the same host (host 5, G's two legs, the merged attempt): the
+# loop records nothing. IR-3 MEASURED 9 on `2026-10-31_2346`.
+count = { min = 9, max = 9 }
+
+[expectations.logContracts]
+required = [
+  # THE ARM: one loop ON, the unit built, the anchor and launch cadence captured below.
+  "missionconfig applied: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d loop=True [^\\r\\n]*unitBuilt=True ",
+  "SetLoopEnabled: loop ON for '[^'\\r\\n]*' \\(tree=6a2d7247996a43159a7b9f7595de708d\\); anchorUT=",
+  "(?s)missionconfig applied: (?:(?!MISSIONMARK label=lx1-armed ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=Flight: live=1 beforeFirstInstance=0",
+  # G: IR-3's split, commit and stash.
+  "launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=[0-9.]+[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  "committree committed=true",
+  "stashslot complete rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ tipMergeState=Immutable->CommittedProvisional stashed=true unfinishedFlight=true",
+  # THE LOOP REPLAYS IN G'S FLIGHT, before the split.
+  "(?s)MISSIONMARK label=lx1-armed (?:(?!MISSIONMARK label=lx1-split ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=Flight: live=1 beforeFirstInstance=0",
+  "(?s)MISSIONMARK label=lx1-armed (?:(?!MISSIONMARK label=lx1-split ).)*phase=MeshSpawned rec=\\S+ recId=3582d724892245c8939f6a354baff278 ",
+  # RE-FLY 1: a Re-Fly start; the new flight publishes the unit live, rebuilds it with the
+  # arm-time anchor and cadence, and spawns the loop ghost.
+  "(?s)MISSIONMARK label=lx1-refly1-armed .*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0",
+  "(?s)MISSIONMARK label=lx1-refly1-armed (?:(?!MISSIONMARK label=lx1-refly1-warped ).)*Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT (?:(?!MISSIONMARK label=lx1-refly1-warped ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=Flight: live=1 beforeFirstInstance=0",
+  "(?s)missionconfig applied: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d loop=True [^\\r\\n]*phaseAnchorUt=(\\S+) [^\\r\\n]*overlapCadenceSeconds=(\\S+) .*?MISSIONMARK label=lx1-refly1-armed (?:(?!MISSIONMARK label=lx1-refly1-warped ).)*Load classified: early=ReFlyStart (?:(?!MISSIONMARK label=lx1-refly1-warped ).)*MissionLoopUnit: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d [^\\r\\n]*overlapCadence=\\2 [^\\r\\n]*phaseAnchor=\\1[\\r\\n]",
+  "(?s)MISSIONMARK label=lx1-refly1-armed (?:(?!MISSIONMARK label=lx1-refly1-warped ).)*Load classified: early=ReFlyStart (?:(?!MISSIONMARK label=lx1-refly1-warped ).)*phase=MeshSpawned rec=\\S+ recId=3582d724892245c8939f6a354baff278 ",
+  # THE DISCARD: a DiscardReFly load at the Space Center; the KSC unit live, same phase.
+  "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+  "(?s)MISSIONMARK label=lx1-refly1-warped (?:(?!MISSIONMARK label=lx1-reenter ).)*Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER (?:(?!MISSIONMARK label=lx1-reenter ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=KSC: live=1 beforeFirstInstance=0",
+  "(?s)missionconfig applied: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d loop=True [^\\r\\n]*phaseAnchorUt=(\\S+) [^\\r\\n]*overlapCadenceSeconds=(\\S+) .*?MISSIONMARK label=lx1-refly1-warped (?:(?!MISSIONMARK label=lx1-reenter ).)*Load classified: early=DiscardReFly (?:(?!MISSIONMARK label=lx1-reenter ).)*MissionLoopUnit: mission='[^'\\r\\n]*' tree=6a2d7247996a43159a7b9f7595de708d [^\\r\\n]*overlapCadence=\\2 [^\\r\\n]*phaseAnchor=\\1[\\r\\n](?:(?!MissionLoopUnit: |MISSIONMARK ).)*KSC Mission loop units rebuilt \\(signature changed\\): committed=",
+  # THE RE-ENTRY: an in-session load into FLIGHT; the unit live there too.
+  "(?s)MISSIONMARK label=lx1-reenter (?:(?!MISSIONMARK label=lx1-reentered ).)*loadgame complete scene=FLIGHT save=\\S+ game-loaded=true expected=Flight",
+  "(?s)MISSIONMARK label=lx1-reenter (?:(?!MISSIONMARK label=lx1-reentered ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=Flight: live=1 beforeFirstInstance=0",
+  # RE-FLY 2 AND THE MERGE.
+  "(?s)MISSIONMARK label=lx1-refly2-armed (?:(?!MISSIONMARK label=lx1-merge-armed ).)*Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT (?:(?!MISSIONMARK label=lx1-merge-armed ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=Flight: live=1 beforeFirstInstance=0",
+  "(?s)MISSIONMARK label=lx1-refly2-armed (?:(?!MISSIONMARK label=lx1-merge-armed ).)*Load classified: early=ReFlyStart (?:(?!MISSIONMARK label=lx1-merge-armed ).)*phase=MeshSpawned rec=\\S+ recId=3582d724892245c8939f6a354baff278 ",
+  "answermergedialog complete choice=merge result=committed",
+  # AFTER THE MERGE: the loop keeps relaunching (one 30 s launch cadence at least).
+  # The merge leaves FLIGHT (AnswerMergeDialog completes only once the scene is no longer
+  # FLIGHT), so the post-merge window is the Space Center, which prints no GhostRenderTrace
+  # phases; the loop proves itself there by the KSC publish of the live unit.
+  "(?s)MISSIONMARK label=lx1-merge-armed (?:(?!MISSIONMARK label=lx1-after-merge ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=KSC: live=1 beforeFirstInstance=0",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "missionconfig (?:rejected|error)",
+  "invokerewind refused",
+  "stashslot (?:refused|rejected)",
+  "reflyrevert rejected",
+  "reflyrevert error",
+  "Single-controllable split: no RP",
+  # Nothing toggles the loop: one arm, no disarm.
+  "SetLoopEnabled: loop OFF",
+  "(?s)SetLoopEnabled: loop ON .*SetLoopEnabled: loop ON ",
+  # No scene after the arm publishes the unit back before its first instance.
+  "(?s)MISSIONMARK label=lx1-armed .*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=[A-Za-z]+: live=0 ",
+]
+
+[runtime]
+budgetSeconds = 4200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
