@@ -340,7 +340,8 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "\\[CrewReservation\\] Swapped '[^']+' \\u2192 '[^']+' in part '",
              "\\[CrewReservation\\] Crew swap complete: [1-9][0-9]* succeeded",
              "\\[Scenario\\] OnSave: saving [1-9][0-9]* committed tree\\(s\\)",
-             # ADDED 2026-11-16, NOT YET FLOWN (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 7,
+             # ADDED 2026-11-16, FLOWN GREEN 2026-11-17 (run 2026-11-17_1402, PASS
+             # attempt 1, 516 s; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 7,
              # audit B8): the ghost's engine FX across the repeat Rewind-to-Launch. (a) Some
              # engine part's FX fingerprint in cycle 2 equals its cycle-1 one
              # (Ghost/GhostFxFingerprint.cs:150-155, logged per part build by

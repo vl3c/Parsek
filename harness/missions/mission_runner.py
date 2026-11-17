@@ -460,7 +460,8 @@ class KrpcMissionControl(MissionControl):
                  read_science: bool = False,
                  read_vessel_name: bool = False,
                  read_klaw: bool = False,
-                 read_aircraft: bool = False) -> None:
+                 read_aircraft: bool = False,
+                 read_air_target: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -523,6 +524,14 @@ class KrpcMissionControl(MissionControl):
         # it, and latitude / longitude / speed on the body-frame handle already read.
         self._read_aircraft = bool(read_aircraft)
         self._warned_aircraft_read = False
+        # OPT-IN air-target telemetry (AIR-3): the WATCHED SIBLING's position relative
+        # to the active vessel in its surface frame and both vessels' part counts
+        # (_read_air_target). It reuses the handle the sibling sweep matched on the
+        # same poll, so it adds three RPCs (Vessel.Position, two Parts.All) and no
+        # second enumeration. OFF everywhere else so every other mission's
+        # read_snapshot stays byte-identical (NaN triple / -1 sentinels).
+        self._read_air_target = bool(read_air_target)
+        self._warned_air_target_read = False
         # OPT-IN camera-mode telemetry (V1 map-dwell lane). OFF everywhere else
         # so every other mission's read_snapshot stays byte-identical
         # (camera_mode keeps its "" UNREAD sentinel, which fails the V1
@@ -688,6 +697,10 @@ class KrpcMissionControl(MissionControl):
         # means _read_sibling_situation returns the UNREAD pair without issuing an
         # RPC, so every mission that does not watch a sibling is untouched.
         self._sibling_watch_name: str = ""
+        # The handle the last sibling sweep matched (None when it matched nothing or
+        # did not run). Read only by _read_air_target on the SAME poll, never across
+        # polls: the watched vessel is created mid-flight by a split.
+        self._sibling_match = None
         self.client_version = ""
         self.server_version = ""
         # Native-warp service (Path A): built lazily on the first warp_to_ut
@@ -869,6 +882,14 @@ class KrpcMissionControl(MissionControl):
             # same fail-closed discipline as the chute and roster reads, and it never
             # counts toward the vessel-lost read-fail streak.
             sibling_situation, sibling_present = self._read_sibling_situation(sc)
+            # AIR TARGET channel (opt-in, AIR-3). Own try/except inside the helper with
+            # the NaN / -1 sentinels; never counts toward the vessel-lost read-fail
+            # streak.
+            air_target_rel = mlib.NAN3
+            air_target_parts = -1
+            own_parts = -1
+            if self._read_air_target:
+                air_target_rel, air_target_parts, own_parts = self._read_air_target_channel(v)
             # MechJeb NodeExecutor.Enabled (opt-in, B11/B12). Own try/except with
             # the -1 UNREAD sentinel: an executor read fault must degrade to
             # fail-closed (no executor verdict is granted on a blind frame),
@@ -1162,6 +1183,10 @@ class KrpcMissionControl(MissionControl):
                 latitude=latitude,
                 longitude=longitude,
                 surface_speed=surface_speed,
+                # Air-target channel (NaN triple / -1 unless read_air_target).
+                air_target_rel_position=air_target_rel,
+                air_target_part_count=air_target_parts,
+                own_part_count=own_parts,
                 # OBSERVED active-vessel name ("" = not read / read failed; fails
                 # every launch-identity gate closed).
                 vessel_name=vessel_name,
@@ -1228,6 +1253,17 @@ class KrpcMissionControl(MissionControl):
             career_science = float("nan")
             if self._read_science and sc is not None:
                 career_funds, career_science = self._read_career_pools(sc)
+            # THE AIR TARGET OUTLIVES THE CHASER (AIR-3, read_air_target only): the
+            # watched vessel is not the active one, so its presence, situation and
+            # part count stay readable when the chaser is gone, and they are what the
+            # mission's collision and aftermath gates read. The relative position
+            # needs the active vessel and stays NaN.
+            lost_sibling_situation, lost_sibling_present = "", -1
+            lost_target_parts = -1
+            if self._read_air_target and sc is not None:
+                lost_sibling_situation, lost_sibling_present = \
+                    self._read_sibling_situation(sc)
+                _rel, lost_target_parts, _own = self._read_air_target_channel(None)
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Telemetry",
                 "vessel-lost: telemetry read failed %d consecutive samples; "
@@ -1282,7 +1318,10 @@ class KrpcMissionControl(MissionControl):
                                           # could set it, and every good recovery
                                           # would be condemned as a break-up
                                           # before the recovery.
-                                          recover_request_result=self._recover_request_result)
+                                          recover_request_result=self._recover_request_result,
+                                          sibling_situation=lost_sibling_situation,
+                                          sibling_present=lost_sibling_present,
+                                          air_target_part_count=lost_target_parts)
 
     def _perform_launch_vessel(self, sc, action: "mlib.Action") -> None:
         """ACTION_LAUNCH_VESSEL: put a fresh craft on the pad.
@@ -4864,6 +4903,7 @@ class KrpcMissionControl(MissionControl):
         handle: the watched vessel is CREATED MID-FLIGHT by a staging split, and a
         handle taken across that split is exactly the stale-handle trap that blinded
         the B-DOCK docking gates post-reload."""
+        self._sibling_match = None
         name = self._sibling_watch_name
         if not name:
             return "", -1
@@ -4898,11 +4938,57 @@ class KrpcMissionControl(MissionControl):
         if match is None:
             # A CLEAN sweep that did not find the name: a real observation.
             return "", 0
+        self._sibling_match = match
         try:
             return str(getattr(match.situation, "name", "")).upper(), 1
         except Exception:
             # Present but unreadable: report presence, withhold the situation.
             return "", 1
+
+    def _read_air_target_channel(self, v):
+        """AIR-3's target read: ``(rel_up_north_east, target_parts, own_parts)``.
+
+        The target is the vessel the sibling sweep matched on THIS poll (it must run
+        first). ``rel`` is the target's centre of mass in the active vessel's surface
+        reference frame (kRPC: x up, y north, z east, origin at the active vessel's
+        centre of mass), a NaN triple when there is no match, no active vessel
+        (``v`` None, the vessel-lost path) or the read faulted. A part count is -1
+        when unread. One Warn per run names the surface that went dark."""
+        rel = mlib.NAN3
+        target_parts = -1
+        own_parts = -1
+        target = self._sibling_match
+        if target is not None:
+            try:
+                target_parts = len(target.parts.all)
+            except Exception as exc:
+                target_parts = -1
+                self._warn_air_target_read("target Parts.All", exc)
+            if v is not None:
+                try:
+                    pos = target.position(v.surface_reference_frame)
+                    rel = (float(pos[0]), float(pos[1]), float(pos[2]))
+                except Exception as exc:
+                    rel = mlib.NAN3
+                    self._warn_air_target_read("target Position(surface frame)", exc)
+        if v is not None:
+            try:
+                own_parts = len(v.parts.all)
+            except Exception as exc:
+                own_parts = -1
+                self._warn_air_target_read("own Parts.All", exc)
+        return rel, target_parts, own_parts
+
+    def _warn_air_target_read(self, surface: str, exc: BaseException) -> None:
+        if self._warned_air_target_read:
+            return
+        self._warned_air_target_read = True
+        _stdout_sink(mlib.format_mission_log_line(
+            "Warn", "Telemetry",
+            "air-target %s UNREADABLE (%s: %s); the channel degrades to its NaN / -1 "
+            "UNREAD sentinels, which fail every AIR-3 pursuit and collision gate "
+            "CLOSED. Logged once per run." % (surface, type(exc).__name__,
+                                              str(exc)[:160])))
 
     def _read_available_thrust(self, v) -> float:
         """Vessel available thrust with flamed-out engines excluded (todo
@@ -6045,6 +6131,15 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                 if hasattr(state, "flake_reason"):
                     terminal["flake_reason"] = reason
                 return replace(state, **terminal), frames
+        # AIR-3 RELEASE diagnostic (the 2026-11-17 re-flights loitered the whole
+        # 600 s ASCEND bound with no line naming the release gate that held): the
+        # machine's own whitespace-free kv line of every release gate's reading,
+        # the ready streak, the roll-out latch and the loiter point, on the
+        # telemetry cadence. Gated on the AIR-3 machine field (empty outside ASCEND),
+        # so every other mission's log is byte-identical.
+        release_note = getattr(state, "release_note", "")
+        if release_note:
+            log.verbose_rate_limited("release", state.phase, release_note)
         # MATCH-VELOCITY diagnostic (flight-5: the phase had NO per-frame line, so
         # a stuck rel-speed silently ate the whole wall). Rate-limited per-phase
         # key carrying the fields the gate reads, so a stall is greppable + rides

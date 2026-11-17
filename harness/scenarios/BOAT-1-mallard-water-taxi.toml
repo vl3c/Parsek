@@ -1,0 +1,187 @@
+schema = 1
+id = "BOAT-1-mallard-water-taxi"
+tier = "operator"
+# =============================================================================
+# BOAT-1: A VESSEL DRIVEN ON WATER, RECORDED, REWOUND AND REPLAYED AT THE SPACE CENTER.
+#
+# Authored 2026-11-17 for todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9 (audit B9: "no lane
+# ... drives a boat"). LIVE-PROVEN 2026-11-17 on its first flight, the reading run (run
+# 2026-11-17_1419, PASS attempt 1, 207 s; parallel runner run next-tests-2026-11-17, Debug
+# DLL sha256 prefix 7d9f2510 from main 65ac33ee8): one SurfaceMobile section of 98 frames
+# over 64.7 s on water, terminal Splashed, 1 recording; the KSC ghost entered range with
+# terminal=Splashed, the real Mallard spawned SPLASHED, `LeafPlacement summary: ...
+# compared=1 ok=1 bad=0`, and the batch read `total=1 passed=1 failed=0 skipped=0`, now
+# pinned whole with the count pinned at 1. Every regex below matches a literal found in C#
+# source (file cited); the windows that depend on stock physics (how fast the Mallard goes
+# on its jets, how far it drifts after the cut) are left open.
+#
+# HOST: `mallard-splashed` (harness/tools/build_mallard_splashed.py: AIR-1's harvest
+# `air-circuit-recorded` with every ParsekScenario child, the `Parsek/` sidecars and the
+# `Ships/` craft files removed). The stock Mallard is the active vessel, SPLASHED at rest
+# at lat 0.0545 lon -73.6970 (about 9 km east of the pad, in the sea AIR-1 landed in), both
+# J-33 jets ignited at zero throttle, brakes on, Bill and Bob aboard; the GS1 booster sits
+# LANDED on the pad and an asteroid orbits. UT 427.46. No Parsek history: the seam
+# StartRecording opens a fresh tree on the Mallard (a save that still held AIR-1's
+# committed tree would join it instead; measured, B23 flight 1).
+#
+# THE RUN (mission `boat1_water_taxi`, mlib.boat_decide): the handoff gate reads the
+# Mallard SPLASHED with its position channel lit on 3 frames, stamps the start point,
+# turns SAS on and the brakes off and drives the jets on a speed governor toward 12 m/s;
+# 400 m from the start it cuts the throttle and sets the brakes, then waits for the boat
+# to drift under 1 m/s while still SPLASHED. No steering: the claim is a surface run on
+# water, not a course. Leaving the water for more than 6 frames, or an overspeed past
+# 30 m/s (a takeoff run), ends the mission at once with the throttle cut.
+#
+# WHAT IT GATES (recording half): the ACTIVE recorder closes a SurfaceMobile section with
+# frames for a vessel that is on water the whole time (EnvironmentDetector classifies
+# SPLASHED exactly as LANDED: surface, mobile above 0.1 m/s), and the commit names a
+# Splashed terminal on Kerbin.
+# (playback half): a Rewind-to-Launch to the start of the run (the rewind save captured
+# with the Mallard SPLASHED); the Space Center replays the Mallard's KSC ghost through
+# the run (the KSC surface playback path, on water) to its Splashed end, the real Mallard
+# spawns there SPLASHED, and the LeafVesselPlacement cell reads the spawn within 100 m of
+# the recorded terminal place.
+# NOT CHECKED: the ghost's position DURING the run (no in-game cell samples a KSC ghost
+# mid-recording; the gap AIR-2 names).
+#
+# SPAWN UT. The run starts at ~UT 428; taxi 180 + stop 120 s of game time bound its end
+# before ~UT 730 even on a full-budget run (a typical run ends near UT 500). The
+# post-rewind warp goes to 1,200 at no more than 10x so the KSC ghost stays drawn.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no existing lane drives on water; AIR-1 /
+# AIR-2 end where this begins. (2) every wait is the mission's own condition or an
+# explicit-UT WarpToUT. (3) no dwell keys. (4) the run is at 1x by design (a surface run
+# under warp is a different run). (5) no b5 coast. (6) a wrong handoff, leaving the water
+# and an overspeed each end the mission at once by name. (7) the count is pinned at the
+# reading run's 1. (8) tier operator by the calibration discipline (promotion is the
+# operator's call). (9) flight_efficiency.py owed after the first green flight.
+# =============================================================================
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_1419; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9, audit B9): the stock Mallard, afloat in the sea east of KSC (mallard-splashed, AIR-1's harvest with Parsek stripped), drives 400 m on the water on its jets and comes to rest (boat1_water_taxi). Gates the active recorder's SurfaceMobile section on water and a Splashed terminal at the commit; then Rewind-to-Launch, the Mallard's KSC ghost replayed on the surface path to its Splashed end, the real Mallard spawned there and read by LeafVesselPlacement."
+instanceProfile = "stock-minimal"
+tags = ["BOAT1", "boat", "water", "splashed", "surface-mobile", "ksc-ghost", "rewind-to-launch",
+        "leaf-placement", "ingame-batch", "crewed", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/mallard-splashed"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "boat1_water_taxi"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },       expect = "OK" },
+  { cmd = "StartRecording",                                                           expect = "OK", budget = 180 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 900 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "CommitTree",                                                               expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "boat1-committed" },                        expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "MissionMark", args = { label = "boat1-rewound" },                          expect = "OK" },
+  # Past the recording's end (bounded before ~UT 730, see SPAWN UT), at most 10x so the
+  # KSC ghost stays drawn.
+  { cmd = "WarpToUT",   args = { ut = "1200", maxRate = "10" },                        expect = "OK", budget = 300 },
+  { cmd = "MissionMark", args = { label = "boat1-past-end" },                         expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                  expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[driver.missionParams]
+expectedVesselName    = "Mallard"
+handoffDebounceFrames = 3
+handoffMaxFrames      = 40
+targetDistanceMeters  = 400.0
+cruiseSpeedMps        = 12.0
+# The Mallard's AIR-1 takeoff roll lifted near 43 m/s; 30 m/s is a takeoff run, not a taxi.
+maxSpeedMps           = 30.0
+throttleBase          = 0.3
+throttleGainPerMps    = 0.05
+throttleMax           = 1.0
+offWaterFrames        = 6
+taxiTimeoutSeconds    = 180.0
+restSpeedMps          = 1.0
+restDebounceFrames    = 6
+stopTimeoutSeconds    = 120.0
+
+[dimensionsCovered]
+D1  = ["commit-revert-merge"]
+D4  = ["surface-mobile"]
+D6  = ["basic-playback"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "warp-1x", "scene-flight", "scene-ksc", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# MEASURED 1 on the reading run `2026-11-17_1419` (no part leaves the Mallard, and the
+# surface-class change SurfaceStationary -> SurfaceMobile -> SurfaceStationary is not an
+# optimizer boundary). A count other than 1 is a finding to read, not a window to widen.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # ParsekTestCommandAddon.cs (LoadGame applier).
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  # ParsekTestCommandAddon.cs (StartRecording applier).
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # FlightRecorder.StartRecording.cs (CaptureRewindSave) + RewindLauncher.cs (the plain
+  # rewind's initiated line): the rewind goes back to the Mallard afloat.
+  "Captured rewind save at UT ([0-9.]+): vessel \"Mallard\" in SPLASHED \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  # FlightRecorder.EnvironmentAndTrackSections.cs (CloseTrackSection, [Recorder] tag = the
+  # ACTIVE recorder): a SurfaceMobile section with frames, recorded on water.
+  "\\[Recorder\\] TrackSection closed: env=SurfaceMobile ref=\\w+ frames=[1-9][0-9]* ",
+  # ParsekFlight.MergeFlow.cs (FormatCommitTerminalLine): a Splashed terminal on Kerbin.
+  "CommitTreeFlight terminal: rec=[0-9a-f]+ terminalState=Splashed terminalOrbitBody=Kerbin",
+  # ParsekTestCommandAddon.cs (CommitTree applier).
+  "committree committed=true",
+  # ParsekTestCommandAddon.InvokeRewindToLaunch.cs.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # LoadReconcilePolicy.cs (FormatClassifiedLine).
+  "MISSIONMARK label=boat1-committed ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind ",
+  # ParsekKSC.cs (the KSC ghost's range lines, Verbose) and ParsekKSC.Playback.cs (the
+  # surface playback resolution): the Mallard's ghost replays on Kerbin's surface path.
+  "MISSIONMARK label=boat1-rewound ut=[\\s\\S]*?\\[KSCGhost\\] Ghost #[0-9]+ \"Mallard\" entered range: targetUT=[0-9.]+ recUT=\\[[0-9.]+,[0-9.]+\\] cycle=[0-9]+ loop=False terminal=Splashed",
+  "KSC SURFACE playback resolved: recording=rec\\[[0-9a-f]{8}\\|Mallard\\|[^\\r\\n]*body=Kerbin ",
+  "\\[KSCGhost\\] Ghost #[0-9]+ \"Mallard\" exited range at UT ",
+  # ParsekKSC.cs (the end spawn): the real Mallard, SPLASHED.
+  "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"Mallard\" pid=[0-9]+ sit=SPLASHED ",
+  # LeafVesselPlacement.cs (FormatSummaryLine) + InGameTestRunner.cs (BATCH_COMPLETE).
+  "MISSIONMARK label=boat1-past-end ut=[\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=SPACECENTER",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "Spawn FAILED for #[0-9]+ \"Mallard\"",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# 300 load + 180 start + 900 mission + 120 commit + 300 rewind + 300 warp + 300 tests +
+# 120 save + margin.
+budgetSeconds = 3000
+
+[retry]
+# One retry prices a kRPC flake; a wrong handoff, leaving the water or an overspeed
+# reproduces and names itself.
+policy = "once"
+
+[expectedFail]
+bugId = ""

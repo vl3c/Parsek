@@ -859,6 +859,19 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "vall-park-nerv": True,
         "tylo-park-nerv": True,
         "minmus-park-kerbalx": True,
+        # THE NINTH PARSEK-STRIPPED DERIVED FIXTURE, the first on the SURFACE and the
+        # first BUILT (`harness/tools/build_mallard_splashed.py`, byte-gated by
+        # `test_mallard_splashed.py`) rather than cut by hand. `mallard-splashed` is
+        # `air-circuit-recorded` (AIR-1's harvest: the stock Mallard afloat east of
+        # KSC, jets lit at zero throttle) with the same "drop every ParsekScenario
+        # child, keep the node, retitle" recipe, which here removed RECORDING_TREE,
+        # KERBAL_SLOTS, CREW_REPLACEMENTS, MILESTONE_STATE, GAME_STATE and
+        # STOCK_POOL_REFERENCE plus the `saveStamp` / `parsekSaveFormat` /
+        # `parsekWrittenBy` values (the `laythe-park-nerv` node shape). No `Parsek/`
+        # and no `Ships/`. WHY THE STRIP IS LOAD-BEARING: `BOAT-1-mallard-water-taxi`
+        # starts its recording through the seam on the Mallard, which the source save
+        # holds a COMMITTED TREE for (measured, B23 flight 1).
+        "mallard-splashed": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         # `eva3-pad-3crew` plus a crewless rover clone parked 153 m off the pad, the

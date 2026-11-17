@@ -636,7 +636,7 @@ id = "V20T-jool-kerbin-ts-arrival"
 # PRECISELY WHY NOTHING MAY BE WRITTEN UP ABOUT IT YET.** `ParsekKSC.Playback` hard-gates
 # every point and every segment on `bodyName != "Kerbin"` with skip reason `non-kerbin`
 # (`ParsekKSC.Playback.cs:288-297` and `:362-372`), and one level above that
-# `ParsekKSC.IsKscStructurallyEligible` (`ParsekKSC.cs:1488`) rejects a recording OUTRIGHT
+# `ParsekKSC.IsKscDrawEligible` (`ParsekKSC.cs:1488`) rejects a recording OUTRIGHT
 # on `rec.Points[0].bodyName != "Kerbin"` - **the FIRST point, not the arrival body**.
 # MEASURED on the committed sidecar: this recording's first POINT reads `body = Jool`
 # (the Jool park it departs from), so the outright-rejection gate LOOKS like it fires

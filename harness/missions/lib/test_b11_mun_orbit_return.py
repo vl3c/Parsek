@@ -75,7 +75,12 @@ PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 # default reprs removed hashes to the previous pin 02e6fcb9...dee36.
 # Re-pinned 2026-11-15 for one new field only (B5Params escape_extra_park_orbits): with
 # its default repr removed the trace hashes to the previous pin eb4ffe29...60ff.
-MFR_TRACE_DIGEST = "7d8d6abff1f5e77443014c73c358059866b77bec80bcdf6c532259c554fb2e70"
+# Re-pinned 2026-11-17 for new fields only (B4Params start_in_orbit, start_body,
+# start_min_periapsis, start_debounce_frames, start_gate_max_frames, landing_body; B4State
+# start_streak, start_gate_frames, start_entry_body / _situation / _periapsis / _apoapsis,
+# LAY-1's orbit-start opt-in): with those fields' default reprs removed the trace hashes
+# to the previous pin 7d8d6abf...2e70.
+MFR_TRACE_DIGEST = "1d3c3940661b311555a91d907092bdb0e0dcc4f966589cf4e62ec130b7d9aaef"
 
 _PARK_EXIT_UT = 48_200.0
 

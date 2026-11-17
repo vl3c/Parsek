@@ -49,7 +49,7 @@ id = "V19T-laythe-jool-ts-arrival"
 # this subject at all, and that is a property of the DESTINATION rather than of the
 # lane: `ParsekKSC.Playback` hard-gates every point and every segment on
 # `bodyName != "Kerbin"` with skip reason `non-kerbin` (`ParsekKSC.Playback.cs:288-297`
-# and `:362-372`), and one level above that `ParsekKSC.IsKscStructurallyEligible`
+# and `:362-372`), and one level above that `ParsekKSC.IsKscDrawEligible`
 # (`ParsekKSC.cs:1488`) rejects a recording OUTRIGHT on
 # `rec.Points[0].bodyName != "Kerbin"` - the FIRST point, not the arrival body.
 # MEASURED on the committed sidecar: the first POINT reads `body = Laythe`, and the

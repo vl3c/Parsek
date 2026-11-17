@@ -77,7 +77,7 @@ whole host VACUOUS on every outbound lane flown to date.
 
 **THAT PREMISE IS PRE-REGISTERED AS A QUESTION RATHER THAN REPEATED AS A FACT**,
 because reading the code turns up a STRICTER gate one level up that the roadmap's
-sentence does not model: `ParsekKSC.IsKscStructurallyEligible` rejects a recording
+sentence does not model: `ParsekKSC.IsKscDrawEligible` rejects a recording
 on `rec.Points[0].bodyName != "Kerbin"` -- the recording's FIRST point, not its
 arrival body -- and the Update loop `continue`s past an ineligible recording
 silently. If that is what runs, a return leg ROOTED at a foreign body is excluded

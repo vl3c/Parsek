@@ -28,6 +28,11 @@ Not released yet.
   picked up again after a load counted as part of its earlier, already merged flight, so the
   next load could seal its Re-Fly slot, and records from a flight you then rewound away were
   kept. They now belong to the new flight only. (RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK)
+- **A vessel that ends away from Kerbin appears when you wait at the Space Center.** A landing
+  or splashdown on another body, recorded from there, now appears when you time-warp past its
+  end at the Space Center, not only on the next Tracking Station or flight visit. Like those
+  scenes, it now skips a vessel a later flight docks to or boards, and leaves a flight that
+  stopped in orbit with no ending to them, on Kerbin too. (KSC-END-SPAWN-SKIPS-OFF-KERBIN)
 - **A kerbal's walk back to a hatch replays correctly after a save.** When an EVA ended by
   boarding a vessel, the last stretch of the walk or jetpack flight could replay far from where
   the kerbal went once the game was saved and loaded. It now replays on the kerbal's real path.
