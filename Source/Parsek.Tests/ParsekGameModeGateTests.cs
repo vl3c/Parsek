@@ -228,6 +228,7 @@ namespace Parsek.Tests
         private static readonly string[] GatedEntryPointNames =
         {
             "Parsek.ParsekScenario.OnLoad", "Parsek.ParsekScenario.OnSave",
+            "Parsek.ParsekRaceScenario.OnLoad",
             "Parsek.ParsekFlight.Start", "Parsek.ParsekKSC.Start", "Parsek.ParsekTrackingStation.Start",
             "Parsek.StockUiOverlayController.Awake", "Parsek.CurrencyReservationOverlay.Start",
             "Parsek.WarpToTimeConsumer.HandleLevelWasLoaded",

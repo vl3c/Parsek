@@ -542,7 +542,10 @@ def game_reach(index, config, via=None):
 def coupling_report(index, config):
     via = {}
     direct, reach = game_reach(index, config, via)
-    rows = defaultdict(Counter)
+    # Every key from the start: a module none of whose methods reach the game still
+    # reads 0 for the reach counts, not a missing key.
+    keys = ("methods", "instructions", "directInstructions", "reachInstructions", "reachMethods")
+    rows = defaultdict(lambda: Counter(dict.fromkeys(keys, 0)))
     for key, entry in index.methods.items():
         if not index.production(entry["type"]):
             continue

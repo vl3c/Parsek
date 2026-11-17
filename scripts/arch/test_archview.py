@@ -4321,7 +4321,8 @@ class RealTreeSmokeTests(unittest.TestCase):
 
     def test_production_module_count(self):
         production = [module for module in self.model["modules"] if not module["tooling"]]
-        self.assertEqual(len(production), 20)
+        # 21 since RaceCore registered with its first file (multiplayer R1-03).
+        self.assertEqual(len(production), 21)
 
     def test_first_cut_matches_the_documented_tree(self):
         # Re-derived 2026-11-06 on the refactor branch: Recording and GameAction
@@ -4519,7 +4520,7 @@ class RealTreeSmokeTests(unittest.TestCase):
     def test_module_pairs_are_symmetric_free(self):
         if not self.has_history:
             self.skipTest("no git history available in this checkout")
-        self.assertEqual(len(self.history["modulePairs"]), 190)
+        self.assertEqual(len(self.history["modulePairs"]), 210)
         self.assertTrue(self.history["filePairs"])
         seen = set()
         for row in self.history["modulePairs"]:
