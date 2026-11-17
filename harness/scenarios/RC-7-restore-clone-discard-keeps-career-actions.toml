@@ -76,7 +76,10 @@ tier = "nightly"
 # `PromoteFromBackground` accepted by alternation; a new segment is forbidden because the
 # live parts are the snapshot's own); that `ListHandles kind=active` names the committed id
 # as the active recording (the clone keeps ids, QL-13's "resumes in place"); `cutoffs=1`
-# (one recording with trajectory bounds);
+# (one recording with trajectory bounds). Since #2687 the arm line also names the resumed
+# recording and its cutoff rule; the 2026-11-17 flight logged `rule=end (not ahead of the
+# clock)` (the lab's committed end, 367.29, lies before the resume instant, 600.00), so the
+# pin asserts `rule=end`, the end-in-the-past branch, not the ahead-of-clock one;
 # the re-home's `milestone=` and `science=` counts (regexed: a first transmit may also fire a
 # stock science milestone, and whether a lab transmit leaves a pending science subject is not
 # measured); that no leak / clamp line prints between the transmit and the discard on a fixed
@@ -170,7 +173,7 @@ required = [
   "partaction applied button=inspect pid=2200110055 part='Large\\.Crewed\\.Lab' [^\\r\\n]*state='lab:storedScience=12\\.50 dataStored=0\\.00;Research:active=0'",
   # --- THE COMMIT AND THE RE-TAKE (QL-13's tokens) ---
   "committree committed=true",
-  "committree committed=true[\\s\\S]*Armed committed-tree restore attempt for '[^'\\r\\n]*' \\(id=\\S+, recordings=1, cutoffs=1, reason=TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write\\)[\\s\\S]*MISSIONMARK label=rc7-committed-",
+  "committree committed=true[\\s\\S]*Armed committed-tree restore attempt for '[^'\\r\\n]*' \\(id=\\S+, recordings=1, cutoffs=1, resumed=[0-9a-f]+ resumeUT=\\S+ endUT=\\S+ resumedCutoff=\\S+ rule=end \\(not ahead of the clock\\) storedEventsAtResume=[0-9]+, reason=TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write\\)[\\s\\S]*MISSIONMARK label=rc7-committed-",
   "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree '[^'\\r\\n]*' for vessel 'LABX Orbital Lab' pid=2200110055 via (?:ResumeActiveRecording|PromoteFromBackground)",
   # The resume is IN PLACE: the active recording IS the committed one ...
   "MISSIONMARK label=rc7-committed-1-([0-9a-f]{32}) [\\s\\S]*?MISSIONMARK label=rc7-resumed-\\1 ",

@@ -352,6 +352,7 @@ A:savedPid
 C:uint.TryParse
 A:SpawnedVesselPersistentId
 A:VesselSpawned
+C:RestorePersistedSpawnDeathCount
 A:resIdxStr
 C:savedTreeRecNode.GetValue
 S:"lastResIdx"
@@ -696,15 +697,27 @@ C:CommittedListOptimizer.RunOptimizationPass
 A:ctx.Phase
 S:"crew-auto-unreserve"
 A:currentUT
+A:keptOwed
 A:i
 A:i
 A:rec
+C:PlaybackScopeTracker.IsInReplayScope
+A:keptOwed
+C:ParsekLog.Verbose
+S:"Scenario"
+S:$"Crew auto-unreserve skipped for recording #{i} ({rec.VesselName}): "
+S:"in replay scope, its end vessel is still owed"
 C:CrewReservationManager.UnreserveCrewInSnapshot
 A:rec.VesselSnapshot
 A:rec.VesselSpawned
 C:ScenarioLog
 S:$"[Parsek Scenario] Auto-unreserved crew for recording #{i} "
 S:$"({rec.VesselName}) — EndUT passed without spawn"
+C:ParsekLog.Info
+S:"Scenario"
+S:"Crew auto-unreserve: kept "
+C:keptOwed.ToString
+S:" past-end recording(s) in replay scope for their end spawn"
 A:ctx.Phase
 S:"pending-outside-flight"
 C:ParsekFlight.IsTreeIdleOnPad

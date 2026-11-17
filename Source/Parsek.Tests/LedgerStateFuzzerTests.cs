@@ -1048,7 +1048,9 @@ namespace Parsek.Tests
                     break;
                 // VesselRecovered: the recovered vessel's name and pid are the row's
                 // payload; its RecordingId (the owner) comes from the skeleton.
+                // VesselTerminated carries the same payload for a terminated vessel.
                 case GameActionType.VesselRecovered:
+                case GameActionType.VesselTerminated:
                     action.RecoveredVesselName = "Vessel " + rng.Next(0, 8).ToString(IC);
                     action.RecoveredVesselPid = (uint)rng.Next(1, 1000000);
                     break;

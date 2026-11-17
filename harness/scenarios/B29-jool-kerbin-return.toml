@@ -350,7 +350,7 @@ id = "B29-jool-kerbin-return"
 #
 # (6) **THE KSC HOST QUESTION IS NOT SETTLED BY THIS FLIGHT.** Inherited verbatim
 #     from B28 and restated because this is the lane whose subject was supposed to
-#     settle it: `ParsekKSC.IsKscStructurallyEligible` rejects a recording on
+#     settle it: `ParsekKSC.IsKscDrawEligible` rejects a recording on
 #     `rec.Points[0].bodyName != "Kerbin"` -- the recording's FIRST point, not its
 #     arrival body -- and THIS RECORDING'S FIRST POINT IS AT JOOL, exactly as a
 #     Duna-origin B29's would have been. So arriving at Kerbin may not be enough to

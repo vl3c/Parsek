@@ -41,7 +41,7 @@ THE KSC PREMISE IS PRE-REGISTERED AS A QUESTION, INHERITED VERBATIM FROM B28, AN
 THIS LANE IS WHERE IT GETS MEASURED. The roadmap ranks G2 partly because the
 return direction is stated there as the only thing that can activate the KSC render
 host. Reading the code turns up a STRICTER gate than that sentence models:
-`ParsekKSC.IsKscStructurallyEligible` rejects a recording on
+`ParsekKSC.IsKscDrawEligible` rejects a recording on
 `rec.Points[0].bodyName != "Kerbin"` -- the recording's FIRST point, not its
 arrival body -- and B29's first point is at JOOL. If that is what runs, this
 recording is excluded from the KSC host WHOLE despite arriving at Kerbin, and the

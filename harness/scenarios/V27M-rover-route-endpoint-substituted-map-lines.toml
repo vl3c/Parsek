@@ -11,9 +11,13 @@ id = "V27M-rover-route-endpoint-substituted-map-lines"
 # grid + one frame of motion) horizontally and inside the recorded / terrain-plus-clearance
 # altitude window. It samples up to 30 frames (12 s real-time cap) and the batch's final
 # in-memory restore reloads the batch-start quicksave, so the steps after it keep their UTs.
-# Pins: the summary (`compared>=1 bad=0`, `bodies=[Kerbin]`) and the interim tally
-# (`total=1` literal, split regexed) until the first flight; a non-ok sample line is
-# forbidden. AUTHORED, NEVER FLOWN with this step (the rest of the lane is unchanged).
+# Pins: the summary (`compared>=1 bad=0`, `bodies=[Kerbin]`) and the tally, pinned whole
+# off the first flight with this step; a non-ok sample line is forbidden. FLOWN GREEN
+# 2026-11-17 (run 2026-11-17_1430, PASS attempt 1; parallel runner run next-tests-2026-11-17, Debug
+# DLL sha256 prefix 7d9f2510 from main 65ac33ee8): `RouteGhostPlacement summary:
+# scene=FLIGHT routes=1 frames=32 compared=30 ok=30 bad=0 outsideWindow=0 hidden=2
+# unsupported=0 notLive=0 worstHorizM=0.01 bodies=[Kerbin]` and `BATCH_COMPLETE v1
+# total=1 passed=1 failed=0 skipped=0 category=RouteGhostPlacement scene=FLIGHT`.
 # Fast-lane checklist: reuses this lane's flight (item 1); no added wait (item 2: the cell
 # stops at 30 compared samples); items 3-9 do not apply to an added read-only batch step.
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
@@ -342,7 +346,7 @@ required  = [
   "\\[KSCGhost\\] Eligible breakdown: looping=0 terminal\\(Landed=3, <null>=1, Docked=1\\) ineligible\\(\\(none\\)\\)",
   "KSC SURFACE playback resolved: recording=.* body=Kerbin branch=absolute",
   "RouteGhostPlacement summary: scene=FLIGHT routes=1 frames=[0-9]+ compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 outsideWindow=[0-9]+ hidden=[0-9]+ unsupported=[0-9]+ notLive=[0-9]+ worstHorizM=[0-9]+\\.[0-9]{2} bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteGhostPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RouteGhostPlacement scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

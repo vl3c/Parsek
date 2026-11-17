@@ -407,6 +407,98 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
+        // A player termination ends the hold, without being a recovery
+        // (SPAWNED-VESSEL-TERMINATED-RESPAWNS)
+        // ------------------------------------------------------------------
+
+        private const double TerminateUT = 352.7;
+
+        // catches: terminating a crewed end vessel leaving its crew reserved forever. The
+        // vessel no longer respawns, so no later recovery can close the TIP's open-ended
+        // Aboard hold; the VesselTerminated row must close it at its UT.
+        [Fact]
+        public void TerminatedCrewedVessel_EndsTheOpenEndedHold_WithoutARecovery()
+        {
+            CommitL3Flight();
+            double clock = 357.7;
+            KerbalsModule.LiveClockUTProviderForTesting = () => clock;
+            LedgerOrchestrator.RecalculateAndPatch();
+            Assert.True(double.IsPositiveInfinity(Kerbals.Reservations[Jeb].ReservedUntilUT));
+
+            int written = LedgerOrchestrator.OnRealVesselTerminated(
+                TerminateUT, CraftPid, LaunchGuid, "Jumping Flea");
+
+            Assert.Equal(1, written);
+            Assert.Equal(1, CountRows(GameActionType.VesselTerminated));
+            Assert.Equal(0, CountRows(GameActionType.KerbalRecovered));
+            Assert.Equal(TerminateUT, Kerbals.Reservations[Jeb].ReservedUntilUT);
+            Assert.False(Kerbals.IsReservedNow(Jeb));
+            Assert.False(Kerbals.ShouldFilterFromCrewDialog(Jeb));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Reservation bounded by termination: 'Jebediah Kerman' recording 'rec-l3-tip'")
+                && l.Contains("endUT=352.7"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Crew reservation closed by recovery:"));
+        }
+
+        // catches: the termination closure baked into state - a rewind to before it holds
+        // the kerbal again, and a supersede that tombstones the row reopens the hold.
+        [Fact]
+        public void TerminationClosure_RewindReReserves_AndATombstonedRowReopensTheHold()
+        {
+            CommitL3Flight();
+            LedgerOrchestrator.OnRealVesselTerminated(TerminateUT, CraftPid, LaunchGuid, "Jumping Flea");
+
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(200.0, "rewind-test");
+            Assert.True(Kerbals.IsReservedNow(Jeb));
+            Assert.Equal(TerminateUT, Kerbals.Reservations[Jeb].ReservedUntilUT);
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(400.0, "rewind-test");
+            Assert.False(Kerbals.IsReservedNow(Jeb));
+
+            GameAction row = null;
+            foreach (var a in Ledger.Actions)
+                if (a.Type == GameActionType.VesselTerminated) row = a;
+            Assert.NotNull(row);
+            Assert.True(TombstoneEligibility.IsSupersedeTombstoneEligible(row));
+
+            var module = new KerbalsModule();
+            var withoutRow = new List<GameAction>();
+            foreach (var a in Ledger.Actions)
+                if (a.Type != GameActionType.VesselTerminated) withoutRow.Add(a);
+            module.Reset();
+            module.PrePass(withoutRow, 10000.0);
+            foreach (var a in withoutRow) module.ProcessAction(a);
+            module.PostWalk();
+            Assert.True(double.IsPositiveInfinity(module.Reservations[Jeb].ReservedUntilUT));
+        }
+
+        // catches: the termination closure reaching crew the terminated vessel did not
+        // carry, or being read as a recorded recovery.
+        [Fact]
+        public void CollectTerminationClosures_OnlyTheOwnersAboardCrew_NeverARecovery()
+        {
+            var actions = new List<GameAction>
+            {
+                Assignment(TipId, Jeb, HeadEndUT, TipEndUT, KerbalEndState.Aboard, 1),
+                Assignment(TipId, Bill, HeadEndUT, TipEndUT, KerbalEndState.Recovered, 2),
+                Assignment("rec-other", "Valentina Kerman", 0, 300, KerbalEndState.Aboard, 3),
+                new GameAction { UT = TerminateUT, Type = GameActionType.VesselTerminated, RecordingId = TipId },
+                new GameAction { UT = TerminateUT + 5, Type = GameActionType.VesselTerminated, RecordingId = TipId },
+            };
+            var into = new Dictionary<string, List<KerbalsModule.RecoveryClosure>>(StringComparer.Ordinal);
+
+            Assert.Equal(1, KerbalsModule.CollectTerminationClosures(actions, into));
+            Assert.Single(into);
+            var c = into[Jeb][0];
+            Assert.Equal(TipId, c.OwnerRecordingId);
+            Assert.Equal(TerminateUT, c.RecoveryUT);
+            Assert.True(c.IsTermination);
+            Assert.False(c.IsKscRetirement);
+
+            Assert.False(KerbalsModule.TryFindRecordedRecoveryInScope(
+                into, Jeb, TipId, TipEndUT, null, out _, out _));
+        }
+
+        // ------------------------------------------------------------------
         // Pure decisions
         // ------------------------------------------------------------------
 

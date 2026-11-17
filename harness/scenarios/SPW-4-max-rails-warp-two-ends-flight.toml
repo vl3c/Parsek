@@ -1,0 +1,167 @@
+schema = 1
+id = "SPW-4-max-rails-warp-two-ends-flight"
+# =====================================================================================
+# SPW-4: TWO RECORDING ENDS CROSSED INSIDE ONE UNCAPPED RAILS WARP, IN FLIGHT.
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
+# tag `pending-flight`.)
+#
+# WHY. Every committed lane that crosses an end under warp caps the ladder (EVA-15 and
+# CN-3 at 100x, SPW-1 at <= 100x by span). Nothing crosses ends at the top of the rails
+# ladder, where flight view suppresses ghost completion above 50x
+# (`GhostPlaybackEngine`'s warp gate) so every end crossed at 1000x-100000x piles up and is
+# released only on the ladder's downshift, all in the same frame band. The lane gates that
+# the pile releases each owed spawn EXACTLY ONCE and on its recorded orbit.
+#
+# THE HOST AND ROAD are EVA-15's, verbatim up to the warp (its header is the derivation):
+# `eva2-lko-crewed` with the index-0 asteroid removed at staging; record Kerbal X, Valentina
+# steps out and floats beside it, commit (two Orbiting leaves ending at the same UT ~470),
+# Rewind-to-Launch, SaveGame + LoadGame at once into FLIGHT on the first pad debris (a
+# LANDED focus: stock lifts the rails altitude ceiling, so 100000x is allowed).
+#
+# THE SUBJECT: WarpToUT ut=1000000 with NO maxRate. The ladder's top rung needs 250,000
+# game-seconds of remaining span at 2.5 real seconds per rung; ~1e6 has it, so the request
+# is index 7 (100000x). Both leaves' ends (~470) are crossed while the warp ramps up or sits
+# high; the completions are delivered either during warp (`Deferred spawn during warp`) or
+# on the downshift, and the two spawns materialize at the deferred flush. Then
+# LeafVesselPlacement in FLIGHT compares both spawned vessels to their recorded orbits at
+# UT ~1,000,000 (~170 orbits past the end, so a phase drift of the propagation shows).
+#
+# WHAT IS GATED: count 3 and the commit; the reload lands before the end (all three
+# unspawned); the warp reached 100000x (`maxRate=100000` on `warptout complete`); Kerbal X
+# and Valentina Kerman each spawn exactly once through the Orbital (recorded terminal orbit)
+# path and read back spawned with that pid; LeafVesselPlacement on Kerbin ok, no duplicate.
+#
+# PRE-REGISTERED READINGS / GUESSES the first flight confirms:
+#   - stock's eased upshift may cross ~470 below 50x; then the completion fires during warp
+#     and is queued (`Deferred spawn during warp`): the same deferred road, still accepted.
+#     Which road ran is read off the log, not gated.
+#   - `maxRate=100000`: if the request is clamped (`clamped=true` on `warptout rate`), the
+#     landed-focus ceiling assumption is wrong; re-read before re-pinning.
+#   - `verdict=phase` on a leaf: propagation over ~170 orbits drifted (the #475 family).
+#   - the deferred flush could try both spawns in one frame; a `collision-blocked` /
+#     walkback on the SECOND spawn would be a finding (the two are ~100 km up and unloaded,
+#     so no loaded-vessel check applies; EVA-15's header).
+#
+# FAST-LANE CHECKLIST: (1) reuse EVA-15's host and road whole. (2) explicit-UT waits only.
+# (3) EvaExit settle 10 s. (4)/(5) none. (6) retry once. (7) count exact 3 (EVA-15's
+# derivation). (8) operator until measured. (9) flight_efficiency.py after a green flight.
+# =====================================================================================
+tier = "operator"
+description = "Max rails warp in FLIGHT: on eva2-lko-crewed (asteroid removed) Valentina steps out of the orbiting Kerbal X and both leaves are recorded and committed; Rewind-to-Launch, reload into FLIGHT on a landed pad debris, and an uncapped WarpToUT to UT 1,000,000 (100000x) crosses both ends in one warp. Pins that each end spawns exactly once through the recorded-terminal-orbit path after the warp and that LeafVesselPlacement reads both on their recorded orbits."
+instanceProfile = "stock-minimal"
+tags = ["SPW-4", "spawn", "end-spawn", "deferred-spawn", "terminal-orbit", "warp", "max-warp",
+        "rewind-to-launch", "eva-branch", "kerbin", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+# Ast. VPA-167, FLIGHTSTATE index 0 (EVA-15's recipe).
+[[fixture.liveState]]
+pid    = 1490391000
+remove = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw4-boot" },                     expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "424", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "EvaExit",    args = { kerbal = "Valentina Kerman", release = "true", settleSeconds = "10" }, expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",   args = { ut = "470", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw4-commit-count-${c0.count}" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "spw4-rewound" },                    expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "spw4-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw4-reloaded-count-${c1.count}-a-${c1.rec0}-${c1.rec0spawned}-${c1.rec0spawnedPid}-b-${c1.rec1}-${c1.rec1spawned}-${c1.rec1spawnedPid}-c-${c1.rec2}-${c1.rec2spawned}-${c1.rec2spawnedPid}-end" }, expect = "OK" },
+  # THE SUBJECT: the uncapped ladder (header).
+  { cmd = "WarpToUT",   args = { ut = "1000000" },                           expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw4-spawned-count-${c2.count}-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-c-${c2.rec2}-${c2.rec2spawned}-${c2.rec2spawnedPid}-end" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },         expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 3, max = 3 }
+
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 3, max = 3 }
+terminalStates = { Orbiting = { min = 2, max = 2 } }
+branchPoints   = { EVA = { min = 1, max = 1 } }
+spawnedVessels = { min = 2, max = 2 }
+vesselNames    = { "Kerbal X" = 1, "Valentina Kerman" = 1, "Kerbal X Probe" = 1, "Kerbal X Debris" = 4 }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "evaexit complete kerbal=Valentina Kerman evaPid=[0-9]+ released=true ",
+  "committree committed=true",
+  "MISSIONMARK label=spw4-commit-count-3 ",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "MISSIONMARK label=spw4-reloaded-count-3-a-[0-9a-f-]+-false-0-b-[0-9a-f-]+-false-0-c-[0-9a-f-]+-false-0-end ",
+  # The warp reached the top rung and then the target.
+  "warptout complete reachedUT=[0-9.]+ ut=1000000 rate=[0-9.]+ maxRate=100000 ladder=auto ",
+  # Each leaf: one Orbital spawn, read back spawned with that pid.
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw4-spawned-count-3-[^\\r\\n]*-true-\\1-",
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Valentina Kerman\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw4-spawned-count-3-[^\\r\\n]*-true-\\1-",
+  "LeafPlacement: rec=[0-9a-f]+ vessel='Kerbal X' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
+  "LeafPlacement: rec=[0-9a-f]+ vessel='Valentina Kerman' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
+  "MISSIONMARK label=spw4-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[2-9][0-9]* ok=[2-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "evaexit refused",
+  "warptout refused",
+  "timejump ",
+  # Exactly one spawn per leaf (the pile released twice would print a second one).
+  "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(Kerbal X\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\(Kerbal X\\)",
+  "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(Valentina Kerman\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\(Valentina Kerman\\)",
+  "Spawn ABANDONED",
+  "Spawn RETIRED",
+  "Vessel spawn failed",
+  "SpawnAtPosition returned 0",
+  "Spawn-death detected",
+  "Deferred spawn cannot execute safely",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

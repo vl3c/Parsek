@@ -1,0 +1,179 @@
+schema = 1
+id = "TSS-2-mun-orbit-end-ts"
+tier = "operator"
+# =============================================================================
+# TSS-2: AN ORBITING END OFF KERBIN, CROSSED IN THE TRACKING STATION, SPAWNS ON ITS
+# RECORDED ORBIT.
+#
+# Authored 2026-11-17 for the end-of-recording spawn audit (todo
+# END-SPAWN-SCENE-LANES-2026-11-17, scope 1b). NEVER FLOWN: its first flight is a READING
+# run (tag `pending-flight`). Every regex below matches a literal found in C# source (file
+# cited).
+#
+# HOST: `mun-park-kerbalx` (SOI-1 / MC-5's): the crewed Kerbal X (vessel name
+# `#autoLOC_501232` in the log, MC-5 measured; pid 2708531065, Jebediah aboard) ORBITING
+# the Mun at ~139.6 km (SMA 339,569 m, period ~4,871 s), FLIGHTSTATE index 1, the save's
+# active vessel; six Kerbal X Debris (five landed at the pad, one SUB_ORBITAL) and an
+# asteroid. No committed trees. Clock 21,745.96.
+#
+# THE FLIGHT, every step a player's:
+#   (a) a 1x wait to UT 21,750 (past the load's unpack, EVA-15 / CI-1's LoadGame-race
+#       wait), recording starts in Mun orbit, a 1x coast to UT 21,815, stop and commit.
+#       The leaf ends Orbiting with a recorded terminal orbit. The commit's optimizer trims
+#       the all-ExoBallistic coast to 10 s past its second point
+#       (RecordingOptimizer.TailTrim.cs), so EndUT is ~21,761.
+#   (b) Rewind-to-Launch (`tree=latest`): the owner strip removes Kerbal X from the rewind
+#       save, UT goes back 15 s before the start (~21,735), the rewind lands at the Space
+#       Center. SaveGame + LoadGame scene=trackstation at once: the Tracking Station starts
+#       at the saved clock, before the recording's start, so its playhead sweep latches it
+#       into replay scope.
+#   (c) THE SUBJECT: an uncapped WarpToUT to 40,000 in the Tracking Station (rails, up to
+#       1,000x by the 2.5 real-second rule). The end is crossed early in the climb; the
+#       Tracking Station handoff (GhostMapPresence.TrackingStationLifecycle.cs) spawns
+#       Kerbal X through VesselSpawner's recorded-terminal-orbit route (the `Orbital` path
+#       label, the propagated-orbit line), and the warp then runs ~3.7 Mun orbits on.
+#   (d) LeafVesselPlacement in the Tracking Station: the live vessel's orbit around the Mun
+#       matches the recorded terminal orbit (SMA within 1e-3, mean longitude within 1 deg
+#       propagated to the check UT), one live vessel holding its pid.
+# The Space Center must NOT see the end: an Orbiting end the Space Center crosses is
+# deferred (KSS-2's subject), which would leave this lane without its subject; the
+# deferral line is forbidden here so that timing slip reds by name.
+#
+# FIRST-FLIGHT RISKS: whether the trim applies as derived (an untrimmed end at ~21,815
+# changes nothing below); whether the Space Center dwell stays under the ~25 s margin
+# (LAY-1 measured the Tracking Station opening at the rewind clock); the optimizer's count
+# (window 1-2).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: no committed lane crosses an Orbiting
+# end in the Tracking Station (V22T forbids the handoff; EVA-15 / CN-3 cross in FLIGHT);
+# MC-5 / SOI-1 fly this host. (2) explicit-UT WarpToUT waits only. (3) no dwell keys. (4) no
+# burns. (5) b5 coasts do not apply. (6) every verb refuses in one frame. (7) count window
+# 1-2 until the reading run. (8) tier operator by the calibration discipline until flown.
+# (9) flight_efficiency.py owed after the first green flight.
+# =============================================================================
+description = "NEVER FLOWN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1b): on mun-park-kerbalx the crewed Kerbal X coasts in Mun orbit, recorded and committed; Rewind-to-Launch, then the Tracking Station from before the recording's start and an uncapped warp past its end. Gates the Tracking Station handoff spawning Kerbal X once on its recorded terminal orbit (Orbital route, propagated-orbit line) and LeafVesselPlacement matching the live Mun orbit to the recorded one."
+instanceProfile = "stock-minimal"
+tags = ["TSS-2", "spawn", "end-spawn", "tracking-station", "ts-handoff", "orbital",
+        "terminal-orbit", "warp", "mun", "rewind-to-launch", "leaf-placement",
+        "ingame-batch", "crewed", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/mun-park-kerbalx"
+injectedRecordings = "none"
+craft              = []
+# The fixture carries `ScenarioNewGameIntro tsComplete = False`, so stock's first
+# Tracking Station visit sets the `intro_TS` lock, which holds TIMEWARP and makes
+# WarpToUT refuse above 1x there (`warptout refused reason=warp-locked
+# holders=intro_TS`). The stage step sets it complete in the staged copy
+# (savepatch.apply_ts_intro_done; logged `trackingStationIntroDone patched`).
+trackingStationIntroDone = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },                   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },               expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },                    expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "21750", maxRate = "1" },                                expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                    expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",   args = { ut = "21815", maxRate = "1" },                                expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "CommitTree",                                                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",                          expect = "OK" },
+  { cmd = "MissionMark", args = { label = "tss2-committed-${c0.count}" },                      expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                                  expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },               expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },                    expect = "OK" },
+  { cmd = "SaveGame",   args = { name = "persistent" },                                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark", args = { label = "tss2-ts" },                                         expect = "OK" },
+  # THE SUBJECT: uncapped rails warp across the end in the Tracking Station.
+  { cmd = "WarpToUT",   args = { ut = "40000" },                                               expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",                          expect = "OK" },
+  { cmd = "MissionMark", args = { label = "tss2-spawned-${c1.count}-${c1.rec0spawned}-${c1.rec0spawnedPid}-${c1.rec1spawned}-${c1.rec1spawnedPid}-end" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                           expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                          expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+D4  = ["exo-ballistic", "tail-trim"]
+D6  = ["spawn-at-end-pid-dedup"]
+D9  = ["rewind-to-launch"]
+D13 = ["terminal-orbit-safety"]
+D14 = ["mun", "warp-1x", "warp-rails", "scene-flight", "scene-ts", "scene-ksc", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 2 }
+
+# REPORT-ONLY until a reading run: one committed tree, the leaf Orbiting, one spawned
+# vessel in the final save.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1, max = 2 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "#autoLOC_501232" = 1 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # ParsekFlight.MergeFlow.cs (FormatCommitTerminalLine): an Orbiting terminal on the Mun.
+  "CommitTreeFlight terminal: rec=[0-9a-f]+ terminalState=Orbiting terminalOrbitBody=Mun",
+  "committree committed=true",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save ",
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  # THE SUBJECT, all after the Tracking Station mark and before the warp completes:
+  # VesselSpawner.EndOfRecording.cs (the propagated-orbit line and the Orbital path label)
+  # and GhostMapPresence.TrackingStationLifecycle.cs (the handoff line), tied by #N.
+  "MISSIONMARK label=tss2-ts [\\s\\S]*?\\[Spawner\\] Spawn #([0-9]+) \\((?:#autoLOC_501232|Kerbal X)\\): using recorded terminal orbit propagated to current UT \\(ut=[0-9.]+, body=Mun, [\\s\\S]*?\\[Spawner\\] Orbital vessel spawn for #\\1 \\((?:#autoLOC_501232|Kerbal X)\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*?Tracking-station handoff spawned #\\1 \"(?:#autoLOC_501232|Kerbal X)\" pid=\\2 [\\s\\S]*?warptout complete reachedUT=[0-9.]+ ut=40000 ",
+  # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs: the live orbit around the
+  # Mun matches the recorded terminal orbit.
+  "MISSIONMARK label=tss2-spawned-[\\s\\S]*?LeafPlacement summary: scene=TRACKSTATION compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Mun\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=TRACKSTATION",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The Space Center crossed the end instead (ParsekKSC.cs; Verbose, verboseLogging is on).
+  "\\[KSCSpawn\\] Spawn not needed for #[0-9]+ \"(?:#autoLOC_501232|Kerbal X)\": orbital vessel deferred",
+  # A second spawn, a historical skip, a duplicate skip, a refused or unsafe orbit spawn.
+  "Orbital vessel spawn for #[0-9]+ \\((?:#autoLOC_501232|Kerbal X)\\)[\\s\\S]*Orbital vessel spawn for #[0-9]+ \\((?:#autoLOC_501232|Kerbal X)\\)",
+  "spawn handoff skipped #[0-9]+ \"(?:#autoLOC_501232|Kerbal X)\": historical",
+  "Tracking-station handoff skipped duplicate spawn for #[0-9]+ \"(?:#autoLOC_501232|Kerbal X)\"",
+  "terminal orbit cannot spawn safely",
+  "Spawn ABANDONED",
+  "Spawn RETIRED",
+  "Spawn refused for #[0-9]+ \\((?:#autoLOC_501232|Kerbal X)\\)",
+  "Vessel spawn failed",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "timejump ",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# 300 load + 120 + 180 start + 120 coast + 120 commit + 300 rewind + 120 save + 300 load +
+# 300 warp + 300 tests + 120 save + margin for the default-budget steps.
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -323,40 +323,40 @@ namespace Parsek.Tests
         }
 
         // ─────────────────────────────────────────────────────────────
-        // ParsekKSC factoring: IsKscStructurallyEligible + ShouldShowInKSC
+        // ParsekKSC factoring: IsKscDrawEligible + ShouldShowInKSC
         // ─────────────────────────────────────────────────────────────
 
         [Fact]
-        public void IsKscStructurallyEligible_KerbinWithPoints_True()
+        public void IsKscDrawEligible_KerbinWithPoints_True()
         {
             var rec = MakeSpawnableRecording();
-            Assert.True(ParsekKSC.IsKscStructurallyEligible(rec));
+            Assert.True(ParsekKSC.IsKscDrawEligible(rec));
         }
 
         [Fact]
-        public void IsKscStructurallyEligible_NonKerbin_False()
+        public void IsKscDrawEligible_NonKerbin_False()
         {
             var rec = MakeSpawnableRecording();
             var p0 = rec.Points[0]; p0.bodyName = "Mun"; rec.Points[0] = p0;
             var p1 = rec.Points[1]; p1.bodyName = "Mun"; rec.Points[1] = p1;
-            Assert.False(ParsekKSC.IsKscStructurallyEligible(rec));
+            Assert.False(ParsekKSC.IsKscDrawEligible(rec));
         }
 
         [Fact]
-        public void IsKscStructurallyEligible_TooFewPoints_False()
+        public void IsKscDrawEligible_TooFewPoints_False()
         {
             var rec = MakeSpawnableRecording();
             rec.Points.RemoveAt(1);
-            Assert.False(ParsekKSC.IsKscStructurallyEligible(rec));
+            Assert.False(ParsekKSC.IsKscDrawEligible(rec));
         }
 
         [Fact]
-        public void IsKscStructurallyEligible_IgnoresPlaybackEnabled()
+        public void IsKscDrawEligible_IgnoresPlaybackEnabled()
         {
             // Structural predicate must be independent of the visibility toggle.
             var rec = MakeSpawnableRecording();
             rec.PlaybackEnabled = false;
-            Assert.True(ParsekKSC.IsKscStructurallyEligible(rec));
+            Assert.True(ParsekKSC.IsKscDrawEligible(rec));
         }
 
         [Theory]
@@ -383,7 +383,7 @@ namespace Parsek.Tests
 
             Assert.Equal(expected, ParsekKSC.ShouldShowInKSC(rec));
             Assert.Equal(expected,
-                ParsekKSC.IsKscStructurallyEligible(rec) && rec.PlaybackEnabled);
+                ParsekKSC.IsKscDrawEligible(rec) && rec.PlaybackEnabled);
         }
 
         // ─────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ namespace Parsek
         private static readonly object indexLock = new object();
         private static IReadOnlyList<GameAction> indexedEls;
         private static HashSet<string> recoveryRowRecordingIds;
+        private static HashSet<string> terminatedRowRecordingIds;
 
         /// <summary>
         /// Live wrapper of <see cref="RecoveredRecordingEvidence.IsRecoveredByLedgerRow"/> over
@@ -30,24 +31,54 @@ namespace Parsek
             IReadOnlyList<GameAction> els = ComputeELS();
             lock (indexLock)
             {
-                if (!object.ReferenceEquals(els, indexedEls) || recoveryRowRecordingIds == null)
-                {
-                    var ids = new HashSet<string>(StringComparer.Ordinal);
-                    if (els != null)
-                    {
-                        for (int i = 0; i < els.Count; i++)
-                        {
-                            var a = els[i];
-                            if (a == null || string.IsNullOrEmpty(a.RecordingId)) continue;
-                            if (RecoveredRecordingEvidence.IsRecoveryRow(a, a.RecordingId, double.NegativeInfinity))
-                                ids.Add(a.RecordingId);
-                        }
-                    }
-                    recoveryRowRecordingIds = ids;
-                    indexedEls = els;
-                }
+                EnsureEvidenceIndex(els);
                 return recoveryRowRecordingIds.Contains(rec.RecordingId);
             }
+        }
+
+        /// <summary>
+        /// Live wrapper of <see cref="RecoveredRecordingEvidence.IsTerminatedByLedgerRow"/> over
+        /// <see cref="EffectiveState.ComputeELS"/>: the player terminated the vessel this
+        /// recording's end left in the world (a tombstoned row no longer counts).
+        /// </summary>
+        internal static bool IsTerminatedByLedgerRowLive(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return false;
+            if (!ResurrectionRetirementEligibility.VesselOutlivedTerminal(rec.TerminalStateValue))
+                return false;
+
+            IReadOnlyList<GameAction> els = ComputeELS();
+            lock (indexLock)
+            {
+                EnsureEvidenceIndex(els);
+                return terminatedRowRecordingIds.Contains(rec.RecordingId);
+            }
+        }
+
+        // Caller holds indexLock. Rebuilds both id sets in one pass when the ELS list changed.
+        private static void EnsureEvidenceIndex(IReadOnlyList<GameAction> els)
+        {
+            if (object.ReferenceEquals(els, indexedEls)
+                && recoveryRowRecordingIds != null
+                && terminatedRowRecordingIds != null)
+                return;
+            var recovered = new HashSet<string>(StringComparer.Ordinal);
+            var terminated = new HashSet<string>(StringComparer.Ordinal);
+            if (els != null)
+            {
+                for (int i = 0; i < els.Count; i++)
+                {
+                    var a = els[i];
+                    if (a == null || string.IsNullOrEmpty(a.RecordingId)) continue;
+                    if (RecoveredRecordingEvidence.IsRecoveryRow(a, a.RecordingId, double.NegativeInfinity))
+                        recovered.Add(a.RecordingId);
+                    else if (RecoveredRecordingEvidence.IsVesselTerminatedRow(a, a.RecordingId, double.NegativeInfinity))
+                        terminated.Add(a.RecordingId);
+                }
+            }
+            recoveryRowRecordingIds = recovered;
+            terminatedRowRecordingIds = terminated;
+            indexedEls = els;
         }
 
         internal static void ResetRecoveredIndexForTesting()
@@ -56,6 +87,7 @@ namespace Parsek
             {
                 indexedEls = null;
                 recoveryRowRecordingIds = null;
+                terminatedRowRecordingIds = null;
             }
         }
     }

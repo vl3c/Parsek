@@ -46,13 +46,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldCorrectTerrain_Splashed_ValidHeight_True()
+        public void ShouldCorrectTerrain_Splashed_KeepsItsRecordedDepth_False()
         {
-            bool result = TerrainCorrector.ShouldCorrectTerrain(TerminalState.Splashed, -5.0);
-            Assert.True(result);
+            // Owner ruling 2026-11-17: the terrain correction reads TerrainAltitude(lat, lon)
+            // (a sea floor clamps to 0), so running it on a Splashed chain tip lifted a
+            // submarine recorded 50 m down to 2 m above the water.
+            bool result = TerrainCorrector.ShouldCorrectTerrain(TerminalState.Splashed, -50.0);
+            Assert.False(result);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[TerrainCorrect]") && l.Contains("returning true"));
+                l.Contains("[TerrainCorrect]") && l.Contains("keeps its recorded depth"));
         }
 
         [Fact]

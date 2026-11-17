@@ -530,6 +530,7 @@ namespace Parsek
                 NoEffect(GameActionType.KerbalExperience, "kerbal name + career log entries"),
                 NoEffect(GameActionType.KerbalRecovered, "kerbal name + owner recording"),
                 NoEffect(GameActionType.VesselRecovered, "owner recording + recovered vessel"),
+                NoEffect(GameActionType.VesselTerminated, "owner recording + terminated vessel"),
 
                 // ---- Facilities ----
                 Enforced(GameActionType.FacilityUpgrade, null, "facility + exact level",

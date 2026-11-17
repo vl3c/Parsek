@@ -146,6 +146,14 @@ namespace Parsek
                     $"row(s) for {recoveryClosures.Count.ToString(CultureInfo.InvariantCulture)} kerbal(s)");
             }
 
+            int terminationClosures = CollectTerminationClosures(actions, recoveryClosures);
+            if (terminationClosures > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PrePass: {terminationClosures.ToString(CultureInfo.InvariantCulture)} aboard crew " +
+                    "hold(s) end at a VesselTerminated row (not a recovery)");
+            }
+
             if (kscRetiredEndUTs.Count > 0)
             {
                 var treeIdByRecordingId = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -394,12 +402,15 @@ namespace Parsek
             {
                 string closingOwner;
                 bool closedByKscRetirement;
+                bool closedByTermination;
                 double closedAtUT = ResolveRecoveryClosureUT(
-                    name, recordingId, meta, out closingOwner, out closedByKscRetirement);
+                    name, recordingId, meta, out closingOwner, out closedByKscRetirement,
+                    out closedByTermination);
                 if (!double.IsPositiveInfinity(closedAtUT))
                 {
                     endUT = closedAtUT;
-                    string closedBy = closedByKscRetirement ? "KSC retirement" : "recovery";
+                    string closedBy = closedByKscRetirement ? "KSC retirement"
+                        : closedByTermination ? "termination" : "recovery";
                     ParsekLog.Verbose(Tag,
                         $"Reservation bounded by {closedBy}: '{name}' recording '{recordingId}' " +
                         $"({endState}) endUT={closedAtUT.ToString("F1", CultureInfo.InvariantCulture)} " +
@@ -485,6 +496,71 @@ namespace Parsek
                 collected++;
             }
             return collected;
+        }
+
+        /// <summary>
+        /// Crew side of a player termination (SPAWNED-VESSEL-TERMINATED-RESPAWNS): for every
+        /// <see cref="GameActionType.VesselTerminated"/> row (owner recording, finite UT) and
+        /// every <see cref="GameActionType.KerbalAssignment"/> row of that owner whose kerbal
+        /// is still aboard at the end (Aboard, or Unknown) and is held
+        /// (<see cref="RoleHoldsKerbal(string)"/>), adds a closure owned by the owner at the
+        /// row's UT, flagged <see cref="RecoveryClosure.IsTermination"/>.
+        /// <see cref="RecoveryClosesHold"/> then scopes it exactly like a recovery (the owner
+        /// and the earlier segments of its tree). Without it the hold of a terminated
+        /// vessel's crew stayed open forever, since the vessel no longer respawns for a later
+        /// recovery to close it. The closure ends the reservation only; it is not a recovery.
+        /// A tombstoned row is absent from the walk's action list, so the hold reopens with
+        /// it. One closure per (kerbal, owner): the earliest row. Returns the closures added.
+        /// Pure.
+        /// </summary>
+        internal static int CollectTerminationClosures(
+            IReadOnlyList<GameAction> actions,
+            Dictionary<string, List<RecoveryClosure>> into)
+        {
+            if (actions == null || into == null) return 0;
+            var terminatedAtByOwner = new Dictionary<string, double>(StringComparer.Ordinal);
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null || a.Type != GameActionType.VesselTerminated) continue;
+                if (string.IsNullOrEmpty(a.RecordingId)) continue;
+                if (double.IsNaN(a.UT) || double.IsInfinity(a.UT)) continue;
+                double prior;
+                if (!terminatedAtByOwner.TryGetValue(a.RecordingId, out prior) || a.UT < prior)
+                    terminatedAtByOwner[a.RecordingId] = a.UT;
+            }
+            if (terminatedAtByOwner.Count == 0) return 0;
+
+            int added = 0;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null || a.Type != GameActionType.KerbalAssignment) continue;
+                if (string.IsNullOrEmpty(a.KerbalName) || string.IsNullOrEmpty(a.RecordingId)) continue;
+                if (!RoleHoldsKerbal(a.KerbalRole)) continue;
+                if (a.KerbalEndStateField != KerbalEndState.Aboard
+                    && a.KerbalEndStateField != KerbalEndState.Unknown)
+                    continue;
+                double terminatedUT;
+                if (!terminatedAtByOwner.TryGetValue(a.RecordingId, out terminatedUT)) continue;
+                if (!seen.Add(a.KerbalName + "|" + a.RecordingId)) continue;
+
+                List<RecoveryClosure> list;
+                if (!into.TryGetValue(a.KerbalName, out list))
+                {
+                    list = new List<RecoveryClosure>();
+                    into[a.KerbalName] = list;
+                }
+                list.Add(new RecoveryClosure
+                {
+                    OwnerRecordingId = a.RecordingId,
+                    RecoveryUT = terminatedUT,
+                    IsTermination = true,
+                });
+                added++;
+            }
+            return added;
         }
 
         /// <summary>
@@ -610,7 +686,7 @@ namespace Parsek
             for (int i = 0; i < closures.Count; i++)
             {
                 var c = closures[i];
-                if (c.IsKscRetirement) continue;
+                if (c.IsKscRetirement || c.IsTermination) continue;
                 string ownerTreeId = null;
                 bool ownerKnown = treeIdByRecordingId != null
                     && treeIdByRecordingId.TryGetValue(c.OwnerRecordingId ?? "", out ownerTreeId);
@@ -673,10 +749,11 @@ namespace Parsek
         /// </summary>
         private double ResolveRecoveryClosureUT(
             string kerbalName, string recordingId, RecordingMeta holdMeta, out string closingOwner,
-            out bool closedByKscRetirement)
+            out bool closedByKscRetirement, out bool closedByTermination)
         {
             closingOwner = null;
             closedByKscRetirement = false;
+            closedByTermination = false;
             List<RecoveryClosure> closures;
             if (!recoveryClosures.TryGetValue(kerbalName, out closures))
                 return double.PositiveInfinity;
@@ -696,6 +773,7 @@ namespace Parsek
                     best = c.RecoveryUT;
                     closingOwner = c.OwnerRecordingId;
                     closedByKscRetirement = c.IsKscRetirement;
+                    closedByTermination = c.IsTermination;
                 }
             }
             return best;

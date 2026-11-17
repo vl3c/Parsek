@@ -9,7 +9,7 @@
 # watch band of 5, so a compiler that counts a method a decision or two higher
 # cannot red); a method not listed here reds when it reaches 50. A listed method
 # may grow without a red, and a rename or a move into another type needs a re-pin.
-# Pinned from Parsek.dll 2026-11-15
+# Pinned from Parsek.dll 2026-11-17
 
 [crossTypeStaticWrites]
 bound = 55
@@ -351,6 +351,7 @@ keys = [
     "Parsek.RecoveredRecordingEvidence::HasRecoveryRow(string,System.Collections.Generic.IReadOnlyList`1<Parsek.GameAction>,float64)",
     "Parsek.RecoveredRecordingEvidence::IsRecovered(Parsek.Recording,System.Collections.Generic.IReadOnlyList`1<Parsek.GameAction>,string&)",
     "Parsek.RecoveredRecordingEvidence::IsRecoveredByLedgerRow(Parsek.Recording,System.Collections.Generic.IReadOnlyList`1<Parsek.GameAction>)",
+    "Parsek.RecoveredRecordingEvidence::IsTerminatedByLedgerRow(Parsek.Recording,System.Collections.Generic.IReadOnlyList`1<Parsek.GameAction>)",
     "Parsek.RecoveryDispatchScope::get_Depth()",
     "Parsek.RecoveryPickResult::get_SurvivorCount()",
     "Parsek.RelativeAnchorResolver::get_TerminalClampPhysicsTickSeconds()",
@@ -418,7 +419,6 @@ keys = [
     "Parsek.SupersedeCommit::ValidateReFlySessionSupersedeSource(Parsek.Recording,Parsek.RecordingTree,string&,Parsek.SlotVesselWalk&)",
     "Parsek.SwitchSegmentNoOpClassifier::IsMeaningfulPartEvent(Parsek.PartEvent)",
     "Parsek.TestRunnerUI::IsMouseOverOpenWindow(UnityEngine.Vector2)",
-    "Parsek.TimeJumpManager::SpawnCrossedChainTips(System.Collections.Generic.Dictionary`2<uint32,Parsek.GhostChain>,Parsek.VesselGhoster,float64,float64)",
     "Parsek.TimeJumpManager::get_HasPendingPlacement()",
     "Parsek.TimeJumpManager::get_ReadyEndCacheCount()",
     "Parsek.TimelineWindowUI/TimelineScrollTarget::ForCareerSubject(Parsek.TimelineCareerCategory,string)",

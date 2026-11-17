@@ -615,6 +615,13 @@ namespace Parsek
                     {
                         RetireChainAtKsc(chain, rec, index);
                     }
+                    else if (VesselGhoster.IsChainTipSettledWithoutVessel(rec))
+                    {
+                        // A deliberate abandon (dead crew, invalid snapshot), not a failure:
+                        // the chain stays ghost-only.
+                        ParsekLog.Info("Flight",
+                            $"Chain tip spawn abandoned: #{index} \"{rec.VesselName}\" - no vessel created, chain stays ghost-only");
+                    }
                     else if (chain.SpawnBlocked)
                     {
                         // SpawnAtChainTip detected overlap — chain stays active, not removed
@@ -1031,8 +1038,8 @@ namespace Parsek
             }
 
             TimeJumpManager.NotifyRecorder(host.recorder, currentUT, targetUT);
-            // Pass null chains — let the engine playback loop handle spawn naturally
-            TimeJumpManager.ExecuteJump(targetUT, null, host.vesselGhoster);
+            // The engine playback loop handles the end spawn after the jump
+            TimeJumpManager.ExecuteJump(targetUT);
             host.PlaybackHost.RefreshBlockedChainTipGhostOrbitsAfterJump();
             ArmSpawnWarpWatch(rec, targetUT);
         }
@@ -1169,7 +1176,7 @@ namespace Parsek
 
             TimeJumpManager.NotifyRecorder(host.recorder, currentUT, targetUT);
             // Epoch-shifted jump: preserves rendezvous geometry
-            TimeJumpManager.ExecuteJump(targetUT, null, host.vesselGhoster);
+            TimeJumpManager.ExecuteJump(targetUT);
             host.PlaybackHost.RefreshBlockedChainTipGhostOrbitsAfterJump();
 
             ParsekLog.ScreenMessage(
@@ -1445,9 +1452,8 @@ namespace Parsek
                     targetUT, targetUT - currentUT));
 
             TimeJumpManager.NotifyRecorder(host.recorder, currentUT, targetUT);
-            // Pass null chains - let the engine playback loop handle spawn naturally,
-            // as WarpToRecordingEnd does.
-            TimeJumpManager.ExecuteJump(targetUT, null, host.vesselGhoster);
+            // The engine playback loop handles the end spawns, as WarpToRecordingEnd does.
+            TimeJumpManager.ExecuteJump(targetUT);
             host.PlaybackHost.RefreshBlockedChainTipGhostOrbitsAfterJump();
             return true;
         }

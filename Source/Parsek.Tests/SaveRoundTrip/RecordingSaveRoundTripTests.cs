@@ -63,7 +63,7 @@ namespace Parsek.Tests.SaveRoundTrip
                 "IsDetachedSyntheticSnapshot")
             .NotPersisted(SpawnRetryState,
                 "SpawnAttempts", "CollisionBlockCount", "SpawnAbandoned", "WalkbackExhausted",
-                "DuplicateBlockerRecovered", "SpawnDeathCount", "TerminalSpawnSafetyDeferred")
+                "DuplicateBlockerRecovered", "TerminalSpawnSafetyDeferred")
             .NotPersisted(SpawnSafetyVerdict,
                 "TerminalSpawnSafetyReason", "TerminalSpawnSafetyDecisionUT", "TerminalSpawnNextAttemptUT",
                 "TerminalSpawnSafetyAltitude", "TerminalSpawnSafetySafeAltitude",

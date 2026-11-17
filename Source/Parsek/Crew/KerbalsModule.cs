@@ -162,13 +162,18 @@ namespace Parsek
         /// row, or (<see cref="IsKscRetirement"/>) the synthetic in-memory closure a flight
         /// retired in the KSC exclusion zone adds at its EndUT (operator ruling 2026-09-23;
         /// <see cref="VesselSpawner.IsKscRetiredFinalFlight"/>), as if recovered, without a
-        /// ledger row.
+        /// ledger row, or (<see cref="IsTermination"/>) the closure a
+        /// <see cref="GameActionType.VesselTerminated"/> row adds for the crew aboard its owner
+        /// recording. A termination ends the hold only: it is never a recovery (no
+        /// <see cref="TryFindRecordedRecoveryInScope"/> match, no reward), and stock's own
+        /// Missing -> respawn handling takes the kerbal from there.
         /// </summary>
         internal struct RecoveryClosure
         {
             public string OwnerRecordingId;
             public double RecoveryUT;
             public bool IsKscRetirement;
+            public bool IsTermination;
         }
 
         /// <summary>

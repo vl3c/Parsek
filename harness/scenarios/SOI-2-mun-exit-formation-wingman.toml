@@ -3,7 +3,17 @@ id = "SOI-2-mun-exit-formation-wingman"
 tier = "operator"
 # =====================================================================================
 # SOI-2: A FORMATION FLIGHT THROUGH THE MUN SOI EXIT. A LOADED BACKGROUND WINGMAN'S
-# PHYSICS SOI CHANGE MUST SPLIT ITS OWN OPEN TRACKSECTION. NEVER FLOWN.
+# PHYSICS SOI CHANGE MUST SPLIT ITS OWN OPEN TRACKSECTION.
+# LIVE-PROVEN 2026-11-17 on its first flight, outcome (A) (run 2026-11-17_1422, PASS
+# attempt 1, 291 s; parallel runner run next-tests-2026-11-17, Debug DLL sha256 prefix
+# 7d9f2510 from main 65ac33ee8): the active pod read `Reference frame transition:
+# Absolute -> Absolute at SOI boundary UT=28376.48 onRails=0 source=Active from=Mun
+# to=Kerbin closingSample=1`; the wingman (pid 1068750272, rec 72e92f6b...) read `SOI
+# changed off rails for background vessel: ... Mun -> Kerbin at UT=28376.66` and then
+# `Reference frame transition: Relative -> Relative at SOI boundary UT=28376.68
+# onRails=0 source=Background from=Mun to=Kerbin closingSample=0` for the same pid and
+# rec, no onRails=1 crossing. 2 recordings (`Kerbal X`, `Kerbal X Debris`). Pinned off
+# that reading: (2)'s frame Relative, source Background and closingSample=0, and count 2.
 # =====================================================================================
 #
 # WHAT IT PROVES. The residue of RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT (done/todo v11):
@@ -43,7 +53,7 @@ tier = "operator"
 #       construction): a parent-anchored debris piece this close to its parent records
 #       Relative (CLAUDE.md "Parent-anchored contract"), and a Relative split commits no
 #       closing sample (`IsCommittableSoiClosingPoint` is Absolute only), so C is open
-#       too. The reading run pins both.
+#       too. The reading run pins both (it read Relative and closingSample=0).
 #   (3) SOI-1's two ACTIVE lines stay required: the pod crosses in physics too, with the
 #       frame left open for the same reason (a wingman inside the relative-frame range
 #       may anchor the pod).
@@ -76,14 +86,14 @@ tier = "operator"
 #   4 Burns at 1x: the escape burn as SOI-1; no burn near the boundary.
 #   5 b5 coasts: not applicable (not a b5 machine).
 #   6 Fail fast: SOI-1's named ends plus the formation ones.
-#   7 Tight windows: the count window is derived, tighten after flight 1.
+#   7 Tight windows: the count is pinned at flight 1's measured 2.
 #   8 Tier by measured cost: never flown, so "operator"; SOI-1 flew in 291 s.
 #   9 Measure: run tools/flight_efficiency.py on the first green flight.
 # =====================================================================================
-description = "NEVER FLOWN (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9; the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT residue): SOI-1's Mun escape from mun-park-kerbalx, but 25 s before the Mun SOI exit the pod drops its lander stack and the two coast through the boundary together at 1x, so a LOADED background vessel (the recorded debris wingman) changes SOI in physics. Gates the background off-rails SOI line and the background section-split line for the same pid and recording, SOI-1's two active lines, and forbids any on-rails SOI crossing."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_1422; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9; the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT residue): SOI-1's Mun escape from mun-park-kerbalx, but 25 s before the Mun SOI exit the pod drops its lander stack and the two coast through the boundary together at 1x, so a LOADED background vessel (the recorded debris wingman) changes SOI in physics. Gates the background off-rails SOI line and the background section-split line for the same pid and recording, SOI-1's two active lines, and forbids any on-rails SOI crossing."
 instanceProfile = "stock-minimal"
 tags = ["SOI2", "mun", "kerbin", "cross-soi", "physics-soi", "track-section", "recorder",
-        "background-recorder", "formation", "orbit-start", "crewed", "R3", "pending-flight"]
+        "background-recorder", "formation", "orbit-start", "crewed", "R3", "flown"]
 
 # `mun-park-kerbalx`, SOI-1's host (see SOI-1-mun-exit-physics-burn.toml [fixture]).
 # Nothing is launched, so no `fixtures/shared-ships.toml` row.
@@ -148,10 +158,11 @@ D14 = ["mun", "kerbin", "warp-1x", "warp-rails", "scene-flight", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Derived, open: the pre-stage root, the pod's continuation and the debris child (3),
-# plus any commit-time optimizer split; an exo-ballistic coast across a body change on
-# both sides is kept cohesive (`IsSplittableEnvOrBodyBoundary` step 3), so likely none.
-count = { min = 2, max = 8 }
+# MEASURED 2 on flight 1 (`2026-11-17_1422`): the pod's one recording (`Kerbal X`, the
+# decouple keeps the active recording; no optimizer split, an exo-ballistic coast across
+# a body change on both sides is kept cohesive, `IsSplittableEnvOrBodyBoundary` step 3)
+# and the debris child (`Kerbal X Debris`). A count other than 2 is a finding to read.
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required  = [
@@ -164,8 +175,10 @@ required  = [
   # BackgroundRecorder.PhysicsSoi.cs (ArmBackgroundPhysicsSoiSample, then
   # TrySplitBackgroundSectionAtPhysicsBodyChange appending ` pid= rec=` to
   # FlightRecorder.FormatPhysicsSoiSplitTransition): the LOADED wingman's SOI change is
-  # seen and ITS section is split, same pid and recording on both lines.
-  "SOI changed off rails for background vessel: pid=([0-9]+) rec=([0-9a-f]+) Mun -> Kerbin at UT=[0-9]+\\.[0-9]{2}: section split deferred to the first sample on the new body[\\s\\S]*?Reference frame transition: (\\w+) -> \\3 at SOI boundary UT=[0-9]+\\.[0-9]{2} onRails=0 source=\\w+ from=Mun to=Kerbin closingSample=[01] pid=\\1 rec=\\2",
+  # seen and ITS section is split, same pid and recording on both lines. Frame, source
+  # and closingSample pinned off flight 1 (`2026-11-17_1422`): the parent-anchored debris
+  # records Relative and a Relative split commits no closing sample.
+  "SOI changed off rails for background vessel: pid=([0-9]+) rec=([0-9a-f]+) Mun -> Kerbin at UT=[0-9]+\\.[0-9]{2}: section split deferred to the first sample on the new body[\\s\\S]*?Reference frame transition: Relative -> Relative at SOI boundary UT=[0-9]+\\.[0-9]{2} onRails=0 source=Background from=Mun to=Kerbin closingSample=0 pid=\\1 rec=\\2",
   # ParsekFlight.RecorderSession.cs (the tree-mode consumer of SoiChangePending), as SOI-1.
   "SOI change boundary suppressed in tree mode: Mun to Kerbin",
   # ParsekTestCommandAddon.cs (CommitTree applier).

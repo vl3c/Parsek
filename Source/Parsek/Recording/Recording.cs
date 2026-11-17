@@ -146,6 +146,32 @@ namespace Parsek
         [NonSerialized] internal bool RestoredFromCommittedTreeThisFrame;
 
         /// <summary>
+        /// Clears every end-of-recording spawn bookkeeping field as one set: the spawn claim
+        /// (<see cref="VesselSpawned"/>, <see cref="SpawnedVesselPersistentId"/>), the attempt
+        /// and death counters and the abandon family (<see cref="SpawnAbandoned"/>,
+        /// <see cref="WalkbackExhausted"/>, <see cref="CollisionBlockCount"/>,
+        /// <see cref="DuplicateBlockerRecovered"/>). The resets that put a recording back to
+        /// "no vessel yet" (the in-session load, the Re-Fly strip reconcile, a rewind) all go
+        /// through here, so none leaves a stale abandon behind: a stale
+        /// <see cref="SpawnAbandoned"/> made the spawn core read a later failed attempt as
+        /// spawned (<c>VesselSpawned = SpawnAbandoned || pid != 0</c>) and switched off the
+        /// spawn-death check of a later successful one. The terminal-orbit safety verdict is
+        /// the caller's (<c>TerminalOrbitSpawnSafety.Clear</c>), and recorded content
+        /// (<see cref="VesselDestroyed"/>, the terminal state) is never touched here.
+        /// </summary>
+        internal void ClearTransientSpawnState()
+        {
+            VesselSpawned = false;
+            SpawnedVesselPersistentId = 0;
+            SpawnAttempts = 0;
+            SpawnDeathCount = 0;
+            CollisionBlockCount = 0;
+            SpawnAbandoned = false;
+            WalkbackExhausted = false;
+            DuplicateBlockerRecovered = false;
+        }
+
+        /// <summary>
         /// Marks this recording as needing its <c>.prec</c> sidecar file rewritten
         /// on the next <c>OnSave</c>. MUST be called after any mutation to
         /// <see cref="Points"/>, <see cref="PartEvents"/>, <see cref="OrbitSegments"/>,
@@ -451,7 +477,7 @@ namespace Parsek
         public bool SpawnAbandoned;              // True after collision/death limit reached — prevents vessel-gone check from resetting (transient)
         public bool WalkbackExhausted;           // True after TryWalkbackForEndOfRecordingSpawn scanned entire trajectory with no clear sub-step — distinct from SpawnAbandoned for diagnostics (transient, #264)
         public bool DuplicateBlockerRecovered;   // True after a same-name blocker was recovered once — prevents recovery loops (transient, #112)
-        public int SpawnDeathCount;              // Spawn-then-die cycles: vessel spawned but immediately destroyed (transient)
+        public int SpawnDeathCount;              // Spawn-then-die cycles: vessel spawned but immediately destroyed (persisted as spawnDeathCount so the cap binds across loads)
 
         // Terminal-orbit spawn safety. The soft altitude-deferred hold is transient
         // and re-evaluated against the propagated orbit on the next spawn attempt;

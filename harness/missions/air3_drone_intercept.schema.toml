@@ -173,7 +173,7 @@ type = "string"
 required = false
 type = "string"
 
-# Altitude (m) of the release; the Mk16's own full-deploy altitude is 1500 m (the
+# Altitude (m) of the release; the Mk16's own full-deploy altitude is 2400 m (the
 # craft builder's CHUTE_DEPLOY_ALTITUDE), so the canopy opens seconds after it.
 [params.releaseAltitude]
 required = false

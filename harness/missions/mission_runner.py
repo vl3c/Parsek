@@ -6131,6 +6131,15 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                 if hasattr(state, "flake_reason"):
                     terminal["flake_reason"] = reason
                 return replace(state, **terminal), frames
+        # AIR-3 RELEASE diagnostic (the 2026-11-17 re-flights loitered the whole
+        # 600 s ASCEND bound with no line naming the release gate that held): the
+        # machine's own whitespace-free kv line of every release gate's reading,
+        # the ready streak, the roll-out latch and the loiter point, on the
+        # telemetry cadence. Gated on the AIR-3 machine field (empty outside ASCEND),
+        # so every other mission's log is byte-identical.
+        release_note = getattr(state, "release_note", "")
+        if release_note:
+            log.verbose_rate_limited("release", state.phase, release_note)
         # MATCH-VELOCITY diagnostic (flight-5: the phase had NO per-frame line, so
         # a stuck rel-speed silently ate the whole wall). Rate-limited per-phase
         # key carrying the fields the gate reads, so a stall is greppable + rides

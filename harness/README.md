@@ -2933,6 +2933,24 @@ duplicate (`pid`, `part`) pair, is INVALID-SPEC. `run.py::stage_fixture` applies
 patches in the order `liveState`, `career`, `crewInventory`, `partInventory`, all on
 the staged copy. Contract and decompiled rationale: `harness/lib/savepatch.py`.
 
+### The Tracking Station intro (`[fixture] trackingStationIntroDone = true`)
+
+Most committed fixtures carry stock's `SCENARIO name = ScenarioNewGameIntro` with
+`tsComplete = False`. Decompiled KSP 1.12.5: `TutorialScenario.Start` ->
+`ScenarioNewGameIntro.OnTutorialSetup` -> `TSTutorialSetup` sets the control lock `intro_TS`
+on a Tracking Station entry while `tsComplete` is false, and that lock holds TIMEWARP, so
+`WarpToUT` refuses above 1x there (`warptout refused reason=warp-locked holders=intro_TS`). A
+lane whose subject is a faster warp IN the Tracking Station declares this key, and
+`run.py::stage_fixture` (after the inventory seeds) patches the STAGED copy: `tsComplete =
+True`, or, when `kscComplete` and `editorComplete` are already True, the whole intro node is
+removed (stock's own end state: with all three done `OnTutorialSetup` removes the scenario and
+saves `persistent` on the next scene entry, and the scenario is added only to new games, so it
+does not come back). A save with no intro node is a logged no-op; several intro nodes, or one
+without a `tsComplete` key, fail closed pre-boot `INVALID(staging)`. Only `true` is accepted.
+Log line: `trackingStationIntroDone patched tsComplete <old>->True[; ScenarioNewGameIntro
+removed ...]`. Contract: `savepatch.apply_ts_intro_done`; cells `test_savepatch_ts_intro.py`
+and `test_run_smoke.TrackingStationIntroStageTests`.
+
 ### Recording sidecars: what is committed and what is derived
 
 A fixture's `Parsek/Recordings/` carries the AUTHORITATIVE sidecars - `<id>.prec`

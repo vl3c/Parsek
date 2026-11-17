@@ -259,6 +259,12 @@ namespace Parsek
         /// spawnable vessel. The rewind path
         /// (<c>RecordingStore.ResetRecordingPlaybackFields</c>) follows the same rule.</para>
         ///
+        /// <para>The whole transient spawn set is cleared
+        /// (<see cref="Recording.ClearTransientSpawnState"/>), the abandon family included, so
+        /// the in-session load leaves a recording exactly as a cold load of the same save
+        /// would; the restore loop then puts back the persisted spawn pid, death count and
+        /// terminal-orbit refusal.</para>
+        ///
         /// Returns the number of tree recordings reset.
         /// </summary>
         internal static int ResetTreeRecordingMutableStateForLoad(IReadOnlyList<Recording> recordings)
@@ -266,15 +272,14 @@ namespace Parsek
             if (recordings == null) return 0;
             int reset = 0;
             int keptTerminal = 0;
+            int clearedAbandons = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
                 if (rec == null || !rec.IsTreeRecording) continue;
 
-                rec.VesselSpawned = false;
-                rec.SpawnAttempts = 0;
-                rec.SpawnDeathCount = 0;
-                rec.SpawnedVesselPersistentId = 0;
+                if (rec.SpawnAbandoned) clearedAbandons++;
+                rec.ClearTransientSpawnState();
                 TerminalOrbitSpawnSafety.Clear(rec);
 
                 rec.LastAppliedResourceIndex = -1;
@@ -285,7 +290,9 @@ namespace Parsek
                 "OnLoad tree-mutable-state: reset spawn tracking on " +
                 reset.ToString(CultureInfo.InvariantCulture) + " tree recording(s); " +
                 keptTerminal.ToString(CultureInfo.InvariantCulture) +
-                " recorded terminal verdict(s) kept");
+                " recorded terminal verdict(s) kept; " +
+                clearedAbandons.ToString(CultureInfo.InvariantCulture) +
+                " transient spawn abandon(s) cleared");
             return reset;
         }
     }

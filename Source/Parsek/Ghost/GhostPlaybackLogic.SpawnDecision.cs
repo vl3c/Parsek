@@ -118,19 +118,38 @@ namespace Parsek
         /// BUG-B replay-scope gate, split by purpose. A loop member (explicit live-replay
         /// opt-in) RENDERS regardless of replay scope, but its terminal SPAWN is the first
         /// run's real spawn and obeys the same scope gate as any recording
-        /// (<see cref="ShouldAttemptLoopFirstRunSpawn"/>). An active re-fly session is
-        /// exempt from both. <paramref name="scopeHistorical"/> is
+        /// (<see cref="ShouldAttemptLoopFirstRunSpawn"/>). A recording of the active re-fly
+        /// session's own tree (<see cref="IsInReFlySessionTree"/>) is exempt from both; every
+        /// other recording keeps the gate while a re-fly is active, exactly as after a plain
+        /// rewind. <paramref name="scopeHistorical"/> is
         /// <c>PlaybackScopeTracker.IsHistoricalNeverReplayed</c> for the recording.
         /// </summary>
         internal static bool ResolveHistoricalNeverReplayed(
             bool loopingLike,
-            bool reFlyActive,
+            bool inReFlySessionTree,
             bool scopeHistorical,
             bool forSpawn)
         {
-            if (reFlyActive) return false;
+            if (inReFlySessionTree) return false;
             if (loopingLike && !forSpawn) return false;
             return scopeHistorical;
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> belongs to the tree the active re-fly session
+        /// <paramref name="marker"/> re-flies. Only that tree's recordings straddle the rewind
+        /// point with their vessels stripped from the loaded world (the post-load strip touches
+        /// the rewind point's slots only), so only they must replay and spawn although the
+        /// replay-scope latch never saw their start. Any other committed recording is gated
+        /// as after a plain rewind: its vessel is either live in the loaded save or long gone.
+        /// A marker with no tree id (never written by a current build) keeps the old
+        /// whole-world exemption rather than suppressing the session's own siblings.
+        /// </summary>
+        internal static bool IsInReFlySessionTree(ReFlySessionMarker marker, Recording rec)
+        {
+            if (marker == null || rec == null) return false;
+            if (string.IsNullOrEmpty(marker.TreeId)) return true;
+            return string.Equals(rec.TreeId, marker.TreeId, StringComparison.Ordinal);
         }
 
         #region Spawn-at-Recording-End Decision
@@ -452,7 +471,8 @@ namespace Parsek
 
         /// <summary>
         /// <see cref="ShouldSpawnAtRecordingEnd(Recording, bool, RecordingTree, bool)"/> gates on how the
-        /// flight ended, in order: a non-spawnable terminal, a recovery ledger row after commit, an unsafe
+        /// flight ended, in order: a non-spawnable terminal, a recovery ledger row after commit, a
+        /// termination ledger row after commit, an unsafe
         /// snapshot situation, and an un-finalized snapshot situation that maps to a non-spawnable terminal.
         /// Requires a non-null <see cref="Recording.VesselSnapshot"/> (the recording-state gates run first).
         /// True with the rejection reason when a gate refuses; false (reason empty) otherwise.
@@ -482,6 +502,18 @@ namespace Parsek
             {
                 reason =
                     "recovered after commit (recovery ledger row, terminal " +
+                    (rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "<none>") +
+                    ")";
+                return true;
+            }
+
+            // Terminated after commit: the player removed the vessel this recording left in
+            // the world (Tracking Station Terminate / Delete, a VesselTerminated ledger row).
+            // Like a recovery, it is never spawned back.
+            if (EffectiveState.IsTerminatedByLedgerRowLive(rec))
+            {
+                reason =
+                    "terminated by the player after commit (termination ledger row, terminal " +
                     (rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "<none>") +
                     ")";
                 return true;
@@ -887,7 +919,8 @@ namespace Parsek
         /// is always false. Chain looping/disabled state is derived from RecordingStore.
         /// Returns (needsSpawn, reason) — same semantics as ShouldSpawnAtRecordingEnd.
         /// </summary>
-        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(Recording rec)
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(
+            Recording rec, Dictionary<uint, GhostChain> chains)
         {
             // During rewind, Planetarium UT is still the pre-rewind future value until
             // the deferred coroutine fires. Block all spawns to prevent future vessels
@@ -895,10 +928,23 @@ namespace Parsek
             if (RecordingStore.RewindUTAdjustmentPending)
                 return (false, "rewind UT adjustment pending — Planetarium UT not yet corrected");
 
-            return ShouldSpawnAtKscEnd(rec, Planetarium.GetUniversalTime());
+            return ShouldSpawnAtKscEnd(rec, Planetarium.GetUniversalTime(), chains);
         }
 
-        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(Recording rec, double currentUT)
+        /// <summary>
+        /// The reason <c>ShouldSpawnAtKscEnd</c>
+        /// gives when a later committed flight continues the vessel (an intermediate ghost chain
+        /// link, <see cref="ShouldSuppressSpawnForChain"/>): the chain tip spawns instead.
+        /// </summary>
+        internal const string KscSpawnSkipIntermediateGhostChainLink = "intermediate ghost chain link";
+
+        /// <param name="chains">
+        /// <c>GhostChainWalker.ComputeAllGhostChains</c> over the committed trees at
+        /// <paramref name="currentUT"/>, as the Tracking Station passes it; null or empty means
+        /// no chain claims a vessel.
+        /// </param>
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(
+            Recording rec, double currentUT, Dictionary<uint, GhostChain> chains = null)
         {
             // Don't spawn vessels whose recording hasn't finished yet at the current UT (#rewind-persistence)
             if (currentUT < rec.EndUT)
@@ -921,10 +967,40 @@ namespace Parsek
             // Scene-agnostic #573 rewind lift: a standalone Rewind-to-Launch target the
             // player did not re-fly (no live same-craft vessel present) still spawns its
             // recorded terminal at KSC, identical to Flight and the Tracking Station.
-            return ShouldSpawnAtRecordingEnd(
+            var result = ShouldSpawnAtRecordingEnd(
                 rec, false,
                 treeContext: null,
                 ResolveRewindSuppressionLiveLaunchPresence(rec));
+
+            // The ghost-chain hold-back the Tracking Station and flight apply: a vessel a
+            // later committed flight docks to or boards (an intermediate chain link) is
+            // continued by the chain tip, so spawning it here too would leave a duplicate.
+            if (result.needsSpawn && ShouldSuppressSpawnForChain(chains, rec).suppressed)
+                return (false, KscSpawnSkipIntermediateGhostChainLink);
+
+            // The #171 deferral for an un-finalized recording: with no terminal state the
+            // snapshot's own situation is what the finalize path would have decided (the
+            // same mirror ShouldSpawnAtRecordingEnd applies), so an ORBITING snapshot defers
+            // to the flight scene like an Orbiting terminal. Read after the spawn decision,
+            // which re-hydrates the snapshot.
+            if (result.needsSpawn && IsUnfinalizedOrbitalSnapshot(rec))
+                return (false, "orbital vessel deferred to flight scene "
+                    + "(unfinalized, snapshot situation maps to terminal Orbiting)");
+            return result;
+        }
+
+        /// <summary>
+        /// True when the recording has no terminal state and its vessel snapshot's situation
+        /// maps to <see cref="TerminalState.Orbiting"/> through
+        /// <see cref="TryMapSituationNameToTerminalState"/>.
+        /// </summary>
+        internal static bool IsUnfinalizedOrbitalSnapshot(Recording rec)
+        {
+            return rec != null
+                && !rec.TerminalStateValue.HasValue
+                && rec.VesselSnapshot != null
+                && TryMapSituationNameToTerminalState(rec.VesselSnapshot.GetValue("sit"), out TerminalState mirrored)
+                && mirrored == TerminalState.Orbiting;
         }
 
         /// <summary>

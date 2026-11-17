@@ -8297,6 +8297,183 @@ namespace Parsek.Tests
                 });
         }
 
+        // ----- spawn-stack: two landed deliveries that end on the same spot -----
+        //
+        // The subject of TSS-3-two-deliveries-same-spot-ts. Two committed single-recording
+        // trees, "Stack Probe A" and "Stack Probe B", each a ProbeShip that settles onto the
+        // SAME rest point on the KSC grass and ends Landed there, B 20 s after A. Both carry a
+        // TerminalPosition (what a live Landed commit writes), so the LeafVesselPlacement cell
+        // compares both spawns. Three points each and no TrackSections, so the load-time
+        // TrimBoringTail pass skips them and the windows keep their authored ends. Both start
+        // after the host save's clock (the first load latches them into replay scope) and end
+        // far enough past it that a Tracking Station warp from the save's clock is at a high
+        // rate when it crosses them, so one handoff pass sees both ends.
+
+        internal const string SpawnStackVesselNameA = "Stack Probe A";
+        internal const string SpawnStackVesselNameB = "Stack Probe B";
+        internal const string SpawnStackRecordingIdA = "spawn-stack-a";
+        internal const string SpawnStackRecordingIdB = "spawn-stack-b";
+        /// <summary>The shared rest point: SS-1's KSC grass spot, outside both 50 m KSC circles.</summary>
+        internal const double SpawnStackLat = -0.1000;
+        internal const double SpawnStackLon = -74.8300;
+        internal const double SpawnStackAlt = 66.0;
+        /// <summary>Both recordings open this long after the save's clock.</summary>
+        internal const double SpawnStackStartOffsetSeconds = 60.0;
+        /// <summary>A's window; B's is <see cref="SpawnStackEndStaggerSeconds"/> longer.</summary>
+        internal const double SpawnStackWindowSeconds = 30000.0;
+        internal const double SpawnStackEndStaggerSeconds = 20.0;
+
+        internal static RecordingBuilder SpawnStackRecording(double baseUT, bool second)
+        {
+            string id = second ? SpawnStackRecordingIdB : SpawnStackRecordingIdA;
+            string name = second ? SpawnStackVesselNameB : SpawnStackVesselNameA;
+            double t0 = baseUT + SpawnStackStartOffsetSeconds;
+            double tEnd = t0 + SpawnStackWindowSeconds + (second ? SpawnStackEndStaggerSeconds : 0.0);
+            var b = new RecordingBuilder(name)
+                .WithRecordingId(id)
+                .WithRecordedVesselGuid(ScenarioWriter.DeriveVesselLaunchGuid(id))
+                .WithRecordingGroup("Synthetic");
+            // A short settling hop onto the grass, ending at rest on the shared point.
+            b.AddPoint(t0, SpawnStackLat, SpawnStackLon, SpawnStackAlt + 20.0);
+            b.AddPoint(t0 + (tEnd - t0) * 0.5, SpawnStackLat, SpawnStackLon, SpawnStackAlt + 2.0);
+            b.AddPoint(tEnd, SpawnStackLat, SpawnStackLon, SpawnStackAlt);
+            b.WithTerminalState((int)TerminalState.Landed);
+            b.WithTerminalPosition("Kerbin", SpawnStackLat, SpawnStackLon, SpawnStackAlt);
+            b.WithTerrainHeightAtEnd(SpawnStackAlt - 2.0);
+            // Production-shaped identity, as on the spawn-safety siblings.
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.ProbeShip(name, pid: ScenarioWriter.DeriveVesselPersistentId(id))
+                    .WithLaunchGuid(ScenarioWriter.DeriveVesselLaunchGuid(id))
+                    .AsLanded(SpawnStackLat, SpawnStackLon, SpawnStackAlt));
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.ProbeShip(name, pid: ScenarioWriter.DeriveVesselPersistentId(id))
+                    .WithLaunchGuid(ScenarioWriter.DeriveVesselLaunchGuid(id))
+                    .AsLanded(SpawnStackLat, SpawnStackLon, SpawnStackAlt));
+            return b;
+        }
+
+        [Fact]
+        public void SpawnStack_BothEndOnOneSpotOutsideTheKscCircles()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                Assert.False(SpawnCollisionDetector.IsWithinKscExclusionZone(
+                    SpawnStackLat, SpawnStackLon, 600000.0,
+                    SpawnCollisionDetector.DefaultKscExclusionRadiusMeters));
+                const double saveUT = 21.16;
+                Recording a = MaterializeSpawnSafetyRecording(
+                    SpawnStackRecording(saveUT, second: false), SpawnStackRecordingIdA);
+                Recording b = MaterializeSpawnSafetyRecording(
+                    SpawnStackRecording(saveUT, second: true), SpawnStackRecordingIdB);
+                foreach (Recording rec in new[] { a, b })
+                {
+                    Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+                    Assert.True(rec.TerminalPosition.HasValue);
+                    Assert.Equal("Kerbin", rec.TerminalPosition.Value.body);
+                    Assert.Equal(SpawnStackLat, rec.TerminalPosition.Value.latitude);
+                    Assert.Equal(SpawnStackLon, rec.TerminalPosition.Value.longitude);
+                    Assert.Equal(SpawnStackLat, rec.Points[rec.Points.Count - 1].latitude);
+                    Assert.Equal(SpawnStackLon, rec.Points[rec.Points.Count - 1].longitude);
+                    Assert.Empty(rec.TrackSections);
+                    Assert.True(rec.StartUT > saveUT, "the load must see the playhead before the start");
+                }
+                Assert.Equal(SpawnStackEndStaggerSeconds, b.EndUT - a.EndUT, 6);
+                Assert.True(a.EndUT - saveUT > 10000.0, "the end must be crossed at a high warp rate");
+                Assert.NotEqual(a.VesselPersistentId, b.VesselPersistentId);
+                Assert.NotEqual(a.RecordedVesselGuid, b.RecordedVesselGuid);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void SpawnStack_TreeRecordRoundTripKeepsTheTerminalPosition()
+        {
+            Recording a = MaterializeSpawnSafetyRecording(
+                SpawnStackRecording(21.16, second: false), SpawnStackRecordingIdA);
+            Recording reloaded = RoundTripTreeRecord(a);
+            Assert.True(reloaded.TerminalPosition.HasValue);
+            Assert.Equal(SpawnStackLat, reloaded.TerminalPosition.Value.latitude);
+            Assert.Equal(SpawnStackLon, reloaded.TerminalPosition.Value.longitude);
+            Assert.Equal(SpawnStackAlt, reloaded.TerminalPosition.Value.altitude);
+            Assert.Equal(SurfaceSituation.Landed, reloaded.TerminalPosition.Value.situation);
+            Assert.Equal(ScenarioWriter.DeriveVesselLaunchGuid(SpawnStackRecordingIdA),
+                reloaded.RecordedVesselGuid);
+        }
+
+        [Fact]
+        public void SpawnStack_SidecarRoundTripKeepsBothRecordings()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            string dir = Path.Combine(Path.GetTempPath(), "parsek-spawn-stack-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var writer = new ScenarioWriter().WithV3Format();
+                writer.AddRecordingAsTree(SpawnStackRecording(21.16, second: false));
+                writer.AddRecordingAsTree(SpawnStackRecording(21.16, second: true));
+                try
+                {
+                    writer.WriteSidecarFiles(dir);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    throw new InvalidOperationException(
+                        ex.Message + "\n" + string.Join("\n", logLines), ex);
+                }
+
+                string recDir = Path.Combine(dir, "Parsek", "Recordings");
+                foreach (string id in new[] { SpawnStackRecordingIdA, SpawnStackRecordingIdB })
+                {
+                    var loaded = new Recording { RecordingId = id };
+                    Assert.True(RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting(
+                        loaded,
+                        Path.Combine(recDir, id + ".prec"),
+                        Path.Combine(recDir, id + "_vessel.craft"),
+                        Path.Combine(recDir, id + "_ghost.craft")));
+                    Assert.Equal(3, loaded.Points.Count);
+                    Assert.NotNull(loaded.VesselSnapshot);
+                }
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                if (Directory.Exists(dir))
+                    Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        /// <summary>
+        /// Injects the <c>spawn-stack</c> preset behind <c>TSS-3-two-deliveries-same-spot-ts</c>:
+        /// <see cref="SpawnStackRecording"/> A and B as two committed single-recording trees,
+        /// no RewindPoint sidecar. Same env contract and guarded purge as every sibling
+        /// injector. The clock is read off the target save, so it fits any host whose KSC
+        /// grass at the shared point is clear (<c>gloops-airshow</c>).
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("spawn-stack-fixture")]
+        public void InjectSpawnStack()
+        {
+            InjectSingleSubjectPreset("spawn-stack-fixture",
+                (writer, baseUT) =>
+                {
+                    writer.AddRecordingAsTree(SpawnStackRecording(baseUT, second: false));
+                    writer.AddRecordingAsTree(SpawnStackRecording(baseUT, second: true));
+                },
+                content =>
+                {
+                    Assert.Contains("vesselName = " + SpawnStackVesselNameA, content);
+                    Assert.Contains("vesselName = " + SpawnStackVesselNameB, content);
+                    Assert.Contains(SpawnStackRecordingIdA, content);
+                    Assert.Contains(SpawnStackRecordingIdB, content);
+                    Assert.Contains("TERMINAL_POSITION", content);
+                });
+        }
+
         // ----- ghost-commnet-relay: three copies of one relay craft on a synchronous orbit -----
         //
         // The subject of lanes CN-1 (FLIGHT) and CN-1T (TRACKSTATION), which prove the ghost
@@ -10266,7 +10443,7 @@ namespace Parsek.Tests
 
             Recording rec = MaterializeSpawnSafetyRecording(
                 RescanSubstituteRecording(), RescanSubstituteRecordingId);
-            Assert.True(ParsekKSC.IsKscStructurallyEligible(rec));
+            Assert.True(ParsekKSC.IsKscDrawEligible(rec));
             Assert.Equal(RescanSubstituteStartUT, rec.StartUT, 6);
             Assert.Equal(RescanSubstituteEndUT, rec.EndUT, 6);
             // The boot UT sits before the start (the replay-scope latch), and the window

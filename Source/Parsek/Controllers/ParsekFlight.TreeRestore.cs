@@ -2356,9 +2356,13 @@ namespace Parsek
                 return false;
             }
 
+            // The resumed recording's cutoff is the resume instant when its end (a predicted
+            // terminal) lies ahead of the clock: what the vessel earns from here is the attempt's.
             CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(
                 committedTree,
-                "TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write");
+                "TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write",
+                targetRecordingId,
+                liveUT);
             // A save made inside an attempt that resumed in place holds no active tree, so its
             // held-back events wait for this arm (design-load-restores-the-save.md 4.3).
             ParsekScenario.ResolveHeldSaveAttemptEventsOnArm(committedTree.Id);

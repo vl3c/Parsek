@@ -14,6 +14,10 @@ Not released yet.
   Klaw grab with a rewind, a release, rock mining onto a supply route, a Re-Fly across a grab and
   a comet grab.
 
+- **Dev: the leaf placement check also reads height.** For a vessel that ended landed or at sea
+  it now reports whether the vessel sits buried, hanging in the air, or away from its recorded
+  depth, on a line of its own that does not change the check's result yet.
+
 ### Changed
 
 - **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
@@ -28,6 +32,50 @@ Not released yet.
   flying a ship from a finished mission again could start a new mission for it. It now continues
   its own mission, as it does when you fly it without loading.
   (COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH)
+- **A vessel whose landing spot is taken is placed back along its own path.** When another
+  vessel blocks the end spot, Parsek steps back along the recorded path; a lander that flew in
+  near a base could be put down far away in a random direction instead. (TIP-SPAWN-PLACEMENT)
+- **A vessel that ends under water appears at its depth.** A submarine or sunken pod now appears
+  where it ended, as its replay showed it, instead of jumping up to the surface. It is never put
+  inside the sea floor, and a boat recorded above the water still sits on it. (TIP-SPAWN-PLACEMENT)
+- **A vessel or kerbal that ends at sea is created in the water.** It was written as landed on
+  the water, which KSP can treat oddly until the first physics frame. (TIP-SPAWN-PLACEMENT)
+- **A vessel whose whole crew died is never created as an empty capsule.** This now holds for the
+  last vessel of a chain and on every fallback path too. An orbital chain end is also checked for
+  room where it will actually appear on its orbit, not where it was recorded. (TIP-SPAWN-PLACEMENT)
+- **A vessel you terminate or delete stays gone.** Terminating or deleting a recording's end
+  vessel in the Tracking Station no longer brings it back in the next flight or after a load,
+  and its crew are no longer held for it. A vessel that keeps dying on arrival still gets its
+  retries, and the retry count now survives a save. (SPAWNED-VESSEL-TERMINATED-RESPAWNS)
+- **An end vessel whose spawn fails with no ghost on screen is tried again.** When a recording
+  ended out of view and its vessel could not be placed, it was never tried again in that scene.
+  It is now retried for a short while, like a recording whose ghost is still showing, and spawns
+  once. (SPAWN-FAILED-NO-GHOST-NEVER-RETRIED)
+- **An end vessel Parsek gave up on starts clean after a scene change.** After a quickload or a
+  Re-Fly start, a vessel Parsek had given up placing (no clear spot, crew lost) tried again but
+  kept half of the old "given up" state: a failed try was marked done in silence, and a vessel
+  that did appear was no longer watched for loss. Each load now starts it fresh.
+  (SPAWN-ABANDON-SURVIVES-LOAD)
+- **Loading a save into flight no longer skips a vessel that is still due.** Loading straight
+  into flight just after a replayed flight ended skipped that flight's end vessel and freed its
+  crew until the next scene change. The vessel now appears and its crew stay reserved.
+  (COLD-LOAD-DROPS-OWED-SPAWN)
+- **A Re-Fly no longer spawns end vessels of unrelated flights.** During a Re-Fly, recordings
+  of other missions from before the save could spawn their vessels again. Only the flight being
+  flown again is treated as replayed now. (REFLY-LIFTS-HISTORICAL-GATE-FOR-ALL)
+- **Two vessels that end on one spot are no longer created inside each other.** When two
+  deliveries land on the same spot while you are in the Tracking Station or far away in flight,
+  the later one is now set down 15 m clear, as the Space Center already did, instead of in the
+  same place where they could explode on the next load. (SPAWN-TS-STACK-NO-DE-OVERLAP)
+- **A Re-Fly you kept open no longer closes by itself after a load.** Records broken by a ship
+  picked up again after a load counted as part of its earlier, already merged flight, so the
+  next load could seal its Re-Fly slot, and records from a flight you then rewound away were
+  kept. They now belong to the new flight only. (RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK)
+- **A vessel that ends away from Kerbin appears when you wait at the Space Center.** A landing
+  or splashdown on another body, recorded from there, now appears when you time-warp past its
+  end at the Space Center, not only on the next Tracking Station or flight visit. Like those
+  scenes, it now skips a vessel a later flight docks to or boards, and leaves a flight that
+  stopped in orbit with no ending to them, on Kerbin too. (KSC-END-SPAWN-SKIPS-OFF-KERBIN)
 - **A kerbal's walk back to a hatch replays correctly after a save.** When an EVA ended by
   boarding a vessel, the last stretch of the walk or jetpack flight could replay far from where
   the kerbal went once the game was saved and loaded. It now replays on the kerbal's real path.
