@@ -1,7 +1,12 @@
 # =====================================================================================
 # RSF-1: A SUPPLY ROUTE IS FIXED TO THE RECORDINGS IT WAS CREATED FROM. FLYING ITS REAL
 # TRANSPORT AGAIN, MERGING THAT FLIGHT AND F5 / F9 LEAVE THE ROUTE ACTIVE WITH ITS SOURCES
-# UNCHANGED. AUTHORED 2026-11-16 (branch `route-pr`), NEVER FLOWN.
+# UNCHANGED. AUTHORED 2026-11-16 (branch `route-pr`). FLOWN GREEN 2026-11-17: run
+# `2026-11-17_0049_RSF-1-route-source-fixed-across-transport-reflight`, PASS attempt 1 on
+# a2b931302c (automation DLL 5bea7795...), 11 recordings; every read-back from `rsf-created`
+# to `rsf-cycled` read `status=Active sources=3 sourceIds=8604fbc7,39ac117a,5c847692
+# sourceEpochs=3/3,3/3,3/3 sourceDrift=none`, and the cycle delivered 200 LF into A.
+# The first flight (`2026-11-16_2349`, INVALID) is the reason for the new-tree shape below.
 # Todo ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE: the owner rule live; the fix's own path
 # (a re-commit of the route's tree) is not reachable on this host and stays xUnit-proven
 # (`RouteSourceEpochMetadataRewriteTests`).
@@ -120,7 +125,7 @@
 schema = 1
 id = "RSF-1-route-source-fixed-across-transport-reflight"
 tier = "nightly"
-description = "RSF-1, NEVER FLOWN: on rover-relay-c-recorded create and activate the two-stop relay route, F5 and F9, then take the real transport C out again (StartRecording starts fresh in a new tree: this host's unstamped leaf is not restorable after a Cold load), drive C for 5 s, merge that later flight, F5 and F9 again, then let the cycle run. The route must stay Active, and the ListHandles route read-back's source ids and captured/live sidecar epochs after the merge, after the F9 and after the cycle must equal the ones taken at creation with sourceDrift=none; no SourceChanged flip, and C's later flight never joins the sources. Live proof of the owner rule that a route is fixed to the recordings it was created from; the re-commit of the route's own tree (ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE) stays xUnit-proven only."
+description = "RSF-1, FLOWN GREEN 2026-11-17_0049: on rover-relay-c-recorded create and activate the two-stop relay route, F5 and F9, then take the real transport C out again (StartRecording starts fresh in a new tree: this host's unstamped leaf is not restorable after a Cold load), drive C for 5 s, merge that later flight, F5 and F9 again, then let the cycle run. The route must stay Active, and the ListHandles route read-back's source ids and captured/live sidecar epochs after the merge, after the F9 and after the cycle must equal the ones taken at creation with sourceDrift=none; no SourceChanged flip, and C's later flight never joins the sources. Live proof of the owner rule that a route is fixed to the recordings it was created from; the re-commit of the route's own tree (ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE) stays xUnit-proven only."
 instanceProfile = "stock-minimal"
 tags = ["RSF-1", "logistics", "route", "route-source", "quickload", "commit",
         "committed-tree-restore", "drive", "recorded-fixture"]

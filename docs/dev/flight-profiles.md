@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 146 |
 | seam-only lanes | 457 |
-| LIVE-PROVEN date in status row | 483 |
-| no LIVE-PROVEN date | 120 |
+| LIVE-PROVEN date in status row | 484 |
+| no LIVE-PROVEN date | 119 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -97,7 +97,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | RR | 1 | - | 1 | - | - | - | 1 |
 | RS | 1 | - | 1 | - | - | - | 1 |
 | RSC | 3 | - | 3 | - | - | - | 3 |
-| RSF | 1 | - | 1 | - | - | - | - |
+| RSF | 1 | - | 1 | - | - | - | 1 |
 | RVR | 19 | 1 | 18 | - | - | - | 18 |
 | RW | 25 | - | - | 25 | - | 1 | 25 |
 | S | 19 | 11 | 3 | 5 | - | - | 13 |
@@ -325,7 +325,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Pol | 4 | 2 | 4 | B 2, V 2 |
 | Eeloo | 3 | 1 | - | V 2, B 1 |
 | Sun | 10 | - | 6 | TP 6, V 4 |
-| (none derived) | 157 | 6 | 131 | H 62, RVR 19, S 9, CS 8, GUI 7, IR 6, VN 6, L 5, CN 4 +22 |
+| (none derived) | 157 | 6 | 132 | H 62, RVR 19, S 9, CS 8, GUI 7, IR 6, VN 6, L 5, CN 4 +22 |
 
 ## Lanes per timeline operation
 
@@ -1170,7 +1170,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | H58-route-rewind-to-launch | nightly | rover-route-recorded | seam | - | rewind-to-launch, save, time-jump | - | LIVE-PROVEN 2026-09-02 |
 | H59-surface-route-map-lines | operator | rover-route-recorded | seam | - | reload, save, warp, time-jump, scene-change | RouteGhostPlacement | SPEC CHANGED 2026-11-16, NOT RE-FLOWN: RO... |
 | H6-route-rewind-timeline | daily | gloops-airshow | seam | - | - | RouteRewindTimeline | LIVE-PROVEN 2026-07-24 |
-| H60-route-escrow-contention | nightly | logi-cargo-pad | seam | - | - | RouteEscrowContention | LIVE-PROVEN 2026-10-16 |
+| H60-route-escrow-contention | nightly | logi-cargo-pad | seam | - | - | RouteEscrowContention | LIVE-PROVEN 2026-11-16 |
 | H61-autorecord-isolated | nightly | gs1-two-stage-pad | seam | - | - | AutoRecord | LIVE-PROVEN 2026-09-06 |
 | H62-coalescer-isolated | nightly | coalescer-pad | seam | - | - | Coalescer | LIVE-PROVEN 2026-09-06 |
 | H63-merge-dialog-isolated | nightly | gloops-airshow | seam | - | - | MergeDialog | LIVE-PROVEN 2026-09-06 |
@@ -1541,7 +1541,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| RSF-1-route-source-fixed-across-transport-reflight | nightly | rover-relay-c-recorded | seam | - | reload, save, warp, time-jump | - | AUTHORED 2026-11-16 (branch route-pr), NE... |
+| RSF-1-route-source-fixed-across-transport-reflight | nightly | rover-relay-c-recorded | seam | - | reload, save, warp, time-jump | - | LIVE-PROVEN 2026-11-17 |
 
 ### RVR (19)
 

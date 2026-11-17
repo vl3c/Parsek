@@ -6150,7 +6150,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # passed is carried by the per-cell `EscrowContention:` summaries the spec pins.
     # Owed: the reading run measures the split, the pin is replaced whole, and the id
     # leaves this set in the same commit.
-    INTERIM_PIN_IDS: set = {"H60-route-escrow-contention"}
+    # EMPTY AGAIN 2026-11-17: H60's reading run (`2026-11-16_2354`, PASS attempt 1,
+    # `total=5 passed=5 failed=0 skipped=0`) measured the predicted split; the spec pins
+    # it whole and the id left this set in the same commit.
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR

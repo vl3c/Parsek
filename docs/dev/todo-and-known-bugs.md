@@ -1889,8 +1889,8 @@ a short stored-part pickup still delivers the recorded parts. (c) Live proof: AU
 competitor on the depot the multi-stop holder reserved at holds with `source-reserved:` from the
 ORIGIN gate and debits nothing; the holder's second pickup and its delivery both read full,
 delivered == picked up == 10) and `short-pickup-caps-delivery` (the depot drained to 2 LF between
-the holder's windows; the delivery is capped at 6 == picked up, with the supply-cap Warn). H60's
-pin is interim (`total=5`) until the reading run. Still open: a lane-level conservation read like
+the holder's windows; the delivery is capped at 6 == picked up, with the supply-cap Warn). Flown green
+2026-11-16 (`2026-11-16_2354_H60-route-escrow-contention`, 5/5/0/0, pinned whole). Still open: a lane-level conservation read like
 RCN-1's on a recorded host.
 
 Side question (sidecar flush -> SourceChanged): the mechanism is real and by design (section
@@ -1991,7 +1991,7 @@ Audit: a route's source set is written only by `RouteBuilder` (creation) and `Ro
 and every runtime reader (ERS presence, revalidation, transport identities, the backing mission
 frozen to creation members by `ComputeAutoExcludedNewIntervalKeys`) reads that fixed set, never
 a later recording of the vessel; `RouteCandidateFinder` leaves a continuation analysable.
-Live proof authored, not flown: lane `RSF-1-route-source-fixed-across-transport-reflight` on
+Live proof flown green 2026-11-17 (`2026-11-17_0049`, PASS attempt 1): lane `RSF-1-route-source-fixed-across-transport-reflight` on
 RCN-1's host creates and activates the route, F5 / F9, takes the real transport C out again in
 a NEW tree, drives C 5 s, merges, F5 / F9 again and runs the cycle; the route must stay Active
 with no SourceChanged flip. It cannot re-commit the route's own tree: the host's leaf
