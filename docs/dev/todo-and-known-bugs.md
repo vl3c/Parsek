@@ -32,6 +32,11 @@ The kit is a stock submarine and the pieces that turn it into a host and fly it:
   estimate (displacement = drag-cube volume x an unmeasured factor k) and assumptions C1-C5 the
   first flight checks. Gated by `harness/lib/test_psub_craft.py`.
 - `FORGE-psub-pad` (operator) launches it onto the pad uncrewed; the harvest is `psub-pad`.
+- `harness/tools/build_psub_splashed.py` turns that harvest into the host `psub-splashed`: the
+  ParsekScenario strip of `build_mallard_splashed.py`, and the PSUB-1 VESSEL node moved into the
+  sea (SPLASHED at lat -0.0972 lon -74.15, about 4.3 km east of the pad, hull centre at sea level,
+  the canonical surface ORBIT Parsek's own splashed spawns write). `--check` reads PENDING while
+  neither save is committed. Gated by `harness/lib/test_psub_splashed.py` on a synthetic pad save.
 - Mission `psub_dive` (`mlib.psub_decide`) measures the vertical speed after every drop and drops
   the next float pair only while the sub is not yet sinking, so it calibrates k itself; it sinks to
   a target depth or the floor, holds, and optionally rises by ballast drops. Every reading is
