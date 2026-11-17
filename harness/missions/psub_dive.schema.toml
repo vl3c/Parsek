@@ -1,0 +1,164 @@
+# Declared param schema for mission psub_dive (the SUB lanes: the stock submarine PSUB-1,
+# handed over afloat in the sea east of the Space Center, drops float pairs one at a time
+# until it sinks, sinks to a target depth or the sea floor, holds, and optionally drops
+# ballast pairs until it rises back to the surface; every reading is logged).
+#
+# Consumed exactly like every sibling schema: run.py parses it into the
+# { mission -> schema } registry and hlib's pure _validate_mission_params reads the
+# `params` table and nothing else. min/max are consulted only on numeric types.
+# Every default lives in `mlib.psub_params_from_dict`, which also refuses an
+# inconsistent set (0 < surface < target < max depth, a rise with no ballast stage).
+
+# What the ACTIVE VESSEL must read back at the handoff.
+[params.expectedVesselName]
+required = true
+type = "string"
+
+# Consecutive in-gate handoff frames (the vessel, SPLASHED, the depth channel read)
+# before the run.
+[params.handoffDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+
+# Frames the handoff gate may judge before a refused handoff is a named MISSION-ASSERT-
+# FAIL.
+[params.handoffMaxFrames]
+required = false
+type = "int"
+min = 1
+max = 1000
+
+# Stage clicks that drop a float pair (staged first; build_psub_craft.py's table: 3).
+[params.floatStages]
+required = false
+type = "int"
+min = 1
+max = 10
+
+# Stage clicks that drop an Ore ballast pair (staged after the floats; the table: 3).
+[params.ballastStages]
+required = false
+type = "int"
+min = 0
+max = 10
+
+# Dwell after the handoff and after every drop before a measurement window opens (the
+# bob dies down).
+[params.settleSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 120.0
+
+# The measurement window: the vertical speed is the sea-level altitude change over it.
+[params.measureSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 120.0
+
+# A window reading at or under -sinkRateMps is SINKING (the next float pair is not
+# dropped).
+[params.sinkRateMps]
+required = false
+type = "number"
+min = 0.01
+max = 10.0
+
+# A window reading at or over +riseRateMps is RISING (the next ballast pair is not
+# dropped).
+[params.riseRateMps]
+required = false
+type = "number"
+min = 0.01
+max = 10.0
+
+# Frames a stage click may take to lower the active vessel's part count before it is a
+# MISSION-ASSERT-FAIL.
+[params.dropConfirmFrames]
+required = false
+type = "int"
+min = 1
+max = 1000
+
+# With every pair of the needed kind dropped, still not sinking (or rising) this long
+# after the last drop is the named MISSION-ASSERT-FAIL (k too high / too low).
+[params.noSinkTimeoutSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 1200.0
+
+# Depth under sea level that ends the sink (or the sea floor, whichever comes first).
+[params.targetDepthMeters]
+required = false
+type = "number"
+min = 1.0
+max = 400.0
+
+# Within this height of the sea floor (Flight.Elevation) the sink ends at the floor.
+[params.floorClearanceMeters]
+required = false
+type = "number"
+min = 0.0
+max = 100.0
+
+# The crush guard: deeper than this is a MISSION-ASSERT-FAIL (stock parts tolerate about
+# 4 MPa, ~400 m of water).
+[params.maxDepthMeters]
+required = false
+type = "number"
+min = 2.0
+max = 400.0
+
+# The sink phase's budget before a MISSION-FLAKE naming the depth reached.
+[params.sinkTimeoutSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 3600.0
+
+# Readings kept after the target before the run ends (or the rise starts). The sub keeps
+# sinking: a stock sub cannot hover.
+[params.holdSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 600.0
+
+# The periodic reading's interval while sinking, holding and ascending.
+[params.logIntervalSeconds]
+required = false
+type = "number"
+min = 0.5
+max = 120.0
+
+# After the hold, drop the floats still aboard and then one ballast pair per measurement
+# until the sub rises back to the surface.
+[params.riseAfterTarget]
+required = false
+type = "bool"
+
+# Within this depth of sea level the rise has reached the surface.
+[params.surfaceDepthMeters]
+required = false
+type = "number"
+min = 0.1
+max = 50.0
+
+# The ascent's budget before a MISSION-FLAKE.
+[params.riseTimeoutSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 3600.0
+
+# Consecutive frames in any situation but SPLASHED (the sea floor reads LANDED)
+# tolerated before a MISSION-ASSERT-FAIL.
+[params.offWaterFrames]
+required = false
+type = "int"
+min = 0
+max = 1000

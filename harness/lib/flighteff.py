@@ -1180,6 +1180,7 @@ MISSION_MACHINES = {
     "b6_minmus_flyby": "b5_decide", "b7_duna_flyby": "b5_decide",
     "bay1_runway_bays": "bay1_decide", "bdock_dock_transfer": "bdock_decide",
     "boat1_water_taxi": "boat_decide",
+    "psub_dive": "psub_decide",
     "bdock_second_dock": "sdock_decide", "cl1_pod_impact": "cl1_decide",
     "cl3_refly_crew_tombstone": "cl3_decide", "d5_redock": "rdock_decide",
     "air1_runway_circuit": "air_decide",

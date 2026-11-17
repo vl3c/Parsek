@@ -461,7 +461,8 @@ class KrpcMissionControl(MissionControl):
                  read_vessel_name: bool = False,
                  read_klaw: bool = False,
                  read_aircraft: bool = False,
-                 read_air_target: bool = False) -> None:
+                 read_air_target: bool = False,
+                 read_depth: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -532,6 +533,17 @@ class KrpcMissionControl(MissionControl):
         # read_snapshot stays byte-identical (NaN triple / -1 sentinels).
         self._read_air_target = bool(read_air_target)
         self._warned_air_target_read = False
+        # OPT-IN depth telemetry (the submarine kit's psub_dive): the altitude above
+        # SEA LEVEL (kRPC Flight.MeanAltitude; ``altitude`` is SurfaceAltitude, which
+        # under water is the height above the sea FLOOR), the terrain elevation under
+        # the vessel (Flight.Elevation, negative over the sea: the sea floor), the
+        # current stage number (Control.CurrentStage) and the active vessel's part
+        # count (len(Parts.All), the drop-confirmation signal). OFF everywhere else so
+        # every other mission's read_snapshot stays byte-identical (NaN / -1 / 0
+        # UNREAD sentinels, and every psub gate fails closed on them). FOUR extra RPCs
+        # per poll.
+        self._read_depth = bool(read_depth)
+        self._warned_depth_read = False
         # OPT-IN camera-mode telemetry (V1 map-dwell lane). OFF everywhere else
         # so every other mission's read_snapshot stays byte-identical
         # (camera_mode keeps its "" UNREAD sentinel, which fails the V1
@@ -890,6 +902,28 @@ class KrpcMissionControl(MissionControl):
             own_parts = -1
             if self._read_air_target:
                 air_target_rel, air_target_parts, own_parts = self._read_air_target_channel(v)
+            # DEPTH channel (opt-in, psub_dive). One try/except per surface; the
+            # UNREAD sentinel on a fault, one Warn per run naming the surface.
+            mean_altitude = float("nan")
+            sea_floor = float("nan")
+            current_stage = -1
+            if self._read_depth:
+                try:
+                    mean_altitude = float(flight_srf.mean_altitude)
+                    sea_floor = float(flight_srf.elevation)
+                except Exception as exc:
+                    self._warn_depth_read("Flight(body frame) mean_altitude/elevation", exc)
+                try:
+                    current_stage = int(control_handle.current_stage)
+                except Exception as exc:
+                    current_stage = -1
+                    self._warn_depth_read("Control.current_stage", exc)
+                if part_count <= 0:
+                    try:
+                        part_count = len(v.parts.all)
+                    except Exception as exc:
+                        part_count = 0
+                        self._warn_depth_read("Parts.All", exc)
             # MechJeb NodeExecutor.Enabled (opt-in, B11/B12). Own try/except with
             # the -1 UNREAD sentinel: an executor read fault must degrade to
             # fail-closed (no executor verdict is granted on a blind frame),
@@ -1209,6 +1243,11 @@ class KrpcMissionControl(MissionControl):
                 vessel_mass=vessel_mass,
                 atmosphere_depth=atmosphere_depth,
                 surface_gravity=surface_gravity,
+                # Depth channel (NaN / -1 unless read_depth; every psub gate fails
+                # closed on them).
+                mean_altitude=mean_altitude,
+                sea_floor=sea_floor,
+                current_stage=current_stage,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -4653,6 +4692,19 @@ class KrpcMissionControl(MissionControl):
             "landing-autopilot-not-enabled, never assumed away"
             % (" ".join(applied) or "(none applied)", observed,
                status or "?")))
+
+    def _warn_depth_read(self, surface: str, exc: BaseException) -> None:
+        """One Warn per run for a dark depth channel (psub_dive): its UNREAD
+        sentinels hold the dive machine in place until a phase budget runs out, so the
+        fault must name itself."""
+        if self._warned_depth_read:
+            return
+        self._warned_depth_read = True
+        _stdout_sink(mlib.format_mission_log_line(
+            "Warn", "Telemetry",
+            "%s UNREADABLE (%s: %s); the depth channel degrades to its UNREAD "
+            "sentinels. Logged once per run."
+            % (surface, type(exc).__name__, str(exc)[:160])))
 
     def _warn_aircraft_read(self, surface: str, exc: BaseException) -> None:
         """One Warn per run for a dark aircraft channel (AIR-1): its NaN sentinels

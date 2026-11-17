@@ -20,6 +20,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; AUTHORED, NEVER FLOWN (tag `pending-flight`); OPEN: the forge flight, the harvest, then the SUB lanes' reading runs]
+
+The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
+`LeafPlacement height:` depth check have no live subject below sea level: BOAT-1's Mallard floats.
+The kit is a stock submarine and the pieces that turn it into a host and fly it:
+- `harness/tools/build_psub_craft.py` builds `PSUB-1.craft` (in `bdock-forge-base/Ships/VAB`) by
+  construction from KSP-written donor tails: an Octo2 probe hull that sinks by staging off three
+  pairs of EMPTY FL-T100s and rises by staging off three pairs of Ore ballast (75, 75, 40 Ore per
+  tank, heaviest first); 28 parts, 5.75 t. Its docstring carries the staging table, the buoyancy
+  estimate (displacement = drag-cube volume x an unmeasured factor k) and assumptions C1-C5 the
+  first flight checks. Gated by `harness/lib/test_psub_craft.py`.
+- `FORGE-psub-pad` (operator) launches it onto the pad uncrewed; the harvest is `psub-pad`.
+- Mission `psub_dive` (`mlib.psub_decide`) measures the vertical speed after every drop and drops
+  the next float pair only while the sub is not yet sinking, so it calibrates k itself; it sinks to
+  a target depth or the floor, holds, and optionally rises by ballast drops. Every reading is
+  logged. The "k too high" / "k too low" ends name a craft that cannot dive at all.
+
+Done when the SUB lanes have flown once as reading runs and are re-pinned, or their reds are filed.
+
 ## ~~COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN~~: loading a save into FLIGHT after a recording's end, before its vessel spawned, drops the vessel for good [FILED 2026-11-17 by code reading during the end-spawn lane program (todo END-SPAWN-LANES-2026-11-17); no flight yet; SPW-8 and SPW-9 are pre-registered to red on it; high (a vessel the player was owed never appears, silently apart from one log line); FIXED 2026-11-17 under the id COLD-LOAD-DROPS-OWED-SPAWN (the same defect, found twice the same day); SPW-8 and SPW-9 should now read green]
 
 What happens. Every Cold load (a save-file load: the Load menu, and stock F9, which classifies Cold

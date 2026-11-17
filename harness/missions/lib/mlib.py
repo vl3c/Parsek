@@ -4047,6 +4047,17 @@ class TelemetrySnapshot:
         float("nan"), float("nan"), float("nan"))
     air_target_part_count: int = -1
     own_part_count: int = -1
+    # DEPTH channel (read only by psub_dive, the ``read_depth`` opt-in): the altitude
+    # above SEA LEVEL (kRPC Flight.MeanAltitude; ``altitude`` above is the height over
+    # the terrain, which under water is the height over the sea FLOOR), the terrain
+    # elevation under the vessel (Flight.Elevation: negative over the sea, the sea
+    # floor) and the current stage number (Control.CurrentStage). NaN / -1 when
+    # unread, and every psub gate fails CLOSED on them. The same opt-in also fills
+    # ``part_count`` when read_docking did not. NOT in snapshot_dict /
+    # MACHINE_STATE_FIELDS, on the science-channel precedent.
+    mean_altitude: float = float("nan")
+    sea_floor: float = float("nan")
+    current_stage: int = -1
 
 
 # ---------------------------------------------------------------------------
@@ -24084,6 +24095,14 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("release_hold", "releaseHold"),
     ("release_rollout", "releaseRollout"),
     ("loiter_captures", "loiterCaptures"),
+    # The submarine dive (psub_dive): every measurement and periodic reading is a
+    # whitespace-free token (psub_format_reading), so each one prints exactly one gate
+    # line, plus the two drop counters. A measurement every settle + measure window
+    # and a reading every logIntervalSeconds bound it to a few lines a minute. Only the
+    # PSUB state carries them.
+    ("psub_reading", "psubReading"),
+    ("floats_dropped", "psubFloatsDropped"),
+    ("ballast_dropped", "psubBallastDropped"),
 )
 
 _MACHINE_FIELD_ABSENT = object()
@@ -38713,6 +38732,513 @@ def evaluate_boat_assertions(frames, params: BoatParams,
              "restUT": st.rest_ut if st is not None else None,
              "phasesReached": list(st.phases_reached) if st is not None else []}),
     ]
+
+
+# ---------------------------------------------------------------------------
+# PSUB dive (mission psub_dive; the stock submarine test kit, todo
+# SUBMARINE-TEST-KIT). Pure.
+#
+# The host (`psub-splashed`) hands over the stock submarine PSUB-1 afloat in the sea
+# east of the Space Center (build_psub_craft.py: a probe hull with three float pairs
+# of EMPTY FL-T100s staged first and three Ore ballast pairs staged last). Stock KSP
+# has no pump, so the sub changes its buoyancy only by DROPPING parts, and how much a
+# part displaces is an unmeasured factor k of its drag-cube volume. This machine is
+# therefore a MEASUREMENT as much as a driver: every reading it takes is logged.
+#
+#   PSUB-HANDOFF   the expected vessel, SPLASHED, the depth channel read, on
+#                  ``handoffDebounceFrames`` frames -> SAS on -> PSUB-SETTLE.
+#   PSUB-SETTLE    dwell ``settleSeconds`` (the bob after a drop dies down).
+#   PSUB-MEASURE   the vertical speed over ``measureSeconds`` from the sea-level
+#                  altitude (Flight.MeanAltitude, the depth channel; the ``altitude``
+#                  field is the height over the sea FLOOR under water). Sinking
+#                  (vs <= -sinkRateMps) -> PSUB-SINK. Otherwise the next float pair
+#                  is dropped (one stage click, PSUB-DROP) while one is left; with
+#                  every float pair gone, a sub still afloat ``noSinkTimeoutSeconds``
+#                  after the last drop is the named MISSION-ASSERT-FAIL "k too high".
+#   PSUB-DROP      one stage click, confirmed by the active vessel's part count
+#                  falling below its pre-click count within ``dropConfirmFrames``
+#                  frames (a click that drops nothing is a MISSION-ASSERT-FAIL).
+#   PSUB-SINK      until the sub is ``targetDepthMeters`` under sea level, or within
+#                  ``floorClearanceMeters`` of the sea floor (Flight.Elevation), with a
+#                  reading every ``logIntervalSeconds`` -> PSUB-HOLD. Over
+#                  ``sinkTimeoutSeconds`` -> MISSION-FLAKE.
+#   PSUB-HOLD      ``holdSeconds`` more of readings (the sub keeps sinking: a stock sub
+#                  cannot hover), then PSUB-DONE, or with ``riseAfterTarget`` the RISE.
+#   RISE           staging is sequential, so the floats still aboard go first (each
+#                  makes the sub heavier, dropped back to back without a measurement),
+#                  then one ballast pair per measurement until rising (vs >=
+#                  +riseRateMps) -> PSUB-ASCEND; sinking with every pair gone
+#                  ``noSinkTimeoutSeconds`` after the last drop is the named
+#                  MISSION-ASSERT-FAIL "k too low".
+#   PSUB-ASCEND    until the sub is within ``surfaceDepthMeters`` of sea level ->
+#                  PSUB-DONE. Over ``riseTimeoutSeconds`` -> MISSION-FLAKE.
+#
+# Guards in every phase after the handoff: deeper than ``maxDepthMeters`` (the crush
+# margin: stock parts tolerate about 4 MPa, ~400 m of water) or off the water (any
+# situation but SPLASHED, the sea floor reads LANDED) on more than
+# ``offWaterFrames`` consecutive frames is a MISSION-ASSERT-FAIL; a lost vessel is a
+# MISSION-ASSERT-FAIL. Every measurement and every periodic reading lands in
+# ``psub_reading`` (a MACHINE_DIFF_FIELDS entry, so each one prints one gate line) and
+# in ``readings`` (the result's evidence).
+# ---------------------------------------------------------------------------
+
+PSUB_HANDOFF = "PSUB-HANDOFF"
+PSUB_SETTLE = "PSUB-SETTLE"
+PSUB_MEASURE = "PSUB-MEASURE"
+PSUB_DROP = "PSUB-DROP"
+PSUB_SINK = "PSUB-SINK"
+PSUB_HOLD = "PSUB-HOLD"
+PSUB_ASCEND = "PSUB-ASCEND"
+PSUB_DONE = "PSUB-DONE"
+PSUB_PHASES: Tuple[str, ...] = (PSUB_HANDOFF, PSUB_SETTLE, PSUB_MEASURE, PSUB_DROP,
+                                PSUB_SINK, PSUB_HOLD, PSUB_ASCEND, PSUB_DONE)
+PSUB_MODE_SINK = "sink"
+PSUB_MODE_RISE = "rise"
+PSUB_WATER_SITUATION = "SPLASHED"
+# The evidence tuple keeps the first this-many readings (a bounded result file).
+PSUB_MAX_READINGS = 200
+
+
+@dataclass(frozen=True)
+class PsubParams:
+    expected_vessel_name: str = "PSUB-1"
+    handoff_debounce_frames: int = 3
+    handoff_max_frames: int = 60
+    float_stages: int = 3
+    ballast_stages: int = 3
+    settle_seconds: float = 10.0
+    measure_seconds: float = 10.0
+    sink_rate: float = 0.2
+    rise_rate: float = 0.2
+    drop_confirm_frames: int = 40
+    no_sink_timeout: float = 60.0
+    target_depth: float = 40.0
+    floor_clearance: float = 5.0
+    max_depth: float = 150.0
+    sink_timeout: float = 300.0
+    hold_seconds: float = 10.0
+    log_interval: float = 5.0
+    rise_after_target: bool = False
+    surface_depth: float = 2.0
+    rise_timeout: float = 300.0
+    off_water_frames: int = 10
+
+
+def psub_params_from_dict(params: Dict) -> PsubParams:
+    p = PsubParams(
+        expected_vessel_name=str(params.get("expectedVesselName", "PSUB-1") or ""),
+        handoff_debounce_frames=int(params.get("handoffDebounceFrames", 3)),
+        handoff_max_frames=int(params.get("handoffMaxFrames", 60)),
+        float_stages=int(params.get("floatStages", 3)),
+        ballast_stages=int(params.get("ballastStages", 3)),
+        settle_seconds=float(params.get("settleSeconds", 10.0)),
+        measure_seconds=float(params.get("measureSeconds", 10.0)),
+        sink_rate=float(params.get("sinkRateMps", 0.2)),
+        rise_rate=float(params.get("riseRateMps", 0.2)),
+        drop_confirm_frames=int(params.get("dropConfirmFrames", 40)),
+        no_sink_timeout=float(params.get("noSinkTimeoutSeconds", 60.0)),
+        target_depth=float(params.get("targetDepthMeters", 40.0)),
+        floor_clearance=float(params.get("floorClearanceMeters", 5.0)),
+        max_depth=float(params.get("maxDepthMeters", 150.0)),
+        sink_timeout=float(params.get("sinkTimeoutSeconds", 300.0)),
+        hold_seconds=float(params.get("holdSeconds", 10.0)),
+        log_interval=float(params.get("logIntervalSeconds", 5.0)),
+        rise_after_target=bool(params.get("riseAfterTarget", False)),
+        surface_depth=float(params.get("surfaceDepthMeters", 2.0)),
+        rise_timeout=float(params.get("riseTimeoutSeconds", 300.0)),
+        off_water_frames=int(params.get("offWaterFrames", 10)),
+    )
+    if not p.expected_vessel_name:
+        raise ValueError("expectedVesselName is required (the handoff gate compares it)")
+    if p.float_stages < 1 or p.ballast_stages < 0:
+        raise ValueError("floatStages must be at least 1 and ballastStages at least 0")
+    if p.rise_after_target and p.ballast_stages < 1:
+        raise ValueError("riseAfterTarget needs at least one ballast stage")
+    if p.measure_seconds <= 0.0 or p.settle_seconds < 0.0:
+        raise ValueError("measureSeconds must be positive and settleSeconds not negative")
+    if p.sink_rate <= 0.0 or p.rise_rate <= 0.0:
+        raise ValueError("sinkRateMps and riseRateMps must be positive")
+    if not (0.0 < p.surface_depth < p.target_depth < p.max_depth):
+        raise ValueError("need 0 < surfaceDepthMeters < targetDepthMeters < maxDepthMeters")
+    if p.log_interval <= 0.0:
+        raise ValueError("logIntervalSeconds must be positive")
+    return p
+
+
+@dataclass(frozen=True)
+class PsubState:
+    params: PsubParams
+    phase: str = PSUB_HANDOFF
+    phase_entry_ut: Optional[float] = None
+    phases_reached: Tuple[str, ...] = (PSUB_HANDOFF,)
+    done: bool = False
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    mode: str = PSUB_MODE_SINK
+    # Handoff evidence.
+    handoff_streak: int = 0
+    handoff_frames: int = 0
+    last_vessel_name: str = ""
+    start_situation: Optional[str] = None
+    start_alt: Optional[float] = None
+    start_parts: Optional[int] = None
+    start_stage: Optional[int] = None
+    sea_floor: Optional[float] = None
+    # Drops.
+    floats_dropped: int = 0
+    ballast_dropped: int = 0
+    drop_frames: int = 0
+    drop_baseline_parts: int = 0
+    last_drop_ut: Optional[float] = None
+    # The measurement window.
+    window_ut: Optional[float] = None
+    window_alt: Optional[float] = None
+    measurements: int = 0
+    last_vs: Optional[float] = None
+    # Every reading (bounded) and the latest one (the gate-line field).
+    readings: Tuple[str, ...] = ()
+    psub_reading: str = ""
+    last_log_ut: Optional[float] = None
+    deepest: Optional[float] = None
+    # Outcome stamps.
+    sink_ut: Optional[float] = None
+    sink_vs: Optional[float] = None
+    target_ut: Optional[float] = None
+    floor_reached: bool = False
+    hold_end_ut: Optional[float] = None
+    rise_ut: Optional[float] = None
+    rise_vs: Optional[float] = None
+    surface_ut: Optional[float] = None
+    off_water_streak: int = 0
+    off_water_max_streak: int = 0
+
+
+def psub_initial_state(params: PsubParams) -> PsubState:
+    return PsubState(params=params)
+
+
+def psub_handoff_refusal(params: PsubParams, snapshot: TelemetrySnapshot) -> str:
+    """Why this frame is NOT the handoff, or "" when it is: the expected vessel,
+    SPLASHED, with the depth channel (sea-level altitude, part count, stage) read."""
+    if snapshot.vessel_name != params.expected_vessel_name:
+        return "vessel=%s, not %s" % (snapshot.vessel_name or "<unread>",
+                                      params.expected_vessel_name)
+    if snapshot.situation != PSUB_WATER_SITUATION:
+        return "situation=%s, not %s" % (snapshot.situation or "<unread>",
+                                         PSUB_WATER_SITUATION)
+    if not _is_finite(snapshot.mean_altitude):
+        return "mean_altitude unread"
+    if snapshot.part_count <= 0:
+        return "part_count unread"
+    if snapshot.current_stage < 0:
+        return "current_stage unread"
+    return ""
+
+
+def psub_vertical_speed(alt0: Optional[float], ut0: Optional[float],
+                        alt1: float, ut1: float) -> float:
+    """The mean vertical speed (m/s, up positive) between two sea-level altitude
+    reads; NaN when either end is unread or no time passed."""
+    if alt0 is None or ut0 is None or not _is_finite(alt1) or not _is_finite(ut1):
+        return float("nan")
+    dt = float(ut1) - float(ut0)
+    if dt <= 0.0:
+        return float("nan")
+    return (float(alt1) - float(alt0)) / dt
+
+
+def psub_format_reading(kind: str, state: "PsubState", snapshot: TelemetrySnapshot,
+                        vs: float = float("nan")) -> str:
+    """One measurement as a single whitespace-free token (it rides a gate line)."""
+    def num(x, fmt="%.2f"):
+        return fmt % x if _is_finite(x) else "nan"
+    return ("%s:ut=%s,mode=%s,floats=%d,ballast=%d,alt=%s,vs=%s,floor=%s,parts=%d,"
+            "stage=%d,sit=%s" % (
+                kind, num(snapshot.ut, "%.1f"), state.mode, state.floats_dropped,
+                state.ballast_dropped, num(snapshot.mean_altitude), num(vs, "%.3f"),
+                num(snapshot.sea_floor, "%.1f"), int(snapshot.part_count),
+                int(snapshot.current_stage), snapshot.situation or "unread"))
+
+
+def _psub_enter(state: PsubState, phase: str, ut: float) -> PsubState:
+    return replace(state, phase=phase,
+                   phase_entry_ut=(float(ut) if _is_finite(ut) else state.phase_entry_ut),
+                   phases_reached=state.phases_reached + (phase,))
+
+
+def _psub_elapsed(state: PsubState, ut: float) -> float:
+    if state.phase_entry_ut is None or not _is_finite(ut):
+        return 0.0
+    return float(ut) - float(state.phase_entry_ut)
+
+
+def _psub_fail(state: PsubState, reason: str) -> PsubState:
+    return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                   loss_reason="phase %s: %s" % (state.phase, reason))
+
+
+def _psub_flake(state: PsubState, reason: str) -> PsubState:
+    return replace(state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason="phase %s: %s" % (state.phase, reason))
+
+
+def _psub_record(state: PsubState, reading: str) -> PsubState:
+    readings = state.readings
+    if len(readings) < PSUB_MAX_READINGS:
+        readings = readings + (reading,)
+    return replace(state, readings=readings, psub_reading=reading)
+
+
+def _psub_drops_left(state: PsubState) -> int:
+    p = state.params
+    return (p.float_stages + p.ballast_stages
+            - state.floats_dropped - state.ballast_dropped)
+
+
+def _psub_start_drop(state: PsubState, snapshot: TelemetrySnapshot
+                     ) -> Tuple[PsubState, List[Action]]:
+    st = replace(_psub_enter(state, PSUB_DROP, snapshot.ut), drop_frames=0,
+                 drop_baseline_parts=int(snapshot.part_count))
+    return st, [Action(ACTION_ACTIVATE_STAGE)]
+
+
+def _psub_start_measure(state: PsubState, snapshot: TelemetrySnapshot) -> PsubState:
+    return replace(_psub_enter(state, PSUB_MEASURE, snapshot.ut),
+                   window_ut=float(snapshot.ut) if _is_finite(snapshot.ut) else None,
+                   window_alt=(float(snapshot.mean_altitude)
+                               if _is_finite(snapshot.mean_altitude) else None))
+
+
+def psub_decide(state: PsubState, snapshot: TelemetrySnapshot
+                ) -> Tuple[PsubState, List[Action]]:
+    """Advance the PSUB dive machine one frame; return (new_state, actions). The
+    transitions are the section comment above. Idempotent once done."""
+    if state.done:
+        return state, []
+    p = state.params
+    if snapshot.vessel_lost:
+        return _psub_fail(state, "vessel-lost (unreadable after repeated telemetry "
+                                 "failures)"), []
+    state = replace(state, last_vessel_name=snapshot.vessel_name or state.last_vessel_name)
+
+    if state.phase == PSUB_HANDOFF:
+        frames = state.handoff_frames + 1
+        refusal = psub_handoff_refusal(p, snapshot)
+        streak = 0 if refusal else state.handoff_streak + 1
+        st = replace(state, handoff_frames=frames, handoff_streak=streak)
+        if not refusal and streak >= max(1, p.handoff_debounce_frames):
+            st = replace(_psub_enter(st, PSUB_SETTLE, snapshot.ut),
+                         start_situation=snapshot.situation,
+                         start_alt=float(snapshot.mean_altitude),
+                         start_parts=int(snapshot.part_count),
+                         start_stage=int(snapshot.current_stage),
+                         sea_floor=(float(snapshot.sea_floor)
+                                    if _is_finite(snapshot.sea_floor) else None),
+                         deepest=float(snapshot.mean_altitude),
+                         last_log_ut=float(snapshot.ut) if _is_finite(snapshot.ut) else None)
+            st = _psub_record(st, psub_format_reading("handoff", st, snapshot))
+            return st, [Action(ACTION_SET_SAS)]
+        if frames >= max(1, p.handoff_max_frames):
+            return _psub_fail(st, "handoff refused on %d frames: %s" % (
+                frames, refusal or "in-gate streak never reached %d"
+                % p.handoff_debounce_frames)), []
+        return st, []
+
+    # Guards for every phase after the handoff.
+    st = state
+    alt = snapshot.mean_altitude
+    if _is_finite(alt):
+        deepest = alt if st.deepest is None else min(st.deepest, float(alt))
+        st = replace(st, deepest=deepest)
+        if alt < -p.max_depth:
+            return _psub_fail(_psub_record(st, psub_format_reading("crush-guard", st, snapshot)),
+                              "%.1f m under sea level, past maxDepthMeters %.0f"
+                              % (-alt, p.max_depth)), []
+    if snapshot.situation == PSUB_WATER_SITUATION:
+        st = replace(st, off_water_streak=0)
+    else:
+        streak = st.off_water_streak + 1
+        st = replace(st, off_water_streak=streak,
+                     off_water_max_streak=max(st.off_water_max_streak, streak))
+        if streak > max(0, p.off_water_frames):
+            return _psub_fail(st, "off the water: situation %s on %d consecutive frames"
+                              % (snapshot.situation or "<unread>", streak)), []
+
+    if st.phase == PSUB_SETTLE:
+        if st.mode == PSUB_MODE_RISE and st.floats_dropped < p.float_stages:
+            # A float still aboard only makes the sub heavier: drop it unmeasured.
+            return _psub_start_drop(st, snapshot)
+        if _psub_elapsed(st, snapshot.ut) >= p.settle_seconds:
+            return _psub_start_measure(st, snapshot), []
+        return st, []
+
+    if st.phase == PSUB_MEASURE:
+        if st.window_ut is None or st.window_alt is None:
+            return _psub_start_measure(st, snapshot), []
+        if _psub_elapsed(st, snapshot.ut) < p.measure_seconds:
+            return st, []
+        vs = psub_vertical_speed(st.window_alt, st.window_ut, alt, snapshot.ut)
+        st = replace(st, measurements=st.measurements + 1,
+                     last_vs=vs if _is_finite(vs) else None)
+        st = _psub_record(st, psub_format_reading("measure%d" % st.measurements, st,
+                                                  snapshot, vs))
+        if not _is_finite(vs):
+            return _psub_start_measure(st, snapshot), []
+        since_drop = (float(snapshot.ut) - float(st.last_drop_ut)
+                      if st.last_drop_ut is not None and _is_finite(snapshot.ut)
+                      else _psub_elapsed(st, snapshot.ut))
+        if st.mode == PSUB_MODE_SINK:
+            if vs <= -p.sink_rate:
+                st = replace(_psub_enter(st, PSUB_SINK, snapshot.ut),
+                             sink_ut=float(snapshot.ut), sink_vs=vs)
+                return st, []
+            if st.floats_dropped < p.float_stages:
+                return _psub_start_drop(st, snapshot)
+            if since_drop >= p.no_sink_timeout:
+                return _psub_fail(st, "afloat with every float pair dropped (vs %.3f m/s "
+                                      "%.0f s after the last drop): k is too high for "
+                                      "this craft" % (vs, since_drop)), []
+            return _psub_start_measure(st, snapshot), []
+        # RISE
+        if vs >= p.rise_rate:
+            st = replace(_psub_enter(st, PSUB_ASCEND, snapshot.ut),
+                         rise_ut=float(snapshot.ut), rise_vs=vs)
+            return st, []
+        if _psub_drops_left(st) > 0:
+            return _psub_start_drop(st, snapshot)
+        if since_drop >= p.no_sink_timeout:
+            return _psub_fail(st, "not rising with every ballast pair dropped (vs %.3f "
+                                  "m/s %.0f s after the last drop): k is too low for "
+                                  "this craft" % (vs, since_drop)), []
+        return _psub_start_measure(st, snapshot), []
+
+    if st.phase == PSUB_DROP:
+        frames = st.drop_frames + 1
+        st = replace(st, drop_frames=frames)
+        if 0 < snapshot.part_count < st.drop_baseline_parts:
+            if st.floats_dropped < p.float_stages:
+                st = replace(st, floats_dropped=st.floats_dropped + 1)
+                kind = "drop-float"
+            else:
+                st = replace(st, ballast_dropped=st.ballast_dropped + 1)
+                kind = "drop-ballast"
+            st = replace(st, last_drop_ut=(float(snapshot.ut)
+                                           if _is_finite(snapshot.ut) else st.last_drop_ut))
+            st = _psub_record(st, psub_format_reading(kind, st, snapshot))
+            return _psub_enter(st, PSUB_SETTLE, snapshot.ut), []
+        if frames >= max(1, p.drop_confirm_frames):
+            return _psub_fail(st, "stage click dropped nothing: part count %d not below "
+                                  "%d after %d frames" % (snapshot.part_count,
+                                                          st.drop_baseline_parts,
+                                                          frames)), []
+        return st, []
+
+    periodic = (_is_finite(snapshot.ut) and st.last_log_ut is not None
+                and float(snapshot.ut) - float(st.last_log_ut) >= p.log_interval)
+
+    if st.phase == PSUB_SINK:
+        floor_gap = (float(alt) - float(snapshot.sea_floor)
+                     if _is_finite(alt) and _is_finite(snapshot.sea_floor) else float("nan"))
+        at_floor = _is_finite(floor_gap) and floor_gap <= p.floor_clearance
+        at_target = _is_finite(alt) and alt <= -p.target_depth
+        if at_floor or at_target:
+            st = replace(st, floor_reached=at_floor,
+                         target_ut=float(snapshot.ut) if _is_finite(snapshot.ut) else None,
+                         last_log_ut=float(snapshot.ut))
+            st = _psub_record(st, psub_format_reading(
+                "at-floor" if at_floor else "at-target", st, snapshot))
+            return _psub_enter(st, PSUB_HOLD, snapshot.ut), []
+        if _psub_elapsed(st, snapshot.ut) > p.sink_timeout:
+            return _psub_flake(st, "%.1f m under sea level after %.0f s, target %.0f m"
+                               % (-(st.deepest or 0.0), p.sink_timeout,
+                                  p.target_depth)), []
+        if periodic:
+            st = _psub_record(replace(st, last_log_ut=float(snapshot.ut)),
+                              psub_format_reading("sink", st, snapshot,
+                                                  snapshot.vertical_speed))
+        return st, []
+
+    if st.phase == PSUB_HOLD:
+        if _psub_elapsed(st, snapshot.ut) >= p.hold_seconds:
+            st = _psub_record(replace(st, hold_end_ut=float(snapshot.ut),
+                                      last_log_ut=float(snapshot.ut)),
+                              psub_format_reading("hold-end", st, snapshot,
+                                                  snapshot.vertical_speed))
+            if p.rise_after_target:
+                st = replace(st, mode=PSUB_MODE_RISE)
+                return _psub_start_drop(st, snapshot)
+            return replace(_psub_enter(st, PSUB_DONE, snapshot.ut), done=True), []
+        if periodic:
+            st = _psub_record(replace(st, last_log_ut=float(snapshot.ut)),
+                              psub_format_reading("hold", st, snapshot,
+                                                  snapshot.vertical_speed))
+        return st, []
+
+    if st.phase == PSUB_ASCEND:
+        if _is_finite(alt) and alt >= -p.surface_depth:
+            st = replace(st, surface_ut=float(snapshot.ut), last_log_ut=float(snapshot.ut))
+            st = _psub_record(st, psub_format_reading("surfaced", st, snapshot,
+                                                      snapshot.vertical_speed))
+            return replace(_psub_enter(st, PSUB_DONE, snapshot.ut), done=True), []
+        if _psub_elapsed(st, snapshot.ut) > p.rise_timeout:
+            return _psub_flake(st, "still %.1f m under sea level after %.0f s of rise"
+                               % (-alt if _is_finite(alt) else float("nan"),
+                                  p.rise_timeout)), []
+        if periodic:
+            st = _psub_record(replace(st, last_log_ut=float(snapshot.ut)),
+                              psub_format_reading("ascend", st, snapshot,
+                                                  snapshot.vertical_speed))
+        return st, []
+
+    return _psub_flake(st, "unknown phase"), []
+
+
+def evaluate_psub_assertions(frames, params: PsubParams,
+                             state: Optional[PsubState] = None) -> List[AssertionOutcome]:
+    """Machine-carried evidence only; the frames are not read."""
+    st = state
+    out = [
+        AssertionOutcome(
+            "handoffAfloat",
+            bool(st is not None and st.start_situation == PSUB_WATER_SITUATION
+                 and st.last_vessel_name == params.expected_vessel_name),
+            st.start_situation if st is not None else None,
+            {"expectedVesselName": params.expected_vessel_name,
+             "vessel": st.last_vessel_name if st is not None else None,
+             "startAlt": st.start_alt if st is not None else None,
+             "startParts": st.start_parts if st is not None else None,
+             "startStage": st.start_stage if st is not None else None,
+             "seaFloor": st.sea_floor if st is not None else None,
+             "handoffFrames": st.handoff_frames if st is not None else None}),
+        AssertionOutcome(
+            "sankBelowTarget",
+            bool(st is not None and st.target_ut is not None),
+            st.deepest if st is not None else None,
+            {"targetDepthMeters": params.target_depth,
+             "floorReached": st.floor_reached if st is not None else None,
+             "floatsDropped": st.floats_dropped if st is not None else None,
+             "sinkUT": st.sink_ut if st is not None else None,
+             "sinkVs": st.sink_vs if st is not None else None,
+             "targetUT": st.target_ut if st is not None else None}),
+    ]
+    if params.rise_after_target:
+        out.append(AssertionOutcome(
+            "roseToSurface",
+            bool(st is not None and st.surface_ut is not None),
+            st.rise_vs if st is not None else None,
+            {"surfaceDepthMeters": params.surface_depth,
+             "ballastDropped": st.ballast_dropped if st is not None else None,
+             "riseUT": st.rise_ut if st is not None else None,
+             "surfaceUT": st.surface_ut if st is not None else None}))
+    out.append(AssertionOutcome(
+        "measurementsLogged",
+        bool(st is not None and st.measurements >= 1 and st.phase == PSUB_DONE),
+        st.measurements if st is not None else None,
+        {"readings": list(st.readings) if st is not None else [],
+         "phasesReached": list(st.phases_reached) if st is not None else []}))
+    return out
 
 
 # ---------------------------------------------------------------------------
