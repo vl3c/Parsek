@@ -2034,8 +2034,11 @@ when it names the restored active vessel, it stops the recorder and discards a r
 in memory, suppresses again and logs `re-applied the captured committed-tree restore
 suppression for pid=N discardedReadoptedTree=<bool>`. Pure helpers in `InGameTestRunnerTests`; the
 setter's caller gate (`CommittedSpawnedRestoreSuppressionTests`) now names the seam verb and this
-automation-only restore.
-Owed: H56, H57 and H69 re-flown.
+automation-only restore. Re-flown as run `coldload-fix4` (e2252c2054, copy 1, serial): H56
+(`2026-11-17_2045`, `total=6 passed=6`), H57 (`2026-11-17_2047`, `total=3 passed=3`), H69
+(`2026-11-17_2048`, `total=10 passed=4 skipped=6`, the pinned tally) and H59 (`2026-11-17_2049`)
+all PASS attempt 1; the re-apply line fired before every restore with
+`discardedReadoptedTree=True` for pid 313889796; no `->SourceChanged` in any lane.
 
 ## ~~ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE~~: a content-neutral rewrite of a route's source recording may pause the route as SourceChanged for good [SUSPECTED 2026-11-16 by code read. CONFIRMED by code trace and FIXED 2026-11-16, branch fix-route-source-epoch; xUnit; low]
 
