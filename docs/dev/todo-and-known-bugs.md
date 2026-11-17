@@ -24,9 +24,11 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 So a second `GhostPlaybackEngine` can later run beside the player's own, the engine stops
 writing the static `DiagnosticsState` and its spawn throttle reads a budget object two engines
-can share. Close this entry when P2c-04 lands.
+can share. Close this entry when P2c-01 and P2c-04 have both landed.
 
-- P2c-01 (`LoopSyncParentIdx` read-only on `IPlaybackTrajectory`): open.
+- ~~P2c-01~~ (`LoopSyncParentIdx` read-only on `IPlaybackTrajectory`): done 2026-11-16, branch
+  `mp/p2c-01-loop-sync-readonly`. The interface declares only the getter; `Recording` keeps its
+  setter for `CommittedListOptimizer`, the one production writer.
 - ~~P2c-02~~ (health counters through `IGhostPlaybackDiagnosticsSink`): done 2026-11-16, branch
   `mp/p2c-02-engine-diagnostics-sink`. The six `DiagnosticsState.health` increments moved
   verbatim into `GlobalGhostPlaybackDiagnosticsSink`, which the one-argument engine constructor
@@ -41,7 +43,15 @@ can share. Close this entry when P2c-04 lands.
   `DiagnosticsComputation.` token in `GhostPlaybackEngine*.cs` and pins the publish, append,
   check order. The two P2c-02 destroy tests now stub the Unity resource teardown (they threw
   `SecurityException` on the Windows test host). Owed: in-game `Diagnostics` on lane H27.
-- P2c-04 (`GhostSpawnFrameBudget`): open.
+- ~~P2c-04~~ (`GhostSpawnFrameBudget`): done 2026-11-16, branch `mp/p2c-04-spawn-budget`. The
+  per-frame spawn cap is now a `GhostSpawnFrameBudget` object (`Used`, `MaxPerFrame`, `Consume`,
+  `ResetForFrame`). A third engine constructor takes an optional shared budget; the existing two
+  chain to it with null, so the single-player engine builds and owns its budget and resets it in
+  `ResetPerFramePlaybackCounters` as before, while a budget passed in is never reset by an engine
+  (its owner, R3W-09, resets it once per frame). `frameSpawnCount` stays the engine's own count for
+  its frame log lines; the throttle line prints the budget's numbers with unchanged text. Tests:
+  `GhostSpawnFrameBudgetTests`. Owed: in-game `GhostPlayback` (lane S1.4) and `GhostLifecycle`
+  (LT-5).
 
 ## ~~RACE-0-ALT-PIN-FROM-ONE-FLIGHT~~: RACE-0's confirming flight read PARSEK-FAIL on a launch-site altitude window sized from one flight [FILED 2026-11-17 from run `2026-11-17_0317` (PC, scratch build ca454c963, PARSEK-FAIL(expectation)). FIXED 2026-11-17, branch `mp/t-07c-race-0-widen-alt-windows`; harness spec only, not a Parsek defect; third flight `2026-11-17_0340` PASS; low]
 

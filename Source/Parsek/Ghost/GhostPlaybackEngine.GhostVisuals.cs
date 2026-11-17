@@ -23,6 +23,7 @@ namespace Parsek
             long preCallTicks = spawnStopwatch.ElapsedTicks;
             spawnStopwatch.Start();
             frameSpawnCount++;
+            spawnBudget.Consume();
             if (resetCompletedEventDedup)
                 completedEventFired.Remove(index);
 
