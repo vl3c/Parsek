@@ -818,6 +818,19 @@ class RaceParseRowTests(unittest.TestCase):
                 self.assertTrue(res.mismatches)
         self.assertEqual(rp.STATUS_VACUOUS, cases["vacuous"].status)
 
+    def test_a_read_problem_beside_readable_files_makes_the_save_unevaluable(self):
+        # A save that was read in part: every file that read is clean, but one could
+        # not be read, so a leak may sit in what was missed. The row must not PASS.
+        res = rp.evaluate_race_parse(
+            self.ARMED, SHARED_LISTING, (),
+            [rp.RaceSaveInput("a", _marked(_base_save(), OWN),
+                              ("cannot read Parsek/Recordings/x.prec: denied",))])
+        self.assertEqual(rp.STATUS_ERROR, res.status, res.mismatches)
+        self.assertTrue(res.unevaluable)
+        self.assertFalse(res.leaked)
+        (row,) = res.saves
+        self.assertIn("cannot read Parsek/Recordings/x.prec: denied", row.errors)
+
     def test_a_leak_wins_over_an_unreadable_part(self):
         files = _marked(_base_save(), OWN)
         files["Parsek/Recordings/%s.prec" % RIVAL_REC] = _psk0(RIVAL_REC)

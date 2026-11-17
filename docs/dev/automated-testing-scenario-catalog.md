@@ -130,6 +130,10 @@ report; headline values only here.
   ReconcileSpawnStateAfterStrip -> re-spawn cycle (13.11), loop
   first-run-is-real (exactly one real vessel across N loop cycles and
   rewind re-crossings, 2.2 principle 9 / 12.7).
+- **D19 Competitive multiplayer race** (`docs/dev/design-competitive-multiplayer.md`;
+  values arrive with the race lanes): the stock site baseline read through
+  `ListHandles kind=sites` in a single-player save (RACE-0, multiplayer T-07), the
+  values a restored stock Kerbin is compared against after a race save.
 
 The existing 68 in-game test categories are the canary layer over these
 dimensions; the full list is in the mining report and in

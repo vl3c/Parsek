@@ -3035,7 +3035,7 @@ RUNTESTS_STRICT_VALUES: Tuple[str, ...] = ("true", "false")
 # and a missing key is not a value.
 LISTHANDLES_KIND_KEY = "kind"
 LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active",
-                                             "chains", "routes", "timeline")
+                                             "chains", "routes", "timeline", "sites")
 
 # `ListHandles kind=chains expectDigest=<hex8>`: the OPTIONAL readback comparison.
 # NOT a closed-value arg (its value is a digest, normally `${<label>.digest}` from an
@@ -3092,6 +3092,22 @@ LISTHANDLES_TIMELINE_LOG_KEYS: Tuple[str, ...] = (
 LISTHANDLES_TIMELINE_RETIRED_LOG_KEYS: Tuple[str, ...] = (
     "type", "subject", "ut", "twinCopies", "twinRows",
 )
+
+# `ListHandles kind=sites` (multiplayer T-07, the stock site baseline RACE-0 pins) writes
+# one Info line per fact: `listhandles sites spaceCenter body=.. lat=.. lon=.. alt=..`,
+# `listhandles sites recovery lat=.. lon=..`, one `listhandles sites launchSite index=<i>
+# name='..' <LISTHANDLES_SITES_LAUNCH_SITE_LOG_KEYS>` per spawn point and one
+# `listhandles sites terrain index=<j> name=.. <LISTHANDLES_SITES_TERRAIN_LOG_KEYS>` per
+# fixed sample point (`LISTHANDLES_SITES_SAMPLE_NAMES`, in table order). Degrees carry
+# seven decimals and metres three, invariant. Byte-equal to `TestCommandSitesReadback`
+# (pinned by ListHandlesSourceSyncTests).
+LISTHANDLES_SITES_LOG_PREFIX = "listhandles sites"
+LISTHANDLES_SITES_FACTS: Tuple[str, ...] = ("spaceCenter", "recovery", "launchSite", "terrain")
+LISTHANDLES_SITES_LAUNCH_SITE_LOG_KEYS: Tuple[str, ...] = (
+    "point", "kind", "editor", "lat", "lon", "alt", "src",
+)
+LISTHANDLES_SITES_TERRAIN_LOG_KEYS: Tuple[str, ...] = ("lat", "lon", "height")
+LISTHANDLES_SITES_SAMPLE_NAMES: Tuple[str, ...] = ("pad", "runwayWest", "runwayEast")
 
 # arg key -> (the ONLY verb that reads it, its closed value set). Iterated by
 # validate_spec, so a fifth such arg is one row rather than a fifth copied block.
@@ -12586,7 +12602,11 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
 # compute_coverage and exits 0), so a scenario quarantined for one Parsek defect would
 # silently absorb an unrelated subject death too. A quarantine must never be able to
 # turn "the flight killed the kerbal it existed to save" green; demoting that requires
-# spelling the subkind out.
+# spelling the subkind out. The gated verifier subkinds (save-structure,
+# render-composition, ghost-lifecycle, race-isolation) are deliberately NOT members:
+# each names a Parsek defect its armed verifier found, the same kind of red a filed
+# bugId quarantines, while mission-outcome is a lost flight subject no single defect
+# id can claim.
 NEVER_BUGID_ONLY_SUBKINDS: Tuple[str, ...] = ("mission-outcome",)
 
 # The keys an `[expectedFail]` table may carry. Checked at validation because a
