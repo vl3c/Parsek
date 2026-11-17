@@ -4520,7 +4520,7 @@ class RealTreeSmokeTests(unittest.TestCase):
     def test_module_pairs_are_symmetric_free(self):
         if not self.has_history:
             self.skipTest("no git history available in this checkout")
-        self.assertEqual(len(self.history["modulePairs"]), 190)
+        self.assertEqual(len(self.history["modulePairs"]), 210)
         self.assertTrue(self.history["filePairs"])
         seen = set()
         for row in self.history["modulePairs"]:
