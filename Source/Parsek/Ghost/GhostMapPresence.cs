@@ -187,7 +187,6 @@ namespace Parsek
         internal const double StateVectorRemoveSpeed = 30;        // m/s
         private const double LegacyPointCoverageMaxGapSeconds = 30.0;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
-        internal static Func<string, CelestialBody> FindBodyByNameForTesting;
 
         /// <summary>
         /// PID tracking set: the canonical ghost vessel identification. The set itself lives
@@ -1231,7 +1230,6 @@ namespace Parsek
             CurrentUTNow = GetCurrentUTSafe;
             ghostNamesAppliedVersion = int.MinValue;
             TrackingStationSpawnOverrideForTesting = null;
-            FindBodyByNameForTesting = null;
             OrbitSeedResolver.ResetForTesting();
             GhostMapVessels.ResetForTesting();
             removeAllGhostVesselsDepth = 0;

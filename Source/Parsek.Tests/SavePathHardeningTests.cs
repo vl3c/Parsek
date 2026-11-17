@@ -142,6 +142,7 @@ namespace Parsek.Tests
             string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', sig));
 
             Assert.DoesNotContain("GhostMapPresence.StripFromSave(", body);
+            Assert.DoesNotContain("GhostMapVessels.StripFromSave(", body);
 
             int lastFinally = body.LastIndexOf("finally", StringComparison.Ordinal);
             Assert.True(lastFinally >= 0, "OnSave has no finally block");
@@ -161,6 +162,9 @@ namespace Parsek.Tests
 
             // Exactly one production caller of the raw strip: the fail-closed helper.
             Assert.Equal(1, CountOccurrencesInParsekSource("GhostMapPresence.StripFromSave("));
+            // The strip itself lives in GhostMapVessels; its one caller is the presence
+            // forwarder the helper calls, so no second path reaches it.
+            Assert.Equal(1, CountOccurrencesInParsekSource("GhostMapVessels.StripFromSave("));
         }
 
         // ------------------------------------------------------------------ R6
