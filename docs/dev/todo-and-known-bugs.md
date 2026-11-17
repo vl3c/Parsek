@@ -20,6 +20,79 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK~~: a resumed recording whose end is a predicted terminal ahead of the clock gives its restore attempt a history cutoff in the future, so everything the resumed flight earns reads as committed history [FILED 2026-11-16 from the v1.0.2 release check, lane RF-11-both-slots-in-sequence, run `2026-11-16_2341` (release build) failing against the pass `2026-11-11_0134` (pre-#2622). FIXED 2026-11-17, branch `item30-restore-cutoff`; xUnit + mutation; RF-11 re-flight owed; high (a Re-Fly slot the player kept open seals itself at the next load, and value from a discarded flight stays in the ledger). OPEN: the killed run note below]
+
+What the player sees: re-fly a slot, merge with "Commit, don't seal" while the vessel still
+flies (its tip ends in a predicted crash), then load the save. The vessel is resumed, stock
+re-awards its altitude / speed / distance records in the load frame, and after the next Re-Fly
+start and load the slot the player kept open is sealed by the load sweep, with the awards of a
+flight the rewind abandoned still booked.
+
+Cause. A committed-tree restore attempt (`CommittedTreeRestoreAttempt`, armed by
+`ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore`) gave every recording of the tree an
+event cutoff equal to its `EndUT` (`BuildCommittedTreeRestoreEventCutoffs`): an event at or before
+it is committed history, one after it is the attempt's own. Right when the end is in the past
+(SE-1); wrong when the RESUMED recording's end is a predicted terminal ahead of the live clock.
+The arm gate (`IsCommittedRecordingAheadOfLiveClock`) refuses only recorded data past the clock,
+so a recording whose end is extrapolation (the merged provisional `rec_558d1318`, points=0,
+`terminal=Destroyed terminalUT=429.426`) is resumed at UT 131.9 with a cutoff of 429.43. Every
+award of the resumed flight is then below the cutoff: the coalescer skips the stored seed (131.6)
+and its own new seeds too (`TryCoalesceWorldRecordReward: ... skipped N restore-attempt history
+event(s) at or before cutoff=429.42601042389236`, five lines at LoadGame 0008 and the same five
+for the slot-1 provisional `rec_5cfdf180`, cutoff 429.478, at LoadGame 0014), so five standalone
+events (RecordsAltitude thresholds 3 and 4, RecordsSpeed 3 and 4, RecordsDistance 3, all
+`ut=131.9`) are written to the file as history (`ShouldSuppressCommittedTreeRestoreAttemptEventPersistence`
+false), the Re-Fly start's rollback discard (`RewindInvoker.DiscardRestoreAttemptOfAbandonedFlight`)
+purges only past the cutoff (no `same-id game-state event tail` line in the log), and the next
+tree commit files them as ledger rows of the merged provisional
+(`BuildTreeCommitRowsPreview: ... rows=5`, `NotifyLedgerTreeCommitted`, window [StartUT, EndUT]),
+which the RetireSet gate reads as sealing rows. Before #2622 (RESTORE-ATTEMPT-RECORD-FOLDS-INTO-HISTORY)
+the awards folded into the stored seed (`Coalesced world-record milestone 'RecordsAltitude' ...
+seedUT=131.6`, zero standalone events), which hid the wrong cutoff for world records. The wider
+point: ANY event type the resumed flight emitted before the predicted end got the history
+treatment (kept on the file, survived a rollback discard, filed at the next commit), not only
+world records.
+
+Fix: the arm takes the resumed recording id and the live UT
+(`ArmCommittedTreeRestoreAttempt(tree, reason, resumedRecordingId, resumeUT)`), and only that
+recording's cutoff changes (`ComputeResumedRecordingEventCutoff`): when its end lies after the
+resume instant, the cutoff is the largest double below the resume UT, so an award stamped in the
+resume frame itself (stock's load-frame awards carry the same `Planetarium.GetUniversalTime()`
+the arm read) is the attempt's own. Every other recording keeps its end (a sibling can hold
+recorded data past the clock, and a clamp would purge it on a discard), and an end at or before
+the resume instant keeps the end (SE-1 unchanged). The cutoff is never lowered below a stored
+event of the resumed recording stamped strictly after the resume instant (GameStateStore and
+milestone events; such an event is history the store already holds). Every cutoff reader (the
+coalescer's event and ledger-row loops, the milestone enrichment, the persistence filter, the tail
+purge and the live re-home) reads the clamped value through the one map; the #2622 guards are
+unchanged. Durability: `ATTEMPT_EVENTS` carries two optional keys, `attemptResumedRecordingId` and
+`attemptResumeUT` (round-trip "R"; additive, absent keys mean every cutoff at its end, as before);
+the cold re-arm (`ParsekScenario.TryRearmSaveAttemptForRestoredTree`) passes them back, and the
+in-place shape (no active tree in the save, the flight re-arms at the load's clock) moves the
+resume instant back to the saved one (`CommittedTreeRestoreAttempt.AdoptSavedResumeInstant`, from
+`ResolveHeldSaveAttemptEventsOnArm`) so the held events between the two instants are restored, not
+dropped. An in-session load keeps memory's attempt and its clamp. The arm line now prints
+`resumed=... resumeUT=... endUT=... resumedCutoff=... rule=... storedEventsAtResume=N`. Tests:
+`RestoreAttemptCutoffAheadOfClockTests` (red on the old code: two standalone events where one is
+expected; a resume-frame award, the sibling, SE-1 mirror, non-finite clock, the raise, the
+milestone raise, the round trip, the adopt, and the discard / commit ledger-row cells), plus two
+cold-load cells in `ColdLoadRestoreAttemptRearmTests`. Mutation: a cutoff AT the resume UT reds
+nine cells.
+
+Left as is, not built:
+  (a) A stored event of the resumed recording stamped EXACTLY at the resume UT cannot be told from
+      a resume-frame award by its UT; it reads as the attempt's (kept off the file, purged by a
+      rollback discard). Counted on the arm line (`storedEventsAtResume=N`); not seen in RF-11.
+  (b) The other recordings of the tree keep their end cutoffs even when that end is a predicted
+      terminal ahead of the clock; an event tagged to one of them during the attempt reads as
+      history. Not reached by RF-11 (awards tag the active recording).
+  (c) The purge summary `...: purged N same-id game-state event tail(s) ...` stays a Warn (the RC-7
+      lane pins its text). The log validator's only WRN rule (`WRN-001`) flags a redundant
+      `WARNING:` / `WARN:` prefix, which it does not have, so this now reachable designed case is
+      not flagged.
+  OPEN: the KILLED run `2026-11-16_2307` (same lane, same build) froze at the first
+  AnswerMergeDialog; unexplained and separate from this defect.
+
 ## ~~EVA-SWITCH-STOP-DROPS-OPEN-SECTION~~: an EVA leg that ends by boarding loses its last track section [FILED 2026-11-16 from the D5 residual review (vessel-switch stop distance, branch `fix-residuals-contract-d5`), by code reading. FIXED 2026-11-16, branch fix-board-merge-open-section; xUnit; no lane gates it yet; medium (the ghost of a kerbal's walk or jetpack flight to the hatch is wrong after a save)]
 
 What was wrong. `FlightRecorder.HandleVesselSwitchDuringRecording` (the ChainToVessel decision:
@@ -463,6 +536,9 @@ Known residue, not built (from the fix's second review; neither reproduced):
       seed. Bounded and not seen in a flight; pinned only as a boundary in
       `RestoreAttemptRecordCoalesceTests`
       (`Boundary_AnEventAtTheCutoffIsHistory_OneJustAfterIsTheAttemptsOwn`).
+      For a resumed recording whose end lies ahead of the clock the cutoff is now just below the
+      resume UT, so a resume-frame award is the attempt's (RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK);
+      the residue stays for an end in the past.
 
 ## ~~FAR-SWITCH-INTENT-TTL-RACE~~: a fast far Switch-To starts a switch segment on the target, which the design says it must not [FILED 2026-11-14 from S0.14's third flight (PC, head a3624e48f, PARSEK-FAIL on its pre-registered P6), branch `item20-switch-pending-merge-lane`; code and decompile reading. FIXED 2026-11-14 on the same branch (PR #2609): no intent is armed for an unloaded target; xUnit + mutation; FLOWN GREEN 2026-11-15: S0.14 `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1; low (a recording the player did not ask for, on a rare path)]
 

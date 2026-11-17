@@ -1066,6 +1066,11 @@ namespace Parsek
         internal const string AttemptEventsNodeName = "ATTEMPT_EVENTS";
         internal const string AttemptTreeIdKey = "attemptTreeId";
         internal const string AttemptArmReasonKey = "attemptArmReason";
+        // Optional (absent: every cutoff at its recording's end, as a save without them was
+        // armed): the recording the attempt resumed and the live UT it resumed at, so a cold
+        // re-arm rebuilds the same resume-instant cutoff.
+        internal const string AttemptResumedRecordingIdKey = "attemptResumedRecordingId";
+        internal const string AttemptResumeUTKey = "attemptResumeUT";
         internal const string BaselineNodeName = "PARSEK_BASELINE";
 
         /// <summary>
@@ -1113,6 +1118,7 @@ namespace Parsek
                 attemptNode.AddValue(AttemptTreeIdKey, attemptTreeId);
                 if (!string.IsNullOrEmpty(attemptArmReason))
                     attemptNode.AddValue(AttemptArmReasonKey, attemptArmReason);
+                AddAttemptResumeValues(attemptNode, attemptTreeId);
             }
 
             HashSet<string> skippedContractAcceptGuids = null;
@@ -1160,6 +1166,45 @@ namespace Parsek
             build.Root = rootNode;
             build.AttemptEvents = attemptNode;
             return build;
+        }
+
+        /// <summary>
+        /// Writes the live attempt's resume facts (<see cref="AttemptResumedRecordingIdKey"/>,
+        /// <see cref="AttemptResumeUTKey"/>, round-trip format) into its <c>ATTEMPT_EVENTS</c>
+        /// node when <paramref name="attemptTreeId"/> is the armed attempt and it named them.
+        /// </summary>
+        internal static void AddAttemptResumeValues(ConfigNode attemptNode, string attemptTreeId)
+        {
+            if (attemptNode == null
+                || !string.Equals(attemptTreeId, RecordingStore.CommittedTreeRestoreAttemptTreeId, StringComparison.Ordinal))
+                return;
+            string resumedId = RecordingStore.CommittedTreeRestoreAttemptResumedRecordingId;
+            double resumeUT = RecordingStore.CommittedTreeRestoreAttemptResumeUT;
+            if (string.IsNullOrEmpty(resumedId) || double.IsNaN(resumeUT) || double.IsInfinity(resumeUT))
+                return;
+            attemptNode.AddValue(AttemptResumedRecordingIdKey, resumedId);
+            attemptNode.AddValue(AttemptResumeUTKey, resumeUT.ToString("R", CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>
+        /// Pure: reads the resume facts <see cref="AddAttemptResumeValues"/> wrote. False (null id,
+        /// NaN UT) when either key is absent or the UT does not parse as a finite number.
+        /// </summary>
+        internal static bool TryReadAttemptResumeValues(
+            ConfigNode attemptNode, out string resumedRecordingId, out double resumeUT)
+        {
+            resumedRecordingId = null;
+            resumeUT = double.NaN;
+            string id = attemptNode?.GetValue(AttemptResumedRecordingIdKey);
+            string text = attemptNode?.GetValue(AttemptResumeUTKey);
+            if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(text))
+                return false;
+            if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double ut)
+                || double.IsNaN(ut) || double.IsInfinity(ut))
+                return false;
+            resumedRecordingId = id;
+            resumeUT = ut;
+            return true;
         }
 
         internal static bool SaveEventFile()

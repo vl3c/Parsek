@@ -24,6 +24,10 @@ Not released yet.
 
 ### Fixed
 
+- **A Re-Fly you kept open no longer closes by itself after a load.** Records broken by a ship
+  picked up again after a load counted as part of its earlier, already merged flight, so the
+  next load could seal its Re-Fly slot, and records from a flight you then rewound away were
+  kept. They now belong to the new flight only. (RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK)
 - **A kerbal's walk back to a hatch replays correctly after a save.** When an EVA ended by
   boarding a vessel, the last stretch of the walk or jetpack flight could replay far from where
   the kerbal went once the game was saved and loaded. It now replays on the kerbal's real path.
