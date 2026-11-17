@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## KSC-END-SPAWN-SKIPS-OFF-KERBIN: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. OPEN; medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
+## ~~KSC-END-SPAWN-SKIPS-OFF-KERBIN~~: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. FIXED 2026-11-17, branch `kscspawn`; xUnit; re-flights owed (LAY-1 goes green, the lanes below confirm nothing new spawns); medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
 
 What happened. LAY-1 landed the crewed Duna Rocket's pod on Laythe and committed it
 (`CommitTreeFlight terminal: rec=ba455ab6a039477ab19b9b362b1d4240 terminalState=Splashed
@@ -69,6 +69,85 @@ past an off-Kerbin end (FAR-1's DD1, which the fixture already holds, must be ad
 duplicated; V20K's Jool -> Kerbin recording stays deferred by #171; the moon loop lanes), add
 xUnit cells over the split predicate (`IsKscStructurallyEligible` is `internal static`) and
 re-fly them with LAY-1.
+
+Fix: `ParsekKSC.ClassifyKscStructuralRoute` splits the old `IsKscStructurallyEligible` into
+a draw half and a spawn half: `Render` (two or more points, first point on Kerbin; the old
+predicate, now `IsKscDrawEligible`), `SpawnOnly` (two or more points, first point off Kerbin;
+the spawn half is every route but `Skip`) and `Skip` (null or fewer than two points: no ghost, no spawn, the #433
+premise kept for the case it fits). A `SpawnOnly` recording is never drawn (ghosts and overlap
+ghosts torn down, `ShouldShowInKSC` and the init `eligible` count unchanged) and goes through
+`RunKscSpawnOnlyDispatch`, which makes the calls the render branches would make past the end;
+the per-recording choice is the pure `DecideKscStructuralDispatch` (route plus
+`DecideKscSpawnOnlyAction`) the Update loop calls: a loop-driven recording (its own LoopPlayback or a Mission
+loop-unit member) through `TryLoopFirstRunSpawnKsc`, any other once past its end unless
+historical (BUG-B) through `TrySpawnAtRecordingEnd`, the #433 detour's rule. No new spawn rule:
+every refusal (chain mid-segment, non-leaf, debris, branch > 0, superseded / retired (checked
+before the split), already spawned, Destroyed / Recovered terminals, the per-scene attempt
+latch) stays in `ShouldSpawnAtKscEnd` / `ShouldSpawnAtRecordingEnd`, which have no body rule,
+and the #171 Orbiting / Docked deferral keeps every far-body orbit to the flight scene.
+The ghost-chain hold-back (review of b19930a2): the Tracking Station
+(`ShouldSpawnAtTrackingStationEnd` -> `ShouldSuppressSpawnForChain`) and flight
+(`ComposeFlightFinalNeedsSpawn`) hold back the spawn of an intermediate ghost chain link (a
+vessel a later committed tree docks to or boards: the chain tip continues it), but the Space
+Center never did, for Kerbin recordings either, so such a leaf spawned there with a fresh pid
+and the tip spawned again later (`ChainTipStaleVessel` probes only the claimed pids): a
+duplicate the split would have widened to off-Kerbin leaves. `ShouldSpawnAtKscEnd(rec, ut,
+chains)` now applies `ShouldSuppressSpawnForChain` after the spawn decision (reason
+`KscSpawnSkipIntermediateGhostChainLink`), for every route; `TrySpawnAtRecordingEnd` passes
+`GhostChainWalker.ComputeAllGhostChains(CommittedTrees, ut)`, built at most once per Update pass
+and only when a spawn decision runs (the attempt latch keeps it to once per recording per
+scene), and logs `Spawn held back for #i ...: intermediate ghost chain link` (Info) when it
+holds one back. One more
+gap closed on the way, because the split widens it to every far-body leaf: an UN-FINALIZED
+recording (no terminal state) whose snapshot is ORBITING passed the #171 check, which reads
+only the terminal; `ShouldSpawnAtKscEnd` now defers it too (`IsUnfinalizedOrbitalSnapshot`,
+the same situation mirror `ShouldSpawnAtRecordingEnd` already applies), so the Space Center
+never loads an orbiting ProtoVessel; the Tracking Station and flight still spawn it. Logging:
+one `[KSCSpawn] KSC structural pass: drawable=N spawnOnly=M ... skipped=K ...` Verbose line per
+change of the split (three ints compared against the last line, so a steady pass allocates
+nothing), one `Spawn-only past-end: attempting
+spawn for #i ... reason=off-kerbin firstBody=<body>` line per recording per scene, the ghost
+teardown line now names the reason, and the existing `Spawn not needed ...: <reason>` /
+`Loop first-run spawn:` / `Attempting spawn for` lines follow. xUnit:
+`KscOffKerbinSpawnSplitTests` (both halves both ways, too-few-points on either body, the spawn
+predicate for an off-Kerbin Splashed / Destroyed / Orbiting / null-terminal ORBITING /
+non-leaf / debris / ghost-only / spawned recording, the action table, the once-per-recording
+line, the pass summary and its change gate, the Update dispatch table for every route, the
+chain hold-back on Kerbin and off-Kerbin recordings mirroring
+`TrackingStationSpawnTests.ShouldSpawnAtTrackingStationEnd_PidClaimedByGhostChain_ReturnsFalse`,
+the chain tip and an unclaimed vessel still spawning, and the same answer as the Tracking
+Station's predicate); `PlaybackEnabledScopeTests` / `SyntheticRecordingTests` renamed to
+`IsKscDrawEligible`.
+
+Mirror check (every reader of the old combined predicate): `ShouldShowInKSC` (the init count
+and breakdown, `KscGhostPlaybackTests` / `KscSpawnTests` / `LaunchSiteOnlyGhostTests`) keeps the
+draw half, so V20K's pinned `1 committed recordings, 0 eligible` and `ineligible(Orbiting=1)`
+hold; `ParsekKSC.Update` was the one other caller. Not readers of it, unchanged: the KSC
+auto-loop queue (`RebuildAutoLoopLaunchScheduleCache`) and the Mission loop-unit build
+(`DriveMissionLoopUnits`) already walked every recording; the per-point / per-segment Kerbin
+gates in `ParsekKSC.Playback.cs` serve only the render branches a `SpawnOnly` recording never
+enters; the Tracking Station handoff (`ShouldSpawnAtTrackingStationEnd`) and its map presence
+(`GhostMapPresence`) never read it; flight's `ShouldSpawnAtRecordingEnd` has no body rule.
+Fixture scan (every committed `harness/fixtures/saves/*/persistent.sfs`, recordings with
+`startBodyName` off Kerbin): every spawnable off-Kerbin leaf already carries a `spawnedPid`
+(duna-one, duna-park, duna-ike(-career) 9e2f5bfa, kerbin-return) and every other one is a chain
+mid-segment, a non-leaf or has no `_vessel.craft`, so no committed fixture starts spawning at
+the Space Center on load.
+
+Re-fly with the fix: LAY-1 (the gate below; goes green). Confirmation lanes, which cross the
+Space Center past the end of an off-Kerbin recording and must read unchanged: FAR-1 (R and the
+fixture leaf are Orbiting Ike, so DD1 is deferred, neither duplicated nor re-spawned:
+`compared=1 ... duplicate=0 ... bodies=[Ike]`), FAR-2 (the Duna leaves are already spawned,
+`compared=3 ... duplicate=0`), V20K (the Jool recording is spawned and Orbiting, so no spawn;
+`0 eligible` and the breakdown hold), EVA-10 (its Mun members at the Space Center
+after `ExitToSpaceCenter` are historical, so none spawns there), and the moon continuation loop
+lanes that boot at the Space Center on off-Kerbin continuations: V31M-V39M and V31T-V33T.
+For the chain hold-back (a Space Center behavior change for Kerbin recordings too), the
+candidates are the lanes that sit at the Space Center past the end of a committed vessel a
+later tree docks to or boards, not individually verified: the `bdock-recorded` census and
+mission lanes (GUI-4, GUI-10, GUI-11, GUI-27, MS-1), CI-7, CI-10, EVA-14, H58 and MINE-4; the
+next full nightly / operator run covers them. Spec comments naming `IsKscStructurallyEligible`
+now name `IsKscDrawEligible` (comments only), and EVA-10's say why it still spawns in FLIGHT.
 
 Gate. LAY-1 keeps `LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]*
 bad=0 ... bodies=[...Laythe...]` and `BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* ...
@@ -2279,8 +2358,8 @@ in parallel in the cloud):
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the
    end spawn through `LeafVesselPlacement`); it needs a new Space Center category that samples each
    live KSC ghost's world position against the recording's interpolated lat / lon / alt.
-3a. [ ] (AUTHORED 2026-11-16 as `RVC-1-two-rover-head-on-crash`; branch `crash-lanes`. Flown once
-   2026-11-17, red on the spec, re-shaped.)
+3a. [ ] (AUTHORED 2026-11-16 as `RVC-1-two-rover-head-on-crash`; branch `crash-lanes`. Flown three
+   times 2026-11-17, never green, re-shaped twice; re-flight owed.)
    Two rovers driving into each other (owner request 2026-11-16): two recorded rovers collide
    on the ground; checks both recordings end at the impact (Destroyed or a stopped Landed terminal)
    and both ghosts replay the collision at the same place and time.
@@ -2288,14 +2367,17 @@ in parallel in the cloud):
    add it, so the second rover joins by a dock and an undock (MINE-5b's live-proven pair on the new
    fixture `rover-crash-watched`: V's miner, the ore depot rover 1.5 m ahead, a watcher rover 120 m
    north). The depot is then a loaded background member; the miner backs away 10 s at full reverse
-   and drives head-on into it in the new `DriveVessel untilCrash=true` mode (automation-only C#:
-   drive until the first stock part death on any vessel, then cut the wheels). Gated: both
-   recorders' part-death lines, the split check, both leaves' Landed / Destroyed terminals, the
+   and drives head-on into it at full throttle for 20 s (as authored, in the new `DriveVessel
+   untilCrash=true` mode, automation-only C#: drive until the first stock part death on any
+   vessel; dropped after flights 2 and 3, below), then one radiator on each rover is destroyed
+   by `PartAction button=explode`. Gated: the impact reaching the depot (its background
+   SurfaceMobile transition), both recorders' part-death lines, both leaves' Landed / Destroyed
+   terminals, the
    Space Center commit, and after Rewind-to-Launch, from the watcher, both ghost meshes and the
    destroyed-part visibility applied on two ghosts. Report-only: ghost lifecycle balance, structure.
    Not checked: that the two ghosts meet at the same place (no in-game check samples two live
-   ghosts' positions). Flight risks: a lateral miss or too soft an impact (driver INVALID
-   `drivevessel-did-not-crash`), part loss on one side only.
+   ghosts' positions). Flight risks: a lateral miss (the impact token reds), the impact or a
+   slide after it breaking an exploded radiator (that explode answers ERROR, driver INVALID).
    Flight 1 (2026-11-17, `2026-11-17_1411`, DLL from main 65ac33ee8): PARSEK-FAIL(expectation),
    red only on the background part death and the two-distinct-recordings replay token, both a
    spec mistake, not a defect: the miner hit the depot at about 15 m/s and pushed it about 70 m
@@ -2306,9 +2388,26 @@ in parallel in the cloud):
    committed Landed with no part lost, so its recorder had nothing to record. Re-shaped: after the
    crash the lane explodes one depot radiator (`PartAction button=explode`, pid 2576286852) for a
    deterministic background part death, and gates that the impact reached the depot (its
-   background SurfaceMobile transition before the explode). Next: fly it again (harness only).
+   background SurfaceMobile transition before the explode).
+   Flights 2 and 3 (2026-11-17, `2026-11-17_1531` and `_1534_a2`, runner run `refly-2026-11-17`,
+   the same DLL): driver INVALID both, steps 0001-0020 OK, then the crash drive answered ERROR
+   `drivevessel-did-not-crash` after 30 s (`maxSrfSpeed=20.02 pathMeters=365.4
+   displacementMeters=365.1 ownPartsLost=0 otherPartsLost=0`; `_a2` 20.01 / 367.8 / 357.9). Not a
+   miss: all three flights retraced one line to the metre (reverse 88.8-88.9 m in 10.02 s, settle
+   7.70-7.72 s, depot `dist=` 147-148 m at the crash start, 107-109 m at UT ~120.3, 30-34 m at
+   ~125.4), and on all three the miner hit and pushed the depot (`Environment transition:
+   pid=<bgChild> -> SurfaceMobile at UT=130.14` / `130.06` / `130.12`, contact ~127.1). Flights 2
+   and 3 slid past it after ~8 s and drove on unbroken, with no `Exploded!!` line at all; flight
+   1's only part death was its later terrain wreck at UT 140.08. A ~15 m/s head-on rover impact
+   breaks no part, and `DriveVessel` steers nothing (the line needs no steering). Re-shaped (the
+   RW-7 way): a plain timed `DriveVessel wheelThrottle=1 seconds=20` (to UT ~133.5, past the
+   contact), then after the 1x wait to UT 170 `PartAction button=explode` on the miner's radiator
+   4129919072 and the depot's 2576286852; the depot's impact transition stays the gate that the
+   impact happened, and the replay pins both radiators' visibility by part pid. `untilCrash` has
+   no flier after this. Next: fly it again (harness only).
 3b. [ ] (AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
-   re-tuned on branch `air3tune`, not yet re-flown.)
+   re-tuned on branch `air3tune`; RE-FLOWN TWICE 2026-11-17 INVALID (no release), the release
+   fixed on branch `air3tune`, not yet re-flown.)
    Two airplanes flying into each other (owner request 2026-11-16): two recorded aircraft collide
    in the air; checks both recordings end at the impact and both ghosts replay it.
    Shape: the craft `AIR Drone Carrier` (`harness/tools/build_air_drone_carrier.py`, in
@@ -2337,7 +2436,25 @@ in parallel in the cloud):
    vertical gain floored at 1/5 s, a pass counted only after an approach pointed at the drone,
    the release at 2,500 m under a Mk16 deploying at 2,400 m (three passes before the floor).
    `CalibratedPursuitTests` reproduces the first flight's miss with the old law and meets the
-   drone within 1 m vertically on every pass with the new one. Next: re-fly (no new DLL).
+   drone within 1 m vertically on every pass with the new one.
+   Re-flights (`refly-2026-11-17`: `2026-11-17_1533`, retry `_1545_a2`): both MISSION-FLAKE in
+   ASCEND, "release altitude 2500 m not reached within 600 s (alt 2507.1 m, longitude -73.9)";
+   the drone was never released. The plane held 2506 - 2508 m, |vs| < 0.6 m/s, east of the
+   longitude gate for five minutes. Replayed through the gates: 127 of 364 polls at altitude had
+   every gate but the roll holding, and the roll ALONE held 126 of them. The 4.7 km loiter legs
+   against a ~1.9 km turn radius end each turn ~2.5 km off the line, so the plane flew a pursuit
+   curve at the point on its proportional bank: heading error parked at ~10.5 deg, roll 8.0 -
+   10.3 deg, until the 800 m capture swung it round (seven captures; the 30 deg heading gate
+   passed on every leg). The old give-up named only altitude and longitude, both passing.
+   Fix (release roll-out): once every release gate but the roll holds and the leg's heading
+   error is within 20 deg (`AX_RELEASE_ROLLOUT_ERR`), the machine commands wings level, latched
+   while the other gates hold; the 8 deg roll and 30 deg heading gates are unchanged. The
+   give-up names every gate's reading, limit and per-gate (and sole) hold counts; the runner logs
+   a `release hold=...` kv line on the telemetry cadence, `releaseHold` / `releaseRollout` /
+   `loiterCaptures` gate lines, and the ring carries roll / hdg / vspd / lon for aircraft.
+   `CalibratedLoiterTests` fits a loiter model to the re-flight's eastward leg (capture point
+   within 0.01 deg, roll 9 - 10 deg), reproduces the stall without the roll-out, and releases
+   15 - 28 s into the first leg with it. Next: re-fly (no new DLL).
 4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
    B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M green
    `2026-11-14_2320` on 2d8c25442.)
@@ -2374,13 +2491,15 @@ in parallel in the cloud):
    the Tracking Station, returns to flight and F5 / F9s while watching: each scene change ends
    the watch, each scene and the Cold reload rebuild the unit with the arm-time phase, and the
    ledger oracle reads the template pools unchanged.
-7. [ ] (AUTHORED 2026-11-16: FLIGHT in-game category `GhostFxIntegrity` and lane
+7. [x] ~~(AUTHORED 2026-11-16: FLIGHT in-game category `GhostFxIntegrity` and lane
    `FXR-1-ghost-engine-fx-across-refly-and-retry`, plus three cycle-2 FX tokens on GS-9. GS-9's
    half flown green 2026-11-17 (`2026-11-17_1402`, PASS attempt 1, 516 s: the three FX tokens
    matched). FXR-1's first flight `2026-11-17_1415` red on two spec errors only (the WarpToUT
    reached-UT pins, and a third session at UT 240 where the ghost is 30 km out and draws no FX
    by design); re-pinned 2026-11-17 to `ut=<target>` pins and a third session at UT 133 inside
-   the first burn. Re-flight of FXR-1 owed.)
+   the first burn. FXR-1 LIVE-PROVEN on its second flight, `2026-11-17_1531` PASS attempt 1
+   (95 s): each batch `total=3 passed=3 failed=0 skipped=0`, pinned whole, recordings 12.)~~
+   Done 2026-11-17.
    Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
    T48, has never been re-run). FXR-1 re-flies the open Probe slot of `refly-split-crewed-merged`
    with the committed Kerbal X re-fly as the live ghost, Retries from the Rewind Point (the stock
@@ -2838,9 +2957,10 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   V18T / V26T do not.
 - [x] ~~B7: loops never meet a Re-Fly, a career save or a scene change in watch mode~~ Done
   2026-11-17: LX-1 / LX-2 LIVE-PROVEN on their first flights (NEXT-TESTS-TO-BUILD-2026-11-11 item 6).
-- [ ] B8: ghost FX across a Re-Fly or a revert has no lane. Authored 2026-11-16:
-  `FXR-1-ghost-engine-fx-across-refly-and-retry` with the `GhostFxIntegrity` category (not yet
-  green), and three FX tokens on GS-9's second Rewind-to-Launch cycle (green 2026-11-17, item 7).
+- [x] ~~B8: ghost FX across a Re-Fly or a revert has no lane.~~ Done 2026-11-17:
+  `FXR-1-ghost-engine-fx-across-refly-and-retry` with the `GhostFxIntegrity` category (LIVE-PROVEN
+  2026-11-17, `2026-11-17_1531`), and three FX tokens on GS-9's second Rewind-to-Launch cycle
+  (green 2026-11-17), item 7.
 - [ ] B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost,
   GhostReapplyFrame, GuiMock, JointBreakCheckCoroutine and TreeRestoreCoroutine: no committed spec
   names any of them). Wired 2026-11-16 (no new lane) except GuiMock: the five FLIGHT categories

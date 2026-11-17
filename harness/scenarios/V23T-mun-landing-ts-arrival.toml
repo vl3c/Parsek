@@ -164,7 +164,7 @@ id = "V23T-mun-landing-ts-arrival"
 # NO KSC HALF EXISTS FOR THIS SUBJECT and that is a scoping fact rather than an
 # omission - but see V23M section 6 for the precise reason, which is narrower than
 # "the host is vacuous". In short: the recording LAUNCHES FROM KERBIN so
-# `IsKscStructurallyEligible` admits it on `Points[0].bodyName` and its ascent leg
+# `IsKscDrawEligible` admits it on `Points[0].bodyName` and its ascent leg
 # renders; it is the per-frame pose gate (`ParsekKSC.Playback.cs:288-296`,
 # `:362-372`) that skips every Mun-frame point, so THE ARRIVAL is what the KSC host
 # cannot show - and an arrival lane is what a KSC half would have to be. The

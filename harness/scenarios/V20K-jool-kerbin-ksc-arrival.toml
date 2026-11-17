@@ -37,7 +37,7 @@ id = "V20K-jool-kerbin-ksc-arrival"
 # 1. THE PRE-REGISTRATION: THREE OUTCOMES, ALL ADMITTED BY THIS SPEC
 # -------------------------------------------------------------------------------------
 # WHAT THE SOURCE PREDICTS (a prediction, not a measurement):
-#   `ParsekKSC.IsKscStructurallyEligible` (ParsekKSC.cs, ~:1492) admits a recording only
+#   `ParsekKSC.IsKscDrawEligible` (ParsekKSC.cs, ~:1492) admits a recording only
 #   on `Points[0].bodyName == "Kerbin"` plus a >= 2 point floor. This fixture's
 #   persistent.sfs reads `startBodyName = Jool` and the first body in its .prec.txt is
 #   Jool (body counts Sun 501 / Kerbin 187 / Jool 79). The KSC update loop drops a
@@ -83,7 +83,8 @@ id = "V20K-jool-kerbin-ksc-arrival"
 #     predicted. The breakdown is required by its `looping=\d+` prefix only.
 # UNREQUIRED AND UNFORBIDDEN ON PURPOSE, because each carries an outcome:
 #   `KSC SURFACE playback resolved`, `KSC point skipped`, `KSC segment skipped`,
-#   `not structurally eligible`, `Mission-loop unit owner=\d+ in inter-cycle wait`,
+#   `not structurally eligible` (since 2026-11-17 `not drawable at the Space Center`),
+#   `Mission-loop unit owner=\d+ in inter-cycle wait`,
 #   `KSC Mission loop units rebuilt \(signature changed\)`, and the queue-exclusion line
 #   (V22K measured that it never printed even on an eligible subject).
 # FORBIDDEN: only `\[Parsek\]\[ERROR\]` and the backward-jump refusal.

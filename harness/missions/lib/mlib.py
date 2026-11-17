@@ -24076,6 +24076,14 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     # the floor". Sibling counters (aligned_streak, impact_certain_streak) are all here.
     ("canopy_seen_streak", "canopyStreak"),
     ("below_floor_streak", "belowFloorStreak"),
+    # AIR-3's release (the 2026-11-17 re-flights loitered 600 s with nothing in the
+    # log naming the gate that held the release): the gates holding it, a '+'-joined
+    # name list with no spaces (it changes a few times per loiter lap, never per
+    # poll at a steady state), the wings-level roll-out latch and each loiter-point
+    # capture. Only the AIR-3 state carries them.
+    ("release_hold", "releaseHold"),
+    ("release_rollout", "releaseRollout"),
+    ("loiter_captures", "loiterCaptures"),
 )
 
 _MACHINE_FIELD_ABSENT = object()
@@ -24325,6 +24333,15 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
             else (" hspd=%s" % _obs_fmt(snapshot.horizontal_speed)))
     pitch = ("" if not _is_finite(snapshot.surface_pitch)
              else (" pitch=%s" % _obs_fmt(snapshot.surface_pitch)))
+    # ``roll=`` / ``hdg=`` / ``vspd=`` / ``lon=`` ride the ring ONLY when the opt-in
+    # aircraft channel read a roll (the AIR lanes): AIR-3's release gates read them
+    # and its 2026-11-17 re-flights stalled on the roll gate with no ring line
+    # showing the roll.
+    aircraft = ("" if not _is_finite(snapshot.roll)
+                else (" roll=%s hdg=%s vspd=%s lon=%s"
+                      % (_obs_fmt(snapshot.roll), _obs_fmt(snapshot.heading),
+                         _obs_fmt(snapshot.vertical_speed),
+                         _obs_fmt(snapshot.longitude))))
     # ``sciData=`` / ``rec=`` / ``funds=`` / ``sci=`` ride the ring ONLY when the
     # opt-in career channel was actually read (science_bench_recover), so every
     # other mission's line is unchanged. Same rationale as ttPe and landAP: this
@@ -24356,8 +24373,8 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
                snapshot.docking_ap_status or "?", snapshot.warp_mode,
                _obs_fmt(snapshot.warp_rate), snapshot.situation or "?",
                " LOST" if snapshot.vessel_lost else ""))
-    return (line + crew + node_exec + tt_pe + land_ap + hspd + pitch + sci_data
-            + recoverable + pools)
+    return (line + crew + node_exec + tt_pe + land_ap + hspd + pitch + aircraft
+            + sci_data + recoverable + pools)
 
 
 # ---------------------------------------------------------------------------
@@ -38712,9 +38729,11 @@ def evaluate_boat_assertions(frames, params: BoatParams,
 #   ASCEND     climb to releaseAltitude on a loiter leg between two points over the
 #              sea east of KSC (each a target for air_steer_toward, swapped on
 #              capture), so the climb stays inside the Space Center's ghost range.
-#   (release)  level, wings level, east of releaseMinLongitude: the sibling watch is
-#              armed on targetVesselName and the second stage click fires the
-#              decoupler and arms the Mk16. The drone is a loaded BACKGROUND member
+#   (release)  level, wings level, east of releaseMinLongitude, on a leg (not mid-turn):
+#              once every other gate holds the machine rolls the wings level (the
+#              leg's own bank toward the point never settles under the roll gate), then
+#              the sibling watch is armed on targetVesselName and the second stage click
+#              fires the decoupler and arms the Mk16. The drone is a loaded BACKGROUND member
 #              of the Mallard's tree from that frame on.
 #   EXTEND     fly straight on the heading held at the entry for extendSeconds,
 #              matching the drone's altitude, then turn back. Entered after the
@@ -38772,6 +38791,18 @@ AX_RELEASE_MAX_ROLL = 8.0           # deg
 AX_RELEASE_MAX_VS = 3.0             # m/s
 AX_RELEASE_MAX_HEADING_ERR = 30.0   # deg off the loiter leg's bearing (not mid-turn)
 AX_RELEASE_FRAMES = 3
+# The release roll-out (the 2026-11-17 re-flights, `refly-2026-11-17`): the loiter leg
+# steers at a POINT with a proportional bank (1 deg per deg of heading error), and the
+# leg is short against the Mallard's ~1.9 km turn radius, so the bearing to the point
+# keeps swinging and the plane flew both legs on a steady 9 - 14 deg bank (heading
+# error ~10 deg) until it captured the point and turned 180 deg again. The 8 deg roll
+# gate held the release on every otherwise-ready poll for 600 s, both attempts. So once
+# every other gate holds and the leg's heading error is inside this, the machine
+# commands wings level (latched while the other gates hold) and the roll gate then
+# reads a plane that is actually flying straight.
+AX_RELEASE_ROLLOUT_ERR = 20.0       # deg; the 10 deg to the heading gate is the slack
+# The release gates, in the order the reason and the release line name them.
+AX_RELEASE_GATES: Tuple[str, ...] = ("alt", "roll", "vs", "lon", "hdg", "flying")
 AX_TARGET_CONFIRM_FRAMES = 20       # polls after the click before an unseen drone flakes
 AX_ASCEND_TIMEOUT_SECONDS = 600.0
 AX_ATTEMPT_TIMEOUT_SECONDS = 240.0  # one EXTEND + PURSUE cycle
@@ -38877,6 +38908,16 @@ class AxState:
     loiter_index: int = 0
     loiter_captures: int = 0
     release_streak: int = 0
+    # The release diagnosis: which gates held this poll ("" before ASCEND, "ready",
+    # "released" after the click), the best ready streak, the wings-level roll-out
+    # latch, per gate the ASCEND polls it held (and held ALONE), and this poll's
+    # gate values as one kv line (the runner logs it on the telemetry cadence).
+    release_hold: str = ""
+    release_best_streak: int = 0
+    release_rollout: bool = False
+    release_holds: Tuple[int, ...] = (0, 0, 0, 0, 0, 0)
+    release_sole_holds: Tuple[int, ...] = (0, 0, 0, 0, 0, 0)
+    release_note: str = ""
     release_ut: Optional[float] = None
     release_lat: Optional[float] = None
     release_lon: Optional[float] = None
@@ -39174,6 +39215,96 @@ def ax_collision_signal(state: AxState, snapshot: TelemetrySnapshot) -> Optional
     return "+".join(kinds) if kinds else None
 
 
+def ax_release_gates(p: AxParams, snapshot: TelemetrySnapshot,
+                     heading_err: float) -> Tuple[Tuple[str, bool], ...]:
+    """The release gates on this poll, (name, holds) in AX_RELEASE_GATES order: at
+    altitude (within AX_RELEASE_BAND under releaseAltitude), wings level, level
+    (|vs|), east of releaseMinLongitude, on the leg (``heading_err`` to the loiter
+    point, not mid-turn), FLYING. A NaN reading fails its gate. Pure."""
+    return (
+        ("alt", _is_finite(snapshot.altitude)
+         and snapshot.altitude >= p.release_altitude - AX_RELEASE_BAND),
+        ("roll", _is_finite(snapshot.roll) and abs(snapshot.roll) <= AX_RELEASE_MAX_ROLL),
+        ("vs", _is_finite(snapshot.vertical_speed)
+         and abs(snapshot.vertical_speed) <= AX_RELEASE_MAX_VS),
+        ("lon", _is_finite(snapshot.longitude)
+         and snapshot.longitude >= p.release_min_longitude),
+        ("hdg", _is_finite(heading_err) and abs(heading_err) <= AX_RELEASE_MAX_HEADING_ERR),
+        ("flying", snapshot.situation == "FLYING"),
+    )
+
+
+def ax_release_hold(gates: Sequence[Tuple[str, bool]]) -> str:
+    """The gates holding the release, joined by '+' ("ready" when none). Pure."""
+    held = [name for name, ok in gates if not ok]
+    return "+".join(held) if held else "ready"
+
+
+def _ax_gate_values(p: AxParams, snapshot: TelemetrySnapshot,
+                    heading_err: float) -> Tuple[Tuple[str, str], ...]:
+    """Each gate's reading and limit, as text, in AX_RELEASE_GATES order."""
+    return (
+        ("alt", "alt %s m (min %.0f)" % (_ax_fmt(snapshot.altitude),
+                                         p.release_altitude - AX_RELEASE_BAND)),
+        ("roll", "roll %s deg (max %.0f)" % (_ax_fmt(snapshot.roll),
+                                             AX_RELEASE_MAX_ROLL)),
+        ("vs", "vs %s m/s (max %.0f)" % (_ax_fmt(snapshot.vertical_speed),
+                                         AX_RELEASE_MAX_VS)),
+        ("lon", "longitude %s (min %.2f)" % (
+            "%.3f" % snapshot.longitude if _is_finite(snapshot.longitude) else "UNREAD",
+            p.release_min_longitude)),
+        ("hdg", "heading error %s deg (max %.0f)" % (_ax_fmt(heading_err),
+                                                     AX_RELEASE_MAX_HEADING_ERR)),
+        ("flying", "situation %s" % (snapshot.situation or "UNREAD")),
+    )
+
+
+def ax_release_note(state: AxState, snapshot: TelemetrySnapshot, heading_err: float,
+                    gates: Sequence[Tuple[str, bool]]) -> str:
+    """This poll's release gates as one whitespace-free kv line (the runner logs it on
+    the telemetry cadence while ASCEND climbs and loiters). Pure."""
+    p = state.params
+
+    def f(v, fmt="%.1f"):
+        return fmt % v if v is not None and _is_finite(v) else "nan"
+
+    return ("release hold=%s alt=%s roll=%s vs=%s lon=%s hdgErr=%s sit=%s streak=%d/%d "
+            "best=%d rollout=%d loiter=%d captures=%d limits=alt>=%.0f,|roll|<=%.0f,"
+            "|vs|<=%.0f,lon>=%.2f,|hdgErr|<=%.0f,rolloutErr<=%.0f"
+            % (ax_release_hold(gates), f(snapshot.altitude), f(snapshot.roll),
+               f(snapshot.vertical_speed, "%.2f"), f(snapshot.longitude, "%.3f"),
+               f(heading_err), snapshot.situation or "?", state.release_streak,
+               AX_RELEASE_FRAMES, state.release_best_streak,
+               1 if state.release_rollout else 0, state.loiter_index,
+               state.loiter_captures, p.release_altitude - AX_RELEASE_BAND,
+               AX_RELEASE_MAX_ROLL, AX_RELEASE_MAX_VS, p.release_min_longitude,
+               AX_RELEASE_MAX_HEADING_ERR, AX_RELEASE_ROLLOUT_ERR))
+
+
+def ax_release_timeout_reason(state: AxState, snapshot: TelemetrySnapshot,
+                              heading_err: float) -> str:
+    """The ASCEND give-up, naming the gates that held the release with their values:
+    on the last poll (each reading against its limit, HOLD or ok), then per gate the
+    polls it held over the phase and how many of those it held ALONE. Pure."""
+    p = state.params
+    gates = ax_release_gates(p, snapshot, heading_err)
+    values = dict(_ax_gate_values(p, snapshot, heading_err))
+    held = [name for name, ok in gates if not ok]
+    last = ", ".join("%s %s" % (values[name], "ok" if ok else "HOLD")
+                     for name, ok in gates)
+    counts = ", ".join(
+        "%s %d (alone %d)" % (name, state.release_holds[i], state.release_sole_holds[i])
+        for i, name in enumerate(AX_RELEASE_GATES) if state.release_holds[i])
+    return ("no release within %.0f s (release altitude %.0f m): the last poll held by "
+            "%s; last poll: %s; ready streak %d of %d (best %d), roll-out %s; polls held "
+            "per gate: %s; loiter captures %d"
+            % (AX_ASCEND_TIMEOUT_SECONDS, p.release_altitude,
+               "+".join(held) if held else "nothing (ready)", last,
+               state.release_streak, AX_RELEASE_FRAMES, state.release_best_streak,
+               "on" if state.release_rollout else "off", counts or "none",
+               state.loiter_captures))
+
+
 def _ax_attitude(state: AxState, snapshot: TelemetrySnapshot, pitch: float, bank: float,
                  throttle: Optional[float]) -> Tuple[AxState, List[Action]]:
     air, actions = _air_attitude(state.air, snapshot, pitch, bank, throttle)
@@ -39309,11 +39440,12 @@ def ax_decide(state: AxState, snapshot: TelemetrySnapshot) -> Tuple[AxState, Lis
             return _ax_flake(state, "touched the surface (%s) before the release"
                              % snapshot.situation), []
         if _air_elapsed(state.air, ut, state.phase_entry_ut) > AX_ASCEND_TIMEOUT_SECONDS:
-            return _ax_flake(state, "release altitude %.0f m not reached within %.0f s "
-                             "(alt %s m, longitude %s)"
-                             % (p.release_altitude, AX_ASCEND_TIMEOUT_SECONDS,
-                                _ax_fmt(snapshot.altitude),
-                                _ax_fmt(snapshot.longitude))), []
+            lat, lon = p.loiter[state.loiter_index]
+            steer = air_steer_toward(snapshot, lat, lon, p.release_altitude,
+                                     p.air.cruise_speed, p.air.max_bank,
+                                     state.air.bank_sign)
+            return _ax_flake(state, ax_release_timeout_reason(state, snapshot,
+                                                              steer.heading_err)), []
         lat, lon = p.loiter[state.loiter_index]
         steer = air_steer_toward(snapshot, lat, lon, p.release_altitude,
                                  p.air.cruise_speed, p.air.max_bank, state.air.bank_sign)
@@ -39327,29 +39459,44 @@ def ax_decide(state: AxState, snapshot: TelemetrySnapshot) -> Tuple[AxState, Lis
             steer = air_steer_toward(snapshot, lat, lon, p.release_altitude,
                                      p.air.cruise_speed, p.air.max_bank,
                                      state.air.bank_sign)
+        # The release gates. Every one but the roll holding, and the leg's heading
+        # error inside AX_RELEASE_ROLLOUT_ERR, the machine rolls the wings level
+        # (latched while the other gates hold): the leg's proportional bank toward the
+        # point never settles under the roll gate on its own (header of
+        # AX_RELEASE_ROLLOUT_ERR).
+        gates = ax_release_gates(p, snapshot, steer.heading_err)
+        ready = all(ok for _name, ok in gates)
+        but_roll = all(ok for name, ok in gates if name != "roll")
+        rollout = but_roll and (state.release_rollout
+                                or (_is_finite(steer.heading_err)
+                                    and abs(steer.heading_err) <= AX_RELEASE_ROLLOUT_ERR))
+        bank = 0.0 if rollout else steer.roll
         sign = state.air.bank_sign
-        state = _ax_turn_check(state, snapshot, steer.bearing, steer.heading_err,
-                               steer.roll)
+        state = _ax_turn_check(state, snapshot, steer.bearing, steer.heading_err, bank)
         if state.air.bank_sign != sign:
             steer = air_steer_toward(snapshot, lat, lon, p.release_altitude,
                                      p.air.cruise_speed, p.air.max_bank,
                                      state.air.bank_sign)
-        ready = (_is_finite(snapshot.altitude)
-                 and snapshot.altitude >= p.release_altitude - AX_RELEASE_BAND
-                 and _is_finite(snapshot.roll) and abs(snapshot.roll) <= AX_RELEASE_MAX_ROLL
-                 and _is_finite(snapshot.vertical_speed)
-                 and abs(snapshot.vertical_speed) <= AX_RELEASE_MAX_VS
-                 and _is_finite(snapshot.longitude)
-                 and snapshot.longitude >= p.release_min_longitude
-                 and _is_finite(steer.heading_err)
-                 and abs(steer.heading_err) <= AX_RELEASE_MAX_HEADING_ERR
-                 and snapshot.situation == "FLYING")
+            bank = 0.0 if rollout else steer.roll
         streak = state.release_streak + 1 if ready else 0
-        state = replace(state, release_streak=streak)
+        held = [not ok for _name, ok in gates]
+        sole = sum(held) == 1
+        state = replace(
+            state, release_streak=streak,
+            release_best_streak=max(state.release_best_streak, streak),
+            release_rollout=rollout, release_hold=ax_release_hold(gates),
+            release_holds=tuple(c + (1 if h else 0)
+                                for c, h in zip(state.release_holds, held)),
+            release_sole_holds=tuple(c + (1 if h and sole else 0)
+                                     for c, h in zip(state.release_sole_holds, held)))
+        state = replace(state, release_note=ax_release_note(state, snapshot,
+                                                            steer.heading_err, gates))
         if streak >= AX_RELEASE_FRAMES:
             # THE RELEASE: arm the sibling watch on the drone, then the second stage
             # click (decoupler + Mk16). Wings level on the heading flown now.
             state = _ax_enter(state, AX_EXTEND, ut, release_ut=ut,
+                              release_hold="released", release_note="",
+                              release_rollout=False,
                               release_lat=float(snapshot.latitude),
                               release_lon=float(snapshot.longitude),
                               release_altitude=float(snapshot.altitude),
@@ -39359,7 +39506,7 @@ def ax_decide(state: AxState, snapshot: TelemetrySnapshot) -> Tuple[AxState, Lis
                                         p.release_altitude, 0.0, p.air.cruise_speed)
             return state, [Action(ACTION_SET_SIBLING_WATCH, text=p.target_vessel_name),
                            Action(ACTION_ACTIVATE_STAGE)] + cmd
-        return _ax_attitude(state, snapshot, steer.pitch, steer.roll, steer.throttle)
+        return _ax_attitude(state, snapshot, steer.pitch, bank, steer.throttle)
 
     # From the release on, every poll first folds the air-target channel in.
     prev_range = state.last_range

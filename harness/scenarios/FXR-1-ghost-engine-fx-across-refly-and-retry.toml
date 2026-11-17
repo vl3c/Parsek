@@ -2,10 +2,18 @@ schema = 1
 id = "FXR-1-ghost-engine-fx-across-refly-and-retry"
 # =====================================================================================
 # GHOST ENGINE FX ACROSS A RE-FLY, A REVERT INSIDE IT, AND THE MERGE (todo
-# NEXT-TESTS-TO-BUILD-2026-11-11 item 7, audit B8). AUTHORED 2026-11-16, NEVER FLOWN.
+# NEXT-TESTS-TO-BUILD-2026-11-11 item 7, audit B8). AUTHORED 2026-11-16.
 # FLIGHT 1 (2026-11-17, `2026-11-17_1415`, PARSEK-FAIL(expectation)) red on two spec
 # errors, fixed here: the WarpToUT reached-UT pins (see the token table) and the third
 # session's UT (see s3 below). s1 and s2 met every other pin.
+# LIVE-PROVEN 2026-11-17 on its second flight (run 2026-11-17_1531, PASS attempt 1, 95 s;
+# runner run refly-2026-11-17, the same Debug DLL from main 65ac33ee8; diagnostics on
+# branch forge-logs-2026-11-17-refly): each of the three batches read `BATCH_COMPLETE v1
+# total=3 passed=3 failed=0 skipped=0 category=GhostFxIntegrity scene=FLIGHT`, now pinned
+# whole; every session read `engine-fx vs recording: ... ghosts=1 engines=1 judged=30
+# ok=30 bad=0 lit=30 dark=0 fxHidden=0` and `fx ownership: ... systems=84 destroyed=0 ...
+# duplicates=0 ... unownedGhostRoots=0`; `inactive recordings:` read supersedeRows=1
+# inactiveIds=1 in s1 / s2 and 2 / 2 in s3; recordings 12, now pinned exactly.
 #
 # THE QUESTION. A Re-Fly, a stock revert and a rewind each throw the flight scene away
 # and rebuild every ghost. Nothing checked that the rebuilt ghost lights its engines when
@@ -119,20 +127,20 @@ id = "FXR-1-ghost-engine-fx-across-refly-and-retry"
 # wait is the awaited RecordingState; (3) the only dwell is the 1x WarpToUT to 128,
 # about 9.5 s of game time from the rewind point, the least that reaches the Poodle burn
 # with margin for the flight-ready wait; (4) no burn is flown; (5) no coast; (6) every
-# verb fails fast on refusal; (7) count is a window only while the id is interim, then
-# pinned off the first run; (8) tier operator until measured; (9) flight_efficiency.py
+# verb fails fast on refusal; (7) count pinned at the measured 12 (it was a window only
+# while the id was interim); (8) tier operator until measured; (9) flight_efficiency.py
 # after the first green flight.
 #
-# NEVER FLOWN: `tier = "operator"`, tag `pending-flight`, the batch pins carry `total=3`
-# literally with the split regexed (INTERIM_PIN_IDS), and the recording count is a
-# window. The first reading run replaces each with its measured value.
+# FLOWN: the batch pins carry the measured split whole (`total=3 passed=3 failed=0
+# skipped=0`, run 2026-11-17_1531) and the recording count is the measured 12; the id has
+# left INTERIM_PIN_IDS. `tier = "operator"` stays until the promotion call.
 # =====================================================================================
 tier = "operator"
-description = "Ghost engine FX across a Re-Fly, a stock revert inside it and the merge (todo item 7, audit B8): re-fly the open Probe slot of refly-split-crewed-merged with the committed Kerbal X re-fly as the live ghost, warp at 1x into its Poodle burn and run GhostFxIntegrity; Retry from Rewind Point and run it again; merge, fly the Probe back in from the Space Center (SaveGame + LoadGame focusPid), still inside the same burn, warp at 1x to UT 133 and run it a third time. Pins the ignition apply line per session, the Poodle FX fingerprint equal across the revert, the plume lit while the recording burns, every FX system owned once, and no ghost of the superseded TIP or the re-flown Probe."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_1531). Ghost engine FX across a Re-Fly, a stock revert inside it and the merge (todo item 7, audit B8): re-fly the open Probe slot of refly-split-crewed-merged with the committed Kerbal X re-fly as the live ghost, warp at 1x into its Poodle burn and run GhostFxIntegrity; Retry from Rewind Point and run it again; merge, fly the Probe back in from the Space Center (SaveGame + LoadGame focusPid), still inside the same burn, warp at 1x to UT 133 and run it a third time. Pins the ignition apply line per session, the Poodle FX fingerprint equal across the revert, the plume lit while the recording burns, every FX system owned once, and no ghost of the superseded TIP or the re-flown Probe."
 instanceProfile = "stock-minimal"
 tags = ["FXR-1", "rewind", "refly", "revert", "merge", "ghost", "engine-fx",
         "fx-fingerprint", "render-tracing", "runtime-handles", "kerbin", "sandbox",
-        "pending-flight"]
+        "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/refly-split-crewed-merged"
@@ -192,16 +200,16 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# A WINDOW WHILE INTERIM (INTERIM_PIN_IDS). The host loads 11 (RF-13R: 10 plus the
-# load-time split of rec_92498045 at 186.12); the merge adds the retried attempt.
-count = { min = 11, max = 16 }
+# The host loads 11 (RF-13R: 10 plus the load-time split of rec_92498045 at 186.12);
+# the merge adds the retried attempt. Both flights read 12 (`_1415`, `_1531`).
+count = { min = 12, max = 12 }
 
 [expectations.logContracts]
 # Three GhostFxIntegrity batches in one flight is the point of the lane (L13 precedent),
 # so the one-RunTests vacuity probe is opted out; every batch is pinned whole by its own
 # tempered per-session pattern below.
 batchVacuityOptOut = true
-batchVacuityOptOutReason = "three GhostFxIntegrity batches, after the InvokeRewind, after the Retry-from-launch revert and after the merge, in one flight; each is pinned whole (total=3 passed=[1-9] failed=0) by its own required pattern anchored after its fxr1-sN mark, plus a {3} count pattern"
+batchVacuityOptOutReason = "three GhostFxIntegrity batches, after the InvokeRewind, after the Retry-from-launch revert and after the merge, in one flight; each is pinned whole (total=3 passed=3 failed=0 skipped=0, measured on run 2026-11-17_1531) by its own required pattern anchored after its fxr1-sN mark, plus a {3} count pattern"
 required = [
   "listhandles kind=rewindpoints count=1 truncated=false",
   "MISSIONMARK label=fxr1-s1 ut=",
@@ -218,10 +226,10 @@ required = [
   "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?loadgame complete scene=FLIGHT save=\\S+ game-loaded=true",
   "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?warptout complete reachedUT=[0-9.]+ ut=133 ",
   # ---- THE BATCHES: three, each in its own session -------------------------------
-  "\\A(?:[\\s\\S]*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostFxIntegrity scene=FLIGHT){3}",
-  "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostFxIntegrity scene=FLIGHT",
-  "MISSIONMARK label=fxr1-s2 (?:(?!MISSIONMARK label=)[\\s\\S])*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostFxIntegrity scene=FLIGHT",
-  "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostFxIntegrity scene=FLIGHT",
+  "\\A(?:[\\s\\S]*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=GhostFxIntegrity scene=FLIGHT){3}",
+  "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=GhostFxIntegrity scene=FLIGHT",
+  "MISSIONMARK label=fxr1-s2 (?:(?!MISSIONMARK label=)[\\s\\S])*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=GhostFxIntegrity scene=FLIGHT",
+  "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=GhostFxIntegrity scene=FLIGHT",
   # ---- THE GHOST IS THE COMMITTED RE-FLY, rebuilt in every session ---------------
   "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?phase=MeshSpawned rec=\\S+ recId=rec_92498045bde0451ebb7a7a1038a0d06c [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
   "MISSIONMARK label=fxr1-s2 (?:(?!MISSIONMARK label=)[\\s\\S])*?phase=MeshSpawned rec=\\S+ recId=rec_92498045bde0451ebb7a7a1038a0d06c [^\\r\\n]*vessel=Kerbal X reason=ghost-created",

@@ -106,6 +106,9 @@ namespace Parsek
         // KSC spawn dedup: tracks recording IDs that have had spawn attempted (bug #99)
         private HashSet<string> kscSpawnAttempted = new HashSet<string>();
         private HashSet<string> loggedPlaybackDisabledPastEndSpawnAttempts = new HashSet<string>();
+        private KscStructuralPassCounts lastLoggedStructuralPass;
+        private Dictionary<uint, GhostChain> passGhostChains;
+        private bool passGhostChainsBuilt;
         private bool pauseMenuOpen;
         private readonly CareerLedgerClockCursor kscLedgerClock = new CareerLedgerClockCursor("ksc");
         internal static Action<GhostPlaybackState> PauseGhostAudioAction = GhostPlaybackLogic.PauseAllAudio;
@@ -354,6 +357,12 @@ namespace Parsek
             if (suppressGhosts)
                 loggedReshow.Clear();
 
+            // The ghost-chain map the end spawns read, built at most once per pass and only
+            // when a spawn decision actually runs (TrySpawnAtRecordingEnd's latch).
+            passGhostChains = null;
+            passGhostChainsBuilt = false;
+
+            var structuralPass = new KscStructuralPassCounts();
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -390,19 +399,30 @@ namespace Parsek
                     continue;
                 }
 
-                // Structural reject (non-Kerbin, too-short trajectory): no KSC render path
-                // and no KSC spawn path. Clean up any leftover ghosts and skip silently.
-                if (!IsKscStructurallyEligible(rec))
+                // Structural split: a recording the Space Center cannot draw (off Kerbin)
+                // still runs its end spawn; one with no usable trajectory runs neither.
+                KscStructuralDispatch structuralDispatch = DecideKscStructuralDispatch(
+                    rec,
+                    currentLoopUnits.IsMember(i) || rec.LoopPlayback,
+                    currentUT,
+                    historicalNeverReplayed,
+                    out KscStructuralRoute structuralRoute,
+                    out string structuralReason);
+                structuralPass.Count(structuralRoute);
+                if (structuralDispatch != KscStructuralDispatch.Render)
                 {
                     if (kscGhosts.ContainsKey(i))
                     {
                         ParsekLog.Verbose("KSCGhost",
-                            $"Ghost #{i} \"{rec.VesselName}\" not structurally eligible — destroying");
+                            $"Ghost #{i} \"{rec.VesselName}\" not drawable at the Space Center " +
+                            $"({structuralReason}) - destroying");
                         DestroyKscGhost(kscGhosts[i], i);
                         kscGhosts.Remove(i);
                         loggedGhostSpawn.Remove(i);
                     }
                     DestroyAllKscOverlapGhosts(i);
+                    RunKscSpawnOnlyDispatch(
+                        structuralDispatch, i, rec, currentUT, historicalNeverReplayed, structuralReason);
                     continue;
                 }
 
@@ -531,6 +551,14 @@ namespace Parsek
                     UpdateSingleGhostKsc(i, rec, currentUT, currentUT, 0, inRange, false,
                         warpRate, suppressGhosts, suppressVisualFx);
                 }
+            }
+
+            // One line per change of the pass's structural split, never per frame; the
+            // comparison is on three ints, so a steady pass allocates nothing.
+            if (ShouldLogKscStructuralPass(structuralPass, lastLoggedStructuralPass))
+            {
+                lastLoggedStructuralPass = structuralPass;
+                ParsekLog.Verbose("KSCSpawn", FormatKscStructuralPassSummary(structuralPass));
             }
         }
 
@@ -1512,20 +1540,137 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Structural KSC eligibility: the recording describes something that can be
-        /// rendered as a KSC ghost at all (Kerbin body, non-trivial trajectory).
-        /// Does not consider the user-facing PlaybackEnabled visibility toggle — that
-        /// lives in <see cref="ShouldShowInKSC"/>. Bug #433: separating the two lets
-        /// the Update loop still fire past-end spawns for visibility-hidden recordings
-        /// without starting spawns for non-Kerbin or too-short ones.
+        /// What the Space Center can do with a recording, from its shape alone.
+        /// <see cref="Render"/>: a Kerbin trajectory, drawn as a KSC ghost and spawned at
+        /// its end through the render branches. <see cref="SpawnOnly"/>: a trajectory that
+        /// starts off Kerbin; the Space Center cannot draw it, but its end spawn is decided
+        /// exactly as for any other recording (todo KSC-END-SPAWN-SKIPS-OFF-KERBIN; the
+        /// Tracking Station and flight have no body rule either). <see cref="Skip"/>: no
+        /// usable trajectory (null, fewer than two points), no render and no spawn (#433).
         /// </summary>
-        internal static bool IsKscStructurallyEligible(Recording rec)
+        internal enum KscStructuralRoute
         {
-            if (rec == null) return false;
-            if (rec.Points == null || rec.Points.Count < 2) return false;
-            // Only Kerbin recordings (KSC is on Kerbin)
-            if (rec.Points[0].bodyName != "Kerbin") return false;
-            return true;
+            Render,
+            SpawnOnly,
+            Skip,
+        }
+
+        internal const string KscStructuralReasonNullRecording = "null-recording";
+        internal const string KscStructuralReasonTooFewPoints = "too-few-points";
+        internal const string KscStructuralReasonOffKerbin = "off-kerbin";
+
+        /// <summary>
+        /// Pure structural classification for the Space Center (see
+        /// <see cref="KscStructuralRoute"/>). <paramref name="reason"/> names the cause for
+        /// every route but Render (null there). Does not read PlaybackEnabled, the timeline
+        /// (supersede / retirement) or any spawn state: those gates run separately.
+        /// </summary>
+        internal static KscStructuralRoute ClassifyKscStructuralRoute(Recording rec, out string reason)
+        {
+            if (rec == null)
+            {
+                reason = KscStructuralReasonNullRecording;
+                return KscStructuralRoute.Skip;
+            }
+            if (rec.Points == null || rec.Points.Count < 2)
+            {
+                reason = KscStructuralReasonTooFewPoints;
+                return KscStructuralRoute.Skip;
+            }
+            // The Space Center sits on Kerbin and can only place a ghost there.
+            if (rec.Points[0].bodyName != "Kerbin")
+            {
+                reason = KscStructuralReasonOffKerbin;
+                return KscStructuralRoute.SpawnOnly;
+            }
+            reason = null;
+            return KscStructuralRoute.Render;
+        }
+
+        /// <summary>
+        /// Draw eligibility: the recording can be rendered as a KSC ghost at all (Kerbin
+        /// body, non-trivial trajectory). Does not consider the user-facing PlaybackEnabled
+        /// visibility toggle; that lives in <see cref="ShouldShowInKSC"/>.
+        /// </summary>
+        internal static bool IsKscDrawEligible(Recording rec)
+        {
+            return ClassifyKscStructuralRoute(rec, out _) == KscStructuralRoute.Render;
+        }
+
+        /// <summary>
+        /// Which Space Center spawn path a draw-ineligible, spawn-eligible recording takes,
+        /// mirroring the render branches it cannot enter: a loop-driven recording (its own
+        /// LoopPlayback or a Mission loop-unit member) goes through the loop first-run
+        /// spawn, which applies its own gates; any other recording spawns once past its end
+        /// unless it is purely historical (BUG-B), the same rule as the #433 detour for a
+        /// playback-disabled recording.
+        /// </summary>
+        internal static KscSpawnOnlyAction DecideKscSpawnOnlyAction(
+            bool loopDriven, double currentUT, double endUT, bool historicalNeverReplayed)
+        {
+            if (loopDriven)
+                return KscSpawnOnlyAction.LoopFirstRun;
+            if (historicalNeverReplayed)
+                return KscSpawnOnlyAction.None;
+            return currentUT > endUT
+                ? KscSpawnOnlyAction.PastEndSpawn
+                : KscSpawnOnlyAction.None;
+        }
+
+        internal enum KscSpawnOnlyAction
+        {
+            None,
+            LoopFirstRun,
+            PastEndSpawn,
+        }
+
+        /// <summary>
+        /// What <c>Update</c> does with one active (not superseded or retired) recording
+        /// after the structural split: draw it through the render branches, or run only a
+        /// spawn call, or nothing.
+        /// </summary>
+        internal enum KscStructuralDispatch
+        {
+            Render,
+            Skip,
+            SpawnOnlyNone,
+            SpawnOnlyLoopFirstRun,
+            SpawnOnlyPastEnd,
+        }
+
+        /// <summary>
+        /// Pure per-recording dispatch for <c>Update</c>: the structural route
+        /// (<see cref="ClassifyKscStructuralRoute"/>) and, for a recording the Space Center
+        /// cannot draw, the spawn call that replaces the render branches
+        /// (<see cref="DecideKscSpawnOnlyAction"/>). <paramref name="loopDriven"/> is the
+        /// recording's own LoopPlayback or its Mission loop-unit membership.
+        /// </summary>
+        internal static KscStructuralDispatch DecideKscStructuralDispatch(
+            Recording rec,
+            bool loopDriven,
+            double currentUT,
+            bool historicalNeverReplayed,
+            out KscStructuralRoute route,
+            out string reason)
+        {
+            route = ClassifyKscStructuralRoute(rec, out reason);
+            switch (route)
+            {
+                case KscStructuralRoute.Render:
+                    return KscStructuralDispatch.Render;
+                case KscStructuralRoute.SpawnOnly:
+                    switch (DecideKscSpawnOnlyAction(loopDriven, currentUT, rec.EndUT, historicalNeverReplayed))
+                    {
+                        case KscSpawnOnlyAction.LoopFirstRun:
+                            return KscStructuralDispatch.SpawnOnlyLoopFirstRun;
+                        case KscSpawnOnlyAction.PastEndSpawn:
+                            return KscStructuralDispatch.SpawnOnlyPastEnd;
+                        default:
+                            return KscStructuralDispatch.SpawnOnlyNone;
+                    }
+                default:
+                    return KscStructuralDispatch.Skip;
+            }
         }
 
         /// <summary>
@@ -1543,7 +1688,7 @@ namespace Parsek
             IReadOnlyList<RecordingRewindRetirement> retirements = null)
         {
             return !IsTimelineInactiveForKsc(rec, supersedes, retirements, out _)
-                && IsKscStructurallyEligible(rec)
+                && IsKscDrawEligible(rec)
                 && rec.GhostVisible;
         }
 
@@ -1888,6 +2033,35 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Runs the spawn half <see cref="DecideKscStructuralDispatch"/> chose for a recording
+        /// the Space Center does not draw (todo KSC-END-SPAWN-SKIPS-OFF-KERBIN): the same spawn
+        /// calls the render branches make past its end. Every spawn gate
+        /// (<c>ShouldSpawnAtKscEnd</c>: chain tip, ghost-chain hold-back, debris, ghost-only,
+        /// already spawned, orbital deferral; the per-scene attempt latch) still runs inside
+        /// <see cref="TrySpawnAtRecordingEnd"/>.
+        /// </summary>
+        void RunKscSpawnOnlyDispatch(
+            KscStructuralDispatch dispatch, int recIdx, Recording rec, double currentUT,
+            bool historicalNeverReplayed, string drawRejectReason)
+        {
+            switch (dispatch)
+            {
+                case KscStructuralDispatch.SpawnOnlyLoopFirstRun:
+                    TryLoopFirstRunSpawnKsc(recIdx, rec, currentUT, historicalNeverReplayed);
+                    break;
+                case KscStructuralDispatch.SpawnOnlyPastEnd:
+                    // Cheap guard first: past the end this runs every frame, and the
+                    // attempt latch already holds the recording after its one attempt.
+                    if (rec.RecordingId != null && kscSpawnAttempted.Contains(rec.RecordingId))
+                        break;
+                    LogKscSpawnOnlyAttemptOnce(
+                        rec, recIdx, drawRejectReason, loggedPlaybackDisabledPastEndSpawnAttempts);
+                    TrySpawnAtRecordingEnd(recIdx, rec);
+                    break;
+            }
+        }
+
+        /// <summary>
         /// Loop first-run spawn at the Space Center (the flight engine's
         /// <c>TryQueueLoopFirstRunSpawn</c>): when a looping recording's real playhead crosses
         /// its own EndUT, attempt its terminal spawn once through the ordinary
@@ -1922,6 +2096,21 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The committed ghost chains at the current UT, built once per Update pass on first
+        /// use (the same map the Tracking Station's spawn handoff reads).
+        /// </summary>
+        Dictionary<uint, GhostChain> GetPassGhostChains()
+        {
+            if (!passGhostChainsBuilt)
+            {
+                passGhostChains = GhostChainWalker.ComputeAllGhostChains(
+                    RecordingStore.CommittedTrees, Planetarium.GetUniversalTime());
+                passGhostChainsBuilt = true;
+            }
+            return passGhostChains;
+        }
+
+        /// <summary>
         /// Attempt to spawn a real vessel when a recording's ghost reaches end-of-timeline
         /// at KSC. Uses the same eligibility checks as Flight scene but simplified:
         /// no active chain concept, no collision detection (vessels are unloaded at KSC),
@@ -1946,7 +2135,17 @@ namespace Parsek
                 return;
 
             // Use the KSC-specific eligibility check
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, GetPassGhostChains());
+            if (!needsSpawn && string.Equals(
+                    reason, GhostPlaybackLogic.KscSpawnSkipIntermediateGhostChainLink, StringComparison.Ordinal))
+            {
+                // Once per recording per scene (the attempt latch above).
+                ParsekLog.Info("KSCSpawn",
+                    $"Spawn held back for #{recIdx} \"{rec.VesselName}\" id={rec.RecordingId}: " +
+                    "intermediate ghost chain link (a later committed flight continues this vessel; " +
+                    "its chain tip spawns instead)");
+                return;
+            }
             if (!needsSpawn)
             {
                 // Verbose, not Info (todo entry 160: ~54 lines per session). This is the ORDINARY outcome - one

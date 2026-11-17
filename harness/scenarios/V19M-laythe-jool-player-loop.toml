@@ -99,7 +99,7 @@ id = "V19M-laythe-jool-player-loop"
 # gap in this lane's design: `ParsekKSC.Playback` hard-gates every point and every
 # segment on `bodyName != "Kerbin"` with skip reason `non-kerbin`
 # (`ParsekKSC.Playback.cs:288-297` and `:362-372`), ahead of every other branch, and one
-# level above that `ParsekKSC.IsKscStructurallyEligible` (`ParsekKSC.cs:1488`) rejects a
+# level above that `ParsekKSC.IsKscDrawEligible` (`ParsekKSC.cs:1488`) rejects a
 # recording OUTRIGHT on `rec.Points[0].bodyName != "Kerbin"` - the FIRST point, not the
 # arrival body. MEASURED on the committed sidecar: the first POINT reads
 # `body = Laythe`, and the string `Kerbin` occurs ZERO times in the whole `.prec`. This

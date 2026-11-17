@@ -5,7 +5,10 @@ Guards the machine's ways of being silently wrong:
   1. the take-off half is AIR-1's machine, handed over at its turn altitude and never
      re-implemented (a flake or a loss there carries AIR-1's own verdict and reason);
   2. the release: only level, wings level, at altitude, over the sea and not mid-turn,
-     with the sibling watch armed on the drone BEFORE the stage click;
+     with the sibling watch armed on the drone BEFORE the stage click; the wings rolled
+     level once every other gate holds (a loiter model fitted to the 2026-11-17
+     re-flights reproduces their 600 s stall on the roll gate without it), and a give-up
+     naming every gate with its value;
   3. a drone that never appears under its expected name gives up by name (the vessel
      name KSP gives a split-off probe is an assumption a flight can falsify);
   4. the pursuit steers at the drone's live position, led by its velocity, and asks
@@ -349,11 +352,157 @@ class AscendTests(unittest.TestCase):
         st, _ = mlib.ax_decide(ascending(ut=0.0), fly(ut=mlib.AX_ASCEND_TIMEOUT_SECONDS + 1,
                                                       alt=900.0))
         self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
-        self.assertIn("release altitude", st.flake_reason)
+        self.assertIn("no release within 600 s", st.flake_reason)
+        self.assertIn("alt 900.0 m (min 2470) HOLD", st.flake_reason)
         st, _ = mlib.ax_decide(ascending(), fly(ut=210.0, alt=0.0, sit="SPLASHED"))
         self.assertIn("before the release", st.flake_reason)
         st, _ = mlib.ax_decide(ascending(), snap(ut=210.0, vessel_lost=True))
         self.assertEqual(mlib.MISSION_ASSERT_FAIL, st.verdict)
+
+
+    def test_the_roll_out_levels_the_wings_once_every_other_gate_holds(self):
+        # Banked 12 deg on the leg, everything else ready: the bank command goes to
+        # zero (the leg's own proportional bank would hold the 12 deg), and the
+        # latch holds it there while the other gates do.
+        st = replace(ascending(), loiter_index=1)
+        st, _ = mlib.ax_decide(st, self._ready(st, ut=300.0, roll=-12.0, hdg=280.0))
+        self.assertTrue(st.release_rollout)
+        self.assertEqual(0.0, st.air.cmd_roll)
+        self.assertEqual("roll", st.release_hold)
+        self.assertEqual(0, st.release_streak)
+        # 25 deg off the leg: past the roll-out error but inside the heading gate,
+        # the latch keeps the wings level.
+        st, _ = mlib.ax_decide(st, self._ready(st, ut=300.5, roll=-6.0, hdg=295.0))
+        self.assertTrue(st.release_rollout)
+        self.assertEqual(0.0, st.air.cmd_roll)
+        self.assertEqual("ready", st.release_hold)
+        # Another gate failing (below the band) drops the latch and the leg banks.
+        st, _ = mlib.ax_decide(st, self._ready(st, ut=301.0, roll=-6.0, hdg=295.0,
+                                               alt=st.params.release_altitude - 100.0))
+        self.assertFalse(st.release_rollout)
+        self.assertLess(st.air.cmd_roll, -5.0)
+        self.assertEqual("alt", st.release_hold)
+
+    def test_no_roll_out_mid_turn_or_off_the_leg(self):
+        st = replace(ascending(), loiter_index=1)
+        # 25 deg off the leg with the latch open: no roll-out, the leg banks.
+        st, _ = mlib.ax_decide(st, self._ready(st, ut=300.0, roll=-12.0, hdg=295.0))
+        self.assertFalse(st.release_rollout)
+        self.assertLess(st.air.cmd_roll, -5.0)
+        # Mid-turn (past the heading gate): no roll-out either.
+        st, _ = mlib.ax_decide(st, self._ready(st, ut=300.5, roll=-24.0, hdg=330.0))
+        self.assertFalse(st.release_rollout)
+        self.assertEqual("roll+hdg", st.release_hold)
+
+    def test_the_holds_count_every_gate_and_the_lone_ones(self):
+        st = replace(ascending(), loiter_index=1)
+        st, _ = mlib.ax_decide(st, self._ready(st, ut=300.0, roll=-12.0))
+        st, _ = mlib.ax_decide(st, self._ready(st, ut=300.5, roll=-12.0, vs=5.0))
+        st, _ = mlib.ax_decide(st, self._ready(st, ut=301.0))
+        gates = dict(zip(mlib.AX_RELEASE_GATES, st.release_holds))
+        sole = dict(zip(mlib.AX_RELEASE_GATES, st.release_sole_holds))
+        self.assertEqual(2, gates["roll"])
+        self.assertEqual(1, sole["roll"])
+        self.assertEqual(1, gates["vs"])
+        self.assertEqual(0, sole["vs"])
+        self.assertEqual(1, st.release_streak)
+        self.assertEqual(1, st.release_best_streak)
+
+    def test_the_timeout_names_the_holding_gate_with_its_value(self):
+        st = replace(ascending(ut=0.0), loiter_index=1)
+        st, _ = mlib.ax_decide(st, self._ready(st, ut=300.0, roll=-12.0, hdg=330.0))
+        st, _ = mlib.ax_decide(st, self._ready(st, ut=mlib.AX_ASCEND_TIMEOUT_SECONDS + 1,
+                                               roll=-12.0, hdg=330.0))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        reason = st.flake_reason
+        self.assertIn("the last poll held by roll+hdg", reason)
+        self.assertIn("roll -12.0 deg (max 8) HOLD", reason)
+        self.assertRegex(reason, r"heading error -?[0-9.]+ deg \(max 30\) HOLD")
+        self.assertIn("vs 0.5 m/s (max 3) ok", reason)
+        self.assertIn("longitude -74.150 (min -74.30) ok", reason)
+        self.assertIn("situation FLYING ok", reason)
+        self.assertIn("ready streak 0 of 3 (best 0)", reason)
+        self.assertIn("polls held per gate: roll 1 (alone 0), hdg 1 (alone 0)", reason)
+        self.assertIn("loiter captures 0", reason)
+
+    def test_the_release_note_is_one_kv_line_of_every_gate(self):
+        st = replace(ascending(), loiter_index=1)
+        st, _ = mlib.ax_decide(st, self._ready(st, ut=300.0, roll=-12.0))
+        note = st.release_note
+        self.assertTrue(note.startswith("release "), note)
+        kv = dict(t.split("=", 1) for t in note.split()[1:])
+        self.assertEqual("roll", kv["hold"])
+        self.assertEqual("-12.0", kv["roll"])
+        for key in ("alt", "vs", "lon", "hdgErr", "sit", "streak", "best", "rollout",
+                    "loiter", "captures", "limits"):
+            self.assertIn(key, kv)
+        self.assertEqual("1", kv["rollout"])
+        self.assertEqual("0/3", kv["streak"])
+        # Cleared at the release, so the runner's release line stops.
+        for i in range(mlib.AX_RELEASE_FRAMES):
+            st, _ = mlib.ax_decide(st, self._ready(st, ut=301.0 + 0.5 * i))
+        self.assertEqual(mlib.AX_EXTEND, st.phase)
+        self.assertEqual("", st.release_note)
+        self.assertEqual("released", st.release_hold)
+
+
+class ReleaseObservabilityTests(unittest.TestCase):
+    """The runner's surfaces for a stalled release: the release line on the
+    telemetry cadence, a gate line per change of the holding gates and per loiter
+    capture, and the aircraft tokens on the event-window ring."""
+
+    def test_the_fly_loop_logs_the_release_gates(self):
+        class Clock(object):
+            t = 0.0
+
+            def __call__(self):
+                self.t += 0.6
+                return self.t
+
+        class Control(mission_runner.MissionControl):
+            def __init__(self, snaps):
+                self.snaps, self.i = snaps, 0
+
+            def read_snapshot(self):
+                snap_ = self.snaps[min(self.i, len(self.snaps) - 1)]
+                self.i += 1
+                return snap_
+
+            def perform(self, action):
+                pass
+
+        p = params()
+        lat, lon = p.loiter[1]
+        snaps = [fly(ut=300.0 + 0.5 * i, lat=lat, lon=lon + 0.15, hdg=270.0,
+                     alt=p.release_altitude - 10.0, vs=0.5,
+                     roll=-12.0 if i < 4 else 2.0)
+                 for i in range(12)]
+        lines = []
+        clock = Clock()
+        log = mission_runner.MissionLogger(sink=lines.append, clock=clock)
+        st, _ = mission_runner.fly_loop(
+            Control(snaps), replace(ascending(p), loiter_index=1), mlib.ax_decide, log,
+            deadline=10_000.0, clock=clock, sleep=lambda _s: None, poll_interval=0.0,
+            settle_frames=0, allow_rails_warp=False, max_physics_warp=0.0)
+        self.assertEqual(mlib.AX_EXTEND, st.phase)
+        release = [l for l in lines if "] release hold=" in l]
+        self.assertTrue(release, lines[:30])
+        self.assertIn("hold=roll ", release[0])
+        self.assertIn("roll=-12.0 ", release[0])
+        gates = [l for l in lines if "] gate releaseHold " in l]
+        self.assertTrue(any("roll->ready" in l for l in gates), gates)
+        self.assertTrue(any("ready->released" in l for l in gates), gates)
+        self.assertTrue(any("] gate releaseRollout False->True" in l for l in lines))
+        ring = [l for l in lines if "window[" in l]
+        self.assertTrue(ring)
+        self.assertTrue(all(" roll=" in l and " hdg=" in l and " lon=" in l
+                            for l in ring), ring[:2])
+
+    def test_the_ring_carries_the_aircraft_tokens_only_when_read(self):
+        self.assertNotIn(" roll=", mlib.format_snapshot_compact(snap(ut=1.0)))
+        line = mlib.format_snapshot_compact(fly(roll=-9.5, hdg=33.0, vs=0.2,
+                                                lon=-73.9))
+        self.assertIn(" roll=-9.500 hdg=33.000 vspd=0.200 lon=-73.900", line)
 
 
 class ExtendAndTrackTests(unittest.TestCase):
@@ -840,6 +989,116 @@ class CalibratedPursuitTests(unittest.TestCase):
                     self.assertGreater(drone_alt, p.min_target_altitude)
                     self.assertTrue(_hits(lateral, vertical), (lateral, vertical))
                 self.assertIn("sank to", st.flake_reason)
+
+
+# ---- the calibrated loiter model (the 2026-11-17 re-flights) -----------------------
+#
+# The re-flights `2026-11-17_1533` and its retry `_1545_a2` (run `refly-2026-11-17`)
+# both flaked in ASCEND after 600 s: the Mallard climbed to 2506 - 2508 m by UT ~320
+# and then flew the loiter for five minutes, |vs| under 0.6 m/s, east of the longitude
+# gate, and never released. Replaying the mission's own telemetry (one line per ~1 s)
+# through the gates: of the 364 polls at altitude, 127 had every gate but the roll
+# holding, and on 126 of them the roll alone held (the one left was a single poll).
+# The legs between the two points run ~4.7 km against a ~1.9 km turn radius, so the
+# plane rolls out of each 180 deg turn ~2.5 km off the line and flies a pursuit curve
+# at the point: the heading error parks at ~10.5 deg (the bearing swings as fast as a
+# 10 deg bank turns the plane) and the roll reads 8.0 - 10.3 deg on its proportional
+# bank all the way to the capture (eastward leg, first flight: UT 496.9 hdg 43 roll
+# -12.5, UT 506.2 hdg 34 roll -9.8, captured at UT 509.26 at -0.118, -73.875).
+# The model: 93 m/s level at 2507 m, the roll driven by the aileron inputs the machine
+# sends (the pursuit model's 30 deg/s per unit input) less a wings-levelling tendency
+# of 0.08 /s (the Mallard's roll trailed its command by 1 - 2 deg throughout), the
+# heading turning at g tan(roll) / v. From the first flight's state at UT 475.12 it
+# reproduces that leg (captured at UT ~509 within 0.01 deg of the measured point, the
+# roll held at 9 - 10 deg) and the stall, with the roll-out switched off.
+_LOITER_LEVELLING = 0.08        # 1/s, the airframe's own roll back toward level
+# (ut, lat, lon, heading, roll, loiter index) read off the first re-flight's telemetry:
+# the start of the eastward leg and of the westward one.
+_LOITER_EAST_LEG = (475.12, -0.288, -74.110, 90.0, -23.0, 0)
+_LOITER_WEST_LEG = (391.56, 0.184, -74.028, 273.0, -24.0, 1)
+
+
+def _loiter_flight(p, start=_LOITER_EAST_LEG, v=93.0, levelling=_LOITER_LEVELLING,
+                   alt=2507.0, until=None, dt=0.05):
+    """Fly the ASCEND machine (entered at UT 78.3, as both re-flights) from ``start``
+    against the loiter model until it releases, gives up or reaches ``until``.
+    Returns (state, [(ut, lat, lon, heading, roll, loiter index)] per poll)."""
+    ut, lat0, lon0, hdg, roll, index = start
+    st = replace(ascending(p, ut=78.3), loiter_index=index, loiter_captures=4)
+    until = 78.3 + mlib.AX_ASCEND_TIMEOUT_SECONDS + 5.0 if until is None else until
+    n = e = ail = 0.0
+    polls = []
+    while ut < until:
+        lat, lon = mlib.ax_local_point(lat0, lon0, n, e)
+        s = fly(ut=ut, lat=lat, lon=lon, hdg=hdg % 360.0, alt=alt, spd=v, vs=0.1,
+                roll=roll)
+        st, acts = mlib.ax_decide(st, s)
+        for a in of_kind(acts, mlib.ACTION_SET_ROLL_INPUT):
+            ail = a.value
+        polls.append((ut, lat, lon, hdg % 360.0, roll, st.loiter_index))
+        if st.done or st.phase != mlib.AX_ASCEND:
+            break
+        for _ in range(int(round(0.5 / dt))):
+            roll = max(-80.0, min(80.0, roll + (_ROLL_DEG_PER_INPUT * ail
+                                                - levelling * roll) * dt))
+            hdg += math.degrees(_G * math.tan(math.radians(roll)) / v) * dt
+            n += v * math.cos(math.radians(hdg)) * dt
+            e += v * math.sin(math.radians(hdg)) * dt
+        ut += 0.5
+    return st, polls
+
+
+class CalibratedLoiterTests(unittest.TestCase):
+    """The release against a loiter model fitted to the 2026-11-17 re-flights (header
+    above): the model reproduces their stall with the roll-out switched off, and the
+    release with it goes on the first leg it flies at altitude, wings level."""
+
+    def test_the_model_reproduces_the_refly_stall_without_the_roll_out(self):
+        p = _spec_params()
+        old = mlib.AX_RELEASE_ROLLOUT_ERR
+        mlib.AX_RELEASE_ROLLOUT_ERR = -1.0      # never: the release as first re-flown
+        try:
+            st, polls = _loiter_flight(p)
+        finally:
+            mlib.AX_RELEASE_ROLLOUT_ERR = old
+        # The eastward leg as measured: captured at UT ~509 near (-0.118, -73.875),
+        # banked 9 - 10.5 deg over its last 10 s.
+        cap = next(q for q, prev in zip(polls[1:], polls) if q[5] != prev[5])
+        self.assertAlmostEqual(509.26, cap[0], delta=2.0)
+        self.assertAlmostEqual(-0.118, cap[1], delta=0.01)
+        self.assertAlmostEqual(-73.875, cap[2], delta=0.01)
+        last = [abs(q[4]) for q in polls if cap[0] - 10.0 <= q[0] < cap[0]]
+        self.assertTrue(all(8.0 <= r <= 12.0 for r in last), last)
+        # ...and the give-up: no release, the roll the only gate holding a ready poll.
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIsNone(st.release_ut)
+        self.assertIn("no release within 600 s", st.flake_reason)
+        sole = dict(zip(mlib.AX_RELEASE_GATES, st.release_sole_holds))
+        self.assertGreater(sole["roll"], 50)
+        self.assertEqual(0, sum(v for k, v in sole.items() if k != "roll"))
+        self.assertRegex(st.flake_reason, r"roll [0-9]+ \(alone [0-9]+\)")
+
+    def test_the_roll_out_releases_on_the_first_leg(self):
+        p = _spec_params()
+        for start in (_LOITER_EAST_LEG, _LOITER_WEST_LEG):
+            for v in (85.0, 93.0, 100.0):
+                # Past ~0.1 /s at 100 m/s the model's roll loop cannot reach the
+                # 25 deg turn bank at all and the plane circles the point: a
+                # different failure, outside what the flights measured.
+                for levelling in (0.0, _LOITER_LEVELLING, 0.1):
+                    with self.subTest(start=start[0], v=v, levelling=levelling):
+                        st, polls = _loiter_flight(p, start=start, v=v,
+                                                   levelling=levelling,
+                                                   until=start[0] + 60.0)
+                        self.assertEqual(mlib.AX_EXTEND, st.phase)
+                        self.assertEqual(4, st.loiter_captures)    # before the point
+                        ut, lat, lon, hdg, roll, index = polls[-1]
+                        self.assertLessEqual(abs(roll), mlib.AX_RELEASE_MAX_ROLL)
+                        self.assertGreaterEqual(lon, p.release_min_longitude)
+                        brg = mlib.air_bearing(lat, lon, *p.loiter[index])
+                        self.assertLessEqual(abs(mlib.air_heading_error(hdg, brg)),
+                                             mlib.AX_RELEASE_MAX_HEADING_ERR)
+                        self.assertLess(ut - start[0], 45.0)
 
 
 class CollisionTests(unittest.TestCase):

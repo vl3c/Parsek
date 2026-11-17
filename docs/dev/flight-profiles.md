@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 151 |
 | seam-only lanes | 460 |
-| LIVE-PROVEN date in status row | 490 |
-| no LIVE-PROVEN date | 121 |
+| LIVE-PROVEN date in status row | 491 |
+| no LIVE-PROVEN date | 120 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -59,7 +59,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | FGV | 1 | - | - | 1 | - | - | 1 |
 | FLG | 1 | - | 1 | - | - | - | 1 |
 | FORGE | 8 | - | - | 8 | - | 8 | 3 |
-| FXR | 1 | - | - | 1 | - | - | - |
+| FXR | 1 | - | - | 1 | - | - | 1 |
 | GC | 2 | - | 1 | 1 | - | - | 2 |
 | GS | 10 | - | 3 | 7 | - | 10 | 6 |
 | GUI | 28 | - | - | 28 | - | - | 4 |
@@ -313,7 +313,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 369 | 120 | 297 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +70 |
+| Kerbin | 369 | 120 | 298 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +70 |
 | Mun | 56 | 14 | 46 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, SOI 2, EVA 1, GUI 1 +6 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -828,7 +828,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | AIR-1-runway-circuit-splashdown | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | - | - | LIVE-PROVEN 2026-11-16 |
 | AIR-2-runway-circuit-ksc-ghost | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | rewind-to-launch, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
-| AIR-3-plane-drone-midair-collision | operator | gs1-two-stage-pad | air3_drone_intercept | Kerbin | rewind-to-launch, warp, scene-change | - | FLOWN TWICE 2026-11-17, INVALID autopilot... |
+| AIR-3-plane-drone-midair-collision | operator | gs1-two-stage-pad | air3_drone_intercept | Kerbin | rewind-to-launch, warp, scene-change | - | RE-FLOWN 2026-11-17 |
 
 ### AJ (1)
 
@@ -1083,7 +1083,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| FXR-1-ghost-engine-fx-across-refly-and-retry | operator | refly-split-crewed-merged | seam | Kerbin | re-fly, revert, reload, save, warp | GhostFxIntegrity | FLIGHT 1 2026-11-17 2026-11-17_1415 PARSE... |
+| FXR-1-ghost-engine-fx-across-refly-and-retry | operator | refly-split-crewed-merged | seam | Kerbin | re-fly, revert, reload, save, warp | GhostFxIntegrity | LIVE-PROVEN 2026-11-17 |
 
 ### GC (2)
 
@@ -1586,7 +1586,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| RVC-1-two-rover-head-on-crash | operator | rover-crash-watched | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | FLOWN ONCE RED, tag pending-flight |
+| RVC-1-two-rover-head-on-crash | operator | rover-crash-watched | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | FLOWN THREE TIMES, never green; re-shaped... |
 
 ### RVR (19)
 
