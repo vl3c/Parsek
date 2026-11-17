@@ -1,0 +1,122 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "miner-rover-relay",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 0,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 2999.9949737547663,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "BaseConstruction",
+      "Docking",
+      "Kerbin/BaseConstruction",
+      "Kerbin/Docking",
+      "Kerbin/Landing",
+      "Kerbin/Orbit",
+      "Landing",
+      "Orbit"
+    ],
+    "vessels": [
+      {
+        "pid": "3d9c371e32ae42ec839f5d34f0e5a471",
+        "persistentId": 2049558246,
+        "name": "Ore Silo",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 1799.9980000000446,
+          "LiquidFuel": 0,
+          "MonoPropellant": 0,
+          "Ore": 150,
+          "Oxidizer": 0
+        }
+      },
+      {
+        "pid": "67832b9a230978831e0427a633f5a8e2",
+        "persistentId": 2109271953,
+        "name": "Observer Probe",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 3994.6240001205297,
+          "LiquidFuel": 662.230820007193,
+          "Oxidizer": 809.39300912500244
+        }
+      },
+      {
+        "pid": "80067ad2e3764307a6ebda5324fa34e9",
+        "persistentId": 2193886851,
+        "name": "Ore Depot",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 1799.9980000000446,
+          "LiquidFuel": 0,
+          "MonoPropellant": 0,
+          "Ore": 0,
+          "Oxidizer": 0
+        }
+      },
+      {
+        "pid": "87adbb5eecf84acea76df08aabf4018f",
+        "persistentId": 2823525045,
+        "name": "Mining Rover RC",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 1799.9980000000446,
+          "LiquidFuel": 90,
+          "MonoPropellant": 0,
+          "Ore": 0,
+          "Oxidizer": 110
+        }
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      }
+    ]
+  }
+}

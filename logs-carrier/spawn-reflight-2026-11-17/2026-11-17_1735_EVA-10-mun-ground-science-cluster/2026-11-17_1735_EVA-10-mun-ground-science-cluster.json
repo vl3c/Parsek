@@ -1,0 +1,1586 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_1735_EVA-10-mun-ground-science-cluster_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 345,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "mun-landing-recorded",
+          "scene": "FLIGHT",
+          "ut": "23259.765293629662"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "23259.965293629666"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "discarded": "true",
+          "ut": "23259.985293629667"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "23260.025293629667",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnEva",
+          "ut": "23260.045293629668",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "23260.065293629668",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoMerge",
+          "ut": "23260.085293629669",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "eva10-boot",
+          "ut": "23260.12529362967"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "evaPid": "3326862628",
+          "kerbal": "Jebediah Kerman",
+          "released": "true",
+          "standoff": "off",
+          "ut": "23261.225293629694"
+        },
+        "cmd": "EvaExit",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "step",
+          "distance": "19.10",
+          "part": "-",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "-1",
+          "ut": "23263.405293629741",
+          "vesselPid": "2708531065"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "5755ca6250b14d5ca60fa56f129d3fdd",
+          "ut": "23263.505293629743"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "place",
+          "distance": "0.62",
+          "part": "DeployedCentralStation",
+          "partPid": "1995619553",
+          "presses": "1",
+          "slot": "0",
+          "ut": "23264.685293629769",
+          "vesselPid": "1783441728"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "step",
+          "distance": "3.50",
+          "part": "-",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "-1",
+          "ut": "23265.405293629785",
+          "vesselPid": "2708531065"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "take",
+          "distance": "4.35",
+          "part": "DeployedRTG",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "0",
+          "ut": "23265.945293629797",
+          "vesselPid": "2708531065"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "step",
+          "distance": "19.05",
+          "part": "-",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "-1",
+          "ut": "23267.965293629841",
+          "vesselPid": "2708531065"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "place",
+          "distance": "0.58",
+          "part": "DeployedRTG",
+          "partPid": "3239631130",
+          "presses": "1",
+          "slot": "0",
+          "ut": "23269.105293629866",
+          "vesselPid": "4236901037"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "step",
+          "distance": "3.50",
+          "part": "-",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "-1",
+          "ut": "23269.845293629882",
+          "vesselPid": "2708531065"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "take",
+          "distance": "4.36",
+          "part": "DeployedSeismicSensor",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "0",
+          "ut": "23270.365293629893",
+          "vesselPid": "2708531065"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "step",
+          "distance": "19.01",
+          "part": "-",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "-1",
+          "ut": "23272.405293629938",
+          "vesselPid": "2708531065"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "place",
+          "distance": "0.95",
+          "part": "DeployedSeismicSensor",
+          "partPid": "1517567488",
+          "presses": "1",
+          "slot": "0",
+          "ut": "23273.745293629967",
+          "vesselPid": "3148525061"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "step",
+          "distance": "3.49",
+          "part": "-",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "-1",
+          "ut": "23274.485293629983",
+          "vesselPid": "2708531065"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0021",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "take",
+          "distance": "4.38",
+          "part": "DeployedGoExOb",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "0",
+          "ut": "23275.005293629994",
+          "vesselPid": "2708531065"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0022",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "step",
+          "distance": "19.03",
+          "part": "-",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "-1",
+          "ut": "23277.065293630039",
+          "vesselPid": "2708531065"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0023",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "place",
+          "distance": "0.63",
+          "part": "DeployedGoExOb",
+          "partPid": "1446201501",
+          "presses": "1",
+          "slot": "0",
+          "ut": "23278.44529363007",
+          "vesselPid": "3780432365"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0024",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "step",
+          "distance": "2.00",
+          "part": "-",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "-1",
+          "ut": "23279.305293630088",
+          "vesselPid": "3148525061"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0025",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "anchor",
+            "ref": "${seis.vesselPid}",
+            "value": "3148525061"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "pickup",
+          "distance": "2.00",
+          "part": "DeployedSeismicSensor",
+          "partPid": "1517567488",
+          "presses": "0",
+          "slot": "0",
+          "ut": "23284.845293630209",
+          "vesselPid": "3148525061"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0026",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "place",
+          "distance": "0.94",
+          "part": "DeployedSeismicSensor",
+          "partPid": "1517567488",
+          "presses": "1",
+          "slot": "0",
+          "ut": "23285.985293630234",
+          "vesselPid": "1617542172"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0027",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "step",
+          "distance": "4.51",
+          "part": "-",
+          "partPid": "0",
+          "presses": "0",
+          "slot": "-1",
+          "ut": "23286.72529363025",
+          "vesselPid": "2708531065"
+        },
+        "cmd": "EvaGroundScience",
+        "expect": "OK",
+        "id": "0028",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "58",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "ut": "23286.745293630251"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0029",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "53.234706369748892",
+          "maxRate": "1",
+          "target": "23340",
+          "ut": "23339.805293631409"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0030",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "76",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "ut": "23339.86529363141"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0031",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "scene": "SPACECENTER",
+          "ut": "23339.985293631413"
+        },
+        "cmd": "ExitToSpaceCenter",
+        "expect": "OK",
+        "id": "0032",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "eva10-committed",
+          "ut": "23340.045293631414"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0033",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "mun-landing-recorded",
+          "scene": "FLIGHT",
+          "ut": "23341.385293631443"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0034",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "23341.565293631447"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0035",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "discarded": "true",
+          "ut": "23341.585293631448"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0036",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "18",
+          "kind": "committed",
+          "rec0": "06f15e8ce4f04637944779e8338aae8d",
+          "rec0name": "Kerbal X",
+          "rec0pid": "2708531065",
+          "rec0spawned": "true",
+          "rec0spawnedPid": "2708531065",
+          "rec0state": "Immutable",
+          "rec0tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec1": "271c5a50953b499e87dc0fa50777b647",
+          "rec10": "d9b5675fc64f439aa5fff170f72d6ad4",
+          "rec10name": "Kerbal X Debris",
+          "rec10pid": "3967955681",
+          "rec10spawned": "false",
+          "rec10spawnedPid": "0",
+          "rec10state": "Immutable",
+          "rec10tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec11": "06dd14db58034422be72aa88e36492c3",
+          "rec11name": "Grand Slam Passive Seismometer",
+          "rec11pid": "3148525061",
+          "rec11spawned": "false",
+          "rec11spawnedPid": "0",
+          "rec11state": "Immutable",
+          "rec11tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec12": "3c3ff88d85c8418e98c934cc3f3d67a7",
+          "rec12name": "Kerbal X",
+          "rec12pid": "2708531065",
+          "rec12spawned": "false",
+          "rec12spawnedPid": "0",
+          "rec12state": "Immutable",
+          "rec12tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec13": "5755ca6250b14d5ca60fa56f129d3fdd",
+          "rec13name": "Jebediah Kerman",
+          "rec13pid": "3326862628",
+          "rec13spawned": "false",
+          "rec13spawnedPid": "0",
+          "rec13state": "Immutable",
+          "rec13tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec14": "69daf65152de43f9b7ba027edb914b5b",
+          "rec14name": "Probodobodyne Experiment Control Station",
+          "rec14pid": "1783441728",
+          "rec14spawned": "false",
+          "rec14spawnedPid": "0",
+          "rec14state": "Immutable",
+          "rec14tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec15": "7367ac0c5b6741a19ef57a102822e394",
+          "rec15name": "Go-ob ED Monitor",
+          "rec15pid": "3780432365",
+          "rec15spawned": "false",
+          "rec15spawnedPid": "0",
+          "rec15state": "Immutable",
+          "rec15tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec16": "acea23993ab34f0e81f3d8aa82f6d285",
+          "rec16name": "Grand Slam Passive Seismometer",
+          "rec16pid": "1617542172",
+          "rec16spawned": "false",
+          "rec16spawnedPid": "0",
+          "rec16state": "Immutable",
+          "rec16tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec17": "e25eccb22dad424aa6fcfcd5c5eb4992",
+          "rec17name": "Mini-NUK-PD Radioisotope Thermoelectric Generator",
+          "rec17pid": "4236901037",
+          "rec17spawned": "false",
+          "rec17spawnedPid": "0",
+          "rec17state": "Immutable",
+          "rec17tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec1name": "Kerbal X",
+          "rec1pid": "2708531065",
+          "rec1spawned": "false",
+          "rec1spawnedPid": "0",
+          "rec1state": "Immutable",
+          "rec1tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec2": "2927d112f61743be94e431e91dd79830",
+          "rec2name": "Kerbal X Debris",
+          "rec2pid": "2471392756",
+          "rec2spawned": "false",
+          "rec2spawnedPid": "0",
+          "rec2state": "Immutable",
+          "rec2tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec3": "2cbcc9d18e464811b14c858def5559f5",
+          "rec3name": "Kerbal X",
+          "rec3pid": "2708531065",
+          "rec3spawned": "false",
+          "rec3spawnedPid": "0",
+          "rec3state": "Immutable",
+          "rec3tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec4": "5c4faaf2d48345138df2620561d9c38f",
+          "rec4name": "Kerbal X Debris",
+          "rec4pid": "3605058178",
+          "rec4spawned": "false",
+          "rec4spawnedPid": "0",
+          "rec4state": "Immutable",
+          "rec4tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec5": "61f3775361fe4130a66a69b1425b7209",
+          "rec5name": "Kerbal X",
+          "rec5pid": "2708531065",
+          "rec5spawned": "false",
+          "rec5spawnedPid": "0",
+          "rec5state": "Immutable",
+          "rec5tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec6": "940b1f5a759347bb8b44e9cab7da089c",
+          "rec6name": "Kerbal X Debris",
+          "rec6pid": "1350699195",
+          "rec6spawned": "false",
+          "rec6spawnedPid": "0",
+          "rec6state": "Immutable",
+          "rec6tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec7": "9697229f1b644c948dce380c64b133ca",
+          "rec7name": "Kerbal X Debris",
+          "rec7pid": "2019477633",
+          "rec7spawned": "false",
+          "rec7spawnedPid": "0",
+          "rec7state": "Immutable",
+          "rec7tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec8": "cee839f75a824bc2b65a8e2350ab1993",
+          "rec8name": "Kerbal X Debris",
+          "rec8pid": "2971199999",
+          "rec8spawned": "false",
+          "rec8spawnedPid": "0",
+          "rec8state": "Immutable",
+          "rec8tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec9": "d3a8c31ace604370b474d04a4584bf7f",
+          "rec9name": "Kerbal X Debris",
+          "rec9pid": "2947494150",
+          "rec9spawned": "false",
+          "rec9spawnedPid": "0",
+          "rec9state": "Immutable",
+          "rec9tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "truncated": "false",
+          "ut": "23341.605293631448"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0037",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "eva10-commit-count-18",
+          "ut": "23341.645293631449"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0038",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c0.count}",
+            "value": "18"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "23341.665293631449"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0039",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "adjustedUT": "23248.5",
+          "rec": "5755ca6250b14d5ca60fa56f129d3fdd",
+          "rewound": "true",
+          "tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "ut": "23248.545293629744"
+        },
+        "cmd": "InvokeRewindToLaunch",
+        "expect": "OK",
+        "id": "0040",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "23248.605293629746",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0041",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "23248.645293629746",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0042",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "18",
+          "kind": "committed",
+          "rec0": "06f15e8ce4f04637944779e8338aae8d",
+          "rec0name": "Kerbal X",
+          "rec0pid": "2708531065",
+          "rec0spawned": "false",
+          "rec0spawnedPid": "0",
+          "rec0state": "Immutable",
+          "rec0tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec1": "271c5a50953b499e87dc0fa50777b647",
+          "rec10": "d9b5675fc64f439aa5fff170f72d6ad4",
+          "rec10name": "Kerbal X Debris",
+          "rec10pid": "3967955681",
+          "rec10spawned": "false",
+          "rec10spawnedPid": "0",
+          "rec10state": "Immutable",
+          "rec10tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec11": "06dd14db58034422be72aa88e36492c3",
+          "rec11name": "Grand Slam Passive Seismometer",
+          "rec11pid": "3148525061",
+          "rec11spawned": "false",
+          "rec11spawnedPid": "0",
+          "rec11state": "Immutable",
+          "rec11tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec12": "3c3ff88d85c8418e98c934cc3f3d67a7",
+          "rec12name": "Kerbal X",
+          "rec12pid": "2708531065",
+          "rec12spawned": "false",
+          "rec12spawnedPid": "0",
+          "rec12state": "Immutable",
+          "rec12tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec13": "5755ca6250b14d5ca60fa56f129d3fdd",
+          "rec13name": "Jebediah Kerman",
+          "rec13pid": "3326862628",
+          "rec13spawned": "false",
+          "rec13spawnedPid": "0",
+          "rec13state": "Immutable",
+          "rec13tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec14": "69daf65152de43f9b7ba027edb914b5b",
+          "rec14name": "Probodobodyne Experiment Control Station",
+          "rec14pid": "1783441728",
+          "rec14spawned": "false",
+          "rec14spawnedPid": "0",
+          "rec14state": "Immutable",
+          "rec14tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec15": "7367ac0c5b6741a19ef57a102822e394",
+          "rec15name": "Go-ob ED Monitor",
+          "rec15pid": "3780432365",
+          "rec15spawned": "false",
+          "rec15spawnedPid": "0",
+          "rec15state": "Immutable",
+          "rec15tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec16": "acea23993ab34f0e81f3d8aa82f6d285",
+          "rec16name": "Grand Slam Passive Seismometer",
+          "rec16pid": "1617542172",
+          "rec16spawned": "false",
+          "rec16spawnedPid": "0",
+          "rec16state": "Immutable",
+          "rec16tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec17": "e25eccb22dad424aa6fcfcd5c5eb4992",
+          "rec17name": "Mini-NUK-PD Radioisotope Thermoelectric Generator",
+          "rec17pid": "4236901037",
+          "rec17spawned": "false",
+          "rec17spawnedPid": "0",
+          "rec17state": "Immutable",
+          "rec17tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec1name": "Kerbal X",
+          "rec1pid": "2708531065",
+          "rec1spawned": "false",
+          "rec1spawnedPid": "0",
+          "rec1state": "Immutable",
+          "rec1tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec2": "2927d112f61743be94e431e91dd79830",
+          "rec2name": "Kerbal X Debris",
+          "rec2pid": "2471392756",
+          "rec2spawned": "false",
+          "rec2spawnedPid": "0",
+          "rec2state": "Immutable",
+          "rec2tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec3": "2cbcc9d18e464811b14c858def5559f5",
+          "rec3name": "Kerbal X",
+          "rec3pid": "2708531065",
+          "rec3spawned": "false",
+          "rec3spawnedPid": "0",
+          "rec3state": "Immutable",
+          "rec3tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec4": "5c4faaf2d48345138df2620561d9c38f",
+          "rec4name": "Kerbal X Debris",
+          "rec4pid": "3605058178",
+          "rec4spawned": "false",
+          "rec4spawnedPid": "0",
+          "rec4state": "Immutable",
+          "rec4tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec5": "61f3775361fe4130a66a69b1425b7209",
+          "rec5name": "Kerbal X",
+          "rec5pid": "2708531065",
+          "rec5spawned": "false",
+          "rec5spawnedPid": "0",
+          "rec5state": "Immutable",
+          "rec5tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec6": "940b1f5a759347bb8b44e9cab7da089c",
+          "rec6name": "Kerbal X Debris",
+          "rec6pid": "1350699195",
+          "rec6spawned": "false",
+          "rec6spawnedPid": "0",
+          "rec6state": "Immutable",
+          "rec6tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec7": "9697229f1b644c948dce380c64b133ca",
+          "rec7name": "Kerbal X Debris",
+          "rec7pid": "2019477633",
+          "rec7spawned": "false",
+          "rec7spawnedPid": "0",
+          "rec7state": "Immutable",
+          "rec7tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec8": "cee839f75a824bc2b65a8e2350ab1993",
+          "rec8name": "Kerbal X Debris",
+          "rec8pid": "2971199999",
+          "rec8spawned": "false",
+          "rec8spawnedPid": "0",
+          "rec8state": "Immutable",
+          "rec8tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec9": "d3a8c31ace604370b474d04a4584bf7f",
+          "rec9name": "Kerbal X Debris",
+          "rec9pid": "2947494150",
+          "rec9spawned": "false",
+          "rec9spawnedPid": "0",
+          "rec9state": "Immutable",
+          "rec9tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "truncated": "false",
+          "ut": "23248.665293629747"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0043",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "eva10-rewound-count-18-a-06dd14db58034422be72aa88e36492c3-false-b-3c3ff88d85c8418e98c934cc3f3d67a7-false-c-5755ca6250b14d5ca60fa56f129d3fdd-false-d-69daf65152de43f9b7ba027edb914b5b-false-e-7367ac0c5b6741a19ef57a102822e394-false-f-acea23993ab34f0e81f3d8aa82f6d285-false-g-e25eccb22dad424aa6fcfcd5c5eb4992-false",
+          "ut": "23248.705293629748"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0044",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c1.count}",
+            "value": "18"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec11}",
+            "value": "06dd14db58034422be72aa88e36492c3"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec11spawned}",
+            "value": "false"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec12}",
+            "value": "3c3ff88d85c8418e98c934cc3f3d67a7"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec12spawned}",
+            "value": "false"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec13}",
+            "value": "5755ca6250b14d5ca60fa56f129d3fdd"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec13spawned}",
+            "value": "false"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec14}",
+            "value": "69daf65152de43f9b7ba027edb914b5b"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec14spawned}",
+            "value": "false"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec15}",
+            "value": "7367ac0c5b6741a19ef57a102822e394"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec15spawned}",
+            "value": "false"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec16}",
+            "value": "acea23993ab34f0e81f3d8aa82f6d285"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec16spawned}",
+            "value": "false"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec17}",
+            "value": "e25eccb22dad424aa6fcfcd5c5eb4992"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec17spawned}",
+            "value": "false"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "craft": "Kerbal X",
+          "facility": "SPH",
+          "parts": "73",
+          "scene": "EDITOR",
+          "ship": "Kerbal X",
+          "ut": "23248.725293629748"
+        },
+        "cmd": "GoToEditor",
+        "expect": "OK",
+        "id": "0045",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "pid": "2708531065",
+          "scene": "FLIGHT",
+          "site": "Runway",
+          "situation": "PRELAUNCH",
+          "ut": "23249.045293629755",
+          "vessel": "Kerbal X"
+        },
+        "cmd": "LaunchFromEditor",
+        "expect": "OK",
+        "id": "0046",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "180.8347063702422",
+          "maxRate": "1",
+          "target": "23430",
+          "ut": "23429.7852936337"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0047",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "18",
+          "kind": "committed",
+          "rec0": "06f15e8ce4f04637944779e8338aae8d",
+          "rec0name": "Kerbal X",
+          "rec0pid": "2708531065",
+          "rec0spawned": "false",
+          "rec0spawnedPid": "0",
+          "rec0state": "Immutable",
+          "rec0tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec1": "271c5a50953b499e87dc0fa50777b647",
+          "rec10": "d9b5675fc64f439aa5fff170f72d6ad4",
+          "rec10name": "Kerbal X Debris",
+          "rec10pid": "3967955681",
+          "rec10spawned": "false",
+          "rec10spawnedPid": "0",
+          "rec10state": "Immutable",
+          "rec10tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec11": "06dd14db58034422be72aa88e36492c3",
+          "rec11name": "Grand Slam Passive Seismometer",
+          "rec11pid": "3148525061",
+          "rec11spawned": "false",
+          "rec11spawnedPid": "0",
+          "rec11state": "Immutable",
+          "rec11tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec12": "3c3ff88d85c8418e98c934cc3f3d67a7",
+          "rec12name": "Kerbal X",
+          "rec12pid": "2708531065",
+          "rec12spawned": "true",
+          "rec12spawnedPid": "1184686955",
+          "rec12state": "Immutable",
+          "rec12tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec13": "5755ca6250b14d5ca60fa56f129d3fdd",
+          "rec13name": "Jebediah Kerman",
+          "rec13pid": "3326862628",
+          "rec13spawned": "true",
+          "rec13spawnedPid": "1536593936",
+          "rec13state": "Immutable",
+          "rec13tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec14": "69daf65152de43f9b7ba027edb914b5b",
+          "rec14name": "Probodobodyne Experiment Control Station",
+          "rec14pid": "1783441728",
+          "rec14spawned": "true",
+          "rec14spawnedPid": "1783441728",
+          "rec14state": "Immutable",
+          "rec14tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec15": "7367ac0c5b6741a19ef57a102822e394",
+          "rec15name": "Go-ob ED Monitor",
+          "rec15pid": "3780432365",
+          "rec15spawned": "true",
+          "rec15spawnedPid": "3780432365",
+          "rec15state": "Immutable",
+          "rec15tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec16": "acea23993ab34f0e81f3d8aa82f6d285",
+          "rec16name": "Grand Slam Passive Seismometer",
+          "rec16pid": "1617542172",
+          "rec16spawned": "true",
+          "rec16spawnedPid": "1617542172",
+          "rec16state": "Immutable",
+          "rec16tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec17": "e25eccb22dad424aa6fcfcd5c5eb4992",
+          "rec17name": "Mini-NUK-PD Radioisotope Thermoelectric Generator",
+          "rec17pid": "4236901037",
+          "rec17spawned": "true",
+          "rec17spawnedPid": "4236901037",
+          "rec17state": "Immutable",
+          "rec17tree": "82baf7c83de246f9988c1cfc72faa76d",
+          "rec1name": "Kerbal X",
+          "rec1pid": "2708531065",
+          "rec1spawned": "false",
+          "rec1spawnedPid": "0",
+          "rec1state": "Immutable",
+          "rec1tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec2": "2927d112f61743be94e431e91dd79830",
+          "rec2name": "Kerbal X Debris",
+          "rec2pid": "2471392756",
+          "rec2spawned": "false",
+          "rec2spawnedPid": "0",
+          "rec2state": "Immutable",
+          "rec2tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec3": "2cbcc9d18e464811b14c858def5559f5",
+          "rec3name": "Kerbal X",
+          "rec3pid": "2708531065",
+          "rec3spawned": "false",
+          "rec3spawnedPid": "0",
+          "rec3state": "Immutable",
+          "rec3tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec4": "5c4faaf2d48345138df2620561d9c38f",
+          "rec4name": "Kerbal X Debris",
+          "rec4pid": "3605058178",
+          "rec4spawned": "false",
+          "rec4spawnedPid": "0",
+          "rec4state": "Immutable",
+          "rec4tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec5": "61f3775361fe4130a66a69b1425b7209",
+          "rec5name": "Kerbal X",
+          "rec5pid": "2708531065",
+          "rec5spawned": "false",
+          "rec5spawnedPid": "0",
+          "rec5state": "Immutable",
+          "rec5tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec6": "940b1f5a759347bb8b44e9cab7da089c",
+          "rec6name": "Kerbal X Debris",
+          "rec6pid": "1350699195",
+          "rec6spawned": "false",
+          "rec6spawnedPid": "0",
+          "rec6state": "Immutable",
+          "rec6tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec7": "9697229f1b644c948dce380c64b133ca",
+          "rec7name": "Kerbal X Debris",
+          "rec7pid": "2019477633",
+          "rec7spawned": "false",
+          "rec7spawnedPid": "0",
+          "rec7state": "Immutable",
+          "rec7tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec8": "cee839f75a824bc2b65a8e2350ab1993",
+          "rec8name": "Kerbal X Debris",
+          "rec8pid": "2971199999",
+          "rec8spawned": "false",
+          "rec8spawnedPid": "0",
+          "rec8state": "Immutable",
+          "rec8tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "rec9": "d3a8c31ace604370b474d04a4584bf7f",
+          "rec9name": "Kerbal X Debris",
+          "rec9pid": "2947494150",
+          "rec9spawned": "false",
+          "rec9spawnedPid": "0",
+          "rec9state": "Immutable",
+          "rec9tree": "0da22482a8a648c6835b7bcd6b0f200d",
+          "truncated": "false",
+          "ut": "23429.905293633703"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0048",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "eva10-spawned-count-18-a-06dd14db58034422be72aa88e36492c3-false-0-b-3c3ff88d85c8418e98c934cc3f3d67a7-true-1184686955-c-5755ca6250b14d5ca60fa56f129d3fdd-true-1536593936-d-69daf65152de43f9b7ba027edb914b5b-true-1783441728-e-7367ac0c5b6741a19ef57a102822e394-true-3780432365-f-acea23993ab34f0e81f3d8aa82f6d285-true-1617542172-g-e25eccb22dad424aa6fcfcd5c5eb4992-true-4236901037-end",
+          "ut": "23429.925293633703"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0049",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c2.count}",
+            "value": "18"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec11}",
+            "value": "06dd14db58034422be72aa88e36492c3"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec11spawned}",
+            "value": "false"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec11spawnedPid}",
+            "value": "0"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec12}",
+            "value": "3c3ff88d85c8418e98c934cc3f3d67a7"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec12spawned}",
+            "value": "true"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec12spawnedPid}",
+            "value": "1184686955"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec13}",
+            "value": "5755ca6250b14d5ca60fa56f129d3fdd"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec13spawned}",
+            "value": "true"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec13spawnedPid}",
+            "value": "1536593936"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec14}",
+            "value": "69daf65152de43f9b7ba027edb914b5b"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec14spawned}",
+            "value": "true"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec14spawnedPid}",
+            "value": "1783441728"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec15}",
+            "value": "7367ac0c5b6741a19ef57a102822e394"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec15spawned}",
+            "value": "true"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec15spawnedPid}",
+            "value": "3780432365"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec16}",
+            "value": "acea23993ab34f0e81f3d8aa82f6d285"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec16spawned}",
+            "value": "true"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec16spawnedPid}",
+            "value": "1617542172"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec17}",
+            "value": "e25eccb22dad424aa6fcfcd5c5eb4992"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec17spawned}",
+            "value": "true"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec17spawnedPid}",
+            "value": "4236901037"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "23429.965293633704"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0050",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "23430.005293633705"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0051",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T17:41:15Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-17_1735_EVA-10-mun-ground-science-cluster",
+  "scenarioId": "EVA-10-mun-ground-science-cluster",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 4794947,
+    "files": 153,
+    "path": "2026-11-17_1735_EVA-10-mun-ground-science-cluster_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-17T17:35:30Z",
+  "subkind": "",
+  "tier": "nightly",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-2\\saves\\mun-landing-recorded\\analysis\\mun-landing-recorded.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-2\\saves\\mun-landing-recorded\\analysis\\mun-landing-recorded.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 18
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": false,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 1026,
+            "recordings": 18,
+            "smallest": 8,
+            "total": 2552,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "10": 1,
+              "9": 5,
+              "JointBreak": 5
+            },
+            "committedTrees": 2,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "Go-ob ED Monitor": 1,
+              "Grand Slam Passive Seismometer": 2,
+              "Jebediah Kerman": 1,
+              "Kerbal X": 5,
+              "Kerbal X Debris": 7,
+              "Mini-NUK-PD Radioisotope Thermoelectric Generator": 1,
+              "Probodobodyne Experiment Control Station": 1
+            },
+            "recordings": 18,
+            "spaceObjectParts": {},
+            "spawnedVessels": 6,
+            "terminalStates": {
+              "Destroyed": 7,
+              "Disassembled": 1,
+              "Landed": 7
+            },
+            "treeNodes": 2,
+            "trees": 2,
+            "vesselNames": {
+              "Go-ob ED Monitor": 1,
+              "Grand Slam Passive Seismometer": 1,
+              "Jebediah Kerman": 1,
+              "Kerbal X": 1,
+              "Mini-NUK-PD Radioisotope Thermoelectric Generator": 1,
+              "Probodobodyne Experiment Control Station": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 0
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 0,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 345
+}

@@ -1,0 +1,95 @@
+[Harness][Info][Select] select expr='--ids-file C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\V31M-duna-ike-continuation-player-loop.ids' -> 1 scenarios: ['V31M-duna-ike-continuation-player-loop']
+[Harness][Info][Select] slot mode slot=stock-minimal instance=C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal window=desktop
+[Harness][Info][Lock] runner check ok: runner pid=39856 holds the machine lock
+[Harness][Info][Lock] slot-lock acquired slot=stock-minimal (acquired-free) path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-slot-stock-minimal.lock pid=33808
+[Harness][Info][Build] tests prebuild skipped (--tests-prebuilt: the caller built C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\Source\Parsek.Tests\bin\Debug\net472\Parsek.Tests.dll); verifiers run -NoBuild
+[Harness][Warn][Select] spec warning id=V31M-duna-ike-continuation-player-loop: expectations.renderComposition: declared with no assertion key - the block reports the measured facets and gates nothing
+[Harness][Info][Admit] admit parsek-dll vs stock-minimal: skipped (same instance)
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Verbose][Preflight] kRPC settings already carry rpc=50000 stream=50001
+[Harness][Info][Preflight] port-check rpc=50000 stream=50001 result=CLEAR
+[Harness][Verbose][Stage] shared-ship overlay: 3 craft into duna-ike-recorded/Ships/VAB [DD1 Duna Direct Probe.craft, GS1 Auto-Chute Booster.craft, Kerbal X.craft]
+[Harness][Info][Settings] settings-sidecar baseline written phase=stage tracers=off readableMirrors=on
+[Harness][Info][Stage] stage save=duna-ike-recorded template=fixtures/saves/duna-ike-recorded inject=none craft=0 results-rotated=True manifest-rotated=True
+[Harness][Info][Launch] launch exe=C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal\KSP_x64.exe pid=13848 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0 ISOLATED=0 RENDER_MANIFEST=1] batchIsolated=False budget=2400s
+[Harness][Info][Launch] launch args=-logFile C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal\Player.log -screen-fullscreen 0 -screen-width 1280 -screen-height 720 window=desktop desktopId=8611d2b8-3fd1-40e7-b7ed-966d22e4f24c returnForeground=11537816
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Info][Boot-Wait] boot at main menu elapsed=30.4s kspLogBytes=1333166; watching until the seam's first receipt (rule no-seam-receipt)
+[Harness][Info][Boot-Wait] boot ready via=seam-receipt elapsed=30.9s kspLogBytes=1338083; boot-stall watchdog off for this attempt
+[Harness][Info][Window] window mode=desktop placement=desktop=moved foreground=not-foreground action=none (Parsek moved its window to the target desktop)
+[Harness][Info][Drive] drive resp id=0001 verdict=OK met=True
+[Harness][Info][Drive] captured id=0001 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=1 id=0002 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0002 verdict=OK met=True
+[Harness][Info][Drive] captured id=0002 label=- fields=ut,stopped
+[Harness][Info][Drive] drive step=2 id=0003 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] captured id=0003 label=- fields=ut,discarded
+[Harness][Info][Drive] drive step=3 id=0004 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Drive] captured id=0004 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=4 id=0005 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0005 verdict=OK met=True
+[Harness][Info][Drive] captured id=0005 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=5 id=0006 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0006 verdict=OK met=True
+[Harness][Info][Drive] captured id=0006 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=6 id=0007 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0007 verdict=OK met=True
+[Harness][Info][Drive] captured id=0007 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=7 id=0008 cmd=MissionConfig expect=OK
+[Harness][Info][Drive] drive resp id=0008 verdict=OK met=True
+[Harness][Info][Drive] captured id=0008 label=- fields=ut,mission,tree,loop,intervalSeconds,anchorUt,unitBuilt,phaseAnchorUt,spanStartUt,cadenceSeconds,spanSeconds,compressedSpanSeconds,loiterCutCount,loiterCuts,unit,overlapCadenceSeconds,autoLoopIntervalSeconds
+[Harness][Info][Drive] drive step=8 id=0009 cmd=StartLoopPlayback expect=OK
+[Harness][Info][Drive] drive resp id=0009 verdict=OK met=True
+[Harness][Info][Drive] captured id=0009 label=- fields=ut,relaunchUt,reachedUt,mission,tree
+[Harness][Info][Drive] drive step=9 id=0010 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0010 verdict=OK met=True
+[Harness][Info][Drive] captured id=0010 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=10 id=0011 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0011 verdict=OK met=True
+[Harness][Info][Drive] captured id=0011 label=- fields=ut,nothing
+[Harness][Info][Drive] drive step=11 id=0012 cmd=LoadGame expect=OK
+[Harness][Info][Drive] drive resp id=0012 verdict=OK met=True
+[Harness][Info][Drive] captured id=0012 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=12 id=0013 cmd=RunTests expect=OK
+[Harness][Info][Drive] drive resp id=0013 verdict=OK met=True
+[Harness][Info][Drive] captured id=0013 label=- fields=ut,passed,failed,skipped,results
+[Harness][Info][Drive] drive step=13 id=0014 cmd=ExportRenderManifest expect=OK
+[Harness][Info][Drive] drive resp id=0014 verdict=OK met=True
+[Harness][Info][Drive] captured id=0014 label=- fields=ut,path,manifest,planUnits,dwells,transitions,clockEvents
+[Harness][Info][Drive] drive step=14 id=0015 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0015 verdict=OK met=True
+[Harness][Info][Drive] captured id=0015 label=- fields=ut,saved
+[Harness][Info][Verify] verify driverValidity status=PASS allMet=True subkind=-
+[Harness][Info][Verify] verify batchComplete status=PASS found=True failed=0 multi=False perCategory=1 runs=1/1
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None
+[Harness][Info][Verify] verify timing analyzer=11.3s logValidate=11.0s mode=concurrent
+[Harness][Info][Verify] verify logValidate status=PASS recRulesSuppressed=True killedRunMode=False
+[Harness][Info][Verify] verify anomalySweep status=PASS hits=[] counts={}
+[Harness][Info][Verify] verify unityExceptions status=REPORT gating=False total=0 counts={'NullReferenceException': 0, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0} parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=0 afterQuitFrameless=0
+[Harness][Info][Verify] verify expectations status=PASS mismatches=0
+[Harness][Info][Verify] verify saveParse status=REPORT gating=False blocks=['rewind', 'recordings.structure'] armed=- scenarioFound=True supersedeRows=0 tombstones=0 rewindPoints=0 pointsTotal=721 pointsLargest=363 pointsSmallest=62 pointsUnparsed=0 routes=0 routeStatuses={} routeCodecRejects=0 mismatches=0
+[Harness][Info][Verify] verify renderCompose status=REPORT gating=False blocks=['renderComposition'] armed=- parsed=True dwells=0 cycles=0 unevaluable=5 findings={'FAIL': 0, 'WARN': 0, 'INFO': 1} mismatches=0 declared={}
+[Harness][Info][Verify] verify ghostLifecycle status=REPORT gating=False blocks=- armed=- spawned=0 spawnLines=0 destroyLines=0 unbalanced=0 malformed=0 reasons={} mismatches=0 declared=-
+[Harness][Info][Classify] verdict=PASS scenario=V31M-duna-ike-continuation-player-loop attempt=1 reason=driver valid, every verifier PASS/SKIPPED
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1751_V31M-duna-ike-continuation-player-loop.json
+[Harness][Info][Snapshot] produced-save snapshot run=2026-11-17_1751_V31M-duna-ike-continuation-player-loop result=copied bytes=1542845 files=50 reason=every-verdict-default verdict=PASS path=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1751_V31M-duna-ike-continuation-player-loop_save
+[Harness][Verbose][Snapshot] save-snapshot retention skipped (slot mode; the runner sweeps)
+[Harness][Verbose][Artifacts] screenshots skipped: 800 prior-run, 0 over-cap, 0 copy-failed
+[Harness][Info][Artifacts] artifacts collected run=2026-11-17_1751_V31M-duna-ike-continuation-player-loop kspLog=True truncated=False screenshots=0 renderManifest=True -> C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1751_V31M-duna-ike-continuation-player-loop_shots
+[Harness][Verbose][Artifacts] shots-dir retention skipped (slot mode; the runner sweeps)
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1751_V31M-duna-ike-continuation-player-loop.json
+[Harness][Info][Sheet] contact sheet written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1751_V31M-duna-ike-continuation-player-loop_contact.html (+ index.html)
+[Harness][Info][Settings] settings-sidecar baseline written phase=teardown tracers=off readableMirrors=on (cleared leaked: ghostRenderTracing,mapRenderTracing)
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1751_V31M-duna-ike-continuation-player-loop.json
+[Harness][Info][Sheet] contact sheet written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1751_V31M-duna-ike-continuation-player-loop_contact.html (+ index.html)
+[Harness][Info][Cost] scenario cost attempts=1 wallTotal=54s terminal=PASS
+[Harness][Info][Archive] results archived run=2026-11-17_1751_V31M-duna-ike-continuation-player-loop files=3 bytes=205003 missing=3 -> C:\Users\USER\Documents\Code\Parsek\automation\results-archive\2026-11-17_1751_V31M-duna-ike-continuation-player-loop
+[Harness][Verbose][Archive] run index append skipped (slot mode; the runner appends 2026-11-17_1751_V31M-duna-ike-continuation-player-loop)
+[Harness][Info][Lock] run-lock released path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-slot-stock-minimal.lock (slot=stock-minimal)
+[Harness][Info][Report] run report -> C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\V31M-duna-ike-continuation-player-loop.11.report.json lanes=1 exit=0

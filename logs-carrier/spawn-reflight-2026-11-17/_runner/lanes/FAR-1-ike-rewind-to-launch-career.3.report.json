@@ -1,0 +1,21 @@
+{
+ "exitCode": 0,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "",
+   "id": "FAR-1-ike-rewind-to-launch-career",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight\\harness\\results\\2026-11-17_1737_FAR-1-ike-rewind-to-launch-career.json"
+   ],
+   "runIds": [
+    "2026-11-17_1737_FAR-1-ike-rewind-to-launch-career"
+   ],
+   "subkind": "",
+   "verdict": "PASS",
+   "wallSeconds": 218
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal-3"
+}

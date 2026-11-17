@@ -1,0 +1,33 @@
+{
+  "archivedUtc": "2026-11-17T17:49:08Z",
+  "files": [
+    {
+      "bytes": 14221,
+      "name": "2026-11-17_1748_H58-route-rewind-to-launch.json",
+      "sourceBytes": 14221
+    },
+    {
+      "bytes": 2864,
+      "name": "2026-11-17_174809_stock-minimal_harness.log.gz",
+      "sourceBytes": 10770
+    },
+    {
+      "bytes": 168386,
+      "name": "KSP.log.gz",
+      "sourceBytes": 1663115
+    }
+  ],
+  "gitHead": "e9353aa5f2adef3a6f0438372688d3996a0d349c",
+  "harnessLog": "slice",
+  "missing": [
+    "2026-11-17_1748_H58-route-rewind-to-launch_status.json",
+    "2026-11-17_1748_H58-route-rewind-to-launch_mission.json",
+    "2026-11-17_1748_H58-route-rewind-to-launch_mission.stdout.log"
+  ],
+  "origin": "run",
+  "parsekDllSha256": "966424bfd63ee831a724ce4a8c38d81d2530e4afda976b3c5a5903a5f05bfb75",
+  "runId": "2026-11-17_1748_H58-route-rewind-to-launch",
+  "schema": 1,
+  "totalBytes": 185471,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight"
+}

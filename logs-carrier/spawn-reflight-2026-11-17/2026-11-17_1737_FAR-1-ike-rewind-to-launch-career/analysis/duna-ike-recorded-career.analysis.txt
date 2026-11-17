@@ -1,0 +1,3 @@
+[Analyzer] save=duna-ike-recorded-career generation=4 FAIL=0 WARN=1 INFO=1 STALE=0 BASELINED=0 RED=0
+WARN INV2-UNCOVERED-SPAN target=311d98e32547491e8dd37aec2526d25d#2 INV2 uncovered recording=311d98e32547491e8dd37aec2526d25d span=[4653681.9038905427,9181509.7377239726] orbitBridged=False
+INFO INV8-CAREER-DIFF target=duna-ike-recorded-career INV8 career-diff reconstruction-not-available (headless recalc deferred)

@@ -1,0 +1,33 @@
+{
+  "archivedUtc": "2026-11-17T17:52:13Z",
+  "files": [
+    {
+      "bytes": 14926,
+      "name": "2026-11-17_1751_V31M-duna-ike-continuation-player-loop.json",
+      "sourceBytes": 14926
+    },
+    {
+      "bytes": 2917,
+      "name": "2026-11-17_175118_stock-minimal_harness.log.gz",
+      "sourceBytes": 10216
+    },
+    {
+      "bytes": 187160,
+      "name": "KSP.log.gz",
+      "sourceBytes": 1878802
+    }
+  ],
+  "gitHead": "e9353aa5f2adef3a6f0438372688d3996a0d349c",
+  "harnessLog": "slice",
+  "missing": [
+    "2026-11-17_1751_V31M-duna-ike-continuation-player-loop_status.json",
+    "2026-11-17_1751_V31M-duna-ike-continuation-player-loop_mission.json",
+    "2026-11-17_1751_V31M-duna-ike-continuation-player-loop_mission.stdout.log"
+  ],
+  "origin": "run",
+  "parsekDllSha256": "966424bfd63ee831a724ce4a8c38d81d2530e4afda976b3c5a5903a5f05bfb75",
+  "runId": "2026-11-17_1751_V31M-duna-ike-continuation-player-loop",
+  "schema": 1,
+  "totalBytes": 205003,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight"
+}

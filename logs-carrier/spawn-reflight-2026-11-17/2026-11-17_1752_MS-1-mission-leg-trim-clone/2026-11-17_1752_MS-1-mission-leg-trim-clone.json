@@ -1,0 +1,496 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_1752_MS-1-mission-leg-trim-clone_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 52,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "bdock-recorded",
+          "scene": "FLIGHT",
+          "ut": "8952.8079785489736"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "8953.0279785489784",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "8953.0479785489788",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "8953.08797854898"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "already": "true",
+          "mode": "advanced",
+          "op": "complexity",
+          "ut": "8953.12797854898"
+        },
+        "cmd": "UiAction",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "already": "false",
+          "op": "open",
+          "open": "true",
+          "ut": "8953.1879785489818",
+          "window": "main"
+        },
+        "cmd": "UiAction",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "already": "false",
+          "op": "open",
+          "open": "true",
+          "ut": "8953.2279785489827",
+          "window": "missions"
+        },
+        "cmd": "UiAction",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "already": "true",
+          "index": "0",
+          "op": "tab",
+          "tab": "missions",
+          "ut": "8953.2679785489836",
+          "window": "missions"
+        },
+        "cmd": "UiAction",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "anchorUt": "8953.287978548984",
+          "autoLoopIntervalSeconds": "30",
+          "cadenceSeconds": "21549.425183089825",
+          "compressedSpanSeconds": "361.05171081540209",
+          "intervalSeconds": "10",
+          "loiterCutCount": "0",
+          "loiterCuts": "",
+          "loop": "true",
+          "mission": "Kerbal X",
+          "overlapCadenceSeconds": "21549.425183089825",
+          "phaseAnchorUt": "21575.385183089824",
+          "spanSeconds": "361.05171081540209",
+          "spanStartUt": "25.959999999999535",
+          "tree": "788554a928324f148dd313dd26322638",
+          "unit": "sec",
+          "unitBuilt": "true",
+          "ut": "8953.287978548984"
+        },
+        "cmd": "MissionConfig",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "changed": "1",
+          "excluded": "1",
+          "include": "false",
+          "key": "leg:a32f62f52dc84d6a94daf93460ec6548",
+          "links": "0",
+          "mission": "45a98f1db38946a9aeb220cb565cb9d7",
+          "op": "select",
+          "ut": "8953.3279785489849",
+          "window": "missions"
+        },
+        "cmd": "UiAction",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "copy": "6525774efbf14429bd1910fe3fce62c5",
+          "excluded": "1",
+          "links": "0",
+          "loop": "false",
+          "mission": "45a98f1db38946a9aeb220cb565cb9d7",
+          "missions": "3",
+          "name": "Kerbal X copy",
+          "op": "clone",
+          "ut": "8953.3679785489858",
+          "window": "missions"
+        },
+        "cmd": "UiAction",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "already": "false",
+          "op": "close",
+          "open": "false",
+          "ut": "8953.4079785489866",
+          "window": "missions"
+        },
+        "cmd": "UiAction",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "8953.4479785489875"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T17:53:12Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-17_1752_MS-1-mission-leg-trim-clone",
+  "scenarioId": "MS-1-mission-leg-trim-clone",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 6386329,
+    "files": 135,
+    "path": "2026-11-17_1752_MS-1-mission-leg-trim-clone_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-17T17:52:19Z",
+  "subkind": "",
+  "tier": "nightly",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\bdock-recorded\\analysis\\bdock-recorded.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\bdock-recorded\\analysis\\bdock-recorded.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 21
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": true,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 1616,
+            "recordings": 21,
+            "smallest": 1,
+            "total": 2837,
+            "trivialRecordings": 1,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "Dock": 1,
+              "JointBreak": 10,
+              "Undock": 1
+            },
+            "committedTrees": 2,
+            "duplicateRecordingIds": [
+              "5157d6555bd3499592c46d8508dbedf4",
+              "1cfb0ec7f90e4bdda580b348f142232c",
+              "e48bd55861804c55aa2748d931a43d78",
+              "9bd1a291bdd64ecab0c207190c8b0a27",
+              "ae60f691c24a49658391c95d7d46ce9a",
+              "30e3d912eb3b406ab5f745b267634064",
+              "f17e1186e9ed449b93650eb5f011a932",
+              "500c0ba9c18b4e2f96d64dd4d3b40b63",
+              "f049901e1f4641ffae490b2f52b1d55e",
+              "37d0dc074351408ba0374230793abb1c",
+              "4af6cfd725d646ccbac9ef2f7749667e",
+              "a2bd8c6f9ac04b9aac99f8ec7a01e52f"
+            ],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 1,
+            "recordingNames": {
+              "Kerbal X": 7,
+              "Kerbal X Debris": 12,
+              "Kerbal X Probe": 2
+            },
+            "recordings": 21,
+            "spaceObjectParts": {
+              "Ast. VPA-167": 1
+            },
+            "spawnedVessels": 4,
+            "terminalStates": {
+              "Destroyed": 12,
+              "Docked": 1,
+              "Orbiting": 5
+            },
+            "treeNodes": 3,
+            "trees": 2,
+            "vesselNames": {
+              "Kerbal X": 2,
+              "Kerbal X Debris": 1,
+              "Kerbal X Probe": 2
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 3,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 1,
+      "afterQuitFrameless": 1,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 1
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 1,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 52
+}

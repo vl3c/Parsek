@@ -1,0 +1,21 @@
+{
+ "exitCode": 0,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "",
+   "id": "FAR-2-duna-relaunch-rewind-keeps-landed",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight\\harness\\results\\2026-11-17_1746_FAR-2-duna-relaunch-rewind-keeps-landed.json"
+   ],
+   "runIds": [
+    "2026-11-17_1746_FAR-2-duna-relaunch-rewind-keeps-landed"
+   ],
+   "subkind": "",
+   "verdict": "PASS",
+   "wallSeconds": 71
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal"
+}

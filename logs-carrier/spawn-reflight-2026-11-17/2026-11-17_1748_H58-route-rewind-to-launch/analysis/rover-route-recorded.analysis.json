@@ -1,0 +1,156 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "rover-route-recorded",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 1,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [
+    {
+      "ruleId": "INV11-EMPTY-SECTION",
+      "level": "WARN",
+      "target": "0996f1ba7c7b4d3a8d95cf8be77fbe6d",
+      "sectionIndex": 0,
+      "message": "INV11 empty-section recording=0996f1ba7c7b4d3a8d95cf8be77fbe6d#0 env=Atmospheric ref=Absolute ut=[594.27999999974952,594.31999999974948] frames=0 bodyFixedFrames=0 checkpoints=0",
+      "citedContract": "TrackSectionCloseClassifier.Classify",
+      "baselined": false
+    }
+  ],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 1585.2999999999997,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "BaseConstruction",
+      "Docking",
+      "Kerbin/BaseConstruction",
+      "Kerbin/Docking",
+      "Kerbin/Landing",
+      "Landing"
+    ],
+    "vessels": [
+      {
+        "pid": "01741ee6a29d40218154e874ef4157d8",
+        "persistentId": 4167303249,
+        "name": "Ast. HAO-840",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "22214a92e9a3449b8557dca70f75d804",
+        "persistentId": 2749640275,
+        "name": "Ast. UGF-148",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "254388fb09f9441cbc62a777e317fb91",
+        "persistentId": 479223742,
+        "name": "Ast. EZO-679",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "2c24acc808714634af4c2865f1560298",
+        "persistentId": 730876478,
+        "name": "Ast. CMN-096",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "57f7a7f1782c4aea9cc2c3bda4ace53e",
+        "persistentId": 927771998,
+        "name": "Ast. SDT-697",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "836ca8fa1e5f4571abf9291afd1b43f9",
+        "persistentId": 2123618197,
+        "name": "rover fuel 0",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 1000,
+          "LiquidFuel": 297.59999999999843
+        }
+      },
+      {
+        "pid": "8bf6b232cbbf458fa2070b5eeb955f88",
+        "persistentId": 3528604476,
+        "name": "Ast. GYN-298",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "dec134a694674799b9faedd3af2ff2ab",
+        "persistentId": 2875537755,
+        "name": "A",
+        "type": "Rover",
+        "resourceTotals": {
+          "ElectricCharge": 1000,
+          "LiquidFuel": 297.59999999999843
+        }
+      },
+      {
+        "pid": "eda21f28ba914943af9caeb786991067",
+        "persistentId": 456397401,
+        "name": "Ast. TSV-307",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "fd0f8c3f65bd4b0598bc06768fccc629",
+        "persistentId": 165002097,
+        "name": "Ast. UZR-158",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      }
+    ]
+  }
+}

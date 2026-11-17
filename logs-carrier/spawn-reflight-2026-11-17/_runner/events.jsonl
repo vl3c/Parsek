@@ -1,0 +1,52 @@
+{"epoch":1794936907.8502457,"kind":"start","lanes":12,"pid":39856,"utc":"2026-11-17T17:35:07Z"}
+{"epoch":1794936913.2208295,"kind":"dispatch","lane":"MINE-4-rover-docked-origin-route-rewind","pid":5584,"reason":"p50=328s","seq":1,"slot":"stock-minimal","utc":"2026-11-17T17:35:13Z","window":"desktop"}
+{"epoch":1794936913.2563438,"kind":"wait","reason":"the last start was 0 s ago (< 15 s dispatch gap)","utc":"2026-11-17T17:35:13Z","waitKind":"dispatch-gap"}
+{"epoch":1794936929.3184206,"kind":"dispatch","lane":"EVA-10-mun-ground-science-cluster","pid":26916,"reason":"p50=320s","seq":2,"slot":"stock-minimal-2","utc":"2026-11-17T17:35:29Z","window":"desktop"}
+{"epoch":1794936929.363624,"kind":"wait","reason":"the last start was 0 s ago (< 15 s dispatch gap)","utc":"2026-11-17T17:35:29Z","waitKind":"dispatch-gap"}
+{"epoch":1794936945.414139,"kind":"wait","reason":"memory guard: free RAM 7.7 GB - booting 5.4 GB - new copy 4.5 GB = -2.2 GB < 1.5 GB; 2 running, 2 booting","utc":"2026-11-17T17:35:45Z","waitKind":"memory"}
+{"epoch":1794936949.4634519,"kind":"wait","reason":"memory guard: free RAM 6.0 GB - booting 4.8 GB - new copy 4.5 GB = -3.3 GB < 1.5 GB; 2 running, 2 booting","utc":"2026-11-17T17:35:49Z","waitKind":"memory"}
+{"epoch":1794936959.5181582,"kind":"wait","reason":"memory guard: free RAM 5.1 GB - booting 3.3 GB - new copy 4.5 GB = -2.6 GB < 1.5 GB; 2 running, 2 booting","utc":"2026-11-17T17:35:59Z","waitKind":"memory"}
+{"epoch":1794936969.5673099,"kind":"wait","reason":"memory guard: free RAM 5.0 GB - booting 1.8 GB - new copy 4.5 GB = -1.2 GB < 1.5 GB; 2 running, 2 booting","utc":"2026-11-17T17:36:09Z","waitKind":"memory"}
+{"epoch":1794936973.5687244,"kind":"wait","reason":"memory guard: free RAM 5.0 GB - booting 1.2 GB - new copy 4.5 GB = -0.7 GB < 1.5 GB; 2 running, 1 booting","utc":"2026-11-17T17:36:13Z","waitKind":"memory"}
+{"epoch":1794936979.6179528,"kind":"wait","reason":"memory guard: free RAM 5.8 GB - booting 0.7 GB - new copy 4.5 GB = 0.6 GB < 1.5 GB; 2 running, 1 booting","utc":"2026-11-17T17:36:19Z","waitKind":"memory"}
+{"epoch":1794936989.6580696,"kind":"wait","reason":"memory guard: free RAM 5.9 GB - new copy 4.5 GB = 1.4 GB < 1.5 GB; 2 running, 0 booting","utc":"2026-11-17T17:36:29Z","waitKind":"memory"}
+{"epoch":1794936999.7009463,"kind":"wait","reason":"memory guard: free RAM 5.8 GB - new copy 4.5 GB = 1.3 GB < 1.5 GB; 2 running, 0 booting","utc":"2026-11-17T17:36:39Z","waitKind":"memory"}
+{"epoch":1794937009.7426243,"kind":"wait","reason":"memory guard: free RAM 5.9 GB - new copy 4.5 GB = 1.4 GB < 1.5 GB; 2 running, 0 booting","utc":"2026-11-17T17:36:49Z","waitKind":"memory"}
+{"epoch":1794937019.7899635,"kind":"dispatch","lane":"FAR-1-ike-rewind-to-launch-career","pid":16060,"reason":"p50=204s","seq":3,"slot":"stock-minimal-3","utc":"2026-11-17T17:36:59Z","window":"desktop"}
+{"epoch":1794937019.8275273,"kind":"wait","reason":"3 running, slots=3","utc":"2026-11-17T17:36:59Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794937240.8312466,"exit":0,"kind":"finish","lane":"FAR-1-ike-rewind-to-launch-career","runIds":["2026-11-17_1737_FAR-1-ike-rewind-to-launch-career"],"seq":3,"slot":"stock-minimal-3","utc":"2026-11-17T17:40:40Z","verdict":"PASS","wall":221}
+{"epoch":1794937240.8861854,"kind":"dispatch","lane":"LAY-1-laythe-reentry-splashdown","pid":11760,"reason":"p50=120s","seq":4,"slot":"stock-minimal-3","utc":"2026-11-17T17:40:40Z","window":"desktop"}
+{"epoch":1794937240.924368,"kind":"wait","reason":"3 running, slots=3","utc":"2026-11-17T17:40:40Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794937248.9315891,"exit":0,"kind":"finish","lane":"MINE-4-rover-docked-origin-route-rewind","runIds":["2026-11-17_1735_MINE-4-rover-docked-origin-route-rewind"],"seq":1,"slot":"stock-minimal","utc":"2026-11-17T17:40:48Z","verdict":"PASS","wall":336}
+{"epoch":1794937248.933013,"kind":"wait","reason":"the last start was 8 s ago (< 15 s dispatch gap)","utc":"2026-11-17T17:40:48Z","waitKind":"dispatch-gap"}
+{"epoch":1794937256.9888542,"kind":"dispatch","lane":"RVC-1-two-rover-head-on-crash","pid":39580,"reason":"p50=120s","seq":5,"slot":"stock-minimal","utc":"2026-11-17T17:40:56Z","window":"desktop"}
+{"epoch":1794937257.0459516,"kind":"wait","reason":"3 running, slots=3","utc":"2026-11-17T17:40:57Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794937277.1030843,"exit":0,"kind":"finish","lane":"EVA-10-mun-ground-science-cluster","runIds":["2026-11-17_1735_EVA-10-mun-ground-science-cluster"],"seq":2,"slot":"stock-minimal-2","utc":"2026-11-17T17:41:17Z","verdict":"PASS","wall":348}
+{"epoch":1794937277.1469297,"kind":"wait","reason":"memory guard: free RAM 8.5 GB - booting 4.8 GB - new copy 4.5 GB = -0.8 GB < 1.5 GB; 2 running, 2 booting","utc":"2026-11-17T17:41:17Z","waitKind":"memory"}
+{"epoch":1794937287.1873522,"kind":"wait","reason":"memory guard: free RAM 7.5 GB - booting 3.3 GB - new copy 4.5 GB = -0.2 GB < 1.5 GB; 2 running, 2 booting","utc":"2026-11-17T17:41:27Z","waitKind":"memory"}
+{"epoch":1794937297.2440052,"kind":"wait","reason":"memory guard: free RAM 7.5 GB - booting 1.8 GB - new copy 4.5 GB = 1.2 GB < 1.5 GB; 2 running, 2 booting","utc":"2026-11-17T17:41:37Z","waitKind":"memory"}
+{"epoch":1794937299.2537782,"kind":"dispatch","lane":"AIR-3-plane-drone-midair-collision","pid":36576,"reason":"p50=120s","seq":6,"slot":"stock-minimal-2","utc":"2026-11-17T17:41:39Z","window":"desktop"}
+{"epoch":1794937299.293622,"kind":"wait","reason":"3 running, slots=3","utc":"2026-11-17T17:41:39Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794937614.7924511,"exit":0,"kind":"finish","lane":"RVC-1-two-rover-head-on-crash","runIds":["2026-11-17_1740_RVC-1-two-rover-head-on-crash"],"seq":5,"slot":"stock-minimal","utc":"2026-11-17T17:46:54Z","verdict":"PASS","wall":358}
+{"epoch":1794937614.8015535,"kind":"dispatch","lane":"FAR-2-duna-relaunch-rewind-keeps-landed","pid":22948,"reason":"p50=70s","seq":7,"slot":"stock-minimal","utc":"2026-11-17T17:46:54Z","window":"desktop"}
+{"epoch":1794937614.842779,"kind":"wait","reason":"3 running, slots=3","utc":"2026-11-17T17:46:54Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794937689.168402,"exit":0,"kind":"finish","lane":"FAR-2-duna-relaunch-rewind-keeps-landed","runIds":["2026-11-17_1746_FAR-2-duna-relaunch-rewind-keeps-landed"],"seq":7,"slot":"stock-minimal","utc":"2026-11-17T17:48:09Z","verdict":"PASS","wall":74}
+{"epoch":1794937689.1783092,"kind":"dispatch","lane":"H58-route-rewind-to-launch","pid":29196,"reason":"p50=62s","seq":8,"slot":"stock-minimal","utc":"2026-11-17T17:48:09Z","window":"desktop"}
+{"epoch":1794937689.2298377,"kind":"wait","reason":"3 running, slots=3","utc":"2026-11-17T17:48:09Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794937749.4901261,"exit":0,"kind":"finish","lane":"H58-route-rewind-to-launch","runIds":["2026-11-17_1748_H58-route-rewind-to-launch"],"seq":8,"slot":"stock-minimal","utc":"2026-11-17T17:49:09Z","verdict":"PASS","wall":60}
+{"epoch":1794937749.5480537,"kind":"dispatch","lane":"V20K-jool-kerbin-ksc-arrival","pid":19636,"reason":"p50=60s","seq":9,"slot":"stock-minimal","utc":"2026-11-17T17:49:09Z","window":"desktop"}
+{"epoch":1794937749.5881026,"kind":"wait","reason":"3 running, slots=3","utc":"2026-11-17T17:49:09Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794937819.8994148,"exit":0,"kind":"finish","lane":"V20K-jool-kerbin-ksc-arrival","runIds":["2026-11-17_1749_V20K-jool-kerbin-ksc-arrival"],"seq":9,"slot":"stock-minimal","utc":"2026-11-17T17:50:19Z","verdict":"PASS","wall":70}
+{"epoch":1794937819.9445546,"kind":"dispatch","lane":"V33T-jool-laythe-continuation-ts-arrival","pid":36788,"reason":"p50=56s","seq":10,"slot":"stock-minimal","utc":"2026-11-17T17:50:19Z","window":"desktop"}
+{"epoch":1794937819.9845848,"kind":"wait","reason":"3 running, slots=3","utc":"2026-11-17T17:50:19Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794937878.242419,"exit":0,"kind":"finish","lane":"V33T-jool-laythe-continuation-ts-arrival","runIds":["2026-11-17_1750_V33T-jool-laythe-continuation-ts-arrival"],"seq":10,"slot":"stock-minimal","utc":"2026-11-17T17:51:18Z","verdict":"PASS","wall":58}
+{"epoch":1794937878.2528298,"kind":"dispatch","lane":"V31M-duna-ike-continuation-player-loop","pid":33808,"reason":"p50=49s","seq":11,"slot":"stock-minimal","utc":"2026-11-17T17:51:18Z","window":"desktop"}
+{"epoch":1794937878.2914963,"kind":"wait","reason":"3 running, slots=3","utc":"2026-11-17T17:51:18Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794937934.5345187,"exit":0,"kind":"finish","lane":"V31M-duna-ike-continuation-player-loop","runIds":["2026-11-17_1751_V31M-duna-ike-continuation-player-loop"],"seq":11,"slot":"stock-minimal","utc":"2026-11-17T17:52:14Z","verdict":"PASS","wall":56}
+{"epoch":1794937934.5363092,"kind":"wait","reason":"memory guard: free RAM 6.0 GB - new copy 4.5 GB = 1.5 GB < 1.5 GB; 2 running, 0 booting","utc":"2026-11-17T17:52:14Z","waitKind":"memory"}
+{"epoch":1794937938.5859501,"kind":"dispatch","lane":"MS-1-mission-leg-trim-clone","pid":34984,"reason":"p50=44s","seq":12,"slot":"stock-minimal","utc":"2026-11-17T17:52:18Z","window":"desktop"}
+{"epoch":1794937938.5863893,"kind":"wait","reason":"no lane left to start; 3 running","utc":"2026-11-17T17:52:18Z","waitKind":"drain"}
+{"attempts":1,"epoch":1794937964.6001472,"exit":0,"kind":"finish","lane":"LAY-1-laythe-reentry-splashdown","runIds":["2026-11-17_1740_LAY-1-laythe-reentry-splashdown"],"seq":4,"slot":"stock-minimal-3","utc":"2026-11-17T17:52:44Z","verdict":"PASS","wall":724}
+{"attempts":1,"epoch":1794937992.6156764,"exit":0,"kind":"finish","lane":"MS-1-mission-leg-trim-clone","runIds":["2026-11-17_1752_MS-1-mission-leg-trim-clone"],"seq":12,"slot":"stock-minimal","utc":"2026-11-17T17:53:12Z","verdict":"PASS","wall":54}
+{"attempts":1,"epoch":1794938062.6414177,"exit":1,"kind":"finish","lane":"AIR-3-plane-drone-midair-collision","runIds":["2026-11-17_1741_AIR-3-plane-drone-midair-collision"],"seq":6,"slot":"stock-minimal-2","utc":"2026-11-17T17:54:22Z","verdict":"PARSEK-FAIL","wall":763}
+{"detail":"PASS=11 PARSEK-FAIL=1 pending=0 of 12","epoch":1794938064.534334,"exit":1,"kind":"end","outcome":"RED","utc":"2026-11-17T17:54:24Z"}

@@ -1,0 +1,647 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": true,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_1750_V33T-jool-laythe-continuation-ts-arrival_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 56,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "jool-laythe-recorded",
+          "scene": "FLIGHT",
+          "ut": "28816907.089197144"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "28816907.349197138"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "discarded": "true",
+          "ut": "28816907.409197137"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "28816907.429197136",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "ghostRenderTracing",
+          "ut": "28816907.469197135",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "mapRenderTracing",
+          "ut": "28816907.489197135",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "28816907.509197135",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "anchorUt": "28816907.529197134",
+          "autoLoopIntervalSeconds": "30",
+          "cadenceSeconds": "30272705.130839847",
+          "compressedSpanSeconds": "24711259.048813518",
+          "intervalSeconds": "10",
+          "loiterCutCount": "1",
+          "loiterCuts": "2677.9543749997792:4105619.6803836706",
+          "loop": "true",
+          "mission": "Duna Rocket",
+          "overlapCadenceSeconds": "30272705.130839847",
+          "phaseAnchorUt": "34378351.111223519",
+          "spanSeconds": "28816878.729197189",
+          "spanStartUt": "26.299999999999528",
+          "tree": "6ec68e87b782476f970a71df8c8b4685",
+          "unit": "sec",
+          "unitBuilt": "true",
+          "ut": "28816907.529197134"
+        },
+        "cmd": "MissionConfig",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "mission": "Duna Rocket",
+          "reachedUt": "34371344.527028278",
+          "relaunchUt": "34371359.467028268",
+          "tree": "6ec68e87b782476f970a71df8c8b4685",
+          "ut": "34371344.527028278"
+        },
+        "cmd": "StartLoopPlayback",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "24748315.072971724",
+          "target": "59119659.6",
+          "ut": "59119659.680000015"
+        },
+        "cmd": "TimeJump",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "59119659.700000018"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "59119659.740000024"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "59119659.780000031"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "jool-laythe-recorded",
+          "scene": "TRACKSTATION",
+          "ut": "59119659.760000028"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "0",
+          "recording": "false",
+          "scene": "TRACKSTATION",
+          "tree": "",
+          "ut": "59119659.800000034"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "0",
+          "recording": "false",
+          "scene": "TRACKSTATION",
+          "tree": "",
+          "ut": "59119659.840000041"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "jool-laythe-recorded",
+          "scene": "SPACECENTER",
+          "ut": "59119659.780000031"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "failed": "0",
+          "passed": "1",
+          "results": "parsek-test-results.txt",
+          "skipped": "0",
+          "ut": "59119660.000000067"
+        },
+        "cmd": "RunTests",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "clockEvents": "1",
+          "dwells": "0",
+          "manifest": "parsek-render-manifest.txt",
+          "path": "C:/Users/USER/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-render-manifest.txt",
+          "planUnits": "1",
+          "transitions": "0",
+          "ut": "59119660.02000007"
+        },
+        "cmd": "ExportRenderManifest",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "false",
+          "ut": "59119660.060000077"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T17:51:17Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-17_1750_V33T-jool-laythe-continuation-ts-arrival",
+  "scenarioId": "V33T-jool-laythe-continuation-ts-arrival",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 3088193,
+    "files": 57,
+    "path": "2026-11-17_1750_V33T-jool-laythe-continuation-ts-arrival_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-17T17:50:20Z",
+  "subkind": "",
+  "tier": "operator",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\jool-laythe-recorded\\analysis\\jool-laythe-recorded.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\jool-laythe-recorded\\analysis\\jool-laythe-recorded.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": "MoonArrivalHold",
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": 0,
+      "found": true,
+      "matchedRuns": 1,
+      "multi": false,
+      "perCategoryCount": 1,
+      "runsShort": false,
+      "status": "PASS"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 7
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 1,
+          "destroyedReasons": {
+            "engine teardown": 1
+          },
+          "destroyedRecordings": 1,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {
+            "Duna Rocket": {
+              "destroyLines": 1,
+              "spawnLines": 0,
+              "spawned": 0
+            }
+          },
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": [
+            "Duna Rocket"
+          ]
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": true,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [
+        "renderComposition"
+      ],
+      "declared": {},
+      "findings": [
+        {
+          "citedContract": "design-autotest-render-composition RC-QUAL trend surface",
+          "level": "INFO",
+          "message": "planned arrival holds: min 32357.6911 s, max 32357.6911 s over 1 unit(s)",
+          "ruleId": "RC-QUAL",
+          "target": "hold.arrival"
+        }
+      ],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "renderComposition": {
+          "anomalyEchoes": {},
+          "chainBuilds": 0,
+          "clockDefers": 0,
+          "clockEvents": {
+            "cycle-rollover": 1
+          },
+          "coverages": {},
+          "cycles": 0,
+          "decimatedSections": {},
+          "dwells": 0,
+          "exportReason": "verb",
+          "findings": {
+            "FAIL": {},
+            "INFO": {
+              "RC-QUAL": 1
+            },
+            "WARN": {}
+          },
+          "lineBranches": 0,
+          "mapRenderTracingOn": true,
+          "openDwells": 0,
+          "ownershipChanges": 0,
+          "planUnits": 1,
+          "quality": {
+            "coverBelowResolutionGaps": 0,
+            "coverResolutionAbsentGaps": 0,
+            "coverUnexplainedGaps": 0,
+            "cutWholeRatios": [],
+            "cycleLengthResidualsSeconds": [],
+            "descentResidualsDeg": [],
+            "holdsAboveOneX": 0,
+            "maxEndpointRatio": null,
+            "maxInteriorGapSeconds": null,
+            "maxTangentAngleRad": null,
+            "maxUtStepSeconds": null,
+            "observedHoldSeconds": [],
+            "planHoldSeconds": [
+              32357.691125271813
+            ],
+            "seamsAboveOneX": 0
+          },
+          "ratifiedSkips": 0,
+          "scene": "SPACECENTER",
+          "schemaVersion": 1,
+          "seamEndpoints": 0,
+          "seamKinds": {},
+          "seamTangents": 0,
+          "transitions": 0,
+          "treatments": {},
+          "truncatedSections": [],
+          "unevaluable": 7,
+          "unevaluableReasons": {
+            "cut-dwell-containment-needs-recorded-clock": 1,
+            "cut-run-period-absent": 1,
+            "hold-observed-evidence-absent": 1,
+            "no-cycle-rollover-events": 2,
+            "no-dwells-attributable-to-unit": 1,
+            "warp-hold-traversal-evidence-absent": 1
+          },
+          "warpBuckets": {
+            "warp100": 0,
+            "warp1000": 0,
+            "warp1x": 0,
+            "warpHigh": 0,
+            "warpPhys": 0
+          }
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {
+        "cut-dwell-containment-needs-recorded-clock": 1,
+        "cut-run-period-absent": 1,
+        "hold-observed-evidence-absent": 1,
+        "no-cycle-rollover-events": 2,
+        "no-dwells-attributable-to-unit": 1,
+        "warp-hold-traversal-evidence-absent": 1
+      }
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [
+        "rewind",
+        "recordings.structure"
+      ],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 1117,
+            "recordings": 7,
+            "smallest": 21,
+            "total": 1994,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "JointBreak": 3
+            },
+            "committedTrees": 1,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "Duna Rocket": 3,
+              "Duna Rocket Debris": 4
+            },
+            "recordings": 7,
+            "spaceObjectParts": {
+              "Ast. VPA-167": 1
+            },
+            "spawnedVessels": 3,
+            "terminalStates": {
+              "Destroyed": 2,
+              "Orbiting": 4
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "Duna Rocket": 1,
+              "Duna Rocket Debris": 2
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": 0,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 0
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 0,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 56
+}

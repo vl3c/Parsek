@@ -1,0 +1,33 @@
+{
+  "archivedUtc": "2026-11-17T17:46:54Z",
+  "files": [
+    {
+      "bytes": 29787,
+      "name": "2026-11-17_1740_RVC-1-two-rover-head-on-crash.json",
+      "sourceBytes": 29787
+    },
+    {
+      "bytes": 3956,
+      "name": "2026-11-17_174057_stock-minimal_harness.log.gz",
+      "sourceBytes": 20859
+    },
+    {
+      "bytes": 555165,
+      "name": "KSP.log.gz",
+      "sourceBytes": 12950956
+    }
+  ],
+  "gitHead": "e9353aa5f2adef3a6f0438372688d3996a0d349c",
+  "harnessLog": "slice",
+  "missing": [
+    "2026-11-17_1740_RVC-1-two-rover-head-on-crash_status.json",
+    "2026-11-17_1740_RVC-1-two-rover-head-on-crash_mission.json",
+    "2026-11-17_1740_RVC-1-two-rover-head-on-crash_mission.stdout.log"
+  ],
+  "origin": "run",
+  "parsekDllSha256": "966424bfd63ee831a724ce4a8c38d81d2530e4afda976b3c5a5903a5f05bfb75",
+  "runId": "2026-11-17_1740_RVC-1-two-rover-head-on-crash",
+  "schema": 1,
+  "totalBytes": 588908,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight"
+}

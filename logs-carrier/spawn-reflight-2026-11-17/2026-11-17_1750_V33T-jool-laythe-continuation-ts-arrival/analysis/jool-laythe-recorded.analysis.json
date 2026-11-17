@@ -1,0 +1,135 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "jool-laythe-recorded",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 1,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [
+    {
+      "ruleId": "INV2-UNCOVERED-SPAN",
+      "level": "WARN",
+      "target": "ddcc6d007ff54a9c8246c7958011883a",
+      "sectionIndex": 4,
+      "message": "INV2 uncovered recording=ddcc6d007ff54a9c8246c7958011883a span=[224.53989196781259,28816905.02919719] orbitBridged=False",
+      "citedContract": "TrackSection.boundaryDiscontinuityMeters",
+      "baselined": false
+    }
+  ],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 59119659.700000018,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "Escape",
+      "FirstLaunch",
+      "Flyby",
+      "Jool/Escape",
+      "Jool/Flyby",
+      "Jool/Orbit",
+      "Kerbin/Escape",
+      "Kerbin/Orbit",
+      "Laythe/Flyby",
+      "Laythe/Orbit",
+      "Orbit",
+      "ReachedSpace",
+      "Sun/Escape",
+      "Sun/Flyby",
+      "Sun/Orbit"
+    ],
+    "vessels": [
+      {
+        "pid": "5384d5f4fe8244d782aaa5cb79345562",
+        "persistentId": 807470910,
+        "name": "Duna Rocket",
+        "type": "Ship",
+        "resourceTotals": {
+          "Ablator": 200,
+          "ElectricCharge": 49.999967703969013,
+          "LiquidFuel": 534.32476319099214,
+          "MonoPropellant": 10
+        }
+      },
+      {
+        "pid": "60e7fd84291d4c3ea5e74fe1fc93f9b2",
+        "persistentId": 1490391000,
+        "name": "Ast. VPA-167",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "6bab26c359d4435dab1a51d3164c00aa",
+        "persistentId": 1165394793,
+        "name": "Duna Rocket Debris",
+        "type": "Debris",
+        "resourceTotals": {
+          "LiquidFuel": 0,
+          "Oxidizer": 0
+        }
+      },
+      {
+        "pid": "94930d444e304e3e9ee47809b506a73c",
+        "persistentId": 4267147709,
+        "name": "Duna Rocket Debris",
+        "type": "Debris",
+        "resourceTotals": {
+          "LiquidFuel": 1904.3416285776245,
+          "Oxidizer": 2327.5286421001219
+        }
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Debmal Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Assigned"
+      }
+    ]
+  }
+}

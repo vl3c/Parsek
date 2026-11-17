@@ -1,0 +1,158 @@
+[Harness][Info][Select] select expr='--ids-file C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\FAR-1-ike-rewind-to-launch-career.ids' -> 1 scenarios: ['FAR-1-ike-rewind-to-launch-career']
+[Harness][Info][Select] slot mode slot=stock-minimal-3 instance=C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal-3 window=desktop
+[Harness][Info][Lock] runner check ok: runner pid=39856 holds the machine lock
+[Harness][Info][Lock] slot-lock acquired slot=stock-minimal-3 (acquired-free) path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-slot-stock-minimal-3.lock pid=16060
+[Harness][Info][Build] tests prebuild skipped (--tests-prebuilt: the caller built C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\Source\Parsek.Tests\bin\Debug\net472\Parsek.Tests.dll); verifiers run -NoBuild
+[Harness][Info][Admit] admit parsek-dll vs stock-minimal: match instance=966424bfd63e reference=966424bfd63e
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Verbose][Preflight] kRPC settings already carry rpc=50004 stream=50005
+[Harness][Info][Preflight] port-check rpc=50004 stream=50005 result=CLEAR
+[Harness][Verbose][Stage] shared-ship overlay: no rows for save=duna-ike-recorded-career (Ships/VAB carries 0 committed craft)
+[Harness][Info][Settings] settings-sidecar baseline written phase=stage tracers=off readableMirrors=on
+[Harness][Info][Stage] stage save=duna-ike-recorded-career template=fixtures/saves/duna-ike-recorded-career inject=none craft=0 results-rotated=False manifest-rotated=False
+[Harness][Info][Seed] ledger-seed template=duna-ike-recorded-career via=analyzer parsed=True funds=500000.0 science=100.0 rep=0.0 hasFunds=True hasScience=True hasRep=True resultsRedirect=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1737_FAR-1-ike-rewind-to-launch-career.seed
+[Harness][Info][Launch] launch exe=C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal-3\KSP_x64.exe pid=36788 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0 ISOLATED=0 RENDER_MANIFEST=0] batchIsolated=False budget=3900s
+[Harness][Info][Launch] launch args=-logFile C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal-3\Player.log -screen-fullscreen 0 -screen-width 1280 -screen-height 720 window=desktop desktopId=8611d2b8-3fd1-40e7-b7ed-966d22e4f24c returnForeground=11537816
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Info][Boot-Wait] boot at main menu elapsed=36.0s kspLogBytes=1487852; watching until the seam's first receipt (rule no-seam-receipt)
+[Harness][Info][Boot-Wait] boot ready via=seam-receipt elapsed=36.5s kspLogBytes=1492641; boot-stall watchdog off for this attempt
+[Harness][Info][Window] window mode=desktop placement=desktop=moved foreground=not-foreground action=none (Parsek moved its window to the target desktop)
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=40/660
+[Harness][Info][Drive] drive resp id=0001 verdict=OK met=True
+[Harness][Info][Drive] captured id=0001 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=1 id=0002 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0002 verdict=OK met=True
+[Harness][Info][Drive] captured id=0002 label=- fields=ut,stopped
+[Harness][Info][Drive] drive step=2 id=0003 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] captured id=0003 label=- fields=ut,discarded
+[Harness][Info][Drive] drive step=3 id=0004 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Drive] captured id=0004 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=4 id=0005 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0005 verdict=OK met=True
+[Harness][Info][Drive] captured id=0005 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=5 id=0006 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0006 verdict=OK met=True
+[Harness][Info][Drive] captured id=0006 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=6 id=0007 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0007 verdict=OK met=True
+[Harness][Info][Drive] captured id=0007 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=7 id=0008 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0008 verdict=OK met=True
+[Harness][Info][Drive] captured id=0008 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=8 id=0009 cmd=StartRecording expect=OK
+[Harness][Info][Drive] drive resp id=0009 verdict=OK met=True
+[Harness][Info][Drive] captured id=0009 label=- fields=ut,recordingId
+[Harness][Info][Drive] drive step=9 id=0010 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0010 elapsed=10/660
+[Harness][Info][Drive] drive resp id=0010 verdict=OK met=True
+[Harness][Info][Drive] captured id=0010 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=10 id=0011 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0011 verdict=OK met=True
+[Harness][Info][Drive] captured id=0011 label=- fields=ut,stopped
+[Harness][Info][Drive] drive step=11 id=0012 cmd=CommitTree expect=OK
+[Harness][Info][Drive] drive resp id=0012 verdict=OK met=True
+[Harness][Info][Drive] captured id=0012 label=- fields=ut,committed
+[Harness][Info][Drive] drive step=12 id=0013 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0013 verdict=OK met=True
+[Harness][Info][Drive] captured id=0013 label=- fields=ut,stopped
+[Harness][Info][Drive] drive step=13 id=0014 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0014 verdict=OK met=True
+[Harness][Info][Drive] captured id=0014 label=- fields=ut,label
+[Harness][Info][Drive] drive step=14 id=0015 cmd=InvokeRewindToLaunch expect=OK
+[Harness][Info][Drive] drive resp id=0015 verdict=OK met=True
+[Harness][Info][Drive] captured id=0015 label=- fields=ut,rewound,rec,tree,adjustedUT
+[Harness][Info][Drive] drive step=15 id=0016 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0016 verdict=OK met=True
+[Harness][Info][Drive] captured id=0016 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=16 id=0017 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0017 verdict=OK met=True
+[Harness][Info][Drive] captured id=0017 label=- fields=ut,label
+[Harness][Info][Drive] drive step=17 id=0018 cmd=SaveGame expect=OK
+[Harness][Info][Drive] drive resp id=0018 verdict=OK met=True
+[Harness][Info][Drive] captured id=0018 label=- fields=ut,saved
+[Harness][Info][Drive] drive step=18 id=0019 cmd=LoadGame expect=OK
+[Harness][Info][Drive] drive resp id=0019 verdict=OK met=True
+[Harness][Info][Drive] captured id=0019 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=19 id=0020 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0020 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0020 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0020 elapsed=30/660
+[Harness][Verbose][Drive] poll: pendingId=0020 elapsed=40/660
+[Harness][Verbose][Drive] poll: pendingId=0020 elapsed=50/660
+[Harness][Verbose][Drive] poll: pendingId=0020 elapsed=60/660
+[Harness][Verbose][Drive] poll: pendingId=0020 elapsed=70/660
+[Harness][Verbose][Drive] poll: pendingId=0020 elapsed=80/660
+[Harness][Verbose][Drive] poll: pendingId=0020 elapsed=90/660
+[Harness][Verbose][Drive] poll: pendingId=0020 elapsed=100/660
+[Harness][Info][Drive] drive resp id=0020 verdict=OK met=True
+[Harness][Info][Drive] captured id=0020 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=20 id=0021 cmd=RecordingState expect=OK
+[Harness][Info][Drive] drive resp id=0021 verdict=OK met=True
+[Harness][Info][Drive] captured id=0021 label=- fields=ut,recording,tree,points,scene
+[Harness][Info][Drive] drive step=21 id=0022 cmd=RecordingState expect=OK
+[Harness][Info][Drive] drive resp id=0022 verdict=OK met=True
+[Harness][Info][Drive] captured id=0022 label=- fields=ut,recording,tree,points,scene
+[Harness][Info][Drive] drive step=22 id=0023 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0023 verdict=OK met=True
+[Harness][Info][Drive] captured id=0023 label=- fields=ut,label
+[Harness][Info][Drive] drive step=23 id=0024 cmd=SaveGame expect=OK
+[Harness][Info][Drive] drive resp id=0024 verdict=OK met=True
+[Harness][Info][Drive] captured id=0024 label=- fields=ut,saved
+[Harness][Info][Drive] drive step=24 id=0025 cmd=LoadGame expect=OK
+[Harness][Info][Drive] drive resp id=0025 verdict=OK met=True
+[Harness][Info][Drive] captured id=0025 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=25 id=0026 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0026 elapsed=10/660
+[Harness][Info][Drive] drive resp id=0026 verdict=OK met=True
+[Harness][Info][Drive] captured id=0026 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=26 id=0027 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0027 verdict=OK met=True
+[Harness][Info][Drive] captured id=0027 label=- fields=ut,label
+[Harness][Info][Drive] drive step=27 id=0028 cmd=RunTests expect=OK
+[Harness][Info][Drive] drive resp id=0028 verdict=OK met=True
+[Harness][Info][Drive] captured id=0028 label=- fields=ut,passed,failed,skipped,results
+[Harness][Info][Drive] drive step=28 id=0029 cmd=SaveGame expect=OK
+[Harness][Info][Drive] drive resp id=0029 verdict=OK met=True
+[Harness][Info][Drive] captured id=0029 label=- fields=ut,saved
+[Harness][Info][Drive] drive step=29 id=0030 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0030 verdict=OK met=True
+[Harness][Info][Drive] captured id=0030 label=- fields=ut,saved
+[Harness][Info][Verify] verify driverValidity status=PASS allMet=True subkind=-
+[Harness][Info][Verify] verify batchComplete status=PASS found=True failed=0 multi=False perCategory=1 runs=1/1
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None
+[Harness][Info][Verify] verify timing analyzer=11.2s logValidate=10.8s mode=concurrent
+[Harness][Info][Verify] verify logValidate status=PASS recRulesSuppressed=False killedRunMode=False
+[Harness][Info][Verify] verify anomalySweep status=PASS hits=[] counts={}
+[Harness][Info][Verify] verify unityExceptions status=REPORT gating=False total=0 counts={'NullReferenceException': 0, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0} parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=0 afterQuitFrameless=0
+[Harness][Info][Verify] verify expectations status=PASS mismatches=0
+[Harness][Info][Verify] verify saveParse status=REPORT gating=False blocks=['recordings.structure'] armed=- scenarioFound=True supersedeRows=0 tombstones=0 rewindPoints=0 pointsTotal=723 pointsLargest=363 pointsSmallest=2 pointsUnparsed=0 routes=0 routeStatuses={} routeCodecRejects=0 mismatches=0
+[Harness][Info][Verify] verify renderCompose status=REPORT gating=False blocks=- armed=- parsed=None dwells=- cycles=- unevaluable=- findings={'FAIL': 0, 'WARN': 0, 'INFO': 0} mismatches=0 declared=-
+[Harness][Info][Verify] verify ghostLifecycle status=REPORT gating=False blocks=- armed=- spawned=0 spawnLines=0 destroyLines=0 unbalanced=0 malformed=0 reasons={} mismatches=0 declared=-
+[Harness][Info][Verify] manifest-capture stockLines=0 deduped=0 seamDeclared=0 seamRejected=0 accumulated=0
+[Harness][Info][Verify] manifest written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1737_FAR-1-ike-rewind-to-launch-career.manifest.json
+[Harness][Info][Verify] oracle-timeline model=rewind-aware endUt=9181801.20274428 kept=0 past=0 future=0 retired=0 onceShadowed=0 fundsRunning=500000.0 fundsAvailable=500000.0 fundsReserved=0.0 scienceRunning=100.0 scienceAvailable=100.0
+[Harness][Info][Verify] oracle-expected funds=500000.0 science=100.0 rep=0.0 subjects=0 activeContracts=0
+[Harness][Info][Verify] verify ledgerOracle status=PASS hardDivergences=0 reportOnly=0 crossCheck=report
+[Harness][Info][Classify] verdict=PASS scenario=FAR-1-ike-rewind-to-launch-career attempt=1 reason=driver valid, every verifier PASS/SKIPPED
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1737_FAR-1-ike-rewind-to-launch-career.json
+[Harness][Info][Snapshot] produced-save snapshot run=2026-11-17_1737_FAR-1-ike-rewind-to-launch-career result=copied bytes=1313502 files=51 reason=every-verdict-default verdict=PASS path=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1737_FAR-1-ike-rewind-to-launch-career_save
+[Harness][Verbose][Snapshot] save-snapshot retention skipped (slot mode; the runner sweeps)
+[Harness][Verbose][Artifacts] screenshots skipped: 106 prior-run, 0 over-cap, 0 copy-failed
+[Harness][Info][Artifacts] artifacts collected run=2026-11-17_1737_FAR-1-ike-rewind-to-launch-career kspLog=True truncated=False screenshots=0 renderManifest=False -> C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1737_FAR-1-ike-rewind-to-launch-career_shots
+[Harness][Verbose][Artifacts] shots-dir retention skipped (slot mode; the runner sweeps)
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1737_FAR-1-ike-rewind-to-launch-career.json
+[Harness][Info][Sheet] contact sheet written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1737_FAR-1-ike-rewind-to-launch-career_contact.html (+ index.html)
+[Harness][Info][Settings] settings-sidecar baseline written phase=teardown tracers=off readableMirrors=on (cleared leaked: ghostRenderTracing,mapRenderTracing,ledgerTracing)
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1737_FAR-1-ike-rewind-to-launch-career.json
+[Harness][Info][Sheet] contact sheet written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\2026-11-17_1737_FAR-1-ike-rewind-to-launch-career_contact.html (+ index.html)
+[Harness][Info][Cost] scenario cost attempts=1 wallTotal=218s terminal=PASS
+[Harness][Info][Archive] results archived run=2026-11-17_1737_FAR-1-ike-rewind-to-launch-career files=3 bytes=267127 missing=3 -> C:\Users\USER\Documents\Code\Parsek\automation\results-archive\2026-11-17_1737_FAR-1-ike-rewind-to-launch-career
+[Harness][Verbose][Archive] run index append skipped (slot mode; the runner appends 2026-11-17_1737_FAR-1-ike-rewind-to-launch-career)
+[Harness][Info][Lock] run-lock released path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-slot-stock-minimal-3.lock (slot=stock-minimal-3)
+[Harness][Info][Report] run report -> C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\FAR-1-ike-rewind-to-launch-career.3.report.json lanes=1 exit=0

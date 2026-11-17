@@ -1,0 +1,577 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_1748_H58-route-rewind-to-launch_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 57,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "rover-route-recorded",
+          "scene": "FLIGHT",
+          "ut": "980.819999999398"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "980.839999999398"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "980.87999999939791"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "980.89999999939789",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "980.93999999939786",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "alreadySealed": "true",
+          "failed": "0",
+          "fullySealed": "true",
+          "mode": "tree",
+          "remaining": "0",
+          "sealed": "0",
+          "total": "4",
+          "tree": "73e50f1e3aa24c299919016cd9e92269",
+          "ut": "980.95999999939784"
+        },
+        "cmd": "SealSlot",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "create",
+          "cadence": "1",
+          "created": "true",
+          "intervalSeconds": "45.039999999959093",
+          "manualLoopsCleared": "0",
+          "name": "H58 Rover Supply",
+          "route": "5c3087a1e2e44f8d9c0a6459707aedb7",
+          "status": "Paused",
+          "stops": "1",
+          "transitSeconds": "45.039999999959093",
+          "tree": "73e50f1e3aa24c299919016cd9e92269",
+          "ut": "980.9999999993978"
+        },
+        "cmd": "RouteCommand",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "activate",
+          "applied": "true",
+          "match": "name",
+          "name": "H58 Rover Supply",
+          "route": "5c3087a1e2e44f8d9c0a6459707aedb7",
+          "status": "Active",
+          "statusBefore": "Paused",
+          "ut": "981.01999999939778"
+        },
+        "cmd": "RouteCommand",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "pause",
+          "applied": "true",
+          "match": "name",
+          "name": "H58 Rover Supply",
+          "route": "5c3087a1e2e44f8d9c0a6459707aedb7",
+          "status": "Paused",
+          "statusBefore": "Active",
+          "ut": "981.05999999939775"
+        },
+        "cmd": "RouteCommand",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "618.92000000060227",
+          "target": "1600",
+          "ut": "1600.06"
+        },
+        "cmd": "TimeJump",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "activate",
+          "applied": "true",
+          "match": "name",
+          "name": "H58 Rover Supply",
+          "route": "5c3087a1e2e44f8d9c0a6459707aedb7",
+          "status": "Active",
+          "statusBefore": "Paused",
+          "ut": "1600.08"
+        },
+        "cmd": "RouteCommand",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "32b19198c4b04f7bb683d1c112650622",
+          "ut": "1600.1"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "1600.12"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "committed": "true",
+          "ut": "1600.1999999999998"
+        },
+        "cmd": "CommitTree",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "1600.2199999999998"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "send-once",
+          "applied": "true",
+          "match": "name",
+          "name": "H58 Rover Supply",
+          "route": "5c3087a1e2e44f8d9c0a6459707aedb7",
+          "status": "Active",
+          "statusBefore": "Active",
+          "ut": "1600.2599999999998"
+        },
+        "cmd": "RouteCommand",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "cmd": "InvokeRewindToLaunch",
+        "expect": "REJECTED",
+        "id": "0017",
+        "met": true,
+        "msg": "ambiguous-tree",
+        "verdict": "REJECTED"
+      },
+      {
+        "captured": {
+          "adjustedUT": "1585.1",
+          "rec": "32b19198c4b04f7bb683d1c112650622",
+          "rewound": "true",
+          "tree": "b544bb1b816344dc973dba1d39992252",
+          "ut": "1585.1399999999999"
+        },
+        "cmd": "InvokeRewindToLaunch",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "1585.2599999999998"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "1585.2999999999997"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T17:49:07Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-17_1748_H58-route-rewind-to-launch",
+  "scenarioId": "H58-route-rewind-to-launch",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 1967229,
+    "files": 46,
+    "path": "2026-11-17_1748_H58-route-rewind-to-launch_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-17T17:48:10Z",
+  "subkind": "",
+  "tier": "nightly",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\rover-route-recorded\\analysis\\rover-route-recorded.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\rover-route-recorded\\analysis\\rover-route-recorded.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 6
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": false,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [
+        "routes"
+      ],
+      "armedMismatches": [],
+      "blocks": [
+        "routes"
+      ],
+      "gating": true,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 116,
+            "recordings": 6,
+            "smallest": 1,
+            "total": 427,
+            "trivialRecordings": 1,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "Dock": 1,
+              "Undock": 1
+            },
+            "committedTrees": 3,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "A": 2,
+              "B": 4
+            },
+            "recordings": 6,
+            "spaceObjectParts": {
+              "Ast. CMN-096": 1,
+              "Ast. EZO-679": 1,
+              "Ast. GYN-298": 1,
+              "Ast. HAO-840": 1,
+              "Ast. SDT-697": 1,
+              "Ast. TSV-307": 1,
+              "Ast. UGF-148": 1,
+              "Ast. UZR-158": 1
+            },
+            "spawnedVessels": 0,
+            "terminalStates": {
+              "Docked": 1,
+              "Landed": 4
+            },
+            "treeNodes": 3,
+            "trees": 3,
+            "vesselNames": {
+              "A": 1,
+              "rover fuel 0": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {
+            "DockingPort": 1
+          },
+          "count": 1,
+          "destinationBodies": {
+            "Kerbin": 1
+          },
+          "destinationVesselPids": [
+            "2123618197"
+          ],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [
+            "5c3087a1e2e44f8d9c0a6459707aedb7"
+          ],
+          "originBodies": {
+            "Kerbin": 1
+          },
+          "promptedCandidates": 1,
+          "skippedCycles": 0,
+          "sourceRefs": 2,
+          "statuses": {
+            "Active": 1
+          },
+          "stops": 1,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "PASS"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 0
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 0,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 57
+}

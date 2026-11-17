@@ -1,0 +1,33 @@
+{
+  "archivedUtc": "2026-11-17T17:40:39Z",
+  "files": [
+    {
+      "bytes": 15616,
+      "name": "2026-11-17_1737_FAR-1-ike-rewind-to-launch-career.json",
+      "sourceBytes": 15616
+    },
+    {
+      "bytes": 3340,
+      "name": "2026-11-17_173700_stock-minimal-3_harness.log.gz",
+      "sourceBytes": 14672
+    },
+    {
+      "bytes": 248171,
+      "name": "KSP.log.gz",
+      "sourceBytes": 2393168
+    }
+  ],
+  "gitHead": "e9353aa5f2adef3a6f0438372688d3996a0d349c",
+  "harnessLog": "slice",
+  "missing": [
+    "2026-11-17_1737_FAR-1-ike-rewind-to-launch-career_status.json",
+    "2026-11-17_1737_FAR-1-ike-rewind-to-launch-career_mission.json",
+    "2026-11-17_1737_FAR-1-ike-rewind-to-launch-career_mission.stdout.log"
+  ],
+  "origin": "run",
+  "parsekDllSha256": "966424bfd63ee831a724ce4a8c38d81d2530e4afda976b3c5a5903a5f05bfb75",
+  "runId": "2026-11-17_1737_FAR-1-ike-rewind-to-launch-career",
+  "schema": 1,
+  "totalBytes": 267127,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight"
+}

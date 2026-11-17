@@ -1,0 +1,71 @@
+[Parallel][Info][Plan] plan written C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\plan.json
+[Parallel][Info][Slots] slots in use: stock-minimal, stock-minimal-2, stock-minimal-3
+[Parallel][Info][Lock] machine lock acquired (acquired-free) kind=parallel-runner pid=39856
+[Parallel][Info][Job] child job object armed (KILL_ON_JOB_CLOSE)
+[Parallel][Info][Window] window=desktop desktop 2 of 2 (current=b3f15e00-3c2c-4e97-82a3-9dca2c1eace1) desktop=8611d2b8-3fd1-40e7-b7ed-966d22e4f24c
+[Parallel][Info][UnityPrefs] unity prefs snapshot -> C:\Users\USER\Documents\Code\Parsek\automation\.unity-prefs-snapshot.json (Screenmanager Fullscreen mode Default_h401710285=1, Screenmanager Fullscreen mode_h3630240806=3, Screenmanager Resolution Height Default_h1380706816=720, Screenmanager Resolution Height_h2627697771=720, Screenmanager Resolution Use Native Default_h1405981789=1, Screenmanager Resolution Use Native_h1405027254=0, +4 more)
+[Parallel][Info][UnityPrefs] begin: snapshot
+[Parallel][Info][Build] tests prebuild: dotnet build C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\Source\Parsek.Tests\Parsek.Tests.csproj (once per selection; the verifiers then run -NoBuild)
+[Parallel][Info][Build] tests prebuild ok wall=5.3s; verifiers run -NoBuild
+[Parallel][Info][Plan] 12 lane(s) to fly, 0 already settled, 0 not flown
+[Parallel][Info][Dispatch] lane=MINE-4-rover-docked-origin-route-rewind slot=stock-minimal seq=1 pid=5584 window=desktop p50=328s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\MINE-4-rover-docked-origin-route-rewind.1.log
+[Parallel][Info][Wait] dispatch-gap: the last start was 0 s ago (< 15 s dispatch gap)
+[Parallel][Info][Dispatch] lane=EVA-10-mun-ground-science-cluster slot=stock-minimal-2 seq=2 pid=26916 window=desktop p50=320s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\EVA-10-mun-ground-science-cluster.2.log
+[Parallel][Info][Wait] dispatch-gap: the last start was 0 s ago (< 15 s dispatch gap)
+[Parallel][Info][Wait] memory: memory guard: free RAM 7.7 GB - booting 5.4 GB - new copy 4.5 GB = -2.2 GB < 1.5 GB; 2 running, 2 booting
+[Parallel][Info][Wait] memory: memory guard: free RAM 6.0 GB - booting 4.8 GB - new copy 4.5 GB = -3.3 GB < 1.5 GB; 2 running, 2 booting
+[Parallel][Info][Wait] memory: memory guard: free RAM 5.1 GB - booting 3.3 GB - new copy 4.5 GB = -2.6 GB < 1.5 GB; 2 running, 2 booting
+[Parallel][Info][Wait] memory: memory guard: free RAM 5.0 GB - booting 1.8 GB - new copy 4.5 GB = -1.2 GB < 1.5 GB; 2 running, 2 booting
+[Parallel][Info][Wait] memory: memory guard: free RAM 5.0 GB - booting 1.2 GB - new copy 4.5 GB = -0.7 GB < 1.5 GB; 2 running, 1 booting
+[Parallel][Info][Wait] memory: memory guard: free RAM 5.8 GB - booting 0.7 GB - new copy 4.5 GB = 0.6 GB < 1.5 GB; 2 running, 1 booting
+[Parallel][Info][Wait] memory: memory guard: free RAM 5.9 GB - new copy 4.5 GB = 1.4 GB < 1.5 GB; 2 running, 0 booting
+[Parallel][Info][Wait] memory: memory guard: free RAM 5.8 GB - new copy 4.5 GB = 1.3 GB < 1.5 GB; 2 running, 0 booting
+[Parallel][Info][Wait] memory: memory guard: free RAM 5.9 GB - new copy 4.5 GB = 1.4 GB < 1.5 GB; 2 running, 0 booting
+[Parallel][Info][Dispatch] lane=FAR-1-ike-rewind-to-launch-career slot=stock-minimal-3 seq=3 pid=16060 window=desktop p50=204s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\FAR-1-ike-rewind-to-launch-career.3.log
+[Parallel][Info][Wait] slots: 3 running, slots=3
+[Parallel][Info][Finish] lane=FAR-1-ike-rewind-to-launch-career slot=stock-minimal-3 verdict=PASS attempts=1 wall=221s exit=0 runIds=2026-11-17_1737_FAR-1-ike-rewind-to-launch-career
+[Parallel][Info][Dispatch] lane=LAY-1-laythe-reentry-splashdown slot=stock-minimal-3 seq=4 pid=11760 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\LAY-1-laythe-reentry-splashdown.4.log
+[Parallel][Info][Wait] slots: 3 running, slots=3
+[Parallel][Info][Finish] lane=MINE-4-rover-docked-origin-route-rewind slot=stock-minimal verdict=PASS attempts=1 wall=336s exit=0 runIds=2026-11-17_1735_MINE-4-rover-docked-origin-route-rewind
+[Parallel][Info][Wait] dispatch-gap: the last start was 8 s ago (< 15 s dispatch gap)
+[Parallel][Info][Dispatch] lane=RVC-1-two-rover-head-on-crash slot=stock-minimal seq=5 pid=39580 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\RVC-1-two-rover-head-on-crash.5.log
+[Parallel][Info][Wait] slots: 3 running, slots=3
+[Parallel][Info][Finish] lane=EVA-10-mun-ground-science-cluster slot=stock-minimal-2 verdict=PASS attempts=1 wall=348s exit=0 runIds=2026-11-17_1735_EVA-10-mun-ground-science-cluster
+[Parallel][Info][Wait] memory: memory guard: free RAM 8.5 GB - booting 4.8 GB - new copy 4.5 GB = -0.8 GB < 1.5 GB; 2 running, 2 booting
+[Parallel][Info][Wait] memory: memory guard: free RAM 7.5 GB - booting 3.3 GB - new copy 4.5 GB = -0.2 GB < 1.5 GB; 2 running, 2 booting
+[Parallel][Info][Wait] memory: memory guard: free RAM 7.5 GB - booting 1.8 GB - new copy 4.5 GB = 1.2 GB < 1.5 GB; 2 running, 2 booting
+[Parallel][Info][Dispatch] lane=AIR-3-plane-drone-midair-collision slot=stock-minimal-2 seq=6 pid=36576 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\AIR-3-plane-drone-midair-collision.6.log
+[Parallel][Info][Wait] slots: 3 running, slots=3
+[Parallel][Info][Finish] lane=RVC-1-two-rover-head-on-crash slot=stock-minimal verdict=PASS attempts=1 wall=358s exit=0 runIds=2026-11-17_1740_RVC-1-two-rover-head-on-crash
+[Parallel][Info][Dispatch] lane=FAR-2-duna-relaunch-rewind-keeps-landed slot=stock-minimal seq=7 pid=22948 window=desktop p50=70s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\FAR-2-duna-relaunch-rewind-keeps-landed.7.log
+[Parallel][Info][Wait] slots: 3 running, slots=3
+[Parallel][Info][Finish] lane=FAR-2-duna-relaunch-rewind-keeps-landed slot=stock-minimal verdict=PASS attempts=1 wall=74s exit=0 runIds=2026-11-17_1746_FAR-2-duna-relaunch-rewind-keeps-landed
+[Parallel][Info][Dispatch] lane=H58-route-rewind-to-launch slot=stock-minimal seq=8 pid=29196 window=desktop p50=62s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\H58-route-rewind-to-launch.8.log
+[Parallel][Info][Wait] slots: 3 running, slots=3
+[Parallel][Info][Finish] lane=H58-route-rewind-to-launch slot=stock-minimal verdict=PASS attempts=1 wall=60s exit=0 runIds=2026-11-17_1748_H58-route-rewind-to-launch
+[Parallel][Info][Dispatch] lane=V20K-jool-kerbin-ksc-arrival slot=stock-minimal seq=9 pid=19636 window=desktop p50=60s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\V20K-jool-kerbin-ksc-arrival.9.log
+[Parallel][Info][Wait] slots: 3 running, slots=3
+[Parallel][Info][Finish] lane=V20K-jool-kerbin-ksc-arrival slot=stock-minimal verdict=PASS attempts=1 wall=70s exit=0 runIds=2026-11-17_1749_V20K-jool-kerbin-ksc-arrival
+[Parallel][Info][Dispatch] lane=V33T-jool-laythe-continuation-ts-arrival slot=stock-minimal seq=10 pid=36788 window=desktop p50=56s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\V33T-jool-laythe-continuation-ts-arrival.10.log
+[Parallel][Info][Wait] slots: 3 running, slots=3
+[Parallel][Info][Finish] lane=V33T-jool-laythe-continuation-ts-arrival slot=stock-minimal verdict=PASS attempts=1 wall=58s exit=0 runIds=2026-11-17_1750_V33T-jool-laythe-continuation-ts-arrival
+[Parallel][Info][Dispatch] lane=V31M-duna-ike-continuation-player-loop slot=stock-minimal seq=11 pid=33808 window=desktop p50=49s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\V31M-duna-ike-continuation-player-loop.11.log
+[Parallel][Info][Wait] slots: 3 running, slots=3
+[Parallel][Info][Finish] lane=V31M-duna-ike-continuation-player-loop slot=stock-minimal verdict=PASS attempts=1 wall=56s exit=0 runIds=2026-11-17_1751_V31M-duna-ike-continuation-player-loop
+[Parallel][Info][Wait] memory: memory guard: free RAM 6.0 GB - new copy 4.5 GB = 1.5 GB < 1.5 GB; 2 running, 0 booting
+[Parallel][Info][Dispatch] lane=MS-1-mission-leg-trim-clone slot=stock-minimal seq=12 pid=34984 window=desktop p50=44s log=C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\lanes\MS-1-mission-leg-trim-clone.12.log
+[Parallel][Info][Wait] drain: no lane left to start; 3 running
+[Parallel][Info][Finish] lane=LAY-1-laythe-reentry-splashdown slot=stock-minimal-3 verdict=PASS attempts=1 wall=724s exit=0 runIds=2026-11-17_1740_LAY-1-laythe-reentry-splashdown
+[Parallel][Info][Finish] lane=MS-1-mission-leg-trim-clone slot=stock-minimal verdict=PASS attempts=1 wall=54s exit=0 runIds=2026-11-17_1752_MS-1-mission-leg-trim-clone
+[Parallel][Warn][Finish] lane=AIR-3-plane-drone-midair-collision slot=stock-minimal-2 verdict=PARSEK-FAIL attempts=1 wall=763s exit=1 runIds=2026-11-17_1741_AIR-3-plane-drone-midair-collision
+[Parallel][Info][Archive] run index C:\Users\USER\Documents\Code\Parsek\automation\results-archive\index.jsonl: added=12 replaced=0 unchanged=0 skipped=0
+[Harness][Info][Lock] maintenance under the parallel runner: runner pid=39856 holds the machine lock
+[Harness][Warn][Duration] duration regression scenario=GUI-24-census-timeline-filters last=123s p50=73s p95=123s n=6 lastVsP50=1.69x
+[Harness][Info][Duration] duration record scenarios=370 measured-this-run=11 (PASS results only) -> C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\coverage\duration.json
+[Harness][Info][Coverage] coverage: values=251 covered=249 uncovered=2 expectedFail=0 xpass=0
+[Harness][Info][Lock] maintenance under the parallel runner: runner pid=39856 holds the machine lock
+[Harness][Info][Artifacts] sweep: results retention done (C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results)
+[Parallel][Info][UnityPrefs] unity prefs restored: wrote 0 value(s), deleted 0 (Screenmanager Fullscreen mode Default_h401710285=1, Screenmanager Fullscreen mode_h3630240806=3, Screenmanager Resolution Height Default_h1380706816=720, Screenmanager Resolution Height_h2627697771=720, Screenmanager Resolution Use Native Default_h1405981789=1, Screenmanager Resolution Use Native_h1405027254=0, +4 more)
+[Parallel][Info][UnityPrefs] end: restored
+[Parallel][Info][Lock] run-lock released path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-machine.lock
+[Parallel][Warn][Done] run spawn-reflight-2026-11-17 outcome=RED exit=1 PASS=11 PARSEK-FAIL=1 pending=0 of 12; summary C:\Users\USER\Documents\Code\Parsek\Parsek-spawn-reflight\harness\results\parallel\spawn-reflight-2026-11-17\summary.txt

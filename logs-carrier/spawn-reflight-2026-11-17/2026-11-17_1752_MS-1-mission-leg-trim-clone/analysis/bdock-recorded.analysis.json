@@ -1,0 +1,183 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "bdock-recorded",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 2,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [
+    {
+      "ruleId": "INV11-EMPTY-SECTION",
+      "level": "WARN",
+      "target": "4af6cfd725d646ccbac9ef2f7749667e",
+      "sectionIndex": 0,
+      "message": "INV11 empty-section recording=4af6cfd725d646ccbac9ef2f7749667e#0 env=ExoBallistic ref=Absolute ut=[8950.5879785489251,8950.6079785489255] frames=0 bodyFixedFrames=0 checkpoints=0",
+      "citedContract": "TrackSectionCloseClassifier.Classify",
+      "baselined": false
+    },
+    {
+      "ruleId": "INV11-EMPTY-SECTION",
+      "level": "WARN",
+      "target": "4af6cfd725d646ccbac9ef2f7749667e",
+      "sectionIndex": 0,
+      "message": "INV11 empty-section recording=4af6cfd725d646ccbac9ef2f7749667e#0 env=ExoBallistic ref=Absolute ut=[8950.5879785489251,8950.6079785489255] frames=0 bodyFixedFrames=0 checkpoints=0",
+      "citedContract": "TrackSectionCloseClassifier.Classify",
+      "baselined": false
+    }
+  ],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 8953.4479785489875,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "Docking",
+      "FirstLaunch",
+      "Kerbin/Docking",
+      "Kerbin/Landing",
+      "Kerbin/Orbit",
+      "Kerbin/Rendezvous",
+      "Kerbin/StationConstruction",
+      "Landing",
+      "Orbit",
+      "ReachedSpace",
+      "RecordsAltitude",
+      "RecordsDistance",
+      "Rendezvous",
+      "StationConstruction"
+    ],
+    "vessels": [
+      {
+        "pid": "60e7fd84291d4c3ea5e74fe1fc93f9b2",
+        "persistentId": 1490391000,
+        "name": "Ast. VPA-167",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "7d2546ccf9fc4bf9b4eaa945b6f72d79",
+        "persistentId": 2307686926,
+        "name": "Kerbal X Probe",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 3600.8503905115435,
+          "LiquidFuel": 674.17079874231968,
+          "Oxidizer": 823.98631717082549
+        }
+      },
+      {
+        "pid": "863c207185984c80b607b15d56875cca",
+        "persistentId": 2118364777,
+        "name": "Kerbal X Debris",
+        "type": "Debris",
+        "resourceTotals": {
+          "LiquidFuel": 0,
+          "Oxidizer": 0
+        }
+      },
+      {
+        "pid": "97813bb6fd9b462288d98258fcff0bbd",
+        "persistentId": 3620499050,
+        "name": "Kerbal X",
+        "type": "Ship",
+        "resourceTotals": {
+          "Ablator": 399.90004361806035,
+          "ElectricCharge": 949.9440049397931,
+          "LiquidFuel": 704.22786662431372,
+          "MonoPropellant": 229.91392206329522,
+          "Oxidizer": 880
+        }
+      },
+      {
+        "pid": "b8314d8e753c42fbb5671a5c9fdf4404",
+        "persistentId": 1223410921,
+        "name": "Kerbal X",
+        "type": "Ship",
+        "resourceTotals": {
+          "Ablator": 399.927748826972,
+          "ElectricCharge": 949.40608343146778,
+          "LiquidFuel": 720,
+          "MonoPropellant": 207.59332674726704,
+          "Oxidizer": 860.72294716786644
+        }
+      },
+      {
+        "pid": "dfaa928c280f49a1aa7c69d0358dcfa4",
+        "persistentId": 3702669050,
+        "name": "Kerbal X Probe",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 3999.563200009793,
+          "LiquidFuel": 645.42114604927269,
+          "Oxidizer": 788.847851075764
+        }
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Assigned"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Assigned"
+      },
+      {
+        "name": "Jane Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Assigned"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Kathdan Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Assigned"
+      },
+      {
+        "name": "Sizon Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Assigned"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Assigned"
+      }
+    ]
+  }
+}

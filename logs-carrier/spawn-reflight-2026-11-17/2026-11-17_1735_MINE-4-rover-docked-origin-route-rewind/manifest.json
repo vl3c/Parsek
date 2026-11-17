@@ -1,0 +1,33 @@
+{
+  "archivedUtc": "2026-11-17T17:40:48Z",
+  "files": [
+    {
+      "bytes": 46285,
+      "name": "2026-11-17_1735_MINE-4-rover-docked-origin-route-rewind.json",
+      "sourceBytes": 46285
+    },
+    {
+      "bytes": 4796,
+      "name": "2026-11-17_173513_stock-minimal_harness.log.gz",
+      "sourceBytes": 28879
+    },
+    {
+      "bytes": 329255,
+      "name": "KSP.log.gz",
+      "sourceBytes": 7683405
+    }
+  ],
+  "gitHead": "e9353aa5f2adef3a6f0438372688d3996a0d349c",
+  "harnessLog": "slice",
+  "missing": [
+    "2026-11-17_1735_MINE-4-rover-docked-origin-route-rewind_status.json",
+    "2026-11-17_1735_MINE-4-rover-docked-origin-route-rewind_mission.json",
+    "2026-11-17_1735_MINE-4-rover-docked-origin-route-rewind_mission.stdout.log"
+  ],
+  "origin": "run",
+  "parsekDllSha256": "966424bfd63ee831a724ce4a8c38d81d2530e4afda976b3c5a5903a5f05bfb75",
+  "runId": "2026-11-17_1735_MINE-4-rover-docked-origin-route-rewind",
+  "schema": 1,
+  "totalBytes": 380336,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight"
+}

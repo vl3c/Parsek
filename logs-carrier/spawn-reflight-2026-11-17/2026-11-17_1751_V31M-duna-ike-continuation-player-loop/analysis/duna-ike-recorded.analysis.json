@@ -1,0 +1,97 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "duna-ike-recorded",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 0,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 9181510.9977239445,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "Duna/Escape",
+      "Duna/Flyby",
+      "Duna/Orbit",
+      "Escape",
+      "FirstLaunch",
+      "Flyby",
+      "Ike/Flyby",
+      "Ike/Orbit",
+      "Kerbin/Escape",
+      "Kerbin/Orbit",
+      "Orbit",
+      "ReachedSpace",
+      "Sun/Escape",
+      "Sun/Flyby",
+      "Sun/Orbit"
+    ],
+    "vessels": [
+      {
+        "pid": "60e7fd84291d4c3ea5e74fe1fc93f9b2",
+        "persistentId": 1490391000,
+        "name": "Ast. VPA-167",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "bf2fbd01c9e64908a682e40775ca728c",
+        "persistentId": 2200110044,
+        "name": "DD1 Duna Direct Probe",
+        "type": "Relay",
+        "resourceTotals": {
+          "ElectricCharge": 382.24177023913956,
+          "LiquidFuel": 35.220262979220749,
+          "Oxidizer": 43.046968966343307
+        }
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      }
+    ]
+  }
+}

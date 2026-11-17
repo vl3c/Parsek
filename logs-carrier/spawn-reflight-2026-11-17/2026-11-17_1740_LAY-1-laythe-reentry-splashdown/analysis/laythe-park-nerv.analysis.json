@@ -1,0 +1,201 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "laythe-park-nerv",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 0,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 28821000.97499086,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "Escape",
+      "Flight",
+      "Flyby",
+      "Jool/Escape",
+      "Jool/Orbit",
+      "Kerbin/Orbit",
+      "Laythe/Flight",
+      "Laythe/Flyby",
+      "Laythe/Orbit",
+      "Laythe/Splashdown",
+      "Laythe/Suborbit",
+      "Orbit",
+      "Splashdown",
+      "Suborbit",
+      "Sun/Orbit"
+    ],
+    "vessels": [
+      {
+        "pid": "0f369a40645342c0a222a7f78898f0db",
+        "persistentId": 1661887435,
+        "name": "Duna Rocket",
+        "type": "Ship",
+        "resourceTotals": {
+          "Ablator": 189.58570971438641,
+          "ElectricCharge": 50,
+          "MonoPropellant": 10
+        }
+      },
+      {
+        "pid": "203eb714350c4167aae4eb54f2824e4d",
+        "persistentId": 261107216,
+        "name": "Ast. HFQ-620",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "205d2108846c42b5a0937df6866793c6",
+        "persistentId": 784190100,
+        "name": "Ast. EWW-859",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "5e61c1fa32db40bc9502bc96f287b243",
+        "persistentId": 3183130152,
+        "name": "Ast. RGN-015",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "65826aae83874005a7daf17b1e32ba7a",
+        "persistentId": 267567600,
+        "name": "UnknownComet",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "6bab26c359d4435dab1a51d3164c00aa",
+        "persistentId": 1165394793,
+        "name": "Duna Rocket Debris",
+        "type": "Debris",
+        "resourceTotals": {
+          "LiquidFuel": 0,
+          "Oxidizer": 0
+        }
+      },
+      {
+        "pid": "7f06a241fe6e4de1b6d8fe8b5c01a410",
+        "persistentId": 1729382684,
+        "name": "Ast. MLU-251",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "94930d444e304e3e9ee47809b506a73c",
+        "persistentId": 4267147709,
+        "name": "Duna Rocket Debris",
+        "type": "Debris",
+        "resourceTotals": {
+          "LiquidFuel": 1904.3416285776245,
+          "Oxidizer": 2327.5286421001219
+        }
+      },
+      {
+        "pid": "9705e7ef98c94fc4a187e8de6358b588",
+        "persistentId": 405459164,
+        "name": "Ast. YRN-974",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "b6ecd80758b94718a84b7b92b517f1cd",
+        "persistentId": 1464590271,
+        "name": "Ast. QGC-748",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "cc6f4466c0eb4eeb8429d31a87251436",
+        "persistentId": 3626398212,
+        "name": "Ast. SXN-041",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "d5770f65e7af41f4b6ed6b117943a001",
+        "persistentId": 2888001159,
+        "name": "Ast. VLJ-420",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "f49493e5c93746c9897a59211a4c79b6",
+        "persistentId": 1882311358,
+        "name": "Ast. GMV-740",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Debmal Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Richtop Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Shepfry Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Assigned"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      }
+    ]
+  }
+}

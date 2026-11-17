@@ -1,0 +1,301 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "duna-park-recorded",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 0,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 5336112599.0919132,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "Duna/Orbit",
+      "Duna/Suborbit",
+      "FirstCrewToSurvive",
+      "Ike/Orbit",
+      "Ike/Suborbit",
+      "Kerbin/Orbit",
+      "Mun/Orbit",
+      "Mun/Suborbit",
+      "Orbit",
+      "Suborbit",
+      "Sun/Orbit",
+      "Sun/Suborbit"
+    ],
+    "vessels": [
+      {
+        "pid": "15c38942fc7c4b1e9b405f6653c2617a",
+        "persistentId": 753981973,
+        "name": "Kerbal X Probe",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 3837.1574126051696,
+          "LiquidFuel": 0,
+          "Oxidizer": 0
+        }
+      },
+      {
+        "pid": "23bed23649f24209bf522040e11c8b4c",
+        "persistentId": 2798211014,
+        "name": "Merger Kerman",
+        "type": "EVA",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "3176b50e625048afa1774cc3c8cf8a48",
+        "persistentId": 2714995210,
+        "name": "Ast. HAK-844",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "4052257f257541bc86b1c95270a46090",
+        "persistentId": 2929839480,
+        "name": "Ast. LMN-237",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "44350d56a34b4d288febb91822cd730b",
+        "persistentId": 3439150841,
+        "name": "Duna One",
+        "type": "Flag",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "5f8686b276ff438d94c2bbbee467699f",
+        "persistentId": 3695962070,
+        "name": "Kerbal X Probe",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 3996.9350788041643,
+          "LiquidFuel": 0,
+          "Oxidizer": 0
+        }
+      },
+      {
+        "pid": "61b2de2eb6704840a8156eff8f97d52f",
+        "persistentId": 1197162309,
+        "name": "Ast. LBL-612",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "6763f69fa48e40bbad09db821b29feea",
+        "persistentId": 567464503,
+        "name": "Kerbal X",
+        "type": "Ship",
+        "resourceTotals": {
+          "ElectricCharge": 135.81186188697959,
+          "MonoPropellant": 30
+        }
+      },
+      {
+        "pid": "778e82ad525f4377b5a52859418850ca",
+        "persistentId": 1110218815,
+        "name": "a",
+        "type": "Flag",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "8b532c1d107d44f5ae00d04b31cce23d",
+        "persistentId": 3615054636,
+        "name": "Ast. PWE-323",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "90d0b0e986254453b676294e16d60f9f",
+        "persistentId": 2905720181,
+        "name": "Jumping Flea",
+        "type": "Ship",
+        "resourceTotals": {
+          "ElectricCharge": 50,
+          "LiquidFuel": 90,
+          "MonoPropellant": 10,
+          "Oxidizer": 110
+        }
+      },
+      {
+        "pid": "a424011b746440baae6030e225c9de31",
+        "persistentId": 2708531065,
+        "name": "Kerbal X",
+        "type": "Ship",
+        "resourceTotals": {
+          "Ablator": 399.45588266010208,
+          "ElectricCharge": 943.13240979489774,
+          "LiquidFuel": 260.58630728661626,
+          "MonoPropellant": 30,
+          "Oxidizer": 318.49434852729939
+        }
+      },
+      {
+        "pid": "b40142a0728e4164a4782ad23fb37d06",
+        "persistentId": 485534237,
+        "name": "Ast. LKQ-905",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "cc998711a4b74e5398640262c90491e8",
+        "persistentId": 1997144684,
+        "name": "Valentina Kerman",
+        "type": "EVA",
+        "resourceTotals": {}
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bergan Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Calbles Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Crisnard Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Dunwin Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Assigned"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Laemy Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Assigned"
+      },
+      {
+        "name": "Lisa Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Merger Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Mirey Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Assigned"
+      },
+      {
+        "name": "Raley Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Samantha Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Assigned"
+      },
+      {
+        "name": "Sanlas Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Sitop Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Suuki Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Triler Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Vergel Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Assigned"
+      }
+    ]
+  }
+}

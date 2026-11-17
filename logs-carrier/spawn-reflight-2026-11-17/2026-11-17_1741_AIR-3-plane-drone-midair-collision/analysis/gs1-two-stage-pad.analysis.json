@@ -1,0 +1,180 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "gs1-two-stage-pad",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 9,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [
+    {
+      "ruleId": "INV5-ORPHAN-SIDECAR",
+      "level": "WARN",
+      "target": "23d5bd742aeb42eeba44dea764a97ce7",
+      "sectionIndex": -1,
+      "message": "INV5 orphan-sidecar recording=23d5bd742aeb42eeba44dea764a97ce7 sidecarGen=4",
+      "citedContract": "RecordingStore.IsRecordingSchemaCompatible",
+      "baselined": false
+    },
+    {
+      "ruleId": "INV5-ORPHAN-SIDECAR",
+      "level": "WARN",
+      "target": "3fb41ee173ed45cda530cd80a8f3b1a8",
+      "sectionIndex": -1,
+      "message": "INV5 orphan-sidecar recording=3fb41ee173ed45cda530cd80a8f3b1a8 sidecarGen=4",
+      "citedContract": "RecordingStore.IsRecordingSchemaCompatible",
+      "baselined": false
+    },
+    {
+      "ruleId": "INV5-ORPHAN-SIDECAR",
+      "level": "WARN",
+      "target": "743b61fb48ab4b89823b62b9e48b27a1",
+      "sectionIndex": -1,
+      "message": "INV5 orphan-sidecar recording=743b61fb48ab4b89823b62b9e48b27a1 sidecarGen=4",
+      "citedContract": "RecordingStore.IsRecordingSchemaCompatible",
+      "baselined": false
+    },
+    {
+      "ruleId": "INV5-ORPHAN-SIDECAR",
+      "level": "WARN",
+      "target": "9b42c7b3e6064a7a830c08e1d002e39c",
+      "sectionIndex": -1,
+      "message": "INV5 orphan-sidecar recording=9b42c7b3e6064a7a830c08e1d002e39c sidecarGen=4",
+      "citedContract": "RecordingStore.IsRecordingSchemaCompatible",
+      "baselined": false
+    },
+    {
+      "ruleId": "INV5-ORPHAN-SIDECAR",
+      "level": "WARN",
+      "target": "a9ceda58491e4237ab74e76e08567754",
+      "sectionIndex": -1,
+      "message": "INV5 orphan-sidecar recording=a9ceda58491e4237ab74e76e08567754 sidecarGen=4",
+      "citedContract": "RecordingStore.IsRecordingSchemaCompatible",
+      "baselined": false
+    },
+    {
+      "ruleId": "INV5-ORPHAN-SIDECAR",
+      "level": "WARN",
+      "target": "c21e1a3b77cf4989a6bcfccce0d83741",
+      "sectionIndex": -1,
+      "message": "INV5 orphan-sidecar recording=c21e1a3b77cf4989a6bcfccce0d83741 sidecarGen=4",
+      "citedContract": "RecordingStore.IsRecordingSchemaCompatible",
+      "baselined": false
+    },
+    {
+      "ruleId": "INV5-ORPHAN-SIDECAR",
+      "level": "WARN",
+      "target": "e492aa74dc6647b396bcffc036449a52",
+      "sectionIndex": -1,
+      "message": "INV5 orphan-sidecar recording=e492aa74dc6647b396bcffc036449a52 sidecarGen=4",
+      "citedContract": "RecordingStore.IsRecordingSchemaCompatible",
+      "baselined": false
+    },
+    {
+      "ruleId": "INV5-ORPHAN-SIDECAR",
+      "level": "WARN",
+      "target": "e4b7aab51bcd44e6952399e6c7089af2",
+      "sectionIndex": -1,
+      "message": "INV5 orphan-sidecar recording=e4b7aab51bcd44e6952399e6c7089af2 sidecarGen=4",
+      "citedContract": "RecordingStore.IsRecordingSchemaCompatible",
+      "baselined": false
+    },
+    {
+      "ruleId": "INV5-ORPHAN-SIDECAR",
+      "level": "WARN",
+      "target": "fc5387c55a344706a0a06170186420bf",
+      "sectionIndex": -1,
+      "message": "INV5 orphan-sidecar recording=fc5387c55a344706a0a06170186420bf sidecarGen=4",
+      "citedContract": "RecordingStore.IsRecordingSchemaCompatible",
+      "baselined": false
+    }
+  ],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 1999.9576904299765,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "FirstLaunch"
+    ],
+    "vessels": [
+      {
+        "pid": "60e7fd84291d4c3ea5e74fe1fc93f9b2",
+        "persistentId": 1490391000,
+        "name": "Ast. VPA-167",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "ec23bab238d64b1f895871ce96ffe2bb",
+        "persistentId": 2200110033,
+        "name": "GS1 Auto-Chute Booster",
+        "type": "Ship",
+        "resourceTotals": {
+          "ElectricCharge": 54.724000006169113,
+          "LiquidFuel": 18,
+          "MonoPropellant": 10,
+          "Oxidizer": 22
+        }
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Missing"
+      },
+      {
+        "name": "Karfrey Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Sigwig Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Assigned"
+      }
+    ]
+  }
+}

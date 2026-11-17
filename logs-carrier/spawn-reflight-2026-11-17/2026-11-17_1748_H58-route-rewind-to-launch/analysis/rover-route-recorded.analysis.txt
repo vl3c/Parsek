@@ -1,0 +1,2 @@
+[Analyzer] save=rover-route-recorded generation=4 FAIL=0 WARN=1 INFO=0 STALE=0 BASELINED=0 RED=0
+WARN INV11-EMPTY-SECTION target=0996f1ba7c7b4d3a8d95cf8be77fbe6d#0 INV11 empty-section recording=0996f1ba7c7b4d3a8d95cf8be77fbe6d#0 env=Atmospheric ref=Absolute ut=[594.27999999974952,594.31999999974948] frames=0 bodyFixedFrames=0 checkpoints=0

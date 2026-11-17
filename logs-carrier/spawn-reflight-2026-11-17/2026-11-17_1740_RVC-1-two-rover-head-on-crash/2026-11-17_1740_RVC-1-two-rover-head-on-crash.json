@@ -1,0 +1,1159 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_1740_RVC-1-two-rover-head-on-crash_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 356,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "rover-crash-watched",
+          "scene": "FLIGHT",
+          "ut": "31.339999999999971"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "31.499999999999968"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "31.499999999999968"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "31.539999999999967",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "31.559999999999967",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoMerge",
+          "ut": "31.599999999999966",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "Mining Rover RC",
+          "activePid": "110406740",
+          "button": "controlfrom",
+          "converter": "",
+          "count": "1",
+          "event": "MakeReference",
+          "newName": "",
+          "newPid": "0",
+          "packed": "0",
+          "part": "probeStackSmall",
+          "partId": "1765263169",
+          "pid": "110406740",
+          "state": "exp:data=0",
+          "ut": "31.619999999999965",
+          "vesselsAfter": "3",
+          "vesselsBefore": "3",
+          "warpIndex": "0",
+          "warpRate": "1"
+        },
+        "cmd": "PartAction",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "329ce11ccba24361bef9d8c4c64127a1",
+          "ut": "31.659999999999965"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "1",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "ut": "31.679999999999964"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "28.260000000000037",
+          "maxRate": "1",
+          "target": "60",
+          "ut": "59.8000000000043"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-dock",
+          "ut": "60.020000000004337"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "Mining Rover RC",
+          "activeParts": "52",
+          "activePid": "110406740",
+          "dockUT": "64.02",
+          "docked": "true",
+          "gameSeconds": "4.02",
+          "maxSrfSpeed": "0.79",
+          "partnerName": "Ore Depot",
+          "partnerPid": "3950359723",
+          "pathMeters": "1.5",
+          "ut": "64.060000000004948"
+        },
+        "cmd": "DriveVessel",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "30.739999999995092",
+          "maxRate": "1",
+          "target": "95",
+          "ut": "94.799999999998832"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-undock",
+          "ut": "94.819999999998828"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "Mining Rover RC",
+          "activePid": "110406740",
+          "button": "undock",
+          "converter": "",
+          "count": "1",
+          "event": "Undock",
+          "newName": "Ore Depot",
+          "newPid": "1093449218",
+          "packed": "0",
+          "part": "dockingPort3",
+          "partId": "3980733521",
+          "pid": "110406740",
+          "state": "",
+          "ut": "94.85999999999882",
+          "vesselsAfter": "3",
+          "vesselsBefore": "2",
+          "warpIndex": "0",
+          "warpRate": "1"
+        },
+        "cmd": "PartAction",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "0.68000000000118632",
+          "maxRate": "1",
+          "target": "95.6",
+          "ut": "95.379999999998716"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-reverse",
+          "ut": "95.399999999998712"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "displacementMeters": "89.2",
+          "gameSeconds": "10.02",
+          "maxSrfSpeed": "15.92",
+          "moved": "true",
+          "pathMeters": "88.9",
+          "situation": "LANDED",
+          "ut": "105.43999999999672"
+        },
+        "cmd": "DriveVessel",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "gameSeconds": "7.70",
+          "settled": "true",
+          "situation": "LANDED",
+          "srfSpeed": "0.003",
+          "ut": "113.37999999999514"
+        },
+        "cmd": "DriveVessel",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-crash",
+          "ut": "113.45999999999512"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "displacementMeters": "212.3",
+          "gameSeconds": "20.02",
+          "maxSrfSpeed": "18.85",
+          "moved": "true",
+          "pathMeters": "212.1",
+          "situation": "LANDED",
+          "ut": "133.49999999999503"
+        },
+        "cmd": "DriveVessel",
+        "expect": "OK",
+        "id": "0021",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "36.260000000004851",
+          "maxRate": "1",
+          "target": "170",
+          "ut": "169.8000000000136"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0022",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "Mining Rover RC",
+          "activePid": "110406740",
+          "button": "explode",
+          "converter": "",
+          "count": "1",
+          "event": "explode",
+          "newName": "",
+          "newPid": "0",
+          "packed": "0",
+          "part": "radPanelSm",
+          "partId": "3404264257",
+          "pid": "110406740",
+          "state": "",
+          "ut": "170.06000000001373",
+          "vesselsAfter": "3",
+          "vesselsBefore": "3",
+          "warpIndex": "0",
+          "warpRate": "1"
+        },
+        "cmd": "PartAction",
+        "expect": "OK",
+        "id": "0023",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "Mining Rover RC",
+          "activePid": "110406740",
+          "button": "explode",
+          "converter": "",
+          "count": "1",
+          "event": "explode",
+          "newName": "",
+          "newPid": "0",
+          "packed": "0",
+          "part": "radPanelSm",
+          "partId": "930378361",
+          "pid": "1093449218",
+          "state": "",
+          "ut": "170.08000000001374",
+          "vesselsAfter": "3",
+          "vesselsBefore": "3",
+          "warpIndex": "0",
+          "warpRate": "1"
+        },
+        "cmd": "PartAction",
+        "expect": "OK",
+        "id": "0024",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "pid",
+            "ref": "${und.newPid}",
+            "value": "1093449218"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "14.89999999998625",
+          "maxRate": "1",
+          "target": "185",
+          "ut": "184.80000000002127"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0025",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-after-crash",
+          "ut": "184.88000000002131"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0026",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "252",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "ut": "184.90000000002132"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0027",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "scene": "SPACECENTER",
+          "ut": "185.00000000002137"
+        },
+        "cmd": "ExitToSpaceCenter",
+        "expect": "OK",
+        "id": "0028",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "rvc1-committed",
+          "ut": "185.18000000002147"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0029",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "rover-crash-watched",
+          "scene": "FLIGHT",
+          "ut": "186.50000000002214"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0030",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "186.52000000002215"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0031",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "discarded": "true",
+          "ut": "186.56000000002217"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0032",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "4",
+          "kind": "committed",
+          "rec0": "329ce11ccba24361bef9d8c4c64127a1",
+          "rec0name": "Mining Rover RC",
+          "rec0pid": "110406740",
+          "rec0spawned": "false",
+          "rec0spawnedPid": "0",
+          "rec0state": "Immutable",
+          "rec0tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "rec1": "53e9f948d1a742da920670bab9b73308",
+          "rec1name": "Ore Depot",
+          "rec1pid": "1093449218",
+          "rec1spawned": "false",
+          "rec1spawnedPid": "0",
+          "rec1state": "Immutable",
+          "rec1tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "rec2": "73c535c03c8549049003ac1acad03552",
+          "rec2name": "Mining Rover RC",
+          "rec2pid": "110406740",
+          "rec2spawned": "false",
+          "rec2spawnedPid": "0",
+          "rec2state": "Immutable",
+          "rec2tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "rec3": "c09242814c4c4d208cbc3df0ff06ba9a",
+          "rec3name": "Mining Rover RC",
+          "rec3pid": "110406740",
+          "rec3spawned": "false",
+          "rec3spawnedPid": "0",
+          "rec3state": "Immutable",
+          "rec3tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "truncated": "false",
+          "ut": "186.58000000002218"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0033",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-committed-4",
+          "ut": "186.6200000000222"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0034",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c0.count}",
+            "value": "4"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "186.64000000002221"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0035",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "adjustedUT": "16.7",
+          "rec": "329ce11ccba24361bef9d8c4c64127a1",
+          "rewound": "true",
+          "tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "ut": "16.699999999999964"
+        },
+        "cmd": "InvokeRewindToLaunch",
+        "expect": "OK",
+        "id": "0036",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "rvc1-rewound",
+          "ut": "16.899999999999959"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0037",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "rover-crash-watched",
+          "scene": "FLIGHT",
+          "ut": "18.219999999999931"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0038",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "18.479999999999926"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0039",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "18.519999999999925"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0040",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "18.539999999999925",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0041",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "18.559999999999924",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0042",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "ghostRenderTracing",
+          "ut": "18.599999999999923",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0043",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-rewound-reloaded",
+          "ut": "18.619999999999923"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0044",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "71.36000000000007",
+          "maxRate": "5",
+          "target": "90",
+          "ut": "89.809792480467479"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0045",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "4",
+          "kind": "committed",
+          "rec0": "329ce11ccba24361bef9d8c4c64127a1",
+          "rec0name": "Mining Rover RC",
+          "rec0pid": "110406740",
+          "rec0spawned": "false",
+          "rec0spawnedPid": "0",
+          "rec0state": "Immutable",
+          "rec0tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "rec1": "53e9f948d1a742da920670bab9b73308",
+          "rec1name": "Ore Depot",
+          "rec1pid": "1093449218",
+          "rec1spawned": "false",
+          "rec1spawnedPid": "0",
+          "rec1state": "Immutable",
+          "rec1tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "rec2": "73c535c03c8549049003ac1acad03552",
+          "rec2name": "Mining Rover RC",
+          "rec2pid": "110406740",
+          "rec2spawned": "false",
+          "rec2spawnedPid": "0",
+          "rec2state": "Immutable",
+          "rec2tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "rec3": "c09242814c4c4d208cbc3df0ff06ba9a",
+          "rec3name": "Mining Rover RC",
+          "rec3pid": "110406740",
+          "rec3spawned": "false",
+          "rec3spawnedPid": "0",
+          "rec3state": "Immutable",
+          "rec3tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "truncated": "false",
+          "ut": "89.869792480467467"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0046",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-replay-before-undock",
+          "ut": "89.869792480467467"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0047",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "115.09020751953254",
+          "maxRate": "1",
+          "target": "205",
+          "ut": "204.80979248049917"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0048",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "4",
+          "kind": "committed",
+          "rec0": "329ce11ccba24361bef9d8c4c64127a1",
+          "rec0name": "Mining Rover RC",
+          "rec0pid": "110406740",
+          "rec0spawned": "false",
+          "rec0spawnedPid": "0",
+          "rec0state": "Immutable",
+          "rec0tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "rec1": "53e9f948d1a742da920670bab9b73308",
+          "rec1name": "Ore Depot",
+          "rec1pid": "1093449218",
+          "rec1spawned": "true",
+          "rec1spawnedPid": "1093449218",
+          "rec1state": "Immutable",
+          "rec1tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "rec2": "73c535c03c8549049003ac1acad03552",
+          "rec2name": "Mining Rover RC",
+          "rec2pid": "110406740",
+          "rec2spawned": "false",
+          "rec2spawnedPid": "0",
+          "rec2state": "Immutable",
+          "rec2tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "rec3": "c09242814c4c4d208cbc3df0ff06ba9a",
+          "rec3name": "Mining Rover RC",
+          "rec3pid": "110406740",
+          "rec3spawned": "true",
+          "rec3spawnedPid": "3477188614",
+          "rec3state": "Immutable",
+          "rec3tree": "14fc8237060b4e29b786de67b06d7a7f",
+          "truncated": "false",
+          "ut": "205.04979248049929"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0049",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "rvc1-replayed",
+          "ut": "205.0697924804993"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0050",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "205.08979248049931"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0051",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "205.12979248049933"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0052",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T17:46:54Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-17_1740_RVC-1-two-rover-head-on-crash",
+  "scenarioId": "RVC-1-two-rover-head-on-crash",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 3735569,
+    "files": 57,
+    "path": "2026-11-17_1740_RVC-1-two-rover-head-on-crash_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-17T17:40:57Z",
+  "subkind": "",
+  "tier": "operator",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\rover-crash-watched\\analysis\\rover-crash-watched.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\rover-crash-watched\\analysis\\rover-crash-watched.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 4
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [
+        "ghostLifecycle"
+      ],
+      "declared": {
+        "gating": false,
+        "requireBalanced": true,
+        "spawned": {
+          "min": 2
+        }
+      },
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 2861,
+            "legacyLines": 0,
+            "maxRotDeg": 0.0,
+            "maxRotDegAt": {
+              "path": "non-loop",
+              "playbackUT": "31.830",
+              "rec": "329ce11c",
+              "rotRef": "surface"
+            },
+            "perRef": {
+              "points": {
+                "maxRotDeg": 0.0,
+                "maxRotDegAt": {
+                  "path": "non-loop",
+                  "playbackUT": "94.870",
+                  "rec": "73c535c0",
+                  "rotRef": "points"
+                },
+                "resolvedLines": 1,
+                "sweepDeg": 0.0,
+                "sweepRec": "73c535c0"
+              },
+              "relative": {
+                "maxRotDeg": 0.0,
+                "maxRotDegAt": {
+                  "path": "non-loop",
+                  "playbackUT": "94.920",
+                  "rec": "53e9f948",
+                  "rotRef": "relative"
+                },
+                "resolvedLines": 62,
+                "sweepDeg": 0.903,
+                "sweepRec": "53e9f948"
+              },
+              "surface": {
+                "maxRotDeg": 0.0,
+                "maxRotDegAt": {
+                  "path": "non-loop",
+                  "playbackUT": "31.830",
+                  "rec": "329ce11c",
+                  "rotRef": "surface"
+                },
+                "resolvedLines": 2798,
+                "sweepDeg": 1.963,
+                "sweepRec": "c0924281"
+              }
+            },
+            "resolvedLines": 2861,
+            "sweepDeg": 1.963,
+            "sweepRec": "c0924281",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 4,
+          "destroyedReasons": {
+            "playback completed": 4
+          },
+          "destroyedRecordings": 4,
+          "malformed": 0,
+          "peakLive": 1,
+          "peakLiveFrame": 19809,
+          "peakLiveRecording": "329ce11ccba24361bef9d8c4c64127a1",
+          "perVessel": {
+            "Mining Rover RC": {
+              "destroyLines": 3,
+              "spawnLines": 3,
+              "spawned": 3
+            },
+            "Ore Depot": {
+              "destroyLines": 1,
+              "spawnLines": 1,
+              "spawned": 1
+            }
+          },
+          "spawnLines": 4,
+          "spawnReasons": {
+            "ghost-created": 4
+          },
+          "spawned": 4,
+          "spawnedRecordingIds": [
+            "329ce11ccba24361bef9d8c4c64127a1",
+            "73c535c03c8549049003ac1acad03552",
+            "c09242814c4c4d208cbc3df0ff06ba9a",
+            "53e9f948d1a742da920670bab9b73308"
+          ],
+          "unbalanced": [],
+          "vessels": [
+            "Mining Rover RC",
+            "Ore Depot"
+          ]
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": false,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [
+        "recordings.structure"
+      ],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 390,
+            "recordings": 4,
+            "smallest": 17,
+            "total": 689,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "Dock": 1,
+              "Undock": 1
+            },
+            "committedTrees": 1,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "Mining Rover RC": 3,
+              "Ore Depot": 1
+            },
+            "recordings": 4,
+            "spaceObjectParts": {},
+            "spawnedVessels": 2,
+            "terminalStates": {
+              "Docked": 1,
+              "Landed": 2
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "Miner Watcher": 1,
+              "Mining Rover RC": 1,
+              "Ore Depot": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 2,
+      "afterQuitFrameless": 2,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 6049
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 6049,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 356
+}

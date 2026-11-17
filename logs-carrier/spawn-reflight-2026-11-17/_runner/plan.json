@@ -1,0 +1,121 @@
+{
+  "createdUtc": "2026-11-17T17:35:07Z",
+  "gitHead": "e9353aa5f2adef3a6f0438372688d3996a0d349c",
+  "includeExclusive": false,
+  "lanes": [
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "MINE-4-rover-docked-origin-route-rewind",
+      "p50": 328.0,
+      "p50Source": "run-index",
+      "profile": "stock-minimal",
+      "tier": "nightly"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "EVA-10-mun-ground-science-cluster",
+      "p50": 320.0,
+      "p50Source": "duration.json",
+      "profile": "stock-minimal",
+      "tier": "nightly"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "FAR-1-ike-rewind-to-launch-career",
+      "p50": 204.0,
+      "p50Source": "run-index",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "LAY-1-laythe-reentry-splashdown",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "RVC-1-two-rover-head-on-crash",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "AIR-3-plane-drone-midair-collision",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "FAR-2-duna-relaunch-rewind-keeps-landed",
+      "p50": 70.5,
+      "p50Source": "run-index",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "H58-route-rewind-to-launch",
+      "p50": 62.0,
+      "p50Source": "duration.json",
+      "profile": "stock-minimal",
+      "tier": "nightly"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "V20K-jool-kerbin-ksc-arrival",
+      "p50": 60.0,
+      "p50Source": "duration.json",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "V33T-jool-laythe-continuation-ts-arrival",
+      "p50": 56.5,
+      "p50Source": "run-index",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "V31M-duna-ike-continuation-player-loop",
+      "p50": 49.0,
+      "p50Source": "run-index",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "MS-1-mission-leg-trim-clone",
+      "p50": 44.0,
+      "p50Source": "duration.json",
+      "profile": "stock-minimal",
+      "tier": "nightly"
+    }
+  ],
+  "name": "spawn-reflight-2026-11-17",
+  "notFlown": [],
+  "schema": "parsek-parallel-plan/1",
+  "skipped": [],
+  "slotsAtStart": 3,
+  "windowMode": "desktop"
+}

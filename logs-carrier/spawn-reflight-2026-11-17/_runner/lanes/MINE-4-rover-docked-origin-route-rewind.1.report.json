@@ -1,0 +1,21 @@
+{
+ "exitCode": 0,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "",
+   "id": "MINE-4-rover-docked-origin-route-rewind",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight\\harness\\results\\2026-11-17_1735_MINE-4-rover-docked-origin-route-rewind.json"
+   ],
+   "runIds": [
+    "2026-11-17_1735_MINE-4-rover-docked-origin-route-rewind"
+   ],
+   "subkind": "",
+   "verdict": "PASS",
+   "wallSeconds": 333
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal"
+}

@@ -1,0 +1,99 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "rover-crash-watched",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 0,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 205.12979248049933,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [],
+    "vessels": [
+      {
+        "pid": "0845798e847d4ffb85bb1408c12c9442",
+        "persistentId": 3477188614,
+        "name": "Mining Rover RC",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 1799.9985000000336,
+          "LiquidFuel": 0,
+          "MonoPropellant": 0,
+          "Ore": 0,
+          "Oxidizer": 0
+        }
+      },
+      {
+        "pid": "1938c17d0a865b0e47c9d78cd244d286",
+        "persistentId": 3179797026,
+        "name": "Miner Watcher",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 1000,
+          "LiquidFuel": 297.59999999999843
+        }
+      },
+      {
+        "pid": "97e58b677dce495ba1c1949fdc53f41a",
+        "persistentId": 1093449218,
+        "name": "Ore Depot",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 1799.9985000000336,
+          "LiquidFuel": 0,
+          "MonoPropellant": 0,
+          "Ore": 0,
+          "Oxidizer": 0
+        }
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      }
+    ]
+  }
+}

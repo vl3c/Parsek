@@ -1,0 +1,21 @@
+{
+ "exitCode": 0,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "",
+   "id": "V33T-jool-laythe-continuation-ts-arrival",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight\\harness\\results\\2026-11-17_1750_V33T-jool-laythe-continuation-ts-arrival.json"
+   ],
+   "runIds": [
+    "2026-11-17_1750_V33T-jool-laythe-continuation-ts-arrival"
+   ],
+   "subkind": "",
+   "verdict": "PASS",
+   "wallSeconds": 56
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal"
+}

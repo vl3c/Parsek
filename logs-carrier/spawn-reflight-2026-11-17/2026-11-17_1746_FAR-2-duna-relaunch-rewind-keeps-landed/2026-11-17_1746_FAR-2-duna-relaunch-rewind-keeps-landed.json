@@ -1,0 +1,700 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_1746_FAR-2-duna-relaunch-rewind-keeps-landed_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 71,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "duna-park-recorded",
+          "scene": "FLIGHT",
+          "ut": "5336112612.0118656"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "5336112612.0918674"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "5336112612.1118679"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "5336112612.1518688",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "5336112612.1518688",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "5336112612.19187"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "duna-park-recorded",
+          "scene": "SPACECENTER",
+          "ut": "5336112612.2718716"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "14",
+          "kind": "committed",
+          "rec0": "2f724cbd0030407f884e125e89f0add0",
+          "rec0name": "Merger Kerman",
+          "rec0pid": "2798211014",
+          "rec0spawned": "true",
+          "rec0spawnedPid": "2798211014",
+          "rec0state": "Immutable",
+          "rec0tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec1": "5466febaeffa4042ba211c0e1fe88b91",
+          "rec10": "d154c46d7d884bb582559e18fb55e730",
+          "rec10name": "Kerbal X Debris",
+          "rec10pid": "993545198",
+          "rec10spawned": "false",
+          "rec10spawnedPid": "0",
+          "rec10state": "Immutable",
+          "rec10tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec11": "df7ebece093b4c828f9a41c25e18927c",
+          "rec11name": "Kerbal X Debris",
+          "rec11pid": "1801144942",
+          "rec11spawned": "false",
+          "rec11spawnedPid": "0",
+          "rec11state": "Immutable",
+          "rec11tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec12": "ed76396d1c8e42a8b4e9c7a39f868063",
+          "rec12name": "Kerbal X Probe",
+          "rec12pid": "753981973",
+          "rec12spawned": "true",
+          "rec12spawnedPid": "753981973",
+          "rec12state": "Immutable",
+          "rec12tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec13": "f475897c8f4a4523835b3620197b5af2",
+          "rec13name": "Kerbal X Debris",
+          "rec13pid": "211475509",
+          "rec13spawned": "false",
+          "rec13spawnedPid": "0",
+          "rec13state": "Immutable",
+          "rec13tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec1name": "Kerbal X",
+          "rec1pid": "567464503",
+          "rec1spawned": "true",
+          "rec1spawnedPid": "567464503",
+          "rec1state": "Immutable",
+          "rec1tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec2": "5f7e2b8768a642deb919163c8d2ed8ee",
+          "rec2name": "Kerbal X Debris",
+          "rec2pid": "3351352332",
+          "rec2spawned": "false",
+          "rec2spawnedPid": "0",
+          "rec2state": "Immutable",
+          "rec2tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec3": "8538d9e156a34af194083c6068739888",
+          "rec3name": "Kerbal X",
+          "rec3pid": "567464503",
+          "rec3spawned": "false",
+          "rec3spawnedPid": "0",
+          "rec3state": "Immutable",
+          "rec3tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec4": "8884af4a14f84256b73704a97a2e5476",
+          "rec4name": "Kerbal X Debris",
+          "rec4pid": "326874618",
+          "rec4spawned": "false",
+          "rec4spawnedPid": "0",
+          "rec4state": "Immutable",
+          "rec4tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec5": "8eabd16b458f4317a24e2e1adc6cec9c",
+          "rec5name": "Kerbal X Debris",
+          "rec5pid": "2451771763",
+          "rec5spawned": "false",
+          "rec5spawnedPid": "0",
+          "rec5state": "Immutable",
+          "rec5tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec6": "9f68333fa762479e81bfe7d1827d4afd",
+          "rec6name": "Kerbal X Debris",
+          "rec6pid": "3810254788",
+          "rec6spawned": "false",
+          "rec6spawnedPid": "0",
+          "rec6state": "Immutable",
+          "rec6tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec7": "aa48920e43fb4bf483940e0d8191a1ce",
+          "rec7name": "Kerbal X",
+          "rec7pid": "567464503",
+          "rec7spawned": "false",
+          "rec7spawnedPid": "0",
+          "rec7state": "Immutable",
+          "rec7tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec8": "acf1435a6df24b2aa2abbc6da88d6b36",
+          "rec8name": "Kerbal X",
+          "rec8pid": "567464503",
+          "rec8spawned": "false",
+          "rec8spawnedPid": "0",
+          "rec8state": "Immutable",
+          "rec8tree": "ced7848157674b8ea19311377c0f6fbc",
+          "rec9": "c5d0148a530348c9a5effad16021b836",
+          "rec9name": "Kerbal X",
+          "rec9pid": "567464503",
+          "rec9spawned": "false",
+          "rec9spawnedPid": "0",
+          "rec9state": "Immutable",
+          "rec9tree": "ced7848157674b8ea19311377c0f6fbc",
+          "truncated": "false",
+          "ut": "5336112612.3118725"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "craft": "Kerbal X",
+          "facility": "SPH",
+          "parts": "73",
+          "scene": "EDITOR",
+          "ship": "Kerbal X",
+          "ut": "5336112612.3518734"
+        },
+        "cmd": "GoToEditor",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "pid": "3192660514",
+          "scene": "FLIGHT",
+          "site": "Runway",
+          "situation": "PRELAUNCH",
+          "ut": "5336112612.6718807",
+          "vessel": "Kerbal X"
+        },
+        "cmd": "LaunchFromEditor",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "f3511d3c539e4f37a46e76686272abe1",
+          "ut": "5336112612.8318844"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "1",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "4a941d36773f4aa0beef6530fdcfd914",
+          "ut": "5336112612.8718853"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "1",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "4a941d36773f4aa0beef6530fdcfd914",
+          "ut": "5336112612.8918858"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "1",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "4a941d36773f4aa0beef6530fdcfd914",
+          "ut": "5336112612.9318867"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "0",
+          "digest": "811c9dc5",
+          "evaluated": "true",
+          "kind": "chains",
+          "truncated": "false",
+          "ut": "5336112612.9518871"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "5336112612.9718876"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "committed": "true",
+          "ut": "5336112613.031889"
+        },
+        "cmd": "CommitTree",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "5336112613.07189"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "far2-committed",
+          "ut": "5336112613.09189"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "adjustedUT": "5336112597.8",
+          "rec": "f3511d3c539e4f37a46e76686272abe1",
+          "rewound": "true",
+          "tree": "4a941d36773f4aa0beef6530fdcfd914",
+          "ut": "5336112597.8718853"
+        },
+        "cmd": "InvokeRewindToLaunch",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "far2-rewound",
+          "ut": "5336112597.9518871"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0021",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "failed": "0",
+          "passed": "1",
+          "results": "parsek-test-results.txt",
+          "skipped": "0",
+          "ut": "5336112599.0319118"
+        },
+        "cmd": "RunTests",
+        "expect": "OK",
+        "id": "0022",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "5336112599.0519123"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0023",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "5336112599.0919132"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0024",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T17:48:07Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-17_1746_FAR-2-duna-relaunch-rewind-keeps-landed",
+  "scenarioId": "FAR-2-duna-relaunch-rewind-keeps-landed",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 4375990,
+    "files": 93,
+    "path": "2026-11-17_1746_FAR-2-duna-relaunch-rewind-keeps-landed_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-17T17:46:55Z",
+  "subkind": "",
+  "tier": "operator",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\duna-park-recorded\\analysis\\duna-park-recorded.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\duna-park-recorded\\analysis\\duna-park-recorded.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": "LeafVesselPlacement",
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": 0,
+      "found": true,
+      "matchedRuns": 1,
+      "multi": false,
+      "perCategoryCount": 1,
+      "runsShort": false,
+      "status": "PASS"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 15
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": false,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [
+        "recordings.structure"
+      ],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 856,
+            "recordings": 15,
+            "smallest": 1,
+            "total": 2707,
+            "trivialRecordings": 1,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "EVA": 1,
+              "JointBreak": 6
+            },
+            "committedTrees": 2,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "Kerbal X": 6,
+              "Kerbal X Debris": 7,
+              "Kerbal X Probe": 1,
+              "Merger Kerman": 1
+            },
+            "recordings": 15,
+            "spaceObjectParts": {
+              "Ast. HAK-844": 1,
+              "Ast. LBL-612": 1,
+              "Ast. LKQ-905": 1,
+              "Ast. LMN-237": 1,
+              "Ast. PWE-323": 1
+            },
+            "spawnedVessels": 3,
+            "terminalStates": {
+              "Destroyed": 4,
+              "Landed": 4,
+              "Orbiting": 2,
+              "SubOrbital": 1
+            },
+            "treeNodes": 2,
+            "trees": 2,
+            "vesselNames": {
+              "Duna One": 1,
+              "Jumping Flea": 1,
+              "Kerbal X": 2,
+              "Kerbal X Probe": 2,
+              "Merger Kerman": 1,
+              "Valentina Kerman": 1,
+              "a": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": 0,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 0
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 0,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 71
+}

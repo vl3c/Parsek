@@ -1,0 +1,141 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "duna-ike-recorded-career",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 1,
+    "info": 1,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [
+    {
+      "ruleId": "INV2-UNCOVERED-SPAN",
+      "level": "WARN",
+      "target": "311d98e32547491e8dd37aec2526d25d",
+      "sectionIndex": 2,
+      "message": "INV2 uncovered recording=311d98e32547491e8dd37aec2526d25d span=[4653681.9038905427,9181509.7377239726] orbitBridged=False",
+      "citedContract": "TrackSection.boundaryDiscontinuityMeters",
+      "baselined": false
+    },
+    {
+      "ruleId": "INV8-CAREER-DIFF",
+      "level": "INFO",
+      "target": "duna-ike-recorded-career",
+      "sectionIndex": -1,
+      "message": "INV8 career-diff reconstruction-not-available (headless recalc deferred)",
+      "citedContract": "LedgerGroundTruthDiff.Compare",
+      "baselined": false
+    }
+  ],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": true,
+    "funds": 500000,
+    "hasScience": true,
+    "sciencePool": 100,
+    "hasRep": true,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 9181801.20274428,
+    "subjectScience": {},
+    "facilityLevelFrac": {
+      "SpaceCenter/Administration": 1,
+      "SpaceCenter/AstronautComplex": 1,
+      "SpaceCenter/FlagPole": 1,
+      "SpaceCenter/LaunchPad": 1,
+      "SpaceCenter/MissionControl": 1,
+      "SpaceCenter/ResearchAndDevelopment": 1,
+      "SpaceCenter/Runway": 1,
+      "SpaceCenter/SpaceplaneHangar": 1,
+      "SpaceCenter/TrackingStation": 1,
+      "SpaceCenter/VehicleAssemblyBuilding": 1
+    },
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "Duna/Escape",
+      "Duna/Orbit",
+      "Escape",
+      "Flyby",
+      "Ike/Flyby",
+      "Ike/Orbit",
+      "Orbit",
+      "Sun/Orbit"
+    ],
+    "vessels": [
+      {
+        "pid": "22a54535faf541fb985729066fa2fdfc",
+        "persistentId": 3240185426,
+        "name": "Ast. QIT-779",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "4edcda80114f483faa97a1549cc699e0",
+        "persistentId": 1214444691,
+        "name": "Ast. PKW-425",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "c2931a7270384ab3b87025190ada20ca",
+        "persistentId": 2122544841,
+        "name": "DD1 Duna Direct Probe",
+        "type": "Relay",
+        "resourceTotals": {
+          "ElectricCharge": 376.54618767230966,
+          "LiquidFuel": 35.220262979220749,
+          "Oxidizer": 43.046968966343307
+        }
+      },
+      {
+        "pid": "ce95a2a849034e93bc526c4d6e1c2d8d",
+        "persistentId": 3602537484,
+        "name": "Ast. ALK-341",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "ed1cfe8ebf6f44f9850680632a790d4f",
+        "persistentId": 2073206603,
+        "name": "UnknownComet",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      }
+    ]
+  }
+}

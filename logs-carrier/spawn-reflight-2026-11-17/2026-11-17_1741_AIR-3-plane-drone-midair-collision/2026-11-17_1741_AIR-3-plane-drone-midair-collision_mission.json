@@ -1,0 +1,161 @@
+{
+  "assertions": [
+    {
+      "expectedVesselName": "AIR Drone Carrier",
+      "launchSite": "Runway",
+      "met": true,
+      "name": "rolloutObserved",
+      "value": "AIR Drone Carrier"
+    },
+    {
+      "met": true,
+      "name": "stagedAtPrelaunch",
+      "note": "Parsek's first-staging auto-record trigger requires PRELAUNCH",
+      "stageUT": 30.87999999999943,
+      "value": "PRE_LAUNCH"
+    },
+    {
+      "abortThrottleReadback": null,
+      "groundSteerConfirmed": true,
+      "groundSteerFlipped": false,
+      "groundSteerSign": 1.0,
+      "limitMeters": 1500.0,
+      "maxGroundHeadingErr": 3.2982711791992188,
+      "maxRollPitch": 3.273529052734375,
+      "met": true,
+      "name": "airborne",
+      "rotatePitchConfirmed": true,
+      "rotatePitchFlipped": false,
+      "rotatePitchSign": 1.0,
+      "rotateStartPitch": 0.4356689453125,
+      "rotateUT": 50.940000000002364,
+      "takeoffSpeed": 76.11163215046031,
+      "takeoffUT": 59.68000000000373,
+      "value": 825.9710479818485
+    },
+    {
+      "droneParts": 4,
+      "loiterCaptures": 2,
+      "met": true,
+      "name": "droneReleased",
+      "ownPartsAfterRelease": 38,
+      "releaseAltitude": 2502.595946860616,
+      "releaseLat": -0.22623621436043534,
+      "releaseLon": -73.96855581596537,
+      "releaseUT": 328.77999999999093,
+      "targetVesselName": "AIR Drone Carrier Probe",
+      "value": 329.87999999998993
+    },
+    {
+      "bankSign": 1.0,
+      "bankSignFlipped": false,
+      "closestRange": 14.649410372052413,
+      "collisionUT": 466.6999999998655,
+      "droneParts": [
+        4,
+        -1
+      ],
+      "limitMeters": 250.0,
+      "met": true,
+      "name": "midAirCollision",
+      "ownParts": [
+        38,
+        37
+      ],
+      "passRanges": [],
+      "passesBefore": 0,
+      "rangeMeters": 47.325024355833534,
+      "rollInputSign": 1.0,
+      "value": "chaser-parts-38->37+drone-absent"
+    },
+    {
+      "chaserDownUT": 501.2399999998341,
+      "droneDownUT": 467.239999999865,
+      "met": true,
+      "name": "bothDown",
+      "phasesReached": [
+        "AIR",
+        "ASCEND",
+        "EXTEND",
+        "PURSUE",
+        "AFTERMATH",
+        "DONE"
+      ],
+      "value": [
+        "SPLASHED",
+        "ABSENT"
+      ]
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.21727569994982332,
+    "rpcPort": 50002
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "air3_drone_intercept",
+  "phasesReached": [
+    "AIR",
+    "ASCEND",
+    "EXTEND",
+    "PURSUE",
+    "AFTERMATH",
+    "DONE"
+  ],
+  "reason": "all telemetry assertions met",
+  "schema": 1,
+  "verdict": "MISSION-OK",
+  "wallSeconds": 488.829,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 50.62,
+      "gameSecondsPerWallSecond": 0.931,
+      "phase": "AIR",
+      "wallSeconds": 54.381,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 250.68,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "ASCEND",
+      "wallSeconds": 250.696,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 25.2,
+      "gameSecondsPerWallSecond": 0.993,
+      "phase": "EXTEND",
+      "wallSeconds": 25.376,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 112.72,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "PURSUE",
+      "wallSeconds": 112.77,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 45.14,
+      "gameSecondsPerWallSecond": 0.995,
+      "phase": "AFTERMATH",
+      "wallSeconds": 45.377,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.0,
+      "gameSecondsPerWallSecond": 0.0,
+      "phase": "DONE",
+      "wallSeconds": 0.0,
+      "warpCommands": 0
+    }
+  ]
+}

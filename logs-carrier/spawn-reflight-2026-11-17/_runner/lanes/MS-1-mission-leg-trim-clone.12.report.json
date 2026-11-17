@@ -1,0 +1,21 @@
+{
+ "exitCode": 0,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "",
+   "id": "MS-1-mission-leg-trim-clone",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight\\harness\\results\\2026-11-17_1752_MS-1-mission-leg-trim-clone.json"
+   ],
+   "runIds": [
+    "2026-11-17_1752_MS-1-mission-leg-trim-clone"
+   ],
+   "subkind": "",
+   "verdict": "PASS",
+   "wallSeconds": 52
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal"
+}

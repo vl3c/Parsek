@@ -1,0 +1,138 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "mun-landing-recorded",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 1,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [
+    {
+      "ruleId": "INV2-UNCOVERED-SPAN",
+      "level": "WARN",
+      "target": "06f15e8ce4f04637944779e8338aae8d",
+      "sectionIndex": 1,
+      "message": "INV2 uncovered recording=06f15e8ce4f04637944779e8338aae8d span=[23157.945293627439,23258.445293629633] orbitBridged=False",
+      "citedContract": "TrackSection.boundaryDiscontinuityMeters",
+      "baselined": false
+    }
+  ],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 23430.005293633705,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "Escape",
+      "FirstLaunch",
+      "Flyby",
+      "Kerbin/Escape",
+      "Kerbin/Landing",
+      "Kerbin/Orbit",
+      "Landing",
+      "Mun/Flyby",
+      "Mun/Landing",
+      "Mun/Orbit",
+      "Mun/Suborbit",
+      "Mun/SurfaceEVA",
+      "Orbit",
+      "ReachedSpace",
+      "Suborbit",
+      "SurfaceEVA"
+    ],
+    "vessels": [
+      {
+        "pid": "2671225b44064493a7acc818e0ee3fd1",
+        "persistentId": 4236901037,
+        "name": "Mini-NUK-PD Radioisotope Thermoelectric Generator",
+        "type": "DeployedSciencePart",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "41b451d2a1b648ce9fd765d13b4b5571",
+        "persistentId": 1783441728,
+        "name": "Probodobodyne Experiment Control Station",
+        "type": "DeployedScienceController",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "5493223fe49b42b181998849a9a2aefa",
+        "persistentId": 1184686955,
+        "name": "Kerbal X",
+        "type": "Ship",
+        "resourceTotals": {
+          "Ablator": 399.95616627095944,
+          "ElectricCharge": 926.8782936842772,
+          "LiquidFuel": 361.06524996877397,
+          "MonoPropellant": 21.583327245345394,
+          "Oxidizer": 441.301951053868
+        }
+      },
+      {
+        "pid": "5a6bae0a5b504380986c04cc222c4f57",
+        "persistentId": 1536593936,
+        "name": "Jebediah Kerman",
+        "type": "EVA",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "871588846b5d416b8f6f3cb1bcb921fe",
+        "persistentId": 1617542172,
+        "name": "Grand Slam Passive Seismometer",
+        "type": "DeployedSciencePart",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "b271ff90229344a396e1745082516ec7",
+        "persistentId": 3780432365,
+        "name": "Go-ob ED Monitor",
+        "type": "DeployedSciencePart",
+        "resourceTotals": {}
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Assigned"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      }
+    ]
+  }
+}

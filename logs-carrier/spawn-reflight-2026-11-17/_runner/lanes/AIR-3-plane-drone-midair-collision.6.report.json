@@ -1,0 +1,21 @@
+{
+ "exitCode": 1,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "expectation",
+   "id": "AIR-3-plane-drone-midair-collision",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight\\harness\\results\\2026-11-17_1741_AIR-3-plane-drone-midair-collision.json"
+   ],
+   "runIds": [
+    "2026-11-17_1741_AIR-3-plane-drone-midair-collision"
+   ],
+   "subkind": "expectation",
+   "verdict": "PARSEK-FAIL",
+   "wallSeconds": 752
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal-2"
+}

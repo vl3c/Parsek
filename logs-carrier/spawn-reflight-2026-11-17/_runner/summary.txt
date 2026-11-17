@@ -1,0 +1,13 @@
+2026-11-17T17:40:40Z PASS FAR-1-ike-rewind-to-launch-career attempts=1 wall=221s slot=stock-minimal-3 runIds=2026-11-17_1737_FAR-1-ike-rewind-to-launch-career
+2026-11-17T17:40:48Z PASS MINE-4-rover-docked-origin-route-rewind attempts=1 wall=336s slot=stock-minimal runIds=2026-11-17_1735_MINE-4-rover-docked-origin-route-rewind
+2026-11-17T17:41:17Z PASS EVA-10-mun-ground-science-cluster attempts=1 wall=348s slot=stock-minimal-2 runIds=2026-11-17_1735_EVA-10-mun-ground-science-cluster
+2026-11-17T17:46:54Z PASS RVC-1-two-rover-head-on-crash attempts=1 wall=358s slot=stock-minimal runIds=2026-11-17_1740_RVC-1-two-rover-head-on-crash
+2026-11-17T17:48:09Z PASS FAR-2-duna-relaunch-rewind-keeps-landed attempts=1 wall=74s slot=stock-minimal runIds=2026-11-17_1746_FAR-2-duna-relaunch-rewind-keeps-landed
+2026-11-17T17:49:09Z PASS H58-route-rewind-to-launch attempts=1 wall=60s slot=stock-minimal runIds=2026-11-17_1748_H58-route-rewind-to-launch
+2026-11-17T17:50:19Z PASS V20K-jool-kerbin-ksc-arrival attempts=1 wall=70s slot=stock-minimal runIds=2026-11-17_1749_V20K-jool-kerbin-ksc-arrival
+2026-11-17T17:51:18Z PASS V33T-jool-laythe-continuation-ts-arrival attempts=1 wall=58s slot=stock-minimal runIds=2026-11-17_1750_V33T-jool-laythe-continuation-ts-arrival
+2026-11-17T17:52:14Z PASS V31M-duna-ike-continuation-player-loop attempts=1 wall=56s slot=stock-minimal runIds=2026-11-17_1751_V31M-duna-ike-continuation-player-loop
+2026-11-17T17:52:44Z PASS LAY-1-laythe-reentry-splashdown attempts=1 wall=724s slot=stock-minimal-3 runIds=2026-11-17_1740_LAY-1-laythe-reentry-splashdown
+2026-11-17T17:53:12Z PASS MS-1-mission-leg-trim-clone attempts=1 wall=54s slot=stock-minimal runIds=2026-11-17_1752_MS-1-mission-leg-trim-clone
+2026-11-17T17:54:22Z PARSEK-FAIL AIR-3-plane-drone-midair-collision attempts=1 wall=763s slot=stock-minimal-2 runIds=2026-11-17_1741_AIR-3-plane-drone-midair-collision
+# totals PASS=11 PARSEK-FAIL=1 pending=0 of 12

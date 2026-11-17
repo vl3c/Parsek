@@ -1,0 +1,21 @@
+{
+ "exitCode": 0,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "",
+   "id": "H58-route-rewind-to-launch",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-spawn-reflight\\harness\\results\\2026-11-17_1748_H58-route-rewind-to-launch.json"
+   ],
+   "runIds": [
+    "2026-11-17_1748_H58-route-rewind-to-launch"
+   ],
+   "subkind": "",
+   "verdict": "PASS",
+   "wallSeconds": 57
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal"
+}
