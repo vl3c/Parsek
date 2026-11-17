@@ -1628,16 +1628,18 @@ namespace Parsek
                 // Looping / chain-loop / mission-unit members (explicit live-replay
                 // opt-in) keep RENDERING regardless, but their first-run terminal spawn
                 // is a real spawn and takes the same gate (spawnHistoricalNeverReplayed).
-                // The active re-fly session is exempt from both. Every committed
-                // recording is noted each frame so a later rewind re-arms its scope.
+                // The active re-fly session's own tree is exempt from both (no other tree:
+                // IsInReFlySessionTree). Every committed recording is noted each frame so a
+                // later rewind re-arms its scope.
                 double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
                 PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, activationStartUT);
                 bool scopeHistorical = PlaybackScopeTracker.IsHistoricalNeverReplayed(
                     rec.RecordingId, currentUT, activationStartUT);
+                bool inReFlySessionTree = GhostPlaybackLogic.IsInReFlySessionTree(activeReFlyMarker, rec);
                 bool historicalNeverReplayed = GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
-                    loopingLike, activeReFlyMarker != null, scopeHistorical, forSpawn: false);
+                    loopingLike, inReFlySessionTree, scopeHistorical, forSpawn: false);
                 bool spawnHistoricalNeverReplayed = GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
-                    loopingLike, activeReFlyMarker != null, scopeHistorical, forSpawn: true);
+                    loopingLike, inReFlySessionTree, scopeHistorical, forSpawn: true);
 
                 GhostPlaybackSkipReason skipReason = ParsekFlight.ResolveGhostPlaybackSkipReason(
                     hasData,

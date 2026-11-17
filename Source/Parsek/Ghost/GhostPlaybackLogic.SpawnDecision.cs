@@ -118,19 +118,38 @@ namespace Parsek
         /// BUG-B replay-scope gate, split by purpose. A loop member (explicit live-replay
         /// opt-in) RENDERS regardless of replay scope, but its terminal SPAWN is the first
         /// run's real spawn and obeys the same scope gate as any recording
-        /// (<see cref="ShouldAttemptLoopFirstRunSpawn"/>). An active re-fly session is
-        /// exempt from both. <paramref name="scopeHistorical"/> is
+        /// (<see cref="ShouldAttemptLoopFirstRunSpawn"/>). A recording of the active re-fly
+        /// session's own tree (<see cref="IsInReFlySessionTree"/>) is exempt from both; every
+        /// other recording keeps the gate while a re-fly is active, exactly as after a plain
+        /// rewind. <paramref name="scopeHistorical"/> is
         /// <c>PlaybackScopeTracker.IsHistoricalNeverReplayed</c> for the recording.
         /// </summary>
         internal static bool ResolveHistoricalNeverReplayed(
             bool loopingLike,
-            bool reFlyActive,
+            bool inReFlySessionTree,
             bool scopeHistorical,
             bool forSpawn)
         {
-            if (reFlyActive) return false;
+            if (inReFlySessionTree) return false;
             if (loopingLike && !forSpawn) return false;
             return scopeHistorical;
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> belongs to the tree the active re-fly session
+        /// <paramref name="marker"/> re-flies. Only that tree's recordings straddle the rewind
+        /// point with their vessels stripped from the loaded world (the post-load strip touches
+        /// the rewind point's slots only), so only they must replay and spawn although the
+        /// replay-scope latch never saw their start. Any other committed recording is gated
+        /// as after a plain rewind: its vessel is either live in the loaded save or long gone.
+        /// A marker with no tree id (never written by a current build) keeps the old
+        /// whole-world exemption rather than suppressing the session's own siblings.
+        /// </summary>
+        internal static bool IsInReFlySessionTree(ReFlySessionMarker marker, Recording rec)
+        {
+            if (marker == null || rec == null) return false;
+            if (string.IsNullOrEmpty(marker.TreeId)) return true;
+            return string.Equals(rec.TreeId, marker.TreeId, StringComparison.Ordinal);
         }
 
         #region Spawn-at-Recording-End Decision
@@ -452,7 +471,8 @@ namespace Parsek
 
         /// <summary>
         /// <see cref="ShouldSpawnAtRecordingEnd(Recording, bool, RecordingTree, bool)"/> gates on how the
-        /// flight ended, in order: a non-spawnable terminal, a recovery ledger row after commit, an unsafe
+        /// flight ended, in order: a non-spawnable terminal, a recovery ledger row after commit, a
+        /// termination ledger row after commit, an unsafe
         /// snapshot situation, and an un-finalized snapshot situation that maps to a non-spawnable terminal.
         /// Requires a non-null <see cref="Recording.VesselSnapshot"/> (the recording-state gates run first).
         /// True with the rejection reason when a gate refuses; false (reason empty) otherwise.
@@ -482,6 +502,18 @@ namespace Parsek
             {
                 reason =
                     "recovered after commit (recovery ledger row, terminal " +
+                    (rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "<none>") +
+                    ")";
+                return true;
+            }
+
+            // Terminated after commit: the player removed the vessel this recording left in
+            // the world (Tracking Station Terminate / Delete, a VesselTerminated ledger row).
+            // Like a recovery, it is never spawned back.
+            if (EffectiveState.IsTerminatedByLedgerRowLive(rec))
+            {
+                reason =
+                    "terminated by the player after commit (termination ledger row, terminal " +
                     (rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "<none>") +
                     ")";
                 return true;

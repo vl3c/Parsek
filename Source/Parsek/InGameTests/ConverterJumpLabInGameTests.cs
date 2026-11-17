@@ -298,7 +298,7 @@ namespace Parsek.InGameTests
                 if (jumpKind == "forward")
                     TimeJumpManager.ExecuteForwardJump(target);
                 else
-                    TimeJumpManager.ExecuteJump(target, null, null);
+                    TimeJumpManager.ExecuteJump(target);
                 double t1 = Planetarium.GetUniversalTime();
                 InGameAssert.IsTrue(Math.Abs(t1 - target) < 1.0,
                     "the " + jumpKind + " jump did not move the clock to " + target.ToString("R", IC)

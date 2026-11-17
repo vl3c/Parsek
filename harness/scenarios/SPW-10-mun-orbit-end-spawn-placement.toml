@@ -1,0 +1,168 @@
+schema = 1
+id = "SPW-10-mun-orbit-end-spawn-placement"
+# =====================================================================================
+# SPW-10: A TRUE END SPAWN IN MUN ORBIT, IN FLIGHT, CHECKED AGAINST THE RECORDED ORBIT.
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
+# tag `pending-flight`.)
+#
+# WHY. The #475 family (an orbit spawn on the right body but at the wrong phase or SMA) has
+# only been read on Kerbin. The Mun is the nearest body where a propagated terminal orbit
+# crosses a parent SOI frame (Mun orbits Kerbin; the spawn resolves the Mun by name and
+# propagates on it while the player sits at the KSC pad). SPW-1 is the far-body twin.
+#
+# THE HOST: `mun-park-kerbalx`, Parsek-stripped: the crewed Kerbal X upper stage (pid
+# 2708531065, its save name the localization key `#autoLOC_501232`, so every name pin
+# accepts both spellings) parked in a ~139.6 km circular Mun orbit (period ~4,870 s), six
+# `Kerbal X Debris` (five landed at the pad), and Ast. MII-526 at FLIGHTSTATE index 0,
+# removed at staging (`[[fixture.liveState]]`, EVA-9's recipe).
+#
+# THE FLIGHT (SPW-1's road on this host):
+#   boot    LoadGame (FLIGHT on Kerbal X, Mun orbit, UT 21,745.96); stop / discard hygiene.
+#   R       StartRecording, WarpToUT 22050 (rails, ~300 s, a sixteenth of the orbit), stop,
+#           CommitTree, stop.
+#   rewind  InvokeRewindToLaunch tree=latest: the Space Center at R's start - 15 s; the
+#           strip removes Kerbal X.
+#   reload  SaveGame + LoadGame at once: FLIGHT on the first pad `Kerbal X Debris`
+#           (landed; the rails ceiling is lifted). The Mun spawn is unloaded and far.
+#   cross   WarpToUT 22400 (rails, ~650 s span), so the end is crossed under warp.
+#   read    ListHandles before / after, LeafVesselPlacement in FLIGHT, SaveGame, quit.
+#
+# WHAT IS GATED: the commit names an Orbiting terminal at the Mun; the strip; the reload
+# before the end; one Orbital spawn of Kerbal X with the propagated-orbit line naming the
+# Mun; read back spawned with that pid; LeafVesselPlacement `kind=orbit body=Mun
+# liveBody=Mun verdict=ok` (sma, ecc, inc, LAN, argPe and mean-longitude phase inside the
+# in-game tolerances) and the summary `bodies=[Mun]`, no duplicate.
+#
+# PRE-REGISTERED READINGS: `verdict=phase` / `verdict=sma` on the Mun is the #475 family
+# off Kerbin (a finding); `liveBody=Kerbin` would be a spawn resolved on the wrong body;
+# the deferred line may or may not print (SPW-1's reading). The name may log as either
+# spelling; the pins accept both.
+#
+# FAST-LANE CHECKLIST: (1) SPW-1's road, MC-3's host. (2) explicit-UT waits. (3) R is the
+# shortest segment that crosses a rails warp. (4)/(5) none. (6) retry once. (7) count exact
+# 1. (8) operator until measured. (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "operator"
+description = "Mun-orbit end spawn in FLIGHT: on mun-park-kerbalx (asteroid removed) ~300 s of the Kerbal X upper stage's Mun orbit is recorded and committed, Rewound-to-Launch (the strip removes it), reloaded into FLIGHT on a landed pad debris, and a rails warp past the end must create it once at the Mun through the recorded-terminal-orbit path, read back spawned with that pid and on its recorded orbit and phase (LeafVesselPlacement in FLIGHT, bodies=[Mun])."
+instanceProfile = "stock-minimal"
+tags = ["SPW-10", "end-spawn", "far-body", "mun", "orbital", "rewind-to-launch",
+        "leaf-placement", "ingame-batch", "warp", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/mun-park-kerbalx"
+injectedRecordings = "none"
+craft              = []
+
+# Ast. MII-526, FLIGHTSTATE index 0: removed so a Space Center save's `activeVessel = 0`
+# names the first pad debris (EVA-9's recipe on this asteroid).
+[[fixture.liveState]]
+pid    = 2815888106
+remove = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw10-boot" },                              expect = "OK" },
+  # R: a segment of the Mun orbit.
+  { cmd = "StartRecording",                                                           expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",   args = { ut = "22050" },                                   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "CommitTree",                                                               expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",                 expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw10-commit-count-${c0.count}" },          expect = "OK" },
+  # The rewind, then at once back into FLIGHT on the Kerbin-orbit debris.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "spw10-rewound" },                             expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "spw10-rewound" },        expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",                 expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw10-reloaded-count-${c1.count}-a-${c1.rec0}-${c1.rec0spawned}-${c1.rec0spawnedPid}-end" }, expect = "OK" },
+  # THE SUBJECT: past the end, with the player in Kerbin orbit.
+  { cmd = "WarpToUT",   args = { ut = "22400" },                                   expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",                 expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw10-spawned-count-${c2.count}-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-end" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                  expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["mun", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+# REPORT-ONLY until a reading run: one tree, one Orbiting recording, one spawned vessel,
+# Kerbal X once in the produced save beside its six debris.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1, max = 1 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "Kerbal X Debris" = 6 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Captured rewind save at UT ([0-9.]+): vessel \"(?:Kerbal X|#autoLOC_501232)\" in ORBITING \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  "CommitTreeFlight terminal: rec=[0-9a-f]+ terminalState=Orbiting terminalOrbitBody=Mun",
+  "committree committed=true",
+  "MISSIONMARK label=spw10-commit-count-1 ",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # The reload lands before the end: unspawned, no pid.
+  "MISSIONMARK label=spw10-reloaded-count-1-a-[0-9a-f-]+-false-0-end ",
+  # THE SPAWN: once, at Mun, from the recorded terminal orbit.
+  "Spawn #[0-9]+ \\((?:Kerbal X|#autoLOC_501232)\\): using recorded terminal orbit propagated to current UT \\(ut=[0-9.]+, body=Mun,",
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\((?:Kerbal X|#autoLOC_501232)\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw10-spawned-count-1-a-[0-9a-f-]+-true-\\1-end ",
+  # Placement: on Mun, on its recorded orbit and phase, no pid on two vessels.
+  "LeafPlacement: rec=[0-9a-f]+ vessel='(?:Kerbal X|#autoLOC_501232)' pid=[0-9]+ kind=orbit body=Mun liveBody=Mun [^\\r\\n]*verdict=ok",
+  "MISSIONMARK label=spw10-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Mun\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "timejump ",
+  # Exactly one spawn, and never the snapshot fallback for an Orbiting end.
+  "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\((?:Kerbal X|#autoLOC_501232)\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\((?:Kerbal X|#autoLOC_501232)\\)",
+  "Vessel spawn for #[0-9]+ \\((?:Kerbal X|#autoLOC_501232)\\)",
+  "Spawn ABANDONED for #[0-9]+ \\((?:Kerbal X|#autoLOC_501232)\\)",
+  "Spawn RETIRED for #[0-9]+ \\((?:Kerbal X|#autoLOC_501232)\\)",
+  "Vessel spawn failed[^\\r\\n]*\\((?:Kerbal X|#autoLOC_501232)\\)",
+  "SpawnAtPosition returned 0",
+  "Spawn-death detected",
+  "Cannot spawn terminal orbit safely",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+# 3 x 300 LoadGame + 180 StartRecording + 2 x 300 warps + 120 CommitTree + 300 rewind +
+# 2 x 120 SaveGame + 300 RunTests = 2640, plus the inert steps.
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

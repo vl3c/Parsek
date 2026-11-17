@@ -155,6 +155,11 @@ steps = [
   { cmd = "WarpToUT",   args = { ut = "65", maxRate = "1" },                     expect = "OK", budget = 180 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",            expect = "OK" },
   { cmd = "MissionMark", args = { label = "seat2-spawned-${c2.rec0spawned}-${c2.rec0spawnedPid}-end" }, expect = "OK" },
+  # The placement read runs HERE, before the switch: the switch's committed-tree restore
+  # clears the recording's spawn pid (ParsekFlight.TreeRestore.cs, `cleared prior spawn
+  # flags`), after which the cell would compare nothing.
+  { cmd = "MissionMark", args = { label = "seat2-placement" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                    expect = "OK", budget = 300 },
   # ACT 5 (f): the player switches to the spawned rover and Bill leaves its seat.
   { cmd = "SimulateStockSwitchClick", args = { pid = "${c2.rec0spawnedPid}" },   expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                       expect = "OK" },
@@ -212,6 +217,12 @@ required = [
   "MISSIONMARK label=seat2-spawned-true-([0-9]+)-end[\\s\\S]*evaseatleave start kerbal='Bill Kerman' vehiclePid=\\1 seatPart=seatExternalCmd",
   "MISSIONMARK label=seat2-spawned-true-([0-9]+)-end[\\s\\S]*evaseatleave complete kerbal='Bill Kerman' kerbalPid=[0-9]+ vehiclePid=\\1",
   "MISSIONMARK label=seat2-end-committed-1 ",
+  # Added 2026-11-17 (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 3; NOT YET RE-FLOWN):
+  # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs, read right after the
+  # spawn (before the switch): the one recording's spawned rover sits at its recorded
+  # terminal surface position and is the only live vessel holding its pid.
+  "MISSIONMARK label=seat2-placement [\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -241,7 +252,7 @@ forbidden = [
 # ~47 + switch ~5 + leave ~5 + 1x to UT 70 ~5 + SaveGame ~3 + quit ~10 = ~246 s (EVA-11, the
 # same boot / rewind / reload road, measured 86 s). 1800 is EVA-11's cap, ~7x the estimate;
 # the per-step budgets only bound single steps.
-budgetSeconds = 1800
+budgetSeconds = 2100
 
 [retry]
 policy = "once"

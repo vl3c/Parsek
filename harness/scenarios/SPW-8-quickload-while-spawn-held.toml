@@ -1,0 +1,129 @@
+schema = 1
+id = "SPW-8-quickload-while-spawn-held"
+# =====================================================================================
+# SPW-8: THE PLAYER QUICKSAVES AND QUICKLOADS (F5 / F9) WHILE AN END SPAWN IS STILL HELD.
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
+# tag `pending-flight`.)
+#
+# WAS EXPECTED TO RED ON COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN, FIXED 2026-11-17 AS COLD-LOAD-DROPS-OWED-SPAWN (todo). Stock F9
+# is a save-file load and classifies Cold (`LoadReconcilePolicy`, `coldReason=save-file`).
+# The Cold flow's phase `crew-auto-unreserve`
+# (`ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT`) runs outside the Space Center
+# and stamps EVERY non-loop recording whose EndUT has passed without a spawn as spawned,
+# nulling its snapshot. A spawn the flight scene was still holding is therefore dropped for
+# good: the vessel the player was owed never appears. `[expectedFail] bugId` stays empty on
+# purpose: an expected-fail lane that reds reads green, and this lane exists to show the
+# loss until the fix lands (then it is the fix's live proof, unchanged).
+#
+# THE HOST AND ROAD are SS-1's, verbatim up to the hold (`eva2-lko-crewed` with the
+# `spawn-safety` injected preset): WARP 1 to UT 715 crosses both ends; the Orbiting `Low
+# Perigee Probe` (71 x 90 km terminal orbit) is DEFERRED by the terminal-orbit safety gate
+# and HELD until its next safe UT (~1002.6); a 1x wait to UT 730 prints the hold line.
+# THEN, the subject: SaveGame quicksave + LoadGame quicksave playerLoad=true (the player's
+# F5 / F9, CI-3's shape), WARP 2 to 1100 past the next safe UT, a 1x settle, read.
+#
+# WHAT IS GATED (the fix's contract): the hold before the quickload; the quickload is a
+# Cold save-file load in FLIGHT; NO `Auto-unreserved crew ... (Low Perigee Probe)` line;
+# exactly one Orbital spawn of the Low Perigee Probe AFTER the quickload, read back spawned.
+#
+# PRE-REGISTERED READING OF THE RED (today's code): `Auto-unreserved crew for recording
+# #N (Low Perigee Probe)` prints on the F9 (forbidden), the c2 mark reads it spawned with
+# pid 0 and no Orbital spawn line follows (required, unmet). A different red is not E.
+#
+# FAST-LANE CHECKLIST: (1) SS-1's host, preset and first half verbatim. (2) explicit-UT
+# waits. (3)/(4)/(5) none. (6) retry once. (7) count exact 2 (SS-1's). (8) operator until
+# measured. (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "operator"
+description = "Quickload while a spawn is held: SS-1's spawn-safety preset on eva2-lko-crewed, where the Orbiting Low Perigee Probe's end spawn is deferred and held until its next safe UT; the player quicksaves and quickloads (a Cold save-file load) during the hold, then warps past the safe UT. Pins that the owed spawn survives the quickload and is made exactly once. Expected to red today on COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN."
+instanceProfile = "stock-minimal"
+tags = ["SPW-8", "spawn", "end-spawn", "deferred-spawn", "terminal-orbit-safety", "quickload",
+        "cold-load", "injected-recordings", "warp", "kerbin", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "spawn-safety"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw8-loaded-count-${c0.count}" }, expect = "OK" },
+  # SS-1's WARP 1 and hold (its header measures both).
+  { cmd = "WarpToUT",   args = { ut = "715", maxRate = "50" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",   args = { ut = "730", maxRate = "1" },  expect = "OK", budget = 120 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw8-held-${c1.rec0}-${c1.rec0spawned}-${c1.rec1}-${c1.rec1spawned}-end" }, expect = "OK" },
+  # THE SUBJECT: F5 then F9 while the Low Perigee Probe is held.
+  { cmd = "SaveGame",   args = { name = "quicksave" },                expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw8-quickloaded-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-end" }, expect = "OK" },
+  # SS-1's WARP 2 past the next safe UT (~1002.6), then its 1x settle.
+  { cmd = "WarpToUT",   args = { ut = "1100", maxRate = "50" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",   args = { ut = "1106", maxRate = "1" },  expect = "OK", budget = 120 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c3", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw8-after-${c3.rec0}-${c3.rec0spawned}-${c3.rec0spawnedPid}-${c3.rec1}-${c3.rec1spawned}-${c3.rec1spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 2, max = 2 }
+committedTrees = { min = 2, max = 2 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Landed = { min = 1, max = 1 }, Orbiting = { min = 1, max = 1 } }
+spawnedVessels = { min = 2, max = 2 }
+vesselNames    = { "Situation Hopper" = 1, "Low Perigee Probe" = 1 }
+
+[expectations.logContracts]
+required = [
+  "MISSIONMARK label=spw8-loaded-count-2 ",
+  # The hold before the quickload (SS-1's claim token).
+  "Deferred spawn held for terminal orbit safety: #[0-9]+ \"Low Perigee Probe\" id=terminal-orbit-safety-rec [\\s\\S]*?MISSIONMARK label=spw8-held-",
+  # The quickload is the player's: a Cold save-file load into FLIGHT.
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  # THE OWED SPAWN survives: one Orbital spawn after the quickload, read back spawned.
+  "loadgame player-load: firing [\\s\\S]*\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Low Perigee Probe\\) pid=[1-9][0-9]* ",
+  "Orbital vessel spawn for #[0-9]+ \\(Low Perigee Probe\\) pid=([0-9]+) [\\s\\S]*MISSIONMARK label=spw8-after-[^\\r\\n]*-true-\\1-",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "warptout refused",
+  # DEFECT E's own line: the Cold load stamps the held recording spawned.
+  "Auto-unreserved crew for recording #[0-9]+ \\(Low Perigee Probe\\)",
+  "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(Low Perigee Probe\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\(Low Perigee Probe\\)",
+  "Vessel spawn for #[0-9]+ \\(Low Perigee Probe\\)",
+  "Spawn RETIRED for #[0-9]+ \\((?:Situation Hopper|Low Perigee Probe)\\)",
+  "Spawn ABANDONED for #[0-9]+ \\(Low Perigee Probe\\)",
+  "Cannot spawn terminal orbit safely: rec=terminal-orbit-safety-rec",
+  # The Situation Hopper spawned before F5 must not spawn again after F9.
+  "Vessel spawn for #[0-9]+ \\(Situation Hopper\\)[\\s\\S]*(?:Vessel|vessel) spawn for #[0-9]+ \\(Situation Hopper\\)",
+]
+
+[runtime]
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

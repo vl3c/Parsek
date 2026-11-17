@@ -377,13 +377,18 @@ namespace Parsek.Tests
             string rewind = rewindReset + BraceBody(launcher,
                 "internal static void ClearSpawnState(Recording rec)");
 
-            foreach (var body in new[] { helper, rewind })
+            // Both resets clear the spawn claim through the one shared unit on Recording.
+            string recording = StripComments(ReadParsekSource("Recording/Recording.cs"));
+            string clear = BraceBody(recording, "internal void ClearTransientSpawnState()");
+
+            foreach (var body in new[] { helper, rewind, clear })
             {
                 Assert.DoesNotContain("StampTerminalState", body);
                 Assert.DoesNotContain("TerminalStateValue =", body);
             }
-            Assert.Contains("VesselSpawned = false", helper);
-            Assert.Contains("VesselSpawned = false", rewind);
+            Assert.Contains("rec.ClearTransientSpawnState();", helper);
+            Assert.Contains("rec.ClearTransientSpawnState();", rewind);
+            Assert.Contains("VesselSpawned = false", clear);
         }
 
         // ---- helpers ----

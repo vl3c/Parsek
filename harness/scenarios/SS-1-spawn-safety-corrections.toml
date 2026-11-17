@@ -132,6 +132,8 @@ steps = [
   { cmd = "WarpToUT", args = { ut = "1106", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
   { cmd = "MissionMark", args = { label = "ss1-after-spawn-${c2.rec0}-${c2.rec0spawned}-${c2.rec1}-${c2.rec1spawned}" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "ss1-placement" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                    expect = "OK", budget = 300 },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -186,6 +188,12 @@ required  = [
   "Terminal spawn succeeded after defer: rec=terminal-orbit-safety-rec",
   # In order: deferred, held, spawned.
   "Terminal orbit spawn deferred: rec=terminal-orbit-safety-rec[\\s\\S]*?Deferred spawn held for terminal orbit safety: #[0-9]+ \"Low Perigee Probe\"[\\s\\S]*?Terminal spawn succeeded after defer: rec=terminal-orbit-safety-rec",
+  # Added 2026-11-17 (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 3; NOT YET RE-FLOWN):
+  # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs. The Low Perigee Probe,
+  # spawned after its safety deferral, sits on its recorded terminal orbit; the synthetic
+  # Situation Hopper carries no TerminalPosition, so it reads unsupported, not compared.
+  "MISSIONMARK label=ss1-placement [\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -201,7 +209,7 @@ forbidden = [
 ]
 
 [runtime]
-budgetSeconds = 1800
+budgetSeconds = 2100
 
 [retry]
 policy = "once"

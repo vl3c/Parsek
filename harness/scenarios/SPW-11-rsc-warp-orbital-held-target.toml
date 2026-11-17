@@ -1,0 +1,127 @@
+schema = 1
+id = "SPW-11-rsc-warp-orbital-held-target"
+# =====================================================================================
+# SPW-11: REAL SPAWN CONTROL'S WARP, PRESSED BY AN ORBITING PLAYER, ON A TARGET WHOSE END
+# SPAWN IS BLOCKED; THEN THE SAME PRESS REFUSED ONCE NOTHING IS LEFT TO WARP TO.
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
+# tag `pending-flight`.)
+#
+# WHY. RSC-1 presses the row Warp for a LANDED target with a LANDED player (the
+# `epoch-shift` mode of `ParsekFlightSpawnHost.WarpToRecordingEnd`). An ORBITING player
+# takes the other mode, `placement` (design 4.1 rule 4: the player group is placed beside
+# the ghost's recorded end at the new clock), and only that mode arms the warp spawn watch
+# (`Warp spawn watch armed` ... `Warp spawn outcome:`), whose one screen message is the
+# player's only explanation for a spawn that does not appear. No lane reads either.
+#
+# THE HOST: EX-2's (`eva2-lko-crewed` + the `single-point-hold` injected preset): a
+# one-point recording `Single Point Holder` with an orbit tail, in progress at load (save UT
+# 421.19, EndUT 441.19), ending on the co-orbiting Kerbal X Probe in LKO, so its end spawn
+# is collision-blocked on the single-point branch (no walkback). The active vessel is the
+# orbiting Kerbal X, well inside Real Spawn Control's 250 m / 2 m/s gates.
+#
+# THE FLIGHT: LoadGame; Advanced complexity (the launcher is Advanced-only, RSC-1); a 1x
+# wait to UT 426 so the proximity scan's second sighting admits the row (RSC-1's settle);
+# open Real Spawn Control; PRESS the first row's Warp (`UiAction op=warp`, the button's
+# own click body); a 1x wait of ~8 s for the watch to resolve; PRESS again: the target's
+# end is now in the past, so the row is gone or its button is greyed and the press is
+# REJECTED (`warp-no-candidate-row` / `warp-button-disabled`), exactly what a player's
+# greyed button shows.
+#
+# WHAT IS GATED: the row warp names the target and jumps in `mode=placement`; the watch is
+# armed for it and resolves to exactly ONE named outcome (never `Pending`, never
+# `no-answer`); if the outcome is not `Spawned`, its cause is a collision cause; at most one
+# spawn of the target; the second press is refused with one of the two seam reasons.
+#
+# PRE-REGISTERED READINGS: the placement may put the group far enough from the end point
+# that the probe no longer blocks and the target spawns (`outcome=Spawned cause=spawned`):
+# accepted, and then the collision branch is unread; EX-2's measured single-point hold
+# times out at 5 s (`held-spawn-timeout`), which the watch may read as `Refused` with
+# `collision-blocked`. `WarpToRecordingEnd: ... aborted` (an invalid jump) is forbidden.
+#
+# NOT COVERED, proposals only (todo END-SPAWN-LANES-2026-11-17): the bottom-bar "Warp to
+# Next Spawn" button has no seam op (`UiAction op=warpnext window=spawncontrol` pressing
+# `flight.WarpToNextCraftSpawn()` through the button body is the proposal), and a Mun
+# target (a Mun-landed host with an EVA walk recorded beside the lander) waits on it.
+#
+# FAST-LANE CHECKLIST: (1) EX-2's host and preset, RSC-1's press. (2) explicit-UT waits.
+# (3)/(4)/(5) none. (6) retry once. (7) count exact 1 (EX-2's). (8) operator until
+# measured. (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "operator"
+description = "Real Spawn Control from orbit: on eva2-lko-crewed with the single-point-hold preset, the orbiting player opens Real Spawn Control and presses the row Warp for the in-progress Single Point Holder, whose end spawn is blocked by the co-orbiting probe. Pins the placement-mode jump, the armed warp spawn watch resolving to one named outcome (a collision cause when not spawned), at most one spawn, and a second press refused once the target's end has passed."
+instanceProfile = "stock-minimal"
+tags = ["SPW-11", "real-spawn-control", "spawn", "end-spawn", "ui-seam", "spawn-blocked",
+        "single-point", "injected-recordings", "kerbin", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "single-point-hold"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction",   args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw11-loaded-count-${c0.count}-${c0.rec0spawned}" }, expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "426", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "UiAction",   args = { op = "open", window = "spawncontrol" }, expect = "OK" },
+  # THE PRESS.
+  { cmd = "UiAction",   args = { op = "warp", window = "spawncontrol" }, expect = "OK", budget = 120 },
+  { cmd = "MissionMark", args = { label = "spw11-pressed" }, expect = "OK" },
+  # ~8 s of 1x for the hold, its retries and the watch to resolve (EX-2 measured a 5 s
+  # hold timeout). The jump moved the clock to the end, so the wait target is relative to
+  # that: the jump lands at EndUT 441.19.
+  { cmd = "WarpToUT",   args = { ut = "450", maxRate = "1" }, expect = "OK", budget = 120 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw11-after-warp-${c1.rec0spawned}-${c1.rec0spawnedPid}-end" }, expect = "OK" },
+  # THE REFUSAL: nothing left to warp to.
+  { cmd = "UiAction",   args = { op = "warp", window = "spawncontrol" }, expect = "REJECTED", budget = 120 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "MISSIONMARK label=spw11-loaded-count-1-false ",
+  "uiaction open window=spawncontrol open=true",
+  "Real Spawn Control: warp to 'Single Point Holder' recording #[0-9]+",
+  "uiaction warp window=spawncontrol vessel=Single Point Holder recording=[0-9]+ departure=false",
+  "WarpToRecordingEnd: jumping to UT=441\\.[0-9] for 'Single Point Holder' \\(delta=[0-9.]+s, mode=placement\\)",
+  "Warp spawn watch armed: rec=([^ ]+) vessel=\"Single Point Holder\" targetUT=441\\.[0-9][\\s\\S]*?Warp spawn outcome: rec=\\1 vessel=\"Single Point Holder\" outcome=(?:Spawned cause=spawned|(?:Refused|Held) cause=collision-[a-z-]+) ",
+  "MISSIONMARK label=spw11-after-warp-",
+  "uiaction rejected reason=warp-(?:no-candidate-row|button-disabled) window=spawncontrol",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "warptout refused",
+  "WarpToRecordingEnd: [^\\r\\n]*aborted",
+  "Warp spawn outcome: [^\\r\\n]*outcome=Pending",
+  "Warp spawn outcome: [^\\r\\n]*cause=no-answer",
+  # One outcome per arm.
+  "Warp spawn outcome: rec=[^\\r\\n]*vessel=\"Single Point Holder\"[\\s\\S]*Warp spawn outcome: rec=[^\\r\\n]*vessel=\"Single Point Holder\"",
+  "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(Single Point Holder\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\(Single Point Holder\\)",
+  "Spawn-death detected",
+]
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

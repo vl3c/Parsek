@@ -193,6 +193,8 @@ RP_SIDECAR_BY_PRESET = {
     "leaves-departure": None,
     # RSC-3's spawn-room recording: one committed single-recording tree, no RP.
     "spawn-room": None,
+    # TSS-3's two landed deliveries on one spot: two committed single-recording trees, no RP.
+    "spawn-stack": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 
@@ -2044,7 +2046,10 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # that re-points activeVessel cannot shift the vessel it addresses (it is
     # addressed by persistentId, never by index, so the order is belt and braces).
     part_inventory = savepatch.declared_part_inventory(fixture)
-    if live_state or crew_inventory or part_inventory:
+    # `trackingStationIntroDone = true` rides it fourth: one key of stock's
+    # ScenarioNewGameIntro node, disjoint from every surface above.
+    ts_intro_done = savepatch.declared_ts_intro_done(fixture)
+    if live_state or crew_inventory or part_inventory or ts_intro_done:
         sfs_path = os.path.join(target_save, "persistent.sfs")
         if not _is_strictly_inside(sfs_path, saves_dir) or not os.path.isfile(sfs_path):
             logger.error("Stage", "liveState: staged save %s has no readable "
@@ -2054,6 +2059,7 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
         live_notes: List[str] = []
         crew_notes: List[str] = []
         part_notes: List[str] = []
+        intro_notes: List[str] = []
         try:
             with open(sfs_path, "rb") as fh:
                 sfs_text = fh.read().decode("utf-8")
@@ -2063,6 +2069,8 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                 patched_text, crew_inventory)
             patched_text, part_notes = savepatch.apply_part_inventory(
                 patched_text, part_inventory)
+            patched_text, intro_notes = savepatch.apply_ts_intro_done(
+                patched_text, ts_intro_done)
             with open(sfs_path, "wb") as fh:
                 fh.write(patched_text.encode("utf-8"))
         except savepatch.LiveStatePatchError as ex:
@@ -2079,6 +2087,8 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
             logger.info("Stage", "crewInventory patched %s" % note)
         for note in part_notes:
             logger.info("Stage", "partInventory patched %s" % note)
+        for note in intro_notes:
+            logger.info("Stage", "trackingStationIntroDone patched %s" % note)
 
     # (4) stage craft files.
     craft = fixture.get("craft", []) or []

@@ -67,6 +67,22 @@ namespace Parsek
         /// </summary>
         internal readonly Dictionary<int, HeldGhostInfo> heldGhosts = new Dictionary<int, HeldGhostInfo>();
 
+        /// <summary>
+        /// Bounded spawn retries for a completion that had no ghost to hold: the recording
+        /// completed while its ghost was never built (the scene was entered past its end, a big
+        /// jump, a far recording) or it is a loop's first run, whose ghost keeps cycling. Its
+        /// spawn failed (blocked, held back), and the completion is one-shot, so without this
+        /// nothing retried it in this scene. Same decision and the same limits as a held ghost
+        /// (<see cref="DecideHeldGhostAction"/>: a retry every
+        /// <see cref="HeldGhostRetryIntervalSeconds"/>, given up after
+        /// <see cref="HeldGhostTimeoutSeconds"/>), but kept apart from <see cref="heldGhosts"/>:
+        /// the engine reads that set as "a ghost is held here" and a release destroys the slot's
+        /// ghost, neither of which may happen to a looping ghost or an empty slot. Keyed by
+        /// recording id, so a committed-list shift needs no reindex.
+        /// </summary>
+        internal readonly Dictionary<string, HeldGhostInfo> ghostlessSpawnRetries =
+            new Dictionary<string, HeldGhostInfo>(StringComparer.Ordinal);
+
         /// <summary>Minimum real seconds between two seam-marker ScreenMessages (design 7.3 / Q5).
         /// The engine's (marker, cycle) dedup is the semantic rule; this is the physical floor that
         /// keeps a high-warp loop from stacking readable lines faster than they can be read. It
@@ -195,6 +211,7 @@ namespace Parsek
             int detected = 0;
             int abandoned = 0;
             int recovered = 0;
+            int terminated = 0;
             int skippedTimelineInactive = 0;
             int staleStampOtherLaunch = 0;
 
@@ -242,6 +259,34 @@ namespace Parsek
                     ParsekLog.Info("Policy",
                         $"Spawned vessel recovered: #{i} \"{rec.VesselName}\" pid={recoveredOldPid} " +
                         $"evidence={recoveredEvidence} - spawn claim cleared, no respawn");
+                    continue;
+                }
+
+                // The player terminated the vessel (Tracking Station Terminate / Delete): a
+                // removal, not a death. Clear the claim without counting a death; the spawn
+                // gate refuses on the same VesselTerminated evidence.
+                if (TryClearTerminatedSpawnClaim(
+                        rec, EffectiveState.IsTerminatedByLedgerRowLive, out uint terminatedOldPid))
+                {
+                    terminated++;
+                    ParsekLog.Info("Policy",
+                        $"Spawned vessel terminated by the player: #{i} \"{rec.VesselName}\" " +
+                        $"pid={terminatedOldPid} - spawn claim cleared, no respawn");
+                    continue;
+                }
+
+                // The persisted death count already reached the cap (an abandon from an
+                // earlier scene, restored with the count): keep it abandoned without
+                // counting the same loss again.
+                if (VesselSpawner.ShouldAbandonSpawnDeathLoop(
+                        rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles))
+                {
+                    rec.SpawnAbandoned = true;
+                    abandoned++;
+                    ParsekLog.Info("Policy",
+                        $"Spawn-death cap already reached: #{i} \"{rec.VesselName}\" " +
+                        $"pid={rec.SpawnedVesselPersistentId} deathCount={rec.SpawnDeathCount} " +
+                        "- kept abandoned, no respawn");
                     continue;
                 }
 
@@ -300,10 +345,11 @@ namespace Parsek
                 }
             }
 
-            if (detected > 0 || recovered > 0)
+            if (detected > 0 || recovered > 0 || terminated > 0 || abandoned > 0)
                 ParsekLog.Info("Policy",
                     $"RunSpawnDeathChecks: {detected} death(s) detected, {abandoned} abandoned, " +
-                    $"{recovered} recovered, {staleStampOtherLaunch} adoption stamp(s) held by another launch");
+                    $"{recovered} recovered, {terminated} terminated by the player, " +
+                    $"{staleStampOtherLaunch} adoption stamp(s) held by another launch");
             if (skippedTimelineInactive > 0)
                 ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-timeline-inactive",
                     $"RunSpawnDeathChecks: skipped {skippedTimelineInactive} timeline-inactive recording(s)");
@@ -405,6 +451,27 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The terminated half of <see cref="RunSpawnDeathChecks"/>, the twin of
+        /// <see cref="TryClearRecoveredSpawnClaim"/>: when <paramref name="isTerminatedByLedgerRow"/>
+        /// finds a <see cref="GameActionType.VesselTerminated"/> row for the recording, the
+        /// vessel left the world through the player's Terminate, not a death. Clears the spawn
+        /// claim and leaves the death count, <see cref="Recording.SpawnAttempts"/> and the
+        /// abandon flag alone. Returns false (nothing touched) otherwise.
+        /// </summary>
+        internal static bool TryClearTerminatedSpawnClaim(
+            Recording rec,
+            Func<Recording, bool> isTerminatedByLedgerRow,
+            out uint priorSpawnedPid)
+        {
+            priorSpawnedPid = rec != null ? rec.SpawnedVesselPersistentId : 0u;
+            if (rec == null || isTerminatedByLedgerRow == null || !isTerminatedByLedgerRow(rec))
+                return false;
+            rec.VesselSpawned = false;
+            rec.SpawnedVesselPersistentId = 0;
+            return true;
+        }
+
+        /// <summary>
         /// Removes a recording ID from the deferred spawn / deferred flag replay queues
         /// (for example when the recording is deleted).
         /// </summary>
@@ -413,6 +480,8 @@ namespace Parsek
             pendingSpawnRecordingIds.Remove(recordingId);
             pendingFlagReplayRecordingIds.Remove(recordingId);
             pendingFlagReplayFailureCounts.Remove(recordingId);
+            if (recordingId != null)
+                ghostlessSpawnRetries.Remove(recordingId);
         }
 
         /// <summary>
@@ -557,6 +626,10 @@ namespace Parsek
                         ParsekLog.Verbose("Policy",
                             $"Deferred spawn flushed without materializing: #{i} \"{rec.VesselName}\" " +
                             $"id={rec.RecordingId} reason=non-terminal-spawn-failed-or-skipped");
+                        // A held ghost keeps retrying on its own; a deferral with no ghost
+                        // gets the same bounded retries.
+                        if (!heldGhosts.ContainsKey(i))
+                            ArmGhostlessSpawnRetry(i, rec, "warp-flush");
                         flushedSpawnIds.Add(rec.RecordingId);
                         pendingSpawn = false;
                     }
@@ -927,6 +1000,14 @@ namespace Parsek
                                 $"reason={committed[evt.Index].TerminalSpawnSafetyReasonCode ?? "(none)"} " +
                                 "- the ghost ends at EndUT without a spawn");
                         }
+                        // No ghost to hold (never built, or a loop's first run whose ghost
+                        // keeps cycling): retry the spawn anyway, bounded like a held ghost.
+                        else if (!spawned && !evt.GhostWasActive
+                            && !committed[evt.Index].TerminalSpawnCannotSpawnSafely)
+                        {
+                            DiagnosticsState.health.spawnFailures++;
+                            ArmGhostlessSpawnRetry(evt.Index, committed[evt.Index], "completion");
+                        }
                         // If spawn was blocked, hold the ghost (#96)
                         else if (!spawned && evt.GhostWasActive)
                         {
@@ -1046,6 +1127,7 @@ namespace Parsek
         /// </summary>
         internal void RetryHeldGhostSpawns()
         {
+            RetryGhostlessSpawns();
             if (heldGhosts.Count == 0) return;
 
             var committed = RecordingStore.CommittedRecordings;
@@ -1228,6 +1310,153 @@ namespace Parsek
                         engine.DestroyGhost(index, reason: reason);
                     heldGhosts.Remove(index);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Arms a bounded spawn retry for a recording whose spawn failed with no ghost to hold
+        /// (<see cref="ghostlessSpawnRetries"/>). The first retry waits one retry interval: the
+        /// spawn just failed this frame.
+        /// </summary>
+        private void ArmGhostlessSpawnRetry(int index, Recording rec, string source)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return;
+            if (ghostlessSpawnRetries.ContainsKey(rec.RecordingId))
+                return;
+            float now = CurrentHoldRealTime();
+            ghostlessSpawnRetries[rec.RecordingId] = new HeldGhostInfo
+            {
+                holdStartTime = now,
+                lastRetryTime = now,
+                recordingId = rec.RecordingId,
+                vesselName = rec.VesselName,
+            };
+            ParsekLog.Info("Policy", string.Format(CultureInfo.InvariantCulture,
+                "Spawn retry armed with no ghost: #{0} \"{1}\" id={2} source={3} - retrying every {4:F0}s for up to {5:F0}s",
+                index, rec.VesselName, rec.RecordingId, source,
+                HeldGhostRetryIntervalSeconds, HeldGhostTimeoutSeconds));
+        }
+
+        /// <summary>
+        /// Drives <see cref="ghostlessSpawnRetries"/> through <see cref="DecideHeldGhostAction"/>,
+        /// the held-ghost decision: retry, release when spawned or retired, give up on timeout.
+        /// No ghost is touched. While warp runs a retry is handed to the deferred-spawn queue
+        /// instead, which spawns it at warp end like any completion under warp.
+        /// </summary>
+        internal void RetryGhostlessSpawns()
+        {
+            if (ghostlessSpawnRetries.Count == 0) return;
+
+            var committed = RecordingStore.CommittedRecordings;
+            var timelineInactiveIds = TimelineInactiveIdsOverrideForTesting != null
+                ? TimelineInactiveIdsOverrideForTesting(committed)
+                : CurrentTimelineInactiveRecordingReasons(committed);
+            float now = CurrentRealTimeOverrideForTesting != null
+                ? CurrentRealTimeOverrideForTesting()
+                : CurrentUnityRealTime();
+            double currentUT = CurrentUTOverrideForTesting != null
+                ? CurrentUTOverrideForTesting()
+                : CurrentUniversalTimeSafe();
+            bool warpActive = IsWarpActiveOverrideForTesting != null
+                ? IsWarpActiveOverrideForTesting()
+                : IsAnyWarpActiveFromGlobalsCore();
+
+            List<string> done = null;
+            List<string> retried = null;
+            foreach (var kvp in ghostlessSpawnRetries)
+            {
+                string id = kvp.Key;
+                HeldGhostInfo info = kvp.Value;
+                int index = -1;
+                for (int k = 0; k < committed.Count; k++)
+                {
+                    if (committed[k] != null
+                        && string.Equals(committed[k].RecordingId, id, StringComparison.Ordinal))
+                    {
+                        index = k;
+                        break;
+                    }
+                }
+
+                HeldGhostAction decision = index < 0
+                    ? HeldGhostAction.InvalidIndex
+                    : DecideHeldGhostAction(
+                        index, info, committed, now, HeldGhostTimeoutSeconds,
+                        HeldGhostRetryIntervalSeconds,
+                        timelineInactiveIds,
+                        currentUT,
+                        spawnBlockedChainTip: false,
+                        holdForWarpWatch: false,
+                        spawnDeferredForPlacement: TimeJumpManager.IsSpawnDeferredForPendingPlacement(id));
+
+                if (decision == HeldGhostAction.RetrySpawn && warpActive)
+                {
+                    pendingSpawnRecordingIds.Add(id);
+                    if (done == null) done = new List<string>();
+                    done.Add(id);
+                    ParsekLog.Info("Policy",
+                        $"Spawn retry with no ghost handed to the warp-deferred queue: #{index} " +
+                        $"\"{info.vesselName}\" id={id}");
+                    continue;
+                }
+
+                switch (decision)
+                {
+                    case HeldGhostAction.RetrySpawn:
+                        DiagnosticsState.health.spawnRetries++;
+                        if (SpawnVesselOrChainTipOverrideForTesting != null)
+                            SpawnVesselOrChainTipOverrideForTesting(committed[index], index);
+                        else
+                            host.SpawnVesselOrChainTipFromPolicy(committed[index], index);
+                        if (committed[index].VesselSpawned)
+                        {
+                            ParsekLog.Info("Policy",
+                                $"Spawn retry with no ghost succeeded: #{index} \"{info.vesselName}\" " +
+                                $"id={id} after={now - info.holdStartTime:F1}s");
+                            if (done == null) done = new List<string>();
+                            done.Add(id);
+                        }
+                        else
+                        {
+                            if (retried == null) retried = new List<string>();
+                            retried.Add(id);
+                        }
+                        break;
+                    case HeldGhostAction.Hold:
+                        break;
+                    case HeldGhostAction.Timeout:
+                        ParsekLog.Warn("Policy",
+                            $"Spawn retry with no ghost gave up: #{index} \"{info.vesselName}\" id={id} " +
+                            $"after={now - info.holdStartTime:F1}s - the end spawn is re-evaluated on the next scene load");
+                        if (done == null) done = new List<string>();
+                        done.Add(id);
+                        break;
+                    default:
+                        ParsekLog.Info("Policy",
+                            $"Spawn retry with no ghost released: #{index} \"{info.vesselName}\" id={id} " +
+                            $"decision={decision}");
+                        if (done == null) done = new List<string>();
+                        done.Add(id);
+                        break;
+                }
+            }
+
+            if (retried != null)
+            {
+                for (int i = 0; i < retried.Count; i++)
+                {
+                    if (ghostlessSpawnRetries.TryGetValue(retried[i], out var updated))
+                    {
+                        updated.lastRetryTime = now;
+                        ghostlessSpawnRetries[retried[i]] = updated;
+                    }
+                }
+            }
+            if (done != null)
+            {
+                for (int i = 0; i < done.Count; i++)
+                    ghostlessSpawnRetries.Remove(done[i]);
             }
         }
 
@@ -1955,6 +2184,7 @@ namespace Parsek
             pendingWatchRecordingId = null;
             warpHeldWatchRecordingId = null;
             heldGhosts.Clear();
+            ghostlessSpawnRetries.Clear();
             GhostMapPresence.ClearFlightMapPresenceState();
         }
 
@@ -1972,6 +2202,7 @@ namespace Parsek
             engine.OnSeamMarker -= HandleSeamMarker;
             engine.OnAllGhostsDestroying -= HandleAllGhostsDestroying;
             heldGhosts.Clear();
+            ghostlessSpawnRetries.Clear();
             GhostMapPresence.ClearFlightMapPresenceState();
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 8 engine events");
         }

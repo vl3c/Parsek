@@ -332,6 +332,7 @@ namespace Parsek
                 // A dismissal moves no pool (stock's SackAvailable charges nothing).
                 case GameActionType.KerbalDismissal:
                 case GameActionType.VesselRecovered:
+                case GameActionType.VesselTerminated:
                 case GameActionType.ResourceScanUnlocked:
                 case GameActionType.FacilityDestruction:
                 case GameActionType.StrategyDeactivate:

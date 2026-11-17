@@ -339,13 +339,25 @@ namespace Parsek
             if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
             if (RewindContext.IsRewinding) return;
             NoteFlagProtoRemoved(pv, "terminated");
+            string launchGuid = VesselLaunchIdentity.ReadLaunchGuid(pv);
             RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(
-                pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv));
+                pv.vesselName, launchGuid);
+            double now = Planetarium.GetUniversalTime();
+
+            // The player removed the vessel: a committed recording it continues (a vessel
+            // Parsek spawned at the recording's end, or the recorded launch itself) gets a
+            // VesselTerminated row, so the next flight scene does not read the vanished
+            // vessel as a spawn death and spawn it again. The pending-tree stamp below cannot
+            // reach a committed recording.
+            LedgerOrchestrator.OnRealVesselTerminated(
+                now, pv.persistentId, launchGuid, identity.DisplayName);
+
             if (!identity.HasName) return;
 
-            double now = Planetarium.GetUniversalTime();
-            // onVesselTerminated also fires after onVesselRecovered for the same vessel.
-            // The guard in UpdateRecordingsForTerminalEvent prevents overwriting Recovered with Destroyed.
+            // Stock fires onVesselTerminated only from SpaceTracking.OnVesselDeleteConfirm
+            // (Tracking Station Terminate / Delete), never from a recovery. The guard in
+            // UpdateRecordingsForTerminalEvent still keeps a Recovered stamp from being
+            // overwritten with Destroyed.
             bool updated = UpdateRecordingsForTerminalEvent(
                 identity, TerminalState.Destroyed, now, pv.persistentId);
             if (updated)
@@ -362,8 +374,7 @@ namespace Parsek
         /// a stock KSC-declutter autoclean of an unrelated "&lt;Craft&gt; Debris" stamped every
         /// same-named pending debris recording Recovered and dropped its snapshot.
         /// Recovered/Destroyed can overwrite situation-based terminal states (Orbiting, Landed, etc.)
-        /// that were set by OnSceneChangeRequested. Only prevents Destroyed from overwriting Recovered
-        /// (onVesselTerminated fires after onVesselRecovered for the same vessel).
+        /// that were set by OnSceneChangeRequested. Only prevents Destroyed from overwriting Recovered.
         /// </summary>
         internal static bool UpdateRecordingsForTerminalEvent(string vesselName, TerminalState state, double ut)
         {
@@ -590,7 +601,8 @@ namespace Parsek
         /// <summary>
         /// Determines whether a new terminal state can overwrite the existing one.
         /// Recovered/Destroyed can overwrite null or situation-based states (Orbiting, Landed, etc.).
-        /// Destroyed cannot overwrite Recovered (onVesselTerminated fires after onVesselRecovered).
+        /// Destroyed cannot overwrite Recovered (a guard: stock fires onVesselTerminated only
+        /// from the Tracking Station delete confirm, never after a recovery).
         /// </summary>
         internal static bool CanOverwriteTerminalState(TerminalState? existing, TerminalState incoming)
         {

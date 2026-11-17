@@ -110,6 +110,9 @@ namespace Parsek.Tests
         // VesselRecovered (SPAWNED-VESSEL-RECOVERED-OUTSIDE-FLIGHT-RESPAWNS-ON-SANDBOX):
         // spawn evidence for a recovered recording; moves no pool.
         [InlineData(GameActionType.VesselRecovered,      false)]
+        // VesselTerminated (SPAWNED-VESSEL-TERMINATED-RESPAWNS): spawn evidence for a
+        // terminated recording; moves no pool.
+        [InlineData(GameActionType.VesselTerminated,     false)]
         // RouteHeld: records that a route's run was held; moves no pool.
         [InlineData(GameActionType.RouteHeld,            false)]
         // ResourceScanUnlocked (RESOURCE-SCAN-UNLOCKS-NOT-LEDGERED): flips stock scan

@@ -105,14 +105,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure decision: should terrain correction apply to this recording?
+        /// Pure decision: should the spawn's underground terrain correction apply to this
+        /// recording?
         ///
         /// Returns true when:
-        /// 1. Terminal state is a surface state (Landed or Splashed), AND
+        /// 1. Terminal state is Landed, AND
         /// 2. recordedTerrainHeight is a valid number (not NaN).
         ///
-        /// Returns false for orbital/sub-orbital recordings, destroyed/recovered
-        /// vessels, or recordings that lack terrain height data (NaN default).
+        /// Returns false for Splashed: a Splashed end spawns at its recorded depth (owner
+        /// ruling 2026-11-17), already bounded by the sea floor by the spawn's own Splashed
+        /// depth rule (ResolveSplashedSpawnAltitude), and the correction's
+        /// <c>TerrainAltitude(lat, lon)</c> read clamps the sea floor to 0, so it would lift a
+        /// submerged hull to 2 m above the water. Also false for orbital/sub-orbital
+        /// recordings, destroyed/recovered vessels, or recordings that lack terrain height
+        /// data (NaN default).
         /// </summary>
         internal static bool ShouldCorrectTerrain(
             TerminalState? terminalState,
@@ -126,7 +132,13 @@ namespace Parsek
             }
 
             var ts = terminalState.Value;
-            bool isSurface = ts == TerminalState.Landed || ts == TerminalState.Splashed;
+            if (ts == TerminalState.Splashed)
+            {
+                ParsekLog.Verbose(Tag,
+                    "ShouldCorrectTerrain: terminal=Splashed keeps its recorded depth (sea floor bounded by the spawn) — returning false");
+                return false;
+            }
+            bool isSurface = ts == TerminalState.Landed;
             if (!isSurface)
             {
                 ParsekLog.Verbose(Tag,

@@ -666,5 +666,70 @@ namespace Parsek.Tests
             Assert.False(rec.TerminalSpawnCannotSpawnSafely,
                 "Absent terminalSpawnCannotSpawnSafely must leave the abandon clear.");
         }
+
+        // --- The reset clears the whole transient spawn set (abandon family included) ---
+
+        private static Recording AbandonedTreeRecording(string id)
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", "Abandoned Rover");
+            snapshot.AddValue("sit", "LANDED");
+            return new Recording
+            {
+                RecordingId = id,
+                TreeId = "tree-" + id,
+                VesselName = "Abandoned Rover",
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Landed,
+                // Walkback exhausted: abandon, claim spawned with no vessel.
+                SpawnAbandoned = true,
+                WalkbackExhausted = true,
+                CollisionBlockCount = 2,
+                DuplicateBlockerRecovered = true,
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 0,
+            };
+        }
+
+        // An in-session load cleared VesselSpawned / pid but kept SpawnAbandoned, so the spawn
+        // core's "VesselSpawned = SpawnAbandoned || pid != 0" read a later failed attempt as
+        // spawned with no vessel, and a later successful one was never death-checked.
+        [Fact]
+        public void InSessionLoadReset_ClearsTheAbandonFamily_LikeAColdLoad()
+        {
+            ParsekLog.VerboseOverrideForTesting = true;
+            var rec = AbandonedTreeRecording("rec-abandoned");
+
+            ParsekScenario.ResetTreeRecordingMutableStateForLoad(new List<Recording> { rec });
+
+            Assert.False(rec.VesselSpawned);
+            Assert.False(rec.SpawnAbandoned);
+            Assert.False(rec.WalkbackExhausted);
+            Assert.Equal(0, rec.CollisionBlockCount);
+            Assert.False(rec.DuplicateBlockerRecovered);
+            // A later failed spawn attempt is not read as spawned...
+            Assert.False(rec.SpawnAbandoned || rec.SpawnedVesselPersistentId != 0);
+            // ...and a later successful one is death-checked again.
+            Assert.True(GhostPlaybackLogic.ShouldCheckForSpawnDeath(true, 777u, rec.SpawnAbandoned));
+            Assert.Contains(logLines, l => l.Contains("1 transient spawn abandon(s) cleared"));
+        }
+
+        [Fact]
+        public void ReFlyStripReconcile_ClearsTheAbandonFamily()
+        {
+            var rec = AbandonedTreeRecording("rec-stripped");
+            rec.SpawnedVesselPersistentId = 500;
+            rec.SpawnAbandoned = true;
+
+            ParsekScenario.ReconcileSpawnStateAfterStrip(
+                new List<(uint pid, string guid)>(), new List<Recording> { rec });
+
+            Assert.False(rec.VesselSpawned);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+            Assert.False(rec.SpawnAbandoned);
+            Assert.False(rec.WalkbackExhausted);
+            Assert.Equal(0, rec.CollisionBlockCount);
+            Assert.False(rec.DuplicateBlockerRecovered);
+        }
     }
 }

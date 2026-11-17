@@ -32,6 +32,7 @@ namespace Parsek.Tests
             MissionStore.ResetForTesting();
             RecordingStore.ClearCommittedTreesInternal();
             CrewReservationManager.ResetReplacementsForTesting();
+            PlaybackScopeTracker.ResetForTesting();
             priorScene = HighLogic.LoadedScene;
             priorStartup = FlightDriver.StartupBehaviour;
             ParsekScenario.SetCurrentFlightLaunchUTForTesting(double.NaN);
@@ -49,6 +50,7 @@ namespace Parsek.Tests
             ParsekScenario.SetFlightEntryLedgerActionIdsForTesting(null);
             ParsekScenario.SetPrelaunchEntryLedgerActionIdsForTesting(null);
             CrewReservationManager.ResetReplacementsForTesting();
+            PlaybackScopeTracker.ResetForTesting();
             RouteStore.ResetForTesting();
             MissionStore.ResetForTesting();
             RecordingStore.ClearCommittedTreesInternal();
@@ -200,6 +202,34 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Scenario]")
                 && l.Contains("Auto-unreserved crew for recording #0 (V-due)")
                 && l.Contains("EndUT passed without spawn"));
+        }
+
+        // A cold load straight into flight must not settle an in-scope recording that still
+        // owes its end vessel (the player replayed it from before its start; the spawn was
+        // deferred by warp, held, or left for flight by the Space Center): its snapshot and
+        // crew stay, and the playback spawn path spawns it.
+        [Fact]
+        public void AutoUnreserve_ColdLoadIntoFlight_KeepsInScopeRecordingThatOwesItsSpawn()
+        {
+            HighLogic.LoadedScene = GameScenes.FLIGHT;
+            Recording owed = Rec("owed", 10, 90);
+            owed.VesselSnapshot = Snapshot();
+            Recording historical = Rec("historical", 10, 90);
+            historical.VesselSnapshot = Snapshot();
+            PlaybackScopeTracker.NotePlayhead(owed.RecordingId, 5.0, owed.StartUT);
+            Assert.False(PlaybackScopeTracker.IsHistoricalNeverReplayed(owed.RecordingId, 100.0, owed.StartUT));
+
+            ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT(
+                new List<Recording> { owed, historical }, 100.0);
+
+            Assert.NotNull(owed.VesselSnapshot);
+            Assert.False(owed.VesselSpawned);
+            Assert.Equal(0u, owed.SpawnedVesselPersistentId);
+            Assert.Null(historical.VesselSnapshot);
+            Assert.True(historical.VesselSpawned);
+            Assert.Contains(logLines, l => l.Contains("[Scenario]")
+                && l.Contains("Crew auto-unreserve: kept 1 past-end recording(s) in replay scope"));
+            Assert.Single(logLines.FindAll(l => l.Contains("Auto-unreserved crew for recording")));
         }
 
         [Fact]

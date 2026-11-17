@@ -265,7 +265,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BothJumpEntryPoints_ApplyThePolicy_BeforeAnyChainTipSpawns()
+        public void BothJumpEntryPoints_ApplyThePolicy_AndExecuteJumpSpawnsNothing()
         {
             string raw = System.IO.File.ReadAllText(FindParsekSourceFile("Controllers/TimeJumpManager.cs"))
                 .Replace("\r\n", "\n");
@@ -276,10 +276,12 @@ namespace Parsek.Tests
 
             int epochApply = epochShift.IndexOf("ConverterJumpPolicy.Apply(", StringComparison.Ordinal);
             int epochClock = epochShift.IndexOf("Planetarium.SetUniversalTime(", StringComparison.Ordinal);
-            int epochSpawn = epochShift.IndexOf("SpawnCrossedChainTips(", StringComparison.Ordinal);
+            int epochShiftApply = epochShift.IndexOf("ApplyEpochShifts(", StringComparison.Ordinal);
             Assert.True(epochApply > 0, "ExecuteJump (Real Spawn Control warp) must apply the converter policy");
             Assert.True(epochApply > epochClock, "the policy runs after the clock moves");
-            Assert.True(epochApply < epochSpawn, "the policy runs before chain tips spawn");
+            Assert.True(epochApply < epochShiftApply, "the policy runs before the epoch shift");
+            Assert.True(epochShift.IndexOf("SpawnAtChainTip(", StringComparison.Ordinal) < 0,
+                "ExecuteJump spawns nothing itself: the playback loop owns end spawns");
 
             int fwdApply = forward.IndexOf("ConverterJumpPolicy.Apply(", StringComparison.Ordinal);
             int fwdClock = forward.IndexOf("Planetarium.SetUniversalTime(", StringComparison.Ordinal);

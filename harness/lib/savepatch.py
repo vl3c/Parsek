@@ -834,6 +834,102 @@ def apply_part_inventory(text: str, entries: Sequence[Dict]) -> Tuple[str, List[
     return ("\r\n" if crlf else "\n").join(lines), notes
 
 
+# ---------------------------------------------------------------------------
+# The Tracking Station intro surface: `[fixture] trackingStationIntroDone = true`.
+# ---------------------------------------------------------------------------
+
+# WHY IT EXISTS. Stock's new-game intro (`SCENARIO name = ScenarioNewGameIntro`)
+# carries `tsComplete = False` on most committed fixtures. Decompiled KSP 1.12.5:
+# `TutorialScenario.Start` -> `ScenarioNewGameIntro.OnTutorialSetup` ->
+# `TSTutorialSetup`, which (only while `tsComplete` is false) sets the control lock
+# `intro_TS` on entering the Tracking Station. That lock holds TIMEWARP, so the
+# M-A2 `WarpToUT` verb refuses any rate above 1x there (`warptout refused
+# reason=warp-locked holders=intro_TS`). A lane whose subject is a high-rate warp IN
+# the Tracking Station declares this key, and the stage step sets `tsComplete = True`
+# in the staged copy: the state of a save whose player pressed the intro page's
+# button (which sets exactly that field), with nothing else touched.
+#
+# WHEN THE OTHER TWO INTROS ARE ALREADY DONE the node is REMOVED instead: with
+# kscComplete, editorComplete and tsComplete all true, `OnTutorialSetup` removes
+# the scenario from the game and saves `persistent` from `Start` on the next Space
+# Center / editor / Tracking Station entry. Leaving the node at three Trues would
+# make that stock save fire in the middle of a lane (after a rewind, say); removing
+# it stages stock's own end state directly. The module is created only for NEW
+# games (KSPScenario options 2 | 8 | 32), so it does not come back.
+#
+# A save with NO ScenarioNewGameIntro node has no intro to run (stock adds it only
+# to new games), so the patch is a recorded no-op there; a node with no
+# `tsComplete` key, or several intro nodes, fails closed.
+TS_INTRO_DONE_KEY = "trackingStationIntroDone"
+_INTRO_SCENARIO_NAME = "ScenarioNewGameIntro"
+
+
+def validate_ts_intro_done(fixture: Any) -> List[str]:
+    """Validate `[fixture] trackingStationIntroDone`. Pure; pre-launch. The only
+    accepted value is boolean `true`: `false` would be a declaration that does
+    nothing, which a spec must omit instead."""
+    if not isinstance(fixture, dict) or TS_INTRO_DONE_KEY not in fixture:
+        return []
+    value = fixture[TS_INTRO_DONE_KEY]
+    if value is not True:
+        return ["fixture.%s: %r must be `true` (omit the key otherwise)"
+                % (TS_INTRO_DONE_KEY, value)]
+    return []
+
+
+def declared_ts_intro_done(fixture: Any) -> bool:
+    """True when the spec declares the key `true`. Called after validation."""
+    return isinstance(fixture, dict) and fixture.get(TS_INTRO_DONE_KEY) is True
+
+
+def _intro_scenario_nodes(lines: List[str]) -> List[Tuple[int, int]]:
+    out: List[Tuple[int, int]] = []
+    game = find_node(lines, "GAME")
+    if game is None:
+        return out
+    for node in child_nodes(lines, game, "SCENARIO"):
+        if get_value(lines, node, "name") == _INTRO_SCENARIO_NAME:
+            out.append(node)
+    return out
+
+
+def apply_ts_intro_done(text: str, declared: bool) -> Tuple[str, List[str]]:
+    """Set `tsComplete = True` on the save's one ScenarioNewGameIntro node, or remove
+    the node when kscComplete and editorComplete are already True (stock's own end
+    state once all three intros are done). Pure.
+
+    Returns (patchedText, notes). Not declared returns the text UNCHANGED. Fails
+    closed on several intro nodes or an intro node without a `tsComplete` key."""
+    if not declared:
+        return text, []
+    crlf = "\r\n" in text
+    lines = text.replace("\r\n", "\n").split("\n")
+    nodes = _intro_scenario_nodes(lines)
+    if not nodes:
+        return text, ["tsComplete absent (no %s node: stock adds it only to new games, "
+                      "so no intro_TS lock); unchanged" % _INTRO_SCENARIO_NAME]
+    if len(nodes) != 1:
+        raise LiveStatePatchError(
+            "trackingStationIntroDone: the save carries %d %s nodes, expected at most 1"
+            % (len(nodes), _INTRO_SCENARIO_NAME))
+    before = get_value(lines, nodes[0], "tsComplete")
+    if before is None:
+        raise LiveStatePatchError(
+            "trackingStationIntroDone: the %s node carries no `tsComplete` key to rewrite"
+            % _INTRO_SCENARIO_NAME)
+    if (get_value(lines, nodes[0], "kscComplete") == "True"
+            and get_value(lines, nodes[0], "editorComplete") == "True"):
+        del lines[nodes[0][0]:nodes[0][1]]
+        return (("\r\n" if crlf else "\n").join(lines),
+                ["tsComplete %s->True; %s removed (all three intros complete: stock's "
+                 "own end state)" % (before, _INTRO_SCENARIO_NAME)])
+    if not set_value(lines, nodes[0], "tsComplete", "True"):
+        raise LiveStatePatchError(
+            "trackingStationIntroDone: `tsComplete` could not be rewritten")
+    return (("\r\n" if crlf else "\n").join(lines),
+            ["tsComplete %s->True" % before])
+
+
 def _roster_kerbal_node(lines: List[str], kerbal: str) -> Tuple[int, int]:
     """The (single) ROSTER KERBAL span named ``kerbal``, re-read after a splice."""
     roster = find_node(lines, "ROSTER")

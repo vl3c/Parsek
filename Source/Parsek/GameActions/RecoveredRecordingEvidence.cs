@@ -79,6 +79,41 @@ namespace Parsek
             return action.Type == GameActionType.VesselRecovered;
         }
 
+        /// <summary>
+        /// True for a <see cref="GameActionType.VesselTerminated"/> row tagged to
+        /// <paramref name="recordingId"/> with a UT after <paramref name="afterUT"/>. Not a
+        /// recovery row (<see cref="IsRecoveryRow"/> does not count it): the vessel left the
+        /// world through the player's Terminate, so its end spawn is refused
+        /// (<see cref="IsTerminatedByLedgerRow"/>) but nothing reads it as recovered.
+        /// </summary>
+        internal static bool IsVesselTerminatedRow(GameAction action, string recordingId, double afterUT)
+        {
+            if (!IsTaggedAfter(action, recordingId, afterUT)) return false;
+            return action.Type == GameActionType.VesselTerminated;
+        }
+
+        /// <summary>
+        /// Pure predicate, the termination twin of <see cref="IsRecoveredByLedgerRow"/>: the
+        /// recording's terminal left the vessel in the world
+        /// (<see cref="ResurrectionRetirementEligibility.VesselOutlivedTerminal"/>) and
+        /// <paramref name="ledger"/> holds a <see cref="GameActionType.VesselTerminated"/> row
+        /// tagged to it. No UT filter, as for a recovery: a terminated vessel never spawns
+        /// again, also after a rewind to before the termination. Only a tombstone (a Re-Fly
+        /// supersede of the owner) retires the evidence.
+        /// </summary>
+        internal static bool IsTerminatedByLedgerRow(Recording rec, IReadOnlyList<GameAction> ledger)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId) || ledger == null) return false;
+            if (!ResurrectionRetirementEligibility.VesselOutlivedTerminal(rec.TerminalStateValue))
+                return false;
+            for (int i = 0; i < ledger.Count; i++)
+            {
+                if (IsVesselTerminatedRow(ledger[i], rec.RecordingId, double.NegativeInfinity))
+                    return true;
+            }
+            return false;
+        }
+
         /// <summary>Any recovery row kind (funds payout, crew close or vessel recovered).</summary>
         internal static bool IsRecoveryRow(GameAction action, string recordingId, double afterUT)
         {

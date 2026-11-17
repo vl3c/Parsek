@@ -1,0 +1,184 @@
+schema = 1
+id = "SPW-5-physics-warp-end-spawn-near-active"
+# =====================================================================================
+# SPW-5: AN END SPAWN INSIDE THE PHYSICS BUBBLE, ~30 M FROM THE ACTIVE VESSEL, CROSSED
+# UNDER 4X PHYSICS WARP.
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
+# tag `pending-flight`.)
+#
+# WHY. Every committed end-spawn lane crosses its end on rails, with the spawn far from the
+# player (EVA-15's header names the in-bubble follow-up this is). Physics warp keeps the
+# bubble loaded, so the spawn is LOADED next to the player: the loaded-vessel collision
+# check (`CheckSpawnCollisions`), the walkback, and the deferred flush at 1x all run for
+# real. Physics warp is also a warp to `ParsekPlaybackPolicy` (`isWarp`), so the end must
+# be queued (`Deferred spawn during warp`), not spawned mid-warp under a 4x physics step.
+#
+# THE HOST: `eva2-lko-crewed`. `[[fixture.liveState]]` removes the index-0 asteroid AND the
+# four pad `Kerbal X Debris`, so the FLIGHTSTATE list is [Kerbal X, Kerbal X Probe]. The
+# boot still focuses Kerbal X (savepatch re-points the index past the removed asteroid).
+# After the rewind strips Kerbal X, the Space Center save's `activeVessel = 0` is the spent
+# core `Kerbal X Probe` (pid 2614652043), co-orbiting ~16-30 m from where Kerbal X flew.
+#
+# THE FLIGHT:
+#   R       1x wait to UT 424 (CI-1's LoadGame-race wait), StartRecording on Kerbal X, 1x
+#           wait to UT 470 (~46 s of formation beside the probe), stop, CommitTree, stop.
+#   rewind  InvokeRewindToLaunch tree=latest (Space Center, ~409), SaveGame + LoadGame at
+#           once: FLIGHT on the probe, the Kerbal X ghost ~30 m away from ~424.
+#   cross   WarpToUT ut=540 ladder=phys: 4x physics warp (rung 3 needs 10 game-seconds left)
+#           across EndUT ~470, so the end is crossed at 4x and queued; the ladder drops to
+#           1x ~10 s before 540 and the queue flushes.
+#   read    ListHandles before / after, LeafVesselPlacement in FLIGHT, SaveGame, quit.
+#
+# WHAT IS GATED: count 1; the strip; the reload before the end (unspawned); the physics
+# ladder engaged (`warptout complete ... ladder=phys`); `Deferred spawn during warp:
+# #N "Kerbal X"` and THEN exactly one Orbital spawn of #N (backreference); the store reads
+# it spawned with that pid; LeafVesselPlacement ok on Kerbin, no duplicate.
+#
+# PRE-REGISTERED READINGS (the first flight decides; none is a spec bug):
+#   - the loaded collision check finds the probe inside Kerbal X's bounds at the end
+#     point: `Ghost held pending spawn retry` / a walkback line, then a later spawn. The
+#     single-spawn pin still holds; a walkback that moves the spawn off the recorded orbit
+#     reads `verdict=phase` (along-track) in LeafVesselPlacement, which this lane forbids:
+#     that would be a finding (the T57 exemption covers only the recording's own parent).
+#   - `Spawn ABANDONED` after the collision retries: the in-bubble neighbour never leaves;
+#     a finding against the end-spawn contract, filed, not re-run.
+#   - `warptout refused reason=physics-warp-unavailable` (or similar): stock disallowed
+#     physics warp on the probe; re-read the probe's situation before re-authoring.
+#
+# FAST-LANE CHECKLIST: (1) EVA-15's host and road minus the EVA. (2) explicit-UT waits.
+# (3)/(4)/(5) none. (6) retry once. (7) count exact 1 (one recording, no split). (8)
+# operator until measured. (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "operator"
+description = "Physics warp across an in-bubble end spawn: on eva2-lko-crewed (asteroid and pad debris removed) ~46 s of Kerbal X's low Kerbin orbit is recorded beside its spent probe core and committed; Rewind-to-Launch and a reload into FLIGHT on that probe put the ghost ~30 m away, and a 4x physics-ladder WarpToUT crosses the end. Pins that the spawn is deferred during the physics warp and then made exactly once on the recorded orbit, beside the player."
+instanceProfile = "stock-minimal"
+tags = ["SPW-5", "spawn", "end-spawn", "deferred-spawn", "terminal-orbit", "warp", "physics-warp",
+        "collision", "rewind-to-launch", "kerbin", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+# Ast. VPA-167 and the four pad debris: the Space Center save after the strip then
+# focuses Kerbal X Probe (header).
+[[fixture.liveState]]
+pid    = 1490391000
+remove = true
+
+[[fixture.liveState]]
+pid    = 1365670035
+remove = true
+
+[[fixture.liveState]]
+pid    = 3734310169
+remove = true
+
+[[fixture.liveState]]
+pid    = 1277750907
+remove = true
+
+[[fixture.liveState]]
+pid    = 2325190904
+remove = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw5-boot" },                     expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "424", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",   args = { ut = "470", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw5-commit-count-${c0.count}" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "spw5-rewound" },                    expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "spw5-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw5-reloaded-count-${c1.count}-a-${c1.rec0}-${c1.rec0spawned}-${c1.rec0spawnedPid}-end" }, expect = "OK" },
+  # THE SUBJECT: 4x physics warp across the end (header).
+  { cmd = "WarpToUT",   args = { ut = "540", ladder = "phys" },              expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw5-spawned-count-${c2.count}-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-end" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },         expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1, max = 1 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "Kerbal X" = 1, "Kerbal X Probe" = 1 }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "committree committed=true",
+  "MISSIONMARK label=spw5-commit-count-1 ",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # The reload focuses the probe (the only vessel left) before the end.
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "MISSIONMARK label=spw5-reloaded-count-1-a-[0-9a-f-]+-false-0-end ",
+  # The physics ladder engaged.
+  "warptout rate requested=3 applied=3 rate=\\S+ mode=LOW ceilingIndex=3 clamped=false remaining=\\S+ ut=540 ",
+  "warptout complete reachedUT=[0-9.]+ ut=540 rate=[0-9.]+ maxRate=4 ladder=phys ",
+  # Deferred under physics warp, then made once, read back spawned with that pid.
+  "\\[Policy\\] Deferred spawn during warp: #([0-9]+) \"Kerbal X\"[\\s\\S]*\\[Spawner\\] Orbital vessel spawn for #\\1 \\(Kerbal X\\) pid=[0-9]+ [^\\r\\n]*terminal=Orbiting",
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw5-spawned-count-1-a-[0-9a-f-]+-true-\\1-end ",
+  "LeafPlacement: rec=[0-9a-f]+ vessel='Kerbal X' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
+  "MISSIONMARK label=spw5-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "timejump ",
+  # A spawn while the physics warp is still up: the end must be queued, not spawned under
+  # a 4x step (the deferred line is required; a spawn line before it is the old shape).
+  "MISSIONMARK label=spw5-reloaded-count-(?:(?!Deferred spawn during warp)[\\s\\S])*?(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(Kerbal X\\)",
+  "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(Kerbal X\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\(Kerbal X\\)",
+  "Spawn ABANDONED",
+  "Spawn RETIRED",
+  "Vessel spawn failed",
+  "SpawnAtPosition returned 0",
+  "Spawn-death detected",
+  "Deferred spawn cannot execute safely",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

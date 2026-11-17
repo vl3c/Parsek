@@ -1,0 +1,153 @@
+schema = 1
+id = "SPW-9-cold-load-past-unspawned-end"
+# =====================================================================================
+# SPW-9: LOADING, INTO FLIGHT, A SAVE WHOSE CLOCK IS ALREADY PAST AN UNSPAWNED END.
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
+# tag `pending-flight`.)
+#
+# WAS EXPECTED TO RED ON COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN, FIXED 2026-11-17 AS COLD-LOAD-DROPS-OWED-SPAWN (todo; SPW-8 is
+# its quickload twin). The Space Center never spawns an Orbiting end: it defers it to the
+# flight scene (#171, `GhostPlaybackLogic.ShouldSpawnAtKscEnd`: `orbital vessel deferred to
+# flight scene (terminal=Orbiting)`). A save written there after the end therefore holds
+# the recording unspawned, with its snapshot, past its EndUT. Loading that save into FLIGHT
+# is a Cold save-file load, and its `crew-auto-unreserve` phase
+# (`ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT`) stamps the recording spawned and
+# nulls its snapshot before the flight scene can spawn it: the vessel is gone for good.
+# `[expectedFail] bugId` stays empty on purpose (an expected-fail lane that reds reads green).
+#
+# THE HOST AND ROAD: EVA-15's (`eva2-lko-crewed`, index-0 asteroid removed) without the
+# EVA: record Kerbal X 424 -> 470 at 1x, commit, Rewind-to-Launch (Space Center, ~409).
+# THEN, the subject: WarpToUT 600 AT THE SPACE CENTER (rails ladder outside FLIGHT) past the
+# end, so the KSC defers the Orbiting spawn; SaveGame; LoadGame of that save with
+# playerLoad=true (the player's load from the menu, a Cold save-file load) into FLIGHT on
+# the first pad debris (a Space Center save focuses vessel 0); a 1x wait; read.
+#
+# WHAT IS GATED (the fix's contract): the KSC deferral line (Verbose); the load is Cold
+# save-file in FLIGHT; NO `Auto-unreserved crew ... (Kerbal X)` line; exactly one Orbital
+# spawn of Kerbal X after the load, read back spawned with that pid; LeafVesselPlacement
+# ok on Kerbin, no duplicate.
+#
+# PRE-REGISTERED READING OF THE RED (today's code): the `Auto-unreserved crew for recording
+# #N (Kerbal X)` line prints on the load (forbidden), the c2 mark reads `true-0` (spawned,
+# no pid) and no Orbital spawn line follows (required, unmet).
+#
+# FAST-LANE CHECKLIST: (1) EVA-15's host and first half. (2) explicit-UT waits. (3)/(4)/(5)
+# none. (6) retry once. (7) count exact 1. (8) operator until measured. (9)
+# flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "operator"
+description = "Cold load past an unspawned end: on eva2-lko-crewed (asteroid removed) ~46 s of Kerbal X's low Kerbin orbit is recorded, committed and Rewound-to-Launch; at the Space Center the clock is warped past the end (the KSC defers an Orbiting spawn to the flight scene), the game saved, and that save loaded by the player into FLIGHT. Pins that the owed spawn is made exactly once on its recorded orbit. Expected to red today on COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN."
+instanceProfile = "stock-minimal"
+tags = ["SPW-9", "spawn", "end-spawn", "terminal-orbit", "cold-load", "space-center",
+        "rewind-to-launch", "kerbin", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+# Ast. VPA-167, FLIGHTSTATE index 0 (EVA-15's recipe).
+[[fixture.liveState]]
+pid    = 1490391000
+remove = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw9-boot" },                     expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "424", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",   args = { ut = "470", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw9-commit-count-${c0.count}" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  # THE SUBJECT, part 1: past the end at the Space Center, then save there.
+  { cmd = "WarpToUT",   args = { ut = "600" },                               expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw9-ksc-past-end-count-${c1.count}-a-${c1.rec0}-${c1.rec0spawned}-${c1.rec0spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",   args = { name = "spw9-past-end" },                   expect = "OK", budget = 120 },
+  # THE SUBJECT, part 2: the player loads that save, into FLIGHT on the pad debris.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "spw9-past-end", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "615", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw9-loaded-count-${c2.count}-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-end" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },         expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1, max = 1 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "Kerbal X" = 1, "Kerbal X Probe" = 1, "Kerbal X Debris" = 4 }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "committree committed=true",
+  "MISSIONMARK label=spw9-commit-count-1 ",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # The Space Center deferred the Orbiting end and saved it unspawned past its end.
+  "Spawn not needed for #[0-9]+ \"Kerbal X\": orbital vessel deferred to flight scene \\(terminal=Orbiting\\)",
+  "MISSIONMARK label=spw9-ksc-past-end-count-1-a-[0-9a-f-]+-false-0-end ",
+  # The player's load is a Cold save-file load into FLIGHT.
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=spw9-past-end (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  # THE OWED SPAWN: once, after the load, read back spawned with that pid.
+  "loadgame player-load: firing [\\s\\S]*\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\) pid=[1-9][0-9]* [^\\r\\n]*terminal=Orbiting",
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw9-loaded-count-1-a-[0-9a-f-]+-true-\\1-end ",
+  "LeafPlacement: rec=[0-9a-f]+ vessel='Kerbal X' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
+  "MISSIONMARK label=spw9-loaded-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "timejump ",
+  # DEFECT E's own line: the Cold load stamps the owed recording spawned.
+  "Auto-unreserved crew for recording #[0-9]+ \\(Kerbal X\\)",
+  "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(Kerbal X\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\(Kerbal X\\)",
+  "Vessel spawn for #[0-9]+ \\(Kerbal X\\)",
+  "Spawn ABANDONED",
+  "Spawn RETIRED",
+  "Vessel spawn failed",
+  "SpawnAtPosition returned 0",
+  "Spawn-death detected",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
