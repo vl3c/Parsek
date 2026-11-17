@@ -339,7 +339,19 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              # (see [dimensionsCovered]).
              "\\[CrewReservation\\] Swapped '[^']+' \\u2192 '[^']+' in part '",
              "\\[CrewReservation\\] Crew swap complete: [1-9][0-9]* succeeded",
-             "\\[Scenario\\] OnSave: saving [1-9][0-9]* committed tree\\(s\\)"]
+             "\\[Scenario\\] OnSave: saving [1-9][0-9]* committed tree\\(s\\)",
+             # ADDED 2026-11-16, NOT YET FLOWN (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 7,
+             # audit B8): the ghost's engine FX across the repeat Rewind-to-Launch. (a) Some
+             # engine part's FX fingerprint in cycle 2 equals its cycle-1 one
+             # (Ghost/GhostFxFingerprint.cs:150-155, logged per part build by
+             # Ghost/GhostVisualBuilder.cs:1257, 5 s rate limit per part and module, so a
+             # cycle minutes apart always prints). (b) The replayed ignition applies in
+             # cycle 2 (Ghost/GhostPartEventApplyLog.cs:216 / :356). (c) A plume really
+             # started in cycle 2 (the ignition witness, GhostPartEventApplyLog.cs:407 /
+             # :428, 15 s rate limit per pid). The Re-Fly / revert half is FXR-1.
+             "Rewind-to-Launch initiated to UT(?:(?!Rewind-to-Launch initiated)[\\s\\S])*?part='([^']+)' kind=engine midx=([0-9]+) (systems=[1-9][0-9]* nullSystems=0 curves=\\S+ fp=\\[[^\\r\\n]*\\])[\\s\\S]*?Rewind-to-Launch initiated to UT[\\s\\S]*?part='\\1' kind=engine midx=\\2 \\3",
+             "Rewind-to-Launch initiated to UT[\\s\\S]*?Rewind-to-Launch initiated to UT[\\s\\S]*?\\[GhostPartEvents\\] apply family=EngineIgnited surface=engine-fx rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "Rewind-to-Launch initiated to UT[\\s\\S]*?Rewind-to-Launch initiated to UT[\\s\\S]*?\\[GhostPartEvents\\] engine-fx start part='[^']+' pid=[0-9]+ midx=[0-9]+ [^\\r\\n]* playing=[1-9][0-9]* "]
 # The suite-wide ERROR pattern (it also covers the seam verbs' own failure terminals:
 # rewind-failed / rewind-timeout / enterwatchmode timeout log at ERROR), plus the
 # one-shot-quicksave refusal text (outcome O2) wherever the product or the seam
