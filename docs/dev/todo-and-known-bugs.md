@@ -20,6 +20,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MP-R0B-P2C: the playback engine writes its diagnostics through a sink and reads a shareable spawn budget [FILED 2026-11-16 by the multiplayer plan `docs/dev/plans/multiplayer/r0b-prep-playback.md`, prerefactor P2c (tasks P2c-01 to P2c-04); single-player behavior unchanged; architecture work, no defect]
+
+So a second `GhostPlaybackEngine` can later run beside the player's own, the engine stops
+writing the static `DiagnosticsState` and its spawn throttle reads a budget object two engines
+can share. Close this entry when P2c-04 lands.
+
+- P2c-01 (`LoopSyncParentIdx` read-only on `IPlaybackTrajectory`): open.
+- ~~P2c-02~~ (health counters through `IGhostPlaybackDiagnosticsSink`): done 2026-11-16, branch
+  `mp/p2c-02-engine-diagnostics-sink`. The six `DiagnosticsState.health` increments moved
+  verbatim into `GlobalGhostPlaybackDiagnosticsSink`, which the one-argument engine constructor
+  builds per engine; `GhostPlaybackEngineDiagnosticsSourceGateTests` keeps the counters out of
+  `GhostPlaybackEngine*.cs`. Owed: in-game `Diagnostics` category on lane H27 (nightly).
+- ~~P2c-03~~ (frame budget, history and threshold through the sink): done 2026-11-16, branch
+  `mp/p2c-03-engine-diagnostics-budget`. The sink gained `ClearPlaybackBudget`,
+  `PublishPlaybackBudget`, `AppendPlaybackFrame` and `CheckPlaybackBudgetThreshold`; the global
+  bodies are the three early-return resets, the six `DiagnosticsState.playbackBudget` writes, the
+  `playbackFrameHistory` append and the `DiagnosticsComputation` threshold call, verbatim and in
+  the same order. The source gate now forbids every `DiagnosticsState.` and
+  `DiagnosticsComputation.` token in `GhostPlaybackEngine*.cs` and pins the publish, append,
+  check order. The two P2c-02 destroy tests now stub the Unity resource teardown (they threw
+  `SecurityException` on the Windows test host). Owed: in-game `Diagnostics` on lane H27.
+- P2c-04 (`GhostSpawnFrameBudget`): open.
+
 ## ~~RACE-0-ALT-PIN-FROM-ONE-FLIGHT~~: RACE-0's confirming flight read PARSEK-FAIL on a launch-site altitude window sized from one flight [FILED 2026-11-17 from run `2026-11-17_0317` (PC, scratch build ca454c963, PARSEK-FAIL(expectation)). FIXED 2026-11-17, branch `mp/t-07c-race-0-widen-alt-windows`; harness spec only, not a Parsek defect; third flight `2026-11-17_0340` PASS; low]
 
 The one failing row was `listhandles sites launchSite index=4 name='Crater_Launch_Site' ...

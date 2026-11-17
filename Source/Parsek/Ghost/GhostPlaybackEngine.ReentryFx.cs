@@ -338,7 +338,7 @@ namespace Parsek
             // a build.
             if (built != null)
             {
-                DiagnosticsState.health.reentryFxBuildsThisSession++;
+                diagnostics.CountReentryFxBuild();
                 ParsekLog.Verbose("ReentryFx",
                     $"Lazy reentry build fired for ghost #{recIdx} \"{vesselName}\" — " +
                     $"body={bodyName} alt={altitude:F0}m " +

@@ -333,7 +333,9 @@ differences, with the leftovers (accessor, host field, constructor) named in the
   carrying the six fields of `GhostPlaybackEngine.cs:882-887` with their present types,
   `AppendPlaybackFrame(float realtime, long totalMicroseconds)` (:889) and
   `CheckPlaybackBudgetThreshold(...)` with the argument list of :928. The global sink bodies are
-  the present statements verbatim. The engine keeps the order of these calls.
+  the present statements verbatim. The engine keeps the order of these calls. (Re-anchored on the
+  P2c-02 base: the resets are :398, :403, :408, the six fields :892-897, the append :899 and the
+  threshold call, `DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown`, :938.)
 - **Proof:** sink unit tests for each member against `DiagnosticsState` (budget fields equal, one
   history sample, the threshold check reached with the same arguments through a log-sink capture of
   its existing line); the source gate widens to every `DiagnosticsState.` and
