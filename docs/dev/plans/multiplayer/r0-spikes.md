@@ -608,12 +608,16 @@ Common to every spike task below:
   answered the others there).
 - **Change:** (a) a template save: `spikes/r0/S6/template/` holding a career `persistent.sfs` with
   an extra `SCENARIO { name = ParsekRaceSpikeMark  scene = 5, 7, 8 race { id = spike-1  slot = 2 }
-  }`, staged by hand into the spike instance's `saves/`. (b) A seam lane on the spike branch
+  }`, staged by hand into the spike instance's `saves/` (as built, 2026-11-17: the template is
+  composed, not committed a second time: `spikes/r0/S6/make_template.py` copies the committed
+  `cs-career-mun4` fixture and its three shared craft and inserts `template/mark.cfg`, and the
+  owner stages it as the operator-local fixture `spike-s6-mark`). (b) A seam lane on the spike branch
   `harness/scenarios/SPIKE-S6-mark-survives.toml` (driver seam: `LoadGame`, `SaveGame`, quicksave
   and quickload, a launch and a Revert, `InvokeRewindToLaunch`, `FlushAndQuit`; tier operator), plus
   a Python checker `spikes/r0/S6/check_mark.py` that diffs the node in every written file
   (`persistent.sfs`, `quicksave.sfs`, rewind-point `.sfs`). (c)
-  `Source/Parsek/InGameTests/Spikes/S6/SpikeS6Menu.cs`: a `MAINMENU` addon that clones
+  `Source/Parsek/InGameTests/Spikes/S6/SpikeS6Menu.cs`: a main-menu component (as built: added
+  by the armed S6 host object, not a `KSPAddon`, so an unarmed DLL never runs it) that clones
   `scenariosBtn` into a "Multiplayer" entry, inserts it into the private `stageTwoBtn` list by
   reflection, and opens a `MultiOptionDialog` with a `DialogGUITextInput` (folder path, paste with
   Ctrl+V) and a Create button that calls `GamePersistence.CreateNewGame`, adds a
@@ -660,7 +664,8 @@ Common to every spike task below:
   ships any `PARTUPGRADE` node.
 - **Procedure:** run the lane once with Parsek's normal DLL path and once with
   KSPCommunityFixes removed from a copy of the instance (KSPCF patches save code and the
-  dev install runs it). Then by hand: Discard Re-fly (`RevertInterceptor` writes
+  dev install runs it; as built, its `GameData/KSPCommunityFixes` folder is moved out of
+  `spike-r0-content` for the second run and moved back after, `spikes/r0/S6/PC-RUN.md`). Then by hand: Discard Re-fly (`RevertInterceptor` writes
   persistent.sfs), main menu -> Multiplayer -> create -> quit -> Resume Saved. Difficulty
   panel, by hand: main menu -> Multiplayer -> Difficulty; change one value in each of the
   four parts: a `DifficultyParams` field ("allow other launch sites" off), a `CareerParams`
@@ -1005,7 +1010,7 @@ Sessions (one KSP process each, on the spike instance unless named):
 | A | S10a (fixtures), S1b tooling PR, KSCSwitcher source read | none | agent work |
 | B | S1b scan | spike-r0, kRPC | needs one kRPC port pair (default 50000 / 50001) |
 | C1 | S4a, then S4b, S2, S5 | spike-r0 | one process, Space Center and flight |
-| C2 | S6, S7, S9 | second copy (spike-r0-nodlc is fine; S6 lane can use any, except step (f), which runs on spike-r0-content, a `stock-tree` copy) | no kRPC needed; seam only |
+| C2 | S6, S7, S9 | second copy (spike-r0-nodlc is fine; S6's lane runs on spike-r0-content too, because its template is the `stock-tree` career `cs-career-mun4` (as RW-5), and so does step (f); the menu steps can use any) | no kRPC needed; seam only |
 | C3 | S3 | spike-r0 then spike-r0-nodlc | needs both instances |
 | C4 | S10b with S12, S11 | spike-r0 | frame-cost sessions run with nothing else open |
 | D (last) | S8a, then S8b | none for S8a (the owner's PC and its sync clients); spike-r0 for S8b | after the end-to-end race on a plain folder; S8b is a frame-cost session |

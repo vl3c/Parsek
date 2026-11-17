@@ -9034,6 +9034,20 @@ class AdmissionDecision:
 REFERENCE_DLL_PROFILE = "stock-minimal"
 REFERENCE_DLL_DIFF_FIELD = "deployedParsekDll.sha256.vsReference"
 
+# SPIKE BRANCH ONLY (spike/mp-r0, never merged; plan r0-spikes.md S6). The R0 spike
+# instances (automation/spike-r0, spike-r0-content, spike-r0-nodlc and their copies)
+# deploy the spike DLL on purpose, so the reference-DLL comparison would refuse every
+# spike lane. Keyed on the instance DIR's leaf, like the comparison itself.
+SPIKE_INSTANCE_PREFIX = "spike-r0"
+
+
+def is_spike_instance_dir(instance_dir: Optional[str]) -> bool:
+    """True for an R0 spike instance dir (leaf starts with ``spike-r0``)."""
+    if not instance_dir:
+        return False
+    leaf = str(instance_dir).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    return leaf.lower().startswith(SPIKE_INSTANCE_PREFIX)
+
 
 def provision_command_hint(profile: str, copy: int = 1) -> str:
     """The operator command that re-provisions ``profile`` (a HUMAN call); copy
