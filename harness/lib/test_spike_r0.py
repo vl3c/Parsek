@@ -1,7 +1,7 @@
-"""SPIKE BRANCH ONLY (spike/mp-r0, never merged; plan r0-spikes.md S6).
+"""SPIKE BRANCH ONLY (spike/mp-r0, never merged; plan r0-spikes.md S6, S3).
 
-The reference-DLL admission skip for the R0 spike instances, and the S6 tools' own
-selftests run from the harness suite so a change to them reds here.
+The reference-DLL admission skip for the R0 spike instances, and the S6 and S3 tools'
+own selftests run from the harness suite so a change to them reds here.
 """
 
 import os
@@ -13,6 +13,7 @@ import hlib
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 S6 = os.path.join(REPO, "spikes", "r0", "S6")
+S3 = os.path.join(REPO, "spikes", "r0", "S3")
 
 
 class SpikeInstanceDirTests(unittest.TestCase):
@@ -45,6 +46,21 @@ class SpikeS6ToolSelftests(unittest.TestCase):
 
     def test_content_diff(self):
         self._run("content_diff.py")
+
+
+class SpikeS3ToolSelftests(unittest.TestCase):
+    """S3's summarizer selftest, and the committed test-set PNGs against their generator."""
+
+    def _run(self, *args):
+        p = subprocess.run([sys.executable] + list(args),
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+        self.assertEqual(0, p.returncode, p.stdout)
+
+    def test_summarize_s3(self):
+        self._run(os.path.join(S3, "summarize_s3.py"), "--selftest")
+
+    def test_suit_pngs_match_their_generator(self):
+        self._run(os.path.join(S3, "make_suit_pngs.py"), "--check")
 
 
 if __name__ == "__main__":
