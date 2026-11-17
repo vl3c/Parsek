@@ -565,6 +565,10 @@ The port as specified:
 - **PC:** in-game, lanes H44, S1.6.
 - **Risk:** low; the one map-side site, kept on the own catalog because map presence is own-lane
   until P3 adds rival presence.
+- **As built (2026-11-16):** the method stays (guard, then the catalog call); its only caller,
+  `ResolveBodyFixedPrimaryAnchorPid`, already rejects a whitespace id, so the guard is a second
+  line. The method-local `[ERS-exempt]` comment went with the raw walk; the file keeps its
+  allowlist entry for the two raw reads that remain (now at about :1242-1251 and :1554-1561).
 
 ### P2b: the lane object
 

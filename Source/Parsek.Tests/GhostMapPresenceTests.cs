@@ -2619,6 +2619,84 @@ namespace Parsek.Tests
             Assert.Equal(424242u, anchorPid);
         }
 
+        // The anchor lookup keeps its order through the playback catalog
+        // (CatalogRecordingScope.TreesThenPendingThenList): committed trees, then
+        // the pending tree, then the flat committed list.
+
+        [Fact]
+        public void ResolveBodyFixedPrimaryAnchorPid_CommittedTreeWinsOverPendingAndList()
+        {
+            var child = BuildParentAnchoredRelativeFrameRecording(includeBodyFixedPrimary: true);
+            try
+            {
+                RecordingStore.AddCommittedTreeForTesting(AnchorTree("committed", 111u));
+                PendingTreeSlot.StashPendingTree(AnchorTree("pending", 222u));
+                RecordingStore.AddRecordingWithTreeForTesting(AnchorParent("list", 333u));
+
+                Assert.Equal(111u, GhostMapPresence.ResolveBodyFixedPrimaryAnchorPid(child, child.TrackSections[0]));
+            }
+            finally
+            {
+                PendingTreeSlot.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ResolveBodyFixedPrimaryAnchorPid_NullTreeEntryFallsThroughToPendingThenList()
+        {
+            var child = BuildParentAnchoredRelativeFrameRecording(includeBodyFixedPrimary: true);
+            try
+            {
+                // A committed tree that holds the id with a null value does not match.
+                var holed = new RecordingTree { Id = "holed" };
+                holed.Recordings["parent-rec"] = null;
+                RecordingStore.AddCommittedTreeForTesting(holed);
+                RecordingStore.AddRecordingWithTreeForTesting(AnchorParent("list", 333u));
+
+                Assert.Equal(333u, GhostMapPresence.ResolveBodyFixedPrimaryAnchorPid(child, child.TrackSections[0]));
+
+                PendingTreeSlot.StashPendingTree(AnchorTree("pending", 222u));
+                Assert.Equal(222u, GhostMapPresence.ResolveBodyFixedPrimaryAnchorPid(child, child.TrackSections[0]));
+            }
+            finally
+            {
+                PendingTreeSlot.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void ResolveBodyFixedPrimaryAnchorPid_UnknownOrWhitespaceAnchorId_ReturnsZero()
+        {
+            var child = BuildParentAnchoredRelativeFrameRecording(includeBodyFixedPrimary: true);
+            RecordingStore.AddCommittedTreeForTesting(AnchorTree("committed", 111u));
+
+            TrackSection unknown = child.TrackSections[0];
+            unknown.anchorRecordingId = "no-such-rec";
+            Assert.Equal(0u, GhostMapPresence.ResolveBodyFixedPrimaryAnchorPid(child, unknown));
+
+            TrackSection blank = child.TrackSections[0];
+            blank.anchorRecordingId = "   ";
+            child.ParentAnchorRecordingId = "   ";
+            Assert.Equal(0u, GhostMapPresence.ResolveBodyFixedPrimaryAnchorPid(child, blank));
+        }
+
+        private static Recording AnchorParent(string treeId, uint pid)
+        {
+            return new Recording
+            {
+                RecordingId = "parent-rec",
+                TreeId = treeId,
+                VesselPersistentId = pid,
+            };
+        }
+
+        private static RecordingTree AnchorTree(string treeId, uint pid)
+        {
+            var tree = new RecordingTree { Id = treeId, RootRecordingId = "parent-rec" };
+            tree.AddOrReplaceRecording(AnchorParent(treeId, pid));
+            return tree;
+        }
+
         [Fact]
         public void TryResolveStateVectorMapPointPure_ParentAnchoredRelativeFrame_MissingBodyFixedPrimarySkips()
         {
