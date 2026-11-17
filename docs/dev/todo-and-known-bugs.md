@@ -2307,24 +2307,37 @@ in parallel in the cloud):
    crash the lane explodes one depot radiator (`PartAction button=explode`, pid 2576286852) for a
    deterministic background part death, and gates that the impact reached the depot (its
    background SurfaceMobile transition before the explode). Next: fly it again (harness only).
-3b. [ ] (AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`, NEVER FLOWN; branch `air-crash`.)
+3b. [ ] (AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
+   re-tuned on branch `air3tune`, not yet re-flown.)
    Two airplanes flying into each other (owner request 2026-11-16): two recorded aircraft collide
    in the air; checks both recordings end at the impact and both ghosts replay it.
    Shape: the craft `AIR Drone Carrier` (`harness/tools/build_air_drone_carrier.py`, in
    `gs1-two-stage-pad`) is the stock Mallard with an unpowered drone (empty tank, probe core,
-   Mk16 at 1,500 m) on a radial decoupler under the right wing. Mission `air3_drone_intercept`
-   (pure `mlib.ax_decide`) takes off with AIR-1's machine, levels at about 1,600 m in a loiter,
+   Mk16 at 2,400 m) on a radial decoupler under the right wing. Mission `air3_drone_intercept`
+   (pure `mlib.ax_decide`) takes off with AIR-1's machine, levels at about 2,500 m in a loiter,
    stages the drone off (an in-air controlled split: both aircraft are loaded members of one tree,
    the drone glides on its own), extends 25 s, then flies lead pursuit onto the drone's live
    position read each poll through the runner's new opt-in `read_air_target` channel, with a
-   closing-speed check and up to four passes, and ends on the first part-count drop of either
+   closing-speed check and up to five passes, and ends on the first part-count drop of either
    aircraft within 250 m. Gated: the split lines, the active `Part event: Destroyed` between the
    flight marks, a background part death on the drone's pid, two Destroyed / Splashed leaves (one
    per vessel), the scene-exit commit, Rewind-to-Launch, and after a WarpToUT replay each named
    ghost entering KSC range and hiding parts on its own index. Not checked: that both recordings
    end at the same UT or that the ghosts meet at the impact point (no check samples two live
    ghosts). Flight risks, ranked in the spec header: the chase missing, a hit with no part loss,
-   the drone's name, the replay cull range. Next: fly the reading run (no new DLL needed).
+   the replay cull range.
+   First flights (`2026-11-17_1427`, retry `_1436_a2`, release 1,617 m, Mk16 at 1,500 m): both
+   MISSION-FLAKE in PURSUE, "the drone sank to 150 m after 1 pass(es)", closest sampled 7.9 m /
+   17.1 m. Everything before the pursuit flew (release, split, drone name). Measured: the drone
+   fell ~380 m in ~9 s before the canopy bit, then sank 4.6 - 4.8 m/s; one EXTEND + 25 deg turn
+   back + run-in took ~136 s at 84 m/s, so only one pass fit; both passes ran ~5.5 m ABOVE the
+   drone, the vertical speed held 1.3 - 1.5 m/s short because the pitch law assumed 3 deg of
+   angle of attack and the Mallard flew on 1.0 - 1.5.
+   Fix (re-tune): a learned pitch trim (integral of the vertical-speed error, wings level), the
+   vertical gain floored at 1/5 s, a pass counted only after an approach pointed at the drone,
+   the release at 2,500 m under a Mk16 deploying at 2,400 m (three passes before the floor).
+   `CalibratedPursuitTests` reproduces the first flight's miss with the old law and meets the
+   drone within 1 m vertically on every pass with the new one. Next: re-fly (no new DLL).
 4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
    B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M green
    `2026-11-14_2320` on 2d8c25442.)

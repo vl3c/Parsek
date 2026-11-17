@@ -36,11 +36,14 @@ WHAT IS COPIED AND WHAT IS DERIVED (build_kerbal_x_sweep_craft.py's contract):
   (3) one `link =` line on the right wing (a child not linked from its parent is dropped at
   craft load, silently; build_kerbal_x_sweep_craft.py learned it the hard way); (4) the
   four appended PART headers; (5) the Mk16's `deployAltitude` goes from the stock 1000 to
-  CHUTE_DEPLOY_ALTITUDE (1500 m): the drone is released at about 1600 m, so the canopy
-  opens fully seconds after the release instead of 600 m lower, which buys the chaser
-  about 120 s more of a slowly sinking target (another attempt). The fuel tank is EMPTY
-  (both `amount =` lines 0): it is the drone's body, 0.25 t, and keeps the drone light
-  enough to hang under one Mk16 (about 4 - 5 m/s).
+  CHUTE_DEPLOY_ALTITUDE (2400 m): the drone is released at about 2500 m, so the canopy
+  opens fully seconds after the release instead of 1500 m lower, which leaves the chaser
+  about 450 s of a slowly sinking target (three passes). The fuel tank is EMPTY (both
+  `amount =` lines 0): it is the drone's body, 0.25 t, and keeps the drone light enough
+  to hang under one Mk16. MEASURED (two flights, 2026-11-17, deployAltitude 1500 and a
+  release at 1617 m): the Mk16 semi-deploys at the release and the drone falls almost
+  freely; it reads fully deployed about 4.5 s in, but slows only about 9 s in, about 380 m
+  down; from then on it sinks 4.6 - 4.8 m/s (1200 m to 170 m) and drifts no more.
 
 THE GEOMETRY. The decoupler and the tank keep exactly the RELATIVE pose they have in
 Kerbal X (decoupler origin on the core, tank centre 0.789 m out and 0.098 m down its
@@ -103,7 +106,7 @@ WING = "airlinerMainWing_4290606124"
 ENGINES = ("JetEngine_4293834828", "JetEngine_4293796280")
 ENGINE_ISTG = 1
 DRONE_ISTG = 0
-CHUTE_DEPLOY_ALTITUDE = 1500
+CHUTE_DEPLOY_ALTITUDE = 2400
 
 # The decoupler's origin (assumption A1).
 ANCHOR = (5.0, 8.72, -1.0)
