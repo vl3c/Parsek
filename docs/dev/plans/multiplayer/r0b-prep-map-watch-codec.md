@@ -601,6 +601,19 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   (`SidecarEpoch`, `ProbeRecordingId`, read by P6-05 and R3W-04) adds no method; `Decode` and
   `OverListsOf` are called by `Read`, which every committed recording load reaches. The
   payload has one constructor (no arguments), called by `OverListsOf`.
+  As built: the payload's lists start as empty lists, so a fresh payload is ready to decode
+  into, and `OverListsOf` swaps in the recording's six instances. The stats struct
+  `RecordingTrajectoryDecodeStats` replaces the private `SparsePointReadStats` (the readers
+  fill its sparse counts by `ref`) and adds `HealedFlatFallback`, the pre-heal counts, the
+  two deduped-copy counts and `DroppedNonMonotonicPoints`. Because `Decode` runs the
+  non-monotonic drop before `Read` logs, every count today's lines printed before the drop
+  is recomputed as `Points.Count + DroppedNonMonotonicPoints`: the `postPoints=` and
+  `rebuiltPoints=` fields, and the heal line's `points=`, so `ApplyFlatFallbackHealSideEffects`
+  gained a third parameter `healedPointCount` (the `Recording` heal overload passes
+  `rec.Points.Count`). The manifest cannot see this: a mutation that printed the post-drop
+  count left all 566 rows green (no committed fixture both drops and logs differently), so
+  `RecordingTrajectoryPayloadTests` pins the three lines on synthetic files, including an
+  orbit-only heal over non-monotonic points.
 - **Proof:** P6-01 manifest unchanged (this is the step the log digest exists for); new
   xUnit `RecordingTrajectoryPayloadTests`: for every FormatGolden `.prec`, `Decode` into a
   fresh payload equals what `Read` put into a `Recording`; list identity kept (the
@@ -611,7 +624,11 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   real save shows as an INV10 finding.
 - **Registers:** facts and layers re-pin; `CLAUDE.md` only if the key-file list names the
   codec (it does not today); no save format change, no golden folder, no `SaveFormat.cs`
-  step.
+  step. As built: no re-pin. After a Debug build, `layers.py --write-pins` moved only its
+  date line (52 backward module pairs, 440 type pairs) and `ilanalysis.py --write-pins` its
+  date line plus `RecordingOptimizer::MergeInto` in the complexity watch band, a method this
+  task does not touch (374 unreached, as on the base; the suite is green without it), so
+  neither file changed.
 - **Size:** M. **Depends on:** P6-02. **PC:** no; the analyzer pass rides on whatever lanes
   are flown next.
 - **Risk:** medium; every committed recording loads through this path, so an ordering slip
