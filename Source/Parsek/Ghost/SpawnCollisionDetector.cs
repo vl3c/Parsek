@@ -797,6 +797,73 @@ namespace Parsek
             return -1;
         }
 
+        /// <summary>
+        /// The part of a recording's flat <see cref="Recording.Points"/> list a walkback may
+        /// read as body-fixed lat/lon/alt on <paramref name="endBodyName"/>: the contiguous run
+        /// ending at the last point, walked backward until the first point that cannot be
+        /// placed on that body. Inside a RELATIVE section the flat entries are anchor-local
+        /// metre offsets (<see cref="FlatPointFrameDispatch"/>): an entry whose section also
+        /// recorded a body-fixed shadow at its UT is replaced by that shadow, one with no
+        /// shadow ends the run, and so does a point on another body (an SOI crossing). The run
+        /// stops rather than skipping, so the walkback never interpolates across a span it
+        /// cannot place. A null or empty <paramref name="endBodyName"/>, or an empty point
+        /// body name, is not body-checked. Returns the run in chronological order (never null).
+        /// </summary>
+        internal static List<TrajectoryPoint> ResolveWalkbackPointsOnBody(
+            List<TrajectoryPoint> points,
+            IList<TrackSection> sections,
+            string endBodyName,
+            string logContext)
+        {
+            var resolved = new List<TrajectoryPoint>();
+            if (points == null || points.Count == 0)
+                return resolved;
+
+            int substituted = 0;
+            int stopIndex = -1;
+            string stopReason = null;
+            for (int i = points.Count - 1; i >= 0; i--)
+            {
+                FlatPointFrame frame = FlatPointFrameDispatch.Classify(
+                    sections, points[i], out TrajectoryPoint bodyFixed);
+                if (frame == FlatPointFrame.RelativeNoShadow)
+                {
+                    stopIndex = i;
+                    stopReason = "relative-no-shadow";
+                    break;
+                }
+                if (!string.IsNullOrEmpty(endBodyName)
+                    && !string.IsNullOrEmpty(bodyFixed.bodyName)
+                    && !string.Equals(bodyFixed.bodyName, endBodyName, StringComparison.Ordinal))
+                {
+                    stopIndex = i;
+                    stopReason = "body-change(" + bodyFixed.bodyName + ")";
+                    break;
+                }
+                if (frame == FlatPointFrame.RelativeWithShadow)
+                    substituted++;
+                resolved.Add(bodyFixed);
+            }
+            resolved.Reverse();
+
+            if (stopReason != null || substituted > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(IC,
+                        "Walkback points resolved for {0} on body={1}: kept={2}/{3} relativeShadowsUsed={4} " +
+                        "stop={5} stopIndex={6} stopUT={7}",
+                        string.IsNullOrEmpty(logContext) ? "(none)" : logContext,
+                        string.IsNullOrEmpty(endBodyName) ? "(any)" : endBodyName,
+                        resolved.Count,
+                        points.Count,
+                        substituted,
+                        stopReason ?? "none",
+                        stopIndex,
+                        stopIndex >= 0 ? points[stopIndex].ut.ToString("F2", IC) : "n/a"));
+            }
+            return resolved;
+        }
+
         /// <summary>Default walkback sub-step size in metres for the subdivided variant. (#264)</summary>
         internal const float DefaultWalkbackStepMeters = 1.5f;
 

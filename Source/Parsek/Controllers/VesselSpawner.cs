@@ -162,6 +162,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when the spawn point is over the sea: the body has an ocean and the terrain
+        /// under (lat, lon) is below sea level. Stock
+        /// <c>CelestialBody.TerrainAltitude(lat, lon, allowNegative = false)</c> clamps a
+        /// negative height to 0, so the read must pass <c>allowNegative = true</c> or a sea
+        /// spawn is never seen as over water and is written LANDED instead of SPLASHED.
+        /// <paramref name="terrainAltitude"/> is the body's TerrainAltitude(lat, lon,
+        /// allowNegative); tests pass a stub with the stock clamp.
+        /// </summary>
+        internal static bool IsSpawnOverWater(
+            bool bodyHasOcean,
+            double lat,
+            double lon,
+            Func<double, double, bool, double> terrainAltitude)
+        {
+            if (!bodyHasOcean || terrainAltitude == null)
+                return false;
+            return terrainAltitude(lat, lon, true) < 0.0;
+        }
+
+        /// <summary>
         /// Spawn a vessel from a snapshot at a specific position and velocity,
         /// overriding the snapshot's stored orbit and location.
         /// Spawns at a specific position overriding the snapshot's stored orbit.
@@ -184,7 +204,7 @@ namespace Parsek
 
                 // Determine situation from altitude and velocity
                 double orbitalSpeed = Math.Sqrt(body.gravParameter / (body.Radius + alt));
-                bool overWater = body.ocean && body.TerrainAltitude(lat, lon) < 0;
+                bool overWater = IsSpawnOverWater(body.ocean, lat, lon, body.TerrainAltitude);
                 string sit = PrepareSpawnNodeAtPosition(
                     spawnNode,
                     body?.name,

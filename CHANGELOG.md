@@ -24,6 +24,15 @@ Not released yet.
 
 ### Fixed
 
+- **A vessel whose landing spot is taken is placed back along its own path.** When another
+  vessel blocks the end spot, Parsek steps back along the recorded path; a lander that flew in
+  near a base could be put down far away in a random direction instead. A boat or splashed pod
+  moved this way now stays on the water surface, never under it. (TIP-SPAWN-PLACEMENT)
+- **A vessel or kerbal that ends at sea is created floating.** It was written as landed on the
+  water, which KSP can treat oddly until the first physics frame. (TIP-SPAWN-PLACEMENT)
+- **The last vessel of a chain follows the normal end rules.** If its whole crew died, it is no
+  longer created as an empty capsule, and an orbital one is checked for room where it will
+  actually appear on its orbit, not where it was recorded. (TIP-SPAWN-PLACEMENT)
 - **A vessel that ends away from Kerbin appears when you wait at the Space Center.** A landing
   or splashdown on another body, recorded from there, now appears when you time-warp past its
   end at the Space Center, not only on the next Tracking Station or flight visit. Like those

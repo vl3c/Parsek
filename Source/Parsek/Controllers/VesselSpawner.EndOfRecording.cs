@@ -809,14 +809,21 @@ namespace Parsek
                     // Fall through to the walkback branch
                 }
 
-                // Walkback: if the recording has enough trajectory points, step backward with
-                // 1.5 m linear sub-steps until we find a clear position. (#264)
-                if (rec.Points != null && rec.Points.Count > 1)
+                // Walkback: if the recording has enough trajectory points that place on the
+                // spawn body, step backward with 1.5 m linear sub-steps until we find a clear
+                // position (#264). Relative-section anchor offsets and other-body points are
+                // never read as lat/lon here.
+                List<TrajectoryPoint> walkPoints = rec.Points != null && rec.Points.Count > 1
+                    ? SpawnCollisionDetector.ResolveWalkbackPointsOnBody(
+                        rec.Points, rec.TrackSections, body.name,
+                        $"end-of-recording #{index} ({rec.VesselName})")
+                    : null;
+                if (walkPoints != null && walkPoints.Count > 1)
                 {
                     double walkLat, walkLon, walkAlt;
                     bool walked = TryWalkbackForEndOfRecordingSpawn(
                         rec, index, spawnBounds, body, out walkLat, out walkLon, out walkAlt,
-                        exemptVesselPid);
+                        exemptVesselPid, walkPoints);
                     if (walked)
                     {
                         Vector3d walkPos = body.GetWorldSurfacePosition(walkLat, walkLon, walkAlt);
@@ -831,7 +838,8 @@ namespace Parsek
                     return (true, spawnLat, spawnLon, spawnAlt, spawnPos);
                 }
 
-                // Fallback for 1-point / empty trajectories (synthetic recordings):
+                // Fallback for 1-point / empty trajectories (synthetic recordings), or a
+                // trajectory whose walkable run on the spawn body is a single point:
                 // use the existing CollisionBlockCount / MaxCollisionBlocks retry path.
                 rec.CollisionBlockCount++;
                 if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
@@ -873,7 +881,8 @@ namespace Parsek
         internal static bool TryWalkbackForEndOfRecordingSpawn(
             Recording rec, int index, Bounds spawnBounds, CelestialBody body,
             out double walkLat, out double walkLon, out double walkAlt,
-            uint exemptVesselPid = 0)
+            uint exemptVesselPid = 0,
+            List<TrajectoryPoint> walkPoints = null)
         {
             walkLat = 0;
             walkLon = 0;
@@ -886,10 +895,15 @@ namespace Parsek
                 return false;
             }
 
+            if (walkPoints == null)
+                walkPoints = SpawnCollisionDetector.ResolveWalkbackPointsOnBody(
+                    rec.Points, rec.TrackSections, body.name,
+                    $"end-of-recording #{index} ({rec.VesselName})");
+
             // Every candidate is checked against the active vessel too (todo
             // GC9-SPAWN-IGNORES-ACTIVE-VESSEL), the same rule as the endpoint check.
             var walkResult = SpawnCollisionDetector.WalkbackAlongTrajectorySubdivided(
-                rec.Points,
+                walkPoints,
                 body.Radius,
                 SpawnCollisionDetector.DefaultWalkbackStepMeters,
                 (lat, lon, alt) => body.GetWorldSurfacePosition(lat, lon, alt),
@@ -953,9 +967,9 @@ namespace Parsek
                         walkAlt = ClampAltitudeForLanded(walkAlt, pqsTerrain, index, rec.VesselName);
                     }
                 }
-                else if (rec.TerminalStateValue == TerminalState.Splashed && walkAlt > 0)
+                else if (rec.TerminalStateValue == TerminalState.Splashed)
                 {
-                    walkAlt = 0;
+                    walkAlt = ClampSplashedSpawnAltitude(walkAlt, index, rec.VesselName, "walkback");
                 }
 
                 ParsekLog.Info("Spawner",
@@ -1018,12 +1032,7 @@ namespace Parsek
             // colliders (including buildings), handling any residual clipping properly.
             if (rec.TerminalStateValue == TerminalState.Splashed)
             {
-                if (alt != 0.0)
-                {
-                    ParsekLog.Verbose("Spawner",
-                        $"Clamped altitude for SPLASHED spawn #{index} ({rec.VesselName}): {alt:F1} -> 0");
-                    alt = 0;
-                }
+                alt = ClampSplashedSpawnAltitude(alt, index, rec.VesselName, "endpoint");
             }
             else if (rec.TerminalStateValue == TerminalState.Landed)
             {
@@ -1035,6 +1044,24 @@ namespace Parsek
                     alt = ClampAltitudeForLanded(alt, pqsTerrain, index, rec.VesselName);
                 }
             }
+        }
+
+        /// <summary>
+        /// The SPLASHED spawn altitude rule (#313): every Splashed end spawns at sea level,
+        /// whether the recorded altitude is above it or below it (a submerged hull or a
+        /// recorded CoM under the waterline), so a vessel never appears under water. Shared by
+        /// the endpoint (<see cref="ResolveSpawnPosition"/>) and the collision walkback, so the
+        /// two cannot disagree. Logs the clamp when it moves the altitude.
+        /// </summary>
+        internal static double ClampSplashedSpawnAltitude(
+            double alt, int index, string vesselName, string site)
+        {
+            if (alt == 0.0)
+                return alt;
+            ParsekLog.Verbose("Spawner", string.Format(CultureInfo.InvariantCulture,
+                "Clamped altitude for SPLASHED spawn #{0} ({1}): {2:F1} -> 0 (site={3})",
+                index, vesselName, alt, site ?? "(none)"));
+            return 0.0;
         }
 
         /// <summary>Which source <see cref="SelectSpawnCoordinates"/> took the spawn position from.</summary>

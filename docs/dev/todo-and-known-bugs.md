@@ -140,6 +140,41 @@ near 0), counted in the summary as its own token so the existing pins stay valid
 First flights owed, in this order: TSS-1, TSS-2, KSS-2, TSS-3 (expected red), KSS-1 (a full B13
 flight), then re-fly the four changed lanes. Each is a reading run: pin what it measures.
 
+---
+
+## ~~TIP-SPAWN-PLACEMENT~~: where an end-of-recording vessel is placed: four confirmed defects in the walkback, the splashed clamp, the over-water test and the chain tip [FILED 2026-11-17 from the tip-spawn verification pass (items G, H, S1, S2; headless proofs on scratch branch `scratch/spawnverify` 39102b11, never pushed), by code reading and failing xUnit cells. FIXED 2026-11-17, branch `wip/spawnfix2`; xUnit (`TipSpawnPlacementTests`); no lane flies any of the four paths; medium (a vessel placed far off its path, under water, or as an empty capsule)]
+
+- **G, walkback read Relative offsets as lat/lon.** `TryWalkbackForEndOfRecordingSpawn` handed the
+  flat `rec.Points` list to `WalkbackAlongTrajectorySubdivided` with no frame dispatch and no
+  body check, so a lander that approached a base inside a RELATIVE section walked into
+  anchor-local metres read as degrees (proof: a candidate 885 m off the path). Fix:
+  `SpawnCollisionDetector.ResolveWalkbackPointsOnBody` keeps only the contiguous run ending at
+  the last point that places on the spawn body, substituting a Relative point's body-fixed
+  shadow (`FlatPointFrameDispatch`) and stopping at a Relative point with no shadow or at a point
+  on another body. The end-of-recording collision path walks that run (fewer than two points
+  falls to the existing single-point retry path), and the chain-tip walkback
+  (`VesselGhoster.TryWalkbackSpawn`) uses the same run. The Orbiting-end variant (walkback
+  coordinates mixed with a propagated orbit) was only plausible and is not addressed.
+- **S1, walkback kept a negative depth for a Splashed end.** The walkback clamp only lowered a
+  positive altitude to 0, contradicting #313 (every Splashed spawn at sea level). Fix: one
+  helper, `VesselSpawner.ClampSplashedSpawnAltitude`, used by both `ResolveSpawnPosition` and the
+  walkback.
+- **S2, a sea spawn was written LANDED.** `SpawnAtPosition` read `body.TerrainAltitude(lat, lon)`,
+  whose stock default `allowNegative = false` clamps a sea floor to 0 (decompiled IL), so
+  `overWater` was always false and `DetermineSituation` wrote `sit=LANDED` for a Splashed EVA,
+  breakup or position-routed spawn at alt <= 0. Fix: `VesselSpawner.IsSpawnOverWater` reads
+  `TerrainAltitude(lat, lon, true)`.
+- **H, chain tip skipped two end-of-recording rules.** (1) No all-crew-dead abandon (#170):
+  `SpawnChainTipWithResolvedState` now runs `VesselSpawner.TryAbandonChainTipForDeadCrew` before
+  spawning, settling the tip VesselSpawned + SpawnAbandoned with the no-living-crew note (EVA tip
+  exempt), the same outcome as an invalid-materialization abandon on this path: the chain stays
+  ghost-only. (2) An orbital tip was collision-checked at its snapshot position while it spawns
+  at its terminal orbit propagated to the spawn UT: `SpawnAtChainTip` now resolves that state
+  first and checks there. The other three H claims (per-kerbal crew, the attempts cap, the EVA
+  exempt pid) were refuted.
+
+---
+
 ## ~~KSC-END-SPAWN-SKIPS-OFF-KERBIN~~: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. FIXED 2026-11-17, branch `kscspawn`; xUnit; re-flights owed (LAY-1 goes green, the lanes below confirm nothing new spawns); medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
 
 What happened. LAY-1 landed the crewed Duna Rocket's pod on Laythe and committed it

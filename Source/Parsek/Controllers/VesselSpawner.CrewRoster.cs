@@ -167,6 +167,63 @@ namespace Parsek
             return sb.ToString();
         }
 
+        /// <summary>
+        /// The chain-tip spawn's dead-crew guard (#170): reads the tip's spawn snapshot
+        /// against the live roster with <see cref="ShouldBlockSpawnForDeadCrewInSnapshot"/>
+        /// and settles the tip through <see cref="ApplyChainTipDeadCrewAbandon"/>. An EVA tip
+        /// is exempt, as on the end-of-recording path. Returns true when the tip was
+        /// abandoned and the caller must spawn nothing.
+        /// </summary>
+        internal static bool TryAbandonChainTipForDeadCrew(
+            Recording tipRecording,
+            ConfigNode spawnSnapshot,
+            string logContext)
+        {
+            if (tipRecording == null || spawnSnapshot == null
+                || !string.IsNullOrEmpty(tipRecording.EvaCrewName))
+                return false;
+            if (!ShouldBlockSpawnForDeadCrewInSnapshot(spawnSnapshot, out List<string> snapshotCrew))
+                return false;
+            return ApplyChainTipDeadCrewAbandon(
+                tipRecording,
+                allCrewDead: true,
+                FormatSpawnableClassificationSummary(ClassifySnapshotCrew(snapshotCrew)),
+                logContext);
+        }
+
+        /// <summary>
+        /// Settles a chain tip whose whole crew is dead exactly as the end-of-recording spawn
+        /// settles its recording (VesselSpawned + SpawnAbandoned, abandon reason
+        /// no-living-crew), so no empty crewed pod is spawned. No-op (false) when
+        /// <paramref name="allCrewDead"/> is false or the tip is an EVA kerbal.
+        /// </summary>
+        internal static bool ApplyChainTipDeadCrewAbandon(
+            Recording tipRecording,
+            bool allCrewDead,
+            string crewSummary,
+            string logContext)
+        {
+            if (tipRecording == null || !allCrewDead)
+                return false;
+            if (!string.IsNullOrEmpty(tipRecording.EvaCrewName))
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"Chain tip dead-crew guard skipped ({logContext ?? "(none)"}) for EVA tip " +
+                    $"rec={tipRecording.RecordingId ?? "(unknown)"}");
+                return false;
+            }
+
+            tipRecording.VesselSpawned = true;
+            tipRecording.SpawnAbandoned = true;
+            SpawnWarpOutcomeWatch.NoteAbandonReason(
+                tipRecording, SpawnWarpOutcomeWatch.ReasonNoLivingCrew);
+            ParsekLog.Warn("Spawner",
+                $"Chain tip spawn ABANDONED ({logContext ?? "(none)"}) rec={tipRecording.RecordingId ?? "(unknown)"} " +
+                $"vessel={tipRecording.VesselName ?? "(unknown)"}: no spawnable crew - " +
+                (crewSummary ?? "(no crew summary)"));
+            return true;
+        }
+
         internal static bool ShouldBlockSpawnForDeadCrewInSnapshot(
             ConfigNode snapshot,
             out List<string> snapshotCrew)

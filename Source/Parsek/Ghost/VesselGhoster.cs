@@ -274,10 +274,45 @@ namespace Parsek
             if (StopChainTipSpawnForTerminalOrbitVerdict(chain, tipRecording, spawnUT, "chain-tip"))
                 return 0;
 
-            // Collision check: use snapshot lat/lon/alt (where RespawnVessel actually places
-            // the vessel), falling back to trajectory/terminal position (#127).
+            // An orbiting tip spawns at its recorded terminal orbit propagated to spawnUT,
+            // not at the snapshot position: resolve that state first so the collision check
+            // tests the place the vessel will appear (the end-of-recording spawn does the same).
+            CelestialBody spawnBody = tipPoint.HasValue
+                ? VesselSpawner.ResolveSpawnRotationBody(tipRecording, tipPoint)
+                : null;
+            bool haveOrbitalSpawnState = false;
+            double orbitLat = 0.0, orbitLon = 0.0, orbitAlt = 0.0;
+            Vector3d orbitalSpawnVelocity = Vector3d.zero;
+            Orbit orbitalSpawnOrbit = null;
+            if (tipPoint.HasValue
+                && spawnBody != null
+                && VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tipRecording)
+                && VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
+                    tipRecording,
+                    spawnBody,
+                    spawnUT,
+                    out orbitLat,
+                    out orbitLon,
+                    out orbitAlt,
+                    out orbitalSpawnVelocity,
+                    out orbitalSpawnOrbit))
+            {
+                haveOrbitalSpawnState = true;
+            }
+
+            // Collision check: an orbital tip at its propagated position; otherwise the
+            // snapshot lat/lon/alt (where RespawnVessel actually places the vessel), falling
+            // back to trajectory/terminal position (#127).
             Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
-            Vector3d spawnPos = ResolveSpawnPosition(tipRecording, vesselSnapshot);
+            Vector3d spawnPos = haveOrbitalSpawnState
+                ? spawnBody.GetWorldSurfacePosition(orbitLat, orbitLon, orbitAlt)
+                : ResolveSpawnPosition(tipRecording, vesselSnapshot);
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "SpawnAtChainTip: collision check for tip '{0}' at {1} position (ut={2})",
+                    tipId,
+                    haveOrbitalSpawnState ? "propagated-orbit" : "snapshot",
+                    spawnUT.ToString("F2", ic)));
             var (overlap, distance, blockerName, _) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
                     spawnPos, spawnBounds, SpawnCollisionPadding,
@@ -307,21 +342,9 @@ namespace Parsek
                     out spawnLon,
                     out spawnAlt);
 
-                CelestialBody spawnBody = VesselSpawner.ResolveSpawnRotationBody(tipRecording, tipPoint);
-                bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tipRecording);
                 Vector3d spawnVelocity;
                 Orbit orbitOverride = null;
-                if (useRecordedTerminalOrbit
-                    && spawnBody != null
-                    && VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
-                        tipRecording,
-                        spawnBody,
-                        spawnUT,
-                        out double orbitLat,
-                        out double orbitLon,
-                        out double orbitAlt,
-                        out Vector3d orbitalSpawnVelocity,
-                        out Orbit orbitalSpawnOrbit))
+                if (haveOrbitalSpawnState)
                 {
                     spawnLat = orbitLat;
                     spawnLon = orbitLon;
@@ -854,6 +877,11 @@ namespace Parsek
                 ApplyTerrainCorrection(tipRecording, spawnSnapshot);
             }
 
+            // Dead crew guard (#170), the same rule as the end-of-recording spawn: a tip whose
+            // whole crew is dead is abandoned rather than spawned as an empty crewed pod.
+            if (VesselSpawner.TryAbandonChainTipForDeadCrew(tipRecording, spawnSnapshot, logContext))
+                return 0;
+
             if (VesselSpawner.ShouldRouteThroughSpawnAtPosition(tipRecording))
             {
                 if (body != null)
@@ -1007,11 +1035,18 @@ namespace Parsek
             CelestialBody walkbackBody = VesselSpawner.ResolveSpawnRotationBody(tipRecording, lastPoint);
             CelestialBody walkbackSpawnBody = walkbackBody;
             TrajectoryPoint walkPt;
+            // Relative-section anchor offsets (and, with a resolved body, points on another
+            // body) are never read as lat/lon: the walk covers only the run that places.
+            List<TrajectoryPoint> walkPoints = SpawnCollisionDetector.ResolveWalkbackPointsOnBody(
+                tipRecording.Points,
+                tipRecording.TrackSections,
+                walkbackBody != null ? walkbackBody.name : null,
+                string.Format(ic, "chain tip '{0}'", tipRecording.RecordingId ?? "(unknown)"));
 
             if (walkbackBody != null)
             {
                 var walkResult = SpawnCollisionDetector.WalkbackAlongTrajectorySubdividedDetailed(
-                    tipRecording.Points,
+                    walkPoints,
                     walkbackBody.Radius,
                     SpawnCollisionDetector.DefaultWalkbackStepMeters,
                     (lat, lon, alt) => walkbackBody.GetWorldSurfacePosition(lat, lon, alt),
@@ -1048,7 +1083,7 @@ namespace Parsek
             else
             {
                 int validIdx = SpawnCollisionDetector.WalkbackAlongTrajectory(
-                    tipRecording.Points,
+                    walkPoints,
                     spawnBounds,
                     SpawnCollisionPadding,
                     pt =>
@@ -1080,7 +1115,7 @@ namespace Parsek
                     return 0;
                 }
 
-                walkPt = tipRecording.Points[validIdx];
+                walkPt = walkPoints[validIdx];
                 ParsekLog.Warn("SpawnCollision",
                     string.Format(ic,
                         "Trajectory walkback: vessel={0} — body resolution unavailable, falling back to point walkback at UT={1}",
