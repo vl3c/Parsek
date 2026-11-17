@@ -8715,10 +8715,19 @@ class RaceSharedFolderStagingSmokeTests(unittest.TestCase):
         self.assertGreater(len(specs), 500)
         for spec in specs:
             with self.subTest(spec=spec.get("id")):
-                self.assertIsNone(hlib.spec_race_fixture(spec))
-                self.assertTrue(run.stage_race_shared(spec, self.instance, self.logger))
-                self.assertIsNone(run._snapshot_race_shared("r", spec, self.instance,
-                                                            self.logger))
+                if hlib.spec_pair(spec) is not None:
+                    # A paired lane (multiplayer T-54) on the pair folder: outside the
+                    # parallel runner it has no folder, so staging refuses and touches
+                    # nothing, and there is nothing to snapshot.
+                    self.assertTrue(hlib.spec_uses_pair_folder(spec))
+                    self.assertFalse(run.stage_race_shared(spec, self.instance, self.logger))
+                    snap = run._snapshot_race_shared("r", spec, self.instance, self.logger)
+                    self.assertEqual((False, "no-shared-folder"), (snap["ran"], snap["reason"]))
+                else:
+                    self.assertIsNone(hlib.spec_race_fixture(spec))
+                    self.assertTrue(run.stage_race_shared(spec, self.instance, self.logger))
+                    self.assertIsNone(run._snapshot_race_shared("r", spec, self.instance,
+                                                                self.logger))
         self.assertEqual(before, self._tree(self.instance))
         self.assertTrue(os.path.isfile(sentinel))
 

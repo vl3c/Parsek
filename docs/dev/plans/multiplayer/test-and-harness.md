@@ -953,7 +953,9 @@ the B2 shape (B2 has 1 PASS in 11 index rows and needs a pad craft a created rac
 
 ### T-34 Lane RACE-13-paired-copies (optional; a spec on T-54)
 
-Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its first spec.
+Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its first race spec
+(corrected 2026-11-17: T-54 shipped its own plumbing pair, PAIR-1a / PAIR-1b, as the first
+paired spec).
 
 - **Change:** operator lane, a `[pair]` of two specs (roles A and B) on two `stock-tree` slot
   copies sharing `automation/rs/<run>/<group>/` (T-54): both start in race overlays of one
@@ -1338,11 +1340,49 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   shared folder; a partner that ends or times out reads `INVALID(partner-lost)` on the
   survivor, flake-exempt and listed apart from the machine refusals. No new lock.
 - **Proof:** `parallel` and hlib cells (both-or-neither, barrier order, partner lost); one
-  paired flight on the owner's PC (T-34 is its first spec).
+  paired flight on the owner's PC (corrected 2026-11-17: the pair PAIR-1a / PAIR-1b below is
+  its first spec, since T-34 waits on T-21 and T-30).
 - **Registers:** `harness/README.md` parallel runs; harness-core verdict subkinds.
 - **Size:** M. **Depends on:** T-03, T-06. **PC:** lanes (one pair).
 - **Risk:** medium; pairing is new to the runner, and the second `stock-tree` copy needs
   `provision.py --profile stock-tree --copy 2` once.
+- **As built (2026-11-17, branch `mp/t-54-paired-lanes`):** where the plan left a choice
+  open, the rule taken is the one that can never report PASS for a pair whose partner did
+  not run.
+  - Selection: selecting a half adds its partner (`parallel.complete_pairs`); a broken pair
+    (no partner, two of one role, a profile / tier / barrier / shared-folder mismatch) or an
+    exclusive half refuses the whole selection (exit 2); a profile with fewer than two
+    provisioned copies refuses the run (exit 2, naming `provision.py --copy 2`).
+  - Every paired spec carries at least one barrier and `[retry] policy = "none"` (a retry
+    would fly one half alone); barrier timeouts are 1..3600 s and under `budgetSeconds`;
+    both halves name the same barriers in the same order (`hlib.validate_pair_block`,
+    `hlib.pair_problems`).
+  - Dispatch: the pair is one ordering unit (its longer half's p50, A then B) and reserves
+    the dispatch while it waits for two free slots, so single lanes cannot starve it. With
+    `slots` below 2 it never starts and the run ends red with lanes left unflown
+    (`set-slots 2`, then `resume`). The memory guard charges both copies
+    (`memory_holds(new_copies=2)`; with nothing running, the first half is free as any
+    first lane is).
+  - Barrier files: `<name>.<role>.arrived` and `<role>.ended`, the latter written by run.py
+    when its drive is over, when it skips a barrier or when a harness step fails, and by the
+    runner as a backstop when a child exits. A partner's arrival wins over its ended marker.
+  - Verdicts: `partner-lost` is terminal, not retried, flake-exempt and kept in its own tuple
+    `hlib.PAIR_INVALID_SUBKINDS`. A paired lane flown without `--pair-dir` (a serial
+    `run.py`) is refused pre-boot `INVALID(partner-lost)`. The runner's `parallel.pair_guard`
+    rewrites a green half to `INVALID` (attempts=1, note `partner-lost: partner X left ...`)
+    when its partner left no verdict (NO-REPORT, NOT-RUN or no line). `resume` re-flies both
+    halves when either is unsettled, unless one already settled red (a finding is never
+    re-flown away).
+  - Children never wipe the shared folder (staging only checks it is exactly
+    `<umbrella>/automation/rs/<run>/<group>/` with no link on the way); `${raceShared}` and
+    the `results/<runId>_race/` snapshot resolve to it.
+  - The first spec is a plumbing pair, not T-34: `PAIR-1a-shared-folder-handshake` (A) and
+    `PAIR-1b-shared-folder-handshake` (B), operator, stock-minimal, `fresh-career`, no `race`
+    tag (no Parsek race feature). A copies the committed `fixtures/race/pair-handshake` token
+    into the shared folder, B appends to it (refused `INVALID(harness-step)` unless the
+    folder really is shared), with barriers `placed` and `edited`. Never flown yet.
+  - Tests: `harness/lib/test_pairs.py` (pure cells, run.py barrier steps over real folders,
+    full no-game runner runs through `_fake_parallel_child.py`).
 
 ### T-55 Race integration variants (lanes RCI-1 to RCI-9)
 

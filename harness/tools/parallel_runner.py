@@ -16,6 +16,14 @@ bookkeeping (run index append, coverage / duration refresh, results sweep).
 Contract: harness/README.md, "Parallel runs". The children are ``run.py``
 itself in slot mode, so verdicts, retries and verifiers are run.py's own.
 
+PAIRED LANES (multiplayer T-54, README "Paired lanes"): the two halves of a
+``[pair]`` start together on two slots of their profile (A first), after this
+shell wiped the pair's shared folder ``<umbrella>/automation/rs/<run>/<group>/``
+and its barrier folder ``results/parallel/<run>/pairs/<group>/`` under the
+machine lock; each child gets both as ``--pair-shared`` / ``--pair-dir``. When a
+half's child exits the shell writes its ``<role>.ended`` marker, so the partner
+waiting at a barrier reads INVALID(partner-lost) at once.
+
 EXIT CODES (tier_runner's vocabulary, run.py's selection rule for 0 / 1):
 
   0  GREEN            every planned lane ended PASS or EXPECTED-FAIL
@@ -623,6 +631,9 @@ class RunFolder:
     def lanes_dir(self) -> str:
         return os.path.join(self.path, parallel.LANES_DIRNAME)
 
+    def pair_dir(self, group: str) -> str:
+        return parallel.pair_barrier_dir(self.path, group)
+
     def read_plan(self) -> Optional[Dict]:
         plan = read_json(self.file(parallel.PLAN_FILE))
         if not isinstance(plan, dict) or plan.get("schema") != parallel.PLAN_SCHEMA:
@@ -804,6 +815,74 @@ def _finish_child(child: Child, folder: RunFolder, lane_lines: List[str],
     return outcome, False
 
 
+def _prepare_pair_dirs(ctx: Context, folder: RunFolder, run_name: str, group: str,
+                       log: RunnerLog) -> Tuple[str, str]:
+    """Wipe and create the pair's barrier folder (under the run folder) and its
+    shared folder ``<umbrella>/automation/rs/<run>/<group>`` before its halves
+    start, under the machine lock this runner holds. Every level of the shared
+    path must be a plain folder reached through no link, or the runner stops
+    (nothing outside automation/ is ever deleted)."""
+    automation = ctx.automation_dir()
+    shared = parallel.pair_shared_dir(automation, run_name, group)
+    barrier = folder.pair_dir(group)
+    for path, base in ((shared, automation), (barrier, folder.path)):
+        probe = base
+        rel = os.path.relpath(path, base).split(os.sep)
+        for part in rel:
+            probe = os.path.join(probe, part)
+            if os.path.islink(probe) or (os.path.lexists(probe) and os.path.normcase(
+                    os.path.realpath(probe)) != os.path.normcase(
+                    os.path.join(os.path.realpath(os.path.dirname(probe)), part))):
+                raise RuntimeError("pair folder %s passes through a link or junction at %s; "
+                                   "refusing to wipe it" % (path, probe))
+        had = os.path.lexists(path)
+        if had:
+            shutil.rmtree(path)
+        os.makedirs(path)
+        log.info("Pair", "pair %s folder ready %s%s" % (group, path, " (wiped)" if had else ""))
+    return barrier, shared
+
+
+def _mark_pair_child_ended(folder: RunFolder, child: "Child", log: RunnerLog) -> None:
+    """A paired half's child exited: write its ``<role>.ended`` marker (run.py
+    writes it first when its drive ends; this covers a child that crashed or was
+    refused before driving), so a partner still at a barrier is released."""
+    path = os.path.join(folder.pair_dir(child.lane.pair_group),
+                        hlib.pair_ended_file(child.lane.pair_role))
+    if os.path.exists(path):
+        return
+    try:
+        write_text_atomic(path, "%s runner: child exited code=%s\n"
+                          % (utcnow_iso(), child.proc.returncode))
+        log.info("Pair", "pair %s role %s child exited; ended marker written"
+                 % (child.lane.pair_group, child.lane.pair_role))
+    except OSError as exc:
+        log.warn("Pair", "could not write %s (%s); the partner waits for its barrier "
+                         "timeout" % (path, exc))
+
+
+def _guard_finished_pair(done: Dict[str, Optional[parallel.LaneOutcome]],
+                         partners: Dict[str, str], folder: RunFolder, lane_lines: List[str],
+                         log: RunnerLog) -> None:
+    """Once both halves of a pair finished, rewrite a green half whose partner
+    left no verdict to INVALID(partner-lost) (``parallel.pair_guard``)."""
+    if len(done) < 2:
+        return
+    for lane_id, own in list(done.items()):
+        mate = partners.get(lane_id)
+        if own is None or mate not in done:
+            continue
+        rewritten = parallel.pair_guard(own, done[mate], mate)
+        if rewritten is None:
+            continue
+        lane_lines.append(parallel.format_summary_line(rewritten))
+        done[lane_id] = rewritten
+        log.warn("Finish", "lane=%s verdict %s -> INVALID: %s"
+                 % (lane_id, own.verdict, rewritten.note))
+        folder.event("finish", lane=lane_id, slot=own.slot, verdict=rewritten.verdict,
+                     attempts=rewritten.attempts, guard=rewritten.note)
+
+
 def _clear_stale_stop_request(ctx: Context, log: RunnerLog) -> None:
     """A stop request present once this runner holds the machine lock belongs to
     a run that already ended (tier_runner's and run.py's rule, on a new run and
@@ -867,8 +946,9 @@ def _dispatch(ctx: Context, folder: RunFolder, plan: Dict, lanes: List[parallel.
               resolution: parallel.WindowResolution, keeper: LockKeeper,
               job: WindowsJob, log: RunnerLog, running: Dict[int, "Child"]) -> LoopResult:
     plan_ids = [l.lane_id for l in lanes]
+    partners = parallel.pair_partners(lanes)
     lane_lines = [l for l in folder.summary_lines() if parallel.parse_summary_line(l)]
-    remaining = set(parallel.remaining_lane_ids(plan_ids, lane_lines))
+    remaining = set(parallel.remaining_lane_ids(plan_ids, lane_lines, partners))
     pending = [l for l in lanes if l.lane_id in remaining]
     log.info("Plan", "%d lane(s) to fly, %d already settled, %d not flown"
              % (len(pending), len(lanes) - len(pending), len(not_flown)))
@@ -878,17 +958,26 @@ def _dispatch(ctx: Context, folder: RunFolder, plan: Dict, lanes: List[parallel.
     last_start: Optional[float] = None
     last_wait: Optional[Tuple[str, str]] = None
     mem_cache: Tuple[float, Optional[parallel.MemoryReading]] = (0.0, None)
+    # A dispatched pair's halves as they finish: group -> {lane id: outcome or None}.
+    pair_finished: Dict[str, Dict[str, Optional[parallel.LaneOutcome]]] = {}
     while True:
         for s, child in list(running.items()):
             if child.proc.poll() is None:
                 continue
             del running[s]
+            if child.lane.paired:
+                _mark_pair_child_ended(folder, child, log)
             outcome, child_stopped = _finish_child(child, folder, lane_lines, log)
             if child_stopped:
                 result.stopped = True
             if outcome is not None:
                 result.ran += 1
                 result.run_ids.extend(outcome.run_ids)
+            if child.lane.paired:
+                done = pair_finished.setdefault(child.lane.pair_group, {})
+                done[child.lane.lane_id] = outcome
+                _guard_finished_pair(done, partners, folder, lane_lines, log)
+            if outcome is not None or child.lane.paired:
                 folder.write_summary(lane_lines, plan_ids, not_flown)
 
         slots_value, stop = folder.read_control(fallback_slots)
@@ -918,7 +1007,32 @@ def _dispatch(ctx: Context, folder: RunFolder, plan: Dict, lanes: List[parallel.
                                         memory, time.time(), last_start,
                                         ctx.dispatch_gap_seconds, ctx.boot_window_seconds)
         if decision.action == parallel.ACTION_DONE:
+            if pending and not halt:
+                log.warn("Plan", "%s; %d lane(s) left pending" % (decision.reason, len(pending)))
+                folder.event("wait", waitKind=parallel.WAIT_PAIR, reason=decision.reason)
             break
+        if decision.action == parallel.ACTION_START_PAIR:
+            half_a = next(l for l in pending if l.lane_id == decision.lane_id)
+            half_b = next(l for l in pending if l.lane_id == decision.partner_lane_id)
+            pair_dir, shared = _prepare_pair_dirs(ctx, folder, str(plan.get("name")),
+                                                  half_a.pair_group, log)
+            pair_finished.pop(half_a.pair_group, None)
+            extra = ["--pair-shared", shared, "--pair-dir", pair_dir]
+            for lane, slot in ((half_a, decision.slot), (half_b, decision.partner_slot)):
+                pending.remove(lane)
+                seq += 1
+                window = resolution.mode
+                desktop = resolution.desktop_id if window == parallel.WINDOW_DESKTOP else None
+                child = _spawn_child(ctx, folder, job, seq, lane, slot, window, desktop,
+                                     keeper.token, log, extra)
+                running[seq] = child
+                last_start = child.started
+                folder.event("dispatch", seq=seq, lane=lane.lane_id, slot=slot, window=window,
+                             pid=child.proc.pid, reason=decision.reason,
+                             pair="%s/%s" % (lane.pair_group, lane.pair_role))
+            last_wait = None
+            mem_cache = (0.0, None)
+            continue
         if decision.action == parallel.ACTION_START:
             lane = next(l for l in pending if l.lane_id == decision.lane_id)
             pending.remove(lane)
@@ -986,8 +1100,12 @@ def cmd_run(ctx: Context, args, log: RunnerLog) -> int:
     try:
         ids, tiers, tags = _read_selection(ctx, args)
         selected = parallel.resolve_selection(specs, ids, tiers, tags)
+        selected, added = parallel.complete_pairs(selected, specs)
     except parallel.SelectionError as exc:
         return _refuse(log, parallel.EXIT_USAGE, "Select", "refused: %s" % exc)
+    for sid in added:
+        log.info("Select", "added %s: the partner of a selected paired lane (a pair flies "
+                           "whole)" % sid)
     if not selected:
         return _refuse(log, parallel.EXIT_USAGE, "Select",
                        "no lane selected (use --ids-file / --ids / --tier / --tag)")
@@ -1037,9 +1155,11 @@ def format_plan(plan: Dict, flown: Sequence[parallel.Lane]) -> List[str]:
            % (plan["name"], len(flown), total / 3600.0, plan["slotsAtStart"], plan["windowMode"],
               " ".join("%s=%d" % kv for kv in sorted(by_source.items())) or "-")]
     for l in flown:
-        out.append("lane %s profile=%s p50=%.0fs (%s)%s" % (
+        out.append("lane %s profile=%s p50=%.0fs (%s)%s%s" % (
             l.lane_id, l.profile, l.p50, l.p50_source,
-            " EXCLUSIVE last, alone: %s" % l.exclusive_reason if l.exclusive else ""))
+            " EXCLUSIVE last, alone: %s" % l.exclusive_reason if l.exclusive else "",
+            " PAIR %s role %s (both halves start together)" % (l.pair_group, l.pair_role)
+            if l.paired else ""))
     for entry in plan.get("notFlown") or []:
         out.append("not flown %s: %s" % (entry.get("id"), entry.get("reason")))
     return out
@@ -1067,7 +1187,8 @@ def execute(ctx: Context, folder: RunFolder, plan: Dict, include_exclusive: bool
             log: RunnerLog) -> int:
     lanes, not_flown = flying_lanes(plan, include_exclusive)
     plan_ids = [l.lane_id for l in lanes]
-    remaining = parallel.remaining_lane_ids(plan_ids, folder.summary_lines())
+    remaining = parallel.remaining_lane_ids(plan_ids, folder.summary_lines(),
+                                            parallel.pair_partners(lanes))
     if not remaining:
         outcome, code, detail = parallel.selection_outcome(plan_ids, folder.summary_lines(), False)
         log.info("Done", "nothing left to fly; outcome=%s exit=%d %s" % (outcome, code, detail))
@@ -1081,6 +1202,13 @@ def execute(ctx: Context, folder: RunFolder, plan: Dict, include_exclusive: bool
                        "no provisioned slot for profile(s) %s (slots found: %s); provision "
                        "them (`python provision/provision.py --profile <p>`) or leave those "
                        "lanes out" % (", ".join(missing), ", ".join(slot_names) or "none"))
+    short = parallel.pair_slot_shortfall(todo, by_profile)
+    if short:
+        return _refuse(log, parallel.EXIT_NEEDS_PROVISION, "Slots",
+                       "a pair flies on two slots of its profile at once; profile(s) %s have "
+                       "fewer than two (slots found: %s); provision a second copy "
+                       "(`python provision/provision.py --profile <p> --copy 2`)"
+                       % (", ".join(short), ", ".join(slot_names) or "none"))
     used = [s for p in sorted({l.profile for l in todo}) for s in by_profile.get(p, [])]
     log.info("Slots", "slots in use: %s" % ", ".join(used))
 

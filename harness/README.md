@@ -1799,7 +1799,10 @@ python run.py --slot stock-minimal-2 --ids <lane> --tests-prebuilt --no-coverage
 are pre-boot refusals about the MACHINE, never the scenario: `port-busy`,
 `runner-token`, `slot-locked`, `slot-profile-mismatch`. None is retried and all
 four are flake-exempt (`hlib.FLAKE_EXEMPT_INVALID_SUBKINDS`), like
-`instance-locked`.
+`instance-locked`. Listed apart from them, `partner-lost`
+(`hlib.PAIR_INVALID_SUBKINDS`) is a paired lane's partner ending or timing out at a
+barrier (or a paired lane flown alone): terminal, never retried, flake-exempt
+("Paired lanes" under "Parallel runs").
 
 **Every launch, serial or slot.** KSP gets `-logFile <instance>/Player.log
 -screen-fullscreen 0 -screen-width W -screen-height H` (W/H read back from the
@@ -2126,6 +2129,85 @@ cd harness && python tools/parallel_runner.py resume --name nightly-1
   refused selection or a provisioning problem; 3 for a held lock or a stop; 4
   when the runner itself broke. Decisions: `lib/parallel.py`; tests:
   `lib/test_parallel.py`.
+
+#### Paired lanes (`[pair]`, multiplayer T-54)
+
+Two lanes that must fly at the same time on two KSP copies, sharing one folder
+(the multiplayer race lanes: one copy publishes, the other reads). Each half
+names its group and role:
+
+```
+[fixture.race]
+sharedFolder = "pair"        # optional: ${raceShared} is the pair's one folder
+
+[pair]
+group = "PAIR-1"             # letters, digits, dash, underscore; at most 32
+role = "A"                   # "A" or "B"; a group has exactly one of each
+
+[driver]
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK" },
+  { harness = "barrier", args = { name = "placed", timeout = 240 } },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[retry]
+policy = "none"
+```
+
+Run a pair with the parallel runner on at least two copies of its profile
+(`provision.py --profile stock-minimal --copy 2` first):
+
+```
+cd harness && python tools/parallel_runner.py run --name pair-1 --ids PAIR-1a-shared-folder-handshake --slots 2
+```
+
+- **Selection.** Selecting either half adds the other (one `added <id>: the
+  partner of a selected paired lane` line). A half with no partner, two halves of
+  one role, halves on different profiles or tiers, different barrier names or
+  order, one half on the pair folder and the other not, or an exclusive half
+  refuses the whole selection (exit 2). A profile with fewer than two provisioned
+  copies refuses the run (exit 2, naming `provision.py --copy 2`).
+- **Dispatch.** A pair is one unit in the order (ranked by its longer half, A
+  then B) and starts whole or not at all: both halves need a free slot of the
+  profile at once, inside `slots`, and the memory guard charges both copies (with
+  nothing running, the first half is the free first lane). While the pair waits,
+  no later lane starts, so single lanes cannot starve it. With `slots` 1 the pair
+  never starts and the run ends red with `lanes left unflown`: `set-slots 2`,
+  then `resume`.
+- **Folders.** At dispatch, under the machine lock, the runner wipes and
+  recreates the shared folder `<umbrella>/automation/rs/<run>/<group>/` and the
+  barrier folder `results/parallel/<run>/pairs/<group>/`, and passes them to both
+  children as `run.py --pair-shared <dir> --pair-dir <dir>` (with `--slot`
+  only). A child checks both are exactly those paths, with no link on the way,
+  and never wipes the shared folder (its partner may already be writing). With
+  `sharedFolder = "pair"`, `${raceShared}`, the `raceFolder` step and the
+  `results/<runId>_race/` snapshot all use the shared folder.
+- **The barrier step** `{ harness = "barrier", args = { name, timeout } }` (a
+  harness step: run.py executes it between seam steps, nothing goes to the
+  command channel). The child writes `<name>.<role>.arrived` in the barrier
+  folder and waits for its partner's arrival file. When its drive ends (or it
+  skips a barrier after an unmet step) it writes `<role>.ended`; the runner
+  writes the same file when a child exits, as a backstop. A partner's arrival
+  wins over its ended file. `timeout` is 1..3600 s and under
+  `runtime.budgetSeconds`; names are unique per spec; every paired spec has at
+  least one barrier and `[retry] policy = "none"` (a retry would fly one half
+  alone). The result JSON's `driver.harnessSteps` row reads `met`, `reason` and
+  `waited`.
+- **Partner lost.** A partner that ended or timed out before the barrier gives
+  the survivor `INVALID(partner-lost)`: terminal, flake-exempt, never retried
+  (`hlib.PAIR_INVALID_SUBKINDS`, listed apart from the machine refusals). When a
+  half ends green but its partner left no verdict (`NO-REPORT`, `NOT-RUN`, or no
+  line), the runner rewrites the green half to `INVALID` attempts=1 with the note
+  `partner-lost: partner <id> left ...`, so no pair reads PASS with one half
+  unflown. A paired lane flown outside the runner (serial `run.py`) is refused
+  pre-boot `INVALID(partner-lost)`.
+- **Resume** treats the pair as one unit: both halves fly again when either is
+  unsettled, unless one already ended red (a finding is never re-flown away).
+- **Status.** `status` shows `pair=<group>/<role>` on a running half; the plan
+  line reads `PAIR <group> role <role> (both halves start together)`. Decisions:
+  `lib/parallel.py` (`complete_pairs`, `_pair_decision`, `pair_guard`) and
+  `lib/hlib.py` "Paired lanes"; tests: `lib/test_pairs.py`.
 
 ### Campaign chains (`tools/campaign_runner.py`)
 
@@ -2881,8 +2963,14 @@ may name:
 
 ```toml
 [fixture.race]
-sharedFolder = "empty"                  # or "fixtures/race/<name>"
+sharedFolder = "empty"                  # or "fixtures/race/<name>", or "pair"
 ```
+
+`"pair"` is for a paired lane only (see "Paired lanes" under "Parallel runs"):
+`${raceShared}` is then the pair's one folder `<umbrella>/automation/rs/<run>/<group>/`,
+which the parallel runner wiped at dispatch; staging only checks it is that exact
+path with no link on the way (`run._pair_shared_root`) and never wipes it, and
+the rest of this section's staging rules do not apply.
 
 - `"empty"` stages an empty folder; `"fixtures/race/<name>"` copies the committed
   folder `harness/fixtures/race/<name>/` in (a bare name of letters, digits, `-`
@@ -2993,6 +3081,10 @@ itself and never writes to the command channel (multiplayer T-06):
   and the result JSON carries `driver.harnessSteps` (id, op, from, path, met,
   reason, files, bytes, and `skipped: true` on a skipped step) outside
   `driver.steps`.
+- The second harness step kind is `barrier` (`{ harness = "barrier", args = {
+  name, timeout } }`), the rendezvous of a paired lane; it needs a `[pair]`
+  block, and a lost partner reads `INVALID(partner-lost)`, not
+  `INVALID(harness-step)`. See "Paired lanes" under "Parallel runs".
 
 ### Operator-local fixture saves (`fixtures/local-saves/`)
 
