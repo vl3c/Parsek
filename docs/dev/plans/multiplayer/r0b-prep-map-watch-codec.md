@@ -242,7 +242,7 @@ section 9), and any change to what is written to disk.
   file in `Recording/` is in Recording.
 - Proof material: `Source/Parsek.Tests/Fixtures/FormatGolden/v1/` holds 7 `.prec` files
   (frozen, gated by `SaveFormatGoldenGateTests`); 9 `.prec` under
-  `Source/Parsek.Tests/Fixtures/` in all and 501 under `harness/fixtures/`. The analyzer rule
+  `Source/Parsek.Tests/Fixtures/` in all and 557 under `harness/fixtures/` (2026-11-16). The analyzer rule
   `Analyzer/Rules/Inv10CodecRoundtrip.cs:110-125` writes, probes and reads each recording of
   a save and compares lists (not bytes).
 
@@ -252,27 +252,42 @@ section 9), and any change to what is written to disk.
 
 **P3-01 Pin the primitive's runtime contract with an in-game test**
 - **Change:** new `Source/Parsek/InGameTests/GhostMapPrimitiveRuntimeTest.cs`, category
-  `GhostMap`, scenes FLIGHT and TRACKSTATION. Builds a minimal `IPlaybackTrajectory` stub on
-  a Kerbin orbit, creates a ghost map vessel through today's
-  `GhostMapPresence.BuildAndLoadGhostProtoVessel` path, and asserts: the pid is in the guard
-  set at the moment `onVesselCreate` fires (subscribe for the test), the vessel is inert
-  (`HardenGhostVesselPartPhysics` effect on the part), its name starts with `Ghost: `, a
-  `StripFromSave` over a test-built `FlightState` holding its ProtoVessel and one ordinary
-  ProtoVessel removes exactly it, and removal unregisters the pid. Cleans up through
-  `RemoveAllGhostVessels`.
+  `GhostMap`, two cells (one `Scene = FLIGHT`, one `Scene = TRACKSTATION`, one shared
+  synchronous body). Builds a minimal `IPlaybackTrajectory` stub (not a `Recording`) with a
+  terminal Kerbin orbit, creates ghost map vessels through today's path
+  (`GhostMapPresence.CreateGhostVessel(GhostChain, IPlaybackTrajectory)`, the internal entry
+  over the private `BuildAndLoadGhostProtoVessel` and `BuildAndLoadGhostProtoVesselCore`),
+  and asserts: the pid is in the guard set at the moment `onVesselCreate` fires (subscribed
+  for the test); the name is `"Ghost: " + VesselName` and the ProtoVessel has one
+  `sensorBarometer` part, `prst` True and `cln` False; the create sequence runs
+  `HardenGhostVesselPartPhysics` on the vessel (its Verbose line, read under a verbose
+  override, with a part count equal to the vessel's) and every part present is hardened (an
+  unloaded map ghost has no Part objects; when loaded, no enabled collider); the save strip over
+  a test-built `FlightState` holding its ProtoVessel and one ordinary unloaded ProtoVessel
+  removes exactly it and leaves the live registration alone; a single removal
+  (`RemoveGhostVessel`) keeps the pid registered with the teardown flag raised while
+  `onVesselWillDestroy` fires, then unregisters it; a second ghost removed by
+  `RemoveAllGhostVessels` does the same inside the remove-all scope and leaves the guard set
+  empty. The strip goes through `ParsekScenario.StripGhostMapVesselsFailClosed`, the save
+  path's own entry, because `SavePathHardeningTests` pins exactly one source occurrence of
+  `GhostMapPresence.StripFromSave(` (that helper).
 - **Proof:** the test passes on today's code; it is then the runtime witness for P3-02 to
   P3-04. No production change.
 - **Registers:** the `GhostMap` category is pinned by committed specs
   (`H44-ghost-map-trackstation` and `S1.6-render-parity` run it), so the pinned
   `BATCH_COMPLETE` totals move: run `CommittedBatchTallySourceSyncTests` and
   `MultiCategoryBatchWiringGroupTests` locally and re-pin the specs they name in the same
-  change. This task changes only those pinned `BATCH_COMPLETE` tallies in the two spec
-  files. It does not change the generated lane catalog `docs/dev/flight-profiles.md`: the
-  catalog takes the category NAMES a lane's `RunTests` steps name, not the tallies
-  (`harness/lib/lanecatalog.py:1-30`, `:154-161`), and `GhostMap` is an existing category,
-  so `test_lanecatalog` stays green with no regeneration. (Index C.1 / E.5.5 list P3-01 as a
-  writer of that file; they should drop it.)
-- **Size:** S. **Depends on:** none. **PC:** yes, one in-game run (Ctrl+Shift+T, both scenes).
+  change (H44 `total=27 passed=10 skipped=17`, the attribute floor; S1.6 `total=27
+  passed=15 skipped=12`; both flown green on 2026-11-16, runs
+  `2026-11-16_2115_H44-ghost-map-trackstation` and `2026-11-16_2116_S1.6-render-parity`), with a note on the two lanes' rows in `docs/dev/autotest-status.md`
+  and the derived `GhostMap` row of `docs/dev/autotest-ingame-category-inventory.md`. It does
+  not change the generated lane catalog `docs/dev/flight-profiles.md`: the catalog takes the
+  category NAMES a lane's `RunTests` steps name and the status phrase of its row, not the
+  tallies (`harness/lib/lanecatalog.py`, module docstring and `derive_status`), and `GhostMap`
+  is an existing category, so `test_lanecatalog` stays green with no regeneration.
+- **Size:** S. **Depends on:** none. **PC:** yes, one in-game run (Ctrl+Shift+T, both scenes),
+  or the two lanes, which run the new cells inside their pinned batches. Done 2026-11-16: both
+  lanes PASS on attempt 1 with both new cells passing.
 - **Risk:** low; a test-only change whose only coupling is the tally pins.
 
 **P3-02 Move the guard set and the teardown depth into `GhostMapVessels`**
@@ -305,6 +320,18 @@ section 9), and any change to what is written to disk.
 - **Size:** S. **Depends on:** P3-01, P2a-07 (order: same partial class, E.3.8). **PC:** no
   (the in-game test is re-run with P3-04).
 - **Risk:** low; same object, same calls, proven by the unchanged suite.
+- **As built (2026-11-17):** as specified. `GhostMapVessels.ResetForTesting` clears the set and
+  zeroes the depth; `GhostMapPresence.ResetForTesting` calls it in place of its two old lines,
+  and `ResetBetweenTestRuns` keeps its `ghostMapVesselPids.Clear()` through the forwarder (a
+  call on the same instance, not a static write). `GhostMapVesselsTests` holds 8 cells (same
+  instance, register / unregister and count, the test seam, nesting and the zero floor, the
+  presence entry points on the same depth, both resets, no log line). Pins: `lifetime_pins.toml`
+  drops the two `GhostMapPresence` keys; `layer_pins.toml` renames seven pairs
+  (`BackgroundRecorder`, `ChainTipStaleVessel`, `FlightRecorder`, `CrewReservationManager`,
+  `KerbalRosterFacade`, `GameStateRecorder`, `RecoveryDispatchScope` reached `GhostMapPresence`
+  only through the moved members, so the semantic graph's forwarder rule now lands them on
+  `GhostMapVessels`) with every count unchanged; `facts_pins.toml` unchanged (55 cross-type
+  static writes, 374 unreached, before and after).
 
 **P3-03 Owner record and a teardown that leaves other lanes' pids alone**
 - **Change:** in `GhostMapVessels.cs`, `internal readonly struct GhostMapVesselOwner` with two
@@ -334,6 +361,20 @@ section 9), and any change to what is written to disk.
 - **Size:** S. **Depends on:** P3-02. **PC:** no.
 - **Risk:** low; the only production behavior edge is a whole-set clear replaced by a
   per-pid filter over an empty dictionary.
+- **As built (2026-11-17):** as specified; `GhostMapVesselOwner` sits in `GhostMapVessels.cs`.
+  `UnregisterAllOwnTimeline` clears the set when `foreignOwners` is empty and otherwise keeps
+  `Pids.IntersectWith(foreignOwners.Keys)` (no removal while enumerating). Writers re-pointed:
+  `Register(.., OwnTimeline)` at `ProtoVesselLifecycle.cs:1770`, `OverlapInstances.cs:691` and the
+  test seam `RegisterGhostMapVesselPidForTesting` (`GhostMapPresence.cs:727`); `Unregister` at
+  `ProtoVesselLifecycle.cs:225`, `:779`, `:2027`, `OverlapInstances.cs:767` and the between-run
+  removal `GhostMapPresence.cs:1468`; `UnregisterAllOwnTimeline` at `ProtoVesselLifecycle.cs:353`.
+  Whole clears left: `GhostMapVessels.ResetForTesting` (now also clears `foreignOwners`) and
+  `ResetBetweenTestRuns` (`GhostMapPresence.cs:1537`, set only: it cannot reach the private
+  dictionary, so a foreign owner would outlive it; empty in single player, R3W-18 decides).
+  Test seams `RegisterForeignForTesting`, `TryGetForeignOwnerForTesting`,
+  `ForeignOwnerCountForTesting`. `GhostMapVesselsTests` gains 8 cells (16 in all). Pins:
+  `lifetime_pins.toml` and `layer_pins.toml` unchanged by their tools; `facts_pins.toml`
+  unchanged (55 cross-type static writes, 374 unreached).
 
 **P3-04 Move the ProtoVessel mechanics into `GhostMapVessels`**
 - **Change:** move, bodies verbatim apart from re-homing, from
@@ -418,6 +459,24 @@ section 9), and any change to what is written to disk.
   change).
 - **Size:** S. **Depends on:** P3-03. **PC:** no.
 - **Risk:** low; dead in single player, covered by unit cases.
+- **As built (2026-11-17):** as specified. `GhostMapVessels.TryGetForeignOwner` sits after
+  `UnregisterAllOwnTimeline` (the test seam `TryGetForeignOwnerForTesting` is left as it was).
+  The shared branch is `ForeignLaneGhostRefusal.TryRefuse(pid, site)` in
+  `Patches/GhostVesselLoadPatch.cs` (query plus the one Verbose line; site tokens `icon-click`,
+  `vessel-switch`, `ts-select`; a null recording id prints `(none)`), and each site has its own
+  `internal static ShouldRefuseForeignLaneGhost(uint)` decider: `GhostIconClickPatch` (asked after
+  the left-click filter, so a right-click on any ghost still reaches stock's pin-text; a foreign
+  left-click returns false, so neither menu opens), `GhostVesselSwitchPatch` (asked right after the
+  ghost guard, before `FindRecordingIndexByVesselPid`; returns false, no ScreenMessage, no watch
+  request) and `GhostTrackingStationSelection` (asked in `SelectGhost` after the null check;
+  returns with the current selection untouched; its five callers keep their own refusal text,
+  which R3W-19 revisits). The plan's `:526` anchor named the chain-ghost ScreenMessage; the branch
+  sits before the recording lookup above it. `design-gui-inventory.md` checked: it counts the
+  ghost click refusals (section 3.14) but lists no conditions of the "will materialize" message, so
+  it is unchanged. xUnit: `GhostVesselLoadPatchTests` +6 (icon click and switch, foreign / own /
+  non-ghost, the decision following the owner record, the query itself),
+  `GhostTrackingStationPatchTests` +2. Pins unchanged (55 cross-type static writes, 374 unreached;
+  lifetimes and layers green with no re-pin).
 
 ### P3b: the lane-qualified watch target (deferred)
 
@@ -506,21 +565,36 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   (`[Collection("Sequential")]`) and manifest
   `Source/Parsek.Tests/Fixtures/TrajectoryCodecIdentity/manifest.tsv`. For each committed
   `.prec` under `Source/Parsek.Tests/Fixtures/` and `harness/fixtures/` (found by walking,
-  5 `..` to the repo root) one row: relative path, SHA-256 of the file, SHA-256 of a
-  canonical dump of what `Read` produced (the six lists through
-  `TrajectoryTextSidecarCodec.SerializeTrajectoryInto` into a `ConfigNode`, plus format
-  version, schema generation and id), SHA-256 of the bytes `Write` produces from that
-  `Recording` (temp file outside the repo), and SHA-256 of the `RecordingStore`-tag lines
-  `Read` logged (captured through `ParsekLog.TestSinkForTesting`). The test compares a row
-  only when the file SHA matches; rows under `FormatGolden/` must always match (frozen);
-  a listed file that is missing fails naming the row. It prints compared and stale counts.
-  The manifest is regenerated only when `PARSEK_WRITE_CODEC_MANIFEST=1` is set.
-- **Proof:** the test passes on today's code; it is the byte and decode witness for P6-02 to
-  P6-05. Check that no fixture-set gate lists the `Fixtures/` directories (if one does,
-  register the new folder there).
+  5 `..` to the repo root; the gitignored `harness/fixtures/local-saves/` is skipped) one row,
+  read the way the cold load reads it (`TryProbeTrajectorySidecar`, then
+  `DeserializeTrajectorySidecar`, into a `Recording` whose id is the file name and whose
+  epoch is the probed one): relative path, SHA-256 of the file, status, probed header, list
+  and log-line counts, SHA-256 of a canonical dump of what `Read` produced, SHA-256 of the
+  bytes `Write` produces from that `Recording` (temp file outside the repo), and SHA-256 of
+  every Parsek line the probe and `Read` logged (captured through
+  `ParsekLog.TestSinkForTesting`, the fixture path made repo-relative). The dump walks every
+  field of every element of the six lists by reflection (doubles and floats as IEEE bit
+  patterns, a field at its default omitted, null and empty kept apart) plus the facts `Read`
+  stamps or side-effects (format version, schema generation, id, epoch, `FilesDirty`, the
+  stats cache, whether each list instance survived). It does not go through
+  `TrajectoryTextSidecarCodec.SerializeTrajectoryInto`: that writer skips the rebuilt flat
+  lists of a section-authoritative file, mutates the recording, and formats doubles with
+  `"R"`, whose text differs between mono and .NET Framework. The comparison is strict: a
+  `.prec` with no row, a row with no file, and a fixture whose bytes changed each red by
+  name (a re-harvest regenerates the manifest in its own commit; `harness/README.md`
+  "Fixture saves and the shared craft library" says so). The manifest is regenerated only
+  by a separate fact that is skipped unless `PARSEK_WRITE_CODEC_MANIFEST=1` and refuses
+  under CI.
+- **Proof:** the test passes on today's code (566 rows, all `ok`); regeneration is
+  byte-identical; the class's own cells show a flipped fixture byte and a decoded value moved
+  by one ulp each red naming the fixture, and a temporary production mutation (a dropped flag
+  bit in `ReadPoint`, a reworded `Read` log line, a flipped byte in one harness fixture) reds
+  the gate with per-column counts. It is the byte and decode witness for P6-02 to P6-05. No
+  fixture-set gate lists the `Fixtures/` directories (checked), so the new folder is
+  registered nowhere else.
 - **Registers:** none in production. `docs/dev/todo-and-known-bugs.md`: none.
 - **Size:** S. **Depends on:** none. **PC:** no.
-- **Risk:** low; test-only. 510 files and about 11 MB read in one test.
+- **Risk:** low; test-only. 566 files and about 11 MB read in one test (about 9 s under mono).
 
 **P6-02 List-level cores for the flat-fallback heal**
 - **Change:** in `TrajectoryTextSidecarCodec.cs`, add list-level forms of
@@ -535,11 +609,18 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   The `Recording` overloads become one-line callers plus the `Recording` side effects, which
   move into one helper `ApplyFlatFallbackHealSideEffects(Recording, bool markDirty)` (cache
   reset, `MarkFilesDirty` or label-cache invalidation plus the existing Verbose line).
+  As built: the three private helpers (`AppendSafe...`, the points and orbit-segment heals)
+  and the private `FlatTrajectoryExactlyMatchesTrackSectionPayload` (which takes the
+  recording id for its slow-check Warn) take lists INSTEAD of a `Recording`, since a kept
+  `Recording` form of a private helper would have no caller; the three internal entries
+  (`TryBuildBodyFixed...`, `HasTrackSectionPayload...`, the heal) keep their `Recording`
+  form as a one-line caller of the list form.
 - **Proof:** P6-01 manifest unchanged (read and write digests, log digest);
   `Bug458BinaryFlatFallbackHealTests`, `RecordingStorageRoundTripTests`, `SaveFormatTests`,
-  `SaveFormatGoldenGateTests`; whole suite.
-- **Registers:** facts re-pin (the new list forms are called by the `Recording` forms, so
-  `uncalledInAssembly` does not rise); no complexity-watch key moves (none in this file).
+  `SaveFormatGoldenGateTests`; whole suite. Rewording the heal's Verbose line reds the
+  manifest gate on `logSha256` for 21 harness fixtures (they run the read-path heal).
+- **Registers:** none moved. `ilanalysis.py --write-pins` after a Debug build changes only
+  the date line (374 unreached, same keys), so no re-pin; no complexity-watch key moves.
 - **Size:** S. **Depends on:** P6-01. **PC:** no.
 - **Risk:** low; the write path goes through the same list code, which the write digest
   covers.
@@ -564,6 +645,19 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   (`SidecarEpoch`, `ProbeRecordingId`, read by P6-05 and R3W-04) adds no method; `Decode` and
   `OverListsOf` are called by `Read`, which every committed recording load reaches. The
   payload has one constructor (no arguments), called by `OverListsOf`.
+  As built: the payload's lists start as empty lists, so a fresh payload is ready to decode
+  into, and `OverListsOf` swaps in the recording's six instances. The stats struct
+  `RecordingTrajectoryDecodeStats` replaces the private `SparsePointReadStats` (the readers
+  fill its sparse counts by `ref`) and adds `HealedFlatFallback`, the pre-heal counts, the
+  two deduped-copy counts and `DroppedNonMonotonicPoints`. Because `Decode` runs the
+  non-monotonic drop before `Read` logs, every count today's lines printed before the drop
+  is recomputed as `Points.Count + DroppedNonMonotonicPoints`: the `postPoints=` and
+  `rebuiltPoints=` fields, and the heal line's `points=`, so `ApplyFlatFallbackHealSideEffects`
+  gained a third parameter `healedPointCount` (the `Recording` heal overload passes
+  `rec.Points.Count`). The manifest cannot see this: a mutation that printed the post-drop
+  count left all 566 rows green (no committed fixture both drops and logs differently), so
+  `RecordingTrajectoryPayloadTests` pins the three lines on synthetic files, including an
+  orbit-only heal over non-monotonic points.
 - **Proof:** P6-01 manifest unchanged (this is the step the log digest exists for); new
   xUnit `RecordingTrajectoryPayloadTests`: for every FormatGolden `.prec`, `Decode` into a
   fresh payload equals what `Read` put into a `Recording`; list identity kept (the
@@ -574,7 +668,11 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   real save shows as an INV10 finding.
 - **Registers:** facts and layers re-pin; `CLAUDE.md` only if the key-file list names the
   codec (it does not today); no save format change, no golden folder, no `SaveFormat.cs`
-  step.
+  step. As built: no re-pin. After a Debug build, `layers.py --write-pins` moved only its
+  date line (52 backward module pairs, 440 type pairs) and `ilanalysis.py --write-pins` its
+  date line plus `RecordingOptimizer::MergeInto` in the complexity watch band, a method this
+  task does not touch (374 unreached, as on the base; the suite is green without it), so
+  neither file changed.
 - **Size:** M. **Depends on:** P6-02. **PC:** no; the analyzer pass rides on whatever lanes
   are flown next.
 - **Risk:** medium; every committed recording loads through this path, so an ordering slip
@@ -584,8 +682,10 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
 **P6-04 `TryValidatePayload` decodes without a `Recording`**
 - **Change:** `TrajectorySidecarBinary.TryValidatePayload` (`TrajectorySidecarBinary.cs:180-200`)
   decodes into a scratch payload instead of `new Recording()`. It keeps the unconditional Warn for
-  dropped non-monotonic points (today `Read` emits it with the probe's id because the scratch
-  recording's id is empty) through one shared `LogDroppedNonMonotonic(string id, int n)`
+  dropped non-monotonic points (corrected 2026-11-17: before P6-04 that Warn carried the scratch
+  recording's own random id, because `new Recording()` initializes `RecordingId` to a fresh
+  GUID and `Read` stamps the probe's id only over an empty one; P6-04 gives it the probe's id)
+  through one shared `LogDroppedNonMonotonic(string id, int n)`
   helper that `Read` uses too. Uncalled-method ratchet (A1): both new call paths are
   production (`LogDroppedNonMonotonic` from `Read` and `TryValidatePayload`; `Decode`'s
   second caller is `TryValidatePayload`, called in production at
@@ -596,6 +696,34 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
 - **Registers:** facts re-pin (`Decode` now has a second production caller).
 - **Size:** S. **Depends on:** P6-03. **PC:** no.
 - **Risk:** low; the only output of this path is a bool and a reason string.
+- **As built:** `TryValidatePayload` decodes into `new RecordingTrajectoryPayload()` and then
+  calls `LogDroppedNonMonotonic(probe.RecordingId, Stats.DroppedNonMonotonicPoints)`; `Read`
+  calls the same helper with `rec.RecordingId` where it wrote the Warn inline. The helper is
+  `internal` (P6-05's summary calls it with the caller's id), returns at a count of 0, and
+  ignores `RecordingStore.SuppressLogging` as the inline Warn did. Return value, failure
+  reasons and exception classification are unchanged: the code `Read` ran after `Decode` on
+  the scratch recording (list assignment, field stamps, string formatting) could not throw.
+  Log change, for the one production caller `AreRecordingFilesCurrentAtPaths` (the save gate,
+  run up to twice per recording per `OnSave`): a validation no longer writes the Verbose
+  `ReadBinaryTrajectoryFile: recording=<random> ...` summary nor, for a sidecar the read-path
+  heal applies to, the Verbose `TryHealMalformedFlatFallbackTrajectory: recording=<random>
+  healed in memory only ... sidecarEpoch=0` line; its drop Warn now names the recording
+  (the probe's id, which the gate has already matched to the caller's) instead of a random
+  id. Every load-side line is unchanged: the cold load and every other caller reach `Read`,
+  not `TryValidatePayload`. The two harness specs that pin `ReadBinaryTrajectoryFile` (`QR-1`,
+  `ST-4`) pin the cold-load line by recording id and rebuilt-point count, which a validation
+  never printed (it logged a random id). The P6-01 manifest reads through
+  `TryProbeTrajectorySidecar` + `DeserializeTrajectorySidecar` and passes with the manifest
+  file untouched. `RecordingTrajectoryPayloadTests` pins the new lines on synthetic files
+  (flat, section-authoritative and heal shapes, each with one dropped point: exactly the
+  Warn with the probe's id; a clean file: no line; the Warn under `SuppressLogging` on both
+  paths; the save gate end to end: current, one Warn with the recording's id); run against
+  the P6-03 head the six new cells red with the random id and the extra Verbose lines.
+  Registers: no re-pin. `Decode` was already reached through `Read`, so a second caller moves
+  nothing: after a Debug build `ilanalysis.py --write-pins` changed only its date line plus
+  `RecordingOptimizer::MergeInto` in the complexity watch band (as on the P6-03 head; this
+  task does not touch it), 374 unreached as before, and `layers.py --write-pins` only its date
+  line, so neither file changed.
 
 **P6-05 A production entry to load a trajectory from a given path**
 - **Change:** `RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(string path, bool
@@ -605,13 +733,17 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   `DeserializeTrajectorySidecar` does. `TrySummarizeExistingTrajectorySidecar`
   (`:1300-1352`) calls it with `quietProbe: true` and reads counts and the section-authoritative
   fact from the payload (list-level `HasTrackSectionPayloadMatchingFlatTrajectory` from
-  P6-02), keeping its `SuppressLogging` scope and the same non-monotonic Warn with the
-  caller's recording id. `LoadTrajectorySidecarForTesting` keeps its name and body (the
-  analyzer and 7 test files call it). Uncalled-method ratchet (A1): the entry's first
+  P6-02), and the same non-monotonic Warn with the caller's recording id (corrected
+  2026-11-17: the plan said "keeping its `SuppressLogging` scope"; the scope only silenced
+  `Read`'s Verbose read summary and heal line, which `Decode` does not write, and wrapping
+  the entry in it would also silence the probe's unsupported-sidecar Warns, so it goes).
+  `LoadTrajectorySidecarForTesting` keeps its name and body (the analyzer and 7 test
+  files call it). Uncalled-method ratchet (A1): the entry's first
   production caller is `TrySummarizeExistingTrajectorySidecar`, in this pull request
-  (reached from the save path at `RecordingSidecarStore.cs:1233`), so it does not wait for
-  R3W-04, which is its second caller.
-- **Proof:** the shrink-diagnostic tests in `RecordingStorageRoundTripTests` /
+  (reached from the save path through `TryBuildTrajectoryShrinkageWarningForSave`, called by
+  `SaveRecordingFiles`), so it does not wait for R3W-04, which is its second caller.
+- **Proof:** the shrink-diagnostic tests in `RecordingSidecarStoreUnitTests` (corrected
+  2026-11-17: `RecordingStorageRoundTripTests` has none) /
   `Bug585FollowupSaveSkipTests`; new xUnit cases for the entry (missing file, magic
   mismatch, unsupported version, a FormatGolden file, a truncated file); P6-01 manifest
   unchanged; a log-capture case that a save's shrink diagnostic writes the same lines.
@@ -620,6 +752,36 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   consumes it).
 - **Size:** S. **Depends on:** P6-04. **PC:** no.
 - **Risk:** low; the summary feeds one diagnostic Warn on save, nothing written.
+- **As built:** `TryLoadTrajectoryPayloadFromPath` sets `payload = null`, returns false on a
+  failed probe or an unsupported one (before any decode), throws `InvalidOperationException`
+  on a supported probe of another encoding (unreachable today: a supported probe is always
+  `BinaryV0`), decodes into a fresh payload and writes no line of its own (the decode logs
+  nothing; the probe keeps its Warns). The summary calls it with `quietProbe: true`, writes
+  `LogDroppedNonMonotonic` with the id a cold load into the caller would carry (the caller's,
+  or the sidecar's when the caller has none, as `Read` stamped the scratch recording), then
+  computes the section-authoritative fact with the list-level predicate under the same id
+  (so its rate-limited slow-check Warn keys as before). Lines: unchanged. New
+  `TrajectoryPayloadFromPathTests`: eleven characterization cells committed first and green
+  on the unchanged code (clean, dropping, dropping below the threshold, no caller id,
+  `SuppressLogging`, section-authoritative, healed, unsupported version, foreign magic,
+  truncated payload, a full save up to its shrink Warn; each pins every Parsek line exactly),
+  then seven entry cells (missing / empty / null path, truncated header, foreign magic,
+  unsupported version with and without `quietProbe`, every FormatGolden `.prec` equal to what
+  `LoadTrajectorySidecarForTesting` reads, a dropping file whose Warn is left to the caller,
+  a truncated payload throwing `EndOfStreamException`). Mutants, each restored: the Warn given
+  the sidecar's id, the entry accepting an unsupported probe, the summary counting points
+  before the drop, a loud probe, the entry writing the Warn itself all red named cells; the
+  summary reading the file's flag instead of the predicate survives, because nothing reads the
+  existing side's `SectionAuthoritative` (the warning prints the incoming side's), so that
+  value is computed only to keep the slow-check line as it was. The existing shrink tests
+  red on none of these mutants. P6-01 manifest unchanged. Registers: `facts_pins.toml`
+  re-pinned, `crossTypeStaticWrites` 55 -> 54 (`RecordingStore::SuppressLogging` is no longer
+  written by `RecordingSidecarStore`, its last production writer outside its type); 374
+  unreached before and after (the entry is reached through the save path);
+  `RecordingOptimizer::MergeInto`, which the tool still proposes for the watch band, is left
+  out as before. `layers.py` and `lifetimes.py` moved nothing. Design 15.5 left alone: this
+  section says it "can" name the entry, not that this task edits it; R3W-04 is the natural
+  place.
 
 ## 5. Parallel tracks
 
@@ -668,7 +830,7 @@ Three tracks that share no file:
   `SaveFormatGoldenGateTests`, `ReflyARecordedFixtureCodecTests`, `SyntheticRecordingTests`.
   Each P6 step must leave the P6-01 manifest unchanged: that is the byte-identity proof
   (write digest), the decode-identity proof (dump digest) and the log-identity proof (log
-  digest) over 510 committed sidecars.
+  digest) over 566 committed sidecars (2026-11-16).
 - **Architecture suites:** DLL-free `scripts/arch` suite on every task; after a Debug build
   the semantic, ilanalysis, layers, lifetimes and ilheadless suites with re-pins where the
   task says.
@@ -739,9 +901,9 @@ Three tracks that share no file:
 - **List identity in `Read`.** Code may hold a reference to a recording's list across a
   reload. P6-03 decodes into the recording's own lists; `RecordingTrajectoryPayloadTests`
   checks the instances.
-- **Manifest staleness.** A re-harvested harness fixture makes its row stale. The test then
-  compares fewer rows and says so; FormatGolden rows never go stale. A P6 PR states the
-  compared count.
+- **Manifest staleness.** A re-harvested or added harness fixture reds the P6-01 test until
+  the manifest is regenerated in the same commit; the row diff names the harvested files.
+  A P6 PR that regenerates the manifest is not a P6 proof: P6-02 to P6-05 leave it unchanged.
 - **Watch per-frame cost.** The adapter adds an interface call per engine access on the
   watch path. It runs for one watched ghost, not per ghost; the watch lanes' timings in the
   run index would show a regression.

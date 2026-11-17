@@ -33,6 +33,13 @@ namespace Parsek
     internal partial class GhostPlaybackEngine
     {
         private readonly IGhostPositioner positioner;
+        // Where the ghost health counts and the frame budget go; never DiagnosticsState directly.
+        private readonly IGhostPlaybackDiagnosticsSink diagnostics;
+        // The per-frame spawn cap this engine draws on. An owned budget is reset with the
+        // engine's own per-frame counters; a budget passed in is shared with another engine
+        // and reset once per frame by whoever passed it in, never by an engine.
+        private readonly GhostSpawnFrameBudget spawnBudget;
+        private readonly bool ownsSpawnBudget;
         private bool ghostAudioPaused;
 
         #region Ghost state
@@ -360,9 +367,37 @@ namespace Parsek
         internal const string EngineFrameIterMessagePrefix = "engine-frame-iter";
 
         internal GhostPlaybackEngine(IGhostPositioner positioner)
+            : this(positioner, new GlobalGhostPlaybackDiagnosticsSink())
         {
+        }
+
+        internal GhostPlaybackEngine(IGhostPositioner positioner, IGhostPlaybackDiagnosticsSink diagnostics)
+            : this(positioner, diagnostics, null)
+        {
+        }
+
+        /// <summary>
+        /// <paramref name="sharedSpawnBudget"/> null: the engine builds a private spawn budget,
+        /// owns it and resets it every frame (the single-player engine). Non-null: the engine
+        /// draws on a budget it shares with another engine and never resets it; the caller
+        /// resets it once per frame before the first engine runs.
+        /// </summary>
+        internal GhostPlaybackEngine(
+            IGhostPositioner positioner,
+            IGhostPlaybackDiagnosticsSink diagnostics,
+            GhostSpawnFrameBudget sharedSpawnBudget)
+        {
+            if (diagnostics == null)
+                throw new ArgumentNullException(nameof(diagnostics));
             this.positioner = positioner;
+            this.diagnostics = diagnostics;
+            ownsSpawnBudget = sharedSpawnBudget == null;
+            spawnBudget = sharedSpawnBudget ?? new GhostSpawnFrameBudget();
             ParsekLog.Info("Engine", "GhostPlaybackEngine created");
+            if (!ownsSpawnBudget)
+                ParsekLog.Info("Engine",
+                    $"GhostPlaybackEngine draws on a shared spawn budget " +
+                    $"(used {spawnBudget.Used}/{spawnBudget.MaxPerFrame}); the caller resets it each frame");
         }
 
         internal static bool HasLoadedGhostVisuals(GhostPlaybackState state)
@@ -385,17 +420,17 @@ namespace Parsek
 
             if (trajectories == null || trajectories.Count == 0)
             {
-                DiagnosticsState.playbackBudget = default;
+                diagnostics.ClearPlaybackBudget();
                 return;
             }
             if (positioner == null)
             {
-                DiagnosticsState.playbackBudget = default;
+                diagnostics.ClearPlaybackBudget();
                 return; // Not yet wired (Phase 7)
             }
             if (flags == null || flags.Length < trajectories.Count)
             {
-                DiagnosticsState.playbackBudget = default;
+                diagnostics.ClearPlaybackBudget();
                 ParsekLog.Warn("Engine", $"UpdatePlayback: flags array mismatch (flags={flags?.Length ?? 0} trajectories={trajectories.Count})");
                 return;
             }
@@ -879,14 +914,15 @@ namespace Parsek
             spawnMicroseconds = spawnStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
             long destroyMicroseconds = destroyStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
 
-            DiagnosticsState.playbackBudget.totalMicroseconds = totalMicroseconds;
-            DiagnosticsState.playbackBudget.spawnMicroseconds = spawnMicroseconds;
-            DiagnosticsState.playbackBudget.destroyMicroseconds = destroyMicroseconds;
-            DiagnosticsState.playbackBudget.ghostsProcessed = ghostsProcessed;
-            DiagnosticsState.playbackBudget.warpRate = ctx.warpRate;
-            DiagnosticsState.playbackBudget.ghostObservability = ghostObservability;
+            diagnostics.PublishPlaybackBudget(
+                totalMicroseconds,
+                spawnMicroseconds,
+                destroyMicroseconds,
+                ghostsProcessed,
+                ctx.warpRate,
+                ghostObservability);
 
-            DiagnosticsState.playbackFrameHistory.Append(
+            diagnostics.AppendPlaybackFrame(
                 Time.realtimeSinceStartup, totalMicroseconds);
 
             // Bug #414: build the one-shot per-phase breakdown struct. Cheap — a handful of
@@ -896,7 +932,7 @@ namespace Parsek
             // below; nothing is written unless the warn fires. The already-divided
             // spawnMicroseconds / destroyMicroseconds are reused (not recomputed from ticks)
             // so the breakdown's buildOtherMicroseconds subtraction matches
-            // DiagnosticsState.playbackBudget.spawnMicroseconds to the microsecond (#414).
+            // the published budget's spawnMicroseconds to the microsecond (#414).
             PlaybackBudgetPhases phases = BuildPlaybackBudgetPhases(
                 elapsedTicksAtLoopEnd: elapsedTicksAtLoopEnd,
                 spawnMicroseconds: spawnMicroseconds,
@@ -925,7 +961,7 @@ namespace Parsek
             // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps).
             // WithBreakdown variant: also emits a one-shot WARN with phase breakdown the
             // first time a spike is seen, to localize the responsible sub-phase (bug #414).
-            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+            diagnostics.CheckPlaybackBudgetThreshold(
                 totalMicroseconds, ghostsProcessed, ctx.warpRate, phases);
         }
 
@@ -963,7 +999,7 @@ namespace Parsek
         /// conversions plus the two negative-clamp floors — extracted verbatim from the inline
         /// block so it can be unit-tested independently. <paramref name="spawnMicroseconds"/>
         /// and <paramref name="destroyMicroseconds"/> arrive ALREADY divided (the caller wrote
-        /// them into DiagnosticsState.playbackBudget); they are reused here, never recomputed
+        /// them into the published playback budget); they are reused here, never recomputed
         /// from ticks, so the buildOtherMicroseconds subtraction matches the budget total to
         /// the microsecond (#414). Everything else arrives as raw stopwatch ticks so the
         /// `* 1000000L / Stopwatch.Frequency` division lives in exactly one place.
@@ -1058,6 +1094,8 @@ namespace Parsek
             deferredSpawnPendingEvents.Clear();
             staleCleanupsAwaitingCompletionDelivery.Clear();
             frameSpawnCount = 0;
+            if (ownsSpawnBudget)
+                spawnBudget.ResetForFrame();
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
             frameSkipBeforeActivation = 0;
@@ -1314,7 +1352,10 @@ namespace Parsek
         internal bool TryReserveSpawnSlotForTesting(int index, string site)
             => TryReserveSpawnSlot(index, site);
         internal void IncrementFrameSpawnCountForTesting()
-            => frameSpawnCount++;
+        {
+            frameSpawnCount++;
+            spawnBudget.Consume();
+        }
         internal int FrameSpawnCountForTesting => frameSpawnCount;
         internal int FrameSpawnDeferredForTesting => frameSpawnDeferred;
         internal int SpawnReserveAttemptCountForTesting => spawnReserveAttemptCountForTesting;
@@ -1335,6 +1376,8 @@ namespace Parsek
         {
             ClearPrimaryGhostPositionedThisFrame();
             frameSpawnCount = 0;
+            if (ownsSpawnBudget)
+                spawnBudget.ResetForFrame();
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
             spawnReserveAttemptCountForTesting = 0;

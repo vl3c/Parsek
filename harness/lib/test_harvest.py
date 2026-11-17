@@ -661,3 +661,481 @@ class EnvLaunchArgsScrubTests(unittest.TestCase):
                          "a committed save carries KSP's launch arguments in envInfo "
                          "(the harness's -logFile path names the operator's home "
                          "folder); harvest_bdock_station.scrub_env_launch_args resets them")
+
+
+# ---------------------------------------------------------------------------
+# The race harvest (--race-folder / --race-name, multiplayer plan T-59).
+# ---------------------------------------------------------------------------
+
+import shutil  # noqa: E402
+import tempfile  # noqa: E402
+
+import hlib  # noqa: E402
+
+_HASH = "0123456789abcdef"
+_RIVAL_REC = "5f0c2a7d9b1e4c3a8d6f0e1b2c3d4e5f"
+_OWN_REC = "abc"
+
+
+def _write(path, text="x"):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+
+
+def _race_listing_rows(root):
+    rows = []
+    for dirpath, _dirs, files in os.walk(root):
+        for name in files:
+            full = os.path.join(dirpath, name)
+            rows.append((os.path.relpath(full, root).replace(os.sep, "/"),
+                         os.path.getsize(full), harvest._digest(full)))
+    return rows
+
+
+class _RaceHarvestBase(unittest.TestCase):
+    """A temp harness: results/, fixtures/saves and fixtures/race redirected so a
+    cell never writes into the repository."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.results = os.path.join(self.root, "results")
+        self.saves_out = os.path.join(self.root, "fixtures", "saves")
+        self.race_out = os.path.join(self.root, "fixtures", "race")
+        for d in (self.results, self.saves_out, self.race_out):
+            os.makedirs(d)
+        saved = (harvest._RESULTS_DIR, harvest._FIXTURES_SAVES, harvest._FIXTURES_RACE)
+        harvest._RESULTS_DIR = self.results
+        harvest._FIXTURES_SAVES = self.saves_out
+        harvest._FIXTURES_RACE = self.race_out
+
+        def restore():
+            (harvest._RESULTS_DIR, harvest._FIXTURES_SAVES,
+             harvest._FIXTURES_RACE) = saved
+        self.addCleanup(restore)
+
+    def make_race_save(self, run_id="r1"):
+        """A produced race save: own recording, the race files beside it, and a
+        rival cache holding a readable trajectory mirror (the file the
+        OptimizerTransferCohesionTests glob would read as an own recording)."""
+        save = os.path.join(self.results, run_id + "_save")
+        _write(os.path.join(save, "persistent.sfs"),
+               SFS + "RECORDING_STUB { id = %s }\n" % _OWN_REC)
+        _write(os.path.join(save, "Ships", "VAB", "X.craft"), "ship = X")
+        _write(os.path.join(save, "Parsek", "Recordings", _OWN_REC + ".prec"), "own")
+        _write(os.path.join(save, "Parsek", "Recordings", _OWN_REC + ".prec.txt"), "own")
+        race = os.path.join(save, "Parsek", "Race")
+        _write(os.path.join(race, "local.cfg"), "folder = rs/0")
+        _write(os.path.join(race, "race.cfg"), "race")
+        _write(os.path.join(race, "own", "player.cfg"), "me")
+        _write(os.path.join(race, "own", "payload", "%s.%s.prec" % (_OWN_REC, _HASH)), "own")
+        rival = os.path.join(race, "rivals", "p_b")
+        _write(os.path.join(rival, "player.cfg"), "rival")
+        _write(os.path.join(rival, "payload", "%s.%s.prec.txt" % (_RIVAL_REC, _HASH)),
+               "rival trajectory")
+        _write(os.path.join(rival, "standings", "000001.pstd"), "s")
+        return save
+
+    def make_race_folder(self, run_id="r1", listing=True, leftover=True):
+        folder = os.path.join(self.results, run_id + hlib.RACE_SNAPSHOT_DIR_SUFFIX)
+        _write(os.path.join(folder, "race.cfg"), "race")
+        for player, rec in (("p_a", _OWN_REC), ("p_b", _RIVAL_REC)):
+            base = os.path.join(folder, "players", player)
+            _write(os.path.join(base, "player.cfg"), player)
+            _write(os.path.join(base, "standings", "000001.pstd"), "s1")
+            _write(os.path.join(base, "payload", "%s.%s.prec" % (rec, _HASH)), "p")
+            _write(os.path.join(base, "payload", "trees", "t_%s.%s.cfg" % (player, _HASH)),
+                   "tree")
+        rows = _race_listing_rows(folder)
+        if leftover:
+            # a safe-write leftover: not part of the grammar, never committed
+            _write(os.path.join(folder, "players", "p_b", "standings", "000002.pstd.tmp"),
+                   "half")
+            rows = _race_listing_rows(folder)
+        if listing:
+            _write(os.path.join(self.results, run_id + hlib.RACE_LISTING_SUFFIX),
+                   hlib.format_race_listing(run_id, rows))
+        return folder
+
+    def run_harvest(self, save, **kw):
+        return harvest.harvest(save, "race-save", "race-save", force=kw.pop("force", False),
+                               expected_situations=(), keep_parsek=kw.pop("keep_parsek", True),
+                               **kw)
+
+
+class RaceRivalCachePruneTests(_RaceHarvestBase):
+    """Only the rebuildable `Parsek/Race/rivals/` cache leaves a harvested save
+    (design 4.4). The cell that fails if the prune stops working is the glob
+    one: it walks the harvested fixture exactly as
+    `OptimizerTransferCohesionTests.E4_FixtureInventory_NoBodySplitSurvivesAnywhere`
+    walks `harness/fixtures/saves` (every `*.prec.txt`, recursively), so a rival
+    trajectory left in the fixture would be read there as an own recording."""
+
+    def _prec_txt_glob(self, root):
+        found = []
+        for dirpath, _dirs, files in os.walk(root):
+            found.extend(os.path.relpath(os.path.join(dirpath, n), root).replace(os.sep, "/")
+                         for n in files if n.endswith(".prec.txt"))
+        return sorted(found)
+
+    def test_the_trajectory_glob_finds_no_rival_file_in_the_harvest(self):
+        save = self.make_race_save()
+        self.assertEqual(0, self.run_harvest(save))
+        target = os.path.join(self.saves_out, "race-save")
+        self.assertEqual(["Parsek/Recordings/%s.prec.txt" % _OWN_REC],
+                         self._prec_txt_glob(target))
+        self.assertFalse(os.path.lexists(os.path.join(target, "Parsek", "Race", "rivals")))
+
+    def test_the_prune_is_exact(self):
+        save = self.make_race_save()
+        # a directory of the same name anywhere else is not the rival cache
+        _write(os.path.join(save, "Parsek", "rivals", "keep.txt"), "k")
+        _write(os.path.join(save, "Ships", "rivals", "keep.txt"), "k")
+        self.assertEqual(0, self.run_harvest(save))
+        target = os.path.join(self.saves_out, "race-save")
+        for kept in ("Parsek/Race/local.cfg", "Parsek/Race/race.cfg",
+                     "Parsek/Race/own/player.cfg",
+                     "Parsek/Race/own/payload/%s.%s.prec" % (_OWN_REC, _HASH),
+                     "Parsek/rivals/keep.txt", "Ships/rivals/keep.txt",
+                     "Parsek/Recordings/%s.prec" % _OWN_REC):
+            self.assertTrue(os.path.isfile(os.path.join(target, *kept.split("/"))), kept)
+
+    def test_the_prune_needs_no_race_flag(self):
+        # a race save harvested without --race-folder still drops the cache
+        save = self.make_race_save()
+        self.assertEqual(0, self.run_harvest(save))
+        self.assertFalse(os.path.lexists(os.path.join(
+            self.saves_out, "race-save", "Parsek", "Race", "rivals")))
+
+    def test_ignore_filter_matches_only_the_rival_cache_under_the_save_root(self):
+        save = os.path.join(self.root, "s")
+        ignore = harvest._keep_parsek_ignore(save)
+        self.assertIn("rivals", ignore(os.path.join(save, "Parsek", "Race"), ["rivals", "own"]))
+        self.assertNotIn("own", ignore(os.path.join(save, "Parsek", "Race"), ["rivals", "own"]))
+        self.assertNotIn("rivals", ignore(os.path.join(save, "Parsek"), ["rivals"]))
+        self.assertNotIn("rivals", ignore(os.path.join(save, "Ships", "Parsek", "Race"),
+                                          ["rivals"]))
+
+    def test_count_rival_cache_files(self):
+        save = self.make_race_save()
+        self.assertEqual(3, harvest.count_rival_cache_files(save))
+        self.assertIsNone(harvest.count_rival_cache_files(os.path.join(self.root, "none")))
+
+
+class RaceFolderHarvestTests(_RaceHarvestBase):
+    def test_the_folder_is_copied_exactly_beside_the_save_fixture(self):
+        save = self.make_race_save()
+        folder = self.make_race_folder()
+        self.assertEqual(0, self.run_harvest(save, race_folder=folder, race_name="flown-a"))
+        target = os.path.join(self.race_out, "flown-a")
+        want = sorted((p, b, h) for p, b, h in _race_listing_rows(folder)
+                      if not p.endswith(".tmp"))
+        self.assertEqual(want, sorted(_race_listing_rows(target)))
+        self.assertTrue(os.path.isdir(os.path.join(self.saves_out, "race-save")))
+        # the name the harvest wrote is one [fixture.race] can stage
+        self.assertEqual([], hlib.validate_race_fixture(
+            {"race": {"sharedFolder": "fixtures/race/flown-a"}}, ["flown-a"]))
+
+    def test_a_second_harvest_replaces_the_first(self):
+        save = self.make_race_save()
+        folder = self.make_race_folder()
+        stale = os.path.join(self.race_out, "flown-a", "players", "p_z", "player.cfg")
+        _write(stale, "old")
+        self.assertEqual(0, self.run_harvest(save, race_folder=folder, race_name="flown-a"))
+        self.assertFalse(os.path.exists(stale))
+
+    def _assert_refused_before_any_write(self, save, **kw):
+        with self.assertRaises(SystemExit) as ctx:
+            self.run_harvest(save, **kw)
+        self.assertEqual([], os.listdir(self.saves_out), "the save fixture was written")
+        self.assertEqual([], os.listdir(self.race_out), "the race fixture was written")
+        return str(ctx.exception.code)
+
+    def test_a_folder_outside_results_is_refused(self):
+        save = self.make_race_save()
+        outside = os.path.join(self.root, "elsewhere", "r9_race")
+        _write(os.path.join(outside, "race.cfg"), "race")
+        msg = self._assert_refused_before_any_write(save, race_folder=outside,
+                                                    race_name="flown-a")
+        self.assertIn("not inside", msg)
+
+    def test_a_dotdot_path_is_refused_even_when_it_lands_inside(self):
+        save = self.make_race_save()
+        self.make_race_folder()
+        sneaky = os.path.join(self.results, "x", "..", "r1_race")
+        os.makedirs(os.path.join(self.results, "x"))
+        msg = self._assert_refused_before_any_write(save, race_folder=sneaky,
+                                                    race_name="flown-a")
+        self.assertIn("'..'", msg)
+
+    def test_a_symlink_out_of_results_is_refused(self):
+        save = self.make_race_save()
+        outside = os.path.join(self.root, "elsewhere", "r9_race")
+        _write(os.path.join(outside, "race.cfg"), "race")
+        link = os.path.join(self.results, "r9_race")
+        try:
+            os.symlink(outside, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable here")
+        msg = self._assert_refused_before_any_write(save, race_folder=link,
+                                                    race_name="flown-a")
+        self.assertIn("not inside", msg)
+
+    def test_a_link_inside_the_folder_is_refused_even_with_force(self):
+        save = self.make_race_save()
+        folder = self.make_race_folder()
+        outside = os.path.join(self.root, "secret.txt")
+        _write(outside, "not race data")
+        try:
+            os.symlink(outside, os.path.join(folder, "players", "p_a", "payload", "l.prec"))
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable here")
+        msg = self._assert_refused_before_any_write(save, race_folder=folder,
+                                                    race_name="flown-a", force=True)
+        self.assertIn("link", msg)
+
+    def test_the_results_dir_itself_and_a_non_race_dir_are_refused(self):
+        _write(os.path.join(self.results, "r1_save", "persistent.sfs"), "x")
+        for raw in (self.results, os.path.join(self.results, "r1_save")):
+            self.assertNotEqual("", harvest.race_folder_path_problem(raw, self.results), raw)
+        self.make_race_folder()
+        self.assertEqual("", harvest.race_folder_path_problem(
+            os.path.join(self.results, "r1_race"), self.results))
+
+    def test_a_bad_race_name_is_refused_even_with_force(self):
+        save = self.make_race_save()
+        folder = self.make_race_folder()
+        for name in ("../x", "a.b", "a/b", "-x"):
+            msg = self._assert_refused_before_any_write(save, race_folder=folder,
+                                                        race_name=name, force=True)
+            self.assertIn("--race-name", msg)
+
+    def test_the_two_flags_go_together(self):
+        save = self.make_race_save()
+        folder = self.make_race_folder()
+        self._assert_refused_before_any_write(save, race_folder=folder)
+        self._assert_refused_before_any_write(save, race_name="flown-a")
+
+    def test_a_file_changed_since_the_run_is_refused(self):
+        save = self.make_race_save()
+        folder = self.make_race_folder()
+        _write(os.path.join(folder, "players", "p_a", "player.cfg"), "edited")
+        msg = self._assert_refused_before_any_write(save, race_folder=folder,
+                                                    race_name="flown-a")
+        self.assertIn("changed since the run", msg)
+
+    def test_a_missing_listing_is_refused_and_force_writes_anyway(self):
+        save = self.make_race_save()
+        folder = self.make_race_folder(listing=False)
+        msg = self._assert_refused_before_any_write(save, race_folder=folder,
+                                                    race_name="flown-a")
+        self.assertIn("no listing", msg)
+        self.assertEqual(0, self.run_harvest(save, race_folder=folder, race_name="flown-a",
+                                             force=True))
+        self.assertTrue(os.path.isfile(os.path.join(self.race_out, "flown-a", "race.cfg")))
+
+    def test_the_main_entry_point_passes_the_flags(self):
+        save = self.make_race_save()
+        folder = self.make_race_folder()
+        rc = harvest.main(["--save-dir", save, "--target-name", "race-save", "--keep-parsek",
+                           "--race-folder", folder, "--race-name", "flown-a"])
+        self.assertEqual(0, rc)
+        self.assertTrue(os.path.isdir(os.path.join(self.race_out, "flown-a", "players")))
+
+
+class RaceFolderGrammarTests(unittest.TestCase):
+    GOOD = ["race.cfg", "players/p_a/player.cfg", "players/p_a/standings/000001.pstd",
+            "players/p_a/standings/000002.pstd",
+            "players/p_a/payload/rec1.%s.prec" % _HASH,
+            "players/p_a/payload/rec1.%s_ghost.craft" % _HASH,
+            "players/p_a/payload/trees/tree1.%s.cfg" % _HASH,
+            "players/p_b/player.cfg"]
+
+    def test_a_good_folder_has_no_problem_and_a_summary(self):
+        problems, skipped, summary = harvest.race_folder_problems(self.GOOD)
+        self.assertEqual([], problems)
+        self.assertEqual((), skipped)
+        self.assertIn("players=2 recordings=1 trees=1 standings=p_a:2,p_b:0 race.cfg=yes",
+                      summary)
+
+    def test_each_grammar_break_is_a_problem(self):
+        cases = {
+            "notes.txt": "not part of the shared-folder layout",
+            "players/p_a/payload/rec1.prec": "fits no part",
+            "players/p_c/standings/000001.pstd": "players/p_c/player.cfg: missing",
+        }
+        for extra, needle in cases.items():
+            problems, _s, _sum = harvest.race_folder_problems(self.GOOD + [extra])
+            self.assertTrue(any(needle in p for p in problems), (extra, problems))
+
+    def test_no_player_is_a_problem(self):
+        problems, _s, _sum = harvest.race_folder_problems(["race.cfg"])
+        self.assertTrue(any("no player folder" in p for p in problems))
+
+    def test_safe_write_leftovers_are_skipped_not_refused(self):
+        leftover = "players/p_a/standings/000003.pstd.tmp"
+        problems, skipped, summary = harvest.race_folder_problems(self.GOOD + [leftover])
+        self.assertEqual([], problems)
+        self.assertEqual((leftover,), skipped)
+        self.assertIn("standings=p_a:2", summary)
+
+    def test_the_chain_seam_reports_unchecked_until_t21(self):
+        # T-21's facets plug in at race_chain_facets; until then the harvest
+        # says plainly that no standing chain was checked.
+        status, detail = harvest.race_chain_facets(self.GOOD)
+        self.assertEqual("unchecked", status)
+        self.assertIn("T-21", detail)
+
+
+class RaceListingTests(unittest.TestCase):
+    def test_the_listing_hlib_writes_parses_back(self):
+        rows = [("players/p_a/player.cfg", 3, "a" * 64), ("race.cfg", 4, "b" * 64),
+                ("players/p a/odd name.cfg", 1, "c" * 64)]
+        parsed, problems = harvest.parse_race_listing(hlib.format_race_listing("r1", rows))
+        self.assertEqual([], problems)
+        self.assertEqual({p: (b, h) for p, b, h in rows}, parsed)
+
+    def test_a_wrong_header_or_row_is_a_problem(self):
+        _rows, problems = harvest.parse_race_listing("# something else\nzz 1 a\n")
+        self.assertTrue(any("does not start with" in p for p in problems))
+        _rows, problems = harvest.parse_race_listing(hlib.RACE_LISTING_HEADER + "\nbad\n")
+        self.assertTrue(any("line 2" in p for p in problems))
+
+    def test_every_difference_is_named(self):
+        listed = {"a": (1, "h1"), "b": (1, "h2"), "c": (1, "h3")}
+        actual = {"a": (1, "h1"), "b": (2, "h9"), "d": (1, "h4")}
+        problems = harvest.race_listing_problems(listed, actual)
+        self.assertEqual(3, len(problems))
+        self.assertTrue(problems[0].startswith("b: changed"))
+        self.assertTrue(problems[1].startswith("c: in the listing"))
+        self.assertTrue(problems[2].startswith("d: in the folder"))
+
+
+class CommittedFixtureRivalCacheTests(unittest.TestCase):
+    """No committed save fixture carries a rival cache (`Parsek/Race/rivals/`):
+    its `.prec.txt` mirrors would be globbed as own recordings by
+    `OptimizerTransferCohesionTests`, and design 4.4 makes it a cache that is
+    never part of a save. The harvest prunes it; this holds the committed corpus."""
+
+    def test_no_save_fixture_holds_a_rival_cache(self):
+        saves = os.path.join(os.path.dirname(_HERE), "fixtures", "saves")
+        offenders = []
+        for dirpath, dirnames, _files in os.walk(saves):
+            if (os.path.basename(dirpath) == "Race"
+                    and os.path.basename(os.path.dirname(dirpath)) == "Parsek"
+                    and "rivals" in dirnames):
+                offenders.append(os.path.relpath(os.path.join(dirpath, "rivals"), saves))
+        self.assertEqual([], sorted(offenders),
+                         "harvest_bdock_station.py prunes Parsek/Race/rivals; re-harvest")
+
+
+# The shared-folder path in a race save's Parsek/Race/local.cfg (design 6.1
+# `RaceLocal.sharedFolderPath`) is the flying machine's path; no committed fixture
+# may carry it (public repository).
+
+_LOCAL_CFG = ("displayName = Ana\r\n"
+              "sharedFolderPath = C:\\Users\\someone\\KSP\\automation\\stock-tree\\rs\\0\r\n"
+              "lastStandingDigest = 0123\r\n"
+              "SHOW\r\n{\r\n\tRIVAL\r\n\t{\r\n\t\tplayerId = p_b\r\n\t\tghosts = True\r\n\t}\r\n}\r\n")
+
+
+def scan_local_cfg_offenses(root):
+    """Every committed `Parsek/Race/local.cfg` under ``root`` that still carries a
+    machine path: a `sharedFolderPath` other than the placeholder, or any value
+    that looks like an absolute path."""
+    offenses = []
+    for dirpath, _dirs, files in os.walk(root):
+        if not (os.path.basename(dirpath) == "Race"
+                and os.path.basename(os.path.dirname(dirpath)) == "Parsek"
+                and "local.cfg" in files):
+            continue
+        path = os.path.join(dirpath, "local.cfg")
+        text = harvest._read_latin1(path)
+        rel = os.path.relpath(path, root)
+        if harvest.blank_race_folder_path(text)[1]:
+            offenses.append("%s: %s is not %s" % (rel, harvest.RACE_FOLDER_PATH_KEY,
+                                                 harvest.RACE_FOLDER_PATH_PLACEHOLDER))
+        offenses.extend("%s:%s" % (rel, o) for o in harvest.race_local_absolute_paths(text))
+    return sorted(offenses)
+
+
+class RaceLocalFolderPathTests(_RaceHarvestBase):
+    def test_the_value_is_blanked_and_every_other_byte_kept(self):
+        text, n = harvest.blank_race_folder_path(_LOCAL_CFG)
+        self.assertEqual(1, n)
+        self.assertEqual(_LOCAL_CFG.replace(
+            "C:\\Users\\someone\\KSP\\automation\\stock-tree\\rs\\0",
+            harvest.RACE_FOLDER_PATH_PLACEHOLDER), text)
+        self.assertEqual((text, 0), harvest.blank_race_folder_path(text))
+
+    def test_absolute_path_shapes(self):
+        for value in ("C:\\x", "d:/x", "/home/x", "\\\\server\\share", "~/x"):
+            self.assertTrue(harvest.looks_like_absolute_path(value), value)
+        for value in ("rs/0", "${raceShared}", "", "True", "p_b", "0123"):
+            self.assertFalse(harvest.looks_like_absolute_path(value), value)
+
+    def test_the_harvest_blanks_the_copy_only(self):
+        save = self.make_race_save()
+        src = os.path.join(save, "Parsek", "Race", "local.cfg")
+        with open(src, "wb") as fh:
+            fh.write(_LOCAL_CFG.encode("latin-1"))
+        self.assertEqual(0, self.run_harvest(save))
+        out = os.path.join(self.saves_out, "race-save", "Parsek", "Race", "local.cfg")
+        with open(out, "rb") as fh:
+            got = fh.read()
+        self.assertEqual(harvest.blank_race_folder_path(_LOCAL_CFG)[0].encode("latin-1"), got)
+        self.assertNotIn(b"someone", got)
+        with open(src, "rb") as fh:
+            self.assertEqual(_LOCAL_CFG.encode("latin-1"), fh.read(), "the source changed")
+        self.assertEqual([], scan_local_cfg_offenses(self.saves_out))
+
+    def test_a_save_with_no_race_folder_is_untouched(self):
+        save = os.path.join(self.results, "sp_save")
+        _write(os.path.join(save, "persistent.sfs"),
+               SFS + "RECORDING_STUB { id = %s }\n" % _OWN_REC)
+        _write(os.path.join(save, "Parsek", "Recordings", _OWN_REC + ".prec"), "own")
+        _write(os.path.join(save, "Parsek", "local.cfg"),
+               "sharedFolderPath = C:\\elsewhere\n")
+        self.assertEqual(0, self.run_harvest(save))
+        target = os.path.join(self.saves_out, "race-save", "Parsek")
+        self.assertFalse(os.path.exists(os.path.join(target, "Race")))
+        with open(os.path.join(target, "local.cfg")) as fh:
+            self.assertEqual("sharedFolderPath = C:\\elsewhere\n", fh.read(),
+                             "only Parsek/Race/local.cfg is a race machine file")
+
+    def test_another_machine_path_is_refused_before_any_write(self):
+        save = self.make_race_save()
+        _write(os.path.join(save, "Parsek", "Race", "local.cfg"),
+               "sharedFolderPath = /home/x/rs/0\nsomeNewKey = /home/x/other\n")
+        with self.assertRaises(SystemExit) as ctx:
+            self.run_harvest(save)
+        self.assertIn("someNewKey", str(ctx.exception.code))
+        self.assertEqual([], os.listdir(self.saves_out))
+
+    def test_the_corpus_scan_finds_a_planted_path(self):
+        root = os.path.join(self.root, "corpus")
+        _write(os.path.join(root, "fx", "Parsek", "Race", "local.cfg"), _LOCAL_CFG)
+        _write(os.path.join(root, "ok", "Parsek", "Race", "local.cfg"),
+               "sharedFolderPath = %s\n" % harvest.RACE_FOLDER_PATH_PLACEHOLDER)
+        offenses = scan_local_cfg_offenses(root)
+        self.assertEqual(2, len(offenses), offenses)
+        self.assertTrue(all(o.startswith(os.path.join("fx", "Parsek")) for o in offenses))
+
+
+class CommittedFixtureRaceLocalTests(unittest.TestCase):
+    def test_no_save_fixture_carries_a_machine_folder_path(self):
+        saves = os.path.join(os.path.dirname(_HERE), "fixtures", "saves")
+        self.assertEqual([], scan_local_cfg_offenses(saves),
+                         "harvest_bdock_station.py resets Parsek/Race/local.cfg's "
+                         "sharedFolderPath; re-harvest")
+
+    def test_the_local_cfg_codec_writes_the_key_the_harvest_blanks(self):
+        # R1-08 writes local.cfg in RaceCore/RaceManifest.cs; until it lands this
+        # self-skips, after that it reds if the key is spelled otherwise.
+        codec = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "Source", "Parsek",
+                             "RaceCore", "RaceManifest.cs")
+        if not os.path.isfile(codec):
+            self.skipTest("no local.cfg codec yet (multiplayer R1-08)")
+        with open(codec, encoding="utf-8") as fh:
+            self.assertIn('"%s"' % harvest.RACE_FOLDER_PATH_KEY, fh.read())

@@ -88,11 +88,11 @@ namespace Parsek
             double effectiveAltBefore = ParsekFlight.ResolveEffectiveAltitudeWithTailLift(
                 bodyBefore, before.latitude, before.longitude, before.altitude,
                 before.recordedGroundClearance, ReferenceFrame.Absolute,
-                before.ut, recordingId);
+                before.ut, recordingId, catalog);
             double effectiveAltAfter = ParsekFlight.ResolveEffectiveAltitudeWithTailLift(
                 bodyAfter, after.latitude, after.longitude, after.altitude,
                 after.recordedGroundClearance, ReferenceFrame.Absolute,
-                after.ut, recordingId);
+                after.ut, recordingId, catalog);
 
             // M4b body-fixed derotation (identity when activeBodyFixedShiftSeconds == 0, every
             // non-knob path): resolve at the shifted longitude so a vacuum point replayed off the
@@ -465,7 +465,7 @@ namespace Parsek
                 : ParsekFlight.ResolveEffectiveAltitudeWithTailLift(
                     body, point.latitude, point.longitude, point.altitude,
                     point.recordedGroundClearance, ReferenceFrame.Absolute,
-                    point.ut, recordingId);
+                    point.ut, recordingId, catalog);
 
             // M4b body-fixed derotation (identity at shift 0): see InterpolateAndPosition.
             Vector3d worldPos = body.GetWorldSurfacePosition(

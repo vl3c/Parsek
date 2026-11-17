@@ -141,7 +141,9 @@ required = [
   # The ground-truth relaunch: its rollout is a new launch, not CS-6's in-window Flea row.
   "launchfromeditor complete scene=FLIGHT vessel=Jumping Flea pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
   "Game state: FundsChanged -2932 \\(VesselRollout\\)",
-  "OnVesselRolloutSpending: recording rollout as a new launch - an unadopted rollout of the same cost and site is inside the 60s window but its launch guid differs \\(verdict=GuidDiffers, existingGuid=f44fcfac7aa54b8f9b854169fe6b0e3c, newGuid=[0-9a-f]{32}, existingUT=119600\\.94833370799, newUT=[0-9.]+, cost=2932\\.0\\)",
+  # The existing row's guid and UT are the previous stage's own ground-truth Flea, so they
+  # are regexed: a campaign_runner chained run stages that stage's fresh save.
+  "OnVesselRolloutSpending: recording rollout as a new launch - an unadopted rollout of the same cost and site is inside the 60s window but its launch guid differs \\(verdict=GuidDiffers, existingGuid=[0-9a-f]{32}, newGuid=[0-9a-f]{32}, existingUT=[0-9.]+, newUT=[0-9.]+, cost=2932\\.0\\)",
   "VesselRollout spending recorded: cost=2932, UT=[0-9.]+, dedupKey=rollout:[0-9.]+\\|pid=[0-9]+\\|site=Launch%20Pad\\|vessel=Jumping%20Flea\\|guid=[0-9a-f]{32}",
   # The ground truth, in FLIGHT on the unrecorded Flea.
   "ground-truth game mode=CAREER pools=funds,science,reputation",

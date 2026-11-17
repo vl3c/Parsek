@@ -1234,3 +1234,88 @@ def prepare_baseline(expectations: Dict, save_text: Optional[str]) -> SaveBaseli
     return SaveBaseline(full, [], False,
                         "the reduced Parsek surface measured differently; edits ran over the full save")
 
+
+
+# ---------------------------------------------------------------------------
+# race-leak (multiplayer T-38): the raceParse leak scan must bite.
+# ---------------------------------------------------------------------------
+
+RACE_VERIFIER = "raceParse"
+RACE_LEAK_MUTATOR = "race-leak"
+RACE_BLOCK_LABEL = "race.leakScan"
+RACE_PLANT_DIR = "Parsek/Recordings/"
+RACE_PLANT_FILE = RACE_PLANT_DIR + FRESH_PREFIX + ".prec.txt"
+
+
+def _race_verdict(expectations: Dict, listing, saves) -> Tuple["object", "object"]:
+    """(raceparse result, hlib verdict) the way run.py judges the row."""
+    import hlib  # local: hlib is heavy and only this check needs classify_verdict
+    import raceparse
+    res = raceparse.evaluate_race_parse(expectations, listing, (), saves)
+    verdict = hlib.classify_verdict({}, raceparse.verdict_flags(res), {}, 1, "once")
+    return res, verdict
+
+
+def mutate_race_leak(expectations: Dict, folder_listing: Sequence[str], saves) -> SaveCheck:
+    """The ``race-leak`` mutator over an archived race run: ``folder_listing`` is the
+    run's ``results/<runId>_race/`` file list and ``saves`` its produced saves as
+    ``raceparse.RaceSaveInput``. The baseline must be an ARMED scan that reads PASS.
+    For each save, the first rival id is appended to a sidecar under
+    ``Parsek/Recordings/`` (the first one there, else a fresh one), and the real
+    evaluator plus ``hlib.classify_verdict`` must turn the verdict into
+    PARSEK-FAIL(race-isolation). A fault edit (the save's persistent.sfs removed) must
+    never read PASS: INVALID(race-parse) is the only right answer."""
+    import mutlib
+    import raceparse
+    check = SaveCheck()
+    if not raceparse.race_gating_armed(expectations):
+        check.notes.append("the raceParse leak scan is not armed; no race-leak edits run")
+        return check
+    base, base_verdict = _race_verdict(expectations, folder_listing, saves)
+    if base.status != raceparse.STATUS_PASS:
+        check.notes.append("the archived race run does not read PASS (%s); no race-leak "
+                           "edits run" % "; ".join(base.mismatches[:2]))
+        return check
+
+    def record(label: str, kind: str, detail: str, killed: bool, note: str) -> None:
+        check.mutations.append(mutlib.Mutation(
+            RACE_VERIFIER, label, kind, detail, mutlib.KILLED if killed else mutlib.SURVIVED,
+            "" if killed else mutlib.TRIAGE, "" if killed else note))
+        check.gates.append(GateVerdict(label, RACE_BLOCK_LABEL, kind, base.status,
+                                       PROVEN if killed else VACUOUS, "" if killed else note))
+
+    for index, save in enumerate(saves):
+        report = base.saves[index]
+        rivals = raceparse.collect_rival_ids(folder_listing, report.own_player).tagged()
+        label = "%s:%s" % (RACE_LEAK_MUTATOR, save.label)
+        if not rivals:
+            check.gates.append(GateVerdict(label, RACE_BLOCK_LABEL, RACE_LEAK_MUTATOR,
+                                           base.status, UNCHECKED, "no rival id to plant"))
+            continue
+        kind, rival = rivals[0]
+        files = dict(save.files or {})
+        sidecars = sorted(p for p in files if p.startswith(RACE_PLANT_DIR))
+        target = sidecars[0] if sidecars else RACE_PLANT_FILE
+        files[target] = files.get(target, b"") + b"\n// " + rival.encode("utf-8") + b"\n"
+        planted = list(saves)
+        planted[index] = raceparse.RaceSaveInput(save.label, files, save.problems)
+        res, verdict = _race_verdict(expectations, folder_listing, planted)
+        killed = (verdict.verdict == "PARSEK-FAIL"
+                  and verdict.subkind == "race-isolation")
+        record(label, RACE_LEAK_MUTATOR,
+               "appended rival %s %s to %s" % (kind, rival, target), killed,
+               "a planted rival id read %s %s (scan %s)"
+               % (verdict.verdict, verdict.subkind or "-", res.status))
+
+    torn = list(saves)
+    first = dict(saves[0].files or {}) if saves else {}
+    first.pop(raceparse.SAVE_FILE, None)
+    if saves:
+        torn[0] = raceparse.RaceSaveInput(saves[0].label, first, saves[0].problems)
+        res, verdict = _race_verdict(expectations, folder_listing, torn)
+        killed = (verdict.verdict == "INVALID" and verdict.subkind == "race-parse")
+        record("%s:no-persistent-sfs" % RACE_LEAK_MUTATOR, KIND_FAULT,
+               "removed %s from save %s" % (raceparse.SAVE_FILE, saves[0].label), killed,
+               "a save with no %s read %s %s" % (raceparse.SAVE_FILE, verdict.verdict,
+                                                 verdict.subkind or "-"))
+    return check

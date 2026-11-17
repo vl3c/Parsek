@@ -2255,9 +2255,7 @@ namespace Parsek.TestCommands
             Game game;
             try
             {
-                if (!string.IsNullOrEmpty(save))
-                    HighLogic.SaveFolder = save;
-                game = GamePersistence.LoadGame(name, save, true, false);
+                game = NewSaveStarter.LoadSave(save, name);
             }
             catch (Exception ex)
             {
@@ -2321,7 +2319,7 @@ namespace Parsek.TestCommands
             {
                 ParsekLog.Info(Tag,
                     $"loadgame player-load: firing onGameStatePostLoad save={save ?? string.Empty} name={name ?? string.Empty} route={route}");
-                GameEvents.onGameStatePostLoad.Fire(game.config);
+                NewSaveStarter.FirePlayerLoad(game);
             }
 
             if (route == LoadRoute.TrackingStation)
@@ -2393,34 +2391,21 @@ namespace Parsek.TestCommands
                 string kscSelector = requestedScene == RequestedBootScene.SpaceCenter ? "requested" : "no-vessel";
                 ParsekLog.Info(Tag,
                     $"loadgame spacecenter route ({kscSelector}): resuming to SPACECENTER save={save ?? string.Empty} protoVessels={pvCount} activeVesselIdx={game.flightState?.activeVesselIdx ?? -1}");
-                HighLogic.CurrentGame = game;
-                game.startScene = GameScenes.SPACECENTER;
-                // Re-add AddToAllGames ScenarioModules (ParsekScenario!) that the
-                // loaded save lacks, then PERSIST the augmented game to
-                // persistent.sfs, EXACTLY as the stock Load-menu resume does
+                // NewSaveStarter.PrepareSpaceCenterStart is the stock Load-menu resume
                 // (decompiled MainMenu.OnLoadDialogPipelineFinished, KSP 1.12.5:
-                // UpdateScenarioModules -> SaveGame(persistent, OVERWRITE) ->
-                // Start()). The SaveGame is LOAD-BEARING here, not cosmetic: unlike
-                // the focusable FLIGHT route (Game.Start -> FlightDriver.Start ->
-                // Game.Load on the in-memory game), the SPACECENTER route boots via
-                // Game.Start -> HighLogic.LoadScene(SPACECENTER), and the KSC scene's
-                // own bootstrap SpaceCenterMain.Start() RE-READS persistent.sfs from
-                // disk (GamePersistence.LoadGame("persistent", HighLogic.SaveFolder,
-                // ...)) and calls game.Load() -> ScenarioRunner.SetProtoModules on
-                // THAT disk game -- it never touches our in-memory HighLogic.CurrentGame.
-                // So UpdateScenarioModules mutates a game the KSC scene throws away;
-                // only writing it to disk first makes ParsekScenario present when
-                // SetProtoModules instantiates the scenarios, so OnLoad runs and the
-                // GameStateRecorder subscribes to OnTechnologyResearched before the
-                // seam issues its KscAction. The first live L-track run proved the
-                // fresh-* career fixtures (the first saves with no ParsekScenario node,
-                // stripped for the pre-Parsek/fresh-contact contract) booted to KSC
-                // with NO ParsekScenario: OnLoad never ran and the recorded-action log
-                // line never fired though the career math was correct. Writing the RUN
-                // save's persistent.sfs here is fine: it is staged/disposable and the
-                // seed baseline was already captured pre-launch from the TEMPLATE.
-                GamePersistence.UpdateScenarioModules(game);
-                string persistResult = GamePersistence.SaveGame(game, "persistent", save, SaveMode.OVERWRITE);
+                // UpdateScenarioModules -> SaveGame(persistent, OVERWRITE) -> Start()); its
+                // remarks say why the persistent.sfs write is load-bearing on this route
+                // (SpaceCenterMain.Start re-reads that file, never the in-memory game). The
+                // first live L-track run proved it: the fresh-* career fixtures (the first
+                // saves with no ParsekScenario node, stripped for the pre-Parsek/fresh-contact
+                // contract) booted to KSC with NO ParsekScenario, OnLoad never ran and the
+                // recorded-action log line never fired though the career math was correct.
+                // With the write ParsekScenario is present when SetProtoModules instantiates
+                // the scenarios, so OnLoad runs and the GameStateRecorder subscribes to
+                // OnTechnologyResearched before the seam issues its KscAction. Writing the RUN
+                // save's persistent.sfs here is fine: it is staged/disposable and the seed
+                // baseline was already captured pre-launch from the TEMPLATE.
+                string persistResult = NewSaveStarter.PrepareSpaceCenterStart(game, save);
                 if (string.IsNullOrEmpty(persistResult))
                     ParsekLog.Warn(Tag,
                         $"loadgame spacecenter route: SaveGame(persistent, OVERWRITE) returned empty for save={save ?? string.Empty} (autosave disabled?); ParsekScenario may not re-add on the KSC disk re-read");

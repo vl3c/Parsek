@@ -22,6 +22,10 @@ namespace Parsek
         // Controller parts at segment start (for identity tracking)
         public List<ControllerInfo> Controllers;  // null = not set (no controller data)
 
+        // Cheat, debug and test tools used while this recording was flown, each with its
+        // first-use UT (design 7.12, A3). Null when none, which writes no TOOL_USE child.
+        public List<ToolUse> ToolUses;
+
         // True if vessel has no controller parts (debris). Minimal recording only.
         public bool IsDebris;
 
@@ -1015,6 +1019,7 @@ namespace Parsek
                 TrackSections = DeepCopyTrackSections(source.TrackSections);
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
+            ToolUses = source.ToolUses != null ? new List<ToolUse>(source.ToolUses) : null;
             IsDebris = source.IsDebris;
             // Propagate the parent-anchor contract alongside IsDebris.
             // Without this, every cloned parent-anchored recording would silently

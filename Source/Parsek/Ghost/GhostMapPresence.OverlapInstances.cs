@@ -688,7 +688,7 @@ namespace Parsek
             // one-per-recording slot; overlap recordings live solely in overlapInstanceVessels).
             uint pid = vessel.persistentId;
             overlapInstanceVessels[(recIdx, cycle)] = vessel;
-            ghostMapVesselPids.Add(pid);
+            GhostMapVessels.Register(pid, GhostMapVesselOwner.OwnTimeline);
             vesselPidToRecordingIndex[pid] = recIdx;
             if (!string.IsNullOrEmpty(rec.RecordingId))
                 vesselPidToRecordingId[pid] = rec.RecordingId;
@@ -764,7 +764,7 @@ namespace Parsek
             if (ghostPid != 0)
             {
                 boundaryOverlapSecondaryPids.Remove(ghostPid); // M1: no-op for genuine self-overlap instances
-                ghostMapVesselPids.Remove(ghostPid);
+                GhostMapVessels.Unregister(ghostPid);
                 ghostsWithSuppressedIcon.Remove(ghostPid);
                 ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
                 ghostOrbitBounds.Remove(ghostPid);
