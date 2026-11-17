@@ -12,6 +12,14 @@ namespace Parsek
         internal static string CommittedTreeRestoreAttemptReason =>
             CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptReason;
 
+        /// <summary>Forwarder to <see cref="CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptResumedRecordingId"/>.</summary>
+        internal static string CommittedTreeRestoreAttemptResumedRecordingId =>
+            CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptResumedRecordingId;
+
+        /// <summary>Forwarder to <see cref="CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptResumeUT"/>.</summary>
+        internal static double CommittedTreeRestoreAttemptResumeUT =>
+            CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptResumeUT;
+
         /// <summary>
         /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>,
         /// design-load-restores-the-save.md section 4.2). Forgets the save-scoped session

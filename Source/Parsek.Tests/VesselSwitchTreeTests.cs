@@ -529,6 +529,106 @@ namespace Parsek.Tests
             Assert.Equal(liveTree.Recordings.Count, RecordingStore.CommittedRecordings.Count);
         }
 
+        // catches (RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK): the restore take not handing the
+        // resumed recording id and the live clock to the arm. The resumed tip's end (429.43) is a
+        // prediction ahead of the clock, so its cutoff must be just below the live UT; the
+        // sibling keeps its end.
+        [Fact]
+        public void TryTakeCommittedTreeForSpawnedVesselRestore_ResumedTipEndAheadOfClock_CutoffIsTheLiveUT()
+        {
+            var tree = MakeTree("rec_active", (20, "rec_tip"));
+            tree.Id = "tree_restore_ahead";
+            tree.RootRecordingId = "rec_active";
+
+            tree.Recordings["rec_active"].TreeId = tree.Id;
+            tree.Recordings["rec_active"].VesselPersistentId = 100;
+            tree.Recordings["rec_active"].VesselSpawned = true;
+            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 100;
+
+            tree.Recordings["rec_tip"].TreeId = tree.Id;
+            tree.Recordings["rec_tip"].VesselPersistentId = 20;
+            tree.Recordings["rec_tip"].VesselSpawned = true;
+            tree.Recordings["rec_tip"].SpawnedVesselPersistentId = 200;
+            tree.Recordings["rec_tip"].TerminalStateValue = TerminalState.Orbiting;
+            tree.Recordings["rec_tip"].ExplicitEndUT = 429.43;
+
+            AddTreeToCommittedStore(tree);
+
+            bool taken = ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+                activeVesselPid: 200,
+                out RecordingTree liveTree,
+                out string matchedRecordingId,
+                out ParsekFlight.CommittedSpawnedVesselRestoreAction action,
+                liveUT: 131.9);
+
+            Assert.True(taken);
+            Assert.Equal("rec_tip", matchedRecordingId);
+            Assert.True(CommittedTreeRestoreAttempt.TryGetEventCutoff("rec_tip", out double tipCutoff));
+            Assert.Equal(CommittedTreeRestoreAttempt.LargestDoubleBelow(131.9), tipCutoff);
+            Assert.True(CommittedTreeRestoreAttempt.TryGetEventCutoff("rec_active", out double siblingCutoff));
+            Assert.Equal(200.0, siblingCutoff);
+            Assert.Equal("rec_tip", RecordingStore.CommittedTreeRestoreAttemptResumedRecordingId);
+            Assert.Equal(131.9, RecordingStore.CommittedTreeRestoreAttemptResumeUT);
+        }
+
+        // The RF-11 shape: a merged Re-Fly provisional is the tree's ACTIVE recording, ended in a
+        // predicted crash (terminal Destroyed, no recorded points, end 429.43) while its vessel
+        // still flies. The restorable gate admits a Destroyed terminal only on the tree's active
+        // recording, which is how the game resumed it; the take must arm its cutoff at the clock.
+        [Fact]
+        public void TryTakeCommittedTreeForSpawnedVesselRestore_DestroyedActiveProvisional_CutoffIsTheLiveUT()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_refly_provisional",
+                TreeName = "Kerbal X",
+                RootRecordingId = "rec_root",
+                ActiveRecordingId = "rec_prov",
+            };
+            var root = new Recording
+            {
+                RecordingId = "rec_root", TreeId = tree.Id, VesselName = "Kerbal X",
+                VesselPersistentId = 900, ExplicitStartUT = 100.0, ExplicitEndUT = 131.54,
+                TerminalStateValue = TerminalState.Destroyed,
+            };
+            var prov = new Recording
+            {
+                RecordingId = "rec_prov", TreeId = tree.Id, VesselName = "Kerbal X",
+                VesselPersistentId = 300, ExplicitStartUT = 131.54, ExplicitEndUT = 429.43,
+                TerminalStateValue = TerminalState.Destroyed,
+                ProvisionalForRpId = "rp_1", CreatingSessionId = "sess_1",
+            };
+            var booster = new Recording
+            {
+                RecordingId = "rec_booster", TreeId = tree.Id, VesselName = "Booster",
+                VesselPersistentId = 301, ExplicitStartUT = 131.54, ExplicitEndUT = 500.0,
+            };
+            booster.Points.Add(new TrajectoryPoint { ut = 131.54, bodyName = "Kerbin" });
+            booster.Points.Add(new TrajectoryPoint { ut = 500.0, bodyName = "Kerbin" });
+            tree.Recordings[root.RecordingId] = root;
+            tree.Recordings[prov.RecordingId] = prov;
+            tree.Recordings[booster.RecordingId] = booster;
+            AddTreeToCommittedStore(tree);
+            Assert.Empty(prov.Points);
+
+            bool taken = ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+                activeVesselPid: 300,
+                out RecordingTree liveTree,
+                out string matchedRecordingId,
+                out ParsekFlight.CommittedSpawnedVesselRestoreAction action,
+                liveUT: 131.9);
+
+            Assert.True(taken);
+            Assert.Equal("rec_prov", matchedRecordingId);
+            Assert.Equal(ParsekFlight.CommittedSpawnedVesselRestoreAction.ResumeActiveRecording, action);
+            Assert.True(CommittedTreeRestoreAttempt.TryGetEventCutoff("rec_prov", out double provCutoff));
+            Assert.Equal(CommittedTreeRestoreAttempt.LargestDoubleBelow(131.9), provCutoff);
+            Assert.True(CommittedTreeRestoreAttempt.TryGetEventCutoff("rec_booster", out double boosterCutoff));
+            Assert.Equal(500.0, boosterCutoff);
+            Assert.True(CommittedTreeRestoreAttempt.TryGetEventCutoff("rec_root", out double rootCutoff));
+            Assert.Equal(131.54, rootCutoff);
+        }
+
         [Fact]
         public void DiscardPendingTree_AfterCommittedSpawnedRestore_KeepsCommittedTreeAndPurgesAttemptEventTails()
         {

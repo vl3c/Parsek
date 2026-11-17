@@ -89,6 +89,8 @@ tier = "nightly"
 #     13:10:56.735 [RecordingStore] Armed committed-tree restore attempt for 'B'
 #                                   (id=821b8202..., recordings=1, cutoffs=1,
 #                                    reason=TryTakeCommittedTreeForSpawnedVesselRestore)
+#     (an excerpt from before #2687; the arm line now also names `resumed=... resumeUT=...
+#     endUT=... resumedCutoff=... rule=... storedEventsAtResume=...` before `reason=`)
 #     13:10:56.736 [Recorder]       Rewind save skipped: tree branch/chain promotion
 #     13:10:56.739 [Recorder]       Recording started: vessel="B", ..., promotion,
 #                                   treeRec=rec[a41fdece|B|tree|-]

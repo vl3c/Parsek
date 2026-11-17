@@ -445,7 +445,12 @@ namespace Parsek
             }
 
             string reason = BuildSaveAttemptRearmReason(savedReason);
-            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committedCopy, reason);
+            // The save's resume facts rebuild the resumed recording's cutoff the original arm
+            // had; a save without them re-arms with every cutoff at its end, as it was armed.
+            GameStateStore.TryReadAttemptResumeValues(
+                attempt, out string savedResumedId, out double savedResumeUT);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(
+                committedCopy, reason, savedResumedId, savedResumeUT);
             ParsekLog.Info("Scenario",
                 "OnLoad: re-armed the save's committed-tree restore attempt for tree '"
                 + (tree.TreeName ?? "<unnamed>") + "' id=" + tree.Id
@@ -589,6 +594,21 @@ namespace Parsek
                     + " events=" + count.ToString(CultureInfo.InvariantCulture)
                     + " reason=DropOtherTree armedTree=" + (armedTreeId ?? "<none>"));
                 return 0;
+            }
+            // The flight armed afresh at the load's clock; the save made inside the attempt names
+            // the instant the attempt first resumed, and the held events lie after it.
+            if (GameStateStore.TryReadAttemptResumeValues(
+                    held, out string savedResumedId, out double savedResumeUT))
+            {
+                CommittedTreeRestoreAttempt.AdoptSavedResumeInstant(
+                    savedResumedId, savedResumeUT, "held ATTEMPT_EVENTS on the flight's re-arm");
+            }
+            else
+            {
+                ParsekLog.Verbose("Scenario",
+                    "Held ATTEMPT_EVENTS name no resume instant: attemptTreeId=" + heldId
+                    + " reason=" + GameStateStore.AttemptResumeValuesMissingReason(held)
+                    + " - the flight's arm keeps its own resume instant");
             }
             // The re-arm builds its cutoffs from the committed copy alone, so an event of a
             // recording the attempt made after the resume (gone with the save's missing active
