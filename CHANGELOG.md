@@ -28,6 +28,15 @@ Not released yet.
   boarding a vessel, the last stretch of the walk or jetpack flight could replay far from where
   the kerbal went once the game was saved and loaded. It now replays on the kerbal's real path.
   (EVA-SWITCH-STOP-DROPS-OPEN-SECTION)
+- **Flying a supply route's ship again no longer breaks the route.** Merging a later flight of
+  the ship a route was built from could pause the route as "source changed" for good, although
+  its recorded run was untouched. The route now keeps running.
+  (ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE)
+- **Supply routes no longer make cargo out of nothing.** A route starting docked at a depot
+  could take fuel another route had set aside there, and a route whose pickup came up short still
+  delivered the full amount. It now waits until the depot has enough beyond what other routes
+  reserved, and delivers only what it picked up, to the first stops first.
+  (ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW)
 - **Recordings of planes and rovers no longer fill up with landing-gear wobble.** Rolling on gear
   wrote about 22 suspension events a second; suspension is no longer recorded, and replays of
   older recordings keep the gear at rest instead of shifting the wheels out of place.

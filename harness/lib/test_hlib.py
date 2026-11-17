@@ -5509,7 +5509,9 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # ordinary path's executable ceiling is zero. Authored 2026-09-02, never flown,
         # INTERIM.
         # 2 -> 3 on 2026-10-16: the IR-10 scene-switch rebuild cell.
-        "H60-route-escrow-contention": ("RouteEscrowContention", 3),
+        # 3 -> 5 on 2026-11-16: the two ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW cells
+        # (docked-origin competitor holds; short pickup caps the delivery).
+        "H60-route-escrow-contention": ("RouteEscrowContention", 5),
         # THE FOURTH RECORDED `Logistics` HOST, and the first THREE-TREE,
         # NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted. Its
         # fixture `rover-relay-recorded` is the operator's 2026-09-02 two-hop
@@ -6148,6 +6150,19 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # regexed with a `passed=` floor of 1). Its first flight, `2026-11-07_0022` (PASS),
     # measured 2/0/0, so the spec pins it whole and the id left this set in the same
     # commit.
+    # NON-EMPTY AGAIN 2026-11-16 for `H60-route-escrow-contention`: two never-flown
+    # cells (the live proof of ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW) moved its total
+    # 3 -> 5. `total=5` is attribute-exact and `failed=0` a literal; the split is a
+    # class until the reading run, which predicts 5/0/0 because both new cells use the
+    # same spawn-path [12, 18) source band guard the first three measured green. The
+    # category is wholly batch-disabled, so the ordinary path's executable ceiling is
+    # zero and the `passed=[1-9][0-9]*` floor already rejects its line; WHICH cells
+    # passed is carried by the per-cell `EscrowContention:` summaries the spec pins.
+    # Owed: the reading run measures the split, the pin is replaced whole, and the id
+    # leaves this set in the same commit.
+    # EMPTY AGAIN 2026-11-17: H60's reading run (`2026-11-16_2354`, PASS attempt 1,
+    # `total=5 passed=5 failed=0 skipped=0`) measured the predicted split; the spec pins
+    # it whole and the id left this set in the same commit.
     INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards

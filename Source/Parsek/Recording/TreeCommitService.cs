@@ -201,13 +201,17 @@ namespace Parsek
                 }
             }
 
-            ApplySessionMergeToRecordings(tree);
+            // Read before the session merge touches the tree: a route source this commit
+            // carries unchanged keeps its sidecars and epoch (design 4.7 / 10.16).
+            HashSet<string> unchangedRouteSourceIds =
+                CommittedListOptimizer.CollectUnchangedRouteSourceIds(tree);
+            ApplySessionMergeToRecordings(tree, unchangedRouteSourceIds);
             ApplyRewindProvisionalMergeStates(tree, alreadyCommittedRecordingIds);
             PromoteNormalStagingRewindPoints(tree);
             RecordingStore.AutoGroupTreeRecordings(tree);
             RecordingStore.AdoptOrphanedRecordingsIntoTreeGroup(tree);
             MarkSupersededTerminalSpawnsForContinuedSources(tree);
-            FinalizeTreeCommit(tree, replaceCommittedTreeIndex);
+            FinalizeTreeCommit(tree, replaceCommittedTreeIndex, unchangedRouteSourceIds);
             CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForTree(tree.Id, "CommitTree accepted restored active tree");
             SceneEntryVesselScope.ClearRewindReplayTargetScope();
         }
@@ -245,15 +249,88 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The ids of the recordings of <paramref name="tree"/> that a route names
+        /// (<paramref name="routeSourceIds"/>) and that this commit carries unchanged from the
+        /// committed timeline (<see cref="IsUnchangedCommittedRecording"/>). A re-commit of a
+        /// route's tree (a resumed committed vessel merged back, a Re-Fly union) re-merges and
+        /// marks dirty every member it holds; for these the rewrite changes no byte the route
+        /// read, yet it would advance their sidecar epoch and pause the route as
+        /// SourceChanged for good. Never null. One Verbose summary when a source is examined.
+        /// </summary>
+        internal static HashSet<string> CollectUnchangedRouteSourceIds(
+            RecordingTree tree, ICollection<string> routeSourceIds)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (tree?.Recordings == null || routeSourceIds == null || routeSourceIds.Count == 0)
+                return ids;
+
+            int examined = 0, changed = 0, notCommitted = 0;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
+                    || !routeSourceIds.Contains(rec.RecordingId))
+                    continue;
+                examined++;
+                int existingIndex = FindCommittedRecordingIndex(rec);
+                if (existingIndex < 0)
+                {
+                    notCommitted++;
+                    continue;
+                }
+                if (IsUnchangedCommittedRecording(rec, RecordingStore.CommittedRecordings[existingIndex]))
+                    ids.Add(rec.RecordingId);
+                else
+                    changed++;
+            }
+
+            if (examined > 0)
+                ParsekLog.Verbose("RecordingStore",
+                    $"CommitTree: route sources in tree '{tree.Id ?? "<none>"}' examined={examined} " +
+                    $"keptUnchanged={ids.Count} changed={changed} notCommitted={notCommitted} " +
+                    "(an unchanged source is not re-merged or rewritten, so its sidecar epoch holds)");
+            return ids;
+        }
+
+        /// <summary>
+        /// True when <paramref name="incoming"/> holds exactly the content
+        /// <paramref name="existing"/>, its committed copy, already has on disk: neither is
+        /// dirty or owes a deferred epoch advance, and either they are the same instance or
+        /// they name the same sidecar bytes (epoch and the three content hashes) over the same
+        /// time span. A clone that was extended, trimmed or re-saved since it was taken fails
+        /// one of those. Pure.
+        /// </summary>
+        internal static bool IsUnchangedCommittedRecording(Recording incoming, Recording existing)
+        {
+            if (incoming == null || existing == null)
+                return false;
+            if (incoming.FilesDirty || incoming.SidecarEpochAdvancePending)
+                return false;
+            if (ReferenceEquals(incoming, existing))
+                return true;
+            if (existing.FilesDirty || existing.SidecarEpochAdvancePending)
+                return false;
+            return incoming.SidecarEpoch == existing.SidecarEpoch
+                && string.Equals(incoming.PrecHash, existing.PrecHash, StringComparison.Ordinal)
+                && string.Equals(incoming.VesselSnapshotHash, existing.VesselSnapshotHash, StringComparison.Ordinal)
+                && string.Equals(incoming.GhostSnapshotHash, existing.GhostSnapshotHash, StringComparison.Ordinal)
+                && incoming.StartUT.Equals(existing.StartUT)
+                && incoming.EndUT.Equals(existing.EndUT);
+        }
+
+        /// <summary>
         /// Merges overlapping data sources into the tree's recordings in-place.
         /// Strategy: start from the original recording (preserves ALL fields by default),
-        /// then overwrite only the merge-produced fields.
+        /// then overwrite only the merge-produced fields. A recording in
+        /// <paramref name="keepUnchangedIds"/> keeps its committed content as it is.
         /// </summary>
-        private static void ApplySessionMergeToRecordings(RecordingTree tree)
+        private static void ApplySessionMergeToRecordings(
+            RecordingTree tree, ICollection<string> keepUnchangedIds = null)
         {
             var mergedRecordings = SessionMerger.MergeTree(tree);
             foreach (var kvp in mergedRecordings)
             {
+                if (keepUnchangedIds != null && keepUnchangedIds.Contains(kvp.Key))
+                    continue;
                 Recording original;
                 if (tree.Recordings.TryGetValue(kvp.Key, out original))
                 {
@@ -562,7 +639,10 @@ namespace Parsek
         /// Adds tree recordings to committed list, flushes to disk, rebuilds background map,
         /// captures baseline, and creates a milestone.
         /// </summary>
-        internal static void FinalizeTreeCommit(RecordingTree tree, int replaceCommittedTreeIndex = -1)
+        internal static void FinalizeTreeCommit(
+            RecordingTree tree,
+            int replaceCommittedTreeIndex = -1,
+            ICollection<string> unchangedRouteSourceIds = null)
         {
             // Add all tree recordings to committedRecordings (enables ghost playback).
             // Skip recordings already present (chain segments committed mid-flight
@@ -580,7 +660,8 @@ namespace Parsek
             ICollection<uint> liveVesselPids = CollectLiveVesselPidsForReplaceGate(out liveVesselGuidsByPid);
             MergeTreeRecordingsIntoCommitted(
                 tree, liveVesselPids, liveVesselGuidsByPid,
-                out addedFromTree, out replacedFromTree, out preservedRewindSaves, out preservedRuntimeFields);
+                out addedFromTree, out replacedFromTree, out preservedRewindSaves, out preservedRuntimeFields,
+                unchangedRouteSourceIds);
             if (addedFromTree > 0 || replacedFromTree > 0)
                 RecordingStore.BumpStateVersion();
 
@@ -630,7 +711,10 @@ namespace Parsek
         /// dirty: one already committed under its id (or as the same instance) is replaced in
         /// place when it is another instance, carrying the live runtime fields over from the
         /// committed copy; any other is appended unbumped. Counts what it added, replaced and
-        /// carried.
+        /// carried. A recording in <paramref name="unchangedRouteSourceIds"/> (an unchanged
+        /// route source, <see cref="CollectUnchangedRouteSourceIds"/>) is not forced dirty: its
+        /// sidecars already hold its content, and a rewrite would advance the epoch its route
+        /// compares.
         /// </summary>
         internal static void MergeTreeRecordingsIntoCommitted(
             RecordingTree tree,
@@ -639,7 +723,8 @@ namespace Parsek
             out int addedFromTree,
             out int replacedFromTree,
             out int preservedRewindSaves,
-            out int preservedRuntimeFields)
+            out int preservedRuntimeFields,
+            ICollection<string> unchangedRouteSourceIds = null)
         {
             addedFromTree = 0;
             replacedFromTree = 0;
@@ -647,7 +732,10 @@ namespace Parsek
             preservedRuntimeFields = 0;
             foreach (var rec in tree.Recordings.Values)
             {
-                rec.FilesDirty = true;
+                if (unchangedRouteSourceIds == null
+                    || rec.RecordingId == null
+                    || !unchangedRouteSourceIds.Contains(rec.RecordingId))
+                    rec.FilesDirty = true;
                 int existingIndex = FindCommittedRecordingIndex(rec);
                 if (existingIndex >= 0)
                 {

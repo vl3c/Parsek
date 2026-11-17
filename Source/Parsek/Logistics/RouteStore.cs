@@ -1491,6 +1491,71 @@ namespace Parsek.Logistics
             }
         }
 
+        /// <summary>Drift token for a route whose source refs all match their live recordings.</summary>
+        internal const string SourceStateNone = "none";
+
+        /// <summary>Drift token for a route that carries no source ref.</summary>
+        internal const string SourceStateNoSources = "no-sources";
+
+        /// <summary>Per-source epoch token for a source ref whose recording is not in ERS.</summary>
+        internal const string SourceEpochMissing = "missing";
+
+        /// <summary>
+        /// The read-only half of <see cref="RevalidateSources"/> for one route, for the
+        /// automation route read-back: changes no status and logs nothing per route. Fills
+        /// <paramref name="sourceIds"/> with each source ref's short recording id and
+        /// <paramref name="sourceEpochs"/> with <c>captured/live</c>, the ref's captured
+        /// sidecar epoch beside the live recording's effective epoch (the pending advance
+        /// counted, as the revalidation compares it), or <c>captured/missing</c>, both in ref
+        /// order. Returns the first problem the revalidation would see: <c>none</c>,
+        /// <c>missing:&lt;id&gt;</c>, <c>&lt;field&gt;:&lt;id&gt;</c> (the drift field
+        /// <see cref="RevalidateSources"/> names, e.g. <c>sidecar-epoch</c>), or
+        /// <c>no-sources</c>.
+        /// </summary>
+        internal static string DescribeSourceState(
+            Route route, List<string> sourceIds, List<string> sourceEpochs)
+        {
+            return DescribeSourceState(route, BuildErsIndex(out _, out _), sourceIds, sourceEpochs);
+        }
+
+        /// <summary>
+        /// <see cref="DescribeSourceState(Route, List{string}, List{string})"/> over a given
+        /// RecordingId -&gt; Recording index of the ERS. Pure.
+        /// </summary>
+        internal static string DescribeSourceState(
+            Route route,
+            Dictionary<string, Recording> ersById,
+            List<string> sourceIds,
+            List<string> sourceEpochs)
+        {
+            if (route?.SourceRefs == null || route.SourceRefs.Count == 0)
+                return SourceStateNoSources;
+            if (ersById == null)
+                ersById = new Dictionary<string, Recording>(StringComparer.Ordinal);
+
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            for (int si = 0; si < route.SourceRefs.Count; si++)
+            {
+                RouteSourceRef sref = route.SourceRefs[si];
+                string id = sref?.RecordingId;
+                sourceIds?.Add(RouteIds.Short(id));
+                if (sourceEpochs == null)
+                    continue;
+                string captured = sref != null ? sref.SidecarEpoch.ToString(ic) : SourceEpochMissing;
+                string live = !string.IsNullOrEmpty(id) && ersById.TryGetValue(id, out Recording rec) && rec != null
+                    ? RouteSourceRef.EffectiveSidecarEpoch(rec.SidecarEpoch, rec.SidecarEpochAdvancePending).ToString(ic)
+                    : SourceEpochMissing;
+                sourceEpochs.Add(captured + "/" + live);
+            }
+
+            RouteSourceInspection inspection = InspectRouteSources(route, ersById);
+            if (inspection.AnyMissing)
+                return "missing:" + RouteIds.Short(inspection.FirstMissingId);
+            if (inspection.AnyDrift)
+                return (inspection.FirstDriftField ?? "unknown") + ":" + RouteIds.Short(inspection.FirstDriftId);
+            return SourceStateNone;
+        }
+
         /// <summary>
         /// For each committed route, validate every <see cref="RouteSourceRef"/>
         /// against the current ERS (Effective Recording Set, computed by

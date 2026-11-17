@@ -519,7 +519,7 @@ Known residue, not built (from the fix's second review; neither reproduced):
       re-homed, not purged), so repeated awards at that identical UT would each start their own
       seed. Bounded and not seen in a flight; pinned only as a boundary in
       `RestoreAttemptRecordCoalesceTests`
-      (`Boundary_AnEventAtTheCutoffIsHistory_OneJustAfterIsTheAttemptsOwn`).
+      (`Boundary_AnEventAtTheCutoffIsHistory_OneJustAfterIsTheAttemptsOwn`). ACCEPTED 2026-11-16 (bounded, pinned by that boundary cell).
 
 ## ~~FAR-SWITCH-INTENT-TTL-RACE~~: a fast far Switch-To starts a switch segment on the target, which the design says it must not [FILED 2026-11-14 from S0.14's third flight (PC, head a3624e48f, PARSEK-FAIL on its pre-registered P6), branch `item20-switch-pending-merge-lane`; code and decompile reading. FIXED 2026-11-14 on the same branch (PR #2609): no intent is armed for an unloaded target; xUnit + mutation; FLOWN GREEN 2026-11-15: S0.14 `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1; low (a recording the player did not ask for, on a rare path)]
 
@@ -829,6 +829,7 @@ Discard half of Case B (a no-op or idle-on-pad prior recording) and the #266 sta
 needs an in-scene switch followed within 60 frames by a FLIGHT -> FLIGHT reload that no seam verb
 drives.
 
+TRIAGED 2026-11-16: a reading run on `jool-park-nerv` is the next step, not for 1.0.3.
 The #266 stash (`StashActiveTreeForVesselSwitch`) stays unreached by every lane, S0.14
 included: it runs only when `onVesselSwitching` armed the switch flag less than 60 frames before
 a FLIGHT -> FLIGHT scene request with the tree still live, and stock's far switch fires
@@ -1877,7 +1878,7 @@ epoch; `FindSplitCandidatesForOptimizer`'s `EnsureCheckpointSectionsForTopLevelO
 (markDirty: true)` runs over sources too. Whether that can drift a source ref to SourceChanged is
 unproven (follow-up below).
 
-## ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW: a route whose docked origin is a depot may drain cargo another route reserved there [SUSPECTED 2026-11-14 by code read, no test proves it. OPEN]
+## ~~ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW~~: a route whose docked origin is a depot may drain cargo another route reserved there [SUSPECTED 2026-11-14 by code read. CONFIRMED by code trace and FIXED 2026-11-16, branch fix-route-origin-escrow; xUnit; medium]
 
 `LiveRouteRuntimeEnvironment.OriginProvenanceHasCargo` probes `route.Origin` without
 `RouteStore.OtherRoutesReservedFor`; only `PickupSourcesHaveCargo` nets the escrow. So route A
@@ -1887,6 +1888,180 @@ recorded `DeliveryManifest` (`RouteDeliveryPlanner` never reads what was picked 
 created. Proving it needs a live origin resolve (FlightGlobals), so an in-game test or a seam.
 Also check here: whether a sidecar flush of a source recording (see ROUTE-SOURCE-OPTIMIZER-REWRITE)
 can move a route to SourceChanged.
+
+Confirmed by trace (no live run): `OriginProvenanceHasCargo` gated `route.CostManifest` on the raw
+origin probe, and a multi-stop cycle reserves its pickup escrow at dispatch
+(`ProcessMultiStopCrossings` -> `ReserveCycleEscrow`) but debits the source only at the pickup
+window, so in that gap a docked-origin route A at depot D passed its gate on B's reserved cargo and
+its loop-path dispatch physically drained D (`EmitDispatchDebit` -> `ApplyOriginDebit`, clamped
+to stored). B's later `EmitPickupHalf` then clamped short (row actual < requested), while B's
+delivery (`ApplyDelivery` -> `RouteDeliveryPlanner.PrepareDelivery`) planned from the stop's
+recorded `DeliveryManifest` only and wrote the full amount. The same short-pickup-full-delivery
+path was reachable without a second route (the player draining the depot between B's dispatch and
+its pickup window, or a pickup / origin endpoint unresolved at the debit).
+
+Fix, two halves. (1) The origin gate nets other routes' escrow on the origin pid exactly as the
+pickup gate does: the pure `RoutePickupSourceGate.OriginCoversNetOfOtherRoutes` (raw reader +
+`RouteStore.OtherRoutesReservedFor` reader, `NettedAvailable` net, own reservation not netted,
+`IsEscrowCausedShort` classification); an escrow-caused origin short holds with the existing
+`source-reserved:` token, so the Logistics window says "<depot> has <resource> reserved by route
+'<name>'"; one `OriginHasCargo ... short-cause=` Verbose line per blocked check. (2) A delivery
+never writes more than the cycle put on board: `RouteOrchestrator.ComputeCycleSupplyDeficit`
+walks this route and cycle's persisted debit / pickup / delivery rows in Sequence order (a debit
+or pickup row adds `requested - actual`, an earlier delivery row subtracts what it kept on board,
+floored at zero); `RouteOrchestrator.ComputeDeliveryHoldback` turns that deficit into what THIS
+delivery holds back, the deficit less what the route's later deliveries of the resource can
+absorb (`LaterDeliveriesAbsorbable`: the largest running total, over the later stops in window
+order, of recorded deliveries minus recorded pickups, read at each later delivery; a later
+pickup feeds the delivery after it, so it cannot absorb a shortfall from before it), and
+`PrepareDelivery(..., supplyHoldback)` caps each resource at recorded minus holdback (the line
+keeps the recorded amount as Requested, so it reads as a partial delivery in the row and the
+existing last-partial-delivery line). So the cargo aboard goes to the first stop that wants it
+and the shortfall lands on the last ones (debit 40 short of 100, stops of 50 and 50: 50 then
+10), the cycle never delivers more than it took on, and a harvest route, which books no row
+for harvested cargo, is never capped while its debit and pickups are met. `ApplyDelivery`
+computes both from `RouteEventLog.Events` and the route's stops and logs a
+`supply short this cycle - capping delivery` Warn with the deficit and the part held back here
+(a review of the first cut, which put the whole deficit on the first delivery, found it starved
+the first stop and could lose cargo a full later destination refused). Both halves
+are pure and headless; the live origin resolve stays in `LiveRouteRuntimeEnvironment`. Tests:
+`RouteDockedOriginEscrowTests` (16: the netted origin gate incl. own-reservation, physical vs
+escrow cause, other pid / resource, ordinal first-short, null readers; the deficit walk for a
+short pickup, a short or unresolved origin debit, full supply, other cycle / route / later
+window, an earlier capped delivery absorbing its share, an earlier capacity clamp flooring at
+zero; the planner cap; two source pins for the live wiring) plus the holdback cells
+`Holdback_ShortDebit_FirstStopGetsWhatIsAboard`, `Holdback_FullFirstDestination_*`,
+`Holdback_FullSecondDestination_*`, `Holdback_LaterPickup_DoesNotAbsorbTheEarlierDeficit`,
+`LaterDeliveriesAbsorbable_ReadsTheRunningTotalInWindowOrder`, `Holdback_HarvestRoute_IsNeverCapped`,
+`Holdback_SingleDelivery_HoldsBackTheWholeDeficit` and `Holdback_SaveReloadMidCycle_*`
+(mutation-checked: no later absorption reds six, ignoring later pickups reds three). The first test asserts the pre-fix
+raw gate passes the scenario the netted gate holds.
+
+Left open: (a) a route whose OWN docked origin and OWN later pickup are the same vessel is gated
+per provenance (cost and pickup each against the full tank, not their sum); the delivery cap now
+keeps that conservation-safe, but the gate can still dispatch a cycle that comes up short.
+(b) Inventory: no delivery row carries its stored-part actuals, so the cap covers resources only;
+a short stored-part pickup still delivers the recorded parts. (c) Live proof: AUTHORED 2026-11-16 (branch route-escrow-ingame), NOT YET FLOWN. Two
+`RouteEscrowContention` FLIGHT cells gated by H60: `docked-origin-holds` (a docked-origin
+competitor on the depot the multi-stop holder reserved at holds with `source-reserved:` from the
+ORIGIN gate and debits nothing; the holder's second pickup and its delivery both read full,
+delivered == picked up == 10) and `short-pickup-caps-delivery` (the depot drained to 2 LF between
+the holder's windows; the delivery is capped at 6 == picked up, with the supply-cap Warn). Flown green
+2026-11-16 (`2026-11-16_2354_H60-route-escrow-contention`, 5/5/0/0, pinned whole). Still open: a lane-level conservation read like
+RCN-1's on a recorded host.
+
+Side question (sidecar flush -> SourceChanged): the mechanism is real and by design (section
+10.16 lists a sidecar epoch change): `RouteStore.FirstDifferingField` compares
+`RouteSourceRef.SidecarEpoch`, and any `FilesDirty` source re-saved by OnSave bumps
+`Recording.SidecarEpoch` (`RecordingSidecarStore.SaveRecordingFiles(incrementEpoch: true)`), which
+reads as `SourceChanged/sidecar-epoch-drift` and never auto-recovers. The specific case named
+above cannot fire in practice: `FindSplitCandidatesForOptimizer`'s
+`EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` dirties a recording only on
+an actual mutation, Ensure is idempotent (pinned by `EnsurePassIntegrityTests
+.AnalysisPass_WhenEnsureIsANoOp_LeavesRecordingClean`), every recording runs through that pass at
+its own commit before a route can name it, and the route captures the pending advance of that
+pass's flush (`RouteSourceRef.EffectiveSidecarEpoch`). Other post-creation dirty sites on a
+committed source are filed as ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE.
+
+## COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH: a real vessel whose committed leaf carries no spawn stamp is never resumed into its tree after a Cold FLIGHT load, and nothing logs why [FOUND 2026-11-16 by RSF-1's first flight; headless probe; low]
+
+On `rover-relay-c-recorded` the transport C (pid 612987736) has a committed leaf `ec4bf428`
+with a vessel snapshot, `vesselPersistentId` and `recordedVesselGuid` equal to the live vessel,
+and no `spawnedPid`. Before the crew pass, `TryFindCommittedTreeForSpawnedVessel` matches it
+(direct pid + guid branch). On every Cold load into FLIGHT,
+`ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT` sees UT past EndUT on a leaf not marked
+spawned, nulls its snapshot and sets `VesselSpawned=true` with no spawn pid. After that neither
+branch matches (the spawn-stamp branch needs `SpawnedVesselPersistentId == livePid`, the direct
+branch needs `!VesselSpawned`), and neither counts a refusal, so OnFlightReady and the 1 Hz
+retry return silently; the player's next flight of C opens a new tree. `VesselSpawned` is
+rebuilt from `spawnedPid` on load, so every Cold FLIGHT load repeats it. Normal in-flight
+commits stamp the active leaf (`CommitTreeFlight`), so the reach is a leaf committed by another
+path while its vessel stays real. Fix options: the crew pass stamps the live pid when the
+recorded vessel exists (guid-gated), or the finder treats spawned-with-no-pid (not
+`SpawnAbandoned`) as unstamped; either way the finder counts and logs the refusal. Evidence:
+RSF-1 run `2026-11-16_2349` (INVALID, CommitTree `no-active-tree`); a headless probe over the
+fixture's trees reads `found=True` before the crew pass and `found=False` after it.
+
+## ~~ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE~~: a content-neutral rewrite of a route's source recording may pause the route as SourceChanged for good [SUSPECTED 2026-11-16 by code read. CONFIRMED by code trace and FIXED 2026-11-16, branch fix-route-source-epoch; xUnit; low]
+
+A route compares each source's `SidecarEpoch` (`RouteStore.FirstDifferingField`), and the next
+OnSave advances the epoch of any recording marked `FilesDirty`, whatever changed. Several sites
+dirty an already-committed recording without touching what a route reads (window, manifests, UT
+bounds, proof hash): `RecordingGroupStore.RepairAutoGroupMembership` (group list, a .sfs-side
+field), `RecordingFinalizationCacheApplier`, the hydration repairs in
+`ParsekScenario.HydrationRepair.cs`. If any of them fires on a route source after the route is
+built, the route turns SourceChanged at the next save and stays there (design 10.16 lets only a
+recreate clear it). Not audited per site and not reproduced. Options for the owner: compare the
+route proof hash and UT bounds only (drop the epoch from the drift check; the epoch is a cache
+counter, not a content fingerprint), or audit and gate each dirty site against route sources as
+ROUTE-SOURCE-OPTIMIZER-REWRITE did for the optimizer.
+
+Audit (code trace, no live run). The epoch advances only when a sidecar is rewritten:
+`ParsekScenario.EnsureRecordingFilesCurrentForSave` calls `SaveRecordingFiles(incrementEpoch:
+true)` for a recording that is `FilesDirty`, owes a deferred advance
+(`SidecarEpochAdvancePending`, set by the commit / optimizer flush) or whose files are not
+current; `tree.Save` writes every recording's .sfs node on every OnSave regardless. So a
+metadata-only edit moves the epoch only when its site also sets `FilesDirty`. No UI rename does:
+group rename (`RecordingGroupStore.RenameGroup` / `ReplaceGroupOnAll`), mission rename
+(`MissionGroupLink.RenameMissionGroup`), the vessel-name apply pass (`VesselNameStore.ApplyAll`),
+ledger tagging and loop settings never dirty or re-save a sidecar (grep of `FilesDirty` /
+`MarkFilesDirty` / `SaveRecordingFiles` over `Missions`, `UI`, `GameActions`, `Crew` and the
+vessel-name files: no hit). Of the ~70 dirty sites, every one but four acts on the active or
+pending tree, the recorders, a Re-Fly supersede / split (a designed source change) or a load-time
+repair of a broken sidecar (the malformed-flat-fallback heal already keeps the epoch). The four
+that dirty an already-committed route source with no sidecar change:
+(1) `TreeCommitService.MergeTreeRecordingsIntoCommitted` forced `FilesDirty` on every member of a
+re-committed tree, so a resumed committed vessel merged back (committed-spawned-clone restore of
+the run's tree, e.g. flying the transport again after building the route) or a Re-Fly union of
+that tree advanced every [root..dock] source's epoch through the commit flush; reachable in
+ordinary play. (2) `MarkSupersededTerminalSpawnsForContinuedSources` and (3)
+`MarkTerminalSpawnSupersededByDockMerge` set `FilesDirty` for .sfs-only spawn fields; they reach a
+source only when it is a spawned / adopted leaf (a run that ended docked), and (2) also runs over
+every committed tree on a rewind (`ResetAllPlaybackState`). (4)
+`RecordingGroupStore.RepairAutoGroupMembership` (group list, .sfs) runs only from the Re-Fly
+discard restore of a detached tree and only when membership drifted. Not changed:
+`RecordingFinalizationCacheApplier` and the `ParsekScenario.HydrationRepair.cs` sites act on the
+live / loaded active tree (finalization moves `EndUT` anyway; the hydration copies are real
+restores); the hydration refresh of a quickloaded resumed-tree member is a possible narrow edge
+(it re-dirties a member copied from the committed copy) and is left open.
+
+Fix: (1) `CommitTreeCore` collects, before the session merge, the route sources the incoming
+tree carries unchanged (`TreeCommitService.CollectUnchangedRouteSourceIds` over
+`RouteStore.CollectSourceRecordingIds`, read through `CommittedListOptimizer.CollectUnchangedRouteSourceIds`,
+the type that already reads the route source set for its own pass, so no new Recording ->
+Logistics layer pair; pure `IsUnchangedCommittedRecording`: neither copy dirty
+nor owing an advance, and the same instance or the same epoch, `PrecHash`, vessel / ghost
+snapshot hashes, start and end UT); those skip the session merge overwrite and the forced dirty in
+`MergeTreeRecordingsIntoCommitted`, so memory keeps exactly the bytes on disk; one Verbose
+`route sources in tree ... keptUnchanged=` summary per commit. A changed source (dirty, re-saved,
+extended) and every non-source member are merged and rewritten as before. (2)-(4) no longer set
+`FilesDirty` (comment at each site: .sfs metadata only). The epoch comparison stays, so a real
+sidecar change still reads as SourceChanged. Tests: `RouteSourceEpochMetadataRewriteTests` (10: the re-commit
+keeps sources clean and the route Active, the kept source keeps its committed lists, a changed
+source still flips SourceChanged through `sidecar-epoch`, a non-source member is still rewritten,
+the two predicates, the two supersede marks and the group repair); with the fix reverted 6 red.
+The tenth pins that the source set never grows: after two continuations of the route's
+transport are merged back into its tree, `SourceRefs`, `RecordingIds` and
+`CollectSourceRecordingIds` are exactly the creation set, and the continuations stay ordinary
+optimizer input (merge / split candidates; a pair with the dock leaf is held for the leaf only).
+Audit: a route's source set is written only by `RouteBuilder` (creation) and `RouteCodec` (load),
+and every runtime reader (ERS presence, revalidation, transport identities, the backing mission
+frozen to creation members by `ComputeAutoExcludedNewIntervalKeys`) reads that fixed set, never
+a later recording of the vessel; `RouteCandidateFinder` leaves a continuation analysable.
+Live proof flown green 2026-11-17 (`2026-11-17_0049`, PASS attempt 1): lane `RSF-1-route-source-fixed-across-transport-reflight` on
+RCN-1's host creates and activates the route, F5 / F9, takes the real transport C out again in
+a NEW tree, drives C 5 s, merges, F5 / F9 again and runs the cycle; the route must stay Active
+with no SourceChanged flip. It cannot re-commit the route's own tree: the host's leaf
+`ec4bf428` has no spawn stamp, so a Cold FLIGHT load's crew pass
+(`OnLoadPhaseAutoUnreserveCrewPastEndUT`) marks it spawned with no pid and
+`TryFindCommittedTreeForSpawnedVessel` silently matches nothing. The re-commit path stays
+xUnit-proven. `ListHandles kind=routes` gained `sources` / `sourceIds` / `sourceEpochs` (captured/live) /
+`sourceDrift` (read-only `RouteStore.DescribeSourceState`) so the lane compares the source set
+taken at creation with the one after the merge, the F9 and the cycle by regex backreference.
+Known remaining case (review 2026-11-16, fails safe): `SessionMerger.MergeTree` still runs
+`EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` on every member after the
+unchanged set is collected, so an orbital source that lacks checkpoint sections would still be
+rewritten and pause its route. It errs toward pausing, never toward replaying changed data.
 
 ## ~~PRESWITCH-CASE-C-LIVE-TREE-MEMBER~~: switching back to the ship a kerbal just left ended the recording when that ship ended an earlier committed flight [FILED 2026-11-14 from lane FAR-4's first flight, runs `2026-11-14_1525` and `_1526_a2` (INVALID driver-gate, the seam refused `dialog-required case=C-loaded-separate-committed`). FIXED 2026-11-14, branch `pc-lanes-fix`; xUnit; FAR-4 green `2026-11-14_2324`; medium]
 
@@ -2324,19 +2499,19 @@ lines and the key.
 
 ## RESIDUALS-OF-ENTRIES-ARCHIVED-2026-11-07: small follow-ups left inside 20 finished entries moved to the archive [FILED 2026-11-07 (owner: mark the finished entries done). OPEN; each line names its archived entry in `done/todo-and-known-bugs-v11.md` ("Moved out 2026-11-07 (finished entries still listed)"); none is a known player-hit bug]
 
-- AUTOMERGE-ON-BY-DEFAULT: four residuals at the end of that entry (frequency of the resume miss, step 1 still injected, entrance A undriven, the dangling limbo dispatch). (d) FIXED 2026-11-16 (branch `fix-residuals-limbo-enrich`): the outside-flight auto-commit (and the OnSave safety net) drops the flight-ready restore it leaves with no pending tree to restore (`ShouldDropScheduledRestoreAfterOutsideFlightCommit`, Info `autocommit-outside-flight (<ctx>): dropped the flight-ready <mode> restore scheduled for the committed tree '<name>'`); left armed it made the next FLIGHT entry defer its Tracking Station / KSC marker Fly intent to a restore that exited at once, skip the committed-tree restore that frame and walk the ledger without the current-UT cutoff. A commit that threw with the tree still stashed keeps it. Headless OnLoad cells in `ParsekScenarioOnLoadStepOrderTests.LimboSchedule.cs` (in-session SPACECENTER Limbo, Cold SPACECENTER `isActive`, commit-throw, truth table; the first two red on the old code with the schedule left at Quickload). Live: S0.9 / S0.10 reach it, neither requires the new line yet.
-- REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE: the A7 strategy / mod-grant follow-up.
-- KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: the spawned-vessel recovery arm is unit-proven only (no lane flies it), and a legacy recording with no launch guid is never an owner.
-- ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT: `RouteRunCargoManifest` is still scoped to the whole merged vessel; re-scope it in its own pass with the delta measured.
-- ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE: the read-side cell `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` self-skips until a committed recording carries a proof; un-skipping moves RVR-1's pin.
-- GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: in the Tracking Station, a vessel a flight despawned relays nothing before its first claim (deliberately dark).
-- ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: `SavePendingTreeIfAny` still skips a dirty pending-tree member that shares a committed id (lane QL-13).
+- AUTOMERGE-ON-BY-DEFAULT: four residuals at the end of that entry (frequency of the resume miss, step 1 still injected, entrance A undriven, the dangling limbo dispatch). (d) FIXED 2026-11-16 (branch `fix-residuals-limbo-enrich`): the outside-flight auto-commit (and the OnSave safety net) drops the flight-ready restore it leaves with no pending tree to restore (`ShouldDropScheduledRestoreAfterOutsideFlightCommit`, Info `autocommit-outside-flight (<ctx>): dropped the flight-ready <mode> restore scheduled for the committed tree '<name>'`); left armed it made the next FLIGHT entry defer its Tracking Station / KSC marker Fly intent to a restore that exited at once, skip the committed-tree restore that frame and walk the ledger without the current-UT cutoff. A commit that threw with the tree still stashed keeps it. Headless OnLoad cells in `ParsekScenarioOnLoadStepOrderTests.LimboSchedule.cs` (in-session SPACECENTER Limbo, Cold SPACECENTER `isActive`, commit-throw, truth table; the first two red on the old code with the schedule left at Quickload). Live: S0.9 / S0.10 reach it, neither requires the new line yet. (a) ACCEPTED 2026-11-16: a resume miss commits at full fidelity (`ClassifyAutoCommitFidelity`), nothing is lost. (b) DONE: real F9 Limbo stashes are flown by QL-4c, LAB-9b and QWS-1. (c) lane owed: an S0.10 twin with `WarpToUT` past the entry before `ExitToSpaceCenter`.
+- REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE: the A7 strategy / mod-grant follow-up. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): lane owed, not for 1.0.3: it informs a future floor nobody plans.
+- KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: the spawned-vessel recovery arm is unit-proven only (no lane flies it), and a legacy recording with no launch guid is never an owner. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): the recovery arm stays a lane owed (CI-7 shape with a crewed chain tip, needs a crewed preset); the no-guid half is ACCEPTED (a pre-1.0 shape, and the save-format policy forbids alpha repair).
+- ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT: `RouteRunCargoManifest` is still scoped to the whole merged vessel; re-scope it in its own pass with the delta measured. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): ACCEPTED: the one consumer already ignores the merged scope (`RouteHarvestAnalysis.cs`, the depot filter).
+- ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE: the read-side cell `RouteOriginProof_StartedDockedToNonKsc_ProducerLandsProof` self-skips until a committed recording carries a proof; un-skipping moves RVR-1's pin. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): lane owed: fixture `rover-relay-c-recorded` carries a proof, so an RVR-1 clone running the Logistics batch can un-skip it.
+- GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: in the Tracking Station, a vessel a flight despawned relays nothing before its first claim (deliberately dark). ACCEPTED 2026-11-16 by owner ruling (stays silent: only the drawn link lines differ, nothing can lose control in the Tracking Station, FLIGHT is exact); noted in design section 15.6 item 15.
+- ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: `SavePendingTreeIfAny` still skips a dirty pending-tree member that shares a committed id (lane QL-13). TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): OBSOLETE: outside FLIGHT the safety-net auto-commit runs before that save, so the member is committed, not pending, by then.
 - ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock into a resumed Parsek-spawned vessel reads as a different launch (identity links are not consulted by `VesselLaunchIdentity`).~~ FIXED 2026-11-16, branch `fix-residual-dock-link`; xUnit; low. Reproduced headless first: the resumed recording keeps the original launch guid G0 at the spawn pid, the dock stamps the live guid G1, and the bare guid test refused every dock-claim read, so after a rewind the resumed recording was not an intermediate chain link and spawned its vessel beside the docked stack's spawn (the Missions partner and dock-event partner read `guidRejected`). Fix: `VesselLaunchIdentity.GuidsConclusivelyDifferAllowingLinks` (the bare test, then the link rows in both directions, so a link G1 -> G0 joins either argument order; two guids that only share an ancestor stay apart) at the seven dock-claim sites: `GhostChainWalker` (latest-launch filter, `FindIntermediateLinkChain`, `MergeCrossTreeLinks`, `ForkContinuesWalkedVessel`) and `MissionCrossTreeDock` (`FindSameTreeDockClaims`, `FindClaimedRecording`, which `DockEventGraph`'s cross-tree step reuses, and the journey's `FindBranchSuccessor`). Unlinked launches of one craft are still refused. Tests: `DockIntoResumedSpawnLinkTests` (each site mutation-checked). Not changed: `ParsekFlight.SelectChainPidsToGhost` and `GhostCommNet`'s chain filter compare live guids with claim guids the same bare way; no failing sequence was found for them. Lane owed: a CI-9 / VN-12 twin (fly a Real Spawn again, commit, dock a second launch into it, rewind before the spawn) requiring one spawn of the resumed vessel.
 - CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract either gate leaves unfiled is not filed later when the clock reaches its outcome. FIXED 2026-11-16 (branch `fix-residuals-contract-d5`): each patch with a real clock files, from its accept snapshot and silently (no ledger row, no `SetState`, nothing paid or charged), every walk-ended, non-tombstoned contract stock holds in neither list whose outcome end UT is at or before the clock (`KspStatePatcher.PlanMissingTerminalContractFilings` + `FileMissingTerminalContracts`; `archiveLateFiled` / `archiveLateFailed` on the `PatchContracts: removedStale=` summary, one `late-filed ended contract` Info line each; skips logged Verbose). The same covers a clock jump past both the accept and the outcome. Defect shown first on the pure planners (a no-clock removal, then a real-clock patch: the retire planner reads only the active list, so nothing filed it); cells in `ContractCrossedOutcomeArchiveTests` (files once, a repeat adds no copy, outcome after the clock or unknown stays unfiled, skips, load failure). Not flown: RW-20 would show it only on a run that crosses with `archiveNoClock=1` first.
 - D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: the capture's distance is measured from the promotion point, and a capture on the vessel-switch stop path with a Relative section still open takes the flat route. FIXED 2026-11-16 (branch `fix-residuals-contract-d5`), second half only: the vessel-switch stop (`FlightRecorder.HandleVesselSwitchDuringRecording`, EVA board / `ChainToVessel`) builds the capture without closing the section, so it now hands the open `currentTrackSection` (when it has payload, `TrackSectionHasResumePayload`) to `SnapshotVessel`, and the route, the body-fixed samples and the end-biome sample read `LiveVesselSnapshot.BuildDistanceRouteSections(closed, open)`; with no body-fixed sample the distances stay 0 so the finalize backfill still runs. Reachable for a kerbal boarding in RELATIVE mode (off the surface, near the vessel); the capture's distance is read by the unconfirmed-boarding / fallback paths (`TryAppendCapturedToTree` keeps the larger value, the standalone copy takes it). Cells in `PromotedDebrisSnapshotDistanceTests` (the switch-stop shape routes flat on the closed sections alone, body-fixed with the open one: 5 km, not >1000 km). The promotion-point half stays accepted (cosmetic, larger value kept). The vessel-switch stop now closes its open section before the capture (EVA-SWITCH-STOP-DROPS-OPEN-SECTION), so that half reads the closed list.
-- RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: lane owed, a formation flight through an SOI edge with a background wingman.
-- VB-1-KSP-HANG-AT-MAIN-MENU: a hang after the MAINMENU line is still caught only by the long timeout.
-- FAST-POLL-SETTLES-STILL-RACE: CI-6 still waits on a timer; a named-condition wait would replace it.
+- RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: lane owed, a formation flight through an SOI edge with a background wingman. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): lane owed, SOI-1 host with a decouple before the boundary.
+- VB-1-KSP-HANG-AT-MAIN-MENU: a hang after the MAINMENU line is still caught only by the long timeout. DONE: the boot watchdog's main-menu phase (`hlib` rule `no-seam-receipt`) now catches a hang after MAINMENU.
+- FAST-POLL-SETTLES-STILL-RACE: CI-6 still waits on a timer; a named-condition wait would replace it. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): ACCEPTED: CI-6 is green on `WarpToUT`; a named wait is a harness nicety.
 
 ## ~~REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT~~: a replace commit can mark a surviving replacement destroyed and keep a stale situation [FILED 2026-11-07 from the review of the TreeCommitService unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2452), by code reading. FIXED 2026-11-16, branch fix-treecommit-trio; xUnit; low]
 
@@ -2528,7 +2703,7 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   production `ApplyOriginDebit` against an unloaded depot, 300 seeds, and `RouteTimelineFuzzerTests`
   gains a vessel-origin timeline where depot drawdown equals the debited rows across warps, saves
   and Re-Fly; the loaded-vessel and inventory halves stay in-game only; one suspected gap filed as
-  ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW): no per-resource conservation check (origin debit = delivered + by-design loss)
+  ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW, fixed 2026-11-16): no per-resource conservation check (origin debit = delivered + by-design loss)
   in an in-game category or the harness (HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES).
   Progress 2026-11-06 (branch `routecons`): lane `RCN-1-route-conservation-across-loads` (LIVE-PROVEN
   `2026-11-07_0010`) reads both ends of the two-stop relay route on `rover-relay-c-recorded` and gates

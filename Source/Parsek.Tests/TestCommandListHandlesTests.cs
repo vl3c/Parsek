@@ -844,6 +844,9 @@ namespace Parsek.Tests
             row.Paused = 1;
             row.Resumed = 2;
             row.Held = 3;
+            row.SourceIds = new List<string> { "88c012a6", "1f2e3d4c" };
+            row.SourceEpochs = new List<string> { "2/2", "1/1" };
+            row.SourceDrift = "none";
 
             List<KeyValuePair<string, string>> payload =
                 TestCommandListHandles.BuildRoutesPayload(new[] { row }, 1);
@@ -857,6 +860,7 @@ namespace Parsek.Tests
                 "route0sendOnce", "route0pauseAfter", "route0origin", "route0stops",
                 "route0stopPids", "route0stopFired", "route0dispatched", "route0debited",
                 "route0pickedUp", "route0delivered", "route0paused", "route0resumed", "route0held",
+                "route0sources", "route0sourceIds", "route0sourceEpochs", "route0sourceDrift",
             }, Keys(payload));
             Dictionary<string, string> m = Map(payload);
             Assert.Equal("routes", m["kind"]);
@@ -888,6 +892,30 @@ namespace Parsek.Tests
             Assert.Equal("1", m["route0paused"]);
             Assert.Equal("2", m["route0resumed"]);
             Assert.Equal("3", m["route0held"]);
+            Assert.Equal("2", m["route0sources"]);
+            Assert.Equal("88c012a6,1f2e3d4c", m["route0sourceIds"]);
+            Assert.Equal("2/2,1/1", m["route0sourceEpochs"]);
+            Assert.Equal("none", m["route0sourceDrift"]);
+        }
+
+        [Fact]
+        public void Routes_source_lists_are_capped_and_a_drift_token_passes_through()
+        {
+            RouteRow row = Route("many-sources");
+            row.SourceIds = new List<string>();
+            row.SourceEpochs = new List<string>();
+            for (int i = 0; i < 10; i++)
+            {
+                row.SourceIds.Add("s" + i.ToString(CultureInfo.InvariantCulture));
+                row.SourceEpochs.Add("1/" + (i == 3 ? "2" : "1"));
+            }
+            row.SourceDrift = "sidecar-epoch:s3";
+            Dictionary<string, string> m = Map(TestCommandListHandles.BuildRoutesPayload(new[] { row }, 0));
+            Assert.Equal("true", m["truncated"]);
+            Assert.Equal("10", m["route0sources"]);
+            Assert.Equal("s0,s1,s2,s3,s4,s5,s6,s7", m["route0sourceIds"]);
+            Assert.Equal("1/1,1/1,1/1,1/2,1/1,1/1,1/1,1/1", m["route0sourceEpochs"]);
+            Assert.Equal("sidecar-epoch:s3", m["route0sourceDrift"]);
         }
 
         [Fact]
@@ -952,6 +980,10 @@ namespace Parsek.Tests
             Assert.Equal("0", m["route0stops"]);
             Assert.Equal(string.Empty, m["route0stopPids"]);
             Assert.Equal(string.Empty, m["route0stopFired"]);
+            Assert.Equal("0", m["route0sources"]);
+            Assert.Equal(string.Empty, m["route0sourceIds"]);
+            Assert.Equal(string.Empty, m["route0sourceEpochs"]);
+            Assert.Equal("none", m["route0sourceDrift"]);
         }
 
         [Fact]
@@ -982,6 +1014,9 @@ namespace Parsek.Tests
             row.Cursor = 20;
             row.Dispatched = 1;
             row.Delivered = 1;
+            row.SourceIds = new List<string> { "88c012a6" };
+            row.SourceEpochs = new List<string> { "1/1" };
+            row.SourceDrift = "none";
             List<KeyValuePair<string, string>> payload =
                 TestCommandListHandles.BuildRoutesPayload(new[] { row, Route("second") }, 0);
             List<string> lines = TestCommandListHandles.RouteLogLines(payload, ListHandlesKind.Routes);
@@ -991,7 +1026,8 @@ namespace Parsek.Tests
                 + "completed=1 skipped=0 cursor=20 windowAnchor=-1 loopAnchorUT=979.5 segment=-1 "
                 + "pendingStop=-1 cycleStartUT=none pendingDeliveryUT=none sendOnce=false "
                 + "pauseAfter=false origin=313889796 stops=1 stopPids=2123618197 stopFired=-1 "
-                + "dispatched=1 debited=0 pickedUp=0 delivered=1 paused=0 resumed=0 held=0",
+                + "dispatched=1 debited=0 pickedUp=0 delivered=1 paused=0 resumed=0 held=0 "
+                + "sources=1 sourceIds=88c012a6 sourceEpochs=1/1 sourceDrift=none",
                 lines[0]);
             Assert.StartsWith("listhandles route index=1 id=second name='R' ", lines[1]);
 
