@@ -5,7 +5,11 @@ tier = "operator"
 # LX-2 (test gap audit B7, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6, halves (b) and
 # (c)): a mission loop armed in a CAREER save, watched, carried through the Space Center
 # and the Tracking Station and back to flight, then saved and cold-reloaded (F5 / F9)
-# while watched. AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`).
+# while watched. AUTHORED 2026-11-16. LIVE-PROVEN 2026-11-17 on its first flight (run
+# 2026-11-17_1414, PASS attempt 1, 78 s; parallel runner run next-tests-2026-11-17, Debug
+# DLL sha256 prefix 7d9f2510 from main 65ac33ee8): `Watch mode cleared on scene change`
+# before the Space Center and before the F9, the unit live in KSC, TrackingStation and
+# both Flight entries, the ledger oracle PASS, 5 recordings as pinned.
 #
 # WHY. FAR-6 watches a loop across an F9 in a SANDBOX save and never leaves flight; no
 # lane changes scene while the camera follows a looping ghost, and no lane arms a loop in
@@ -83,7 +87,7 @@ tier = "operator"
 description = "LX-2 (audit B7, halves b and c): on rover-route-recorded-career a mission loop is armed on tree A and its ghost watched; the player exits to the Space Center while watching, opens the Tracking Station, returns to flight on rover B and watches again, then F5 / F9 (a Cold save-file load) while watching and watches a third time. Every scene change made while watching must end the watch (`Watch mode cleared on scene change`, the ParsekWatch lock removed), every scene must publish the loop unit live and rebuild it with the arm-time phase anchor and launch cadence (Missions from memory in session, from the save on the Cold load), and the career pools must not move (ledger oracle, sum model on the template seed). Design: camera-follow-ghost E3 (watch exits on scene change), the loop is visual only."
 instanceProfile = "stock-minimal"
 tags = ["LX-2", "career", "loop-playback", "mission-loop", "watch-mode", "scene-change",
-        "quickload", "ledger-oracle", "timeline-ops", "recorded-fixture", "pending-flight"]
+        "quickload", "ledger-oracle", "timeline-ops", "recorded-fixture", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/rover-route-recorded-career"

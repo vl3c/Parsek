@@ -5,10 +5,15 @@ tier = "operator"
 # BOAT-1: A VESSEL DRIVEN ON WATER, RECORDED, REWOUND AND REPLAYED AT THE SPACE CENTER.
 #
 # Authored 2026-11-17 for todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9 (audit B9: "no lane
-# ... drives a boat"). NEVER FLOWN: its first flight is a READING run (tag
-# `pending-flight`). Every regex below matches a literal found in C# source (file cited);
-# the windows that depend on stock physics (how fast the Mallard goes on its jets, how far
-# it drifts after the cut) are left open.
+# ... drives a boat"). LIVE-PROVEN 2026-11-17 on its first flight, the reading run (run
+# 2026-11-17_1419, PASS attempt 1, 207 s; parallel runner run next-tests-2026-11-17, Debug
+# DLL sha256 prefix 7d9f2510 from main 65ac33ee8): one SurfaceMobile section of 98 frames
+# over 64.7 s on water, terminal Splashed, 1 recording; the KSC ghost entered range with
+# terminal=Splashed, the real Mallard spawned SPLASHED, `LeafPlacement summary: ...
+# compared=1 ok=1 bad=0`, and the batch read `total=1 passed=1 failed=0 skipped=0`, now
+# pinned whole with the count pinned at 1. Every regex below matches a literal found in C#
+# source (file cited); the windows that depend on stock physics (how fast the Mallard goes
+# on its jets, how far it drifts after the cut) are left open.
 #
 # HOST: `mallard-splashed` (harness/tools/build_mallard_splashed.py: AIR-1's harvest
 # `air-circuit-recorded` with every ParsekScenario child, the `Parsek/` sidecars and the
@@ -47,14 +52,14 @@ tier = "operator"
 # AIR-2 end where this begins. (2) every wait is the mission's own condition or an
 # explicit-UT WarpToUT. (3) no dwell keys. (4) the run is at 1x by design (a surface run
 # under warp is a different run). (5) no b5 coast. (6) a wrong handoff, leaving the water
-# and an overspeed each end the mission at once by name. (7) the count window is open
-# until the reading run measures it. (8) tier operator by the calibration discipline
-# until flown. (9) flight_efficiency.py owed after the first green flight.
+# and an overspeed each end the mission at once by name. (7) the count is pinned at the
+# reading run's 1. (8) tier operator by the calibration discipline (promotion is the
+# operator's call). (9) flight_efficiency.py owed after the first green flight.
 # =============================================================================
-description = "NEVER FLOWN (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9, audit B9): the stock Mallard, afloat in the sea east of KSC (mallard-splashed, AIR-1's harvest with Parsek stripped), drives 400 m on the water on its jets and comes to rest (boat1_water_taxi). Gates the active recorder's SurfaceMobile section on water and a Splashed terminal at the commit; then Rewind-to-Launch, the Mallard's KSC ghost replayed on the surface path to its Splashed end, the real Mallard spawned there and read by LeafVesselPlacement."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_1419; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9, audit B9): the stock Mallard, afloat in the sea east of KSC (mallard-splashed, AIR-1's harvest with Parsek stripped), drives 400 m on the water on its jets and comes to rest (boat1_water_taxi). Gates the active recorder's SurfaceMobile section on water and a Splashed terminal at the commit; then Rewind-to-Launch, the Mallard's KSC ghost replayed on the surface path to its Splashed end, the real Mallard spawned there and read by LeafVesselPlacement."
 instanceProfile = "stock-minimal"
 tags = ["BOAT1", "boat", "water", "splashed", "surface-mobile", "ksc-ghost", "rewind-to-launch",
-        "leaf-placement", "ingame-batch", "crewed", "pending-flight"]
+        "leaf-placement", "ingame-batch", "crewed", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/mallard-splashed"
@@ -117,10 +122,10 @@ D14 = ["kerbin", "warp-1x", "scene-flight", "scene-ksc", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Open until the reading run: one recording expected (no part leaves the Mallard), a
-# surface-class split (SurfaceStationary -> SurfaceMobile -> SurfaceStationary) is not an
-# optimizer boundary, but nothing has measured it.
-count = { min = 1, max = 4 }
+# MEASURED 1 on the reading run `2026-11-17_1419` (no part leaves the Mallard, and the
+# surface-class change SurfaceStationary -> SurfaceMobile -> SurfaceStationary is not an
+# optimizer boundary). A count other than 1 is a finding to read, not a window to widen.
+count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 required = [
@@ -152,7 +157,7 @@ required = [
   "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"Mallard\" pid=[0-9]+ sit=SPLASHED ",
   # LeafVesselPlacement.cs (FormatSummaryLine) + InGameTestRunner.cs (BATCH_COMPLETE).
   "MISSIONMARK label=boat1-past-end ut=[\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=SPACECENTER",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

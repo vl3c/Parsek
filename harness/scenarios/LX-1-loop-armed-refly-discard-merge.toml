@@ -4,7 +4,12 @@ tier = "operator"
 # =====================================================================================
 # LX-1 (test gap audit B7, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6, half (a)): a
 # mission loop armed and PLAYING while a Re-Fly of ANOTHER tree is started, discarded,
-# started again and merged. AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`).
+# started again and merged. AUTHORED 2026-11-16. LIVE-PROVEN 2026-11-17 on its first
+# flight (run 2026-11-17_1412, PASS attempt 1, 145 s; parallel runner run
+# next-tests-2026-11-17, Debug DLL sha256 prefix 7d9f2510 from main 65ac33ee8): loop ON at
+# anchorUT 981.10, the unit live (`live=1 beforeFirstInstance=0`) in every later Flight
+# and KSC publish through both Re-Flies, the discard and the merge, 22 MeshSpawned lines
+# for 3582d724, 9 recordings as pinned.
 #
 # WHY. LF-1 / LF-2 cover a loop under a plain Rewind-to-Launch only. No lane has a loop
 # armed while a Re-Fly loads its rewind point, when Discard Re-fly lands at the Space
@@ -106,7 +111,7 @@ tier = "operator"
 description = "LX-1 (audit B7, half a): on rover-route-recorded a mission loop is armed on tree A (rover A, span 392.58..432.24) and plays while a CS Flea Probe pad flight G is decoupled into a rewind point, committed and stashed, then Re-Flown, discarded (Space Center), re-entered and Re-Flown again and merged. The loop must stay armed with the same anchor through every load (Missions from memory on ReFlyStart / DiscardReFly), every scene must publish its unit live (never back before its first instance), the Re-Fly 1 flight and the post-discard Space Center must rebuild the unit with the arm-time phase anchor and overlap cadence, and the loop ghost must replay in each flight, and the Space Center the merge ends in must publish the unit live. Design: rewind-to-separation section 8 (loops read ERS through the same filter, no per-feature change)."
 instanceProfile = "stock-minimal"
 tags = ["LX-1", "loop-playback", "refly", "refly-discard", "refly-merge", "mission-loop",
-        "timeline-ops", "runtime-handles", "recorded-fixture", "pending-flight"]
+        "timeline-ops", "runtime-handles", "recorded-fixture", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/rover-route-recorded"
