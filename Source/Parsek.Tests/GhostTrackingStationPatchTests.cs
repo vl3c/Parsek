@@ -720,6 +720,35 @@ namespace Parsek.Tests
             Assert.False(GhostMapPresence.IsGhostTeardownInProgress);
         }
 
+        /// <summary>
+        /// P3-05: the Tracking Station selection refuses a ghost a foreign lane owns before the
+        /// own recording lookup, with one Verbose GhostMap line naming its site, and leaves the
+        /// current selection alone.
+        /// </summary>
+        [Fact]
+        public void SelectGhost_ForeignLaneGhost_IsRefusedWithOneLine()
+        {
+            GhostMapVessels.RegisterForeignForTesting(8080u, "lane-F", "rec-F4");
+
+            Assert.True(GhostTrackingStationSelection.ShouldRefuseForeignLaneGhost(8080u));
+
+            Assert.Single(logLines, l => l.Contains("foreign-lane ghost"));
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][GhostMap]")
+                && l.Contains("foreign-lane ghost ts-select pid=8080 lane=lane-F recording=rec-F4"));
+            Assert.False(GhostTrackingStationSelection.HasSelectedGhost);
+        }
+
+        [Fact]
+        public void SelectGhost_OwnTimelineGhostAndNonGhost_AreNotRefused()
+        {
+            GhostMapVessels.Register(8081u, GhostMapVesselOwner.OwnTimeline);
+            GhostMapVessels.RegisterForeignForTesting(8080u, "lane-F", "rec-F4");
+
+            Assert.False(GhostTrackingStationSelection.ShouldRefuseForeignLaneGhost(8081u));
+            Assert.False(GhostTrackingStationSelection.ShouldRefuseForeignLaneGhost(9999u));
+            Assert.DoesNotContain(logLines, l => l.Contains("foreign-lane ghost"));
+        }
+
         [Fact]
         public void TryClearSelectedVessel_WithPrivateSelection_ClearsAndReturnsPrevious()
         {
