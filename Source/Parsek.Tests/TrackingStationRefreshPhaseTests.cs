@@ -32,7 +32,7 @@ namespace Parsek.Tests
             priorScene = HighLogic.LoadedScene;
             HighLogic.LoadedScene = GameScenes.TRACKSTATION;
             kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
-            GhostMapPresence.FindBodyByNameForTesting = name =>
+            GhostMapVessels.FindBodyByNameForTesting = name =>
                 string.Equals(name, "Kerbin", StringComparison.Ordinal) ? kerbin : null;
             GhostMapPresence.CurrentUTNow = () => 500.0;
             ParsekLog.ResetTestOverrides();

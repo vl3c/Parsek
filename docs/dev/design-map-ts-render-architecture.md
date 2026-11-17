@@ -917,6 +917,10 @@ or `TracedPathTreatment`.
 - ProtoVessel lifecycle for ghost map presence: creates / destroys lightweight vessels for
   the tracking station, orbit lines, and targeting; manages the `ghostMapVesselPids` HashSet
   for O(1) guard checks.
+- The guard set and the ProtoVessel build are owned by the `GhostMapVessels` service
+  (`Ghost/GhostMapVessels.cs`): `ghostMapVesselPids` is its `Pids` set, and
+  `TryLoadGhostProtoVessel` builds, pre-registers, loads and hardens the ghost ProtoVessel, while
+  `GhostMapPresence` names it and keeps the "Created ghost vessel" line and the `GhostCreated` trace.
 - Both marker call sites (`ParsekFlightMapMarkers.DrawMapMarkers` flight-map,
   `ParsekTrackingStation.ClassifyAtmosphericMarkerSkip` TS) route the "draw our non-proto
   marker?" decision through `ShouldDrawNonProtoMarkerForGhost(pid)` (pure core
