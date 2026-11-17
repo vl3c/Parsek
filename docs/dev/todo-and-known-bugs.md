@@ -20,7 +20,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## MP-P2A-PLAYBACK-CATALOG: playback looks recordings up by id through one port, so a second playback lane can answer from its own data [FILED 2026-11-16 for the multiplayer prerefactor P2a (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, P2a-01 to P2a-07). IN PROGRESS: P2a-05 done (branch `mp/p2a-05-anchor-resolver-catalog`), P2a-03 done (branch `mp/p2a-03-positioner-catalog`), P2a-04 done (branch `mp/p2a-04-tail-lift-catalog`); P2a-02, P2a-06, P2a-07 open; refactor, no product change]
+## MP-P2A-PLAYBACK-CATALOG, P2a-06 as built: the production anchor world-frame resolver reads the catalog [DONE 2026-11-16, branch `mp/p2a-06-anchor-world-frame-catalog`; refactor, no product change; part of MP-P2A-PLAYBACK-CATALOG below]
+
+`ProductionAnchorWorldFrameResolver` (`Source/Parsek/Rendering/`) holds an `IPlaybackCatalog`
+from a trailing optional parameter of its one modelled-world constructor (null reads
+`RecordingPlaybackCatalog.Own`; the parameterless constructor and both construction sites,
+`AnchorPropagator` and `RenderSessionState`, pass nothing). The relative-boundary context
+builder takes the focus tree from `catalog.TryFindFocusTree(rec.RecordingId, rec.TreeId, ...)`
+(the L4 order: committed trees, then pending, id-or-containment) and the pending tree from
+`catalog.PendingTree`; the private `TryFindFocusTree(Recording)` copy is deleted. Proof: two
+fake-catalog cells in `ProductionAnchorWorldFrameResolverTests` (a tree only the catalog holds
+resolves; a tree only the store holds fails `focus-tree-missing`). Owed on the PC: in-game
+`MapRender` and `GhostMap`, lanes S1.6, S1.7 and H44.
+
+## MP-P2A-PLAYBACK-CATALOG: playback looks recordings up by id through one port, so a second playback lane can answer from its own data [FILED 2026-11-16 for the multiplayer prerefactor P2a (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, P2a-01 to P2a-07). IN PROGRESS: P2a-05 done (branch `mp/p2a-05-anchor-resolver-catalog`), P2a-03 done (branch `mp/p2a-03-positioner-catalog`), P2a-04 done (branch `mp/p2a-04-tail-lift-catalog`), P2a-06 done (branch `mp/p2a-06-anchor-world-frame-catalog`), P2a-07 done (branch `mp/p2a-07-map-state-vectors-catalog`); P2a-02 open; refactor, no product change]
 
 `IPlaybackCatalog` and its own-timeline `RecordingPlaybackCatalog.Own` (both in
 `Source/Parsek/Recording/`) carry each lookup family as a named variant that keeps its search
@@ -48,6 +61,19 @@ production lookup against a verbatim copy of the removed walk over 16 fixtures, 
 plan cells and a source gate on the three calls in `FlightRecorderTerrainTests`. Owed on the PC:
 in-game `GhostPlayback`, lane S1.4. Each later P2a task adds its variant's rows; the entry
 closes when P2a-07 and the last of P2a-02 to P2a-04 land.
+
+## MP-P2A-PLAYBACK-CATALOG, P2a-07 as built: the map's body-fixed anchor pid lookup reads the catalog [DONE 2026-11-16, branch `mp/p2a-07-map-state-vectors-catalog`; refactor, no product change; part of MP-P2A-PLAYBACK-CATALOG above]
+
+`GhostMapPresence.TryFindRecordingByIdForBodyFixedAnchorPid` (`GhostMapPresence.StateVectors.cs`,
+L6) keeps its own `IsNullOrWhiteSpace` guard and then calls
+`RecordingPlaybackCatalog.Own.TryFindRecording(id, TreesThenPendingThenList, ...)` (committed
+trees with a non-null value, then the pending tree, then the flat committed list); its copy of
+that walk is deleted. The file stays in `scripts/ers-els-audit-allowlist.txt`: the two
+active Re-Fly suppression reads (create time and `TrySuppressStateVectorUpdateForActiveReFly`)
+of `CommittedTrees`, the pending tree and `CommittedRecordings`, which the plan leaves for P3,
+remain. Proof: three cells in
+`GhostMapPresenceTests` pinning the order through `ResolveBodyFixedPrimaryAnchorPid`. Owed on
+the PC: in-game `GhostMap`, lanes H44 and S1.6.
 
 ## CS-LADDER-CHAIN-PINS: a campaign-chained replay of the scripted career cannot yet fly CS-0 to CS-7 unbroken [FILED 2026-11-16 by multiplayer T-49 (the campaign chain runner, branch `mp/t-49-campaign-chain-runner`), by reading the CS specs against the ladder `harness/campaigns/cs-career.toml`. OPEN; harness, no product change; low (the committed fixtures still fly every lane alone)]
 

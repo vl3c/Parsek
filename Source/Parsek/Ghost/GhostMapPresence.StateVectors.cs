@@ -736,57 +736,20 @@ namespace Parsek
             string recordingId,
             out Recording recording)
         {
-            // [ERS-exempt] Body-fixed-primary anchor pid lookup correlates a
-            // section's stored anchorRecordingId / ParentAnchorRecordingId to a
-            // VesselPersistentId for state-vector telemetry only. The walk is
-            // string-id keyed (recording-id, not chain semantics) so ERS filtering
-            // by supersede/visibility would mask the very anchor recording an
-            // active Re-Fly provisional may need to resolve. Read-only; no ledger.
+            // Body-fixed-primary anchor pid lookup correlates a section's stored
+            // anchorRecordingId / ParentAnchorRecordingId to a VesselPersistentId
+            // for state-vector telemetry only. The catalog's trees-then-pending-
+            // then-list scope reads the raw store (no ERS filter), so an anchor an
+            // active Re-Fly provisional needs still resolves. The catalog rejects
+            // only a null or empty id; this guard also rejects whitespace.
             recording = null;
             if (string.IsNullOrWhiteSpace(recordingId))
                 return false;
 
-            List<RecordingTree> committedTrees = RecordingStore.CommittedTrees;
-            if (committedTrees != null)
-            {
-                for (int i = 0; i < committedTrees.Count; i++)
-                {
-                    RecordingTree tree = committedTrees[i];
-                    if (tree?.Recordings != null
-                        && tree.Recordings.TryGetValue(recordingId, out recording)
-                        && recording != null)
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            RecordingTree pending = PendingTreeSlot.HasPendingTree
-                ? PendingTreeSlot.PendingTree
-                : null;
-            if (pending?.Recordings != null
-                && pending.Recordings.TryGetValue(recordingId, out recording)
-                && recording != null)
-            {
-                return true;
-            }
-
-            IReadOnlyList<Recording> committedRecordings = RecordingStore.CommittedRecordings;
-            if (committedRecordings != null)
-            {
-                for (int i = 0; i < committedRecordings.Count; i++)
-                {
-                    Recording candidate = committedRecordings[i];
-                    if (candidate != null
-                        && string.Equals(candidate.RecordingId, recordingId, StringComparison.Ordinal))
-                    {
-                        recording = candidate;
-                        return true;
-                    }
-                }
-            }
-
-            return false;
+            return RecordingPlaybackCatalog.Own.TryFindRecording(
+                recordingId,
+                CatalogRecordingScope.TreesThenPendingThenList,
+                out recording);
         }
 
         private static bool TrySelectBodyFixedPrimaryStateVectorPoint(

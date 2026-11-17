@@ -260,7 +260,44 @@ namespace Parsek
         /// a Re-Fly (no recording owns it). Explicitly numbered and append-only; an older build
         /// reads it as an unknown type (Warn) and loses only the roster change there.
         /// </summary>
-        KerbalDismissal = 41
+        KerbalDismissal = 41,
+
+        /// <summary>
+        /// A REAL vessel that continues a committed recording ended outside any recording:
+        /// destroyed or deleted (design-competitive-multiplayer 7.7, addition A2 of 15.11).
+        /// Carries <see cref="GameAction.RecordingId"/> (the owning committed recording, one
+        /// row per owner recording), <see cref="GameAction.EndedVesselName"/> and
+        /// <see cref="GameAction.EndCause"/>; the row's <see cref="GameAction.UT"/> is the end
+        /// instant.
+        ///
+        /// <para>A race fact: written only in a race save, so a single-player ledger never
+        /// holds one. Read by the race export, which ends the flight's leftover at this UT. It
+        /// is NOT spawn evidence (<see cref="RecoveredRecordingEvidence"/> does not read it) and
+        /// gets no timeline entry, so spawns, crew and every single-player decision stay as
+        /// they are.</para>
+        ///
+        /// <para>Moves no pool. Grouped with <see cref="VesselRecovered"/> in the ledger switches: not
+        /// resource-impacting, not a strict-block for a supersede, retired with its owner by a
+        /// Re-Fly supersede (and so a sealing row of the Re-Fly value gate, not a loss row),
+        /// deduplicated per owner recording. Explicitly numbered and append-only; an older
+        /// build reads it as an unknown type (Warn) and loses only the race fact there, the
+        /// accepted one-way downgrade of an additive enum member.</para>
+        /// </summary>
+        VesselEnded = 42
+    }
+
+    /// <summary>
+    /// How a vessel ended outside any recording, on a <see cref="GameActionType.VesselEnded"/>
+    /// row. Persisted by number; <see cref="Unknown"/> is the unset default (a missing or
+    /// undefined value reads back as it).
+    /// </summary>
+    public enum VesselEndCause
+    {
+        Unknown = 0,
+        /// <summary>The game destroyed the vessel (stock <c>Vessel.Die</c>).</summary>
+        Destroyed = 1,
+        /// <summary>The player deleted the vessel (the Tracking Station's terminate).</summary>
+        Deleted = 2
     }
 
     /// <summary>
@@ -1075,6 +1112,20 @@ namespace Parsek
         /// </summary>
         public uint RecoveredVesselPid;
 
+        // ---- Vessel end fields (VesselEnded) ----
+
+        /// <summary>
+        /// Display name of the vessel on a <see cref="GameActionType.VesselEnded"/> row. Null on
+        /// every other action type.
+        /// </summary>
+        public string EndedVesselName;
+
+        /// <summary>
+        /// How the vessel ended on a <see cref="GameActionType.VesselEnded"/> row;
+        /// <see cref="VesselEndCause.Unknown"/> on every other action type.
+        /// </summary>
+        public VesselEndCause EndCause;
+
         // ---- Resource scan fields (ResourceScanUnlocked) ----
 
         /// <summary>
@@ -1375,6 +1426,9 @@ namespace Parsek
                 case GameActionType.VesselRecovered:
                     SerializeVesselRecovered(node);
                     break;
+                case GameActionType.VesselEnded:
+                    SerializeVesselEnded(node);
+                    break;
                 case GameActionType.ResourceScanUnlocked:
                     SerializeResourceScanUnlocked(node);
                     break;
@@ -1558,6 +1612,9 @@ namespace Parsek
                     break;
                 case GameActionType.VesselRecovered:
                     DeserializeVesselRecovered(node, a);
+                    break;
+                case GameActionType.VesselEnded:
+                    DeserializeVesselEnded(node, a);
                     break;
                 case GameActionType.ResourceScanUnlocked:
                     DeserializeResourceScanUnlocked(node, a);
@@ -2071,6 +2128,18 @@ namespace Parsek
             uint pid;
             if (pidStr != null && uint.TryParse(pidStr, NumberStyles.Integer, IC, out pid))
                 a.RecoveredVesselPid = pid;
+        }
+
+        private void SerializeVesselEnded(ConfigNode n)
+        {
+            if (EndedVesselName != null) n.AddValue("vesselName", EndedVesselName);
+            n.AddValue("endCause", ((int)EndCause).ToString(IC));
+        }
+
+        private static void DeserializeVesselEnded(ConfigNode n, GameAction a)
+        {
+            a.EndedVesselName = n.GetValue("vesselName");
+            TryParseEnum(n, "endCause", out a.EndCause);
         }
 
         private void SerializeResourceScanUnlocked(ConfigNode n)

@@ -560,6 +560,11 @@ The port as specified:
 - **Registers:** layer pins: Rendering -> Recording is forward; none move.
 - **Size:** S. **Depends on:** P2a-05. **PC:** in-game, lanes S1.6, S1.7, H44.
 - **Risk:** low.
+- **As built (2026-11-16):** the resolver already had two constructors (a public parameterless
+  one for the two production sites and an internal modelled-world one that tests use); the
+  catalog is the trailing optional parameter of the internal one, which the parameterless one
+  chains to, so there is still one constructor that takes a catalog and no overload was added.
+  The context builder's own null-or-empty id guard stays in front of the lookup.
 
 **P2a-07 Map state vectors through the catalog (L6)**
 
@@ -575,6 +580,10 @@ The port as specified:
 - **PC:** in-game, lanes H44, S1.6.
 - **Risk:** low; the one map-side site, kept on the own catalog because map presence is own-lane
   until P3 adds rival presence.
+- **As built (2026-11-16):** the method stays (guard, then the catalog call); its only caller,
+  `ResolveBodyFixedPrimaryAnchorPid`, already rejects a whitespace id, so the guard is a second
+  line. The method-local `[ERS-exempt]` comment went with the raw walk; the file keeps its
+  allowlist entry for the two raw reads that remain (now at about :1242-1251 and :1554-1561).
 
 ### P2b: the lane object
 

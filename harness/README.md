@@ -2907,6 +2907,46 @@ sharedFolder = "empty"                  # or "fixtures/race/<name>"
 - What KSP left in the folder is snapshotted at KSP exit: see "The race
   shared-folder snapshot" under the produced-save snapshot section.
 
+#### Harvesting a race fixture (`--race-folder`, multiplayer T-59)
+
+A flown race lane's folder becomes a committed race fixture through the same
+harvest tool as its save, with one flag pair:
+
+```bash
+python tools/harvest_bdock_station.py --save-dir results/<runId>_save \
+    --target-name <save-fixture> --keep-parsek \
+    --race-folder results/<runId>_race --race-name <name>
+```
+
+- The folder is copied to `fixtures/race/<name>/`, the folder a spec stages with
+  `sharedFolder = "fixtures/race/<name>"`. A flown player folder is design 15.10's
+  recorded opponent.
+- Refused even with `--force`, before anything is written: a `--race-folder`
+  that is not a `*_race` folder strictly inside `harness/results/` (resolved
+  through every symlink; a `..` component is refused however it resolves, so is
+  an absolute path elsewhere), a link anywhere inside the folder, a folder that
+  cannot be listed whole (`raceparse.walk_folder`), and a `--race-name` that
+  `hlib.is_race_fixture_path` would not accept. The two flags go together.
+- Refused unless `--force`: a folder that differs from its
+  `results/<runId>_race.listing.txt` (a file gone, added or changed since the
+  run), a missing listing, and a break of the shared-folder grammar (design 4.1,
+  read with `raceparse.collect_rival_ids`): a file that is neither `race.cfg` nor
+  under `players/<id>/`, a payload name with no content hash, a player with no
+  `player.cfg`, no player at all. Safe-write leftovers (`.tmp`, `.bak.<guid>`)
+  are skipped and logged. The copy is file by file and checked byte for byte.
+- Not checked yet: the standing chain (chain intact, latest complete seq, gaps,
+  payload completeness). That is T-21's structure facets; the harvest logs
+  `race folder chain: unchecked (...)` from `race_chain_facets`, where they plug
+  in.
+- The save half prunes the rival cache `Parsek/Race/rivals/` from EVERY
+  `--keep-parsek` harvest, with or without the flag (see "What a fixture must NOT
+  carry"); the rest of `Parsek/Race/` (`local.cfg`, `race.cfg`, `own/`) is kept,
+  with `local.cfg`'s `sharedFolderPath` reset to `${raceShared}` (the flying PC's
+  path never reaches the repository).
+- Committing a race fixture adds `.prec` payload under `harness/fixtures/`, which
+  `TrajectoryCodecFixtureIdentityTests` pins: regenerate its manifest in the same
+  commit (`PARSEK_WRITE_CODEC_MANIFEST=1` on its `RegenerateManifest` fact).
+
 #### The harness-side folder step (`harness = "raceFolder"`)
 
 A race lane changes the shared folder between two seam steps the way a rival's
@@ -3294,15 +3334,17 @@ rebuilt from survives.
 ### What a fixture must NOT carry
 
 Harvesting a produced save brings along everything KSP and Parsek wrote beside
-the state a scenario needs. Three populations are exhaust, all pruned by
-`harvest_bdock_station.py` and gated in `lib/test_hlib.py` /
-`lib/test_saveparse.py`:
+the state a scenario needs. Five populations are exhaust, all pruned by
+`harvest_bdock_station.py` and gated in `lib/test_hlib.py`,
+`lib/test_saveparse.py` and `lib/test_harvest.py`:
 
 | Not committed | Why | Gate |
 | --- | --- | --- |
 | `*_vessel.craft.txt`, `*_ghost.craft.txt` | derived; the mod rebuilds them from the committed binaries | `CommittedFixtureMirrorTests` |
 | `Parsek/Saves/parsek_rw_*.sfs` + their `rewindSave =` hints | Rewind-to-LAUNCH quicksaves are RUN exhaust, not fixture payload: the `InvokeRewindToLaunch` seam verb (added 2026-08-27 with GS-4) reaches the one the run's OWN recording captured, never a committed one - a fixture-committed `parsek_rw_*` would be a stale world snapshot nothing can validate, and the one analyzer rule that looks (`Inv9RewindPoint`) only checks existence and parseability, never content | `CommittedFixtureRewindSaveTests` |
 | `quicksave.sfs` / `quicksave.loadmeta` | near-copy of the fixture's own `persistent.sfs`; every in-game quickload uses a NAMED slot | `test_no_fixture_commits_a_quicksave` |
+| `Parsek/Race/rivals/` (a race save's rival cache) | a cache rebuilt at the next sync and never part of the save (design 4.4); its `.prec.txt` mirrors would be read as own recordings by the `OptimizerTransferCohesionTests` glob over `fixtures/saves/`. Pruned at exactly that path; the rest of `Parsek/Race/` stays | `test_harvest.CommittedFixtureRivalCacheTests`, `RaceRivalCachePruneTests` |
+| the shared-folder path in `Parsek/Race/local.cfg` (`sharedFolderPath`, design 6.1) | the absolute path of the folder on the PC that flew the lane, so the operator's install path in a public repository. Every `--keep-parsek` harvest resets the value to `${raceShared}` (the same treatment as the `envInfo` launch arguments; the rest of the file stays byte for byte), and refuses, before writing, a local.cfg where another value still looks like an absolute path (drive letter, leading slash or backslash, `~`) | `test_harvest.CommittedFixtureRaceLocalTests`, `RaceLocalFolderPathTests` |
 
 Two look like exhaust and are **payload** - do not confuse them:
 

@@ -1043,6 +1043,14 @@ write just as LOAD-BEARING here: without it `SetProtoModules` instantiates a sce
 with no `ParsekScenario`, `OnLoad` never runs, and a TRACKSTATION batch runs against a
 Parsek that never woke up. **ZERO deltas from the SPACECENTER route were found.**
 
+**Where the steps live.** The load itself (`HighLogic.SaveFolder` + `GamePersistence.LoadGame`),
+the `playerLoad=true` fire of `onGameStatePostLoad` and the SPACECENTER boot preparation
+(adopt, `startScene`, `UpdateScenarioModules`, the `persistent.sfs` write) are the production
+steps `NewSaveStarter.LoadSave` / `FirePlayerLoad` / `PrepareSpaceCenterStart`
+(`Source/Parsek/LogIO/NewSaveStarter.cs`, the load-and-start route a player-facing load can
+reuse). They write no log line; the verb calls them in the order above and keeps every
+`loadgame` line, the `game.Start()` and the TRACKSTATION and FLIGHT routes itself.
+
 **Completion.** The pre-R12 two-valued `bool expectSpaceCenter` became an expected
 `TestCommandScene` (`TestCommandLoadGame.ExpectedSceneFor(route)`), so each route completes
 ONLY on its own settled scene; a MAINMENU settle and the budget expiry keep their meanings
@@ -1656,7 +1664,7 @@ No side effects, so every refusal is `REJECTED` and there is no `ERROR` terminal
 
 | arg | values | meaning |
 |---|---|---|
-| `kind` | `rewindpoints` \| `committed` \| `active` \| `chains` \| `routes` \| `timeline` | REQUIRED. Which handle family to enumerate. Fail-closed, case-sensitive (the `LoadGame scene=` rule): absent is `REJECTED kind-arg-missing`, anything else is `REJECTED kind-arg-invalid kind=<raw>`. Mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS` so a typo is INVALID(spec-invalid) before a boot. |
+| `kind` | `rewindpoints` \| `committed` \| `active` \| `chains` \| `routes` \| `timeline` \| `sites` | REQUIRED. Which handle family to enumerate. Fail-closed, case-sensitive (the `LoadGame scene=` rule): absent is `REJECTED kind-arg-missing`, anything else is `REJECTED kind-arg-invalid kind=<raw>`. Mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS` so a typo is INVALID(spec-invalid) before a boot. |
 | `expectDigest` | eight lowercase hex digits | OPTIONAL, `kind=chains` only. The digest of an earlier chains capture, normally `${<label>.digest}`; the answer then carries `expected=` and `match=`. On any other family `REJECTED expect-digest-kind-mismatch`; any other shape (including an unsubstituted `${...}`) `REJECTED expect-digest-invalid`. Checked pre-launch by `hlib.validate_list_handles_expect_digest`. |
 
 **Payload grammar.** Every value is `InvariantCulture` and percent-encoded on the wire
@@ -1717,7 +1725,7 @@ The digest exists so the D18 `chain-state-rederived` readback can be compared
   false, or no `ParsekFlight` yet), the dispatcher answers `DEFER ghost-chains-pending`,
   because `LoadGame` completes on the scene switch a second or more before
   `OnFlightReady` derives the chains, and an undeferred read would observe the previous
-  instant. The other five families are untouched by it.
+  instant. The other six families are untouched by it.
 - `kind=routes count=<n> truncated=<b> dormant=<n> route<i>=<RouteId> route<i>name=<name>
   route<i>status=<RouteStatus> route<i>completed=<n> route<i>skipped=<n>
   route<i>cursor=<LastObservedLoopCycleIndex> route<i>windowAnchor=<n>
@@ -1764,9 +1772,42 @@ The digest exists so the D18 `chain-state-rederived` readback can be compared
   `LISTHANDLES_TIMELINE_RETIRED_LOG_KEYS` (`ListHandlesSourceSyncTests`). Scene-agnostic (every
   input is a process static). First consumer: TL-1.
 
+- `kind=sites count=<n> truncated=<b> body=<home body or none> scLat=<deg> scLon=<deg>
+  scAlt=<m> recoveryLat=<deg> recoveryLon=<deg> site<i>=<site name> site<i>point=<spawn point
+  name> site<i>kind=<facility|alternate> site<i>editor=<EditorFacility> site<i>lat=<deg>
+  site<i>lon=<deg> site<i>alt=<m> site<i>src=<cache|transform|none> samples=<m>
+  sample<j>=<name> sample<j>lat=<deg> sample<j>lon=<deg> sample<j>height=<m>`
+  (`TestCommandListHandlesSites.cs`, pure `TestCommandSitesReadback`; multiplayer T-07). The
+  stock site baseline of design-competitive-multiplayer 7.3: `sc*` is the working space
+  center's position read from its live transform (`SpaceCenter.Instance.SpaceCenterTransform`
+  through the body), `recovery*` the latitude / longitude the space center cached at its start
+  (what stock's recovery distance is measured from); `site<i>` is one row per spawn point of
+  every stock launch site, the space center's own facilities
+  (`PSystemSetup.SpaceCenterFacilityLaunchSites`, the pad and the runway) first and then the stock alternate
+  sites set up in this game (`PSystemSetup.LaunchSites` filtered by `IsStockLaunchSite`), each
+  group ordinal by site name then point name, capped at 16 (`count` is the full total);
+  `src=cache` reads the spawn point's own cached position (what stock spawns from),
+  `transform` its transform when the cache is not set, `none` neither. `sample<j>` is the
+  terrain height (`CelestialBody.TerrainAltitude`, negative allowed) at the fixed sample points
+  `TestCommandSitesReadback.SamplePoints`, today `pad` (-0.0972, -74.5575), `runwayWest`
+  (-0.0502, -74.7300) and `runwayEast` (-0.0502, -74.5000); R2-12 adds the race sites'
+  patches. Degrees are `F7` and metres `F3`, invariant: the positions come from world
+  transforms whose last bits move with the floating origin, so a round-trip format could not
+  be pinned. A value that cannot be read is `none`; nothing is refreshed or written (no stock
+  cache is recomputed by the read). Any scene. The summary line gains ` body=<b>
+  samples=<m>`, and the read writes one Info line per fact, read out of the built payload:
+  `listhandles sites spaceCenter body=.. lat=.. lon=.. alt=..`, `listhandles sites recovery
+  lat=.. lon=..`, one `listhandles sites launchSite index=<i> name='..' point='..' kind=..
+  editor=.. lat=.. lon=.. alt=.. src=..` per enumerated spawn point and one `listhandles sites
+  terrain index=<j> name=.. lat=.. lon=.. height=..` per sample, mirrored in
+  `hlib.LISTHANDLES_SITES_*` (`ListHandlesSourceSyncTests`). `expectDigest=` is refused on it
+  like every non-chains family (T-46 adds a tolerance comparator). First consumer:
+  RACE-0-stock-sites-baseline.
+
 **Observability.** One Info line per call, `listhandles kind=<k> count=<n>
 truncated=<b>`, with the chains family appending ` evaluated=<b> digest=<hex8>` and, when
-compared, ` expected=<hex8> match=<b>` (a refusal logs `listhandles rejected reason=<r> kind=<raw>` at Warn,
+compared, ` expected=<hex8> match=<b>`, the routes family ` dormant=<n>` and the sites
+family ` body=<b> samples=<m>` (a refusal logs `listhandles rejected reason=<r> kind=<raw>` at Warn,
 with ` expectDigest=<raw>` appended when the refusal is of that arg, the
 way every other verb's refusal does). The enumerated ids themselves are NOT in
 KSP.log (the pump's `exec id=<id> verdict=OK` line carries no payload): they live in
