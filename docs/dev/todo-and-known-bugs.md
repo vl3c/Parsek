@@ -208,7 +208,10 @@ lanes. Each is a reading run: pin what it measures, the new height lines include
   end spawn too; sea floor read headless-safe by `TryReadSeaFloorAltitude`), the collision
   walkback, both de-overlaps (`ReFloorNudgedSurfaceSpawnAltitude`, which the Space Center
   de-overlap now also runs, Landed included) and every non-orbital chain-tip spawn
-  (`VesselGhoster.ResolveChainTipSurfaceSpawnAltitude`, sea floor under the tip). Logged
+  (`VesselGhoster.ResolveChainTipSurfaceSpawnAltitude`, sea floor under the tip). The chain tip's
+  underground terrain correction no longer runs for Splashed (`TerrainCorrector.ShouldCorrectTerrain`
+  returns false for it, its only caller being that site): it reads `TerrainAltitude(lat, lon)`, which
+  clamps a sea floor to 0, so it rewrote a resolved -50 m tip to +2 m before `RespawnVessel`. Logged
   `Clamped altitude for SPLASHED spawn #N (...): X -> Y (above-sea-level|below-sea-floor, ...)` or
   `Splashed spawn #N (...) keeps its recorded depth alt=...` (rate-limited). Not flown: no lane has
   a submerged end; a submarine lane (scratch `submarine.md` design) would pin the depth line and

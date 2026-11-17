@@ -312,6 +312,24 @@ namespace Parsek.Tests
                 "SpawnChainTipWithResolvedState must apply the Splashed depth rule, with the sea floor under the tip, before it writes the spawn position");
         }
 
+        [Fact]
+        public void ChainTipSplashed_TerrainCorrectionNeverLiftsTheRecordedDepth()
+        {
+            // The chain tip's underground correction reads TerrainAltitude(lat, lon), which
+            // clamps a sea floor to 0: it must never run for a Splashed tip, or a submarine
+            // tip resolved to -50 m is rewritten to +2 m before RespawnVessel.
+            Assert.False(TerrainCorrector.ShouldCorrectTerrain(TerminalState.Splashed, -50.0));
+            Assert.True(TerrainCorrector.ShouldCorrectTerrain(TerminalState.Landed, 65.0));
+
+            string ghoster = StripLineComments(File.ReadAllText(ParsekSource("Ghost", "VesselGhoster.cs")));
+            string body = ExtractMethodBody(ghoster, "private uint SpawnChainTipWithResolvedState(");
+            int gate = body.IndexOf("TerrainCorrector.ShouldCorrectTerrain(", StringComparison.Ordinal);
+            int apply = body.IndexOf("ApplyTerrainCorrection(tipRecording, spawnSnapshot)", StringComparison.Ordinal);
+            Assert.True(gate >= 0 && apply > gate,
+                "the chain tip's terrain correction must stay behind ShouldCorrectTerrain");
+            Assert.Equal(1, Regex.Matches(ghoster, @"ApplyTerrainCorrection\(").Count - 1);
+        }
+
         // ---- S2: a sea spawn is seen as over water and written SPLASHED ----
 
         // Stock CelestialBody.TerrainAltitude(lat, lon, allowNegative = false): a negative
