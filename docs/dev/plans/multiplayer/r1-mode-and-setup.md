@@ -577,14 +577,22 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     U+001A, form feed and vertical tab as blanks (before a directive too), and drops a format
     character such as U+00AD from an identifier (`Recording<U+00AD>Store` is `RecordingStore`),
     and none of those reach the lexer's model. This replaces the first follow-up's non-ASCII
-    check on the masked text, which a comment could hide. Every gate also refuses a `using X =`
+    check on the masked text, which a comment could hide. A preprocessor line is allowed only
+    for `#region`, `#endregion`, `#pragma` and `#nullable` (blanks after the `#` allowed);
+    every other directive word, the conditionals `#if` / `#elif` / `#else` / `#endif` first, is
+    a `[directive] #<word>` hit on its line: the compiler does not lex a disabled branch and the
+    lexer cannot know which branch is disabled, so a `/*` or `@"` inside `#if false` would hide
+    the active code after `#endif`. No race file uses one today (the vacuity cell checks). Every
+    gate also refuses a `using X =`
     (or `using @X =`) alias and a backslash in code (a unicode-escaped identifier). A member
     deny matches `.Name` and `.@Name`. These came from the R1-06 review and re-review, which
     found each let a real store reference through (the `#region notes /*` comment opener, the
     `{x:/*}` / `{x://}` / `{x::/*}` format clause, the format character, the verbatim member,
-    U+2028 / U+0085 ending a line comment, U+001A before a `#region`); each is a lexer cell, a
-    planted-red cell (`RaceGates_ReviewBypasses_AreRedInEveryGate`) and a line of the mirror
-    fixture (`MirrorBypass.cs`, `MirrorRaw.cs`, written as explicit UTF-8 bytes). A ban matches its identifier anywhere, so `Parsek.RecordingStore` counts; the
+    U+2028 / U+0085 ending a line comment, U+001A before a `#region`, a `/*` or `@"` in an
+    `#if false` branch); each is a lexer cell, a planted-red cell
+    (`RaceGates_ReviewBypasses_AreRedInEveryGate`) and a line of the mirror fixture
+    (`MirrorBypass.cs`, `MirrorDirective.cs`, `MirrorRaw.cs`, written as explicit UTF-8 bytes).
+    A ban matches its identifier anywhere, so `Parsek.RecordingStore` counts; the
     `GuiMockTypeRef` shape counts the references for the anti-vacuity floor (30 today, floor 24).
   - The no-writer gate's denylist and allowlist are one data file,
     `scripts/race-no-writer-allowlist.txt` (`deny type|member <Name>`, `allow <file> <entry>`, a

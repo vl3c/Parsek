@@ -9,12 +9,13 @@
 # Each file is LEXED, not grepped: comments become blanks, the contents of string and char
 # literals become blanks (quotes and interpolation holes stay, so `$"{RecordingStore.X}"` is
 # code), line breaks are kept so line numbers hold. A preprocessor line (a '#' first on its
-# line) is blanked like a comment, and the format clause of a hole (from a ':' outside every
-# bracket of the hole to its closing '}') is literal text. Before lexing, every character
-# outside tab, LF, CR and 0x20..0x7E is refused on the raw text (one leading byte-order mark
-# stripped) and read by the lexer as a blank. A shape the lexer does not model (a
-# raw string literal, an unterminated literal or comment, a quote or line break in a format
-# clause) throws, and the gate exits 2: it fails closed rather than reading half a file.
+# line) is blanked like a comment and its directive word must be in $raceAllowedDirectives;
+# the format clause of a hole (from a ':' outside every bracket of the hole to its closing '}')
+# is literal text. Before lexing, every character outside tab, LF, CR and 0x20..0x7E is
+# refused on the raw text (one leading byte-order mark stripped) and read by the lexer as a
+# blank. A shape the lexer does not model (a raw string literal, an unterminated literal or
+# comment, a quote or line break in a format clause) throws, and the gate exits 2: it fails
+# closed rather than reading half a file.
 #
 # Mirrored character for character by RaceSourceScan / RaceLex in
 # Source/Parsek.Tests/GrepAuditTests.Race.cs, the managed arm that runs where pwsh is absent.
@@ -23,6 +24,11 @@
 
 $raceModuleFolders = @('RaceCore', 'RaceExport', 'RaceWorld')
 $raceControllerPattern = 'ParsekRace*.cs'
+# The preprocessor directives a race file may use. A conditional directive (#if, #elif, #else,
+# #endif) is refused because the compiler does not lex a disabled branch while the lexer cannot
+# know which branch is disabled: a `/*` or `@"` inside `#if false` would open a comment or
+# string over the active code after `#endif`. Every other directive word is refused too.
+$raceAllowedDirectives = @('region', 'endregion', 'pragma', 'nullable')
 
 $script:rlSpecial = [char[]]@('/', "'", '"', '$', '@', '{', '}', '#')
 # In a hole the brackets and ':' matter too: a ':' outside every bracket starts the format
@@ -91,6 +97,16 @@ function Invoke-RaceLexCode([bool]$InHole) {
         $c = $t[$script:rlI]
         $n = Get-RaceAt ($script:rlI + 1)
         if ($c -ceq [char]'#' -and (Test-RaceAtLineStart $script:rlI)) {
+            $w = $script:rlI + 1
+            while ($w -lt $t.Length -and ($t[$w] -ceq [char]32 -or $t[$w] -ceq [char]9)) { $w++ }
+            $start = $w
+            # Letters by code point (a char -ge / -le in PowerShell is not an ordinal compare).
+            while ($w -lt $t.Length) {
+                $v = [int]$t[$w]
+                if (-not (($v -ge 97 -and $v -le 122) -or ($v -ge 65 -and $v -le 90))) { break }
+                $w++
+            }
+            $script:rlDirectives.Add([pscustomobject]@{ Pos = $script:rlI; Word = $t.Substring($start, $w - $start) })
             Invoke-RaceBlankToEndOfLine
             continue
         }
@@ -271,13 +287,22 @@ function ConvertTo-RaceLexed([string]$Text, [string]$Rel) {
     $script:rlRel = $Rel
     $script:rlM = [System.Text.StringBuilder]::new($script:rlT.Length)
     $script:rlK = [System.Text.StringBuilder]::new($script:rlT.Length)
+    $script:rlDirectives = [System.Collections.Generic.List[object]]::new()
     Invoke-RaceLexCode $false
     $masked = $script:rlM.ToString()
+    $refused = @{}
+    foreach ($d in $script:rlDirectives) {
+        if ($raceAllowedDirectives -ccontains $d.Word) { continue }
+        $line = 0
+        for ($j = 0; $j -lt $d.Pos; $j++) { if ($raw[$j] -ceq [char]10) { $line++ } }
+        if (-not $refused.ContainsKey($line)) { $refused[$line] = $d.Word }
+    }
     return [pscustomobject]@{
         Masked = $masked
         Kept   = $script:rlK.ToString()
         Lines  = $masked.Split([char]10)
         Raw    = $raw.Split([char]10)
+        RefusedDirectives = $refused
     }
 }
 
@@ -319,6 +344,7 @@ function Get-RaceScan([string]$RepoRoot) {
             Kept   = $lexed.Kept
             Lines  = $lexed.Lines
             Raw    = $lexed.Raw
+            RefusedDirectives = $lexed.RefusedDirectives
         })
         if ($e.Module -ceq 'Controllers') { $controllerFiles++ } else { $moduleFiles++ }
         foreach ($line in $lexed.Lines) { $typeRefs += $script:raceTypeRefRe.Matches($line).Count }
@@ -347,12 +373,16 @@ function Get-RaceScanVacuity($Scan, [string]$Gate, [int]$MinTypeReferences, [boo
 }
 
 # The refusals every race gate shares, for one line: a character the race files may not hold
-# (read on the raw line), a `using X =` alias or a backslash in code (a unicode-escaped
-# identifier; both read on the masked line). Adds the violation and returns $true when refused.
+# (read on the raw line), a preprocessor directive not in $raceAllowedDirectives, a `using X =`
+# alias or a backslash in code (a unicode-escaped identifier; both read on the masked line). Adds the violation and returns $true when refused.
 function Test-RaceStructural($File, [int]$Index, $Violations) {
     $refusal = Get-RaceRawRefusal $File.Raw[$Index]
     if ($null -ne $refusal) {
         $Violations.Add($File.Rel + ':' + ($Index + 1) + ': ' + $refusal)
+        return $true
+    }
+    if ($File.RefusedDirectives.ContainsKey($Index)) {
+        $Violations.Add($File.Rel + ':' + ($Index + 1) + ': [directive] #' + $File.RefusedDirectives[$Index])
         return $true
     }
     $line = $File.Lines[$Index]

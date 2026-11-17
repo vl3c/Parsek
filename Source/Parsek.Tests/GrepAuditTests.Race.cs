@@ -84,7 +84,18 @@ namespace Parsek.Tests
             public string KeptText;
             public string[] Masked;
             public string[] Raw;   // the file's text, line for line with Masked (BOM stripped, CR normalized)
+            // Line index -> directive word of each preprocessor line whose directive is not allowed.
+            public Dictionary<int, string> RefusedDirectives = new Dictionary<int, string>();
         }
+
+        /// <summary>The preprocessor directives a race file may use. A conditional directive
+        /// (<c>#if</c>, <c>#elif</c>, <c>#else</c>, <c>#endif</c>) is refused because the compiler
+        /// does not lex a disabled branch while the lexer cannot know which branch is disabled: a
+        /// <c>/*</c> or <c>@"</c> inside <c>#if false</c> would open a comment or string over the
+        /// active code after <c>#endif</c>. Every other directive word is refused too (an unknown
+        /// one is a compile error anyway). Mirrored by <c>$raceAllowedDirectives</c> in
+        /// <c>scripts/race-source-scan.ps1</c>.</summary>
+        internal static readonly string[] RaceAllowedDirectives = { "region", "endregion", "pragma", "nullable" };
 
         internal sealed class RaceScanResult
         {
@@ -179,7 +190,16 @@ namespace Parsek.Tests
             var lexInput = new StringBuilder(raw.Length);
             foreach (char ch in raw) lexInput.Append(RaceAllowedChar(ch) ? ch : ' ');
             string masked, kept;
-            RaceLex(lexInput.ToString(), out masked, out kept, rel);
+            List<KeyValuePair<int, string>> directives;
+            RaceLex(lexInput.ToString(), out masked, out kept, out directives, rel);
+            var refused = new Dictionary<int, string>();
+            foreach (var d in directives)
+            {
+                if (Array.IndexOf(RaceAllowedDirectives, d.Value) >= 0) continue;
+                int line = 0;
+                for (int j = 0; j < d.Key; j++) if (raw[j] == '\n') line++;
+                if (!refused.ContainsKey(line)) refused.Add(line, d.Value);
+            }
             return new RaceFile
             {
                 Rel = rel,
@@ -188,6 +208,7 @@ namespace Parsek.Tests
                 KeptText = kept,
                 Masked = masked.Split('\n'),
                 Raw = raw.Split('\n'),
+                RefusedDirectives = refused,
             };
         }
 
@@ -203,10 +224,21 @@ namespace Parsek.Tests
         /// </summary>
         internal static void RaceLex(string text, out string masked, out string kept, string rel = "<input>")
         {
+            List<KeyValuePair<int, string>> directives;
+            RaceLex(text, out masked, out kept, out directives, rel);
+        }
+
+        /// <summary><see cref="RaceLex(string, out string, out string, string)"/>, also returning each
+        /// preprocessor line the lexer met in code state: its position and its directive word
+        /// (the letters after the '#' and any blanks; empty when there are none).</summary>
+        internal static void RaceLex(string text, out string masked, out string kept,
+            out List<KeyValuePair<int, string>> directives, string rel)
+        {
             var lexer = new RaceLexer(text.Replace("\r\n", "\n").Replace('\r', '\n'), rel);
             lexer.Code(false);
             masked = lexer.M.ToString();
             kept = lexer.K.ToString();
+            directives = lexer.Directives;
         }
 
         private sealed class RaceLexer
@@ -220,6 +252,7 @@ namespace Parsek.Tests
             private int i;
             internal readonly StringBuilder M;
             internal readonly StringBuilder K;
+            internal readonly List<KeyValuePair<int, string>> Directives = new List<KeyValuePair<int, string>>();
 
             internal RaceLexer(string text, string rel)
             {
@@ -278,6 +311,11 @@ namespace Parsek.Tests
                     char n = At(i + 1);
                     if (c == '#' && AtLineStart(i))
                     {
+                        int w = i + 1;
+                        while (w < t.Length && (t[w] == ' ' || t[w] == '\t')) w++;
+                        int start = w;
+                        while (w < t.Length && ((t[w] >= 'a' && t[w] <= 'z') || (t[w] >= 'A' && t[w] <= 'Z'))) w++;
+                        Directives.Add(new KeyValuePair<int, string>(i, t.Substring(start, w - start)));
                         BlankToEndOfLine();
                         continue;
                     }
@@ -405,14 +443,21 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------ the gates (pure)
 
         /// <summary>The structural refusals every race gate shares, for one line: a character the
-        /// race files may not hold (read on the raw line), an alias or a backslash (read on the
-        /// masked line). Returns true (and adds the violation) when the line is refused.</summary>
+        /// race files may not hold (read on the raw line), a preprocessor directive outside
+        /// <see cref="RaceAllowedDirectives"/>, an alias or a backslash (read on the masked line).
+        /// Returns true (and adds the violation) when the line is refused.</summary>
         private static bool RaceStructuralViolation(RaceFile f, int index, List<string> violations)
         {
             string refusal = RaceRawRefusal(f.Raw[index]);
             if (refusal != null)
             {
                 violations.Add(f.Rel + ":" + (index + 1) + ": " + refusal);
+                return true;
+            }
+            string directive;
+            if (f.RefusedDirectives.TryGetValue(index, out directive))
+            {
+                violations.Add(f.Rel + ":" + (index + 1) + ": [directive] #" + directive);
                 return true;
             }
             string line = f.Masked[index];
@@ -672,6 +717,9 @@ namespace Parsek.Tests
                 // No race file holds a character outside tab, CR, LF and printable ASCII today.
                 for (int i = 0; i < f.Raw.Length; i++)
                     Assert.True(RaceRawRefusal(f.Raw[i]) == null, f.Rel + ":" + (i + 1) + ": " + RaceRawRefusal(f.Raw[i]));
+                // Nor a preprocessor directive outside the allowed set.
+                Assert.True(f.RefusedDirectives.Count == 0, f.Rel + " uses refused directive(s): "
+                    + string.Join(", ", f.RefusedDirectives.Select(d => (d.Key + 1) + ": #" + d.Value)));
             }
         }
 
@@ -706,6 +754,19 @@ namespace Parsek.Tests
             Assert.DoesNotContain("region", kept);
             RaceLex("#region Don't touch\nx();\n#endregion\n", out masked, out kept);
             Assert.Contains("x();", masked);
+            // The lexer reports each directive it meets in code state with its word (blanks after
+            // the '#' allowed, as the compiler does); the gates refuse every word outside
+            // RaceAllowedDirectives (R1-06 third review: a disabled `#if` branch is not lexed by
+            // the compiler, so a `/*` or `@"` in it would otherwise hide the active code after).
+            List<KeyValuePair<int, string>> dirs;
+            RaceLex("#if false\n#elif X\n# else\n#endif\n#define Y\n#pragma warning disable\n#nullable enable\n"
+                + "  #region a b\n#endregion\n#\nx = a #b;\ns = @\"\n#if q\";\n", out masked, out kept, out dirs, "<input>");
+            Assert.Equal(new[] { "if", "elif", "else", "endif", "define", "pragma", "nullable", "region", "endregion", "" },
+                dirs.Select(d => d.Value).ToArray());
+            RaceLex("#if false\n/*\n#endif\nobject o = typeof(RecordingStore);\n#if false\n*/\n#endif\n", out masked, out kept, out dirs, "<input>");
+            Assert.Equal(new[] { "if", "endif" }, dirs.Select(d => d.Value).ToArray());
+            Assert.DoesNotContain("RecordingStore", masked);   // hidden by the lexer, so the directives must red
+
             // A '#' that is not first on its line, or that sits in a verbatim string, is not a directive.
             RaceLex("s = @\"a\n#region RecordingStore\";\n", out masked, out kept);
             Assert.DoesNotContain("RecordingStore", masked);
@@ -1008,6 +1069,40 @@ namespace Parsek.Tests
             }
             finally { RaceDeleteTemp(tb); }
 
+            // A conditional directive (R1-06 third review): the compiler does not lex a disabled
+            // branch, so a `/*` or `@"` in `#if false` hides the active code after `#endif` from the
+            // lexer. Every directive outside region / endregion / pragma / nullable reds.
+            var directiveShapes = new Dictionary<string, string>
+            {
+                ["block"] = "#if false\n/*\n#endif\n        static object o = typeof(RecordingStore);\n#if false\n*/\n#endif",
+                ["verbatim"] = "#if false\n        static string s = @\"\n#endif\n        static object o = typeof(RecordingStore);\n#if false\n\";\n#endif",
+                ["blank-after-hash"] = "# if false\n/*\n#endif\n        static object o = typeof(RecordingStore);\n#if false\n*/\n #  endif",
+                ["else"] = "#if DEBUG\n#else\n/*\n#endif\n        static object o = typeof(RecordingStore);\n#if DEBUG\n#else\n*/\n#endif",
+            };
+            foreach (var shape in directiveShapes)
+            {
+                foreach (var gate in gates)
+                {
+                    string temp = RaceTempCopy();
+                    try
+                    {
+                        RacePlant(temp, link, shape.Value);
+                        List<string> red = gate.Value.Key(temp, RaceMinTypeReferences);
+                        Assert.True(red.Count >= 2 && red.All(v => v.StartsWith(link + ":", StringComparison.Ordinal)
+                                && v.Contains(": [directive] #")),
+                            shape.Key + " in the " + gate.Key + " gate gave: " + string.Join(" | ", red));
+                    }
+                    finally { RaceDeleteTemp(temp); }
+                }
+            }
+            string td = RaceTempCopy();
+            try
+            {
+                RacePlant(td, link, "#region a\n#pragma warning disable CS0168\n#nullable enable\n#endregion\n  # pragma warning restore CS0168");
+                foreach (var gate in gates) Assert.Empty(gate.Value.Key(td, RaceMinTypeReferences));
+            }
+            finally { RaceDeleteTemp(td); }
+
             // A verbatim identifier past the member deny: `.@OnSave` is `.OnSave`.
             string t2 = RaceTempCopy();
             try
@@ -1064,6 +1159,7 @@ namespace Parsek.Tests
             // unseen there).
             Assert.Equal(RaceModuleFolders, RaceScriptList("race-source-scan.ps1", "$raceModuleFolders").ToArray());
             Assert.Equal(RaceControllerPattern, RaceScriptScalar("race-source-scan.ps1", "$raceControllerPattern"));
+            Assert.Equal(RaceAllowedDirectives, RaceScriptList("race-source-scan.ps1", "$raceAllowedDirectives").ToArray());
             Assert.Equal(RaceRecorderTypes, RaceScriptList("grep-audit-race-no-recorder.ps1", "$recorderTypes").ToArray());
             Assert.Equal(RaceStorePattern, RaceScriptScalar("grep-audit-race-core-no-store.ps1", "$storePattern"));
             foreach (string script in new[]
@@ -1084,6 +1180,7 @@ namespace Parsek.Tests
             const string world = "Source/Parsek/RaceWorld/MirrorWorld.cs";
             const string bypass = "Source/Parsek/RaceCore/MirrorBypass.cs";
             const string raw = "Source/Parsek/RaceCore/MirrorRaw.cs";
+            const string directive = "Source/Parsek/RaceCore/MirrorDirective.cs";
             const string list = "scripts/" + RaceNoWriterAllowlist;
             var expected = new Dictionary<string, string[]>
             {
@@ -1094,6 +1191,10 @@ namespace Parsek.Tests
                     bypass + ":20: [alias] RV",
                     bypass + ":22: [store] GroupHierarchyStore",
                     bypass + ":6: [store] MilestoneStore",
+                    directive + ":11: [directive] #endif",
+                    directive + ":14: [directive] #if",
+                    directive + ":18: [directive] #endif",
+                    directive + ":5: [directive] #if",
                     raw + ":5: [non-ascii] U+2028",
                     raw + ":6: [non-ascii] U+0085",
                     raw + ":7: [control] U+001A",
@@ -1112,6 +1213,10 @@ namespace Parsek.Tests
                     bypass + ":15: [non-ascii] U+00AD",
                     bypass + ":20: [alias] RV",
                     bypass + ":22: [recorder] FlightRecorder",
+                    directive + ":11: [directive] #endif",
+                    directive + ":14: [directive] #if",
+                    directive + ":18: [directive] #endif",
+                    directive + ":5: [directive] #if",
                     raw + ":5: [non-ascii] U+2028",
                     raw + ":6: [non-ascii] U+0085",
                     raw + ":7: [control] U+001A",
@@ -1131,6 +1236,10 @@ namespace Parsek.Tests
                     bypass + ":16: [writer] .OnSave",
                     bypass + ":20: [alias] RV",
                     bypass + ":22: [writer] GroupHierarchyStore",
+                    directive + ":11: [directive] #endif",
+                    directive + ":14: [directive] #if",
+                    directive + ":18: [directive] #endif",
+                    directive + ":5: [directive] #if",
                     raw + ":5: [non-ascii] U+2028",
                     raw + ":6: [non-ascii] U+0085",
                     raw + ":7: [control] U+001A",
@@ -1216,6 +1325,27 @@ namespace Parsek.Tests
                 + "    static object p = typeof(FlightRecorder); static object q = GroupHierarchyStore.Count;\n"
                 + "    // */}\"\n"
                 + "}\n");
+            // Directives outside region / endregion / pragma / nullable (R1-06 third review): the
+            // `/*` and `@"` in the disabled branches hide line 8 from the lexer, the directive
+            // lines red; `#pragma` and `#nullable` stay green.
+            write("Source/Parsek/RaceCore/MirrorDirective.cs",
+                "namespace Parsek\n{\n"
+                + "    static class MirrorDirective\n    {\n"
+                + "#if false\n"
+                + "/*\n"
+                + "#endif\n"
+                + "        static object o = typeof(TreeCommitService); static object g = GroupHierarchyStore.Groups;\n"
+                + "#if false\n"
+                + "*/\n"
+                + "# endif\n"
+                + "#pragma warning disable CS0168\n"
+                + "#nullable enable\n"
+                + "#if DEBUG\n"
+                + "        static string s = @\"\n"
+                + "#else\n"
+                + "\";\n"
+                + "#endif\n"
+                + "    }\n}\n");
             // Characters refused on the raw text (R1-06 re-review): U+2028 and U+0085 end a line
             // for the compiler, U+001A is a blank before a directive. A leading byte-order mark
             // is stripped, not refused.
