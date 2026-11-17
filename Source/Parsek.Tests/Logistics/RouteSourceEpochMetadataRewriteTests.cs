@@ -478,6 +478,152 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(TreeCommitService.CollectUnchangedRouteSourceIds(null, new HashSet<string> { "kept" }));
         }
 
+        // catches: a source with no committed copy kept on the predicate alone, or a dirty /
+        // advance-pending one kept because a route still matches its stale fields.
+        [Fact]
+        public void CollectUnchangedRouteSourceIds_UncommittedSource_KeptOnlyWhenCleanAndAtCapture()
+        {
+            var tree = new RecordingTree { Id = "tree", TreeName = "tree", RootRecordingId = "at-capture" };
+            Recording atCapture = Leg("at-capture", 0, 10);
+            Recording dirty = Leg("dirty", 10, 20);
+            dirty.MarkFilesDirty();
+            Recording pending = Leg("pending", 20, 30);
+            pending.SidecarEpochAdvancePending = true;
+            Recording drifted = Leg("drifted", 30, 40);
+            foreach (Recording rec in new[] { atCapture, dirty, pending, drifted })
+            {
+                rec.TreeId = "tree";
+                tree.AddOrReplaceRecording(rec);
+            }
+            var names = new HashSet<string> { "at-capture", "dirty", "pending", "drifted" };
+            Func<Recording, bool> match = r => r.RecordingId != "drifted";
+
+            HashSet<string> ids = TreeCommitService.CollectUnchangedRouteSourceIds(tree, names, match);
+
+            Assert.Equal(new[] { "at-capture" }, ids.ToArray());
+            Assert.Contains(logLines, l => l.Contains("examined=4") && l.Contains("keptUnchanged=1")
+                && l.Contains("notCommitted=3") && l.Contains("keptAtRouteCapture=1"));
+            Assert.Empty(TreeCommitService.CollectUnchangedRouteSourceIds(tree, names));
+            Assert.False(TreeCommitService.IsUncommittedSourceAtRouteCapture(atCapture, null));
+            Assert.False(TreeCommitService.IsUncommittedSourceAtRouteCapture(null, match));
+        }
+
+        // catches: the captured-ref match reading a source as unchanged when any proof field
+        // moved, or matching a recording no route names.
+        [Fact]
+        public void RecordingMatchesCapturedSourceRef_Table()
+        {
+            InstallScenario();
+            Recording dock = Leg("src-dock", 17100, 17400);
+            dock.TreeId = "tree-run";
+            AddRoute("route-run", dock);
+
+            Assert.True(RouteStore.RecordingMatchesCapturedSourceRef(Recording.DeepClone(dock)));
+            Assert.False(RouteStore.RecordingMatchesCapturedSourceRef(null));
+            Assert.False(RouteStore.RecordingMatchesCapturedSourceRef(Leg("unnamed", 17100, 17400)));
+
+            Recording resaved = Recording.DeepClone(dock);
+            resaved.SidecarEpoch = 4;
+            Assert.False(RouteStore.RecordingMatchesCapturedSourceRef(resaved));
+
+            Recording pending = Recording.DeepClone(dock);
+            pending.SidecarEpochAdvancePending = true;
+            Assert.False(RouteStore.RecordingMatchesCapturedSourceRef(pending));
+
+            Recording extended = Recording.DeepClone(dock);
+            extended.Points.Add(new TrajectoryPoint { ut = 17500, altitude = 50000, bodyName = Mun });
+            Assert.False(RouteStore.RecordingMatchesCapturedSourceRef(extended));
+
+            Recording otherTree = Recording.DeepClone(dock);
+            otherTree.TreeId = "tree-other";
+            Assert.False(RouteStore.RecordingMatchesCapturedSourceRef(otherTree));
+        }
+
+        /// <summary>
+        /// The route's tree as a save holds it when the save wrote it only as the active tree
+        /// (a resumed committed vessel saved mid-flight): the recordings as loaded from that
+        /// save, with no committed copy in memory.
+        /// </summary>
+        private static RecordingTree UncommittedRouteTree(string treeId, out Recording[] members,
+            params Recording[] sources)
+        {
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = treeId,
+                RootRecordingId = sources[0].RecordingId,
+                ActiveRecordingId = sources[sources.Length - 1].RecordingId,
+            };
+            members = new Recording[sources.Length];
+            for (int i = 0; i < sources.Length; i++)
+            {
+                sources[i].TreeId = treeId;
+                sources[i].TreeOrder = i;
+                members[i] = Recording.DeepClone(sources[i]);
+                tree.AddOrReplaceRecording(members[i]);
+            }
+            return tree;
+        }
+
+        // catches: the commit of a route's tree that came back from a save as the active tree
+        // only (no committed copy in memory: the cold-load restore of a vessel whose committed
+        // leaf has no spawn stamp, then a load into the Space Center) re-merging and rewriting
+        // the unchanged sources, so the route paused as SourceChanged (H59, 2026-11-17).
+        [Fact]
+        public void CommitOfUncommittedRouteTree_SourcesAtCapture_StayClean_RouteStaysActive()
+        {
+            InstallScenario();
+            Recording launch = Leg("src-launch", 17000, 17100);
+            Recording dock = Leg("src-dock", 17100, 17400);
+            RecordingTree tree = UncommittedRouteTree("tree-run", out Recording[] members, launch, dock);
+            AddRoute("route-run", launch, dock);
+            List<TrajectoryPoint> dockPoints = members[1].Points;
+            logLines.Clear();
+
+            TreeCommitService.CommitTree(tree);
+
+            Recording launchNow = Committed("src-launch");
+            Recording dockNow = Committed("src-dock");
+            Assert.Same(members[0], launchNow);
+            Assert.Same(members[1], dockNow);
+            Assert.Same(dockPoints, dockNow.Points);
+            Assert.False(launchNow.FilesDirty);
+            Assert.False(dockNow.FilesDirty);
+            Assert.False(launchNow.SidecarEpochAdvancePending);
+            Assert.False(dockNow.SidecarEpochAdvancePending);
+            Assert.Equal(3, dockNow.SidecarEpoch);
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("route sources in tree 'tree-run'")
+                && l.Contains("examined=2 keptUnchanged=2 changed=0 notCommitted=0 keptAtRouteCapture=2 "));
+
+            Revalidate();
+
+            Assert.Equal(RouteStatus.Active, StatusOf("route-run"));
+        }
+
+        // catches: the fix swallowing a real change on that path. A source the save holds
+        // edited (dirty) is rewritten and the route still reads SourceChanged.
+        [Fact]
+        public void CommitOfUncommittedRouteTree_EditedSource_StillFlipsSourceChanged()
+        {
+            InstallScenario();
+            Recording launch = Leg("src-launch", 17000, 17100);
+            Recording dock = Leg("src-dock", 17100, 17400);
+            RecordingTree tree = UncommittedRouteTree("tree-run", out Recording[] members, launch, dock);
+            AddRoute("route-run", launch, dock);
+            members[1].Points[1] = new TrajectoryPoint { ut = 17250, altitude = 61000, bodyName = Mun };
+            members[1].MarkFilesDirty();
+            logLines.Clear();
+
+            TreeCommitService.CommitTree(tree);
+            Revalidate();
+
+            Assert.Equal(RouteStatus.SourceChanged, StatusOf("route-run"));
+            Assert.False(Committed("src-launch").SidecarEpochAdvancePending);
+            Assert.True(Committed("src-dock").SidecarEpochAdvancePending);
+            Assert.Contains(logLines, l => l.Contains("notCommitted=1") && l.Contains("keptAtRouteCapture=1"));
+        }
+
         // -----------------------------------------------------------------
         // .sfs-only marks on a committed route source
         // -----------------------------------------------------------------

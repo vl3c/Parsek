@@ -1999,6 +1999,25 @@ with the StopRecording / DiscardTree pair. Tests: `ColdLoadUnstampedLeafRestoreT
 the two match cells red without the branch). RSF-1 is reshaped back to its first shape (the
 restore re-opens the route's tree and the merge re-commits it), owed a flight.
 
+**Follow-up (2026-11-17, same branch): the route-source guard on a tree with no committed copy.**
+The first flights (run `coldload-fix2`) passed RSF-1 and eight more lanes but red H59
+(`2026-11-17_1602`, PARSEK-FAIL: no `KSC SURFACE playback resolved` line, saveParse
+`routes.statuses.Active 0 < min 1`). The in-game batch's final baseline restore is a Cold load in
+FLIGHT with rover B active, B's leaf in route tree 73e50f1e is the unstamped one, so the new
+match takes a restore clone; OnSave writes it as the active tree over the committed copy; the
+load into the Space Center then stashes it pending and auto-commits it as a fresh tree. With no
+committed copy in memory, `TreeCommitService.CollectUnchangedRouteSourceIds` counted both route
+sources `notCommitted` (`keptUnchanged=0 notCommitted=2`), so the commit re-merged them and
+marked them dirty, the flush deferred an epoch advance, and the route flipped
+`Active->SourceChanged ... sidecar-epoch-drift`. Any save holding a route's tree only as the
+active tree reaches the same commit (a stamped leaf resumed and saved mid-flight too), so the
+guard is the fix, not the match: a source with no committed copy is kept unchanged when it is
+clean (not dirty, no deferred advance) and `RouteStore.RecordingMatchesCapturedSourceRef` finds a
+committed or dormant route whose captured ref equals, field for field, the ref the revalidation
+would build from it now. The summary line gains `keptAtRouteCapture=N`. Tests: four cells in
+`RouteSourceEpochMetadataRewriteTests` (the predicate tables, the H59 shape staying Active, and
+an edited source on that path still flipping SourceChanged). Owed: H59 and RSF-1 re-flown.
+
 ## ~~ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE~~: a content-neutral rewrite of a route's source recording may pause the route as SourceChanged for good [SUSPECTED 2026-11-16 by code read. CONFIRMED by code trace and FIXED 2026-11-16, branch fix-route-source-epoch; xUnit; low]
 
 A route compares each source's `SidecarEpoch` (`RouteStore.FirstDifferingField`), and the next
