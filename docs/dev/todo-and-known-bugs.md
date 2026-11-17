@@ -26,7 +26,9 @@ So a second `GhostPlaybackEngine` can later run beside the player's own, the eng
 writing the static `DiagnosticsState` and its spawn throttle reads a budget object two engines
 can share. Close this entry when P2c-01 and P2c-04 have both landed.
 
-- P2c-01 (`LoopSyncParentIdx` read-only on `IPlaybackTrajectory`): open.
+- ~~P2c-01~~ (`LoopSyncParentIdx` read-only on `IPlaybackTrajectory`): done 2026-11-16, branch
+  `mp/p2c-01-loop-sync-readonly`. The interface declares only the getter; `Recording` keeps its
+  setter for `CommittedListOptimizer`, the one production writer.
 - ~~P2c-02~~ (health counters through `IGhostPlaybackDiagnosticsSink`): done 2026-11-16, branch
   `mp/p2c-02-engine-diagnostics-sink`. The six `DiagnosticsState.health` increments moved
   verbatim into `GlobalGhostPlaybackDiagnosticsSink`, which the one-argument engine constructor
