@@ -20,6 +20,182 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MP-R0B-P2C: the playback engine writes its diagnostics through a sink and reads a shareable spawn budget [FILED 2026-11-16 by the multiplayer plan `docs/dev/plans/multiplayer/r0b-prep-playback.md`, prerefactor P2c (tasks P2c-01 to P2c-04); single-player behavior unchanged; architecture work, no defect]
+
+So a second `GhostPlaybackEngine` can later run beside the player's own, the engine stops
+writing the static `DiagnosticsState` and its spawn throttle reads a budget object two engines
+can share. Close this entry when P2c-01 and P2c-04 have both landed.
+
+- P2c-01 (`LoopSyncParentIdx` read-only on `IPlaybackTrajectory`): open.
+- ~~P2c-02~~ (health counters through `IGhostPlaybackDiagnosticsSink`): done 2026-11-16, branch
+  `mp/p2c-02-engine-diagnostics-sink`. The six `DiagnosticsState.health` increments moved
+  verbatim into `GlobalGhostPlaybackDiagnosticsSink`, which the one-argument engine constructor
+  builds per engine; `GhostPlaybackEngineDiagnosticsSourceGateTests` keeps the counters out of
+  `GhostPlaybackEngine*.cs`. Owed: in-game `Diagnostics` category on lane H27 (nightly).
+- ~~P2c-03~~ (frame budget, history and threshold through the sink): done 2026-11-16, branch
+  `mp/p2c-03-engine-diagnostics-budget`. The sink gained `ClearPlaybackBudget`,
+  `PublishPlaybackBudget`, `AppendPlaybackFrame` and `CheckPlaybackBudgetThreshold`; the global
+  bodies are the three early-return resets, the six `DiagnosticsState.playbackBudget` writes, the
+  `playbackFrameHistory` append and the `DiagnosticsComputation` threshold call, verbatim and in
+  the same order. The source gate now forbids every `DiagnosticsState.` and
+  `DiagnosticsComputation.` token in `GhostPlaybackEngine*.cs` and pins the publish, append,
+  check order. The two P2c-02 destroy tests now stub the Unity resource teardown (they threw
+  `SecurityException` on the Windows test host). Owed: in-game `Diagnostics` on lane H27.
+- ~~P2c-04~~ (`GhostSpawnFrameBudget`): done 2026-11-16, branch `mp/p2c-04-spawn-budget`. The
+  per-frame spawn cap is now a `GhostSpawnFrameBudget` object (`Used`, `MaxPerFrame`, `Consume`,
+  `ResetForFrame`). A third engine constructor takes an optional shared budget; the existing two
+  chain to it with null, so the single-player engine builds and owns its budget and resets it in
+  `ResetPerFramePlaybackCounters` as before, while a budget passed in is never reset by an engine
+  (its owner, R3W-09, resets it once per frame). `frameSpawnCount` stays the engine's own count for
+  its frame log lines; the throttle line prints the budget's numbers with unchanged text. Tests:
+  `GhostSpawnFrameBudgetTests`. Owed: in-game `GhostPlayback` (lane S1.4) and `GhostLifecycle`
+  (LT-5).
+
+## ~~RACE-0-ALT-PIN-FROM-ONE-FLIGHT~~: RACE-0's confirming flight read PARSEK-FAIL on a launch-site altitude window sized from one flight [FILED 2026-11-17 from run `2026-11-17_0317` (PC, scratch build ca454c963, PARSEK-FAIL(expectation)). FIXED 2026-11-17, branch `mp/t-07c-race-0-widen-alt-windows`; harness spec only, not a Parsek defect; third flight `2026-11-17_0340` PASS; low]
+
+The one failing row was `listhandles sites launchSite index=4 name='Crater_Launch_Site' ...
+alt=169\.(7[8-9]|8[0-7])[0-9]`: the flight read `alt=169.751`, the first flight `2026-11-17_0035`
+read 169.834. Every other row matched. Cause: the RACE-0 windows were pinned from that one first
+flight with about +-0.05 m on the altitude, and the stock values of the two flights differ by a
+few centimetres. Stock fills each spawn point's cache (`src=cache`) in `LaunchSite.SpawnPoint.SetSpawnPointLatLonAlt`,
+called from `PQSCity.Orientate` / `PQSCity2.Orientate`, as `body.GetLatLonAlt` of the spawn
+point's float32 `Transform.position`; Orientate writes the site's `localPosition` as a float32
+vector about 600 km long (step 0.0625 m) under the rotating body, so each value carries a few
+float32 roundings whose sum depends on the body's rotation at that instant (up to about 0.15 m).
+Measured between the two flights: altitude up to 0.083 m (Crater), ground position up to 0.10 m
+(the space center's longitude). The terrain heights (PQS height in double at fixed lat / lon)
+were byte-identical.
+
+Fix: every `alt=` window (spaceCenter and the eleven spawn points) is now the midpoint of the two
+flights +-0.30 m, snapped outward to the centimetre; the GlacierLake and MahiMahi longitude
+windows (1e-4 deg there is only 0.30 m / 0.68 m on the ground) are the midpoint +-0.5 m on the
+ground. Every other lat / lon window kept its pin (margin to both flights at least 3.8 times their
+spread and 0.33 m on the ground); the terrain rows are unchanged. Checked offline through
+`hlib.evaluate_expectations` with both flights' lines: both PASS (the old spec reproduced the PC's
+one red row on 0317); every altitude row moved 1 m either way, both widened longitudes moved 1 m on
+the ground, a renamed site and two sites trading places all red, 60 of 60 mutations.
+
+Third flight (PC, same install and build as 0317): `2026-11-17_0340` PASS attempt 1, 52 s
+(`flight_efficiency.py` total 45 s: boot 24.4 s, seam steps 6.1 s, post-quit tail 9.3 s). It read
+every site value byte-identical to 0317. So two boots of one provisioned install did NOT move the
+values; only 0035 (an earlier provisioning, another build) differs from them. The float32 chain
+above explains the size of the difference, but "moves between boots" is not what was observed, and
+what changed between 0035 and the later pair is not established. Open question, no action owed: if
+a later flight on a new provisioning reads a third set of values, record it here.
+
+## MP-P2A-PLAYBACK-CATALOG, P2a-06 as built: the production anchor world-frame resolver reads the catalog [DONE 2026-11-16, branch `mp/p2a-06-anchor-world-frame-catalog`; refactor, no product change; part of MP-P2A-PLAYBACK-CATALOG below]
+
+`ProductionAnchorWorldFrameResolver` (`Source/Parsek/Rendering/`) holds an `IPlaybackCatalog`
+from a trailing optional parameter of its one modelled-world constructor (null reads
+`RecordingPlaybackCatalog.Own`; the parameterless constructor and both construction sites,
+`AnchorPropagator` and `RenderSessionState`, pass nothing). The relative-boundary context
+builder takes the focus tree from `catalog.TryFindFocusTree(rec.RecordingId, rec.TreeId, ...)`
+(the L4 order: committed trees, then pending, id-or-containment) and the pending tree from
+`catalog.PendingTree`; the private `TryFindFocusTree(Recording)` copy is deleted. Proof: two
+fake-catalog cells in `ProductionAnchorWorldFrameResolverTests` (a tree only the catalog holds
+resolves; a tree only the store holds fails `focus-tree-missing`). Owed on the PC: in-game
+`MapRender` and `GhostMap`, lanes S1.6, S1.7 and H44.
+
+## MP-P2A-PLAYBACK-CATALOG: playback looks recordings up by id through one port, so a second playback lane can answer from its own data [FILED 2026-11-16 for the multiplayer prerefactor P2a (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, P2a-01 to P2a-07). IN PROGRESS: P2a-05 done (branch `mp/p2a-05-anchor-resolver-catalog`), P2a-03 done (branch `mp/p2a-03-positioner-catalog`), P2a-04 done (branch `mp/p2a-04-tail-lift-catalog`), P2a-06 done (branch `mp/p2a-06-anchor-world-frame-catalog`), P2a-07 done (branch `mp/p2a-07-map-state-vectors-catalog`); P2a-02 open; refactor, no product change]
+
+`IPlaybackCatalog` and its own-timeline `RecordingPlaybackCatalog.Own` (both in
+`Source/Parsek/Recording/`) carry each lookup family as a named variant that keeps its search
+order. P2a-05 added the pending read, the focus-tree lookup and the
+trees-then-pending-then-list recording lookup, and routed `RecordedRelativeAnchorPoseResolver`
+through them (trailing optional catalog; null reads `Own`). Proof: `RecordingPlaybackCatalogTests`
+(truth table, plus a sweep that drives verbatim copies of the deleted resolver lookups and the
+catalog over the same 14 fixtures), fake-catalog cells in
+`RecordedRelativeAnchorPoseResolverTests`. Owed on the PC: in-game `Pipeline-Anchor` and
+`GhostMap`, lanes H11 and H44. P2a-03 added the committed-first containment tree lookup
+(`TryFindTreeHolding`, `CatalogTreeOrder.CommittedFirstContainsKey`) and the committed-list
+recording scope (`CatalogRecordingScope.CommittedListOnly`), and routed the flight positioner
+through them: a `catalog` field from a trailing optional constructor parameter (null reads `Own`),
+the relative-anchor focus tree, the Trace-Sep parent lookup, and the pending tree of
+`BuildFlightRelativeAnchorResolverContext` (now a catalog parameter). Proof: truth-table rows and
+sweeps against verbatim copies of the replaced lookups, a fake-catalog positioner cell. Owed on
+the PC: in-game `Pipeline-Anchor` and `PlaybackFidelity`, lanes H11, LT-1 and H36. P2a-04
+routed the tail-lift recording lookup (`ParsekFlightGhostPositioner.ResolveRecordingById`)
+through `CommittedListOnly` inside its try/catch; `ResolveTailLiftPlan` and
+`ParsekFlight.ResolveEffectiveAltitudeWithTailLift` take a trailing optional catalog (null reads
+`Own`) and the positioner's three tail-lift calls pass its own. The preview fallback and the
+plan caches (keyed by recording id, shared by every catalog) are unchanged, and the tail-lift
+file left the ERS allowlist (its last raw read moved into the catalog). Proof: a sweep of the
+production lookup against a verbatim copy of the removed walk over 16 fixtures, fake-catalog
+plan cells and a source gate on the three calls in `FlightRecorderTerrainTests`. Owed on the PC:
+in-game `GhostPlayback`, lane S1.4. Each later P2a task adds its variant's rows; the entry
+closes when P2a-07 and the last of P2a-02 to P2a-04 land.
+
+## MP-P2A-PLAYBACK-CATALOG, P2a-07 as built: the map's body-fixed anchor pid lookup reads the catalog [DONE 2026-11-16, branch `mp/p2a-07-map-state-vectors-catalog`; refactor, no product change; part of MP-P2A-PLAYBACK-CATALOG above]
+
+`GhostMapPresence.TryFindRecordingByIdForBodyFixedAnchorPid` (`GhostMapPresence.StateVectors.cs`,
+L6) keeps its own `IsNullOrWhiteSpace` guard and then calls
+`RecordingPlaybackCatalog.Own.TryFindRecording(id, TreesThenPendingThenList, ...)` (committed
+trees with a non-null value, then the pending tree, then the flat committed list); its copy of
+that walk is deleted. The file stays in `scripts/ers-els-audit-allowlist.txt`: the two
+active Re-Fly suppression reads (create time and `TrySuppressStateVectorUpdateForActiveReFly`)
+of `CommittedTrees`, the pending tree and `CommittedRecordings`, which the plan leaves for P3,
+remain. Proof: three cells in
+`GhostMapPresenceTests` pinning the order through `ResolveBodyFixedPrimaryAnchorPid`. Owed on
+the PC: in-game `GhostMap`, lanes H44 and S1.6.
+
+## MP-P3-GHOST-MAP-VESSELS, P3-04 as built: the ghost ProtoVessel mechanics live in `GhostMapVessels` [DONE 2026-11-17, branch `mp/p3-04-proto-mechanics-to-service`; refactor, no product change; part of the P3 track of `docs/dev/plans/multiplayer/r0b-prep-map-watch-codec.md`]
+
+Moved verbatim from `GhostMapPresence.ProtoVesselLifecycle.cs` / `.TargetingAndSelection.cs` into
+`Source/Parsek/Ghost/GhostMapVessels.cs`: `BuildGhostProtoVesselNode` (now handed the finished
+name), `EnsureDefensiveVesselNodes`, `ResolveVesselType`, `HardenGhostVesselPartPhysics`,
+`MakeLoadedGhostVesselPhysicsInert`, `LogGhostVesselMadeInert`,
+`NormalizeGhostOrbitDriverTargetIdentity`, `BuildGhostOrbitDriverIdentity`, `IsVesselRegistered`,
+`RemoveGhostProtoVessel`, `StripFromSave`, `FindBodyByName`, plus `IsSameVessel` (Normalize calls
+it) and the `FindBodyByNameForTesting` seam (cleared by `GhostMapVessels.ResetForTesting`), so
+the service reads nothing of `GhostMapPresence`. `BuildAndLoadGhostProtoVesselCore` keeps its
+signature and callers: it names the vessel (`BuildGhostProtoVesselName`), calls
+`TryLoadGhostProtoVessel(..., GhostMapVesselOwner.OwnTimeline, ...)` (node build through the type
+restore, its own Error lines and cleanup) and keeps the "Created ghost vessel" line and the
+`GhostCreated` trace; an exception after a good load still removes the ProtoVessel with the same
+Error line, which is why `GhostMapVesselLoad` also carries `ProtoVessel`. Forwarders stay on
+`GhostMapPresence` for the members called from elsewhere (`StripFromSave`, `ResolveVesselType`,
+`FindBodyByName`, `HardenGhostVesselPartPhysics`, `MakeLoadedGhostVesselPhysicsInert`,
+`NormalizeGhostOrbitDriverTargetIdentity`, `BuildGhostOrbitDriverIdentity`, `IsVesselRegistered`,
+`IsSameVessel`). Proof: `scripts/refactor/il_compare.py` with `--fold
+Parsek.GhostMapPresence=Parsek.GhostMapVessels` against a build of 3df7e0dc6: eleven bodies equal;
+`StripFromSave` and its lambda differ only by reading `Pids` instead of the
+`ghostMapVesselPids` getter; `BuildGhostProtoVesselNode` only by the name parameter; the core is
+the split. `GhostMapVesselsTests` gains a source gate that `RemoveAllGhostVessels` tears down
+through `UnregisterAllOwnTimeline` (both `Pids.Clear()` mutants red it) and cells for the moved
+headless members. Pins unchanged (uncalled 374, cross-type static writes 55, no lifetime or layer
+change); `lifetimes.toml` notes for `Pids` / `foreignOwners` now say the own teardown keeps foreign
+pids. Owed on the PC: in-game `GhostMap`, `MapPresence`, `MapRender`, `MapView`, `GhostMapOrbits`
+in FLIGHT and TRACKSTATION; lanes H44, S1.6, GC-4, GUI-9, CN-5, RF-7M, RF-8, FAR-1, V14T, V21T,
+V23T. Plan note: P3-04 says the positioner calls `GhostMapPresence.FindBodyByName`; it has its own
+`FindBodyByName(List<CelestialBody>, string)`, and the forwarder stays for the presence partials.
+
+## CS-LADDER-CHAIN-PINS: a campaign-chained replay of the scripted career cannot yet fly CS-0 to CS-7 unbroken [FILED 2026-11-16 by multiplayer T-49 (the campaign chain runner, branch `mp/t-49-campaign-chain-runner`), by reading the CS specs against the ladder `harness/campaigns/cs-career.toml`. OPEN; harness, no product change; low (the committed fixtures still fly every lane alone)]
+
+`tools/campaign_runner.py` stages each CS lane from the previous lane's fresh save instead of its
+committed fixture. Three gaps keep a full replay from chaining every edge:
+
+- CS-0 -> CS-3 and CS-3 -> CS-3b are declared `handover = "fixture"`. A genuine New Game offers
+  random contract GUIDs, and CS-3 accepts FIRSTLAUNCH and SCIENCE by the GUIDs of the committed
+  `cs-career-new`; CS-3b accepts the RT-10 PartTest by a GUID stock offered during CS-3's own
+  committed flight and hires Verhat Kerman, an applicant added to `cs-career-contracts` by hand.
+  Fix: T-58's accept-by-type selector, plus an applicant seed step; then drop the two fixture
+  edges from the ladder.
+- Past CS-6 the pins were read off the committed host: CS-6b pins `recordings.count` to exactly
+  21 (CS-6 allows 20-22) and its advRocketry `observedAfter=science=5.5`, while CS-6 pins no
+  science, so a chained CS-6 that recorded 20 or 22, or earned other science, reds CS-6b. CS-6c
+  (33-35) and CS-7 (49-55) are windows that a chained run is likely to meet. Fix: widen CS-6b's
+  count to CS-6's window and regex its science value, or pin CS-6's science.
+- Verified by the PC replay of 2026-11-16 (`cs-replay-1`, CS-3 to CS-4b on stock-tree, 4 of 4
+  stages green on attempt 1): CS-4b's `observedAfter` science values (27.5, 9.5) held when CS-4b
+  was staged from a re-flown CS-4, which was itself staged from CS-3b's save. That replay's
+  harvest asked for a `"cs-career-ts1" = ["Jumping Flea"]` row in
+  `harness/fixtures/shared-ships.toml`; it was not added, and whether a chained stage needs it
+  is open.
+
+Done 2026-11-16 on the same branch: CS-4b's and CS-6b's `GuidDiffers` lines no longer pin the
+committed predecessor's own Flea guid and UT (they are regexed), so a chained CS-4b / CS-6b can
+pass.
+
 ## ~~RECORDING-ID-CHECK-OS-DEPENDENT~~: the recording id check depended on the operating system [FILED 2026-11-16 from the multiplayer analysis (section 10) and plan `docs/dev/plans/multiplayer/r0b-prep-small.md` P7-01, by code reading. FIXED 2026-11-16, branch `mp/p7-01-id-check-floor`; xUnit; no lane needed; low (no producer or committed save carries such an id)]
 
 `RecordingPaths.ValidateRecordingId`, which guards every sidecar and rewind-point path built
@@ -78,14 +254,28 @@ dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseL
 P=211926.36 ... fixedCadenceResidual=2.18 withinTol=yes zeroDrift=yes scheduleWithinTol=yes
 scheduleWorstResidual=39.24`, the xUnit prediction.
 
-## MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED: a loop that starts in orbit off rails can still be timed around a later moon it passes low over [FILED 2026-11-16 from the review of PR #2640. OPEN; no lane covers it; low (needs a mission that never warps before its first Approach)]
+## ~~MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED~~: a loop that starts in orbit off rails can still be timed around a later moon it passes low over [FILED 2026-11-16 from the review of PR #2640. FIXED 2026-11-16, branch fix-loop-launch-body-exo; xUnit; no lane covers it; low (needs a mission that never warps before its first Approach)]
 
 `MissionPeriodicity.ExtractConstraints`' orbit side of the launch-body comparison counts only
 `OrbitSegments` and `OrbitalCheckpoint` checkpoints, never physics-frame Absolute `ExoBallistic` /
 `ExoPropulsive` sections. A mission that starts in orbit, stays off rails (no time warp) and whose
 first surface-class section is an Approach over another body before any on-rails segment still
 names the Approach body as its launch body. V43M escaped this only because its root goes on rails
-2.6 s in. Fix: let the Exo sections' body feed the launch-body comparison (not the SOI rules).
+2.6 s in.
+Fix: `ExtractConstraints` also scans each member's physics-frame (Absolute) `ExoBallistic` /
+`ExoPropulsive` sections inside the trimmed window (`ScanOffRailsExoSectionsWithinWindow`) and
+keeps the single earliest start and its body. The six-argument `ResolveLaunchBody` takes the
+earlier of that and the earliest OrbitSegment as the orbit side (a tie keeps the OrbitSegment),
+then compares it with the earliest surface-class segment as before (surface wins a tie). The Exo
+sections never enter the per-body orbit dictionary, so the SOI rules and rule 2's hand-off are
+unchanged. Relative and OrbitalCheckpoint sections are skipped. When the off-rails start names a
+body the first OrbitSegment does not, the launch-body line gains `, first off-rails coast <B>
+off=...` (an absent side prints `<none>`); V43M's line is unchanged (its coast and first
+checkpoint are both Vall). A scan of every committed fixture's `.prec.txt` (whole save, untrimmed)
+finds no launch body that moves. Pinned by `MissionPeriodicityTests.ResolveLaunchBody_WithOffRailsCoast_TruthTable`,
+`Extract_OffRailsVallStartThenTyloApproach_LaunchBodyIsVall`,
+`Extract_OffRailsVallStartBeforeOnRailsJoolAndTylo_IsMoonRootedAtVall` (both red with the Exo
+feed removed) and the mirror `Extract_TyloApproachBeforeOffRailsVallCoast_LaunchBodyStaysTylo`.
 
 ## ~~ROUTE-HELD-ROCK-HARVEST-UNCOUNTED~~: Ore drilled from a Klaw-held rock was not counted as harvest, so the route was refused [FILED 2026-11-15 from the AST-3 flight `2026-11-15_2035_AST-3-klaw-mine-route` (PR #2633; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15d`). FIXED 2026-11-15, same PR; xUnit; AST-3 re-flown green 2026-11-15 (folder ast-klaw-2026-11-15e); medium (a rock-mining route could never be made)]
 
@@ -111,7 +301,7 @@ leg and the drill window counts. A docking-port hold, or a hold that also carrie
 still stops the walk. Tests: `RouteHarvestAnalysisComputeTests` (six anchor-walk cells) and
 `RouteHarvestAnalysisTests.CheckTransportGains_OreDrilledOnAHeldRock_CountsAsHarvest`.
 
-## REFLY-ATTEMPT-STALE-END-UT: a flown Re-Fly attempt can be saved with its end UT at its start [FILED 2026-11-15 from the AST-4 reading run `2026-11-15_1941_AST-4-klaw-refly` (PR #2633, fcceccd; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15b`); not investigated; severity unknown]
+## ~~REFLY-ATTEMPT-STALE-END-UT~~: a flown Re-Fly attempt can be saved with its end UT at its start [FILED 2026-11-15 from the AST-4 reading run `2026-11-15_1941_AST-4-klaw-refly` (PR #2633, fcceccd; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15b`). FIXED 2026-11-16, branch `fix-refly-stale-end-ut`; xUnit; low (saved metadata; one latent leaf misread)]
 
 What was seen (report-only, the lane passed): in the produced save the Re-Fly attempt recording
 reads `explicitEndUT = 358.01` (its start UT) and `pointCount = 1`, while its `.prec` sidecar
@@ -119,7 +309,38 @@ holds an orbit segment from UT 358.0 to 1097.5 plus one point at 1097.5. The log
 observation-only `outcome=unbound-refly-provisional reason=refly-provisional-has-no-trajectory-at-save`
 at the invoke's save. Open question: is the end UT written once at that early save and never
 refreshed after the attempt flies, and does anything (playback end, spawn, Missions duration)
-read the stale value? Fix: none yet; first decide whether the metadata or the sidecar is right.
+read the stale value?
+Cause. The sidecar is right and `pointCount = 1` is right (it counts flat points; the one point
+at 1097.53 is the only one, the coast is an orbit segment). The stale field is `explicitEndUT`,
+and it is not Re-Fly specific: the quickload-resume trim (`ParsekScenario.TrimRecordingPastUT`)
+stamps the cutoff as the explicit end of the open recording it resumes (log: `Quickload resume
+prep: activeRec='rec_d494...' cutoffUT=358.01 preTrimEndUT=0.00`, after the invoke's own save),
+and nothing lifted it as the recorder flew on: neither active flush
+(`FlushRecorderToTreeRecording`, `FlushRecorderIntoActiveTreeForSerialization`) touches
+`ExplicitEndUT` (the background recorder does), and finalization only fills an unset one. Every
+later save wrote 358.01. The `unbound-refly-provisional` Warn is unrelated: it fires on the
+invoke's save, 40 ms before `RestoreActiveTreeFromPending` binds the recorder.
+
+What read it. `Recording.EndUT` takes the later of the explicit end and the trajectory bounds, so
+playback end, ghost retire, spawn timing, Missions and merge-dialog duration and the ledger
+(`Committed recording 'rec_d494...' ... endUT=1100.0`) all read the real end; the player saw
+nothing in this run. The raw-field readers did not: `RecordingTree.ChildBranchLeavesVesselLineOpen`
+reads an explicit end at or before a Breakup / JointBreak / Launch branch as "closed at the
+split", so a resumed flight that shed debris after the resume and flew on was not its vessel's
+line end (spawnable-leaf, background-map and destruction-gate queries, Missions terminal rows),
+and `ParsekFlightMergeFlow.TryGetFinalTrackSection` picked the section at the cutoff instead of
+the last one (endpoint segment-phase fallback). Without a hydrated trajectory `EndUT` would also
+fall back to the cutoff.
+
+Fix: `ParsekFlight.LiftStampedExplicitEndToTrajectoryEnd`, called by both active flushes after
+they append, lifts an explicit end that is set, not terminal-stamped and not parent-anchored
+debris up to the recorded trajectory end (Verbose `Explicit end lifted to the recorded data:`).
+`EndUT` never moves (it already took the later value); an unset end stays unset. Tests:
+`ResumedRecordingExplicitEndTests` (the AST-4 shape through the trim, the real stop flush, the
+codec write, the final-section lookup, the breakup line-end case and the four guards). Live proof
+if wanted: AST-4 again, whose produced save should read `explicitEndUT = 1100.03...` on the
+attempt and whose KSP.log should carry `Explicit end lifted to the recorded data: rec=rec_...
+context=FlushRecorderIntoActiveTreeForSerialization oldExplicitEndUT=358.01`.
 
 ## ~~ROCK-GHOST-PREFAB-MESH~~: a grabbed asteroid or comet replays as the part prefab's small placeholder lump [FILED 2026-11-15 from the H42 flight log of 2026-10-12. FIXED 2026-11-15, branch `ast-ghost-visual`; xUnit + in-game `ClawCouple`; H42 and H41 re-flown green 2026-11-15; low (visual only)]
 

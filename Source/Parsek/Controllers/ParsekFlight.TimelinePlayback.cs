@@ -553,14 +553,15 @@ namespace Parsek
         internal static RelativeAnchorResolverContext BuildFlightRelativeAnchorResolverContext(
             RecordingTree focusTree,
             string focusedRecordingId,
-            ReFlySessionMarker marker)
+            ReFlySessionMarker marker,
+            IPlaybackCatalog catalog)
         {
             return new RelativeAnchorResolverContext(
                 focusTree,
                 focusRecordingId: focusedRecordingId,
                 focusTreeId: focusTree?.Id,
                 activeReFlyMarker: marker,
-                pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
+                pendingTree: catalog.PendingTree,
                 absoluteWorldPositionResolver: ParsekFlightPlaybackHost.ResolveAnchorResolverPointWorldPosition,
                 bodyWorldRotationResolver: ParsekFlightPlaybackHost.ResolveAnchorResolverBodyWorldRotation,
                 orbitalCheckpointPoseResolver: TryResolveOrbitalCheckpointAnchorPose,

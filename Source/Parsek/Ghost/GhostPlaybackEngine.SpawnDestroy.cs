@@ -151,7 +151,7 @@ namespace Parsek
             // post-condition state.
             bool primeRetired = PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
 
-            DiagnosticsState.health.ghostReusedAcrossCycleThisSession++;
+            diagnostics.CountGhostReusedAcrossCycle();
 
             // Distinctive UTF-16 string for the DLL verification recipe.
             ParsekLog.VerboseRateLimited("Engine", $"reuse-{index}",
@@ -436,12 +436,12 @@ namespace Parsek
         private bool TryReserveSpawnSlot(int index, string site)
         {
             spawnReserveAttemptCountForTesting++;
-            if (GhostPlaybackLogic.ShouldThrottleSpawn(frameSpawnCount, GhostPlayback.MaxSpawnsPerFrame))
+            if (GhostPlaybackLogic.ShouldThrottleSpawn(spawnBudget.Used, spawnBudget.MaxPerFrame))
             {
                 frameSpawnDeferred++;
                 ParsekLog.VerboseRateLimited("Engine", "spawn-throttle",
                     $"Spawn throttled ({site}): #{index} deferred to next frame " +
-                    $"(used {frameSpawnCount}/{GhostPlayback.MaxSpawnsPerFrame})", 1.0);
+                    $"(used {spawnBudget.Used}/{spawnBudget.MaxPerFrame})", 1.0);
                 return false;
             }
             return true;
@@ -625,7 +625,7 @@ namespace Parsek
             // the same index reopens its own bridge.
             chainBridgeOpenedUT.Remove(index);
             GhostVisualBuilder.ClearMissingAudioClipWarnings(ghostRootName);
-            DiagnosticsState.health.ghostDestroysThisSession++;
+            diagnostics.CountGhostDestroy();
         }
 
         /// <summary>

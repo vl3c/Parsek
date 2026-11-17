@@ -41,12 +41,44 @@ a ``callvirt instance`` on OLD or NEW reads ``call`` (``this.M()`` compiles to c
 and ``service.M()`` to callvirt).
 Under a fold the two hops are the identity wherever they appear (a lambda's display class or a
 host static reaching the service through a local, too), and every other NEW token, nested
-paths included, reads OLD; NEW's own header is printed, not compared. A member or nested type
+paths included, reads OLD; NEW's own header is printed, not compared. Both builds are folded,
+so a later step of a series of moves into one NEW (the before build already holds NEW) folds
+the same way as the first. A member or nested type
 under OLD whose declaration differs only in ``private`` -> ``assembly`` (internal) is listed as
 widened, not as a difference; its body is still compared. ``--show TEXT`` prints the folded
 body diff of each differing method whose signature holds TEXT.
 Whatever still differs after the fold is listed: the forwarders, the accessor, the host field
 and constructor. A PR lists each of those by name.
+
+``--alias-field TYPE::NEW=OLD`` (repeatable, applied after the folds and to the AFTER build
+only) folds a renamed reference field: a service that reached state through ``host.Lane.x``
+and now reaches it through its own ``lane`` field. In the after build every read
+``ldfld class X TYPE::NEW`` reads ``ldfld class X TYPE::OLD``; ``X`` is kept, so a read of a
+field whose (folded) type is not OLD's still differs. Nothing else is aliased: a store
+(``stfld``), an address (``ldflda``), a field of a nested or any other type, and any other
+name stay as they are, so the constructor that stores NEW and NEW's own ``.field``
+declaration are the expected leftovers. Each alias is also checked against the declarations
+(kind ``alias-field``, a difference): OLD declared on TYPE before, NEW declared on TYPE after
+and not before, and NEW's folded field type equal to OLD's. TYPE is named as in the after
+build; a folded NEW type reads as its OLD type. Aliases must be a pure renaming: on one TYPE no
+two aliases share a NEW or an OLD, and no name is both a NEW and an OLD (aliases apply in
+order, so a chain would fold twice); a set that breaks this is refused (exit 2).
+
+A fold merges OLD's and NEW's members under one key, so it may only merge what IS one thing.
+Before folding, each build is checked (kind ``fold-collision``, a difference) for:
+- a field name (instance or static, an auto-property or field-like event backing field
+  included) declared on both OLD and NEW: two storages that would read as one; a ``literal``
+  constant has no storage (its reads are inlined) and is skipped;
+- a method signature on both OLD and NEW whose folded bodies differ, unless exactly one of the
+  two is a pass-through forwarder to the other: a call moved from one to the other would read
+  the same. The forwarder shape is the one every seam lift left behind (``host.Seam.M(args)``,
+  ``Seam.M(args)`` for a static): folded, one basic block of ``ldarg.0`` (instance), every
+  parameter loaded once in order, one ``call`` of the same folded signature (name, parameter
+  types, return type) and ``ret`` (``nop`` allowed; any branch, local, other call or extra
+  instruction fails it), and unfolded that call names the OTHER type, not its own. Anything
+  else is reported; a person then looks at it. Constructors are skipped (never called by name
+  across the two);
+- a nested type of the same, not compiler-generated, name on both OLD and NEW.
 
 Exit code 0 when nothing differs, 1 otherwise, 2 on a usage or tool error.
 Plain stdlib.
@@ -197,6 +229,250 @@ def apply_folds(text, folds, host_field):
         text = "\n".join(l if l.lstrip().startswith(".class") else token.sub(old, l)
                          for l in text.split("\n"))
     return text
+
+
+def fold_type_name(name, folds):
+    """The name a type path reads under the folds (a NEW type, or a type nested in it, reads OLD)."""
+    for old, new in folds:
+        if name == new or name.startswith(new + "/"):
+            return old + name[len(new):]
+    return name
+
+
+def parse_alias(spec):
+    """``TYPE::NEW=OLD`` -> (TYPE, NEW, OLD), or None when malformed."""
+    m = re.match(r"^([^\s:=]+)::([A-Za-z_][\w]*)=([A-Za-z_][\w]*)$", spec)
+    if not m or m.group(2) == m.group(3):
+        return None
+    return m.group(1), m.group(2), m.group(3)
+
+
+def apply_aliases(text, aliases, folds):
+    """Rewrite each read ``ldfld class X TYPE::NEW`` to ``ldfld class X TYPE::OLD``.
+    Returns (text, reads rewritten per alias)."""
+    counts = []
+    for typ, new, old in aliases:
+        t = re.escape(fold_type_name(typ, folds))
+        rx = re.compile(r"^(\s*(?:IL_[0-9a-f]{4}:\s*)?ldfld\s+class\s+\S.*?\s%s::)%s([ \t]*)$"
+                        % (t, re.escape(new)), re.M)
+        text, n = rx.subn(lambda m: m.group(1) + old + m.group(2), text)
+        counts.append(n)
+    return text, counts
+
+
+_FIELD_MODIFIERS = frozenset((
+    "public", "private", "assembly", "family", "famandassem", "famorassem", "privatescope",
+    "static", "initonly", "literal", "notserialized", "specialname", "rtspecialname"))
+
+
+def _field_decls(info, name):
+    """The (folded) field types of every declaration of `name` in a TypeInfo."""
+    found = []
+    for decl in (info.fields if info else ()):
+        tokens = decl.split()
+        if len(tokens) < 3 or tokens[-1].strip("'") != name:
+            continue
+        rest = tokens[1:-1]
+        while rest and rest[0] in _FIELD_MODIFIERS:
+            rest = rest[1:]
+        found.append(" ".join(rest))
+    return found
+
+
+def alias_conflicts(aliases, folds):
+    """Messages for an alias set that is not a pure renaming per type (see the docstring)."""
+    out = []
+    by_type = collections.defaultdict(list)
+    for typ, new, old in aliases:
+        by_type[fold_type_name(typ, folds)].append((new, old))
+    for path, pairs in sorted(by_type.items()):
+        news = collections.Counter(n for n, _ in pairs)
+        olds = collections.Counter(o for _, o in pairs)
+        for name in sorted(n for n, c in news.items() if c > 1):
+            out.append("%s::%s is aliased more than once" % (path, name))
+        for name in sorted(o for o, c in olds.items() if c > 1):
+            out.append("%s: two aliases fold onto %s" % (path, name))
+        for name in sorted(set(news) & set(olds)):
+            out.append("%s::%s is both an alias NEW and an alias OLD" % (path, name))
+    return out
+
+
+def _field_name(decl):
+    """The declared name of a `.field` line (None for a literal constant, which has no storage)."""
+    head = decl.split(" = ", 1)[0].split()
+    if "literal" in head or len(head) < 3:
+        return None
+    return head[-1].strip("'")
+
+
+_GENERATED_NESTED = re.compile(r"^'?<")
+
+
+_METHOD_KEYWORDS = frozenset((
+    "public", "private", "assembly", "family", "famorassem", "famandassem", "privatescope",
+    "hidebysig", "specialname", "rtspecialname", "virtual", "final", "newslot", "abstract",
+    "strict", "instance", "static"))
+
+
+def _split_params(text):
+    """Split a parameter list on the commas outside brackets."""
+    parts, depth, cur = [], 0, ""
+    for ch in text:
+        if ch in "<([":
+            depth += 1
+        elif ch in ">)]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        parts.append(cur.strip())
+    return parts
+
+
+def _signature(sig):
+    """(static, return type, name, [(param type, param name)]) of a method key, or None."""
+    m = re.match(r"^\.method\s+(.*?)\s([^\s(]+)\((.*)\)\s+cil managed$", sig)
+    if not m:
+        return None
+    head = m.group(1).split()
+    static = "static" in head
+    while head and head[0] in _METHOD_KEYWORDS:
+        head = head[1:]
+    params = []
+    for p in _split_params(m.group(3)):
+        p = re.sub(r"^(?:\[(?:opt|out|in)\]\s*)+", "", p)
+        typ, _, pname = p.rpartition(" ")
+        if not typ:
+            return None
+        params.append((typ, pname))
+    return static, " ".join(head), m.group(2), params
+
+
+def _instructions(body):
+    """The normalized body's instruction lines, a call's wrapped parameter list joined back."""
+    out = []
+    for line in body.split("\n"):
+        if out and out[-1].count("(") > out[-1].count(")"):
+            out[-1] += line
+        else:
+            out.append(line)
+    return out
+
+
+def _forwarder_call(sig, body, owner):
+    """True when the folded `body` of method `sig` is exactly a pass-through to `owner`'s method
+    of the same folded signature: one basic block, every argument loaded once in order, one call,
+    its result returned unchanged. Directives other than .maxstack / .param / .custom (a .locals
+    included) and any other instruction but nop fail it."""
+    parsed = _signature(sig)
+    if parsed is None:
+        return False
+    static, ret, name, params = parsed
+    code = []
+    for ins in _instructions(body):
+        if ins in ("{", "}", "nop") or ins.startswith((".maxstack", ".param", ".custom")):
+            continue
+        if ins.startswith("."):
+            return False
+        code.append(ins)
+    expected = [] if static else [{"ldarg.0"}]
+    first = 0 if static else 1
+    for i, (_, pname) in enumerate(params):
+        idx = first + i
+        ok = {"ldarg.%d" % idx} if idx <= 3 else set()
+        ok |= {"ldarg.s %s" % pname, "ldarg %s" % pname, "ldarg.s %d" % idx, "ldarg %d" % idx}
+        expected.append(ok)
+    call = "call %s%s %s::%s(%s)" % ("" if static else "instance ", ret, owner, name,
+                                     ",".join(t for t, _ in params))
+    if code[-2:] != [call, "ret"] or len(code) != len(expected) + 2:
+        return False
+    return all(ins in ok for ins, ok in zip(code[:-2], expected))
+
+
+def _fold_tokens(text, folds):
+    for old, new in folds:
+        text = re.sub(r"(?<![\w.])%s(?![\w])" % re.escape(new), old, text)
+    return text
+
+
+def _raw_body(raw, path, folded_sig, folds):
+    """The unfolded body of the method of type `path` whose folded key is `folded_sig`."""
+    info = raw.get(path)
+    for sig, bodies in (info.methods.items() if info else ()):
+        if _fold_tokens(sig, folds) == folded_sig and len(bodies) == 1:
+            return BODIES[bodies[0]]
+    return None
+
+
+def fold_collisions(types, folds, label, raw_text=None):
+    """(kind, path, detail) for every member a fold would merge although it is two things.
+    `types` is a build parsed after apply_folds but before fold_types; `raw_text` is the same
+    build unfolded (parsed on demand, to see which type a forwarder really calls)."""
+    out = []
+    raw = []
+    for old, new in folds:
+        to, tn = types.get(old), types.get(new)
+        if to is None or tn is None:
+            continue
+        fo = {_field_name(f) for f in to.fields} - {None}
+        fn = {_field_name(f) for f in tn.fields} - {None}
+        for name in sorted(fo & fn):
+            out.append(("fold-collision", old, "%s build: field %s declared on both %s and %s"
+                        % (label, name, old, new)))
+        for sig in sorted(set(to.methods) & set(tn.methods)):
+            if " .ctor(" in sig or " .cctor(" in sig:
+                continue
+            bo, bn = to.methods[sig], tn.methods[sig]
+            if sorted(set(bo)) == sorted(set(bn)):
+                continue
+            # Allowed only when exactly one side is a pass-through to the other: its folded body
+            # has the forwarder shape, and unfolded its one call names the OTHER type.
+            forwarders = []
+            for path, other, bodies in ((old, new, bo), (new, old, bn)):
+                if len(bodies) != 1 or not _forwarder_call(sig, BODIES[bodies[0]], old):
+                    continue
+                if not raw and raw_text is not None:
+                    raw.append(parse_il(raw_text))
+                body = _raw_body(raw[0], path, sig, folds) if raw else None
+                name = _signature(sig)[2]
+                if body is not None and re.search(r"\bcall(?:virt)?\s[^\n]*\s%s::%s\("
+                                                  % (re.escape(other), re.escape(name)), body):
+                    forwarders.append(path)
+            if len(forwarders) == 1:
+                continue
+            out.append(("fold-collision", old, "%s build: method on both %s and %s, not one pass-through "
+                        "forwarder: %s" % (label, old, new, sig)))
+        for path in types:
+            if path.startswith(new + "/") and "/" not in path[len(new) + 1:]:
+                nested = path[len(new) + 1:]
+                if not _GENERATED_NESTED.match(nested) and (old + "/" + nested) in types:
+                    out.append(("fold-collision", old, "%s build: nested type %s on both %s and %s"
+                                % (label, nested, old, new)))
+    return out
+
+
+def alias_checks(a, b, aliases, folds):
+    """(kind, path, detail) for every alias whose declarations do not make it a pure rename."""
+    out = [("alias-field", "", m) for m in alias_conflicts(aliases, folds)]
+    for typ, new, old in aliases:
+        path = fold_type_name(typ, folds)
+        label = "%s::%s=%s" % (typ, new, old)
+        old_before = _field_decls(a.get(path), old)
+        new_before = _field_decls(a.get(path), new)
+        new_after = _field_decls(b.get(path), new)
+        if len(old_before) != 1:
+            out.append(("alias-field", path, "%s: %s declared %d times before" % (label, old, len(old_before))))
+        if new_before:
+            out.append(("alias-field", path, "%s: %s already declared before" % (label, new)))
+        if len(new_after) != 1:
+            out.append(("alias-field", path, "%s: %s declared %d times after" % (label, new, len(new_after))))
+        if len(old_before) == 1 and len(new_after) == 1 and old_before[0] != new_after[0]:
+            out.append(("alias-field", path, "%s: type differs (%s before, %s after)"
+                        % (label, old_before[0], new_after[0])))
+    return out
 
 
 BODIES = {}  # body hash -> normalized (folded) body text, for --show
@@ -448,6 +724,8 @@ def main(argv=None):
     ap.add_argument("--fold", action="append", default=[], metavar="OLD=NEW",
                     help="fold a member move from type OLD into type NEW back onto OLD (repeatable)")
     ap.add_argument("--host-field", default="host", help="the service's host field name (default: host)")
+    ap.add_argument("--alias-field", action="append", default=[], metavar="TYPE::NEW=OLD",
+                    help="in the after build, a read of field NEW on TYPE reads field OLD (repeatable)")
     ap.add_argument("--limit", type=int, default=200, help="differences printed (default 200)")
     ap.add_argument("--show", action="append", default=[], metavar="TEXT",
                     help="print the folded body diff of each differing method whose signature holds TEXT")
@@ -457,6 +735,15 @@ def main(argv=None):
         if "=" not in f:
             ap.error("--fold takes OLD=NEW")
         folds.append(tuple(f.split("=", 1)))
+    aliases = []
+    for f in args.alias_field:
+        alias = parse_alias(f)
+        if alias is None:
+            ap.error("--alias-field takes TYPE::NEW=OLD with two different field names")
+        aliases.append(alias)
+    conflicts = alias_conflicts(aliases, folds)
+    if conflicts:
+        ap.error("--alias-field set is not a pure renaming: " + "; ".join(conflicts))
     texts = []
     for p in (args.before, args.after):
         if args.il:
@@ -464,16 +751,24 @@ def main(argv=None):
                 texts.append(fh.read())
         else:
             texts.append(disassemble(p))
-    a = parse_il(apply_folds(texts[0], folds, args.host_field))
-    b_raw = parse_il(apply_folds(texts[1], folds, args.host_field))
+    # The before build is folded too: in a series of moves into one NEW type, the before build
+    # of every step after the first already holds NEW.
+    a_raw = parse_il(apply_folds(texts[0], folds, args.host_field))
+    a = fold_types(a_raw, folds)
+    after_text, alias_reads = apply_aliases(apply_folds(texts[1], folds, args.host_field), aliases, folds)
+    b_raw = parse_il(after_text)
     b = fold_types(b_raw, folds)
     widened = widenings(a, b, [old for old, _ in folds]) if folds else []
-    diffs = compare(a, b, widened)
+    diffs = (fold_collisions(a_raw, folds, "before", texts[0])
+             + fold_collisions(b_raw, folds, "after", texts[1])
+             + alias_checks(a, b, aliases, folds) + compare(a, b, widened))
     for label, types in (("before", a), ("after", b)):
         print("%-6s types %d  fields %d  methods %d" % ((label,) + summarize(types)))
     for old, new in folds:
         if new in b_raw:
             print("folded %s onto %s: %s" % (new, old, " | ".join(sorted(b_raw[new].header))))
+    for (typ, new, old), n in zip(aliases, alias_reads):
+        print("aliased %s::%s onto %s: %d reads" % (typ, new, old, n))
     forwarded = [w for w in widened if w[0] == "forwarded"]
     plain = [w for w in widened if w[0] != "forwarded"]
     if plain:

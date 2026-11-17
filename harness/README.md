@@ -30,6 +30,19 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   min / max / threshold bounds with a one-physics-frame allowance of
   `0.02 * rate`, the rate per gap read off the recorder's `warpRuns=` token on
   `TrackSection closed:` - see "Recording under physics warp" below),
+  + `raceparse.py`, the pure race evaluator (multiplayer plan T-05) behind
+  the `raceParse` verifier row (T-38, see "The raceParse row" below):
+  `collect_rival_ids` reads the
+  rival player, recording and tree ids off a shared-folder listing,
+  `leak_scan` searches every file of a produced save outside `Parsek/Race/`
+  for them (file names, text with the ConfigNode path of the line, raw binary
+  bytes, and the inflated text of `PSN0` snapshots), and `save_equivalence`
+  diffs two produced saves canonically under the pinned `EQUIVALENCE_MASK`
+  (UT values within a tolerance, values that differ by nature ignored, each
+  entry with its written reason; owner question Q-13 option (a)); statuses
+  PASS / FAIL / VACUOUS (no rival id) / ERROR (a save that cannot be read
+  whole never reads clean); `evaluate_race_parse` is the row's evaluation over
+  every save a race lane produced,
   + `rendercompose.py`, the M-A7 pure render-composition parser / clock-math
   re-derivation / RC-* rule set behind the `renderCompose` verifier row
   (`[expectations.renderComposition]`, evaluated over the produced
@@ -75,7 +88,8 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   exclusive-create, never reaped) so two CONCURRENT invocations cannot both take
   a free id: a second run of one scenario inside the same minute
   takes `_run2` and run.py Warns naming both ids -- it never overwrites an
-  earlier run's result JSON, `_shots` dir, `_save` snapshot or contact sheet.
+  earlier run's result JSON, `_shots` dir, `_save` / `_save-<suffix>`
+  snapshot, `_race` snapshot or contact sheet.
   `_a<N>` is a
   different axis: the `[retry] policy` re-flying ONE run, which deliberately
   shares the stem and is distinguished by the attempt suffix.
@@ -1489,6 +1503,115 @@ spares the current run's own tmp name, since the pass can run while that copy is
 still being written. Between the two, the retention pass touches nothing under
 `results/` but `*_save/` and `*_save.harness-tmp/`.
 
+### Named-save snapshots (`results/<runId>_save-<suffix>/`)
+
+A lane that creates a second save (a `NewGame as=<runSave>-<suffix>` step, a race
+lane's second career) names it in advance under `[fixture]`:
+
+```toml
+snapshotSaves = ["${runSave}-b"]     # or the literal "<runSaveName>-b"
+```
+
+and run.py treats each one like the run save (multiplayer T-04): staging removes
+a prior `saves/<runSave>-<suffix>/` first (fail closed, `INVALID(staging)` when it
+cannot), so a folder present after the flight is this run's; the pipelined
+post-quit copy holds it (`run.POST_QUIT_COPIED_DIRS`, `<snapshotSave>`); the
+post-quit step copies it right after the run save, with the same size and
+free-disk refusals (the `[harvest]` opt-out names the run save only), the same
+tmp-and-rename, a Warn and `ran=false` on a failed copy, into
+
+```
+results/<runId>_save-<suffix>/
+```
+
+The result JSON carries `snapshotSaves: [{save, ran, path, bytes, files,
+reason}, ...]`, one record per declared save (no key for a spec without the
+list), and the verifier detail a `snapshotSaves: {status, missing}` row.
+Harvest from it the same way: `--save-dir results/<runId>_save-<suffix>`.
+Retention keeps the newest 3 PER SCENARIO AND SUFFIX
+(`hlib.select_snapshot_save_dirs_to_prune`) and sweeps orphaned
+`<runId>_save-<suffix>.harness-tmp` dirs (`hlib.select_stale_snapshot_save_tmp_dirs`),
+from the run and from `run.py --sweep-results` (the parallel runner's end-of-run
+sweep); a slot child skips it like the other passes. The run save's pass never touches these
+names (they do not end in `_save`), and the reverse holds too.
+
+The validator (`hlib.validate_snapshot_saves`) accepts only `${runSave}-<suffix>`
+or `<runSaveName>-<suffix>` with a `[A-Za-z0-9_]` suffix (the `NewGame as=` rule),
+so a name can never leave `saves/`; it refuses the run save itself, a duplicate in
+either form, and a suffix whose dir name would END in a name another results pass
+keys on (`hlib.RESULTS_NAME_SUFFIXES`: `_save`, `_race`, `_shots`, ...). It warns
+when no step arg names the save. A declared save ABSENT after the run reds
+`PARSEK-FAIL(snapshot-save-missing)`, but only on a valid driver stage and as the
+very last red (after `unmet-step`): every step met its expect, so the step that
+names the save answered OK without leaving it. A run that already failed keeps
+its own verdict, and the missing save's record reads `no-produced-save`.
+
+### The race shared-folder snapshot (`results/<runId>_race/`)
+
+A spec with a `[fixture.race]` block (see "The race shared folder" under the
+fixture section) also leaves the shared folder the lane's KSP wrote, copied to
+
+```
+results/<runId>_race/                 the folder verbatim (gitignored)
+results/<runId>_race.listing.txt      one line per file: sha256, bytes, path
+```
+
+The copy is taken in the MAIN thread as soon as the seam returns (KSP has quit),
+before the post-quit verify worker starts and before the next lane stages,
+because staging the next race lane wipes `<instance>/rs/` and a pipelined lane's
+verifiers run after that. A later evaluator (T-38 and on) reads
+`results/<runId>_race/`, never the instance. The listing's first line is
+`# parsek race shared-folder listing v1`, the second `# run=<runId> files=N
+bytes=M`, then `<sha256> <bytes> <path>` sorted by forward-slash path
+(`hlib.format_race_listing`). The result JSON carries `raceSnapshot: {ran, path,
+listing, files, bytes, reason}` with reason `copied`, `no-shared-folder` (the
+folder was gone at KSP exit), `copy-failed <Exception>` or `not-attempted`; a
+spec without the block has no `raceSnapshot` key at all. Like the save snapshot
+the copy lands in `<runId>_race.harness-tmp` and is renamed, a failure is one
+`[Warn][Snapshot]` line and never moves the verdict, and retention keeps the
+newest 3 `*_race` dirs per scenario and sweeps orphaned `_race.harness-tmp` dirs
+(skipped under a parallel-runner slot, like the other results sweeps). The
+listing goes to the results archive; the payload does not.
+
+### The raceParse row (the gated leak scan)
+
+Every spec with a `[fixture.race]` block gets the `raceParse` verifier row
+(multiplayer T-38); no other spec gets a row, a flag or a log line. It reads
+only the run's snapshots: the shared folder from `results/<runId>_race/` and the
+run save plus each `snapshotSaves` save from the post-quit copy (the live
+instance on the serial path), so a next lane that has already wiped the shared
+folder and re-staged the saves changes nothing. For each save it takes the
+save's own player from the race mark in its `persistent.sfs` (one `SCENARIO`
+node named `ParsekRaceScenario` with one `playerId`; no mark means the save is
+in no race and every player of the folder is a rival), collects the ids of
+every OTHER player of the folder (`raceparse.collect_rival_ids`) and runs the
+leak scan over the save, skipping `Parsek/Race/` and the harness-written
+`analysis/` folder. So two saves of one lane each see the other's player as a
+rival. The row lands under `verifiers.raceParse` with `status` (PASS / FAIL /
+VACUOUS / ERROR / SKIPPED), `gating`, `leaked`, `unevaluable`, the folder's file
+count and problems, unrecognised folder names, and one entry per save (own
+player, ids scanned, files scanned and skipped, the first 20 findings with file
+and line, errors). SKIPPED on a killed attempt (torn save) and on a driver-INVALID
+one.
+
+Arming: `[expectations.race] gating = true` (the only key; `[expectations.race]`
+needs `[fixture.race]`, and a race lane that leaves it unarmed validates with a
+warning). Unarmed, the row reports and never moves the verdict. Armed, a rival
+id in any save reds `PARSEK-FAIL(race-isolation)`, checked first among the
+verifier reds (ahead of the analyzer: a leaked rival file is the cause the
+analyzer, expectation and ledger rows would each see a symptom of), and a scan
+that proves nothing (a snapshot or save it cannot read whole, a save whose own
+player it cannot tell, a save with no rival id to look for) is the terminal
+`INVALID(race-parse)`, checked last, so it only ever replaces a PASS (a missing
+`snapshotSaves` save keeps its own `snapshot-save-missing` red). Unlike the
+other armed rows no reading run is owed: a rival id in the own save is never
+legitimate, so a race lane arms the scan from its first flight. The armed set
+is pinned by `RACEPARSE_ARMED_SPECS` in `lib/test_hlib.py`
+(`test_no_committed_spec_arms_the_leak_scan_unlisted`): a spec names itself
+there in the commit that arms it. `tools/mutation_check.py --race-only` (the
+`race-leak` mutator) proves an armed lane's scan still bites over its archived
+runs.
+
 ## The machine lock (one PC owner at a time)
 
 The machine has ONE owner at a time: a serial `run.py`, a
@@ -1676,7 +1799,10 @@ python run.py --slot stock-minimal-2 --ids <lane> --tests-prebuilt --no-coverage
 are pre-boot refusals about the MACHINE, never the scenario: `port-busy`,
 `runner-token`, `slot-locked`, `slot-profile-mismatch`. None is retried and all
 four are flake-exempt (`hlib.FLAKE_EXEMPT_INVALID_SUBKINDS`), like
-`instance-locked`.
+`instance-locked`. Listed apart from them, `partner-lost`
+(`hlib.PAIR_INVALID_SUBKINDS`) is a paired lane's partner ending or timing out at a
+barrier (or a paired lane flown alone): terminal, never retried, flake-exempt
+("Paired lanes" under "Parallel runs").
 
 **Every launch, serial or slot.** KSP gets `-logFile <instance>/Player.log
 -screen-fullscreen 0 -screen-width W -screen-height H` (W/H read back from the
@@ -1906,6 +2032,7 @@ agent can drive it:
 ```
 cd harness && python tools/parallel_runner.py run --name nightly-1 --tier nightly --slots 2
 cd harness && python tools/parallel_runner.py run --name fix-1 --ids-file lanes.txt --ids A,B
+cd harness && python tools/parallel_runner.py run --name race-1 --tag race --slots 2
 cd harness && printf 'A\nB\n' | python tools/parallel_runner.py run --name x --ids-file -
 cd harness && python tools/parallel_runner.py status --name nightly-1
 cd harness && python tools/parallel_runner.py set-slots --name nightly-1 3   # 2 while you work, 3 when away
@@ -1914,9 +2041,15 @@ cd harness && python tools/parallel_runner.py resume --name nightly-1
 ```
 
 - **Selection.** `--ids-file F` (repeatable; `-` reads stdin; one id per line,
-  `#` comments and blank lines ignored), `--ids a,b,c` and `--tier T`
-  (repeatable) add up; a lane selected twice flies once. Any unknown id or tier
-  refuses the whole run up front, naming every one. A lane on an unstaged
+  `#` comments and blank lines ignored), `--ids a,b,c`, `--tier T` and `--tag G`
+  (both repeatable) add up; a lane selected twice flies once.
+  `--tag` matches exactly as `run.py --tag` does (`hlib.select_scenarios`: the
+  value is one entry of the spec's `tags`). Any unknown id or tier, and any tag no
+  spec carries, refuses the whole run up front, naming every one. The race lanes
+  of the multiplayer work (id prefix `RACE`, `SITES`, `RCA`, `RCB` or `RCI`, the
+  part before the first `-`) all carry the tag `race` and no other spec does
+  (`hlib.race_tag_problem`, held by `test_hlib.RaceTagConventionTests`), so
+  `--tag race` flies exactly those lanes. A lane on an unstaged
   operator-local fixture is not flown and is named. `--dry-run` prints the plan,
   the slots found and the window choice, and writes nothing.
 - **Order and slots.** Longest p50 first (`coverage/duration.json`, else the
@@ -1996,6 +2129,216 @@ cd harness && python tools/parallel_runner.py resume --name nightly-1
   refused selection or a provisioning problem; 3 for a held lock or a stop; 4
   when the runner itself broke. Decisions: `lib/parallel.py`; tests:
   `lib/test_parallel.py`.
+
+#### Paired lanes (`[pair]`, multiplayer T-54)
+
+Two lanes that must fly at the same time on two KSP copies, sharing one folder
+(the multiplayer race lanes: one copy publishes, the other reads). Each half
+names its group and role:
+
+```
+[fixture.race]
+sharedFolder = "pair"        # optional: ${raceShared} is the pair's one folder
+
+[pair]
+group = "PAIR-1"             # letters, digits, dash, underscore; at most 32
+role = "A"                   # "A" or "B"; a group has exactly one of each
+
+[driver]
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK" },
+  { harness = "barrier", args = { name = "placed", timeout = 240 } },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[retry]
+policy = "none"
+```
+
+Run a pair with the parallel runner on at least two copies of its profile
+(`provision.py --profile stock-minimal --copy 2` first):
+
+```
+cd harness && python tools/parallel_runner.py run --name pair-1 --ids PAIR-1a-shared-folder-handshake --slots 2
+```
+
+- **Selection.** Selecting either half adds the other (one `added <id>: the
+  partner of a selected paired lane` line). A half with no partner, two halves of
+  one role, halves on different profiles or tiers, different barrier names or
+  order, one half on the pair folder and the other not, an exclusive half, or two
+  group ids that differ only in case (one folder on Windows) refuses the whole
+  selection (exit 2). A profile with fewer than two provisioned
+  copies refuses the run (exit 2, naming `provision.py --copy 2`).
+- **Dispatch.** A pair is one unit in the order (ranked by its longer half, A
+  then B) and starts whole or not at all: both halves need a free slot of the
+  profile at once, inside `slots`, and the memory guard charges both copies (with
+  nothing running, the first half is the free first lane, as for any lane, and
+  the second is charged: the runner reads memory before a pair starts from idle
+  too). While the pair waits for slots, or for memory while a lane runs, no later
+  lane starts, so single lanes cannot starve it. A pair held by memory with
+  NOTHING running does not hold the dispatch (nothing would free the memory):
+  later lanes start in order, and when nothing else can start the run ends red
+  with the pair pending and a line naming the pair and the memory arithmetic
+  (`... nothing runs to free memory and memory guard (pair G, two copies): ...`;
+  free memory, then `resume`). That idle judgement is made only on a reading
+  taken with nothing running and at least `IDLE_SETTLE_SECONDS` (10 s) after the
+  last lane ended: the runner drops its cached reading at every start and every
+  finish (a reading taken while the lane ran still counts its copy), and a game
+  that just exited may not have handed its memory back yet. Until such a
+  reading exists the pair keeps the dispatch (`waits for a settled idle memory
+  reading`), so no later lane starts ahead of it at the idle moment; the wait is
+  bounded, because the runner reads afresh once the settle has passed and that
+  reading decides. A fresh reading that fits starts the pair at once, settle or
+  not. A reading taken before the last start never admits another start. With `slots` 1 the pair never starts and the run
+  ends red with `lanes left unflown`: `set-slots 2`, then `resume`.
+- **Folders.** At dispatch, under the machine lock, the runner wipes and
+  recreates the shared folder `<umbrella>/automation/rs/<run>/<group>/` and the
+  barrier folder `results/parallel/<run>/pairs/<group>/`, and passes them to both
+  children as `run.py --pair-shared <dir> --pair-dir <dir>` (with `--slot`
+  only). A child checks both are exactly those paths, with no link on the way,
+  and never wipes the shared folder (its partner may already be writing). With
+  `sharedFolder = "pair"`, `${raceShared}`, the `raceFolder` step and the
+  `results/<runId>_race/` snapshot all use the shared folder.
+- **The barrier step** `{ harness = "barrier", args = { name, timeout } }` (a
+  harness step: run.py executes it between seam steps, nothing goes to the
+  command channel). The child writes `<name>.<role>.arrived` in the barrier
+  folder and waits for its partner's arrival file. When its drive ends (or it
+  skips a barrier after an unmet step) it writes `<role>.ended`; the runner
+  writes the same file when a child exits, as a backstop. A partner's arrival
+  wins over its ended file, but not over `<name>.<role>.gaveup`, which a half
+  writes when it gives a barrier up (timeout or partner ended): its arrival file
+  stays behind, and a late partner reads that barrier lost, never met.
+  `timeout` is 1..3600 s and under `runtime.budgetSeconds`; names are unique per
+  spec, ignoring case (they are file names on Windows); every paired spec has at
+  least one barrier and `[retry] policy = "none"` (a retry would fly one half
+  alone). The result JSON's `driver.harnessSteps` row reads `met`, `reason` and
+  `waited`.
+- **Partner lost.** A partner that ended or timed out before the barrier gives
+  the survivor `INVALID(partner-lost)`: terminal, flake-exempt, never retried
+  (`hlib.PAIR_INVALID_SUBKINDS`, listed apart from the machine refusals). When a
+  half ends green but its partner left no verdict (`NO-REPORT`, `NOT-RUN`, or no
+  line), the runner rewrites the green half to `INVALID` attempts=1 with the note
+  `partner-lost: partner <id> left ...`, so no pair reads PASS with one half
+  unflown. A paired lane flown outside the runner (serial `run.py`) is refused
+  pre-boot `INVALID(partner-lost)`.
+- **Resume** treats the pair as one unit: both halves fly again when either is
+  unsettled, unless one already ended red (a finding is never re-flown away).
+  At each dispatch the runner writes a `NOT-RUN ... note=pair-dispatched:_no_verdict_yet`
+  line for BOTH halves to `summary.txt` before either child starts, so a half's
+  latest line is never a verdict from an earlier flight of the pair: a runner
+  that dies between the two reports leaves the other half pending (the run reads
+  red, lanes left unflown) and the next `resume` flies the pair again. A
+  pair-dispatched line is pending but neither a verdict nor red: the totals and
+  `status` count it as pending only (a flying half shows as running, not done),
+  and a pair whose halves honour a stop before flying reads STOPPED (exit 3) with
+  both halves pending, as an unpaired stopped lane does.
+- **Serial runs.** `run.py --dry-run` prints a `[PAIR   ]` line for a paired
+  lane; flown by `run.py` itself (no `--pair-dir`) it is refused pre-boot.
+- **Status.** `status` shows `pair=<group>/<role>` on a running half; the plan
+  line reads `PAIR <group> role <role> (both halves start together)`. Decisions:
+  `lib/parallel.py` (`complete_pairs`, `_pair_decision`, `pair_guard`) and
+  `lib/hlib.py` "Paired lanes"; tests: `lib/test_pairs.py`.
+
+### Campaign chains (`tools/campaign_runner.py`)
+
+Flies a declared LADDER of committed lanes in order, each lane staging the
+previous lane's produced save instead of its own committed fixture: the
+scripted career (CS-0 to CS-7) replayed end to end, or any range of it. It is
+the parallel runner with a different queue: the machine lock, slot and DLL
+checks, the one Parsek.Tests build, the Unity prefs, the `run.py --slot`
+children, the dispatcher (`parallel.decide_next`), stop / resume and the
+end-of-run bookkeeping are the parallel runner's own (above), so all of that
+reads the same here; the lock payload's selection names `campaign-runner run=<name>`.
+
+```
+cd harness && python tools/campaign_runner.py run --ladder cs-career --name cs-1 --from CS-3 --to CS-4b --slots 1
+cd harness && python tools/campaign_runner.py run --ladder cs-career --name cs-all --dry-run
+cd harness && python tools/campaign_runner.py status --name cs-1
+cd harness && python tools/campaign_runner.py stop --name cs-1
+cd harness && python tools/campaign_runner.py resume --name cs-1
+cd harness && python tools/campaign_runner.py promote --name cs-1 --stage CS-4
+```
+
+- **The ladder** `harness/campaigns/<name>.toml` (`schema = 1`, `name`, an
+  optional `[harvest]` default, one or more `[[chain]]` of `[[chain.stage]]`).
+  A stage is a spec `id` (each spec flies once per ladder), an optional
+  `label` (`--from` / `--to` take either), and the `handover` of the edge into
+  it: `chain` (the default) stages the previous stage's save; `fixture` stages
+  the stage's committed fixture and needs a `reason` naming why the edge cannot
+  be replayed yet. A chain's first stage always stages its committed fixture.
+  `carryCraft = [...]` names builder-made craft a chained stage launches that
+  its committed fixture holds and the previous save does not; they are copied
+  from `fixtures/saves/<leaf>/Ships/VAB` into the chained save. A library craft
+  (`fixtures/shared-ships.toml`) needs nothing: the save is staged under the
+  spec's own template leaf, so the overlay keyed by that leaf applies as for any
+  run. `after = [...]` names stages of OTHER chains that must be green first.
+  `harvest = { keepParsek, allowNoVessel, expectMode, expectSituation }` are
+  `tools/harvest_bdock_station.py`'s gates. The runner refuses (exit 2), naming
+  every problem: an unknown key or spec, a template outside `fixtures/saves/`,
+  a fixture edge with no reason, an `after` cycle, and any craft a stage
+  launches that its staged save would not carry (`campaign.craft_reach_problems`,
+  which `test_campaign.CommittedLadderTests` also holds for every committed
+  ladder). `--from` / `--to` pick a range of ONE chain; its first stage stages
+  its committed fixture.
+- **The handover.** When a stage ends PASS or EXPECTED-FAIL its produced save
+  is taken from the run's own snapshot (`results/<runId>_save`, copied out of
+  the instance under the lock, run.py's default for every lane) and harvested
+  at once with `harvest_bdock_station.harvest` into
+  `results/campaign/<name>/<chain>/<NN>-<id>/out/<next stage's leaf>/`. The
+  instance save is never read: a sibling run sharing the template re-stages it
+  within seconds. The next chained stage gets a fresh copy in its own `in/`
+  folder plus a `handover.json` carrying the runner's token, and its child runs
+  `run.py --slot <s> --stage-from <stage>/in`. run.py accepts `--stage-from`
+  only from such a child: slot mode, one lane, a folder named `in` under
+  `results/campaign/`, a handover marker naming that lane and the runner token
+  of `PARSEK_HARNESS_RUNNER_TOKEN`, and a `persistent.sfs` in it
+  (`campaign.stage_from_refusal`); anything else exits 2 before any lane flies,
+  and the flag without `--slot` is a usage error. `stage_fixture` then copies
+  that folder in place of the template, under the spec's own leaf.
+- **A broken chain.** A stage that is not green, a green stage whose run left
+  no snapshot, or a harvest gate that refuses breaks its chain there: later
+  stages never fly, so none stages a stale save. `campaign.txt` (rewritten after
+  every stage) names the stage, its verdict, run ids and any handover reason,
+  and lists the stages not flown, e.g. `chain career BROKEN at
+  CS-4-career-orbit-return: PARSEK-FAIL attempts=2 runIds=a,b; not flown: ...`.
+  A second chain keeps flying.
+- **Resume.** `resume --name N` flies from the first stage of each chain that
+  is not green (the stage that broke, then the rest), staging the last green
+  stage's harvested save again; green stages are never re-flown. It uses the
+  ladder table frozen in `campaign.json` at `run`, so a later ladder edit does
+  not change a run halfway.
+- **Two chains** run side by side on two slots of their profile (`--slots 2`):
+  among ready stages the earlier chain in ladder order goes first, and `after`
+  holds a cross-chain dependency. `--dry-run` prints each stage's source and
+  the p50 schedule and writes nothing.
+- **Promotion.** `promote --name N --stage S` re-harvests a green stage's save
+  over its successor's committed fixture (`fixtures/saves/<leaf>`), keeping any
+  committed craft the save lacks; only into a successor whose edge is a
+  `chain` handover. Commit it and re-run the harness suites.
+- **Run folder** `results/campaign/<name>/`: `campaign.json` (the plan and the
+  ladder table), `campaign.txt` (the verdict), `control.json`, `events.jsonl`
+  (adds `settle` per stage), `runner.log`, `lanes/`, `summary.txt`, and per
+  stage `<chain>/<NN>-<id>/` with `stage.json` (verdict, attempts, run ids,
+  handover result, source, harvested leaf), `handover.json`, `in/` and `out/`.
+  Uncommitted, under `results/`.
+- **Exit code** 0 every selected stage green; 1 a chain broke, or stages were
+  left unflown without a stop; 2 a refused ladder, range or name, a profile
+  with no slot, slots on different DLLs; 3 a held lock, or a stop that left
+  stages unflown; 4 the runner broke.
+- **The committed ladder** `campaigns/cs-career.toml`. CS-3 and CS-3b are
+  `fixture` edges: a genuine New Game offers random contract GUIDs, which CS-3
+  accepts by the committed `cs-career-new` GUIDs, and CS-3b accepts a PartTest
+  offered during CS-3's committed flight and hires an applicant seeded by hand
+  (T-58's accept-by-type selector removes both). From CS-3b on every edge
+  chains. Past CS-6 a chained replay can red on count windows read off the
+  committed hosts (todo CS-LADDER-CHAIN-PINS).
+
+Decisions: `lib/campaign.py`; tests: `lib/test_campaign.py`, whose shell smoke
+drives the real runner, the real harvest and run.py's own `--stage-from` check
+and `stage_fixture` over a fake child (`lib/_fake_campaign_child.py`): the
+handover, a middle stage that fails, a resume, a green stage without a
+snapshot, every snapshot and instance save overwritten mid-chain, and two
+chains on two slots.
 
 ### Reviewing a run
 
@@ -2126,7 +2469,10 @@ lifts out the `[Lane]`-bracketed flights, finds the Cost block, and puts back th
 flights whose run ids that block wrote, so the slice still holds the whole
 scenario and nothing of its neighbours. The DLL sha256 a pipelined run archives is
 the one hashed when that lane's KSP exited.
-Screenshots, saves and contact sheets are NOT archived. `manifest.json` records the worktree, its git
+A race lane (`[fixture.race]`) also archives `<runId>_race.listing.txt`
+(names, sizes and sha256 of the shared folder, not its payload); the entry is
+optional, so a lane without one lists nothing as missing.
+Screenshots, saves, race folders and contact sheets are NOT archived. `manifest.json` records the worktree, its git
 HEAD, the deployed Parsek.dll sha256 and every file's archived and source size.
 Missing optional files are listed there, not fatal. The copy runs after the
 scenario's `[Cost]` line (so the archived harness log holds its retry and cost
@@ -2402,7 +2748,8 @@ machine. It launches nothing and never fails anything; survivors are listed for
 triage. Pure cores `lib/mutlib.py` (log, count, exception, anomaly and facet-level
 save mutations), `lib/mutsave.py` (save-level edits, phase 2), `lib/mutledger.py`
 (ledger-oracle edits, phase 2), `lib/mutmission.py` (mission-chain edits, phase 2) and
-`lib/mutforbid.py` (forbidden-token injection, phase 2), thin shell
+`lib/mutforbid.py` (forbidden-token injection, phase 2), plus the `race-leak`
+mutator in `lib/mutsave.py` (multiplayer T-38), thin shell
 `tools/mutation_check.py`, tests `lib/test_mutlib.py`, `lib/test_mutsave.py`,
 `lib/test_mutledger.py`, `lib/test_mutmission.py` and `lib/test_mutforbid.py`.
 
@@ -2415,7 +2762,18 @@ python tools/mutation_check.py --save-only        # save-level edits only, no KS
 python tools/mutation_check.py --ledger-only      # ledger-oracle edits only
 python tools/mutation_check.py --mission-only     # mission-chain edits only
 python tools/mutation_check.py --forbidden-only   # forbidden-token injection only
+python tools/mutation_check.py --race-only        # the race-leak mutator only (raceParse)
 ```
+
+`--race-only` serves every spec that arms the raceParse leak scan from the newest
+results archive whose row reads PASS over its `<runId>_race/` snapshot and its
+produced saves (`<runId>_save/` plus each `snapshotSaves` copy the run record
+names; collect-logs folders carry no race snapshot). Per save it appends the first
+rival id to a sidecar under `Parsek/Recordings/` (a fresh `mutcheck.prec.txt` when
+there is none) and asks the real evaluator and `hlib.classify_verdict` for
+PARSEK-FAIL(race-isolation); a save with its persistent.sfs removed must read
+INVALID(race-parse). Gates `race-leak:<save>` and `race-leak:no-persistent-sfs`:
+PROVEN, VACUOUS (the edit stayed green), UNCHECKED (no rival id to plant).
 
 Archives: every `<umbrella>/*/harness/results` (`<runId>.json` +
 `<runId>_shots/KSP.log` + `<runId>_save/`) and every `<umbrella>/logs/<stamp>_<specId>/`
@@ -2610,7 +2968,7 @@ it just no longer has to be there in git. Committing a physical copy per save co
 and made every copy an independent drift risk: `build_dd1_craft.py` had grown a
 three-path gate purely to chase its own copies.
 
-Two rules when adding or harvesting a fixture:
+Three rules when adding or harvesting a fixture:
 
 - **Needs a shared craft?** Add the save's row to `shared-ships.toml`. Do NOT copy
   the `.craft` into the fixture - `SharedShipsManifestTests` (in `lib/test_hlib.py`)
@@ -2619,6 +2977,144 @@ Two rules when adding or harvesting a fixture:
 - **Craft used by exactly one fixture?** It stays physically in that fixture and is
   NOT listed (`gloops-airshow/Ships/VAB/Auto-Saved Ship.craft` is the only one
   today). The same test reds a library craft that drops to one consumer.
+- **Adds or changes a `.prec`?** The xUnit `TrajectoryCodecFixtureIdentityTests` pins every
+  committed trajectory sidecar under `fixtures/` (and `Source/Parsek.Tests/Fixtures/`) in
+  `Source/Parsek.Tests/Fixtures/TrajectoryCodecIdentity/manifest.tsv` and reds on a new,
+  removed or changed one. Regenerate the manifest in the same commit:
+  `PARSEK_WRITE_CODEC_MANIFEST=1 scripts/cloud-test.sh -method
+  "Parsek.Tests.TrajectoryCodecFixtureIdentityTests.RegenerateManifest"` (Windows: the same
+  variable with `dotnet test --filter`); the row diff names exactly the harvested files.
+
+### The race shared folder (`[fixture.race]`)
+
+A multiplayer race lane exchanges files with its rival through one shared
+folder. The spec declares it, and the staged folder is the only one a race verb
+may name:
+
+```toml
+[fixture.race]
+sharedFolder = "empty"                  # or "fixtures/race/<name>", or "pair"
+```
+
+`"pair"` is for a paired lane only (see "Paired lanes" under "Parallel runs"):
+`${raceShared}` is then the pair's one folder `<umbrella>/automation/rs/<run>/<group>/`,
+which the parallel runner wiped at dispatch; staging only checks it is that exact
+path with no link on the way (`run._pair_shared_root`) and never wipes it, and
+the rest of this section's staging rules do not apply.
+
+- `"empty"` stages an empty folder; `"fixtures/race/<name>"` copies the committed
+  folder `harness/fixtures/race/<name>/` in (a bare name of letters, digits, `-`
+  and `_`; no `..`, no backslash, no absolute path, no nesting). An unknown name
+  is refused by the validator (`hlib.validate_race_fixture`, called from
+  `validate_spec` with the committed set `run.list_race_fixtures()`).
+- The placeholder `${raceShared}` is substituted as a WHOLE seam-step arg value
+  with the absolute path of `<instance>/rs/0` (`hlib.race_shared_dir`). It is
+  short on purpose (Windows path length), inside the target instance (the
+  ownership boundary above), and per instance, so every install slot has its own
+  and two parallel lanes never share one. The folder arg of a race verb
+  (`hlib.RACE_FOLDER_ARG_BY_VERB`: `RaceSetup folder=`, `RaceCommand path=`)
+  accepts only `${raceShared}`; the token needs the block, and a mission param
+  may not carry it (only seam step args are substituted).
+- `stage_fixture` (step 2d, after the save template) wipes the whole
+  `<instance>/rs/` and stages `rs/0` for EVERY race lane, so no lane reads an
+  earlier lane's folder. It validates and locates the fixture before it wipes,
+  refuses a target outside the instance or inside `harness/fixtures/`, refuses
+  to delete through a link or junction, uses extended-length paths on Windows,
+  and logs one `[Stage] race shared folder staged path=... from=... files=N
+  bytes=M wiped-prior=...` line. A spec without the block never touches `rs/`.
+- What KSP left in the folder is snapshotted at KSP exit: see "The race
+  shared-folder snapshot" under the produced-save snapshot section.
+
+#### Harvesting a race fixture (`--race-folder`, multiplayer T-59)
+
+A flown race lane's folder becomes a committed race fixture through the same
+harvest tool as its save, with one flag pair:
+
+```bash
+python tools/harvest_bdock_station.py --save-dir results/<runId>_save \
+    --target-name <save-fixture> --keep-parsek \
+    --race-folder results/<runId>_race --race-name <name>
+```
+
+- The folder is copied to `fixtures/race/<name>/`, the folder a spec stages with
+  `sharedFolder = "fixtures/race/<name>"`. A flown player folder is design 15.10's
+  recorded opponent.
+- Refused even with `--force`, before anything is written: a `--race-folder`
+  that is not a `*_race` folder strictly inside `harness/results/` (resolved
+  through every symlink; a `..` component is refused however it resolves, so is
+  an absolute path elsewhere), a link anywhere inside the folder, a folder that
+  cannot be listed whole (`raceparse.walk_folder`), and a `--race-name` that
+  `hlib.is_race_fixture_path` would not accept. The two flags go together.
+- Refused unless `--force`: a folder that differs from its
+  `results/<runId>_race.listing.txt` (a file gone, added or changed since the
+  run), a missing listing, and a break of the shared-folder grammar (design 4.1,
+  read with `raceparse.collect_rival_ids`): a file that is neither `race.cfg` nor
+  under `players/<id>/`, a payload name with no content hash, a player with no
+  `player.cfg`, no player at all. Safe-write leftovers (`.tmp`, `.bak.<guid>`)
+  are skipped and logged. The copy is file by file and checked byte for byte.
+- Not checked yet: the standing chain (chain intact, latest complete seq, gaps,
+  payload completeness). That is T-21's structure facets; the harvest logs
+  `race folder chain: unchecked (...)` from `race_chain_facets`, where they plug
+  in.
+- The save half prunes the rival cache `Parsek/Race/rivals/` from EVERY
+  `--keep-parsek` harvest, with or without the flag (see "What a fixture must NOT
+  carry"); the rest of `Parsek/Race/` (`local.cfg`, `race.cfg`, `own/`) is kept,
+  with `local.cfg`'s `sharedFolderPath` reset to `${raceShared}` (the flying PC's
+  path never reaches the repository).
+- Committing a race fixture adds `.prec` payload under `harness/fixtures/`, which
+  `TrajectoryCodecFixtureIdentityTests` pins: regenerate its manifest in the same
+  commit (`PARSEK_WRITE_CODEC_MANIFEST=1` on its `RegenerateManifest` fact).
+
+#### The harness-side folder step (`harness = "raceFolder"`)
+
+A race lane changes the shared folder between two seam steps the way a rival's
+sync client or a tampering player would, with a driver step that run.py runs
+itself and never writes to the command channel (multiplayer T-06):
+
+```toml
+{ harness = "raceFolder", args = { op = "replace", from = "fixtures/race/holder-gen2" } }
+{ harness = "raceFolder", args = { op = "replace", from = "fixtures/race/holder-gen2", path = "players/p2" } }
+{ harness = "raceFolder", args = { op = "edit", path = "players/p1/standing.cfg" } }
+{ harness = "raceFolder", args = { op = "delete", path = "players/p1/payload" } }
+```
+
+- `replace` without `path` makes the whole folder a copy of the committed
+  fixture; with `path` it makes that entry (file or folder) a copy of the
+  fixture's entry at the same relative path. `edit` appends
+  `hlib.RACE_FOLDER_EDIT_BYTES` (a ConfigNode comment line) to an existing
+  file, so its bytes change while it still parses. `delete` removes an existing
+  file or folder.
+- `path` is relative to `${raceShared}`: forward slashes, plain segments, no
+  empty, `.` or `..` segment, nothing absolute, no colon or backslash, no
+  Windows device name (`hlib.race_folder_path_problem`). The args are literal
+  (a `${...}` token is refused). The step takes only `harness` and `args`, needs
+  the `[fixture.race]` block, and must sit after the boot and before a later
+  seam step (never after `FlushAndQuit`); validate_spec refuses anything else
+  before a boot.
+- At run time `run.apply_race_folder_step` re-checks the args, then refuses a
+  shared folder that is not the plain `<instance>/rs/0`, and a target or
+  fixture entry whose path passes through a link or junction or holds one. A
+  refused or failed step is the harness's fault: the drive stops with the
+  cleanup tail only and the attempt reads `INVALID(harness-step)`, terminal,
+  never PARSEK-FAIL.
+- A harness step runs only while every step driven before it is met (the
+  mission and every seam step; `hlib.harness_step_skip_reason`). After an unmet
+  step that did not stop the drive (a post-mission ERROR on a MISSION-OK run,
+  which reds `PARSEK-FAIL(mission-outcome)` or `PARSEK-FAIL(unmet-step)`) it is
+  skipped and the drive goes on, so that step keeps its own verdict: a harness
+  step premised on its work (a delete of a file it should have written) cannot
+  turn the Parsek fault into `INVALID(harness-step)`, and skipping it cannot
+  turn the red run green.
+- Each step logs one `[Drive] harness step=<i> id=<id> raceFolder op=... from=...
+  path=... result=done files=N bytes=M` line (or `... REFUSED: <why> ->
+  INVALID(harness-step)`, or `... SKIPPED (skipped: the earlier step <id> ...)`),
+  and the result JSON carries `driver.harnessSteps` (id, op, from, path, met,
+  reason, files, bytes, and `skipped: true` on a skipped step) outside
+  `driver.steps`.
+- The second harness step kind is `barrier` (`{ harness = "barrier", args = {
+  name, timeout } }`), the rendezvous of a paired lane; it needs a `[pair]`
+  block, and a lost partner reads `INVALID(partner-lost)`, not
+  `INVALID(harness-step)`. See "Paired lanes" under "Parallel runs".
 
 ### Operator-local fixture saves (`fixtures/local-saves/`)
 
@@ -2960,15 +3456,17 @@ rebuilt from survives.
 ### What a fixture must NOT carry
 
 Harvesting a produced save brings along everything KSP and Parsek wrote beside
-the state a scenario needs. Three populations are exhaust, all pruned by
-`harvest_bdock_station.py` and gated in `lib/test_hlib.py` /
-`lib/test_saveparse.py`:
+the state a scenario needs. Five populations are exhaust, all pruned by
+`harvest_bdock_station.py` and gated in `lib/test_hlib.py`,
+`lib/test_saveparse.py` and `lib/test_harvest.py`:
 
 | Not committed | Why | Gate |
 | --- | --- | --- |
 | `*_vessel.craft.txt`, `*_ghost.craft.txt` | derived; the mod rebuilds them from the committed binaries | `CommittedFixtureMirrorTests` |
 | `Parsek/Saves/parsek_rw_*.sfs` + their `rewindSave =` hints | Rewind-to-LAUNCH quicksaves are RUN exhaust, not fixture payload: the `InvokeRewindToLaunch` seam verb (added 2026-08-27 with GS-4) reaches the one the run's OWN recording captured, never a committed one - a fixture-committed `parsek_rw_*` would be a stale world snapshot nothing can validate, and the one analyzer rule that looks (`Inv9RewindPoint`) only checks existence and parseability, never content | `CommittedFixtureRewindSaveTests` |
 | `quicksave.sfs` / `quicksave.loadmeta` | near-copy of the fixture's own `persistent.sfs`; every in-game quickload uses a NAMED slot | `test_no_fixture_commits_a_quicksave` |
+| `Parsek/Race/rivals/` (a race save's rival cache) | a cache rebuilt at the next sync and never part of the save (design 4.4); its `.prec.txt` mirrors would be read as own recordings by the `OptimizerTransferCohesionTests` glob over `fixtures/saves/`. Pruned at exactly that path; the rest of `Parsek/Race/` stays | `test_harvest.CommittedFixtureRivalCacheTests`, `RaceRivalCachePruneTests` |
+| the shared-folder path in `Parsek/Race/local.cfg` (`sharedFolderPath`, design 6.1) | the absolute path of the folder on the PC that flew the lane, so the operator's install path in a public repository. Every `--keep-parsek` harvest resets the value to `${raceShared}` (the same treatment as the `envInfo` launch arguments; the rest of the file stays byte for byte), and refuses, before writing, a local.cfg where another value still looks like an absolute path (drive letter, leading slash or backslash, `~`) | `test_harvest.CommittedFixtureRaceLocalTests`, `RaceLocalFolderPathTests` |
 
 Two look like exhaust and are **payload** - do not confuse them:
 

@@ -26,7 +26,7 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
-            GhostMapPresence.FindBodyByNameForTesting = name =>
+            GhostMapVessels.FindBodyByNameForTesting = name =>
                 string.Equals(name, "Kerbin", StringComparison.Ordinal) ? kerbin : null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;

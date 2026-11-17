@@ -15,7 +15,7 @@ namespace Parsek.Tests
     /// the recording SidecarLoadFailed and dropped it.
     ///
     /// The gate now runs a full-payload validation pass: trajectory via a
-    /// scratch read into a throwaway Recording, snapshots via TryLoad which
+    /// scratch decode into a throwaway payload, snapshots via TryLoad which
     /// runs CRC32 over the decompressed payload (SnapshotSidecarCodec line
     /// 180). Failure surfaces as <c>trajectory-payload-invalid</c> /
     /// <c>snapshot-{label}-payload-invalid</c>, forcing the caller in
@@ -246,7 +246,7 @@ namespace Parsek.Tests
             Assert.True(probe.Supported);
 
             // Contract: TryValidatePayload must NOT throw, even when the
-            // inner Read raises a non-EOS/Format/Argument/IO exception.
+            // inner Decode raises a non-EOS/Format/Argument/IO exception.
             // It must return false with a structured reason so the save
             // gate falls through to the rewrite/skip path in
             // EnsureRecordingFilesCurrentForSave.

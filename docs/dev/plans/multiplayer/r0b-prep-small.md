@@ -124,7 +124,8 @@ All read on 2026-11-14 at commit abf7de3.
 ### 3.2 P11: the window count and the two constructors
 
 - `windows=11` appears 100 times in 25 specs, all GUI census lanes (GUI-1 to GUI-27 except
-  16 and 23), each inside a `logContracts.required` regex of the form
+  16 and 23): 90 inside a `logContracts.required` regex of the form below and 10 in header
+  comments of GUI-1, GUI-12, GUI-20, GUI-21 and GUI-22 (re-counted 2026-11-16):
   `uiaction describe scene=X complexity=Y windows=11 open=N openWindows=...`.
 - The number is `TestCommandUiAction.Windows.Count`, a static table:
   `Source/Parsek/TestCommands/ParsekTestCommandAddon.UiAction.cs:974-1015` builds one row
@@ -132,12 +133,12 @@ All read on 2026-11-14 at commit abf7de3.
   save. `hlib.UIACTION_WINDOW_VALUES` (`harness/lib/hlib.py:3154-3165`, 11 names) is held
   byte-equal and in order to the C# table by
   `GuiCensusSeamVerbTests.test_the_window_and_op_vocabularies_mirror_the_c_sharp_tables`
-  (`harness/lib/test_hlib.py:19689-19718`).
+  (`harness/lib/test_hlib.py`; anchors in this section were re-taken by name on 2026-11-16,
+  when T-03, T-04, P10-01 and P3-01 had moved the line numbers).
 - One cell already derives the count:
   `test_the_census_specs_pinned_describe_echoes_match_their_own_steps`
-  (`test_hlib.py:21351-21432`) simulates GUI-1 and GUI-2 and compares
-  `len(hlib.UIACTION_WINDOW_VALUES)` to the pinned literal (regex `windows=(\d+)` at
-  `:21378-21379`).
+  (`GuiCensusSeamVerbTests`) simulates GUI-1 and GUI-2 and compares
+  `len(hlib.UIACTION_WINDOW_VALUES)` to the pinned literal (regex `windows=(\d+)`).
 - Required patterns are plain `re.search` over KSP.log (`hlib.py:9988-9993`; also
   `run.py:3334`). Spec files are read raw by many loaders (`run.py:823`,
   `tools/tier_runner.py:1118`, `tools/mutation_check.py:90`, `test_hlib.py:56-61`), so a
@@ -345,17 +346,18 @@ which places it in Controllers with no `modules.toml` edit. No task depends on P
   table length; it is already pinned equal to `hlib.UIACTION_WINDOW_VALUES` by
   `GuiCensusSeamVerbTests`, which is where "derived" lives.
 - **Change.**
-  - The 25 specs: every `windows=11` inside a `uiaction describe` pattern becomes
-    `windows=\\d+`. Mechanical: one regex substitution limited to that line shape; grep
+  - The 25 specs: every `windows=11` inside a `uiaction describe` pattern (90 lines) becomes
+    `windows=\\d+`, and the 10 header comments that quote the count are reworded to say
+    the patterns regex it. Mechanical: one regex substitution limited to that line shape; grep
     after it for any remaining `windows=[0-9]`.
   - `harness/lib/test_hlib.py` `test_the_census_specs_pinned_describe_echoes_match_their_own_steps`
-    (`:21351`): parse the window token as the literal `\d+` and compare (scene, mode, open,
+    (in `GuiCensusSeamVerbTests`): parse the window token as the literal `\d+` and compare (scene, mode, open,
     openWindows) only; a digit literal in the token reds with "pins the window count; write
     `windows=\\d+`".
   - New cell beside it, over every spec in `harness/scenarios/`: any `required` or
     `forbidden` pattern containing `uiaction describe` carries `windows=\d+` and no digit
     window count. A second assertion: `len(hlib.UIACTION_WINDOW_VALUES)` equals the row
-    count of the C# table (reuse the parse in `GuiCensusSeamVerbTests:19641-19670`), so the
+    count of the C# table (reuse `GuiCensusSeamVerbTests._parse_cs_window_table`), so the
     derivation is stated where the specs no longer state it.
   - `docs/dev/design-autotest-command-seam.md:2390`: the specs do not pin the count; it is the
     table's length, held equal to hlib by `GuiCensusSeamVerbTests`.
@@ -647,17 +649,19 @@ LAUNCH-SITE-PARTIAL-READ-CACHED).
   - New `Source/Parsek/LogIO/NewSaveStarter.cs`, module `LogIO` (floor; the folder places it,
     `modules.toml` is not edited). Its callers are the `NewGame` applier
     (`TestCommands`, tooling), R1-10 / R1-11's `ParsekRaceSetup` (Controllers, entry; the
-    setup composes there, not in `RaceWorld`, DC-102) and R1-16's `LoadAndStart`, which
-    joins this file. The floor is downward from every one of them, and it leaves
+    setup composes there, not in `RaceWorld`, DC-102) and R1-16's load-and-start steps,
+    which join this file. The floor is downward from every one of them, and it leaves
     `ResolveSaveDirectory` open to `RaceWorld` (features) without a backward pair (OV-23's
     alternative to R1-08's own computation). `internal static class NewSaveStarter`, tag
     `NewSave`, three steps so the verb keeps its log order and a caller can run its own
     step between create and start:
-    - `DeleteResult DeleteSaveFolderLikeStockOverwrite(string saveDir, Func<string, bool>
-      preserveTopLevelEntry)`: the bodies of `DeleteSaveLikeStockOverwrite` and
-      `DeleteTreeLikeStock` (`NewGame.cs:308-348`) moved verbatim; returns files, dirs,
-      preserved. Pure file I/O, no KSP type, so xUnit can drive it on a temp folder.
-      Exceptions propagate (the verb maps them to `newgame-delete-failed` as today).
+    - `void DeleteSaveFolderLikeStockOverwrite(string saveDir, Func<string, bool>
+      preserveTopLevelEntry, DeleteResult counts)`: the bodies of `DeleteSaveLikeStockOverwrite`
+      and `DeleteTreeLikeStock` (`NewGame.cs:308-348`) moved verbatim; `counts` (files, dirs,
+      preserved) is caller-allocated, not returned, because the verb's `newgame delete failed`
+      line prints the counts reached before a throw (as built, 2026-11-16). Pure file I/O, no
+      KSP type, so xUnit can drive it on a temp folder. Exceptions propagate (the verb maps
+      them to `newgame-delete-failed` as today).
     - `Game CreateGame(string saveFolder, Game.Modes mode, GameParameters parameters, string
       flagUrl)`: `HighLogic.CurrentGame = GamePersistence.CreateNewGame(saveFolder, mode,
       parameters, flagUrl, GameScenes.SPACECENTER, EditorFacility.None)`; when non-null,
@@ -680,9 +684,11 @@ LAUNCH-SITE-PARTIAL-READ-CACHED).
     `Path.Combine` at `:255-256`) and calls the three steps in the same order with the same
     log lines between them (`newgame create ...` after the delete, `newgame created
     title=...` after create, then start); the two delete helpers are removed from the
-    applier. So every `NewSaveStarter` member is reached from the applier in this pull
+    applier, and `scripts/parsek-file-deletes-allowlist.txt` moves their pin of 4 to
+    `NewSaveStarter.cs` (section 7, grep-audit gates). The verb starts
+    `HighLogic.CurrentGame`, the game `CreateGame` stored there, as stock does. So every `NewSaveStarter` member is reached from the applier in this pull
     request (TestCommands tooling code is live for the uncalled-method ratchet, A1); R1-16's
-    `LoadAndStart` lands in R1-16 with the verb that calls it. `GetDefaultParameters`, the
+    load-and-start steps land in R1-16 with the verb that calls them. `GetDefaultParameters`, the
     flag lookup, `ToStockMode` / `ToStockPreset` and every pure decision stay in
     `TestCommands`.
   - Source gate (new xUnit `NewSaveStarterWiringTests`): over comment-stripped
@@ -691,7 +697,7 @@ LAUNCH-SITE-PARTIAL-READ-CACHED).
     order before `.Start()`.
   - `harness/lib/test_hlib.py`
     `NewGameSourceSyncTests.test_the_applier_runs_stocks_own_new_game_path`
-    (`:18860-18874`): read `SaveGame` / `LoadScene(GameScenes.MAINMENU)` /
+    (`:18884-18897` on 2026-11-16): read `SaveGame` / `LoadScene(GameScenes.MAINMENU)` /
     `GetDefaultParameters` from the applier, and `GamePersistence.CreateNewGame(` /
     `GameEvents.onGameNewStart.Fire();` / `game.Start();` with their order from
     `Source/Parsek/LogIO/NewSaveStarter.cs`; and require the applier to call the three steps in

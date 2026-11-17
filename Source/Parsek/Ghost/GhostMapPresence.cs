@@ -187,54 +187,39 @@ namespace Parsek
         internal const double StateVectorRemoveSpeed = 30;        // m/s
         private const double LegacyPointCoverageMaxGapSeconds = 30.0;
         internal static Func<double> CurrentUTNow = GetCurrentUTSafe;
-        internal static Func<string, CelestialBody> FindBodyByNameForTesting;
 
         /// <summary>
-        /// PID tracking set — the canonical ghost vessel identification.
-        /// Every guard in the codebase checks this for O(1) exclusion.
+        /// PID tracking set: the canonical ghost vessel identification. The set itself lives
+        /// in <see cref="GhostMapVessels.Pids"/>; this is the same instance.
         /// </summary>
-        internal static readonly HashSet<uint> ghostMapVesselPids = new HashSet<uint>();
-
-        /// <summary>
-        /// How many Parsek ghost ProtoVessel <c>Die()</c> calls are on the stack right now.
-        /// Nested because <see cref="RemoveAllGhostVessels"/> wraps a whole loop while the
-        /// single-ghost removers wrap one call each.
-        ///
-        /// WHY IT EXISTS: <c>Vessel.Die()</c> fires stock <c>onVesselDestroy</c> SYNCHRONOUSLY,
-        /// and <c>SpaceTracking</c> handles that event by rebuilding its vessel list. When that
-        /// rebuild throws, <see cref="Parsek.Patches.GhostTrackingBuildVesselsListPatch"/> has to
-        /// decide whether the failure is attributable to our ghosts — and its live
-        /// <c>FlightGlobals.Vessels</c> scan can itself throw during teardown, leaving the
-        /// classifier with zeroed counts and no evidence. This flag is the scan-INDEPENDENT
-        /// attribution signal: it is set only while OUR teardown is running.
-        /// </summary>
-        private static int ghostTeardownDepth;
+        internal static HashSet<uint> ghostMapVesselPids => GhostMapVessels.Pids;
 
         /// <summary>Enter a Parsek ghost-teardown scope. Pair with <see cref="EndGhostTeardown"/>
-        /// in a <c>finally</c> — never let an exception leave the depth raised.</summary>
+        /// in a <c>finally</c>; never let an exception leave the depth raised.
+        /// Forwards to <see cref="GhostMapVessels.BeginTeardown"/>.</summary>
         internal static void BeginGhostTeardown()
         {
-            ghostTeardownDepth++;
+            GhostMapVessels.BeginTeardown();
         }
 
-        /// <summary>Leave a Parsek ghost-teardown scope. Floors at zero so an unbalanced
-        /// decrement can never latch the flag inverted for the rest of the session.</summary>
+        /// <summary>Leave a Parsek ghost-teardown scope (floors at zero).
+        /// Forwards to <see cref="GhostMapVessels.EndTeardown"/>.</summary>
         internal static void EndGhostTeardown()
         {
-            if (ghostTeardownDepth > 0)
-                ghostTeardownDepth--;
+            GhostMapVessels.EndTeardown();
         }
 
-        /// <summary>True while a Parsek ghost ProtoVessel <c>Die()</c> is on the stack.</summary>
+        /// <summary>True while a Parsek ghost ProtoVessel <c>Die()</c> is on the stack.
+        /// Forwards to <see cref="GhostMapVessels.IsTeardownInProgress"/>.</summary>
         internal static bool IsGhostTeardownInProgress
         {
-            get { return ghostTeardownDepth > 0; }
+            get { return GhostMapVessels.IsTeardownInProgress; }
         }
 
         /// <summary>
         /// How many <see cref="RemoveAllGhostVessels"/> Die loops are on the stack. Narrower
-        /// than <see cref="ghostTeardownDepth"/>: the single-ghost removers raise that one
-        /// while the OTHER ghosts stay alive and may still need an orbit-renderer repair,
+        /// than the teardown depth behind <see cref="IsGhostTeardownInProgress"/>: the single-ghost
+        /// removers raise that one while the OTHER ghosts stay alive and may still need an orbit-renderer repair,
         /// whereas inside a remove-all every tracked ghost is about to be destroyed.
         /// SCOPE: this guards only SYNCHRONOUS re-entry while the loop runs. Stock
         /// <c>Vessel.Die()</c> fires <c>onVesselWillDestroy</c> and then <c>Object.Destroy</c>,
@@ -254,7 +239,7 @@ namespace Parsek
         /// buildVesselsList finalizer as evidence that survives a failed context scan.</summary>
         internal static int RegisteredGhostMapVesselCount
         {
-            get { return ghostMapVesselPids.Count; }
+            get { return GhostMapVessels.RegisteredCount; }
         }
 
         /// <summary>
@@ -732,13 +717,13 @@ namespace Parsek
         /// </summary>
         internal static bool IsGhostMapVessel(uint persistentId)
         {
-            return ghostMapVesselPids.Contains(persistentId);
+            return GhostMapVessels.IsGhostMapVessel(persistentId);
         }
 
         /// <summary>Test seam: marks a pid as a ghost map vessel (cleared by ResetForTesting).</summary>
         internal static void RegisterGhostMapVesselPidForTesting(uint persistentId)
         {
-            ghostMapVesselPids.Add(persistentId);
+            GhostMapVessels.Register(persistentId, GhostMapVesselOwner.OwnTimeline);
         }
 
         /// <summary>
@@ -1245,11 +1230,9 @@ namespace Parsek
             CurrentUTNow = GetCurrentUTSafe;
             ghostNamesAppliedVersion = int.MinValue;
             TrackingStationSpawnOverrideForTesting = null;
-            FindBodyByNameForTesting = null;
             OrbitSeedResolver.ResetForTesting();
-            ghostTeardownDepth = 0;
+            GhostMapVessels.ResetForTesting();
             removeAllGhostVesselsDepth = 0;
-            ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
@@ -1480,7 +1463,7 @@ namespace Parsek
                 }
 
                 for (int i = 0; i < toKill.Count; i++)
-                    ghostMapVesselPids.Remove(toKill[i].persistentId);
+                    GhostMapVessels.Unregister(toKill[i].persistentId);
             }
 
             if (plan.RunTrackedRemoval)

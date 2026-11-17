@@ -8,9 +8,11 @@ process lister. Nothing here runs KSP, a network fetch, or touches a real PC.
     python -m unittest discover -s harness/provision
 """
 
+import errno
 import hashlib
 import json
 import os
+import subprocess
 import tempfile
 import tomllib
 import unittest
@@ -353,6 +355,29 @@ def _umbrella_with_dev(um):
     return dev
 
 
+ERROR_PRIVILEGE_NOT_HELD = 1314  # WinError for os.symlink without SeCreateSymbolicLinkPrivilege
+
+
+def _is_windows():
+    return os.name == "nt"
+
+
+def _symlink_privilege_refused(exc):
+    """True only for Windows refusing a symlink to an unprivileged user."""
+    if not _is_windows():
+        return False
+    return (isinstance(exc, NotImplementedError)
+            or getattr(exc, "winerror", None) == ERROR_PRIVILEGE_NOT_HELD)
+
+
+class _PrivilegeNotHeld(OSError):
+    """A fake WinError 1314 on any OS (a POSIX OSError carries no winerror)."""
+    winerror = ERROR_PRIVILEGE_NOT_HELD
+
+    def __init__(self):
+        super().__init__(errno.EPERM, "A required privilege is not held by the client")
+
+
 def _write_slot_lock(um, slot, pid):
     path = slots.slot_lock_path(um, slot)
     with open(path, "w") as fh:
@@ -515,15 +540,76 @@ class RemoveCopyTests(unittest.TestCase):
             self.assertEqual(code, 0, ctx.abort_reason)
             self.assertFalse(os.path.lexists(inst))
 
+    def _symlink_dir(self, target, link):
+        # Only Windows refusing an unprivileged user skips; any other failure is a
+        # fixture fault and must error on every OS.
+        try:
+            os.symlink(target, link, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            if not _symlink_privilege_refused(exc):
+                raise
+            self.skipTest("cannot create a symlink here (no symlink privilege): %s" % exc)
+
+    def _elsewhere(self, um):
+        elsewhere = os.path.join(um, "elsewhere")
+        os.makedirs(elsewhere)
+        with open(os.path.join(elsewhere, "precious.txt"), "w") as fh:
+            fh.write("x")
+        return elsewhere
+
     def test_instance_dir_that_is_a_link_is_refused(self):
         with tempfile.TemporaryDirectory() as um:
             dev = _umbrella_with_dev(um)
-            elsewhere = os.path.join(um, "elsewhere")
-            os.makedirs(elsewhere)
-            with open(os.path.join(elsewhere, "precious.txt"), "w") as fh:
-                fh.write("x")
-            os.symlink(elsewhere, slots.instance_dir(um, "stock-minimal-2"), target_is_directory=True)
+            elsewhere = self._elsewhere(um)
+            self._symlink_dir(elsewhere, slots.instance_dir(um, "stock-minimal-2"))
             ctx, code = self._remove(um)
+            self.assertEqual(code, 2)
+            self.assertIn("instance-is-a-link", ctx.abort_reason)
+            self.assertTrue(os.path.isfile(os.path.join(elsewhere, "precious.txt")))
+            self.assertTrue(self._dev_intact(dev))
+
+    def test_a_refused_symlink_skips_instead_of_erroring(self):
+        # The unprivileged Windows path, provable on any OS: the host reads as
+        # Windows and os.symlink raises ERROR_PRIVILEGE_NOT_HELD.
+        with tempfile.TemporaryDirectory() as um, \
+                mock.patch(__name__ + "._is_windows", return_value=True), \
+                mock.patch.object(os, "symlink", side_effect=_PrivilegeNotHeld()):
+            with self.assertRaises(unittest.SkipTest) as caught:
+                self._symlink_dir(um, os.path.join(um, "link"))
+            self.assertIn("no symlink privilege", str(caught.exception))
+            self.assertFalse(os.path.lexists(os.path.join(um, "link")))
+
+    def test_any_other_symlink_failure_errors_on_every_host(self):
+        for windows in (False, True):
+            with self.subTest(windows=windows), tempfile.TemporaryDirectory() as um, \
+                    mock.patch(__name__ + "._is_windows", return_value=windows), \
+                    mock.patch.object(os, "symlink",
+                                      side_effect=FileExistsError(errno.EEXIST, "exists")):
+                with self.assertRaises(FileExistsError):
+                    self._symlink_dir(um, os.path.join(um, "link"))
+        # The privilege code itself skips only on Windows.
+        with tempfile.TemporaryDirectory() as um, \
+                mock.patch(__name__ + "._is_windows", return_value=False), \
+                mock.patch.object(os, "symlink", side_effect=_PrivilegeNotHeld()):
+            with self.assertRaises(_PrivilegeNotHeld):
+                self._symlink_dir(um, os.path.join(um, "link"))
+
+    @unittest.skipUnless(os.name == "nt", "a junction is a Windows folder link")
+    def test_instance_dir_that_is_a_junction_is_refused(self):
+        # The Windows twin of the symlink cell: a junction needs no privilege, and
+        # _is_link_entry reads its reparse tag from lstat, which does not follow it.
+        with tempfile.TemporaryDirectory() as um:
+            dev = _umbrella_with_dev(um)
+            elsewhere = self._elsewhere(um)
+            link = slots.instance_dir(um, "stock-minimal-2")
+            subprocess.run(["cmd", "/c", "mklink", "/J", link, elsewhere], check=True,
+                           capture_output=True)
+            try:
+                ctx, code = self._remove(um)
+            finally:
+                # rmdir drops the junction itself, before the temp dir's rmtree.
+                if os.path.lexists(link):
+                    os.rmdir(link)
             self.assertEqual(code, 2)
             self.assertIn("instance-is-a-link", ctx.abort_reason)
             self.assertTrue(os.path.isfile(os.path.join(elsewhere, "precious.txt")))

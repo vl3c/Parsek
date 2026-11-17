@@ -489,7 +489,7 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             ParsekLog.ResetRateLimitsForTesting();
-            GhostMapPresence.FindBodyByNameForTesting = name =>
+            GhostMapVessels.FindBodyByNameForTesting = name =>
                 string.Equals(name, "Mun", StringComparison.Ordinal) ? mun
                 : string.Equals(name, "Kerbin", StringComparison.Ordinal) ? kerbin
                 : null;
