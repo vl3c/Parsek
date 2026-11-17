@@ -1,7 +1,9 @@
 """
 collect-logs.py - Gather KSP/Parsek logs, save snapshots (with every Parsek
 sidecar directory: Recordings, Saves, GameState, RewindPoints), and test
-results for debugging.
+results for debugging. A race save's Parsek/Race/ folder holds other players'
+files: it is never copied, only listed (path, size, modified time) in
+race-listing.txt.
 
 Usage:  python scripts/collect-logs.py [label] [--save NAME] [--skip-validation]
                                       [--skip-recordings]
@@ -21,13 +23,16 @@ import re
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKIP_SAVES = {"scenarios", "training"}
 ACTIVE_SAVE_RE = re.compile(r"Game State Saved to saves/([^/]+)/")
+# The race save's local directory under Parsek/ (RaceDirectoryKeep.DirectoryName in C#).
+RACE_DIR_NAME = "Race"
+RACE_LISTING_NAME = "race-listing.txt"
 
 
 def find_ksp_dir(explicit=None):
@@ -176,13 +181,15 @@ def copy_render_manifest_if_current(ksp_dir, save_name, out_dir):
 def parsek_sidecar_dirs_to_copy(parsek_dir, skip_recordings):
     """Names of the save's Parsek/<dir> subdirectories to copy, sorted.
 
-    Every subdirectory rides along except Recordings when the caller asked to skip
-    it. Pure over the directory listing so the selection is testable.
+    Every subdirectory rides along except Race (other players' files; listed by
+    write_race_listing instead) and Recordings when the caller asked to skip it.
+    Pure over the directory listing so the selection is testable.
     """
     parsek_dir = Path(parsek_dir)
     if not parsek_dir.is_dir():
         return []
-    names = sorted(p.name for p in parsek_dir.iterdir() if p.is_dir())
+    names = sorted(p.name for p in parsek_dir.iterdir()
+                   if p.is_dir() and p.name.lower() != RACE_DIR_NAME.lower())
     if skip_recordings:
         names = [n for n in names if n != "Recordings"]
     return names
@@ -200,6 +207,39 @@ def copy_parsek_sidecar_dirs(parsek_dir, dst_root, skip_recordings):
     for name in names:
         if not copy_tree(parsek_dir / name, dst_root / name):
             print(f"  {name}/  (empty)")
+
+
+def race_listing_lines(race_dir):
+    """One line per file under race_dir: relative path, size in bytes, modified
+    time (UTC), tab-separated, sorted by path. Reads metadata only, never contents."""
+    race_dir = Path(race_dir)
+    rows = []
+    for root, _dirs, files in os.walk(race_dir):
+        for name in files:
+            path = Path(root) / name
+            try:
+                st = path.stat()
+            except OSError as exc:
+                rows.append((path.relative_to(race_dir).as_posix(), f"unreadable: {exc}", ""))
+                continue
+            mtime = datetime.fromtimestamp(st.st_mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            rows.append((path.relative_to(race_dir).as_posix(), str(st.st_size), mtime))
+    rows.sort()
+    return ["\t".join(r) for r in rows]
+
+
+def write_race_listing(parsek_dir, out_dir):
+    """Write race-listing.txt for Parsek/Race/ into out_dir. A save with no race
+    folder (every single-player save) writes nothing and prints nothing."""
+    race_dir = Path(parsek_dir) / RACE_DIR_NAME
+    if not race_dir.is_dir():
+        return False
+    lines = race_listing_lines(race_dir)
+    header = ["# Parsek/Race/ of the collected save: path, size (bytes), modified (UTC).",
+              "# The files themselves are not copied."]
+    (Path(out_dir) / RACE_LISTING_NAME).write_text("\n".join(header + lines) + "\n", encoding="utf-8")
+    print(f"  Parsek/Race/  (not copied: {len(lines)} files listed in {RACE_LISTING_NAME})")
+    return True
 
 
 def copy_tree(src, dst):
@@ -471,6 +511,7 @@ def main():
     # run over THIS copy, and a save missing Parsek/Saves or Parsek/RewindPoints
     # reads as INV9 rewind-save loss that the live save does not have.
     copy_parsek_sidecar_dirs(save_dir / "Parsek", save_out / "Parsek", args.skip_recordings)
+    write_race_listing(save_dir / "Parsek", out_dir)
     print()
 
     # Parsek data (flat, for readers that do not want the save-relative layout)

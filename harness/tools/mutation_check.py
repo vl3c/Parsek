@@ -25,6 +25,7 @@ them under the umbrella root):
     python tools/mutation_check.py --ledger-only         # ledger-oracle edits only (phase 2)
     python tools/mutation_check.py --mission-only        # mission-chain edits only (phase 2)
     python tools/mutation_check.py --forbidden-only      # forbidden-token injection only (phase 2)
+    python tools/mutation_check.py --race-only           # the race-leak mutator only (multiplayer T-38)
 
 ``--save-only`` runs only the save-structure checks (``lib/mutsave.py``): for every
 spec with an ARMED save-parse block, the newest archived produced save whose armed
@@ -48,6 +49,15 @@ for every spec with a forbidden list, the newest archived KSP.log no forbidden p
 already matches (results or collect-logs; the other gates need not replay green).
 Both it and a full run read ``Source/Parsek/**/*.cs`` once for the emitter triage list.
 
+``--race-only`` runs only the ``race-leak`` mutator (``mutsave.mutate_race_leak``): for
+every spec that arms the raceParse leak scan (``[expectations.race] gating = true``), the
+newest results archive whose row reads PASS over its ``<runId>_race/`` snapshot and its
+produced saves (``<runId>_save/`` plus each ``snapshotSaves`` copy the run record names).
+It appends a rival id to a sidecar of each save and asks the real evaluator and
+``hlib.classify_verdict`` for PARSEK-FAIL(race-isolation); a save without its
+persistent.sfs must read INVALID(race-parse). Collect-logs folders carry no race snapshot,
+so they never serve.
+
 Writes ``results/mutation-check/<stamp>.md`` (gitignored) unless ``--out``.
 """
 
@@ -69,6 +79,7 @@ if LIB_DIR not in sys.path:
 
 import mutledger  # noqa: E402
 import mutlib  # noqa: E402
+import raceparse  # noqa: E402
 import saveparse  # noqa: E402
 
 MISSIONS_DIR = os.path.join(HARNESS_ROOT, "missions")
@@ -431,6 +442,57 @@ def fixture_save_text(spec: Dict) -> Optional[str]:
         return fh.read()
 
 
+def read_race_inputs(ref: mutlib.ArchiveRef):
+    """``(race folder listing, [raceparse.RaceSaveInput])`` for a results archive of a
+    race run, or None when it carries no race snapshot or a declared save copy is
+    missing (an incomplete archive never serves)."""
+    if ref.source != "results" or not ref.record_path or not ref.save_dir:
+        return None
+    results_dir = os.path.dirname(ref.record_path)
+    record = _read_json(ref.record_path) or {}
+    race = (record.get("raceSnapshot") or {}).get("path")
+    if not race:
+        return None
+    try:
+        listing = raceparse.list_folder(os.path.join(results_dir, race))
+    except raceparse.FolderReadError as exc:
+        raise OSError(str(exc))
+    saves = []
+    dirs = [ref.save_dir]
+    for rec in record.get("snapshotSaves") or []:
+        if not (rec or {}).get("ran") or not rec.get("path"):
+            return None
+        dirs.append(os.path.join(results_dir, rec["path"]))
+    for save_dir in dirs:
+        files, problems = raceparse.read_save_tree(save_dir)
+        saves.append(raceparse.RaceSaveInput(os.path.basename(save_dir), files, problems))
+    return listing, saves
+
+
+def run_race_only(specs: Dict[str, Dict], wanted: List[str], refs: List[mutlib.ArchiveRef],
+                  max_tries: int):
+    lanes: List[mutlib.LaneReport] = []
+    no_archive: List[str] = []
+    for sid in wanted:
+        spec = specs[sid]
+        if not raceparse.race_gating_armed(spec.get("expectations", {}) or {}):
+            continue
+        cands = [r for r in mutlib.order_candidates(refs, sid)
+                 if r.source == "results" and r.save_dir][:max(1, max_tries)]
+
+        def check(label, ref, spec=spec):
+            inputs = read_race_inputs(ref)
+            return None if inputs is None else mutlib.check_race_lane(spec, label, *inputs)
+
+        lane = _first_green(sid, [("%s:%s" % (r.source, r.run_id), r) for r in cands], check)
+        if lane is None:
+            no_archive.append(sid)
+            continue
+        lanes.append(lane)
+        print(mutlib.summary_line(lane), flush=True)
+    return lanes, no_archive
+
+
 def run_save_only(specs: Dict[str, Dict], wanted: List[str], refs: List[mutlib.ArchiveRef],
                   max_tries: int, use_fixtures: bool):
     lanes: List[mutlib.LaneReport] = []
@@ -489,6 +551,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="only the mission-chain edits over archived run record + mission result")
     ap.add_argument("--forbidden-only", action="store_true",
                     help="only the forbidden-token injection over archived KSP.logs")
+    ap.add_argument("--race-only", action="store_true",
+                    help="only the race-leak edits over archived race runs (raceParse)")
     args = ap.parse_args(argv)
 
     specs = load_specs()
@@ -500,7 +564,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         wanted = list(args.spec)
     else:
         wanted = [sid for sid, sp in specs.items()
-                  if mutlib.spec_gating_surfaces(sp) and not mutlib.is_expected_fail_lane(sp)]
+                  if (mutlib.spec_gating_surfaces(sp)
+                      or (args.race_only
+                          and raceparse.race_gating_armed(sp.get("expectations", {}) or {})))
+                  and not mutlib.is_expected_fail_lane(sp)]
 
     roots = args.archive or default_archive_roots(args.umbrella_root)
     refs = discover(roots)
@@ -523,6 +590,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         return finish(args, roots, started, lanes, no_archive)
     if args.forbidden_only:
         lanes, no_archive = run_forbidden_only(specs, wanted, refs, args.max_tries)
+        return finish(args, roots, started, lanes, no_archive)
+    if args.race_only:
+        lanes, no_archive = run_race_only(specs, wanted, refs, args.max_tries)
         return finish(args, roots, started, lanes, no_archive)
     lanes: List[mutlib.LaneReport] = []
     no_archive: List[str] = []

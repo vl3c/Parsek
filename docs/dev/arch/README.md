@@ -493,7 +493,7 @@ Release build of one compiler agree on those; two compilers do not quite
 methods at complexity 20 or more), which the complexity watch band absorbs.
 
 - `crossTypeStaticWrites`: the statics written by another production type
-  may not outnumber `bound` (55). A red names the new keys and their writers.
+  may not outnumber `bound` (54). A red names the new keys and their writers.
   A write is an `stsfld`, a call to a static auto-property setter, or a call
   to a static property setter of a type that keeps its save-scoped fields in
   a nested `ColdResetState` holder when that setter reads the holder static;
@@ -504,14 +504,14 @@ methods at complexity 20 or more), which the complexity watch band absorbs.
   call is not a write.
 - `complexityWatch` (the complexity gate): every method (by `Type::Name`, so
   overloads and a parameter change do not move it) at complexity 45 or more
-  is pinned (51), the gate 50 minus a watch band of 5
+  is pinned (52), the gate 50 minus a watch band of 5
   (`COMPLEXITY_WATCH_BAND`). A method that is not pinned reds when it
   reaches 50, so a compiler that counts a pinned method a decision or two
   higher cannot red the check, while a method growing from below 45 to 50
   still does. A pinned method may grow past 50 without a red. Leaving the
   band needs no re-pin; a rename or a move into another type does.
 - `uncalledInAssembly`: the methods the roots do not reach in Parsek.dll,
-  test hooks by name left out, may not outnumber `bound` (491). It reads
+  test hooks by name left out, may not outnumber `bound` (374). It reads
   Parsek.dll alone, so a production method only a test calls counts too:
   that is code the game never runs (B7). Deleting dead code cannot raise it.
 
@@ -1492,10 +1492,11 @@ and revert machinery to Rewind, sidecar I/O and recorder policy to Recording,
 playback and spawn support to Ghost, scene-level control including the
 `WarpToTime` family to Controllers, dialogs and Unity-instantiated overlays to
 UI, and in-game test support to a new `Harness` module in `[tooling]`. R0
-rules sit above R1 and win on first match. The 8 files that stay in `Core`
+rules sit above R1 and win on first match. The 10 files that stay in `Core`
 are the kernel vocabulary (`BranchPoint`, `IPlaybackTrajectory`,
 `VesselLaunchIdentity`, `VesselSnapshotOps`, `MilestoneStore`,
-`GroupHierarchyStore`, `InventoryManifest`, `PlaybackTrajectoryBoundsResolver`):
+`GroupHierarchyStore`, `InventoryManifest`, `PlaybackTrajectoryBoundsResolver`,
+`SafeFileId`, `HomeSpaceCenter`):
 used across many modules, so no owner has a majority, and that is the intended
 meaning of Core from here on.
 

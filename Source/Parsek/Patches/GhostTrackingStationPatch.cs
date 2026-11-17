@@ -1004,9 +1004,21 @@ namespace Parsek.Patches
             setVesselPopupIntentSource = null;
         }
 
+        /// <summary>
+        /// The site's foreign-lane decision: true for a ghost a foreign lane owns, which
+        /// <see cref="SelectGhost"/> leaves unselected (the current selection is untouched).
+        /// </summary>
+        internal static bool ShouldRefuseForeignLaneGhost(uint pid)
+        {
+            return ForeignLaneGhostRefusal.TryRefuse(pid, ForeignLaneGhostRefusal.SiteTrackingStationSelect);
+        }
+
         internal static void SelectGhost(Vessel vessel, string source, bool showPopup = false)
         {
             if (vessel == null)
+                return;
+
+            if (ShouldRefuseForeignLaneGhost(vessel.persistentId))
                 return;
 
             int recordingIndex = GhostMapPresence.FindRecordingIndexByVesselPid(vessel.persistentId);

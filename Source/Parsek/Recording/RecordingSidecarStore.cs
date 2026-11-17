@@ -1089,7 +1089,7 @@ namespace Parsek
             }
 
             // Header probe accepts a .prec truncated past the header. Run
-            // a full-payload validation read into a throwaway Recording so
+            // a full-payload validation decode into a scratch payload so
             // a corrupt payload trips the save gate, forces the caller to
             // rewrite from the in-memory recording, and avoids certifying
             // a sidecar the next load would mark SidecarLoadFailed.
@@ -1306,44 +1306,33 @@ namespace Parsek
 
             try
             {
-                // Quiet probe: silences the routine "encoding=… version=…" Verbose
+                // Quiet probe: silences the routine "encoding=... version=..." Verbose
                 // line that fires on every successful probe. Warns for unsupported
-                // / pre-reset / text-sidecar conditions still fire — those are
-                // real diagnostics the user needs to see.
-                TrajectorySidecarProbe probe;
-                if (!TryProbeTrajectorySidecar(precPath, out probe, quietOnSuccess: true)
-                    || !probe.Supported)
+                // or foreign sidecars still fire: those are real diagnostics. The
+                // decode itself writes no line (no read summary, no heal line), so
+                // this per-save preflight needs no SuppressLogging scope around it.
+                if (!TryLoadTrajectoryPayloadFromPath(
+                        precPath, quietProbe: true,
+                        out RecordingTrajectoryPayload existing, out TrajectorySidecarProbe probe))
                 {
                     return false;
                 }
 
-                var existing = new Recording
-                {
-                    RecordingId = rec?.RecordingId,
-                    RecordingFormatVersion = rec?.RecordingFormatVersion ?? RecordingStore.CurrentRecordingFormatVersion
-                };
-
-                // Narrow SuppressLogging scope: only the deserialize call, which
-                // emits a Verbose summary line per call and no Warns. The
-                // surrounding diagnostic preflight runs on every save and the
-                // duplicate summary was the second half of the per-save log
-                // spam.
-                bool previousSuppress = RecordingStore.SuppressLogging;
-                try
-                {
-                    RecordingStore.SuppressLogging = true;
-                    DeserializeTrajectorySidecar(precPath, probe, existing);
-                }
-                finally
-                {
-                    RecordingStore.SuppressLogging = previousSuppress;
-                }
+                // The id a cold load of this file into the caller would carry: the
+                // caller's own, or the sidecar's when the caller has none.
+                string recordingId = string.IsNullOrEmpty(rec?.RecordingId)
+                    ? existing.ProbeRecordingId
+                    : rec.RecordingId;
+                TrajectorySidecarBinary.LogDroppedNonMonotonic(
+                    recordingId, existing.Stats.DroppedNonMonotonicPoints);
 
                 summary = new TrajectoryPersistenceSummary
                 {
-                    EffectivePointCount = existing.Points?.Count ?? 0,
-                    TrackSectionCount = existing.TrackSections?.Count ?? 0,
-                    SectionAuthoritative = TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(existing),
+                    EffectivePointCount = existing.Points.Count,
+                    TrackSectionCount = existing.TrackSections.Count,
+                    SectionAuthoritative = TrajectoryTextSidecarCodec.HasTrackSectionPayloadMatchingFlatTrajectory(
+                        existing.TrackSections, existing.Points, existing.OrbitSegments, recordingId,
+                        allowRelativeSections: true),
                     ProbeRecordingId = probe.RecordingId,
                     ProbeSidecarEpoch = probe.SidecarEpoch,
                     ProbeFormatVersion = probe.FormatVersion,
@@ -2087,6 +2076,44 @@ namespace Parsek
 
             throw new InvalidOperationException(
                 $"Unsupported trajectory sidecar encoding {probe.Encoding} at '{path}'.");
+        }
+
+        /// <summary>
+        /// Loads the trajectory sidecar at <paramref name="path"/> into a fresh
+        /// <see cref="RecordingTrajectoryPayload"/>, with no <see cref="Recording"/>: the
+        /// probe the cold load runs, then <see cref="TrajectorySidecarBinary.Decode"/>.
+        /// Returns false, with a null payload, for a missing file, a header that does not
+        /// probe, or an unsupported sidecar (the probe Warns for the last, also when
+        /// <paramref name="quietProbe"/> silences its routine Verbose line). A supported
+        /// probe of another encoding throws, as <see cref="DeserializeTrajectorySidecar"/>
+        /// does, and a payload the decoder cannot read throws the reader's exception.
+        /// Writes no line of its own: the caller owns the recording id, so the caller
+        /// writes the non-monotonic Warn (<see cref="TrajectorySidecarBinary.LogDroppedNonMonotonic"/>)
+        /// from <c>payload.Stats</c>.
+        /// </summary>
+        internal static bool TryLoadTrajectoryPayloadFromPath(
+            string path,
+            bool quietProbe,
+            out RecordingTrajectoryPayload payload,
+            out TrajectorySidecarProbe probe)
+        {
+            payload = null;
+            if (!TryProbeTrajectorySidecar(path, out probe, quietOnSuccess: quietProbe)
+                || !probe.Supported)
+            {
+                return false;
+            }
+
+            if (probe.Encoding != TrajectorySidecarEncoding.BinaryV0)
+            {
+                throw new InvalidOperationException(
+                    $"Unsupported trajectory sidecar encoding {probe.Encoding} at '{path}'.");
+            }
+
+            var decoded = new RecordingTrajectoryPayload();
+            TrajectorySidecarBinary.Decode(path, probe, decoded);
+            payload = decoded;
+            return true;
         }
 
         internal static bool LoadTrajectorySidecarForTesting(string path, Recording rec)

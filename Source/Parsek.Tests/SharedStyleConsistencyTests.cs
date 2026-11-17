@@ -210,16 +210,25 @@ namespace Parsek.Tests
             // Fails if the Mission Log grows its own empty shape again: both instances (the
             // Mission Log and the Route History) draw the table - headers, then the one grey
             // sentence as the body row - then the hover strip and Close at the bottom, with
-            // no early return before the table.
+            // no early return before the table. The body is the window's own; the strip and
+            // Close are drawn after it by the shared table-window chrome.
             string code = Dense(StripComments(ReadSource("UI", "StructureListWindowUI.cs")));
             Assert.DoesNotContain("DrawsTableWhenEmpty", code);
-            string window = MethodBody(code, "privatevoidDrawWindow(intwindowID)");
+            Assert.Contains("chrome.Draw(mainWindowRect,", MethodBody(code, "publicvoidDrawIfOpen(RectmainWindowRect)"));
+            string body = MethodBody(code, "privatevoidDrawWindowBody()");
+            Assert.DoesNotContain("return;", body);
+            Assert.Contains("DrawStepTable();", body);
+            Assert.DoesNotContain("GUILayout.Button(\"Close\")", code);
+            Assert.Contains("tooltipEcho,Close);", code);
+
+            string chrome = Dense(StripComments(ReadSource("UI", "TableWindowChrome.cs")));
+            string window = MethodBody(chrome, "privatevoidDrawWindow(intwindowID)");
             Assert.DoesNotContain("return;", window);
-            int table = window.IndexOf("DrawStepTable();", StringComparison.Ordinal);
+            int table = window.IndexOf("drawBody?.Invoke();", StringComparison.Ordinal);
             int echo = window.IndexOf("tooltipEcho.Draw();", StringComparison.Ordinal);
             int close = window.IndexOf("GUILayout.Button(\"Close\")", StringComparison.Ordinal);
             Assert.True(table >= 0 && echo > table && close > echo,
-                "DrawWindow must draw the table, then the hover strip, then Close");
+                "the table window must draw its body, then the hover strip, then Close");
             Assert.Equal(1, Regex.Matches(window, Regex.Escape("GUILayout.Button(\"Close\")")).Count);
 
             string stepTable = MethodBody(code, "privatevoidDrawStepTable()");
@@ -227,7 +236,7 @@ namespace Parsek.Tests
             Assert.Contains("if(steps.Count==0)DrawEmptyBodyRow();", stepTable);
             string emptyRow = MethodBody(code, "privatevoidDrawEmptyBodyRow()");
             Assert.Contains("GUILayout.Label(EmptyText(mode),emptyBodyCellLabel);", emptyRow);
-            Assert.Contains("normal={textColor=ParsekUI.MutedTextColor}", window);
+            Assert.Contains("normal={textColor=ParsekUI.MutedTextColor}", body);
         }
 
         [Fact]

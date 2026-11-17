@@ -23,6 +23,7 @@ namespace Parsek
             long preCallTicks = spawnStopwatch.ElapsedTicks;
             spawnStopwatch.Start();
             frameSpawnCount++;
+            spawnBudget.Consume();
             if (resetCompletedEventDedup)
                 completedEventFired.Remove(index);
 
@@ -59,7 +60,7 @@ namespace Parsek
                     frameHeaviestSpawnBuildType = buildType;
                 }
                 if (status == GhostVisualLoadStatus.CompletedThisCall)
-                    DiagnosticsState.health.ghostBuildsThisSession++;
+                    diagnostics.CountGhostBuild();
             }
         }
 
@@ -233,13 +234,13 @@ namespace Parsek
                 // there is no duplicate FlightGlobals.Bodies.Find.
                 state.reentryFxInfo = null;
                 state.reentryFxPendingBuild = true;
-                DiagnosticsState.health.reentryFxDeferredThisSession++;
+                diagnostics.CountReentryFxDeferred();
             }
             else
             {
                 state.reentryFxInfo = null;
                 state.reentryFxPendingBuild = false;
-                DiagnosticsState.health.reentryFxSkippedThisSession++;
+                diagnostics.CountReentryFxSkipped();
                 ParsekLog.VerboseRateLimited("ReentryFx", $"skip-{index}",
                     $"Skipped reentry FX build for ghost #{index} \"{traj.VesselName}\" " +
                     $"— trajectory peak speed below {TrajectoryMath.ReentryPotentialSpeedFloor:F0} m/s " +

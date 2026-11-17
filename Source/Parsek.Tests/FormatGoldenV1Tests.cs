@@ -7,7 +7,7 @@ using System.Reflection;
 using System.Text;
 using Parsek.Logistics;
 using Xunit;
-using G = Parsek.Tests.FormatGoldenV1GeneratorTests;
+using G = Parsek.Tests.Generators.SaveWriterDriver;
 
 namespace Parsek.Tests
 {

@@ -109,7 +109,7 @@ namespace Parsek.Tests
             // the in-game Kerbal X playtest.
             var rec = new Recording
             {
-                RecordingId = "invalid id with spaces", // rejected by ValidateRecordingId
+                RecordingId = "invalid id with spaces", // a valid id; the write fails for the missing save context
                 VesselName = "test"
             };
 

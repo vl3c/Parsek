@@ -1052,6 +1052,12 @@ namespace Parsek.Tests
                     action.RecoveredVesselName = "Vessel " + rng.Next(0, 8).ToString(IC);
                     action.RecoveredVesselPid = (uint)rng.Next(1, 1000000);
                     break;
+                // VesselEnded: the ended vessel's name and cause are the row's payload;
+                // its RecordingId (the owner) comes from the skeleton.
+                case GameActionType.VesselEnded:
+                    action.EndedVesselName = "Vessel " + rng.Next(0, 8).ToString(IC);
+                    action.EndCause = rng.Next(0, 2) == 0 ? VesselEndCause.Destroyed : VesselEndCause.Deleted;
+                    break;
                 // ResourceScanUnlocked: the scanned body (and biome, for a surface scan)
                 // is the row's whole payload.
                 case GameActionType.ResourceScanUnlocked:

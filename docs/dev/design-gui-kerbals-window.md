@@ -350,8 +350,8 @@ write dropped the cache. So the window subscribes eight stock events of its own:
 
 All eight funnel into one handler writing ONE Verbose line naming the event
 (`DescribeLiveCrewRefresh`), so the log says which of the eight refreshed the tab. They are
-subscribed and unsubscribed exactly where the ledger hook is - `ParsekUI`'s two constructors
-and `ParsekUI.Cleanup` - so the subscriptions live and die with the owning scene's `ParsekUI`.
+subscribed and unsubscribed exactly where the ledger hook is - `ParsekUI`'s one constructor
+body (both scene constructors chain to it) and `ParsekUI.Cleanup` - so the subscriptions live and die with the owning scene's `ParsekUI`.
 Source-gated: `KerbalsWindowUITests.LiveCrewRefresh_*` read `KerbalsWindowUI.cs` and
 `ParsekUI.cs`, so an event added to the subscribe half without the documented set, or a
 subscribe without its matching remove, reds the suite. Recordings come from `EffectiveState.ComputeERS()` - never

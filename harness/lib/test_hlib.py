@@ -26,6 +26,7 @@ import unittest
 
 import ghostlife
 import hlib
+import raceparse
 import rendercompose
 import saveparse
 
@@ -4303,7 +4304,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # boot, never a guard count.
         "H42-claw-couple":           ("ClawCouple", 2, "FLIGHT"),
         "H43-terrain-clearance":     ("TerrainClearance", 6, "FLIGHT"),
-        "H44-ghost-map-trackstation": ("GhostMap", 25, "TRACKSTATION"),
+        # H44 25 -> 27 on 2026-11-16 (P3-01, the two GhostMapPrimitiveRuntimeTest cells).
+        "H44-ghost-map-trackstation": ("GhostMap", 27, "TRACKSTATION"),
         "H45-stock-ui-overlay":      ("StockUiOverlay", 12, "SPACECENTER"),
         "H46-settings":              ("Settings", 5, "FLIGHT"),
         "H71-resource-topbar-ksc":   ("ResourceTopBar", 2, "SPACECENTER"),
@@ -10803,6 +10805,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE FIRST PAIRED LANES (multiplayer T-54), 2026-11-17.
+        "PAIR-1a-shared-folder-handshake.toml": "tier=operator by MECHANISM, NOT debt: half A of the pair PAIR-1, which needs two stock-minimal install copies started together by the parallel runner (`provision.py --profile stock-minimal --copy 2`), which no scheduled tier assumes. AUTHORED 2026-11-17, NEVER FLOWN; owed: its first paired flight (with PAIR-1b), then the ordinary promotion call",
+        "PAIR-1b-shared-folder-handshake.toml": "tier=operator by MECHANISM, NOT debt: half B of the pair PAIR-1 (see PAIR-1a). AUTHORED 2026-11-17, NEVER FLOWN; owed: its first paired flight (with PAIR-1a), then the ordinary promotion call",
         # THE SCRIPTED CAMPAIGN FIXTURE BUILDERS, 2026-10-25.
         "CS-0-new-science-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: it creates a genuine stock New Game (Science, Normal) through the NewGame seam verb on the stock-tree instance, and its produced save is harvested once as `cs-science-new`, the host of CS-1. Its value is the harvested fixture, not a regression floor. FLOWN PASS `2026-10-25_1743` and harvested; owed: nothing but the ordinary promotion call",
         "CS-1-science-first-hop.toml": "tier=operator by MECHANISM, NOT debt: scripted campaign stage 1 on the harvested `cs-science-new` new game, LIVE-PROVEN 2026-10-26 on the three-Goo cut (`2026-10-25_2243`, 4/4 aboard, science 0 -> 21.5); it stays operator because its instance profile, stock-tree, is not in the nightly instance set",
@@ -10811,6 +10816,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "CT-1-contracts-discard-economy.toml": "tier=operator by the calibration discipline, NOT debt: the first lane to run the in-game `Contracts` category (two DiscardEconomyPreservation cells on L2's career pad host). Written 2026-10-26; owed: the reading run, then the ordinary promotion call",
         "SCI-1-science-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: science re-earned after a Rewind-to-Launch in the stock Science game cs-science-new (CS-1's VAB hop with one pad Goo committed, rewound, a fresh CS Flea's three Goo units re-read unrecorded on the pad, then the LedgerGroundTruth batch); authored 2026-10-25 on career-science-pad, whose first flight was INVALID (ProbesBeforeCrew locked the Flea's parts in the VAB), re-cut 2026-10-26; its reading run red the pre-ruling pins as predicted, and it was RE-PINNED 2026-10-27 to the owner ruling (earliest recovery wins: the re-run paid in full, the committed flight capped, nothing taken back; todo SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT closed by design). LIVE-PROVEN 2026-10-27 (`2026-10-27_1710`) after one premise-pin re-cut; owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CTW-1-contract-goal-twin-withdrawn.toml": "tier=operator by MECHANISM, NOT debt: its host `career-new-goal-twin` derives from `cs-career-new`, which needs the stock-tree instance (not in the nightly instance set). Seam-only: a committed pad launch, the original 'reach space' offer accepted at the Space Center, Rewind-to-Launch, the Offered copy withdrawn by its goal key and its Accept refused (todo CONTRACT-TWIN-GUID-SEEDED-TYPES). AUTHORED 2026-11-06, NEVER FLOWN; owed: its first flight",
+        "RACE-0-stock-sites-baseline.toml": "tier=operator by MECHANISM, NOT debt: a race lane (multiplayer plan test-and-harness section 4: every race lane is operator-tier and flies with `--tag race`), seam-only on `fresh-career`: `ListHandles kind=sites` reads the stock site baseline SITES-2 compares against (T-07). AUTHORED 2026-11-16; LIVE-PROVEN 2026-11-17 (`2026-11-17_0035`, first flight, PASS attempt 1, 46 s) and its measured values re-pinned from that flight's KSP.log; the confirming flight `2026-11-17_0317` red on a one-flight altitude pin, the windows were re-sized from both flights and `2026-11-17_0340` read PASS attempt 1 (52 s; flight_efficiency.py total 45 s)",
         "WR-1-world-record-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: WF-1's twin for the repeatable world-record nodes (todo RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN, owner ruling 2026-10-26 pay once per career, earliest crossing wins) on `cs-career-new`: a committed Jumping Flea hop crosses the altitude and speed thresholds, a Rewind-to-Launch, a relaunch held on the pad past the committed crossings under a live recorder, the same hop again (both hops inside the one mission `record_climb_rewind`), then LedgerGroundTruth. AUTHORED 2026-10-27; LIVE-PROVEN on its second flight `2026-10-27_1723` (the first stalled on a mission bug, fixed); owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CS-3b-career-hire-upgrade.toml": "operator by the calibration discipline, NOT debt: scripted campaign stage 3's KSC half on `cs-career-contracts` (CS-3's produced save plus one seeded applicant): three contract accepts, the career's first hire, the Mission Control upgrade and basicRocketry research, each ledgered, then a same-craft relaunch whose rollout must be ledgered, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-26 (`2026-10-26_0426`); owed: the ordinary promotion call",
         "CS-4b-career-tracking-station.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 4's KSC half on `cs-career-orbit` (CS-4's produced save, stock-tree, not in the nightly instance set): the Tracking Station and the Launch Pad upgraded to level 1, generalRocketry and stability researched, each ledgered, then a same-craft Flea relaunch inside the duplicate-rollout window whose rollout must be ledgered as a new launch, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-27 (`2026-10-27_1957`, after a first flight red on a spec cost error); owed: the ordinary promotion call",
@@ -18210,8 +18216,9 @@ class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
     """`LoadGame playerLoad=true` (design-load-restores-the-save.md 4.1). Reads OUTSIDE
     harness/: the key, the one value and the refusal reason of the comment-stripped
     TestCommands/TestCommandLoadGame.cs; the dispatcher's parse before the recorder term;
-    and the applier's guarded onGameStatePostLoad fire after the load and the failed-route
-    check, before every route's scene request."""
+    and the applier's guarded call of LogIO/NewSaveStarter.cs's FirePlayerLoad (the one
+    onGameStatePostLoad fire, pinned inside FirePlayerLoad's own body) after the load and the failed-route check,
+    before every route's scene request."""
 
     def _source(self, *parts):
         path = os.path.join(PARSEK_SOURCE_DIR, *parts)
@@ -18219,6 +18226,20 @@ class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
                         "the C# LoadGame playerLoad tables moved; this mirror is vacuous: %s" % path)
         with open(path, encoding="utf-8-sig") as fh:
             return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def _brace_body(self, text, signature):
+        """The brace-matched body of the method declared by `signature`, braces included."""
+        self.assertIn(signature, text, "%s moved; this mirror is vacuous" % signature)
+        start = text.index("{", text.index(signature) + len(signature))
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+        self.fail("%s body is unbalanced" % signature)
 
     def test_the_key_value_and_reason_mirror_the_c_sharp(self):
         text = self._source("TestCommands", "TestCommandLoadGame.cs")
@@ -18251,14 +18272,21 @@ class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
         end = applier.index("FlightDriver.StartAndFocusVessel(game, idx);", start) + 1
         end = applier.index("SetExecResult(PendingVerdict, null, null);", end)
         body = applier[start:end]
-        fire = "GameEvents.onGameStatePostLoad.Fire(game.config);"
+        fire = "NewSaveStarter.FirePlayerLoad(game);"
         self.assertEqual(1, body.count(fire), "exactly one fire site in LoadGameImpl")
-        self.assertEqual(1, applier.count("onGameStatePostLoad.Fire("),
+        self.assertEqual(1, applier.count("NewSaveStarter.FirePlayerLoad("),
                          "no other fire site in the applier")
+        self.assertEqual(0, applier.count("onGameStatePostLoad.Fire("),
+                         "the applier fires through NewSaveStarter only")
+        starter = self._source("LogIO", "NewSaveStarter.cs")
+        post_load = "GameEvents.onGameStatePostLoad.Fire(game.config);"
+        fire_body = self._brace_body(starter, "internal static void FirePlayerLoad(Game game)")
+        self.assertEqual(1, fire_body.count(post_load), "the fire sits inside FirePlayerLoad")
+        self.assertEqual(1, starter.count(post_load), "and nowhere else in NewSaveStarter")
         guard = body.rindex("if (playerLoad)", 0, body.index(fire))
         # The fire sits inside the guard's own block (no block close at the guard's depth).
         self.assertNotIn(chr(10) + "            }", body[guard:body.index(fire)])
-        self.assertLess(body.index("GamePersistence.LoadGame(name, save, true, false)"), guard)
+        self.assertLess(body.index("NewSaveStarter.LoadSave(save, name)"), guard)
         self.assertLess(body.index("if (route == LoadRoute.Failed)"), guard)
         self.assertLess(body.index("game.flightState.activeVesselIdx = focusIdx;"), guard)
         for request in ("game.Start();", "FlightDriver.StartAndFocusVessel(game, idx);"):
@@ -18849,9 +18877,10 @@ class MapGeometrySeamVerbSourceSyncTests(unittest.TestCase):
 class NewGameSourceSyncTests(unittest.TestCase):
     """`NewGame`. Reads OUTSIDE harness/: the verb, the three arg keys, the mode and preset
     tokens, the kept save entry and the refusal / error reasons (IN ORDER) of the
-    comment-stripped TestCommands/TestCommandNewGame.cs, the applier's calls into stock's own
-    new-game path, and the C# budget, so the pre-launch validator and a spec's pinned reasons
-    cannot drift from what the seam answers."""
+    comment-stripped TestCommands/TestCommandNewGame.cs, the applier's calls
+    (TestCommands/ParsekTestCommandAddon.NewGame.cs) into stock's own new-game path through
+    LogIO/NewSaveStarter.cs, and the C# budget (TestCommands/TestCommandDispatcher.cs), so the
+    pre-launch validator and a spec's pinned reasons cannot drift from what the seam answers."""
 
     def _source(self, *parts):
         path = os.path.join(PARSEK_SOURCE_DIR, *parts)
@@ -18885,15 +18914,25 @@ class NewGameSourceSyncTests(unittest.TestCase):
         applier = self._source("TestCommands", "ParsekTestCommandAddon.NewGame.cs")
         for call in ('GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);',
                      "HighLogic.LoadScene(GameScenes.MAINMENU);",
-                     "GameParameters.GetDefaultParameters(stockMode, ToStockPreset(p.Preset));",
-                     "HighLogic.CurrentGame = GamePersistence.CreateNewGame(",
-                     "GameEvents.onGameNewStart.Fire();",
-                     "HighLogic.CurrentGame.Start();"):
+                     "GameParameters.GetDefaultParameters(stockMode, ToStockPreset(p.Preset));"):
             self.assertIn(call, applier)
-        # The four new-game calls run in stock's order (MainMenu.CreateAndStartGame).
-        order = [applier.index(c) for c in ("GamePersistence.CreateNewGame(",
-                                            "GameEvents.onGameNewStart.Fire();",
-                                            "HighLogic.CurrentGame.Start();")]
+        # The stock new-game calls live in LogIO/NewSaveStarter.cs, in stock's order
+        # (MainMenu.CreateAndStartGame), and the applier runs its steps in order.
+        starter = self._source("LogIO", "NewSaveStarter.cs")
+        calls = ("HighLogic.CurrentGame = GamePersistence.CreateNewGame(",
+                 "GameEvents.onGameNewStart.Fire();",
+                 "game.Start();")
+        for call in calls:
+            self.assertIn(call, starter)
+        order = [starter.index(c) for c in calls]
+        self.assertEqual(sorted(order), order)
+        steps = ("NewSaveStarter.ResolveSaveDirectory(",
+                 "NewSaveStarter.DeleteSaveFolderLikeStockOverwrite(",
+                 "NewSaveStarter.CreateGame(",
+                 "NewSaveStarter.StartGame(")
+        for step in steps:
+            self.assertIn(step, applier)
+        order = [applier.index(c) for c in steps]
         self.assertEqual(sorted(order), order)
 
     def test_the_budget_mirrors_the_c_sharp(self):
@@ -21371,9 +21410,86 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         names = [w for w in hlib.UIACTION_WINDOW_VALUES if w in open_set]
         return ",".join(names) if names else "-"
 
+    # The describe line's grammar as a census pattern spells it once loaded from TOML.
+    # `windows=` is captured as a raw token so a digit literal can be named rather than
+    # silently matched: the count is the window TABLE's length, which no spec pins.
+    _DESCRIBE_PATTERN_RE = re.compile(
+        r"uiaction describe scene=(\w+) complexity=(\w+) windows=(\S+) open=(\d+) "
+        r"openWindows=(\S+)")
+    # What every census describe pattern writes for the count, as the loaded string.
+    _DESCRIBE_WINDOWS_TOKEN = r"\d+"
+    # The census lanes the step simulation below walks, with the scene each runs in.
+    _SIMULATED_CENSUS_SPECS = (("GUI-1-census-ksc.toml", "SPACECENTER"),
+                               ("GUI-2-census-flight.toml", "FLIGHT"))
+
+    def _simulate_census_describes(self, name, scene):
+        """Walks one census spec's UiAction steps and returns, per `describe` step in
+        order, the `(scene, mode, open, openWindows)` its echo carries.
+
+        AN `open` DECLARED `expect = "ERROR"` LEAVES THE WINDOW SHUT, and the simulation
+        has to read the declaration to know that. GUI-2 drives one - Real Spawn Control,
+        whose `DrawIfOpen` force-closes itself on its first draw with zero nearby spawn
+        candidates, measured `ERROR window-self-closed` on run `2026-09-10_2259` - and a
+        walk that counted it as open would demand `openWindows=main,spawncontrol` on every
+        later echo and red on a spec whose literals are right."""
+        spec = load_spec(name)
+        open_set = set()
+        mode = "advanced"
+        echoes = []
+        for i, step in enumerate(spec["driver"]["steps"]):
+            if step.get("cmd") != "UiAction":
+                continue
+            args = step.get("args", {}) or {}
+            op = args.get("op")
+            if op == "open":
+                # `expect` is the declaration of what the step ACHIEVES: an
+                # `open` the spec declares ERROR did not leave a window open.
+                if str(step.get("expect", "OK")) == "OK":
+                    open_set.add(args["window"])
+            elif op == "close":
+                open_set.discard(args["window"])
+            elif op == "complexity":
+                # A census must CLOSE what it opened rather than leaning on the
+                # Advanced -> Basic latch's own close set to tidy up: the latch
+                # closes only the GATED windows (career / kerbals / testrunner /
+                # spawncontrol), so a spec that left `logistics` open
+                # across the switch would carry it into every Basic capture. This
+                # assertion is also what lets the simulation above ignore the
+                # latch entirely.
+                self.assertTrue(
+                    open_set <= {"main"},
+                    "%s step %d switches to %s with %s still open; a census must "
+                    "close what it opened (the mode latch closes only the gated "
+                    "windows)" % (name, i, args.get("mode"),
+                                  sorted(open_set - {"main"})))
+                mode = args["mode"]
+            elif op == "describe":
+                echoes.append((scene, mode, len(open_set),
+                               self._open_window_list(open_set)))
+        return spec, echoes
+
+    @staticmethod
+    def _describe_patterns(spec):
+        required = ((spec["expectations"].get("logContracts") or {})
+                    .get("required") or [])
+        return [p for p in required if "uiaction describe" in p]
+
+    @staticmethod
+    def _spec_strings(node):
+        """Every string anywhere in a loaded spec, so a describe pattern placed outside
+        `logContracts.required` / `forbidden` is still read."""
+        if isinstance(node, str):
+            yield node
+        elif isinstance(node, dict):
+            for value in node.values():
+                yield from GuiCensusSeamVerbTests._spec_strings(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from GuiCensusSeamVerbTests._spec_strings(value)
+
     def test_the_census_specs_pinned_describe_echoes_match_their_own_steps(self):
-        """The two GUI-census lanes pin every `describe` echo as a LITERAL, including
-        `open=<n> openWindows=<names>`. That is what makes the echo an exact claim - a
+        """The two GUI-census lanes pin every `describe` echo's `open=<n>
+        openWindows=<names>` as a LITERAL. That is what makes the echo an exact claim - a
         third open window moves the count - and it is also the one thing about these
         specs that a later step edit silently invalidates: inserting an `open` without
         its matching `close` shifts every literal after it, and the lane would then red
@@ -21384,77 +21500,134 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         require the pinned set to contain exactly the echo this state produces. Both
         directions, so an orphaned literal reds too.
 
-        AN `open` DECLARED `expect = "ERROR"` LEAVES THE WINDOW SHUT, and the simulation
-        has to read the declaration to know that. GUI-2 drives one - Real Spawn Control,
-        whose `DrawIfOpen` force-closes itself on its first draw with zero nearby spawn
-        candidates, measured `ERROR window-self-closed` on run `2026-09-10_2259` - and a
-        walk that counted it as open would demand `openWindows=main,spawncontrol` on every
-        later echo and red on a spec whose literals are right."""
-        for name, scene in (("GUI-1-census-ksc.toml", "SPACECENTER"),
-                            ("GUI-2-census-flight.toml", "FLIGHT")):
+        `windows=` is NOT part of the claim: it prints the window TABLE's length, which
+        does not depend on the scene or the steps, so every census pattern regexes it as
+        `windows=\\d+` and a digit literal there reds here by name. The length itself is
+        held to the C# table by `test_no_census_pattern_pins_the_window_count`."""
+        for name, scene in self._SIMULATED_CENSUS_SPECS:
             with self.subTest(spec=name):
-                spec = load_spec(name)
-                required = ((spec["expectations"].get("logContracts") or {})
-                            .get("required") or [])
+                spec, echoes = self._simulate_census_describes(name, scene)
+                describe_patterns = self._describe_patterns(spec)
                 pinned = set()
-                for pattern in required:
-                    m = re.search(r"uiaction describe scene=(\w+) complexity=(\w+) "
-                                  r"windows=(\d+) open=(\d+) openWindows=(\S+)", pattern)
-                    if m:
-                        pinned.add((m.group(1), m.group(2), int(m.group(3)),
-                                    int(m.group(4)), m.group(5)))
+                for pattern in describe_patterns:
+                    m = self._DESCRIBE_PATTERN_RE.search(pattern)
+                    self.assertIsNotNone(m, "%s: a describe pattern this cell cannot "
+                                            "parse: %r" % (name, pattern))
+                    self.assertEqual(
+                        self._DESCRIBE_WINDOWS_TOKEN, m.group(3),
+                        "%s pins the window count (`windows=%s`); write `windows=\\\\d+` "
+                        "(the count is the window table's length): %r"
+                        % (name, m.group(3), pattern))
+                    pinned.add((m.group(1), m.group(2), int(m.group(4)), m.group(5)))
                 self.assertTrue(pinned, "%s pins no describe echo at all" % name)
-
-                open_set = set()
-                mode = "advanced"
-                observed = set()
-                describes = 0
-                for i, step in enumerate(spec["driver"]["steps"]):
-                    if step.get("cmd") != "UiAction":
-                        continue
-                    args = step.get("args", {}) or {}
-                    op = args.get("op")
-                    if op == "open":
-                        # `expect` is the declaration of what the step ACHIEVES: an
-                        # `open` the spec declares ERROR did not leave a window open.
-                        if str(step.get("expect", "OK")) == "OK":
-                            open_set.add(args["window"])
-                    elif op == "close":
-                        open_set.discard(args["window"])
-                    elif op == "complexity":
-                        # A census must CLOSE what it opened rather than leaning on the
-                        # Advanced -> Basic latch's own close set to tidy up: the latch
-                        # closes only the GATED windows (career / kerbals / testrunner /
-                        # spawncontrol), so a spec that left `logistics` open
-                        # across the switch would carry it into every Basic capture. This
-                        # assertion is also what lets the simulation above ignore the
-                        # latch entirely.
-                        self.assertTrue(
-                            open_set <= {"main"},
-                            "%s step %d switches to %s with %s still open; a census must "
-                            "close what it opened (the mode latch closes only the gated "
-                            "windows)" % (name, i, args.get("mode"),
-                                          sorted(open_set - {"main"})))
-                        mode = args["mode"]
-                    elif op == "describe":
-                        describes += 1
-                        observed.add((scene, mode, len(hlib.UIACTION_WINDOW_VALUES),
-                                      len(open_set),
-                                      self._open_window_list(open_set)))
                 # Counted against the describe patterns THEMSELVES rather than
                 # against `len(required) - 1`, which was the arithmetic while the only
                 # other pinned line was one capture. These lanes now also pin every
                 # dump's funnel reading (and GUI-1 its GuiTree batch tally), so an
                 # off-by-one here would have measured the wrong thing entirely. A LIST
                 # rather than the `pinned` set above, so a duplicated literal reds too.
-                describe_patterns = [p for p in required if "uiaction describe" in p]
-                self.assertEqual(describes, len(describe_patterns),
+                self.assertEqual(len(echoes), len(describe_patterns),
                                  "%s: %d describe steps against %d pinned describe "
-                                 "echoes" % (name, describes, len(describe_patterns)))
-                self.assertEqual(observed, pinned,
+                                 "echoes" % (name, len(echoes), len(describe_patterns)))
+                self.assertEqual(set(echoes), pinned,
                                  "%s: the pinned describe echoes and the states its own "
                                  "steps produce have drifted" % name)
 
+    def test_no_census_pattern_pins_the_window_count(self):
+        """Reads OUTSIDE harness/ (the C# window table). The describe echo's `windows=`
+        prints `rows.Count` over `TestCommandUiAction.Windows`, a static table that does
+        not depend on the scene or the save, so a spec that pins it as a digit literal
+        reds on every lane the day a window is added or removed, for no defect. Every
+        string in every committed spec that names `uiaction describe` must therefore
+        carry `windows=\\d+` and no digit window count.
+
+        The count is still derived, here rather than in the specs: hlib's window
+        vocabulary is as long as the C# table, row for row, so the number a live echo
+        prints is `len(hlib.UIACTION_WINDOW_VALUES)`."""
+        specs_with_describe = set()
+        for path in sorted(glob.glob(os.path.join(SCENARIOS_DIR, "*.toml"))):
+            name = os.path.basename(path)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            for text in self._spec_strings(spec):
+                if "uiaction describe" not in text:
+                    continue
+                specs_with_describe.add(name)
+                with self.subTest(spec=name, pattern=text):
+                    self.assertIsNone(
+                        re.search(r"windows=[0-9]", text),
+                        "%s pins the window count; write `windows=\\\\d+`" % name)
+                    self.assertIn("windows=" + self._DESCRIBE_WINDOWS_TOKEN, text,
+                                  "%s: a describe pattern without `windows=\\\\d+`" % name)
+        # Not vacuous: both simulated lanes are among the specs read.
+        for name, _ in self._SIMULATED_CENSUS_SPECS:
+            self.assertIn(name, specs_with_describe,
+                          "%s carries no describe pattern; this cell read nothing it "
+                          "was written for" % name)
+
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiAction.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# UiAction table moved; this derivation is vacuous: %s"
+                        % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            rows = self._parse_cs_window_table(fh.read())
+        self.assertEqual(len(rows), len(hlib.UIACTION_WINDOW_VALUES),
+                         "the describe echo's `windows=` is the C# table's row count "
+                         "(%d) and must equal len(hlib.UIACTION_WINDOW_VALUES) (%d)"
+                         % (len(rows), len(hlib.UIACTION_WINDOW_VALUES)))
+
+    @staticmethod
+    def _render_describe_line(scene, mode, windows, open_n, open_list):
+        return ("[LOG 00:00:04] [Parsek][INFO][TestCommands] uiaction describe "
+                "scene=%s complexity=%s windows=%d open=%d openWindows=%s"
+                % (scene, mode, windows, open_n, open_list))
+
+    def test_a_line_the_old_pinned_count_matched_still_matches(self):
+        """Widening `windows=11` to `windows=\\d+` must lose no match. For the two
+        simulated census lanes, the log their own steps would write - rendered once with
+        the old pinned count and once with today's table length - satisfies every
+        describe pattern through the real evaluator, while the same log with one window
+        too many open does not, so the `open=` / `openWindows=` claim stays exact.
+
+        For every other census spec, each pattern is rendered back into the one line it
+        was written for (its escapes undone, the count written as 11) and must match
+        that line."""
+        old_count = 11
+        for name, scene in self._SIMULATED_CENSUS_SPECS:
+            with self.subTest(spec=name):
+                spec, echoes = self._simulate_census_describes(name, scene)
+                contracts = {"logContracts": {"required": self._describe_patterns(spec)}}
+                for count in (old_count, len(hlib.UIACTION_WINDOW_VALUES)):
+                    log = "\n".join(self._render_describe_line(s, m, count, n, w)
+                                     for s, m, n, w in echoes)
+                    result = hlib.evaluate_expectations(contracts, None, log)
+                    self.assertEqual("PASS", result.status,
+                                     "%s windows=%d: %r" % (name, count, result.mismatches))
+                wrong = "\n".join(self._render_describe_line(s, m, old_count, n + 1, w)
+                                   for s, m, n, w in echoes)
+                self.assertEqual("FAIL",
+                                 hlib.evaluate_expectations(contracts, None, wrong).status,
+                                 "%s: a log with one more window open satisfied every "
+                                 "describe pattern" % name)
+
+        rendered = 0
+        for path in sorted(glob.glob(os.path.join(SCENARIOS_DIR, "*.toml"))):
+            name = os.path.basename(path)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            for pattern in self._describe_patterns(spec):
+                with self.subTest(spec=name, pattern=pattern):
+                    line = (pattern.replace(r"\[", "[").replace(r"\]", "]")
+                            .replace("windows=" + self._DESCRIBE_WINDOWS_TOKEN,
+                                     "windows=%d" % old_count))
+                    self.assertNotIn("\\", line,
+                                     "%s: a describe pattern with a regex construct this "
+                                     "rendering does not undo: %r" % (name, pattern))
+                    self.assertIsNotNone(re.search(pattern, line),
+                                         "%s: %r no longer matches the line it was "
+                                         "written for: %r" % (name, pattern, line))
+                    rendered += 1
+        self.assertTrue(rendered, "no census describe pattern was rendered")
 
 class LocalFixtureTemplateTests(unittest.TestCase):
     """The operator-local fixture prefix (`fixtures/local-saves/`).
@@ -23600,14 +23773,29 @@ MEASURED_LOOP_SHIFT_LINE = (
     " SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift:"
     " pid=2279670454 loopShift=1100.0 matchedDev=0m mismatchedDev=1049421m"
     " tol=1927m")
-MEASURED_BATCH_LINE = (
+# The flown pin (runs 2026-07-26_0950 and _1207), kept as the record of what the
+# 25-cell category measured.
+FLOWN_BATCH_LINE_2026_07_26 = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=25 passed=14 failed=0"
     " skipped=11 category=GhostMap scene=FLIGHT")
-# The runner's own accounting for 9 of the 11 skips (the other 2 are documented
-# self-skips from the loop-icon warp cluster; see the spec header).
-MEASURED_SCENE_SKIP_LINE = (
+FLOWN_SCENE_SKIP_LINE_2026_07_26 = (
     "[Parsek][INFO][TestRunner] Scene eligibility skip summary: skipped=9"
     " currentScene=FLIGHT byRequiredScene=TRACKSTATION:9")
+# RE-MEASURED 2026-11-16: P3-01 added the two GhostMapPrimitiveRuntimeTest cells (one
+# FLIGHT, one TRACKSTATION), so the source derives total=27 with a tenth TRACKSTATION
+# scene skip. Run `2026-11-16_2116_S1.6-render-parity` (PASS attempt 1, 90 s) read the
+# line below token for token: the FLIGHT cell is the fifteenth pass and the two
+# documented loop-icon self-skips stay the only run-time skips.
+FLOWN_BATCH_LINE_2026_11_16 = (
+    "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=27 passed=15 failed=0"
+    " skipped=12 category=GhostMap scene=FLIGHT")
+FLOWN_SCENE_SKIP_LINE_2026_11_16 = (
+    "[Parsek][INFO][TestRunner] Scene eligibility skip summary: skipped=10"
+    " currentScene=FLIGHT byRequiredScene=TRACKSTATION:10")
+MEASURED_BATCH_LINE = FLOWN_BATCH_LINE_2026_11_16
+# The runner's own accounting for 10 of the 12 skips (the other 2 are documented
+# self-skips from the loop-icon warp cluster; see the spec header).
+MEASURED_SCENE_SKIP_LINE = FLOWN_SCENE_SKIP_LINE_2026_11_16
 
 
 class RenderParityScenarioTests(unittest.TestCase):
@@ -23657,13 +23845,16 @@ class RenderParityScenarioTests(unittest.TestCase):
         self.assertIsNotNone(re.search(pat, MEASURED_BATCH_LINE),
                              "the pinned tally must match the flown line")
         for bad, why in (
-                ("BATCH_COMPLETE v1 total=25 passed=0 failed=0 skipped=25 "
+                ("BATCH_COMPLETE v1 total=27 passed=0 failed=0 skipped=27 "
                  "category=GhostMap scene=FLIGHT", "an all-skip batch"),
-                ("BATCH_COMPLETE v1 total=25 passed=13 failed=0 skipped=12 "
+                ("BATCH_COMPLETE v1 total=27 passed=14 failed=0 skipped=13 "
                  "category=GhostMap scene=FLIGHT", "a test that flipped to Skip"),
-                ("BATCH_COMPLETE v1 total=26 passed=15 failed=0 skipped=11 "
+                ("BATCH_COMPLETE v1 total=28 passed=16 failed=0 skipped=12 "
                  "category=GhostMap scene=FLIGHT", "a newly added GhostMap test"),
                 ("BATCH_COMPLETE v1 total=25 passed=14 failed=0 skipped=11 "
+                 "category=GhostMap scene=FLIGHT",
+                 "the pre-2026-11-16 tally, i.e. the primitive cells removed"),
+                ("BATCH_COMPLETE v1 total=27 passed=15 failed=0 skipped=12 "
                  "category=GhostMap scene=TRACKSTATION", "a FLIGHT/TS host change")):
             self.assertIsNone(re.search(pat, bad), "%s must NOT match" % (why,))
 
@@ -23704,13 +23895,15 @@ class RenderParityScenarioTests(unittest.TestCase):
         self.assertIn("tol=1927m", MEASURED_LOOP_SHIFT_LINE)
 
     def test_the_skipped_count_is_fully_accounted_for(self):
-        # 11 skips = 9 scene-eligibility (TRACKSTATION tests filtered out of a
-        # FLIGHT batch) + 2 documented loop-icon self-skips. If a future flight
-        # moves `skipped`, the pinned tally reds and this accounting is the thing
-        # that has to be re-derived alongside it.
-        self.assertIn("skipped=11", MEASURED_BATCH_LINE)
-        self.assertIn("skipped=9", MEASURED_SCENE_SKIP_LINE)
-        self.assertIn("byRequiredScene=TRACKSTATION:9", MEASURED_SCENE_SKIP_LINE)
+        # 12 skips = 10 scene-eligibility (TRACKSTATION tests filtered out of a
+        # FLIGHT batch) + 2 documented loop-icon self-skips (11 = 9 + 2 on the
+        # 25-cell flights). If a future flight moves `skipped`, the pinned tally reds
+        # and this accounting is the thing that has to be re-derived alongside it.
+        self.assertIn("skipped=12", MEASURED_BATCH_LINE)
+        self.assertIn("skipped=10", MEASURED_SCENE_SKIP_LINE)
+        self.assertIn("byRequiredScene=TRACKSTATION:10", MEASURED_SCENE_SKIP_LINE)
+        self.assertIn("skipped=11", FLOWN_BATCH_LINE_2026_07_26)
+        self.assertIn("byRequiredScene=TRACKSTATION:9", FLOWN_SCENE_SKIP_LINE_2026_07_26)
         header = open(os.path.join(SCENARIOS_DIR, "S1.6-render-parity.toml"),
                       encoding="utf-8").read()
         for name in ("StateVectorReseed_CalculatePhysicsStatsResnapsIconOntoConic",
@@ -27383,6 +27576,35 @@ class ListHandlesSourceSyncTests(unittest.TestCase):
             self.assertEqual(want, tuple(re.findall(r'"([^"\\]*)"', body)), name)
         self.assertEqual("timeline", self.consts["TimelineKindToken"])
 
+    def test_the_sites_log_line_prefix_facts_keys_and_samples_are_byte_equal(self):
+        """kind=sites's lines are written by `TestCommandSitesReadback`, a sibling file
+        (multiplayer T-07); read it as code the same way. The sample names are taken from
+        the `SamplePoints` table's constructor calls, in table order, because a spec pins
+        a terrain line by index and name."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandListHandlesSites.cs")
+        self.assertTrue(os.path.isfile(path), "the sites read-back moved: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            raw = fh.read().replace("\r\n", "\n")
+        code = "\n".join(strip_cs_line_comment(l) for l in raw.split("\n"))
+        consts = dict(re.findall(r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', code))
+        self.assertEqual(hlib.LISTHANDLES_SITES_LOG_PREFIX, consts["SitesLogLinePrefix"])
+        self.assertEqual(hlib.LISTHANDLES_SITES_FACTS,
+                         (consts["SpaceCenterFact"], consts["RecoveryFact"],
+                          consts["LaunchSiteFact"], consts["TerrainFact"]))
+        for name, want in (("LaunchSiteLogLineKeys", hlib.LISTHANDLES_SITES_LAUNCH_SITE_LOG_KEYS),
+                           ("TerrainLogLineKeys", hlib.LISTHANDLES_SITES_TERRAIN_LOG_KEYS)):
+            head = re.search(r"\b%s\s*=\s*\{" % name, code)
+            self.assertIsNotNone(head, "%s declaration not found" % name)
+            body = code[head.end():code.index("};", head.end())]
+            self.assertEqual(want, tuple(re.findall(r'"([^"\\]*)"', body)), name)
+        head = re.search(r"\bSamplePoints\s*=\s*\{", code)
+        self.assertIsNotNone(head, "SamplePoints declaration not found")
+        body = code[head.end():code.index("};", head.end())]
+        self.assertEqual(hlib.LISTHANDLES_SITES_SAMPLE_NAMES,
+                         tuple(re.findall(r'new\s+SiteSamplePoint\(\s*"([^"\\]*)"', body)))
+        self.assertEqual("sites", self.consts["SitesKindToken"])
+
     def test_the_route_log_line_prefix_and_keys_are_byte_equal(self):
         self.assertEqual(hlib.LISTHANDLES_ROUTE_LOG_PREFIX,
                          self.consts["RouteLogLinePrefix"])
@@ -28082,8 +28304,8 @@ class IdsFileSelectionTests(unittest.TestCase):
 class RaceTagConventionTests(unittest.TestCase):
     """Multiplayer plan T-45 / README rule 7: a race lane (id prefix RACE, SITES,
     RCA, RCB or RCI) carries the `race` tag and no other spec does, so
-    `--tag race` flies exactly the race lanes. No race spec is committed yet, so
-    the synthetic cells prove the committed cell can red."""
+    `--tag race` flies exactly the race lanes. Few race specs are committed yet
+    (RACE-0 is the first), so the synthetic cells prove the committed cell can red."""
 
     @staticmethod
     def _spec(sid, tags=None):
@@ -28142,3 +28364,701 @@ class RaceTagConventionTests(unittest.TestCase):
         specs = [self._spec("RACE-1", ["race"]), self._spec("H1"), self._spec("SITES-1", ["race"])]
         self.assertEqual([s["id"] for s in hlib.select_scenarios(specs, "--tag %s" % hlib.RACE_TAG)],
                          ["RACE-1", "SITES-1"])
+
+
+class RaceSharedFolderSpecTests(unittest.TestCase):
+    """Multiplayer T-03: the `[fixture.race]` spec surface, the `${raceShared}`
+    token, the race verbs' folder argument, the listing and its archive entry.
+    The staging, substitution and snapshot themselves are driven end to end in
+    test_run_smoke.RaceSharedFolderStagingSmokeTests."""
+
+    def _spec(self, race=None, steps=None):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "RACE-x", "tier": "operator",
+            "tags": ["race"], "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/fresh-career",
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30}] + list(steps or []) + [
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if race is not None:
+            spec["fixture"]["race"] = race
+        return spec
+
+    def _errors(self, spec, race_fixtures=None):
+        return hlib.validate_spec(spec, {"schema": 1}, bug_ids=[],
+                                  race_fixtures=race_fixtures).errors
+
+    def _race_errors(self, spec, race_fixtures=None):
+        return [e for e in self._errors(spec, race_fixtures)
+                if "race" in e.lower() or hlib.RACE_SHARED_TOKEN in e]
+
+    def test_the_two_accepted_forms_validate(self):
+        base = self._errors(self._spec())
+        self.assertEqual(base, self._errors(self._spec({"sharedFolder": "empty"})))
+        self.assertEqual(base, self._errors(self._spec({"sharedFolder": "fixtures/race/holder-gen1"}),
+                                            race_fixtures=["holder-gen1", "other"]))
+        # No listing injected: the existence check is staging's (fail closed there).
+        self.assertEqual(base, self._errors(self._spec({"sharedFolder": "fixtures/race/x_1"})))
+
+    def test_a_path_outside_the_race_fixtures_is_refused(self):
+        for value in ("../x", "/abs/rs", "C:/race/x", "C:\\race\\x", "\\\\server\\share",
+                      "fixtures/race/../saves/fresh-career", "fixtures/race/a/b",
+                      "fixtures/race/", "fixtures/race/x/", "fixtures\\race\\x",
+                      "fixtures/saves/fresh-career", "fixtures/race/.hidden",
+                      "fixtures/race/with space", "Empty", "", 3, True):
+            with self.subTest(value=value):
+                errs = self._race_errors(self._spec({"sharedFolder": value}), ["x"])
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("fixture.race.sharedFolder", errs[0])
+
+    def test_an_unknown_fixture_is_refused(self):
+        errs = self._race_errors(self._spec({"sharedFolder": "fixtures/race/nope"}),
+                                 race_fixtures=["holder-gen1"])
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("names no committed race fixture", errs[0])
+        errs = self._race_errors(self._spec({"sharedFolder": "fixtures/race/nope"}),
+                                 race_fixtures=[])
+        self.assertEqual(1, len(errs), errs)
+
+    def test_a_malformed_block_is_refused(self):
+        for race, needle in (("empty", "must be a table"),
+                             ({}, "required"),
+                             ({"sharedFolder": "empty", "sharedfolder": "empty"}, "unknown key"),
+                             ({"folder": "empty"}, "unknown key")):
+            with self.subTest(race=race):
+                self.assertTrue(any(needle in e for e in self._race_errors(self._spec(race))),
+                                self._race_errors(self._spec(race)))
+
+    def test_the_token_needs_the_block(self):
+        step = {"cmd": "SetSetting", "args": {"name": "x", "value": hlib.RACE_SHARED_TOKEN},
+                "expect": "OK"}
+        errs = self._race_errors(self._spec(steps=[step]))
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("needs a [fixture.race] block", errs[0])
+        self.assertEqual([], self._race_errors(self._spec({"sharedFolder": "empty"}, [step])))
+
+    def test_the_token_is_a_whole_value_only(self):
+        step = {"cmd": "SetSetting",
+                "args": {"name": "x", "value": hlib.RACE_SHARED_TOKEN + "/players"},
+                "expect": "OK"}
+        errs = [e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                if "malformed" in e]
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("WHOLE value", errs[0])
+        self.assertEqual([], hlib.find_malformed_handle_tokens(hlib.RACE_SHARED_TOKEN))
+        self.assertEqual([], hlib.find_malformed_handle_tokens(hlib.RUN_SAVE_TOKEN))
+        self.assertTrue(hlib.find_malformed_handle_tokens("${raceshared}"))
+
+    def test_a_race_verb_folder_takes_only_the_token(self):
+        for verb, key in sorted(hlib.RACE_FOLDER_ARG_BY_VERB.items()):
+            for value in ("C:/Dropbox/race", "../rs/0", "${runSave}", ""):
+                with self.subTest(verb=verb, value=value):
+                    step = {"cmd": verb, "args": {key: value}, "expect": "OK"}
+                    errs = [e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                            if "folder must be" in e]
+                    self.assertEqual(1, len(errs), errs)
+            step = {"cmd": verb, "args": {key: hlib.RACE_SHARED_TOKEN}, "expect": "OK"}
+            self.assertFalse([e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                              if "folder must be" in e or "needs a [fixture.race]" in e])
+            # A race verb step without the folder argument (RaceCommand action=status).
+            step = {"cmd": verb, "args": {"action": "status"}, "expect": "OK"}
+            self.assertFalse([e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                              if "folder must be" in e])
+
+    def test_the_token_is_refused_in_mission_params(self):
+        spec = self._spec({"sharedFolder": "empty"})
+        spec["driver"]["kind"] = "autopilot"
+        spec["driver"]["mission"] = "b1_pad_hop"
+        spec["driver"]["missionParams"] = {"folder": hlib.RACE_SHARED_TOKEN}
+        spec["driver"]["steps"].insert(1, {"phase": "mission", "expect": "MISSION-OK"})
+        errs = [e for e in self._errors(spec) if "missionParams.folder" in e]
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("seam step args only", errs[0])
+
+    def test_no_committed_spec_declares_the_block_or_names_the_token(self):
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                raw = fh.read()
+            with self.subTest(spec=name):
+                spec = tomllib.loads(raw.decode("utf-8"))
+                if name in RaceFolderHarnessStepSpecTests.HARNESS_STEP_SPECS:
+                    # The paired-lane proof pair (multiplayer T-54): the pair folder only.
+                    self.assertTrue(hlib.spec_uses_pair_folder(spec))
+                else:
+                    self.assertIsNone(hlib.spec_race_fixture(spec))
+                self.assertNotIn(hlib.RACE_SHARED_TOKEN.encode("ascii"), raw)
+
+    def test_the_folder_path_is_short_and_inside_the_instance(self):
+        inst = os.path.join("C:", os.sep, "Users", "v", "automation", "stock-tree-2")
+        self.assertEqual(os.path.join(inst, "rs", "0"), hlib.race_shared_dir(inst))
+        self.assertEqual(os.path.join(inst, "rs", "3"), hlib.race_shared_dir(inst, "3"))
+        self.assertEqual(5, len(os.path.join("rs", "0")) + 1)
+
+    def test_the_listing_is_sorted_with_forward_slashes(self):
+        text = hlib.format_race_listing("run1", [("players\\p2\\b.cfg", 4, "bb"),
+                                                 ("players/p1/a b.cfg", 3, "aa")])
+        self.assertEqual([hlib.RACE_LISTING_HEADER,
+                          "# run=run1 files=2 bytes=7",
+                          "aa 3 players/p1/a b.cfg",
+                          "bb 4 players/p2/b.cfg"], text.splitlines())
+        self.assertEqual([hlib.RACE_LISTING_HEADER, "# run=r files=0 bytes=0"],
+                         hlib.format_race_listing("r", []).splitlines())
+
+    def test_the_archive_keeps_a_listing_and_misses_none_without_one(self):
+        rid = "2026-11-16_2000_RACE-1"
+        names = [rid + ".json", rid + "_race", rid + hlib.RACE_LISTING_SUFFIX]
+        plan = hlib.plan_results_archive(rid, names, False, None)
+        self.assertIn(rid + hlib.RACE_LISTING_SUFFIX, [e.dest_name for e in plan.entries])
+        self.assertNotIn(rid + "_race", [e.dest_name for e in plan.entries])
+        bare = hlib.plan_results_archive(rid, [rid + ".json"], False, None)
+        self.assertNotIn(rid + hlib.RACE_LISTING_SUFFIX, " ".join(bare.missing))
+        self.assertEqual(len(plan.entries), len(bare.entries) + 1)
+
+    def test_the_race_snapshot_tmp_sweep_reads_only_its_own_shape(self):
+        names = ["a_race.harness-tmp", "a_save.harness-tmp", "_race.harness-tmp",
+                 "b_race", "c_race.harness-tmp"]
+        self.assertEqual(["a_race.harness-tmp"],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+                             names, protect_name="c_race.harness-tmp",
+                             dir_suffix=hlib.RACE_SNAPSHOT_DIR_SUFFIX))
+        self.assertEqual(["a_save.harness-tmp"],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(names))
+
+
+class SnapshotSavesSpecTests(unittest.TestCase):
+    """Multiplayer T-04: the `[fixture] snapshotSaves` spec surface, the results/ dir
+    name it produces, its retention and the PARSEK-FAIL(snapshot-save-missing) red.
+    The staging, copy and retention are driven end to end in
+    test_run_smoke.SnapshotSavesSmokeTests."""
+
+    RUN_SAVE = "fresh-career"
+
+    def _spec(self, saves=None, as_targets=("fresh-career-b",)):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "SNAP-x", "tier": "operator",
+            "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/" + self.RUN_SAVE,
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30}] + [
+                {"cmd": "NewGame", "args": {"mode": "SANDBOX", "preset": "Normal",
+                                            "save": "${runSave}", "as": target},
+                 "expect": "OK", "budget": 300} for target in as_targets] + [
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if saves is not None:
+            spec["fixture"]["snapshotSaves"] = saves
+        return spec
+
+    def _validate(self, spec):
+        return hlib.validate_spec(spec, {"schema": 1}, bug_ids=[])
+
+    def _snap_errors(self, spec):
+        return [e for e in self._validate(spec).errors if "snapshotSaves" in e]
+
+    def test_both_accepted_forms_validate_and_resolve_to_the_same_folders(self):
+        base = self._validate(self._spec())
+        for saves in (["${runSave}-b"], ["fresh-career-b"], []):
+            with self.subTest(saves=saves):
+                got = self._validate(self._spec(saves))
+                self.assertEqual(base.errors, got.errors)
+                self.assertEqual(base.warnings, got.warnings)
+        spec = self._spec(["${runSave}-b", "fresh-career-c_2"], ("fresh-career-b",
+                                                                  "fresh-career-c_2"))
+        self.assertEqual([], self._snap_errors(spec))
+        self.assertEqual([("fresh-career-b", "b"), ("fresh-career-c_2", "c_2")],
+                         hlib.spec_snapshot_saves(spec, self.RUN_SAVE))
+        self.assertEqual([], hlib.spec_snapshot_saves(self._spec(), self.RUN_SAVE))
+
+    def test_a_name_outside_the_lanes_own_saves_is_refused(self):
+        for value in ("other-b", "../fresh-career-b", "/abs/x", "C:/saves/x",
+                      "${runSave}-../x", "${runSave}-a/b", "${runSave}-a\\b",
+                      "${runSave}-..", "${runSave}-", "${runSave}b", "${runSave}--b",
+                      "${runSave}-a-b", "${runSave}-a b", "${runSave}-a.b",
+                      "fresh-career-../x", "${RUNSAVE}-b", "${runSave }-b", "", 3, None):
+            with self.subTest(value=value):
+                errs = self._snap_errors(self._spec([value]))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("directly inside saves/", errs[0])
+                self.assertEqual([], hlib.spec_snapshot_saves(self._spec([value]),
+                                                              self.RUN_SAVE))
+
+    def test_the_run_save_itself_is_refused(self):
+        for value in ("${runSave}", self.RUN_SAVE):
+            with self.subTest(value=value):
+                errs = self._snap_errors(self._spec([value]))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("is the run save", errs[0])
+
+    def test_a_duplicate_is_refused_in_either_form(self):
+        for saves in (["${runSave}-b", "${runSave}-b"], ["${runSave}-b", "fresh-career-b"]):
+            with self.subTest(saves=saves):
+                errs = self._snap_errors(self._spec(saves))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("names the same save as fixture.snapshotSaves[0]", errs[0])
+
+    def test_a_suffix_colliding_with_another_results_name_is_refused(self):
+        for suffix, clash in (("a_save", "_save"), ("x_race", "_race"),
+                              ("b_shots", "_shots")):
+            with self.subTest(suffix=suffix):
+                errs = self._snap_errors(self._spec(["${runSave}-" + suffix],
+                                                    ("fresh-career-" + suffix,)))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("end in %r" % clash, errs[0])
+                # The shell's reader drops it too, should validation be bypassed.
+                self.assertEqual([], hlib.spec_snapshot_saves(
+                    self._spec(["${runSave}-" + suffix]), self.RUN_SAVE))
+        # A suffix that merely CONTAINS a name is fine: only the ending is keyed on.
+        self.assertEqual([], self._snap_errors(self._spec(["${runSave}-save"],
+                                                          ("fresh-career-save",))))
+        self.assertEqual([], self._snap_errors(self._spec(["${runSave}-race_b"],
+                                                          ("fresh-career-race_b",))))
+
+    def test_every_results_name_suffix_is_in_the_collision_table(self):
+        for suffix in hlib.RUN_ID_ARTIFACT_SUFFIXES + (
+                hlib.SAVE_SNAPSHOT_DIR_SUFFIX, hlib.SAVE_SNAPSHOT_TMP_SUFFIX,
+                hlib.RACE_SNAPSHOT_DIR_SUFFIX, hlib.RACE_LISTING_SUFFIX):
+            self.assertIn(suffix, hlib.RESULTS_NAME_SUFFIXES)
+
+    def test_a_non_list_is_refused(self):
+        for value in ("${runSave}-b", {"b": 1}, 3):
+            with self.subTest(value=value):
+                errs = self._snap_errors(self._spec(value))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("must be a list", errs[0])
+
+    def test_a_save_no_step_names_is_a_warning_not_an_error(self):
+        got = self._validate(self._spec(["${runSave}-b", "${runSave}-c"]))
+        self.assertEqual([], [e for e in got.errors if "snapshotSaves" in e])
+        warns = [w for w in got.warnings if "snapshotSaves" in w]
+        self.assertEqual(1, len(warns), warns)
+        self.assertIn("'fresh-career-c'", warns[0])
+        self.assertIn(hlib.SNAPSHOT_SAVE_MISSING_SUBKIND, warns[0])
+
+    def test_the_dir_name_round_trips_and_no_other_sweep_reads_it(self):
+        rid = "2026-11-16_2000_SNAP-x_run2_a2"
+        name = hlib.snapshot_save_dir_name(rid, "b_1")
+        self.assertEqual(rid + "_save-b_1", name)
+        self.assertEqual((rid, "b_1"), hlib.parse_snapshot_save_dir_name(name))
+        self.assertEqual((rid, "b_1"), hlib.parse_snapshot_save_dir_name(
+            name + hlib.SAVE_SNAPSHOT_TMP_SUFFIX, tmp=True))
+        self.assertIsNone(hlib.parse_snapshot_save_dir_name(name, tmp=True))
+        for other in (rid + "_save", rid + "_race", rid + "_shots", rid + ".json",
+                      rid + "_save.harness-tmp", "_save-b", rid + "_save-",
+                      rid + "_save-a-b", rid + "_save-b.harness-tmp"):
+            with self.subTest(other=other):
+                self.assertIsNone(hlib.parse_snapshot_save_dir_name(other))
+        # The run save's and the race folder's passes never select the named copy.
+        self.assertFalse(name.endswith(hlib.SAVE_SNAPSHOT_DIR_SUFFIX))
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+            [name + hlib.SAVE_SNAPSHOT_TMP_SUFFIX]))
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+            [name + hlib.SAVE_SNAPSHOT_TMP_SUFFIX], dir_suffix=hlib.RACE_SNAPSHOT_DIR_SUFFIX))
+        self.assertEqual(set(), hlib.claimed_run_ids([name]))
+
+    def test_retention_keeps_the_newest_per_scenario_and_save(self):
+        keep = hlib.SAVE_SNAPSHOT_KEEP_PER_SCENARIO
+        entries = []
+        for i in range(keep + 2):
+            for suffix in ("b", "c"):
+                entries.append(("r%d_save-%s" % (i, suffix), "SNAP-x", float(i)))
+        entries.append(("r0_save", "SNAP-x", 0.0))           # the run save: not ours
+        entries.append(("orphan_save-b", "", -1.0))           # unattributed: never pruned
+        entries.append(("r0_save-b.harness-tmp", "SNAP-x", 0.0))
+        pruned = hlib.select_snapshot_save_dirs_to_prune(entries)
+        self.assertEqual(["r0_save-b", "r0_save-c", "r1_save-b", "r1_save-c"], pruned)
+        # The current run's names are never pruned, however old.
+        pruned = hlib.select_snapshot_save_dirs_to_prune(entries,
+                                                         ["r0_save-b", "r0_save-c"])
+        self.assertEqual(["r1_save-b", "r1_save-c"], pruned)
+
+    def test_the_tmp_sweep_takes_only_named_save_tmp_dirs(self):
+        names = ["a_save-b.harness-tmp", "a_save.harness-tmp", "a_race.harness-tmp",
+                 "a_save-b", "c_save-b.harness-tmp", "_save-b.harness-tmp"]
+        self.assertEqual(["a_save-b.harness-tmp"], hlib.select_stale_snapshot_save_tmp_dirs(
+            names, ["c_save-b.harness-tmp"]))
+
+    def test_a_missing_save_reds_last_and_only_turns_a_pass(self):
+        self.assertIn(hlib.SNAPSHOT_SAVE_MISSING_SUBKIND, hlib.PARSEK_FAIL_SUBKINDS)
+        missing = hlib.classify_verdict({}, {"snapshot_save_missing": True}, {}, 1, "once")
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, hlib.SNAPSHOT_SAVE_MISSING_SUBKIND),
+                         (missing.verdict, missing.subkind))
+        self.assertFalse(hlib.should_retry(missing, 1, "once"))
+        richer = hlib.classify_verdict({}, {"snapshot_save_missing": True,
+                                            "unmet_step": True}, {}, 1, "once")
+        self.assertEqual(hlib.UNMET_STEP_SUBKIND, richer.subkind)
+        invalid = hlib.classify_verdict({"valid": False, "stage_subkind": "driver-stage"},
+                                        {"snapshot_save_missing": True}, {}, 1, "once")
+        self.assertEqual(hlib.VERDICT_INVALID, invalid.verdict)
+        self.assertEqual(hlib.VERDICT_PASS, hlib.classify_verdict({}, {}, {}, 1, "once").verdict)
+
+    def test_no_committed_spec_declares_snapshot_saves(self):
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.loads(fh.read().decode("utf-8"))
+            with self.subTest(spec=name):
+                self.assertNotIn(hlib.SNAPSHOT_SAVES_KEY, spec.get("fixture") or {})
+
+
+class RaceFolderHarnessStepSpecTests(unittest.TestCase):
+    """Multiplayer T-06: the `{ harness = "raceFolder", args = {...} }` step grammar.
+    Every refusal here is a spec-validation error (INVALID(spec-invalid), no boot);
+    run.apply_race_folder_step re-checks the same args at run time (cells in
+    test_run_smoke.RaceFolderHarnessStepSmokeTests)."""
+
+    FIXTURES = ["holder-gen1", "holder-gen2"]
+
+    def _step(self, **args):
+        return {"harness": "raceFolder", "args": args}
+
+    def _spec(self, steps, race=True):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "RACE-x", "tier": "operator",
+            "tags": ["race"], "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/fresh-career",
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30}] + list(steps) + [
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if race:
+            spec["fixture"]["race"] = {"sharedFolder": "fixtures/race/holder-gen1"}
+        return spec
+
+    def _errors(self, spec, race_fixtures=FIXTURES):
+        return hlib.validate_spec(spec, {"schema": 1}, bug_ids=[],
+                                  race_fixtures=race_fixtures).errors
+
+    def _base(self):
+        return self._errors(self._spec([]))
+
+    def _new_errors(self, spec, race_fixtures=FIXTURES):
+        base = set(self._base())
+        return [e for e in self._errors(spec, race_fixtures) if e not in base]
+
+    def test_the_accepted_forms_validate(self):
+        for step in (self._step(op="replace", **{"from": "fixtures/race/holder-gen2"}),
+                     self._step(op="replace", path="players/p2",
+                                **{"from": "fixtures/race/holder-gen2"}),
+                     self._step(op="edit", path="players/p1/standing 1.cfg"),
+                     self._step(op="delete", path="players/p1/x.prec"),
+                     self._step(op="delete", path="p")):
+            with self.subTest(step=step):
+                self.assertEqual([], self._new_errors(self._spec([step])))
+        # No fixture listing injected: the existence check is the run-time one.
+        self.assertEqual([], self._new_errors(self._spec(
+            [self._step(op="replace", **{"from": "fixtures/race/later"})]), None))
+
+    def test_a_path_that_could_leave_the_shared_folder_is_refused(self):
+        bad = ["", "/abs", "/", "../x", "a/../../x", "..", ".", "./a", "a/./b",
+               "a//b", "a/", "C:/x", "C:x", "a:b", "a\\b", "\\\\server\\share",
+               ".hidden", "a/.git", "a.", "a ", " a", "NUL", "con.txt", "a/COM1",
+               "lpt9.cfg", "COM0", "a/lpt0.cfg", "x\n", "a/b\n", "a\x00b", "a\nb",
+               "x" * 201, "/".join(["a"] * 17), 3,
+               None, ["a"]]
+        for path in bad:
+            with self.subTest(path=path):
+                problem = hlib.race_folder_path_problem(path)
+                self.assertIsNotNone(problem)
+                errs = self._new_errors(self._spec([self._step(op="delete", path=path)]))
+                self.assertTrue(any(".args.path:" in e for e in errs), errs)
+        for path in ("a", "a.b", "a..b", "_x", "players/p1/rec.0a1b.prec",
+                     "with space/x-y_z.cfg", "COM10.cfg", "/".join(["a"] * 16)):
+            with self.subTest(path=path):
+                self.assertIsNone(hlib.race_folder_path_problem(path))
+
+    def test_a_harness_step_is_skipped_once_a_driven_step_is_unmet(self):
+        """The drive-time rule (run.py drive_seam asks it before each harness step):
+        it runs only while the mission and every driven seam step are met."""
+        def ev(*outcomes):
+            first = next((o for o in outcomes if not o.met), None)
+            return hlib.ResponseEvaluation(tuple(outcomes), first is None, first, ())
+        ok = hlib.StepOutcome("0001", "LoadGame", "OK", "OK", True, True)
+        err = hlib.StepOutcome("0005", "StopRecording", "OK", "ERROR", True, False)
+        silent = hlib.StepOutcome("0006", "CommitTree", "OK", None, False, False)
+        self.assertIsNone(hlib.harness_step_skip_reason(ev(), None))
+        self.assertIsNone(hlib.harness_step_skip_reason(ev(ok), None))
+        self.assertIsNone(hlib.harness_step_skip_reason(ev(ok), {"id": "0003", "met": True}))
+        reason = hlib.harness_step_skip_reason(ev(ok, err), {"id": "0003", "met": True})
+        self.assertIn("0005 (StopRecording)", reason)
+        self.assertIn("verdict=ERROR", reason)
+        self.assertIn("<no-response>", hlib.harness_step_skip_reason(ev(ok, silent), None))
+        self.assertIn("mission step 0003",
+                      hlib.harness_step_skip_reason(ev(ok), {"id": "0003", "met": False}))
+
+    def test_each_arg_rule_is_enforced(self):
+        cases = [
+            (self._step(op="move", path="a"), "must be one of"),
+            (self._step(path="a"), "must be one of"),
+            (self._step(op="replace"), "required for op=replace"),
+            (self._step(op="replace", **{"from": "fixtures/race/../saves/x"}), "args.from"),
+            (self._step(op="replace", **{"from": "fixtures/race/nope"}),
+             "names no committed race fixture"),
+            (self._step(op="replace", **{"from": "/etc"}), "args.from"),
+            (self._step(op="edit"), "required for op=edit"),
+            (self._step(op="delete"), "required for op=delete"),
+            (self._step(op="edit", path="a", **{"from": "fixtures/race/holder-gen2"}),
+             "reads no fixture"),
+            (self._step(op="delete", path="${raceShared}/a"), "${...} token"),
+            (self._step(op="delete", path="${s0.dir}"), "${...} token"),
+            (self._step(op="delete", path="a", Path="b"), "unknown key"),
+            (self._step(op="delete", path="a", isolated="true"), "unknown key"),
+            (self._step(op=1, path="a"), "must be a string"),
+            ({"harness": "raceFolder", "args": "op=delete"}, "must be a table"),
+            ({"harness": "raceFolder"}, "must be a table"),
+        ]
+        for step, needle in cases:
+            with self.subTest(step=step):
+                errs = self._new_errors(self._spec([step]))
+                self.assertTrue(any(needle in e for e in errs), errs)
+
+    def test_the_step_needs_the_race_block(self):
+        errs = self._errors(self._spec([self._step(op="delete", path="a")], race=False))
+        self.assertTrue(any("needs a [fixture.race] block" in e for e in errs), errs)
+
+    def test_step_level_keys_and_kinds(self):
+        for extra, needle in (({"cmd": "SetSetting"}, ".cmd: not allowed"),
+                              ({"phase": "mission"}, ".phase: not allowed"),
+                              ({"expect": "OK"}, ".expect: not allowed"),
+                              ({"budget": 5}, ".budget: not allowed"),
+                              ({"label": "f1"}, ".label: not allowed")):
+            with self.subTest(extra=extra):
+                step = dict(self._step(op="delete", path="a"), **extra)
+                errs = self._new_errors(self._spec([step]))
+                self.assertTrue(any(needle in e for e in errs), errs)
+        errs = self._new_errors(self._spec([{"harness": "sleep", "args": {}}]))
+        self.assertTrue(any("not a harness step kind" in e for e in errs), errs)
+
+    def test_a_later_step_cannot_reference_a_harness_step(self):
+        steps = [self._step(op="delete", path="a"),
+                 {"cmd": "SetSetting", "args": {"name": "x", "value": "${0002.dir}"},
+                  "expect": "OK"}]
+        errs = self._new_errors(self._spec(steps))
+        self.assertTrue(any("a harness step" in e for e in errs), errs)
+
+    def test_the_step_sits_between_two_seam_steps(self):
+        spec = self._spec([])
+        spec["driver"]["steps"].append(self._step(op="delete", path="a"))
+        errs = self._new_errors(spec)
+        self.assertTrue(any("after FlushAndQuit" in e for e in errs), errs)
+        spec = self._spec([])
+        spec["driver"]["steps"].insert(0, self._step(op="delete", path="a"))
+        errs = self._errors(spec)
+        self.assertTrue(any("driver.steps[0]: must be LoadGame" in e for e in errs), errs)
+
+    def test_a_refused_step_is_a_terminal_invalid_never_parsek_fail(self):
+        v = hlib.classify_verdict({"valid": False,
+                                   "stage_subkind": hlib.HARNESS_STEP_INVALID_SUBKIND},
+                                  {}, {}, 1, "once")
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.HARNESS_STEP_INVALID_SUBKIND),
+                         (v.verdict, v.subkind))
+        self.assertFalse(v.retryable)
+        self.assertFalse(hlib.should_retry(v, 1, "once"))
+        self.assertNotIn(hlib.HARNESS_STEP_INVALID_SUBKIND, hlib.PARSEK_FAIL_SUBKINDS)
+
+    def test_the_tail_planner_skips_a_harness_step(self):
+        steps = [{"cmd": "LoadGame"}, {"cmd": "SetSetting"},
+                 self._step(op="delete", path="a"), {"cmd": "FlushAndQuit"}]
+        plan = hlib.plan_unmet_step_tail(steps, 1)
+        self.assertEqual((2,), plan.skipped_indices)
+        self.assertEqual((3,), plan.run_indices)
+        self.assertEqual("harness:raceFolder", plan.dispositions[0].cmd)
+        self.assertIn("harness:raceFolder", plan.summary)
+
+    def test_lane_catalog_and_timeline_tooling_accept_the_step(self):
+        import lanecatalog
+        import parallel
+        spec = self._spec([self._step(op="replace", **{"from": "fixtures/race/holder-gen2"}),
+                           {"cmd": "WarpToUT", "args": {"ut": "100"}, "expect": "OK"}])
+        self.assertEqual(("LoadGame", "WarpToUT", "FlushAndQuit"), lanecatalog.seam_verbs(spec))
+        self.assertEqual((), lanecatalog.step_timeline_ops(spec["driver"]["steps"][1], False))
+        self.assertEqual(("warp",), lanecatalog.timeline_ops(spec))
+        self.assertEqual((), lanecatalog.ingame_categories(spec))
+        self.assertIsNone(parallel.exclusive_reason(spec))
+
+    # The committed specs that carry a harness step: the paired-lane proof pair
+    # (multiplayer T-54), whose raceFolder and barrier steps are its subject.
+    HARNESS_STEP_SPECS = {"PAIR-1a-shared-folder-handshake.toml",
+                          "PAIR-1b-shared-folder-handshake.toml"}
+
+    def test_no_committed_spec_uses_a_harness_step(self):
+        users = set()
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.loads(fh.read().decode("utf-8"))
+            steps = (spec.get("driver") or {}).get("steps") or []
+            if any(hlib.is_harness_step(s) for s in steps):
+                users.add(name)
+        self.assertEqual(self.HARNESS_STEP_SPECS, users)
+
+
+class RaceParseRowSpecTests(unittest.TestCase):
+    """Multiplayer T-38: the `[expectations.race]` spec block, the arming allowlist,
+    and where the raceParse row's two verdicts sit in classify_verdict. The row itself
+    is driven end to end in test_run_smoke.RaceParseRowSmokeTests; its evaluation is
+    test_raceparse.RaceParseRowTests."""
+
+    # The committed specs that arm the leak scan (`[expectations.race] gating = true`).
+    # A race lane arms it from its first flight (a rival id in the own save is never
+    # legitimate, so no report-only reading run is owed) and names itself here in the
+    # same commit, citing the run id. Empty until the first race lane lands (T-13).
+    # NAMING: the roster is deliberately NOT called `*ARMED_ALLOWLIST` (another cell
+    # reads that roster out of this file's source by name).
+    RACEPARSE_ARMED_SPECS = set()
+
+    def _spec(self, race_exp=None, race_fixture=True):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "RACE-x", "tier": "operator",
+            "tags": ["race"], "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/fresh-career",
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30},
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if race_fixture:
+            spec["fixture"]["race"] = {"sharedFolder": "empty"}
+        if race_exp is not None:
+            spec["expectations"]["race"] = race_exp
+        return spec
+
+    def _validate(self, spec):
+        return hlib.validate_spec(spec, {"schema": 1}, bug_ids=[])
+
+    def _race_lines(self, lines):
+        return [e for e in lines if "expectations.race" in e or "raceParse" in e]
+
+    def test_an_armed_block_validates_clean(self):
+        v = self._validate(self._spec({"gating": True}))
+        self.assertEqual([], self._race_lines(v.errors))
+        self.assertEqual([], self._race_lines(v.warnings))
+
+    def test_a_malformed_block_is_refused_before_launch(self):
+        for block, needle in (({"gating": "yes"}, "must be true or false"),
+                              ({"leakScan": True}, "unknown key 'leakScan'"),
+                              ("on", "must be a table")):
+            with self.subTest(block=block):
+                errs = self._race_lines(self._validate(self._spec(block)).errors)
+                self.assertTrue(any(needle in e for e in errs), errs)
+
+    def test_the_block_needs_the_race_fixture(self):
+        errs = self._race_lines(self._validate(self._spec({"gating": True},
+                                                          race_fixture=False)).errors)
+        self.assertTrue(any("needs [fixture.race]" in e for e in errs), errs)
+
+    def test_an_unarmed_race_lane_is_warned_not_refused(self):
+        for block in (None, {}, {"gating": False}):
+            with self.subTest(block=block):
+                v = self._validate(self._spec(block))
+                self.assertEqual([], self._race_lines(v.errors))
+                warns = self._race_lines(v.warnings)
+                self.assertEqual(1, len(warns), warns)
+                self.assertIn("report-only", warns[0])
+        # A spec with no race fixture gets no race line at all.
+        v = self._validate(self._spec(race_fixture=False))
+        self.assertEqual([], self._race_lines(v.errors + v.warnings))
+
+    def test_the_two_subkinds_are_in_the_verdict_tables(self):
+        self.assertEqual("race-isolation", hlib.RACE_ISOLATION_SUBKIND)
+        self.assertIn(hlib.RACE_ISOLATION_SUBKIND, hlib.PARSEK_FAIL_SUBKINDS)
+        self.assertEqual("race-parse", hlib.RACE_PARSE_INVALID_SUBKIND)
+        self.assertNotIn(hlib.RACE_PARSE_INVALID_SUBKIND, hlib.PARSEK_FAIL_SUBKINDS)
+        self.assertNotIn(hlib.RACE_PARSE_INVALID_SUBKIND, hlib.RETRYABLE_INVALID_SUBKINDS)
+
+    def _classify(self, verifiers, driver=None):
+        return hlib.classify_verdict(driver or {}, verifiers, {}, 1, "once")
+
+    def test_an_armed_leak_reds_first_among_the_verifier_reds(self):
+        leak = {raceparse.FLAG_LEAK: True}
+        alone = self._classify(leak)
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, hlib.RACE_ISOLATION_SUBKIND),
+                         (alone.verdict, alone.subkind))
+        self.assertFalse(hlib.should_retry(alone, 1, "once"))
+        red_analyzer = hlib.AnalyzerVerdict("PARSEK-FAIL", "analyzer", "R1")
+        for other in ({"analyzer": red_analyzer}, {"mission_outcome_unmet": True},
+                      {"log_validate_failed": True}, {"expectation_mismatch": True},
+                      {"save_structure_mismatch": True}, {"ledger_drift": True},
+                      {"unmet_step": True}, {"snapshot_save_missing": True},
+                      {raceparse.FLAG_UNEVALUABLE: True}):
+            with self.subTest(other=sorted(other)):
+                v = self._classify(dict(leak, **other))
+                self.assertEqual(hlib.RACE_ISOLATION_SUBKIND, v.subkind)
+        # The run-level faults still win: no verifier flag is evidence on those runs.
+        for driver, verifiers, verdict in (
+                ({"valid": False, "stage_subkind": "driver-stage"}, {}, hlib.VERDICT_INVALID),
+                ({}, {"killed": True}, hlib.VERDICT_KILLED),
+                ({}, {"tooling_invalid": True}, hlib.VERDICT_INVALID)):
+            with self.subTest(driver=driver, verifiers=verifiers):
+                self.assertEqual(verdict, self._classify(dict(leak, **verifiers),
+                                                         driver).verdict)
+
+    def test_an_unevaluable_armed_scan_only_turns_a_pass(self):
+        alone = self._classify({raceparse.FLAG_UNEVALUABLE: True})
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.RACE_PARSE_INVALID_SUBKIND),
+                         (alone.verdict, alone.subkind))
+        self.assertFalse(hlib.should_retry(alone, 1, "once"))
+        for other, subkind in (({"snapshot_save_missing": True},
+                                hlib.SNAPSHOT_SAVE_MISSING_SUBKIND),
+                               ({"unmet_step": True}, hlib.UNMET_STEP_SUBKIND),
+                               ({"log_validate_failed": True}, "log-contract"),
+                               ({"ledger_drift": True}, "ledger")):
+            with self.subTest(other=subkind):
+                v = self._classify(dict({raceparse.FLAG_UNEVALUABLE: True}, **other))
+                self.assertEqual((hlib.VERDICT_PARSEK_FAIL, subkind), (v.verdict, v.subkind))
+        self.assertEqual(hlib.VERDICT_PASS, self._classify({}).verdict)
+
+    def test_no_committed_spec_arms_the_leak_scan_unlisted(self):
+        armed = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if raceparse.race_gating_armed(spec.get("expectations") or {}):
+                armed.append(name)
+        self.assertEqual(sorted(self.RACEPARSE_ARMED_SPECS), armed,
+                         "the set of specs arming the raceParse leak scan changed: name "
+                         "the spec in RACEPARSE_ARMED_SPECS in the commit that arms it, "
+                         "citing its first armed flight")
+
+    def test_no_committed_spec_runs_the_row_today(self):
+        # The row runs only for a spec with [fixture.race]. The only committed ones are
+        # the paired-lane proof pair (multiplayer T-54, new lanes, on the pair folder),
+        # where it runs report-only; no other lane's verdict or result JSON can move.
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            with self.subTest(spec=name):
+                if name in RaceFolderHarnessStepSpecTests.HARNESS_STEP_SPECS:
+                    self.assertTrue(hlib.spec_uses_pair_folder(spec))
+                else:
+                    self.assertIsNone(hlib.spec_race_fixture(spec))
+                self.assertFalse(raceparse.race_block_declared(spec.get("expectations")))
