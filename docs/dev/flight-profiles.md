@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 152 |
 | seam-only lanes | 475 |
-| LIVE-PROVEN date in status row | 491 |
-| no LIVE-PROVEN date | 136 |
+| LIVE-PROVEN date in status row | 493 |
+| no LIVE-PROVEN date | 134 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -73,7 +73,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | L | 22 | 6 | 13 | 3 | - | 6 | 14 |
 | LAB | 18 | - | 1 | 17 | - | 1 | 18 |
 | LABX | 1 | - | - | 1 | - | 1 | 1 |
-| LAY | 1 | - | - | 1 | - | 1 | - |
+| LAY | 1 | - | - | 1 | - | 1 | 1 |
 | LF | 2 | - | 2 | - | - | - | 2 |
 | LS | 1 | - | 1 | - | - | - | 1 |
 | LT | 5 | - | 5 | - | - | - | 4 |
@@ -102,7 +102,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | RS | 1 | - | 1 | - | - | - | 1 |
 | RSC | 3 | - | 3 | - | - | - | 3 |
 | RSF | 1 | - | 1 | - | - | - | 1 |
-| RVC | 1 | - | - | 1 | - | - | - |
+| RVC | 1 | - | - | 1 | - | - | 1 |
 | RVR | 19 | 1 | 18 | - | - | - | 18 |
 | RW | 25 | - | - | 25 | - | 1 | 25 |
 | S | 19 | 11 | 3 | 5 | - | - | 13 |
@@ -317,7 +317,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 381 | 121 | 298 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +73 |
+| Kerbin | 381 | 121 | 300 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +73 |
 | Mun | 59 | 15 | 46 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, SOI 2, EVA 1, GUI 1 +9 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -327,7 +327,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Ike | 10 | 3 | 10 | V 4, FAR 3, B 2, RF 1 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
 | Jool | 48 | 18 | 40 | V 25, B 18, SPW 2, FAR 1, S 1, TP 1 |
-| Laythe | 29 | 15 | 27 | B 14, V 11, FAR 1, LAY 1, SPW 1, TP 1 |
+| Laythe | 29 | 15 | 28 | B 14, V 11, FAR 1, LAY 1, SPW 1, TP 1 |
 | Vall | 11 | 5 | 11 | B 5, V 5, TP 1 |
 | Tylo | 13 | 6 | 12 | B 6, V 6, SPW 1 |
 | Bop | 8 | 4 | 8 | B 4, V 4 |
@@ -835,7 +835,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | AIR-1-runway-circuit-splashdown | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | - | - | LIVE-PROVEN 2026-11-16 |
 | AIR-2-runway-circuit-ksc-ghost | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | rewind-to-launch, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
-| AIR-3-plane-drone-midair-collision | operator | gs1-two-stage-pad | air3_drone_intercept | Kerbin | rewind-to-launch, warp, scene-change | - | RE-FLOWN 2026-11-17 |
+| AIR-3-plane-drone-midair-collision | operator | gs1-two-stage-pad | air3_drone_intercept | Kerbin | rewind-to-launch, warp, scene-change | - | FLIGHT 5 2026-11-17 2026-11-17_1741 PARSE... |
 
 ### AJ (1)
 
@@ -1336,7 +1336,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| LAY-1-laythe-reentry-splashdown | operator | laythe-park-nerv | b4_reentry | Kerbin, Laythe | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | FLIGHT 1 2026-11-17 2026-11-17_1417 PARSE... |
+| LAY-1-laythe-reentry-splashdown | operator | laythe-park-nerv | b4_reentry | Kerbin, Laythe | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
 
 ### LF (2)
 
@@ -1600,7 +1600,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| RVC-1-two-rover-head-on-crash | operator | rover-crash-watched | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | FLOWN THREE TIMES, never green; re-shaped... |
+| RVC-1-two-rover-head-on-crash | operator | rover-crash-watched | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | LIVE-PROVEN 2026-11-17 |
 
 ### RVR (19)
 

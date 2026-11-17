@@ -5,8 +5,8 @@ tier = "operator"
 # LAY-1: A LIVE ATMOSPHERIC LANDING OFF KERBIN, RECORDED, REWOUND AND REPLAYED.
 #
 # Authored 2026-11-17 for todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9 (audit B9: "no lane
-# flies ... a live atmospheric landing off Kerbin"). NEVER FLOWN: its first flight is a
-# READING run (tag `pending-flight`). Every regex below matches a literal found in C#
+# flies ... a live atmospheric landing off Kerbin"). Flown twice; LIVE-PROVEN on the second
+# (below), tag `flown`. Every regex below matches a literal found in C#
 # source (file cited); the windows that depend on stock physics (where the pod comes down,
 # how many debris pieces survive) are left open.
 #
@@ -15,6 +15,17 @@ tier = "operator"
 # LeafVesselPlacement pins red on `compared=0` because the Space Center skips every spawn path
 # for a recording whose first point is off Kerbin (todo KSC-END-SPAWN-SKIPS-OFF-KERBIN, a
 # Parsek defect). Those pins stay as written: the lane goes green with the fix.
+#
+# LIVE-PROVEN 2026-11-17 on its second flight, the first on the fix (run
+# 2026-11-17_1740, PASS attempt 1, 724 s; runner run spawn-reflight-2026-11-17 on V's PC,
+# Debug DLL from main e9353aa5; diagnostics on branch forge-logs-2026-11-17-spawn): the
+# Space Center pass read `KSC structural pass: drawable=0 spawnOnly=7`, `Spawn-only past-end:
+# attempting spawn for #1 "Duna Rocket" ... reason=off-kerbin firstBody=Laythe`, then
+# `Vessel spawned for #1 "Duna Rocket" ... sit=SPLASHED`; `LeafPlacement: ... kind=surface
+# body=Laythe liveBody=Laythe distM=0.0 verdict=ok`, `LeafPlacement summary: scene=SPACECENTER
+# compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=[Laythe]` and `BATCH_COMPLETE
+# v1 total=1 passed=1 failed=0 skipped=0`, both now pinned whole; recordings 7 (as on flight
+# 1), now pinned exactly; the id has left INTERIM_PIN_IDS.
 #
 # HOST: `laythe-park-nerv` (B25's Laythe park, Parsek-stripped): the crewed "Duna Rocket"
 # ORBITING Laythe, SMA 572,085.8 m ecc 0.0277 (periapsis ~56.2 km, apoapsis ~87.9 km,
@@ -65,15 +76,15 @@ tier = "operator"
 # explicit-UT WarpToUT. (3) no dwell keys. (4) the deorbit burn runs at 1x (B4's DEORBIT
 # phase never warps). (5) b5 coast keys do not apply (B4 machine). (6) the gate fails fast
 # with a named MISSION-ASSERT-FAIL on a wrong handoff; B4 already ends every loss at once.
-# (7) the count window is open until the reading run measures it. (8) tier operator by the
-# calibration discipline until flown. (9) flight_efficiency.py owed after the first green
+# (7) count pinned at the measured 7 (both flights). (8) tier operator by the calibration
+# discipline until the promotion call. (9) flight_efficiency.py owed after the first green
 # flight.
 # =============================================================================
-description = "NEVER FLOWN (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9, audit B9): the crewed Duna Rocket parked in Laythe orbit (laythe-park-nerv) deorbits on its NERV, drops its radial tanks and its core stack, reenters on the heat shield and comes down under its chutes on Laythe (b4_reentry in its new orbit-start mode). Gates the active recorder's Atmospheric section on a body that is not Kerbin, the chute part events and a Splashed / Landed terminal on Laythe at the commit; then Rewind-to-Launch, a Tracking Station visit (whether a map ghost appears there is read on flight 1, not gated: the clock sits before the recording's start and a Splashed terminal is not map-eligible), and the spawned pod at its terminal surface place (LeafVesselPlacement)."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_1740, second flight; the first red on KSC-END-SPAWN-SKIPS-OFF-KERBIN, fixed). Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9, audit B9: the crewed Duna Rocket parked in Laythe orbit (laythe-park-nerv) deorbits on its NERV, drops its radial tanks and its core stack, reenters on the heat shield and comes down under its chutes on Laythe (b4_reentry in its new orbit-start mode). Gates the active recorder's Atmospheric section on a body that is not Kerbin, the chute part events and a Splashed / Landed terminal on Laythe at the commit; then Rewind-to-Launch, a Tracking Station visit (whether a map ghost appears there is read on flight 1, not gated: the clock sits before the recording's start and a Splashed terminal is not map-eligible), and the spawned pod at its terminal surface place (LeafVesselPlacement)."
 instanceProfile = "stock-minimal"
 tags = ["LAY1", "laythe", "atmosphere", "reentry", "chute", "splashdown", "orbit-start",
         "commit-landed-foreign-body", "rewind-to-launch", "leaf-placement", "ingame-batch",
-        "crewed", "pending-flight"]
+        "crewed", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/laythe-park-nerv"
@@ -161,11 +172,9 @@ D14 = ["laythe", "atmosphere", "warp-1x", "warp-rails", "scene-flight", "scene-t
 allowedAnomalies = []
 
 [expectations.recordings]
-# Open until the reading run: the root, the two stage separations' continuations and up to
-# five debris pieces (4 radial tanks, the core stack), plus optimizer splits at the
-# Exo -> Atmospheric -> Surface boundaries. Above 20 the commit prints the root's summary
-# line only (ParsekFlight.CommitTerminalLogLimit), which the terminal token still reads.
-count = { min = 2, max = 20 }
+# The root, the pod's continuation after the stage drops and five debris pieces (4 radial
+# tanks, the core stack). Both flights read 7 (`_1417`, `_1740`).
+count = { min = 7, max = 7 }
 
 [expectations.logContracts]
 required = [
@@ -196,8 +205,8 @@ required = [
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
   # LeafVesselPlacement.cs (FormatSummaryLine) + InGameTestRunner.cs (BATCH_COMPLETE): the
   # spawned pod sits at its terminal surface place on Laythe.
-  "MISSIONMARK label=lay1-past-end ut=[\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[(?:[A-Za-z]+,)*Laythe(?:,[A-Za-z]+)*\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER",
+  "MISSIONMARK label=lay1-past-end ut=[\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Laythe\\]",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=SPACECENTER",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [

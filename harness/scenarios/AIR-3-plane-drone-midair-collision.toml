@@ -5,7 +5,8 @@ id = "AIR-3-plane-drone-midair-collision"
 # 2026-11-17 (INVALID autopilot-flake both attempts: a vertical miss, then the floor),
 # RE-TUNED 2026-11-17 off those flights' own numbers; RE-FLOWN TWICE 2026-11-17 (INVALID
 # autopilot-flake both attempts: the release never fired), the release fixed, not yet
-# re-flown.
+# re-flown; FLOWN A FIFTH TIME 2026-11-17 on the roll-out (MISSION-OK, the collision on the
+# first pass), PARSEK-FAIL(expectation) on one spec error, re-pinned below, re-flight owed.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3b (owner request 2026-11-16: two airplanes
 # flying into each other, for recording and ghost playback reliability).
 #
@@ -69,6 +70,29 @@ id = "AIR-3-plane-drone-midair-collision"
 # rides the telemetry cadence, `releaseHold` / `releaseRollout` / `loiterCaptures`
 # gate lines log each change, and the event-window ring carries roll / hdg / vspd / lon.
 #
+# THE FIFTH FLIGHT (runner run `spawn-reflight-2026-11-17`: `2026-11-17_1741`, PASS of the
+# mission, PARSEK-FAIL(expectation) attempt 1, 763 s; Debug DLL from main e9353aa5;
+# diagnostics on branch forge-logs-2026-11-17-spawn). The roll-out released the drone at UT
+# 328.78 / 2502.6 m and the Mallard hit it at UT 466.62 on the first pass: the drone died
+# whole (`fuelTank Exploded!!`, `Part death on background vessel: Destroyed 'fuelTank'
+# pid=1731918054 vesselPid=2276105202`, its root `radialDecoupler1-2 Exploded!!`, `Background
+# vessel destroyed: pid=2276105202`), the carrier lost its nose cone (38 -> 37 parts) and
+# later its wings, and splashed. Every pin held but the drone ghost's visibility apply. THE
+# SPEC ERROR: the drone's three structural part events (Decoupled probe core, Destroyed and
+# Decoupled fuel tank, all UT 466.62; `CommitTree: merged recording '517d7f67...' ...
+# events=5`) are recorded, but they sit 0.02 s before the drone recording's end (terminal
+# Destroyed at 466.64). A non-loop ghost past its EndUT leaves the in-range branch: the KSC
+# host (ParsekKSC.UpdateSingleGhostKsc, `currentUT <= rec.EndUT`) and the flight engine
+# (GhostPlaybackEngine.Completion) both fire the terminal explosion and destroy the ghost
+# without catching up tail part events (only flag events are caught up). At 10x the replay
+# frame stepped from before 466.62 straight past 466.64, so the drone's ghost #2 logged
+# `Explosion for ghost #2 "AIR Drone Carrier Probe" vesselLength=17.7m` and `exited range at
+# UT 466.7` with no `apply ... rec=2` line for those events; the carrier's ghost #0 applied
+# its own nose cone `Destroyed` in the same frame. A vessel destroyed whole is drawn by the
+# whole-ghost explosion, so a per-part hide 0.02 s earlier would not be visible: no defect.
+# The drone pin now reads the drone ghost's `terminal=Destroyed` entry and the explosion on
+# that ghost's own index.
+#
 # THE SIMPLER VARIANT, AND WHY IT KEEPS THE POINT. Both aircraft must be members of ONE
 # recording tree and both must be loaded when they meet. A switch to a vessel outside
 # the tree does not add it, so the second aircraft has to come out of the first one's
@@ -120,8 +144,8 @@ id = "AIR-3-plane-drone-midair-collision"
 #      waits until both vessels are down or gone (aftermathMinSeconds at least).
 #   2. SEAM: ExitToSpaceCenter commits the active or the pending tree (autoMerge on;
 #      KD-1's road), InvokeRewindToLaunch rewinds it into the Space Center, and
-#      WarpToUT at up to 10x replays it there: both ghosts enter range and the recorded
-#      part deaths hide parts on both.
+#      WarpToUT at up to 10x replays it there: both ghosts enter range, the recorded part
+#      deaths hide parts on the carrier, and the drone's ghost explodes at its Destroyed end.
 #
 # WHAT IT GATES (logContracts; every token is quoted from its ParsekLog call site):
 #   the recording (auto-record on the Runway), the split in the air (two controllable
@@ -129,9 +153,10 @@ id = "AIR-3-plane-drone-midair-collision"
 #   `[Recorder] Part event: Destroyed` and a background `Part death on background
 #   vessel` on the drone's pid, both between the two marks around the mission), the
 #   commit, BOTH leaf recordings finalized Destroyed or Splashed, the rewind, and the
-#   replay: the KSC ghosts of both aircraft entered range, and the destroyed-part
-#   visibility applied on EACH of the two ghosts (tied to each ghost's index by
-#   back-reference, so debris ghosts cannot stand in for either).
+#   replay: the KSC ghosts of both aircraft entered range, the destroyed-part visibility
+#   applied on the carrier's ghost, and the drone's ghost entered with terminal=Destroyed and
+#   exploded (each tied to its ghost's index by back-reference, so debris ghosts cannot
+#   stand in for either).
 #
 # NOT GATED: that the two GHOSTS meet at the impact point during the replay (no in-game
 # check samples a KSC ghost's transform yet; the same gap AIR-2 names), and which parts
@@ -170,7 +195,7 @@ id = "AIR-3-plane-drone-midair-collision"
 #      the leg banks again (the model releases with 10+ s of the leg left).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-17; flown twice 2026-11-17 INVALID (5.5 m vertical misses, then the drone reached the floor), re-tuned (a learned pitch trim, a 2500 m release), re-flown twice INVALID (the loiter's steady 9 - 10 deg bank held the 8 deg roll gate, no release in 600 s), the release now rolls the wings level first, not yet re-flown. Two aircraft of one recording tree collide in the air: the stock Mallard carrying a parachute drone under its wing (derived craft `AIR Drone Carrier`) takes off from the Runway, releases the drone over the sea, turns back and flies into it, steering on the drone's live position every poll (mission air3_drone_intercept). Gates the active and the background part deaths at the collision, the drone's own recording, both leaves finalized Destroyed or Splashed and the commit, then Rewinds-to-Launch and replays both ghosts at the Space Center with the destroyed parts hidden on each."
+description = "AUTHORED 2026-11-17; flown twice 2026-11-17 INVALID (5.5 m vertical misses, then the drone reached the floor), re-tuned (a learned pitch trim, a 2500 m release), re-flown twice INVALID (the loiter's steady 9 - 10 deg bank held the 8 deg roll gate, no release in 600 s), the release now rolls the wings level first; flown a fifth time 2026-11-17 (MISSION-OK, collision on the first pass) PARSEK-FAIL(expectation) on one spec error (the drone, destroyed whole, has no per-part visibility apply in the replay: its ghost explodes at its Destroyed end), re-pinned, re-flight owed. Two aircraft of one recording tree collide in the air: the stock Mallard carrying a parachute drone under its wing (derived craft `AIR Drone Carrier`) takes off from the Runway, releases the drone over the sea, turns back and flies into it, steering on the drone's live position every poll (mission air3_drone_intercept). Gates the active and the background part deaths at the collision, the drone's own recording, both leaves finalized Destroyed or Splashed and the commit, then Rewinds-to-Launch and replays both ghosts at the Space Center: the carrier's destroyed parts hidden, the drone's ghost exploding at its Destroyed end."
 instanceProfile = "stock-minimal"
 tags = ["AIR3", "aircraft", "crash", "part-destroyed", "background-recording", "rewind-to-launch", "ksc-ghost", "pending-flight"]
 
@@ -254,7 +279,7 @@ aftermathTimeoutSeconds = 480.0
 #                             full-fidelity scene-exit auto-commit
 #   D5 controlled-decoupled-child <- "ProcessBreakupEvent: controlled child created"
 #   D5 bg-recording        <- "Part death on background vessel" on the drone's pid
-#   D7 decouple-stage-destroy <- the Destroyed / ParachuteDestroyed visibility applies
+#   D7 decouple-stage-destroy <- the carrier ghost's Destroyed visibility apply
 #   D6 basic-playback      <- both KSC ghosts entered range
 #   D9 rewind-to-launch    <- "invokerewindtolaunch complete"
 D1  = ["auto-record-launch", "commit-scene-exit", "auto-merge"]
@@ -308,13 +333,17 @@ required = [
   "(?s)MISSIONMARK label=air3-flight .*?FinalizeTreeRecordings: rec='[0-9a-f]+' vessel='AIR Drone Carrier Probe' points=[1-9][0-9]* orbitSegs=[0-9]+ terminal=(?:Destroyed|Splashed) [^\\r\\n]*leaf=True.*?MISSIONMARK label=air3-committed ",
   # --- 4. The rewind (ParsekTestCommandAddon.InvokeRewindToLaunch.cs:243) ---
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
-  # --- 5. THE REPLAY at the Space Center (ParsekKSC.cs:799 entered range, Verbose;
+  # --- 5. THE REPLAY at the Space Center (ParsekKSC.cs:827 entered range, Verbose;
   # GhostPartEventApplyLog.cs:216 the apply line, flushed Verbose at :356; the
   # Destroyed / ParachuteDestroyed surface is `visibility`,
-  # GhostPlaybackLogic.PartEvents.cs:126 / :161). Each ghost's destroyed parts
-  # are tied to that ghost's own index by back-reference. ---
+  # GhostPlaybackLogic.PartEvents.cs:126 / :161). The carrier's destroyed parts are
+  # tied to its ghost's own index by back-reference. ---
   "MISSIONMARK label=air3-rewound ut=[\\s\\S]*?\\[KSCGhost\\] Ghost #([0-9]+) \"AIR Drone Carrier\" entered range: [\\s\\S]*?apply family=Destroyed surface=visibility rec=\\1 pid=[0-9]+ applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=air3-replayed ",
-  "MISSIONMARK label=air3-rewound ut=[\\s\\S]*?\\[KSCGhost\\] Ghost #([0-9]+) \"AIR Drone Carrier Probe\" entered range: [\\s\\S]*?apply family=(?:Destroyed|ParachuteDestroyed) surface=visibility rec=\\1 pid=[0-9]+ applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=air3-replayed ",
+  # The drone, destroyed whole: its ghost enters with terminal=Destroyed (ParsekKSC.cs:827)
+  # and explodes at its end on the same index (ParsekKSC.cs:1986, Info); its part events
+  # at the collision sit inside the last replay frame before its end and are never applied
+  # (flight 5, header).
+  "MISSIONMARK label=air3-rewound ut=[\\s\\S]*?\\[KSCGhost\\] Ghost #([0-9]+) \"AIR Drone Carrier Probe\" entered range: [^\\r\\n]* terminal=Destroyed[\\r\\n][\\s\\S]*?\\[KSCGhost\\] Explosion for ghost #\\1 \"AIR Drone Carrier Probe\" vesselLength=[\\s\\S]*?MISSIONMARK label=air3-replayed ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

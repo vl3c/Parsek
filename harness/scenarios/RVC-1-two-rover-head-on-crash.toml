@@ -6,10 +6,22 @@ tier = "operator"
 #
 # Authored 2026-11-16 for todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3a ("two rovers crash
 # into each other, to check the reliability of the recording system and playback
-# rendering"). Not yet green (tag `pending-flight`): flown three times, never green, and
-# re-shaped twice (after flight 1 and after flights 2 and 3, below). Every regex below
-# matches a literal found in C# source (file cited); the windows that depend on stock
-# physics (the impact speed, how far the depot is pushed) are left open.
+# rendering"). LIVE-PROVEN 2026-11-17 on its fourth flight (tag `flown`), after three red
+# or INVALID flights and two re-shapes (after flight 1 and after flights 2 and 3, below).
+# Every regex below matches a literal found in C# source (file cited); the windows that
+# depend on stock physics (the impact speed, how far the depot is pushed) are left open.
+#
+# FLIGHT 4, LIVE-PROVEN (2026-11-17, `2026-11-17_1740`, PASS attempt 1, 358 s; runner run
+# spawn-reflight-2026-11-17 on V's PC, Debug DLL from main e9353aa5; diagnostics on branch
+# forge-logs-2026-11-17-spawn): the timed drive pushed the depot again (`Environment
+# transition: pid=1093449218 -> SurfaceMobile at UT=130.08`, `drivevessel end: outcome=moved
+# ... gameSeconds=20.02 ... maxSrfSpeed=18.85`), both explodes applied, `[Recorder] Part event:
+# Destroyed 'radPanelSm' pid=4129919072` and `Part death on background vessel: Destroyed
+# 'radPanelSm' pid=2576286852 vesselPid=1093449218`; the commit read `recordings=4` (mark
+# `rvc1-committed-4`), both leaves `terminal=Landed`; the replay applied `apply family=Destroyed
+# surface=visibility rec=2 pid=4129919072` and `rec=3 pid=2576286852`. Report-only: ghost
+# lifecycle 4 spawned / 4 destroyed, structure one tree, one Dock, one Undock. The recording
+# count and the two commit-count pins are now the measured 4.
 #
 # FLIGHT 1 (2026-11-17, `2026-11-17_1411`, Debug DLL from main 65ac33ee8, PARSEK-FAIL
 # (expectation) attempt 1, 348 s; every other verifier green). Red on exactly two tokens,
@@ -163,10 +175,10 @@ tier = "operator"
 # so the crash cannot ride either; (2) every wait is an explicit-UT WarpToUT; (3) all of the
 # recording is 1x physics (the drives need it); the replay runs 5x on rails to the dock and
 # 1x through the crash; (4)-(5) no burns, no coast; (6) retry once (a missed impact is
-# physics); (7) count is a floor; (8)/(9) after the first green flight.
-description = "RVC-1: V's mining rover docks the ore depot rover and undocks it so both are members of one recording tree, backs away and drives head-on into it at full throttle for 20 s (the impact pushes the depot but breaks nothing), then explodes one radiator on each rover; gates the impact reaching the depot, both recorders' part-death lines and the scene-exit commit, then after Rewind-to-Launch replays both ghosts from a neighbouring rover through the impact and gates the ghost meshes and the destroyed-part visibility applied on both recordings."
+# physics); (7) count pinned at the measured 4; (8)/(9) owed after the first green flight.
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_1740, fourth flight). RVC-1: V's mining rover docks the ore depot rover and undocks it so both are members of one recording tree, backs away and drives head-on into it at full throttle for 20 s (the impact pushes the depot but breaks nothing), then explodes one radiator on each rover; gates the impact reaching the depot, both recorders' part-death lines and the scene-exit commit, then after Rewind-to-Launch replays both ghosts from a neighbouring rover through the impact and gates the ghost meshes and the destroyed-part visibility applied on both recordings."
 instanceProfile = "stock-minimal"
-tags = ["rover", "crash", "dock-undock", "part-destroyed", "background-recording", "rewind", "ghost-playback", "RVC-1", "pending-flight", "reading-run"]
+tags = ["rover", "crash", "dock-undock", "part-destroyed", "background-recording", "rewind", "ghost-playback", "RVC-1", "flown", "reading-run"]
 
 [fixture]
 saveTemplate = "fixtures/saves/rover-crash-watched"
@@ -274,9 +286,9 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-1x"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# A floor: the pre-dock recording, the docked one and the Undock branch's two children
-# (Dock merge + Undock split), plus whatever debris the impact makes. Pin after flight 1.
-count = { min = 3 }
+# The pre-dock recording, the docked one and the Undock branch's two children (Dock merge +
+# Undock split); the impact makes no debris since the re-shape. Flight 4 read 4.
+count = { min = 4, max = 4 }
 
 [expectations.recordings.structure]
 # REPORT-ONLY until a reading run: one tree, one dock and one undock.
@@ -326,9 +338,9 @@ required = [
   # ParsekScenario.AutoCommit.cs Silent / Limbo-preserving full-fidelity) ---
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=(?:false hasPendingTree=true|true hasPendingTree=false)",
   "exittospacecenter complete scene=SPACECENTER game-loaded=true ",
-  "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Mining Rover RC' recordings=(?:[3-9]|[1-9][0-9]+) ",
+  "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Mining Rover RC' recordings=4 ",
   # ListHandles kind=committed counts committed RECORDINGS, not trees (AST-1 / COM-1 pin -2).
-  "MISSIONMARK label=rvc1-committed-(?:[3-9]|[1-9][0-9]+) ",
+  "MISSIONMARK label=rvc1-committed-4 ",
   # Both rovers' recordings end as leaves with a ground terminal (a wreck that kept its root
   # stays Landed; a vessel the crash removed is Destroyed), finalized after the crash
   # (ParsekFlight.Finalization.cs; the depot's name by back-reference to the undock's).
