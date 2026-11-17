@@ -448,7 +448,20 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # injector refuses a target save at
                                         # another UT. No RP. Consumer:
                                         # RSC-3-ready-spawn-room.
-                                        "spawn-room")
+                                        "spawn-room",
+                                        # SPIKE BRANCH ONLY (spike/mp-r0,
+                                        # never merged; r0-spikes.md S11).
+                                        # spike-s11-ghosts: 64 committed
+                                        # single-recording ghost-only trees
+                                        # on pad-runway-pair, lit rockets
+                                        # circling the pad 40-110 m out,
+                                        # plus a copied real sidecar pair in
+                                        # <save>/SpikeS11/. `--filter
+                                        # InjectSpikeS11Ghosts`; the injector
+                                        # refuses a target save at another
+                                        # UT. No RP. Consumer:
+                                        # SPIKE-S11-ghost-cost.
+                                        "spike-s11-ghosts")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")

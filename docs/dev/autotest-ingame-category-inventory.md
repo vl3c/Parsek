@@ -206,6 +206,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |
 | `SpawnTerminalOrbit` | 4 | 4 | 0 | 0 | 0 | 4 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips; the fourth cell, the surface-relative low-orbit tail seed of 2026-10-18, is pinned 4/4 and not yet flown) | A |
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue wants autostrut parts in range) | B |
+| `SpikeS11` | 1 | 0 | 0 | 0 | 1 | 1 | SPIKE-S11-ghost-cost (ISOLATED, SPIKE BRANCH ONLY: `spike/mp-r0`, never merged; plan `docs/dev/plans/multiplayer/r0-spikes.md` task S11; authored 2026-11-17, NEVER FLOWN). The R0 ghost cost sweep `GhostCostSweep`: frame time and engine time with 0 / 8 / 16 / 32 / 64 injected ghosts in flight and map view, plus a sidecar first-open, flown by the owner against `automation/spike-r0` with `PARSEK_SPIKE=S11`. Wholly batch-disabled (it toggles playback on 64 recordings and moves the camera and frame cap), so only the isolated path runs it; self-skips when S11 is not armed or the preset is missing. On the spike branch only; it never reaches `main` | A |
 | `SpikeS4` | 1 | 0 | 0 | 0 | 1 | 1 | NOT DRIVEN (spike branch `spike/mp-r0` only, never merged: the S4a KSC state probe, run by hand from Ctrl+Shift+T; self-skips unless `PARSEK_SPIKE` arms `S4a`) | C |
 | `StandaloneLoopMap` | 1 | 1 | 1 | 1 | 0 | 1 | SLM-1-standalone-loop-map-position, SLM-2-standalone-loop-map-pause and SLM-1T-standalone-loop-ts-position (authored 2026-10-31 with the fix for RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP, all three LIVE-PROVEN 2026-11-01 after a first flight red on a fixture defect, each pinned whole `passed=1 failed=0 skipped=0`). One AnyScene cell, so every scene column counts 1: over the `standalone-loop-map` preset (a 1500 s orbital run on its own Recordings-tab loop, period 4000 s) it derives the loop clock's sample UT from the recording's own fields and reads the map ghost's position against the RECORDED orbit at that UT in FLIGHT and TRACKSTATION, or requires no map ghost in the pause between runs. Self-skips outside FLIGHT / TRACKSTATION, without the preset, and in the first run. Its own category so no pinned `BATCH_COMPLETE` tally moves | A |
 | `StartupNotices` | 3 | 3 | 3 | 3 | 0 | 1 | SN-1-startup-notices-clean-install (authored 2026-10-03, LIVE-PROVEN 2026-10-04: verdict run `2026-10-04_1830` PASS attempt 1, re-flown PASS on the final head `2026-10-04_1845`, `total=3 passed=3 failed=0 skipped=0` as predicted, pinned WHOLE). The live half of the startup notices (`StartupNotices.cs`, `ParsekHarmony.cs`) on the provisioned `fresh-career` host, a correct install: the install-location check over KSP's real `AssemblyLoader` paths answers null, this session's Harmony sweep applied every patch class, and stock `ScreenMessages` accepts a post in a settled scene; the spec forbids every startup-notice warn / post line. Three AnyScene cells, so every scene column counts 3. Its OWN category for the standing reason. The self-skip column is 1: the post cell skips when `ScreenMessages` has no instance | A |
@@ -237,8 +238,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **143 categories / 699 declarations**. Buckets **A 103 categories
-(393 declarations)**, **B 37 categories (300 declarations)**, **C 3 categories (6
+Totals, re-derived: **144 categories / 700 declarations**. Buckets **A 104 categories
+(394 declarations)**, **B 37 categories (300 declarations)**, **C 3 categories (6
 declarations)** - the C rows are `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes),
 `MoonArrivalHold`, opened 2026-11-07 by the lone-moon arrival hold, which waits for the
@@ -270,7 +271,9 @@ its lane (live-proven the same day) into **A** on the same standing, A 98 -> 99 
 2026-10-31 fix for RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP's `StandaloneLoopMap` (SLM-1 / SLM-2 / SLM-1T, one AnyScene
 cell) landed WITH its lanes (live-proven 2026-11-01) into **A** on the same standing, A 99 -> 100 categories, 384 -> 385 declarations. The
 2026-11-07 fairing snapshot lane's `FairingGhostVisual` (FGV-1, one FLIGHT cell) landed WITH its never-flown lane into **A**
-on the same standing, A 102 -> 103 categories, 391 -> 392 declarations. All re-derived
+on the same standing, A 102 -> 103 categories, 391 -> 392 declarations. On the spike branch only (`spike/mp-r0`,
+never merged), the R0 ghost cost sweep's `SpikeS11` (SPIKE-S11-ghost-cost, one FLIGHT cell) landed WITH its
+never-flown isolated lane into **A** on the same standing, A 103 -> 104 categories, 393 -> 394 declarations. All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;

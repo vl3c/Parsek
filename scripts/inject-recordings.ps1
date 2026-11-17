@@ -41,6 +41,7 @@ $injectFilterByPreset = @{
     "rescan-substitute"     = "InjectRescanSubstitute"
     "leaves-departure"      = "InjectLeavesDeparture"
     "spawn-room"            = "InjectSpawnRoom"
+    "spike-s11-ghosts"      = "InjectSpikeS11Ghosts"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -74,6 +75,7 @@ $defaultSaveByPreset = @{
     "rescan-substitute"     = "rescan-substitute-fixture"
     "leaves-departure"      = "leaves-departure-fixture"
     "spawn-room"            = "spawn-room-fixture"
+    "spike-s11-ghosts"      = "spike-s11-ghosts-fixture"
 }
 
 $ErrorActionPreference = "Stop"

@@ -7519,6 +7519,88 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// R0 spike S11 (spike branch only): injects ONLY <see cref="Spikes.SpikeS11Fixture"/>
+        /// (the <c>spike-s11-ghosts</c> preset behind <c>SPIKE-S11-ghost-cost</c>): 64
+        /// ghost-only single-recording trees circling the <c>pad-runway-pair</c> pad, plus
+        /// a copy of one real trajectory sidecar pair into <c>&lt;save&gt;/SpikeS11/</c>
+        /// for the first-open measure. Same env contract and guarded purge as every
+        /// sibling injector; a target save at any other UT than the host's is refused.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("spike-s11-ghosts-fixture")]
+        public void InjectSpikeS11Ghosts()
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "spike-s11-ghosts-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
+
+            double saveUT = ReadUTFromSave(targetPath);
+            Assert.True(Math.Abs(saveUT - Spikes.SpikeS11Fixture.HostSaveUT) < 1e-3,
+                "spike-s11-ghosts is authored against pad-runway-pair (UT="
+                + Spikes.SpikeS11Fixture.DescribeUT(Spikes.SpikeS11Fixture.HostSaveUT)
+                + "); target save UT is " + Spikes.SpikeS11Fixture.DescribeUT(saveUT));
+
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            var writer = new ScenarioWriter().WithV3Format();
+            Spikes.SpikeS11Fixture.PopulateWriter(writer, saveUT);
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("spike-s11-ghost-00", content);
+                    Assert.Contains("spike-s11-ghost-63", content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+
+            string cold = Spikes.SpikeS11Fixture.CopyColdSidecar(ProjectRoot, saveDir);
+            Assert.True(File.Exists(cold), "cold sidecar copy missing: " + cold);
+        }
+
+        /// <summary>
         /// Injects ONLY <see cref="StandaloneLoopMapFixture"/> (the <c>standalone-loop-map</c>
         /// preset behind <c>SLM-1-standalone-loop-map-position</c>): one committed
         /// single-recording tree whose orbital recording loops on its OWN toggle with a period

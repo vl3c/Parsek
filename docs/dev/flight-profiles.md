@@ -8,18 +8,18 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 | what | lanes |
 |---|---|
-| lanes | 601 |
+| lanes | 602 |
 | tier daily | 29 |
 | tier nightly | 289 |
-| tier operator | 278 |
+| tier operator | 279 |
 | tier longhaul | 5 |
-| profile stock-minimal | 556 |
+| profile stock-minimal | 557 |
 | profile stock-tree | 41 |
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 145 |
-| seam-only lanes | 456 |
+| seam-only lanes | 457 |
 | LIVE-PROVEN date in status row | 483 |
-| no LIVE-PROVEN date | 118 |
+| no LIVE-PROVEN date | 119 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -27,7 +27,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 - Seam verbs (of 62 implemented): none
 - Dimension values (1 of 251 registry values): D1 `sub-2-point-drop`
-- In-game test categories (8 of 143 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `ChainTipBlockedGhost`, `DeployedScienceGhost`, `FreeTechUnlock`, `GhostReapplyFrame`, `GuiMock`, `JointBreakCheckCoroutine`, `SpikeS4`, `TreeRestoreCoroutine`
+- In-game test categories (8 of 144 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `ChainTipBlockedGhost`, `DeployedScienceGhost`, `FreeTechUnlock`, `GhostReapplyFrame`, `GuiMock`, `JointBreakCheckCoroutine`, `SpikeS4`, `TreeRestoreCoroutine`
 
 ## Lanes per family
 
@@ -107,7 +107,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | SLM | 3 | - | - | 3 | - | - | 3 |
 | SN | 1 | - | 1 | - | - | - | 1 |
 | SOI | 1 | - | - | 1 | - | 1 | 1 |
-| SPIKE | 1 | - | - | 1 | - | - | - |
+| SPIKE | 2 | - | - | 2 | - | - | - |
 | SS | 1 | - | 1 | - | - | - | - |
 | ST | 4 | - | 4 | - | - | 1 | 4 |
 | STR | 4 | - | - | 4 | - | 2 | 4 |
@@ -126,7 +126,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 ## Lanes per host save
 
-The host is the leaf of `fixture.saveTemplate`. 139 hosts serve 601 lanes.
+The host is the leaf of `fixture.saveTemplate`. 139 hosts serve 602 lanes.
 
 | host save | lanes | families |
 |---|---|---|
@@ -141,9 +141,9 @@ The host is the leaf of `fixture.saveTemplate`. 139 hosts serve 601 lanes.
 | career-pad-craft | 15 | QL 6, CL 2, L 2, CT 1, H 1, KD 1, R 1, STR 1 |
 | fresh-career | 14 | L 5, AH 1, B 1, CS 1, GUI 1, H 1, HV 1, LAB 1, R 1, SN 1 |
 | kerbin-splashdown-recorded | 12 | EVA 4, V 3, CX 2, RR 1, SE 1, W 1 |
+| pad-runway-pair | 10 | SLM 3, LF 2, EX 1, LS 1, OC 1, RL 1, SPIKE 1 |
 | bdock-forge-base | 9 | FORGE 8, LABX 1 |
 | gs2-orbital-stack | 9 | RF 3, GS 2, H 2, PAD 1, ST 1 |
-| pad-runway-pair | 9 | SLM 3, LF 2, EX 1, LS 1, OC 1, RL 1 |
 | career-earned-pad | 8 | L 4, CLK 1, H 1, LT 1, ST 1 |
 | jool-orbit-recorded | 8 | B 6, V 2 |
 | lab-lko-science | 8 | LAB 7, QL 1 |
@@ -300,13 +300,14 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | single-point-hold | 1 |
 | spawn-room | 1 |
 | spawn-safety | 1 |
+| spike-s11-ghosts | 1 |
 | vessel-budget | 1 |
 
 ## Lanes per body
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 362 | 114 | 293 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +66 |
+| Kerbin | 363 | 114 | 293 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +66 |
 | Mun | 55 | 13 | 45 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +6 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -342,7 +343,7 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 | scene-change | 167 | V 30, RW 25, QL 14, RF 13, CS 11, LAB 8, CI 4, CX 4, IR 4, S 4 +37 |
 | vessel-switch | 17 | S 4, CI 2, EVA 2, MINE 2, AJ 1, FAR 1, GC 1, GS 1, KB 1, RF 1, SEAT 1 |
 | new-game | 3 | CS 2, SWS 1 |
-| (none) | 216 | H 70, B 36, GUI 22, L 16, V 13, GS 7, S 7, EVA 4, LT 4, MC 4 +18 |
+| (none) | 217 | H 70, B 36, GUI 22, L 16, V 13, GS 7, S 7, EVA 4, LT 4, MC 4 +19 |
 
 ## Body x timeline operation
 
@@ -350,7 +351,7 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 362 | 82 | 48 | 15 | 124 | 180 | 169 | 13 | 46 | 134 | 12 | - |
+| Kerbin | 363 | 82 | 48 | 15 | 124 | 180 | 169 | 13 | 46 | 134 | 12 | - |
 | Mun | 55 | 24 | 6 | 5 | 10 | 36 | 35 | - | 10 | 34 | - | 1 |
 | Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
@@ -449,7 +450,7 @@ Lanes per family (rows) per timeline operation (columns).
 | SLM | 3 | - | - | - | 1 | 1 | 3 | - | - | 1 | - | - |
 | SN | 1 | - | - | - | - | - | - | - | - | - | - | - |
 | SOI | 1 | - | - | - | - | - | - | - | - | - | - | - |
-| SPIKE | 1 | 1 | 1 | 1 | 1 | 1 | 1 | - | - | 1 | - | - |
+| SPIKE | 2 | 1 | 1 | 1 | 1 | 1 | 1 | - | - | 1 | - | - |
 | SS | 1 | - | - | - | - | - | 1 | - | - | - | - | - |
 | ST | 4 | - | - | - | 1 | 1 | - | - | - | 1 | - | - |
 | STR | 4 | 2 | 1 | 1 | 3 | 4 | 3 | 1 | - | 3 | - | - |
@@ -531,15 +532,15 @@ Lanes per family (rows) per timeline operation (columns).
 
 | verb | lanes | families |
 |---|---|---|
-| FlushAndQuit | 601 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +80 |
-| LoadGame | 601 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +80 |
-| SetSetting | 593 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +80 |
-| StopRecording | 329 | V 65, RF 25, RW 24, RVR 19, LAB 17, EVA 16, H 15, B 14, MINE 14 +46 |
+| FlushAndQuit | 602 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +80 |
+| LoadGame | 602 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +80 |
+| SetSetting | 594 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +80 |
+| StopRecording | 330 | V 65, RF 25, RW 24, RVR 19, LAB 17, EVA 16, H 15, B 14, MINE 14 +46 |
 | SaveGame | 244 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +44 |
-| DiscardTree | 230 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, TP 9, GUI 7 +31 |
-| RecordingState | 227 | RF 27, V 21, LAB 14, QL 14, MINE 12, CS 11, EVA 11, L 11, VN 11 +40 |
+| DiscardTree | 231 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, TP 9, GUI 7 +32 |
+| RecordingState | 228 | RF 27, V 21, LAB 14, QL 14, MINE 12, CS 11, EVA 11, L 11, VN 11 +40 |
 | WarpToUT | 212 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, CI 8, VN 8, RF 7 +44 |
-| RunTests | 197 | H 70, RW 25, V 12, CS 10, L 8, CN 6, LT 5, S 5, FAR 4, RF 4, STR 4 +29 |
+| RunTests | 198 | H 70, RW 25, V 12, CS 10, L 8, CN 6, LT 5, S 5, FAR 4, RF 4, STR 4 +30 |
 | StartRecording | 170 | B 23, RW 23, EVA 14, LAB 14, MINE 12, VN 8, FAR 6, S 6, QL 5, RF 5 +34 |
 | MissionMark | 156 | RW 25, LAB 17, EVA 13, MINE 12, CS 10, IR 6, L 6, QL 6, RF 6 +32 |
 | CommitTree | 153 | RW 24, EVA 14, MINE 11, QL 9, VN 9, CS 8, L 8, LAB 8, B 7, AST 4 +34 |
@@ -596,7 +597,7 @@ Lanes per family (rows) per timeline operation (columns).
 
 ## Lanes per in-game test category
 
-Categories named by `RunTests` steps (`(all)`: a step with no category). 197 lanes run at least one batch.
+Categories named by `RunTests` steps (`(all)`: a step with no category). 198 lanes run at least one batch.
 
 | category | lanes | lane ids |
 |---|---|---|
@@ -714,6 +715,7 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 197 lan
 | SpawnHealth | 1 | H16-corpus-spawn-health |
 | SpawnRotation | 1 | H8-spawn-rotation |
 | SpawnTerminalOrbit | 1 | LT-1-long-tail-flight |
+| SpikeS11 | 1 | SPIKE-S11-ghost-cost |
 | StartupNotices | 1 | SN-1-startup-notices-clean-install |
 | StockUiOverlay | 1 | H45-stock-ui-overlay |
 | StockWarpLimits | 1 | LT-1-long-tail-flight |
@@ -742,8 +744,8 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 197 lan
 
 | block | lanes present |
 |---|---|
-| logContracts | 600 |
-| recordings | 586 |
+| logContracts | 601 |
+| recordings | 587 |
 | rewind | 144 |
 | renderComposition | 42 |
 | routes | 28 |
@@ -1655,10 +1657,11 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | SOI-1-mun-exit-physics-burn | operator | mun-park-kerbalx | soi1_mun_exit_burn | Kerbin, Mun | - | - | LIVE-PROVEN 2026-11-04 |
 
-### SPIKE (1)
+### SPIKE (2)
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
+| SPIKE-S11-ghost-cost | operator | pad-runway-pair +inj spike-s11-... | seam | Kerbin | - | SpikeS11 | spike branch only, never flown |
 | SPIKE-S6-mark-survives | operator | spike-s6-mark | seam | Kerbin | rewind-to-launch, re-fly, revert, reload +3 | - | spike branch only, never flown |
 
 ### SS (1)

@@ -193,6 +193,8 @@ RP_SIDECAR_BY_PRESET = {
     "leaves-departure": None,
     # RSC-3's spawn-room recording: one committed single-recording tree, no RP.
     "spawn-room": None,
+    # SPIKE BRANCH ONLY (r0-spikes.md S11): SPIKE-S11's 64 ghost trees, no RP.
+    "spike-s11-ghosts": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

@@ -5574,6 +5574,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # `miner-rover-landed` with the drills deployed by the lane's own seam steps.
         # Authored 2026-11-06, never flown, INTERIM.
         "MINE-5a-rover-live-drill-harvest-cap": ("MiningHarvest", 2),
+        # SPIKE BRANCH ONLY (spike/mp-r0, never merged; r0-spikes.md S11). The
+        # R0 ghost cost sweep: one wholly batch-disabled cell, flown by the owner
+        # against automation/spike-r0 with PARSEK_SPIKE=S11.
+        "SPIKE-S11-ghost-cost": ("SpikeS11", 1),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -5602,7 +5606,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # needs: id -> (preset, recordings the subject carries). HV-1's subject is the M2
     # synthetic drill tree, two metadata-only recordings (they write no `.prec` at
     # inject; the produced-save count is measured by the reading run).
-    INJECTED_SUBJECT_IDS = {"HV-1-harvest-route-analysis": ("drill-harvest-route", 2)}
+    INJECTED_SUBJECT_IDS = {"HV-1-harvest-route-analysis": ("drill-harvest-route", 2),
+                            # SPIKE BRANCH ONLY (r0-spikes.md S11): the 64 ghost
+                            # trees the sweep toggles; the test re-enables all 64.
+                            "SPIKE-S11-ghost-cost": ("spike-s11-ghosts", 64)}
 
     PARTLY_BATCH_DISABLED_IDS = {"R7a-rewind-session-absent",
                                  # HV-1: H38's host and category, same 8-vs-46.
@@ -6889,6 +6896,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # chosen host and not a category requirement, so it is argued in H66's fixture
         # block rather than encoded here.
         "PlaybackControl": "loaded-vessel",
+        # SPIKE BRANCH ONLY (r0-spikes.md S11). The ghost cost sweep never stages
+        # and moves no resource; it needs a loaded active vessel for the flight
+        # camera to frame (the ghosts circle the pad vessel) and nothing else.
+        "SpikeS11": "loaded-vessel",
         # `AutoMergeCommit` is the row that FORCED A NEW REQUIREMENT CLASS, and none of
         # the existing three could stand in. Its cell's situation guard is a statement
         # about the product, not a convenience: "requires an ORBITING active vessel so
@@ -10804,6 +10815,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
         # SPIKE BRANCH ONLY (spike/mp-r0, never merged; r0-spikes.md S6).
+        "SPIKE-S11-ghost-cost.toml": "tier=operator by MECHANISM, NOT debt: an R0 spike lane on the spike branch only, flown by the owner against the spike instance automation/spike-r0 with PARSEK_SPIKE=S11 on the owner's own graphics settings (spikes/r0/S11/PC-RUN.md); its numbers go into the spike report, never into a tier",
         "SPIKE-S6-mark-survives.toml": "tier=operator by MECHANISM, NOT debt: an R0 spike lane on the spike branch only, flown by the owner against the spike instance automation/spike-r0-content with PARSEK_SPIKE=S6 and an operator-local fixture (spikes/r0/S6/PC-RUN.md); its outcome goes into the spike report, never into a tier",
         # THE SCRIPTED CAMPAIGN FIXTURE BUILDERS, 2026-10-25.
         "CS-0-new-science-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: it creates a genuine stock New Game (Science, Normal) through the NewGame seam verb on the stock-tree instance, and its produced save is harvested once as `cs-science-new`, the host of CS-1. Its value is the harvested fixture, not a regression floor. FLOWN PASS `2026-10-25_1743` and harvested; owed: nothing but the ordinary promotion call",
