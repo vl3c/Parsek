@@ -8,7 +8,13 @@ tier = "operator"
 # 2026-11-17, run `2026-11-17_0035` (PASS attempt 1, 46 s wall, scratch merge d813e6cba,
 # Parsek.dll sha256
 # af72b66c463126aef3da6d7a325290620462ce9690c3fe8cc99c7cc8f3d2e644), and re-pinned
-# from that flight's KSP.log.
+# from that flight's KSP.log. The confirming flight `2026-11-17_0317` (scratch build
+# ca454c963) read PARSEK-FAIL on ONE row: Crater_Launch_Site alt=169.751 against a
+# window pinned at 169.78-169.879 from the first flight's 169.834. The cause was the pin
+# (sized from one boot), not Parsek: the alt windows and the two high-latitude
+# longitude windows were re-sized from both flights (see "WHY THE SITE VALUES MOVE"
+# below; todo RACE-0-ALT-PIN-FROM-ONE-FLIGHT). The third flight `2026-11-17_0340` (same
+# install and build as 0317) read PASS attempt 1 in 52 s on the re-sized windows.
 #
 # WHAT IT READS. `ListHandles kind=sites` in a fresh single-player career at the Space
 # Center, one Info line per fact:
@@ -56,14 +62,38 @@ tier = "operator"
 # comparator does not exist yet (it replaces these windows when it lands):
 #   - lat / lon (spaceCenter, recovery, every spawn point): to four decimals, as a window
 #     one unit of the fourth decimal wide (1e-4 deg, about 1.05 m on Kerbin's 600 km
-#     radius) placed on the measured value, with at least 4e-5 deg (0.4 m) of margin
-#     each side;
-#   - alt (spaceCenter, every spawn point) and terrain height: to one decimal, a 0.1 m
-#     window with at least 0.04 m of margin each side.
+#     radius) placed on the 0035 value, with at least 4e-5 deg (0.4 m) of margin each
+#     side; except the two high-latitude longitudes (GlacierLake at 73.6 deg, MahiMahi
+#     at -49.8 deg), where 1e-4 deg of longitude is only 0.30 m / 0.68 m on the ground:
+#     those are the two-run midpoint +-0.5 m on the ground (+-1.69e-4 / +-7.4e-5 deg),
+#     snapped outward to 1e-5 deg;
+#   - alt (spaceCenter, every spawn point): the two-run midpoint (0035 and 0317)
+#     +-0.30 m, snapped outward to whole centimetres (the printed millimetre is free);
+#   - terrain height: to one decimal, a 0.1 m window with at least 0.04 m of margin
+#     each side.
+# WHY THE SITE VALUES MOVE BETWEEN RUNS AND THE TERRAIN DOES NOT. Every launchSite row
+# is `src=cache`: stock's `LaunchSite.SpawnPoint.SetSpawnPointLatLonAlt` (called from
+# `PQSCity.Orientate` / `PQSCity2.Orientate` through `SetSpawnPointsLatLonAlt`) fills
+# the cache with `body.GetLatLonAlt((Vector3d)spawnPointTransform.position)`, and the
+# spaceCenter row reads its own transform the same way. Orientate first writes the site
+# as `transform.localPosition = (Vector3)planetRelativePosition`, a float32 vector about
+# 600 km long (step 0.0625 m per axis), rotated through float32 quaternions under the
+# rotating body; the world position read back is float32 again. The double
+# lat/lon/alt conversion is exact, so each value carries a few float32 roundings at
+# 600 km (a few centimetres each, up to about 0.15 m together), and where they fall
+# depends on the body's rotation and the world origin at the instant Orientate ran.
+# Measured between 0035 and 0317: alt up to 0.083 m (Crater), along the ground up to
+# 0.10 m (spaceCenter longitude). The terrain rows are `PQS` height evaluated in double
+# at fixed lat/lon inputs and were byte-identical. OBSERVED, NOT EXPLAINED: 0317 and
+# 0340, two boots of one provisioned install and one build, read every value
+# byte-identical; only 0035 (an earlier provisioning, another build) differs. So the
+# values did not move between those two boots, and what changed between 0035 and the
+# later pair is not established. The +-0.30 m alt windows hold both measured sets with
+# at least 0.26 m to an edge; a 1 m shift, a moved site or a wrong site list still reds.
 # Window, not truncation: a truncated prefix can sit a few millimetres from its edge
 # (LaunchPad's alt=72.497 truncates to 72.4 with 3 mm left), and a window placed on the
 # value cannot. The windows sit well inside the 50 m / 2 m tolerances R2-03 / R2-05
-# compare with. Each window was generated from the measured line, never typed.
+# compare with. Each window was generated from the measured lines, never typed.
 # FAST-LANE CHECKLIST (harness/README.md): (1) reuse - considered B10 / CS-0 (the same
 # fresh-career boot) and not applied: a race lane is selected by the `race` tag
 # (`--tag race`, T-45) and RaceTagConventionTests refuses that tag on a non-race spec,
@@ -75,7 +105,7 @@ tier = "operator"
 # archive, which a cloud session cannot reach (a seam-only lane with no waits, so little
 # is expected).
 # =====================================================================================
-description = "Stock site baseline (multiplayer T-07, LIVE-PROVEN 2026-11-17, run 2026-11-17_0035): in a fresh single-player career at the Space Center, ListHandles kind=sites reads the working space center, the recovery point, all eleven stock launch-site spawn points (three KSC facility points, eight Making History sites) and the terrain height at the pad and both runway ends, pinned to four decimals of a degree and one of a metre; SITES-2 compares a restored stock Kerbin against these pins."
+description = "Stock site baseline (multiplayer T-07, LIVE-PROVEN 2026-11-17, run 2026-11-17_0035; confirming flight 2026-11-17_0317 red on the one-flight Crater alt pin, windows re-sized from both flights): in a fresh single-player career at the Space Center, ListHandles kind=sites reads the working space center, the recovery point, all eleven stock launch-site spawn points (three KSC facility points, eight Making History sites) and the terrain height at the pad and both runway ends, pinned as windows (lat / lon about +-0.5 m on the ground, alt +-0.30 m around the two-flight midpoint, terrain height to 0.1 m); SITES-2 compares a restored stock Kerbin against these pins."
 instanceProfile = "stock-minimal"
 tags = ["race", "RACE-0", "sites", "career", "cold-load", "runtime-handles"]
 
@@ -110,23 +140,23 @@ required = [
   # alternate on the first flight), and the Verbose read line that splits it.
   "listhandles kind=sites count=11 truncated=false body=Kerbin samples=3",
   "listhandles sites read: spaceCenter=True recovery=True facilityPoints=3 alternatePoints=8 samplesMeasured=3/3",
-  # The working space center and the recovery reference point (lat / lon to four
-  # decimals, alt to one; windows placed on the 2026-11-17_0035 values, see the header).
-  "listhandles sites spaceCenter body=Kerbin lat=-0\\.0917[0-9]{3} lon=-74\\.629(6[4-9]|7[0-3])[0-9]{2} alt=67\\.(4[7-9]|5[0-6])[0-9]",
+  # The working space center and the recovery reference point (lat / lon windows placed
+  # on the 2026-11-17_0035 values, alt on the 0035 / 0317 midpoint; see the header).
+  "listhandles sites spaceCenter body=Kerbin lat=-0\\.0917[0-9]{3} lon=-74\\.629(6[4-9]|7[0-3])[0-9]{2} alt=(67\\.2[2-9][0-9]|67\\.[3-7][0-9]{2}|67\\.8[0-3][0-9])",
   "listhandles sites recovery lat=-0\\.0917[0-9]{3} lon=-74\\.629(6[4-9]|7[0-3])[0-9]{2}",
   # The KSC's own facility points first (the Runway site has two), ordinal by name.
-  "listhandles sites launchSite index=0 name='LaunchPad' point='LaunchPad' kind=facility editor=VAB lat=-0\\.097(1[5-9]|2[0-4])[0-9]{2} lon=-74\\.557(6[2-9]|7[0-1])[0-9]{2} alt=72\\.(4[4-9]|5[0-3])[0-9] src=cache",
-  "listhandles sites launchSite index=1 name='Runway' point='Runway' kind=facility editor=SPH lat=-0\\.048(5[4-9]|6[0-3])[0-9]{2} lon=-74\\.724(4[2-9]|5[0-1])[0-9]{2} alt=69\\.(1[3-9]|2[0-2])[0-9] src=cache",
-  "listhandles sites launchSite index=2 name='Runway' point='Runway27' kind=facility editor=SPH lat=-0\\.050(1[8-9]|2[0-7])[0-9]{2} lon=-74\\.492(6[2-9]|7[0-1])[0-9]{2} alt=68\\.(7[3-9]|8[0-2])[0-9] src=cache",
+  "listhandles sites launchSite index=0 name='LaunchPad' point='LaunchPad' kind=facility editor=VAB lat=-0\\.097(1[5-9]|2[0-4])[0-9]{2} lon=-74\\.557(6[2-9]|7[0-1])[0-9]{2} alt=(72\\.2[1-9][0-9]|72\\.[3-7][0-9]{2}|72\\.8[0-2][0-9]) src=cache",
+  "listhandles sites launchSite index=1 name='Runway' point='Runway' kind=facility editor=SPH lat=-0\\.048(5[4-9]|6[0-3])[0-9]{2} lon=-74\\.724(4[2-9]|5[0-1])[0-9]{2} alt=(68\\.89[0-9]|68\\.9[0-9]{2}|69\\.[0-4][0-9]{2}|69\\.50[0-9]) src=cache",
+  "listhandles sites launchSite index=2 name='Runway' point='Runway27' kind=facility editor=SPH lat=-0\\.050(1[8-9]|2[0-7])[0-9]{2} lon=-74\\.492(6[2-9]|7[0-1])[0-9]{2} alt=(68\\.4[8-9][0-9]|68\\.[5-9][0-9]{2}|69\\.0[0-8][0-9]) src=cache",
   # The eight stock alternate sites (Making History), ordinal by name.
-  "listhandles sites launchSite index=3 name='Cove_Launch_Site' point='Cove_Launch_Site' kind=alternate editor=VAB lat=3\\.747(7[3-9]|8[0-2])[0-9]{2} lon=-72\\.213(2[7-9]|3[0-6])[0-9]{2} alt=4\\.(8[5-9]|9[0-4])[0-9] src=cache",
-  "listhandles sites launchSite index=4 name='Crater_Launch_Site' point='Crater_Launch_Site' kind=alternate editor=VAB lat=8\\.385(7[8-9]|8[0-7])[0-9]{2} lon=-179\\.697(6[6-9]|7[0-5])[0-9]{2} alt=169\\.(7[8-9]|8[0-7])[0-9] src=cache",
-  "listhandles sites launchSite index=5 name='Desert_Airfield' point='Desert_Airfield' kind=alternate editor=SPH lat=-6\\.599(6[5-9]|7[0-4])[0-9]{2} lon=-144\\.040(8[1-9]|90)[0-9]{2} alt=82(0\\.9[2-9]|1\\.0[0-1])[0-9] src=cache",
-  "listhandles sites launchSite index=6 name='Desert_Launch_Site' point='Desert_Launch_Site' kind=alternate editor=VAB lat=-6\\.560(3[3-9]|4[0-2])[0-9]{2} lon=-143\\.9(499[5-9]|500[0-4])[0-9]{2} alt=824\\.0[0-9]{2} src=cache",
-  "listhandles sites launchSite index=7 name='GlacierLake_Launch_Site' point='GlacierLake_Launch_Site' kind=alternate editor=VAB lat=73\\.561(4[4-9]|5[0-3])[0-9]{2} lon=84\\.24(79[1-9]|800)[0-9]{2} alt=61\\.2[0-9]{2} src=cache",
-  "listhandles sites launchSite index=8 name='Island_Airfield' point='Island_Airfield' kind=alternate editor=SPH lat=-1\\.529(2[2-9]|3[0-1])[0-9]{2} lon=-71\\.885(2[5-9]|3[0-4])[0-9]{2} alt=133\\.(19|2[0-8])[0-9] src=cache",
-  "listhandles sites launchSite index=9 name='MahiMahi_Launch_Site' point='MahiMahi_Launch_Site' kind=alternate editor=VAB lat=-49\\.8025[0-9]{3} lon=-120\\.766(0[5-9]|1[0-4])[0-9]{2} alt=7(3\\.9[2-9]|4\\.0[0-1])[0-9] src=cache",
-  "listhandles sites launchSite index=10 name='Woomerang_Launch_Site' point='Woomerang_Launch_Site' kind=alternate editor=VAB lat=45\\.289(5[6-9]|6[0-5])[0-9]{2} lon=136\\.1(099[3-9]|100[0-2])[0-9]{2} alt=736\\.(3[6-9]|4[0-5])[0-9] src=cache",
+  "listhandles sites launchSite index=3 name='Cove_Launch_Site' point='Cove_Launch_Site' kind=alternate editor=VAB lat=3\\.747(7[3-9]|8[0-2])[0-9]{2} lon=-72\\.213(2[7-9]|3[0-6])[0-9]{2} alt=(4\\.6[1-9][0-9]|4\\.[7-9][0-9]{2}|5\\.[0-1][0-9]{2}|5\\.2[0-2][0-9]) src=cache",
+  "listhandles sites launchSite index=4 name='Crater_Launch_Site' point='Crater_Launch_Site' kind=alternate editor=VAB lat=8\\.385(7[8-9]|8[0-7])[0-9]{2} lon=-179\\.697(6[6-9]|7[0-5])[0-9]{2} alt=(169\\.49[0-9]|169\\.[5-9][0-9]{2}|170\\.0[0-9]{2}|170\\.10[0-9]) src=cache",
+  "listhandles sites launchSite index=5 name='Desert_Airfield' point='Desert_Airfield' kind=alternate editor=SPH lat=-6\\.599(6[5-9]|7[0-4])[0-9]{2} lon=-144\\.040(8[1-9]|90)[0-9]{2} alt=(820\\.6[7-9][0-9]|820\\.[7-9][0-9]{2}|821\\.[0-1][0-9]{2}|821\\.2[0-8][0-9]) src=cache",
+  "listhandles sites launchSite index=6 name='Desert_Launch_Site' point='Desert_Launch_Site' kind=alternate editor=VAB lat=-6\\.560(3[3-9]|4[0-2])[0-9]{2} lon=-143\\.9(499[5-9]|500[0-4])[0-9]{2} alt=(823\\.7[5-9][0-9]|823\\.[8-9][0-9]{2}|824\\.[0-2][0-9]{2}|824\\.3[0-6][0-9]) src=cache",
+  "listhandles sites launchSite index=7 name='GlacierLake_Launch_Site' point='GlacierLake_Launch_Site' kind=alternate editor=VAB lat=73\\.561(4[4-9]|5[0-3])[0-9]{2} lon=(84\\.24779[0-9]{2}|84\\.247[8-9][0-9]{3}|84\\.2480[0-9]{3}|84\\.2481[0-4][0-9]{2}) alt=(60\\.9[5-9][0-9]|61\\.[0-4][0-9]{2}|61\\.5[0-6][0-9]) src=cache",
+  "listhandles sites launchSite index=8 name='Island_Airfield' point='Island_Airfield' kind=alternate editor=SPH lat=-1\\.529(2[2-9]|3[0-1])[0-9]{2} lon=-71\\.885(2[5-9]|3[0-4])[0-9]{2} alt=(132\\.9[2-9][0-9]|133\\.[0-4][0-9]{2}|133\\.5[0-3][0-9]) src=cache",
+  "listhandles sites launchSite index=9 name='MahiMahi_Launch_Site' point='MahiMahi_Launch_Site' kind=alternate editor=VAB lat=-49\\.8025[0-9]{3} lon=-(120\\.7660[3-9][0-9]{2}|120\\.7661[0-9]{3}) alt=(73\\.6[5-9][0-9]|73\\.[7-9][0-9]{2}|74\\.[0-1][0-9]{2}|74\\.2[0-6][0-9]) src=cache",
+  "listhandles sites launchSite index=10 name='Woomerang_Launch_Site' point='Woomerang_Launch_Site' kind=alternate editor=VAB lat=45\\.289(5[6-9]|6[0-5])[0-9]{2} lon=136\\.1(099[3-9]|100[0-2])[0-9]{2} alt=(736\\.1[1-9][0-9]|736\\.[2-6][0-9]{2}|736\\.7[0-2][0-9]) src=cache",
   # The fixed sample points: coordinates exact (the table's own inputs), the PQS terrain
   # height to one decimal.
   "listhandles sites terrain index=0 name=pad lat=-0\\.0972000 lon=-74\\.5575000 height=64\\.(7[3-9]|8[0-2])[0-9]",
