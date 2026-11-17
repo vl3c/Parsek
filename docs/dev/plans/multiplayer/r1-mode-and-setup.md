@@ -565,9 +565,17 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   - The shared scan LEXES each race file rather than grepping lines: comments and the contents
     of string and char literals become blanks, interpolation holes stay code, line breaks are
     kept; a raw string literal or an unterminated literal or comment fails closed.
-    `scripts/race-source-scan.ps1` is the same lexer in pwsh, dot-sourced by the three gate
-    scripts. Every gate refuses a `using X =` alias and a backslash in code (a unicode-escaped
-    identifier). A ban matches its identifier anywhere, so `Parsek.RecordingStore` counts; the
+    A preprocessor line (`#` first on its line) is blanked like a comment, and the format clause
+    of a hole (from a `:` outside every bracket of the hole to its `}`) is literal text; a quote
+    or a line break in a format clause fails closed. `scripts/race-source-scan.ps1` is the same
+    lexer in pwsh, dot-sourced by the three gate scripts. Every gate refuses a `using X =` (or
+    `using @X =`) alias, a backslash in code (a unicode-escaped identifier) and a non-ASCII
+    character in code (C# drops a format character such as U+00AD from an identifier, so
+    `Recording<U+00AD>Store` is `RecordingStore`). A member deny matches `.Name` and `.@Name`.
+    These five (the `#region notes /*` comment opener, the `{x:/*}` / `{x://}` format clause,
+    the format character, the verbatim member) came from the R1-06 review, which found each
+    let a real store reference through; each is a lexer cell, a planted-red cell
+    (`RaceGates_ReviewBypasses_AreRedInEveryGate`) and a line of the mirror fixture. A ban matches its identifier anywhere, so `Parsek.RecordingStore` counts; the
     `GuiMockTypeRef` shape counts the references for the anti-vacuity floor (30 today, floor 24).
   - The no-writer gate's denylist and allowlist are one data file,
     `scripts/race-no-writer-allowlist.txt` (`deny type|member <Name>`, `allow <file> <entry>`, a
@@ -581,7 +589,18 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     (`RaceLooks.cs`) carry weight. `Controllers/ParsekRace*.cs` is scanned by this gate too (the
     plan's race files; design 15.4 says "the three race modules"): R1-10's `ParsekRaceSetup`,
     which adds the race proto and saves the created game, adds its own allow lines with that
-    reason. T-15's cell reads the `[[type]]` blocks of `lifetimes.toml`.
+    reason. `deny member scenarios` (the stock list of scenario protos, `game.scenarios`) and
+    `deny member moduleRef` (the live module behind a proto) close the two routes to a module's
+    save that skip the denied type names; no race file has a hit. `.Save` is not denied (too
+    many unrelated members share the name). T-15's cell reads `lifetimes.toml` in its real
+    shape: a `[[type]]` block's `[type.fields]` table belongs to that type, so a type whose only
+    save state is a field counts (none today; the parse gives the 30 that `tomllib` gives), and
+    a line in a type it cannot read throws. Its reverse check reds a `deny type` line citing
+    `lifetimes.toml` for a type that file gives no save lifetime.
+  - What a name gate cannot see, and these gates do not claim: a `global using` alias, or a
+    `<Using Alias=...>` item in the csproj, declared in a NON-race file (the alias name is all a
+    race file shows), and a wrapper class outside the race folders that calls a store for the
+    race file (the race file names only the wrapper). Review catches those.
   - The log tag cell is managed only. It finds the `ParsekLog` members that take a tag by
     reflection (a parameter named `subsystem`), and the tag must be a literal or a
     `const string` of a race file (the same file, or `Type.Name` in the race file declaring
@@ -591,8 +610,8 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   - The mirror cell has a static half that runs everywhere (folder list, controller glob,
     recorder list, store pattern, the scripts' `MinTypeReferences` default) and a fixed input
     whose managed result is pinned line for line; the scripts are compared on it where pwsh
-    exists (CI's runner). The cloud box that built this has no pwsh, so CI is the pwsh arm's
-    first run.
+    exists (CI's runner, Windows). The cloud box that built this has no pwsh, so the pwsh arm
+    runs only there.
   - `scripts/race-loader-files-allowlist.txt` is created empty (R3W-02 had not landed); the
     loader cell is `test_archview.RaceLoaderFilesTests`. CLAUDE.md is untouched: its gate list
     names the family by glob only.

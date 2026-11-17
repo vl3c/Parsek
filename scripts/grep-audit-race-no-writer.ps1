@@ -84,7 +84,7 @@ $used = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer
 $patterns = [System.Collections.Generic.List[object]]::new()
 foreach ($d in $deny) {
     if ($d.Kind -ceq 'member') {
-        $re = [regex]::new('\.\s*' + $d.Name + '(?![A-Za-z0-9_])')
+        $re = [regex]::new('\.\s*@?' + $d.Name + '(?![A-Za-z0-9_])')
     }
     else {
         $re = [regex]::new('(?<![A-Za-z0-9_])' + $d.Name + '(?![A-Za-z0-9_])')

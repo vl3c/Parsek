@@ -74,7 +74,7 @@ namespace Parsek.Tests
         internal const string RaceNoWriterAllowlist = "race-no-writer-allowlist.txt";
 
         private static readonly Regex RaceAliasUsing = new Regex(
-            @"^\s*(?:global\s+)?using\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", RegexOptions.CultureInvariant);
+            @"^\s*(?:global\s+)?using\s+@?([A-Za-z_][A-Za-z0-9_]*)\s*=", RegexOptions.CultureInvariant);
 
         internal sealed class RaceFile
         {
@@ -172,7 +172,10 @@ namespace Parsek.Tests
 
         private sealed class RaceLexer
         {
-            private static readonly char[] Special = { '/', '\'', '"', '$', '@', '{', '}' };
+            private static readonly char[] Special = { '/', '\'', '"', '$', '@', '{', '}', '#' };
+            // In a hole the brackets and ':' matter too: a ':' outside every bracket starts the
+            // format clause, which is literal text up to the closing '}'.
+            private static readonly char[] HoleSpecial = { '/', '\'', '"', '$', '@', '{', '}', '#', '(', ')', '[', ']', ':' };
             private readonly string t;
             private readonly string rel;
             private int i;
@@ -201,13 +204,29 @@ namespace Parsek.Tests
 
             private char At(int j) { return j < t.Length ? t[j] : '\0'; }
 
+            // True when only blanks stand between the start of the line and position p.
+            private bool AtLineStart(int p)
+            {
+                int j = p - 1;
+                while (j >= 0 && (t[j] == ' ' || t[j] == '\t' || t[j] == '\v' || t[j] == '\f')) j--;
+                return j < 0 || t[j] == '\n';
+            }
+
+            private void BlankToEndOfLine()
+            {
+                while (i < t.Length && t[i] != '\n') { M.Append(' '); K.Append(' '); i++; }
+            }
+
             // Code until the end of the text, or (in a hole) until an unmatched '}', not consumed.
+            // A preprocessor line (a '#' first on its line) is blanked like a comment: read as
+            // code, `#region notes /*` would open a block comment over the real code below it.
             internal void Code(bool inHole)
             {
                 int depth = 0;
+                char[] special = inHole ? HoleSpecial : Special;
                 while (i < t.Length)
                 {
-                    int next = t.IndexOfAny(Special, i);
+                    int next = t.IndexOfAny(special, i);
                     if (next < 0) next = t.Length;
                     if (next > i)
                     {
@@ -218,9 +237,14 @@ namespace Parsek.Tests
                     }
                     char c = t[i];
                     char n = At(i + 1);
+                    if (c == '#' && AtLineStart(i))
+                    {
+                        BlankToEndOfLine();
+                        continue;
+                    }
                     if (c == '/' && n == '/')
                     {
-                        while (i < t.Length && t[i] != '\n') { M.Append(' '); K.Append(' '); i++; }
+                        BlankToEndOfLine();
                         continue;
                     }
                     if (c == '/' && n == '*')
@@ -242,17 +266,49 @@ namespace Parsek.Tests
                     }
                     if (inHole)
                     {
-                        if (c == '{') depth++;
+                        if (c == '{' || c == '(' || c == '[') depth++;
+                        else if (c == ')' || c == ']') { if (depth > 0) depth--; }
                         else if (c == '}')
                         {
                             if (depth == 0) return;
                             depth--;
+                        }
+                        else if (c == ':' && depth == 0)
+                        {
+                            if (n == ':')
+                            {
+                                // `global::X` is code, not a format clause.
+                                Both(c);
+                                Both(n);
+                                i += 2;
+                                continue;
+                            }
+                            FormatClause();
+                            return;
                         }
                     }
                     Both(c);
                     i++;
                 }
                 if (inHole) throw Fail("an unterminated interpolation hole");
+            }
+
+            // The format clause of a hole: the ':' and everything up to the hole's closing '}'
+            // (not consumed) is literal text. A conditional operator in a hole compiles only in
+            // brackets, so a ':' outside every bracket always starts this clause.
+            private void FormatClause()
+            {
+                Both(t[i]);
+                i++;
+                while (true)
+                {
+                    if (i >= t.Length) throw Fail("an unterminated interpolation format clause");
+                    char c = t[i];
+                    if (c == '}') return;
+                    if (c == '"' || c == '\n') throw Fail("a quote or line break in an interpolation format clause");
+                    Blank(c);
+                    i++;
+                }
             }
 
             private void CharLiteral()
@@ -330,6 +386,17 @@ namespace Parsek.Tests
                 violations.Add(f.Rel + ":" + (index + 1) + ": [escape] \\");
                 return true;
             }
+            // Comments and literal contents are blanks here, so a non-ASCII character is in code:
+            // C# drops format characters (U+00AD and the rest of category Cf) from identifiers,
+            // so `Recording<U+00AD>Store` compiles to RecordingStore and no pattern would see it.
+            foreach (char ch in line)
+            {
+                if (ch > 0x7F)
+                {
+                    violations.Add(f.Rel + ":" + (index + 1) + ": [non-ascii] U+" + ((int)ch).ToString("X4", System.Globalization.CultureInfo.InvariantCulture));
+                    return true;
+                }
+            }
             return false;
         }
 
@@ -395,6 +462,7 @@ namespace Parsek.Tests
         {
             public string Kind;   // "type" or "member"
             public string Name;
+            public string Reason;
             public string Key { get { return Kind == "member" ? "." + Name : Name; } }
         }
 
@@ -420,7 +488,10 @@ namespace Parsek.Tests
                 bool ok = parts.Length >= 4;
                 if (ok && parts[0] == "deny" && (parts[1] == "type" || parts[1] == "member") && ident.IsMatch(parts[2]))
                 {
-                    deny.Add(new RaceWriterEntry { Kind = parts[1], Name = parts[2] });
+                    deny.Add(new RaceWriterEntry
+                    {
+                        Kind = parts[1], Name = parts[2], Reason = string.Join(" ", parts, 3, parts.Length - 3),
+                    });
                     continue;
                 }
                 if (ok && parts[0] == "allow" && parts[1].StartsWith("Source/Parsek/", StringComparison.Ordinal)
@@ -455,7 +526,7 @@ namespace Parsek.Tests
             var used = new HashSet<string>(StringComparer.Ordinal);
             var patterns = deny.Select(d => new KeyValuePair<string, Regex>(d.Key, new Regex(
                 d.Kind == "member"
-                    ? @"\.\s*" + d.Name + @"(?![A-Za-z0-9_])"
+                    ? @"\.\s*@?" + d.Name + @"(?![A-Za-z0-9_])"
                     : @"(?<![A-Za-z0-9_])" + d.Name + @"(?![A-Za-z0-9_])",
                 RegexOptions.CultureInvariant))).ToList();
             foreach (RaceFile f in scan.Files)
@@ -592,6 +663,52 @@ namespace Parsek.Tests
             Assert.DoesNotContain("q", masked.Substring(masked.IndexOf('f')));
             RaceLex("s = $@\"a\n{RecordingStore.X}\"\"\";", out masked, out kept);
             Assert.Contains("RecordingStore.X", masked);
+
+            // A preprocessor line is blanked like a comment: `#region notes /*` opens no block
+            // comment over the code below it, and an apostrophe in a region name is no char literal.
+            RaceLex("    #region notes /*\nint o = RecordingStore.X;\n    #endregion */\n", out masked, out kept);
+            Assert.Contains("int o = RecordingStore.X;", masked);
+            Assert.DoesNotContain("notes", masked);
+            Assert.DoesNotContain("region", kept);
+            RaceLex("#region Don't touch\nx();\n#endregion\n", out masked, out kept);
+            Assert.Contains("x();", masked);
+            // A '#' that is not first on its line, or that sits in a verbatim string, is not a directive.
+            RaceLex("s = @\"a\n#region RecordingStore\";\n", out masked, out kept);
+            Assert.DoesNotContain("RecordingStore", masked);
+            Assert.Contains("#region RecordingStore", kept);
+
+            // The format clause of a hole (after a ':' outside every bracket) is literal text, so
+            // a comment opener in it opens nothing.
+            RaceLex("s = $\"{x:/*}\";\nint o = RecordingStore.X;\n// */}\"\n", out masked, out kept);
+            Assert.Contains("int o = RecordingStore.X;", masked);
+            RaceLex("s = $@\"{x://}\";\nint o = RecordingStore.X; char q = '\"'; // '\n", out masked, out kept);
+            Assert.Contains("int o = RecordingStore.X;", masked);
+            RaceLex("s = $\"{x,5:D3} {x:MilestoneStore}\";", out masked, out kept);
+            Assert.DoesNotContain("D3", masked);
+            Assert.DoesNotContain("MilestoneStore", masked);
+            Assert.Contains("MilestoneStore", kept);
+            // A ':' inside brackets is the conditional operator, and `::` is the alias qualifier:
+            // both stay code.
+            RaceLex("s = $\"{(a ? RecordingStore.X : b)} {d[k ? 1 : 2]} {global::Parsek.MilestoneStore.Count}\";", out masked, out kept);
+            Assert.Contains("(a ? RecordingStore.X : b)", masked);
+            Assert.Contains("d[k ? 1 : 2]", masked);
+            Assert.Contains("global::Parsek.MilestoneStore.Count", masked);
+            Assert.Throws<InvalidDataException>(() => RaceLex("s = $@\"{x:a\nb}\";", out masked, out kept));
+            Assert.Throws<InvalidDataException>(() => RaceLex("s = $\"{x:a\" + RecordingStore.X + \"}\";", out masked, out kept));
+
+            // The reviewer's positive controls (R1-06 review): every RecordingStore in a literal or
+            // a comment is masked, and exactly the two real ones in code remain.
+            string controls =
+                "static string a = @\"q \"\" RecordingStore // /* \" + $@\"{x}\"\" {{RecordingStore}} {(x > 0 ? \"a\" : @\"b\"\"c\")}\";\n"
+                + "static string b = @$\"{x,5:D3} {{ }} // RecordingStore\";\n"
+                + "static char c1 = '\"', c2 = '\\'', c3 = '\\\\', c4 = '\\u0041', c5 = '/';\n"
+                + "static string d = $\"{$\"{\"RecordingStore\"}\"}\";\n"
+                + "// \"RecordingStore\" '\n"
+                + "/* \"RecordingStore */\n"
+                + "static int o = nameof(RecordingStore).Length + typeof(global::Parsek.RecordingStore).Name.Length;\n";
+            RaceLex(controls, out masked, out kept);
+            Assert.Equal(2, Regex.Matches(masked, @"(?<![A-Za-z0-9_])RecordingStore(?![A-Za-z0-9_])").Count);
+            Assert.Equal(controls.Length, masked.Length);
 
             // What the lexer does not model fails closed.
             Assert.Throws<InvalidDataException>(() => RaceLex("s = \"\"\"raw\"\"\";", out masked, out kept));
@@ -748,6 +865,81 @@ namespace Parsek.Tests
             }
         }
 
+        [Fact]
+        public void RaceGates_ReviewBypasses_AreRedInEveryGate()
+        {
+            // The five R1-06 review inputs, each compilable C# with a real store reference that the
+            // first lexer read as a comment, a literal or a different name. Each one alone, planted
+            // in a temp copy, reds every gate it is in scope of.
+            const string link = "Source/Parsek/RaceCore/RaceLink.cs";
+            var lexerShapes = new Dictionary<string, string>
+            {
+                ["preprocessor"] = "    #region notes /*\nstatic int o = RecordingStore.CommittedRecordings;\n    #endregion */",
+                ["format-block"] = "static string s = $\"{x:/*}\";\nstatic int o = RecordingStore.CommittedRecordings;\n// */}\"",
+                ["format-line"] = "static string s = $@\"{x://}\";\n}\nstatic class C2 {\nstatic int o = RecordingStore.CommittedRecordings;\nstatic char q = '\"'; // '",
+            };
+            var gates = new Dictionary<string, KeyValuePair<Func<string, int, List<string>>, string>>
+            {
+                ["no-store"] = new KeyValuePair<Func<string, int, List<string>>, string>(RaceCoreNoStoreViolations, "[store] RecordingStore"),
+                ["no-recorder"] = new KeyValuePair<Func<string, int, List<string>>, string>(RaceNoRecorderViolations, "[recorder] RecordingStore"),
+                ["no-writer"] = new KeyValuePair<Func<string, int, List<string>>, string>(RaceNoWriterViolations, "[writer] RecordingStore"),
+            };
+            foreach (var shape in lexerShapes)
+            {
+                foreach (var gate in gates)
+                {
+                    string temp = RaceTempCopy();
+                    try
+                    {
+                        RacePlant(temp, link, shape.Value);
+                        List<string> red = gate.Value.Key(temp, RaceMinTypeReferences);
+                        Assert.True(red.Count == 1 && red[0].StartsWith(link + ":", StringComparison.Ordinal)
+                                && red[0].EndsWith(gate.Value.Value, StringComparison.Ordinal),
+                            shape.Key + " in the " + gate.Key + " gate gave: " + string.Join(" | ", red));
+                    }
+                    finally { RaceDeleteTemp(temp); }
+                }
+            }
+
+            // A format character inside an identifier (C# drops it: this is RecordingStore).
+            foreach (var gate in gates)
+            {
+                string temp = RaceTempCopy();
+                try
+                {
+                    RacePlant(temp, link, "static int o = Recording\u00ADStore.CommittedRecordings;");
+                    List<string> red = gate.Value.Key(temp, RaceMinTypeReferences);
+                    Assert.True(red.Count == 1 && red[0].StartsWith(link + ":", StringComparison.Ordinal)
+                            && red[0].EndsWith("[non-ascii] U+00AD", StringComparison.Ordinal),
+                        "soft hyphen in the " + gate.Key + " gate gave: " + string.Join(" | ", red));
+                }
+                finally { RaceDeleteTemp(temp); }
+            }
+
+            // A verbatim identifier past the member deny: `.@OnSave` is `.OnSave`.
+            string t2 = RaceTempCopy();
+            try
+            {
+                RacePlant(t2, link, "void G(ScenarioModule m, ConfigNode n) { base.@OnSave(n); m. @OnSave(n); }");
+                List<string> red = RaceNoWriterViolations(t2);
+                Assert.Equal(2, red.Count);
+                Assert.All(red, v => Assert.EndsWith("[writer] .OnSave", v));
+            }
+            finally { RaceDeleteTemp(t2); }
+
+            // And no false red: a region name with an apostrophe, and a verbatim alias still refused.
+            string t3 = RaceTempCopy();
+            try
+            {
+                RacePlant(t3, link, "#region Don't touch\n#endregion");
+                foreach (var gate in gates) Assert.Empty(gate.Value.Key(t3, RaceMinTypeReferences));
+                RacePlant(t3, link, "using @RS = Parsek.RecordingStore;");
+                foreach (var gate in gates)
+                    Assert.Contains(gate.Value.Key(t3, RaceMinTypeReferences), v => v.EndsWith("[alias] RS", StringComparison.Ordinal));
+            }
+            finally { RaceDeleteTemp(t3); }
+        }
+
         // ------------------------------------------------------------------ mirror
 
         private static List<string> RaceScriptList(string scriptFile, string variable)
@@ -793,15 +985,21 @@ namespace Parsek.Tests
             }
 
             // Dynamic half: the managed arm on one fixed input gives the pinned lines (every
-            // lexer shape, every violation kind); where pwsh exists the scripts give the same.
+            // lexer shape, every violation kind, the five R1-06 review bypasses); where pwsh
+            // exists the scripts give the same.
             const string core = "Source/Parsek/RaceCore/MirrorRules.cs";
             const string ctl = "Source/Parsek/Controllers/ParsekRaceMirror.cs";
             const string world = "Source/Parsek/RaceWorld/MirrorWorld.cs";
+            const string bypass = "Source/Parsek/RaceCore/MirrorBypass.cs";
             const string list = "scripts/" + RaceNoWriterAllowlist;
             var expected = new Dictionary<string, string[]>
             {
                 ["grep-audit-race-core-no-store.ps1"] = new[]
                 {
+                    bypass + ":11: [store] GroupHierarchyStore",
+                    bypass + ":15: [non-ascii] U+00AD",
+                    bypass + ":20: [alias] RV",
+                    bypass + ":6: [store] MilestoneStore",
                     core + ":10: [store] MilestoneStore",
                     core + ":11: [store] GroupHierarchyStore",
                     core + ":12: [escape] \\",
@@ -811,6 +1009,10 @@ namespace Parsek.Tests
                 {
                     ctl + ":6: [recorder] FlightRecorder",
                     ctl + ":6: [recorder] TreeCommitService",
+                    bypass + ":14: [recorder] TreeDiscardService",
+                    bypass + ":15: [non-ascii] U+00AD",
+                    bypass + ":17: [recorder] PendingTreeSlot",
+                    bypass + ":20: [alias] RV",
                     core + ":12: [escape] \\",
                     core + ":13: [recorder] PendingTreeSlot",
                     core + ":2: [alias] RS",
@@ -819,6 +1021,11 @@ namespace Parsek.Tests
                 ["grep-audit-race-no-writer.ps1"] = new[]
                 {
                     ctl + ":5: [writer] GamePersistence",
+                    bypass + ":11: [writer] GroupHierarchyStore",
+                    bypass + ":15: [non-ascii] U+00AD",
+                    bypass + ":16: [writer] .OnSave",
+                    bypass + ":16: [writer] .OnSave",
+                    bypass + ":20: [alias] RV",
                     core + ":11: [writer] .OnSave",
                     core + ":11: [writer] GroupHierarchyStore",
                     core + ":12: [escape] \\",
@@ -870,6 +1077,27 @@ namespace Parsek.Tests
                 + "        static object h = Recording\\u0053tore.X;\n"
                 + "        static object r = Parsek.PendingTreeSlot.Current;\n"
                 + "    }\n}\n");
+            // The R1-06 review bypasses: a preprocessor line, a format clause holding a comment
+            // opener (block and line), a format character in an identifier, a verbatim member,
+            // a verbatim alias; plus the shapes that must stay code or stay literal.
+            write("Source/Parsek/RaceCore/MirrorBypass.cs",
+                "namespace Parsek\n{\n"
+                + "    #region notes /* a region name is not code\n"
+                + "    static class MirrorBypass\n    {\n"
+                + "        static object a = MilestoneStore.Count;\n"
+                + "    #endregion */\n"
+                + "        #region Don't touch\n"
+                + "        #endregion\n"
+                + "        static int x = 1; static string b = $\"{x:/*}\";\n"
+                + "        static object c = GroupHierarchyStore.Groups;\n"
+                + "        // */}\"\n"
+                + "        static string d = $@\"{x://}\";\n"
+                + "        static object e = TreeDiscardService.X; static char q = '\"'; // '\n"
+                + "        static object f = Recording\u00ADStore.CommittedRecordings;\n"
+                + "        static void G(ScenarioModule m, ConfigNode n) { m.@OnSave(n); base.@OnSave(n); }\n"
+                + "        static string h = $\"{(x > 0 ? \"a\" : \"b\")} {global::Parsek.PendingTreeSlot.Current} {x,5:D3} {x:MissionStore}\";\n"
+                + "    }\n}\n"
+                + "using @RV = Parsek.RecordingStore;\n");
             write("Source/Parsek/Controllers/ParsekRaceMirror.cs",
                 "namespace Parsek\n{\n    public sealed class ParsekRaceMirror : ScenarioModule\n    {\n"
                 + "        public override void OnSave(ConfigNode node) { GamePersistence.SaveGame(\"a\", \"b\", SaveMode.OVERWRITE); }\n"
@@ -928,41 +1156,88 @@ namespace Parsek.Tests
 
         /// <summary>The short names of every type <c>scripts/arch/lifetimes.toml</c> gives a
         /// <c>save</c> lifetime, by default or on a field. Parsed from the data file's
-        /// <c>[[type]]</c> blocks (TOML data, not source).</summary>
+        /// <c>[[type]]</c> blocks (TOML data, not source) in the file's real shape: a
+        /// <c>[[type]]</c> header (a trailing comment allowed) opens a type, its
+        /// <c>name</c> / <c>default</c> / <c>reason</c> keys follow, and the
+        /// <c>[type.fields]</c> table after it holds that SAME type's fields, so a type whose
+        /// only save state is a field still counts. Any other header leaves the type section.
+        /// A line inside a type or its fields that is not a one-line <c>key = "value"</c>
+        /// throws rather than being skipped (fail closed).</summary>
         internal static SortedSet<string> RaceSaveLifetimeTypes(string[] tomlLines)
         {
-            var result = new SortedSet<string>(StringComparer.Ordinal);
-            var keyValue = new Regex(@"^([A-Za-z0-9_]+)\s*=\s*""([^""]*)""", RegexOptions.CultureInvariant);
+            var header = new Regex(@"^(\[\[?)\s*([A-Za-z0-9_.]+)\s*(\]\]?)\s*(?:#.*)?$", RegexOptions.CultureInvariant);
+            var keyValue = new Regex(@"^(""[^""]*""|[A-Za-z0-9_-]+)\s*=\s*""([^""]*)""\s*(?:#.*)?$", RegexOptions.CultureInvariant);
+            var types = new List<KeyValuePair<string, bool>>();
             string name = null;
             bool save = false;
-            bool inType = false;
+            bool open = false;
+            string section = null; // "type", "fields" or null (some other table)
+            Func<string, bool> isSave = v =>
+            {
+                int colon = v.IndexOf(':');
+                return (colon < 0 ? v : v.Substring(0, colon)).Trim() == "save";
+            };
             Action close = () =>
             {
-                if (inType && name != null && save)
-                    result.Add(name.Substring(name.LastIndexOf('.') + 1));
+                if (open) types.Add(new KeyValuePair<string, bool>(name, save));
+                open = false;
+                name = null;
+                save = false;
             };
-            foreach (string raw in tomlLines)
+            for (int n = 0; n < tomlLines.Length; n++)
             {
-                string line = raw.Trim();
-                if (line.StartsWith("#", StringComparison.Ordinal) || line.Length == 0) continue;
+                string line = tomlLines[n].Trim();
+                if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal)) continue;
                 if (line.StartsWith("[", StringComparison.Ordinal))
                 {
-                    close();
-                    inType = line == "[[type]]";
-                    name = null;
-                    save = false;
+                    Match h = header.Match(line);
+                    if (!h.Success || (h.Groups[1].Value.Length != h.Groups[3].Value.Length))
+                        throw new InvalidDataException("lifetimes.toml line " + (n + 1) + ": unreadable table header: " + line);
+                    bool array = h.Groups[1].Value.Length == 2;
+                    string table = h.Groups[2].Value;
+                    if (array && table == "type")
+                    {
+                        close();
+                        open = true;
+                        section = "type";
+                    }
+                    else if (!array && table == "type.fields")
+                    {
+                        // TOML: [type.fields] is a sub-table of the LAST [[type]] element.
+                        if (!open)
+                            throw new InvalidDataException("lifetimes.toml line " + (n + 1) + ": [type.fields] before any [[type]]");
+                        section = "fields";
+                    }
+                    else
+                    {
+                        section = null;
+                    }
                     continue;
                 }
-                if (!inType) continue;
+                if (section == null) continue;
                 Match m = keyValue.Match(line);
-                if (!m.Success) continue;
-                string key = m.Groups[1].Value;
+                if (!m.Success)
+                    throw new InvalidDataException("lifetimes.toml line " + (n + 1) + ": not a one-line key = \"value\" inside a type: " + line);
+                string key = m.Groups[1].Value.Trim('"');
                 string value = m.Groups[2].Value;
-                if (key == "name") name = value;
-                else if (key == "default") save |= value == "save";
-                else if (key != "reason") save |= value == "save" || value.StartsWith("save:", StringComparison.Ordinal);
+                if (section == "type")
+                {
+                    if (key == "name") name = value;
+                    else if (key == "default") save |= isSave(value);
+                }
+                else
+                {
+                    save |= isSave(value);
+                }
             }
             close();
+            var result = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, bool> t in types)
+            {
+                if (t.Key == null)
+                    throw new InvalidDataException("lifetimes.toml: a [[type]] block with no name");
+                if (t.Value) result.Add(t.Key.Substring(t.Key.LastIndexOf('.') + 1));
+            }
             return result;
         }
 
@@ -998,13 +1273,36 @@ namespace Parsek.Tests
                 Assert.Contains(writer, denied);
             Assert.Contains(deny, d => d.Kind == "member" && d.Name == "OnSave");
 
-            // The parse is not a regex that reads a comment as data: a commented-out block adds nothing.
-            SortedSet<string> fromComment = RaceSaveLifetimeTypes(new[]
+            // The parse reads the file's real shape: a type whose only save state is a field in its
+            // [type.fields] table counts, a trailing comment on a header is read, a commented-out
+            // block adds nothing, a field named `name` does not rename the type, and a `save` key
+            // outside a type ([lifetimes]) is not a type.
+            SortedSet<string> shaped = RaceSaveLifetimeTypes(new[]
             {
+                "[lifetimes]", "save = \"held in the save\"",
                 "# [[type]]", "# name = \"Parsek.Ghosted\"", "# default = \"save\"",
-                "[[type]]", "name = \"Parsek.Real\"", "default = \"process\"", "field = \"save: x\"",
+                "[[type]]  # a header with a trailing comment", "name = \"Parsek.FieldOnly\"",
+                "default = \"process\"", "reason = \"save: the reason text is not a lifetime\"",
+                "", "[type.fields]", "name = \"process: a field called name\"",
+                "liveList = \"save: cleared by the cold branch, then filled from the save\"",
+                "[[type]]", "name = \"Parsek.ProcessOnly\"", "default = \"process\"",
+                "[type.fields]", "\"quoted\" = \"test-hook\"", "cache = \"process: x\"",
+                "[[type]]", "name = \"Parsek.ByDefault\"", "default = \"save\"",
+                "[cold_load.roots]", "\"Parsek.Other\" = \"save\"",
             });
-            Assert.Equal(new[] { "Real" }, fromComment.ToArray());
+            Assert.Equal(new[] { "ByDefault", "FieldOnly" }, shaped.ToArray());
+            Assert.Throws<InvalidDataException>(() => RaceSaveLifetimeTypes(new[]
+            {
+                "[[type]]", "name = \"Parsek.X\"", "[type.fields]", "multi = \"\"\"save\"",
+            }));
+
+            // And the other way: every deny line that cites lifetimes.toml names a save type of it.
+            List<string> stale = deny.Where(d => d.Kind == "type"
+                    && d.Reason.IndexOf("lifetimes.toml", StringComparison.Ordinal) >= 0
+                    && !saveTypes.Contains(d.Name))
+                .Select(d => d.Name).ToList();
+            Assert.True(stale.Count == 0,
+                "deny line(s) citing lifetimes.toml for a type it gives no save lifetime: " + string.Join(", ", stale));
         }
 
         // ------------------------------------------------------------------ race log tags
@@ -1041,7 +1339,7 @@ namespace Parsek.Tests
         internal static List<string> RaceLogTagViolations(IList<RaceFile> files, ICollection<string> tags)
         {
             Dictionary<string, int> tagArg = RaceParsekLogTagArgument();
-            var call = new Regex(@"(?<![A-Za-z0-9_])ParsekLog\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)", RegexOptions.CultureInvariant);
+            var call = new Regex(@"(?<![A-Za-z0-9_])ParsekLog\s*\.\s*@?([A-Za-z_][A-Za-z0-9_]*)", RegexOptions.CultureInvariant);
             var usingStatic = new Regex(@"^\s*(?:global\s+)?using\s+static\s+[A-Za-z0-9_.]*ParsekLog\s*;", RegexOptions.Multiline | RegexOptions.CultureInvariant);
             var constDecl = new Regex(@"\bconst\s+string\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*""([^""\\]*)""\s*;", RegexOptions.CultureInvariant);
             var typeDecl = new Regex(@"\b(?:class|struct|interface)\s+([A-Za-z_][A-Za-z0-9_]*)", RegexOptions.CultureInvariant);

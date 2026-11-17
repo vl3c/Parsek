@@ -5,16 +5,17 @@
 # each folder that exists) and Source/Parsek/Controllers/ParsekRace*.cs. Read by
 # scripts/grep-audit-race-no-writer.ps1 and by its managed mirror, RaceNoWriterViolations in
 # Source/Parsek.Tests/GrepAuditTests.Race.cs (the shared RaceSourceScan): comments stripped,
-# string and char literal contents masked, interpolation holes kept as code, a `using X =`
-# alias and a backslash in code refused outright.
+# string and char literal contents masked, preprocessor lines blanked, interpolation holes kept
+# as code (their format clause is literal text), and a `using X =` alias, a backslash in code
+# and a non-ASCII character in code refused outright.
 #
 # Data lines (fields separated by blanks; everything after the third field is the reason,
 # which is required):
 #   deny type <Name> <reason>          the identifier <Name> anywhere in code is a hit,
 #                                      qualified or not (Parsek.Ledger counts)
-#   deny member <Name> <reason>        a member access `.<Name>` in code is a hit, through any
-#                                      receiver (a declaration has no dot, so a scenario
-#                                      module's own `override void OnSave` is not one)
+#   deny member <Name> <reason>        a member access `.<Name>` (or `.@<Name>`) in code is a
+#                                      hit, through any receiver (a declaration has no dot, so a
+#                                      scenario module's own `override void OnSave` is not one)
 #   allow <file> <Name|.Name> <reason> that repo-relative file may name that denied entry; an
 #                                      allow line whose file has no such hit is stale and reds,
 #                                      and one naming no deny entry reds
@@ -41,6 +42,8 @@ deny type GamePersistence writes persistent.sfs, quicksaves and new games
 deny type ScenarioRunner hosts the scenario modules and saves every one into the game
 deny type ProtoScenarioModule a scenario module's saved node in game.scenarios
 deny member OnSave calling a scenario module's save (or any OnSave) writes into the save
+deny member scenarios the stock list of scenario protos in the game (game.scenarios), the save's scenario nodes
+deny member moduleRef the live scenario module behind a proto (ProtoScenarioModule.moduleRef), whose OnSave writes the save
 
 # --- the save's own stock state the race is known to touch (design 15.4's two writes) ---
 deny type KerbalRoster the save's crew roster (hire, add, remove)

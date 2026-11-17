@@ -8,9 +8,11 @@
 #
 # Each file is LEXED, not grepped: comments become blanks, the contents of string and char
 # literals become blanks (quotes and interpolation holes stay, so `$"{RecordingStore.X}"` is
-# code), line breaks are kept so line numbers hold. A shape the lexer does not model (a raw
-# string literal, an unterminated literal or comment) throws, and the gate exits 2: it fails
-# closed rather than reading half a file.
+# code), line breaks are kept so line numbers hold. A preprocessor line (a '#' first on its
+# line) is blanked like a comment, and the format clause of a hole (from a ':' outside every
+# bracket of the hole to its closing '}') is literal text. A shape the lexer does not model (a
+# raw string literal, an unterminated literal or comment, a quote or line break in a format
+# clause) throws, and the gate exits 2: it fails closed rather than reading half a file.
 #
 # Mirrored character for character by RaceSourceScan / RaceLex in
 # Source/Parsek.Tests/GrepAuditTests.Race.cs, the managed arm that runs where pwsh is absent.
@@ -20,9 +22,12 @@
 $raceModuleFolders = @('RaceCore', 'RaceExport', 'RaceWorld')
 $raceControllerPattern = 'ParsekRace*.cs'
 
-$script:rlSpecial = [char[]]@('/', "'", '"', '$', '@', '{', '}')
+$script:rlSpecial = [char[]]@('/', "'", '"', '$', '@', '{', '}', '#')
+# In a hole the brackets and ':' matter too: a ':' outside every bracket starts the format
+# clause, which is literal text up to the closing '}'.
+$script:rlHoleSpecial = [char[]]@('/', "'", '"', '$', '@', '{', '}', '#', '(', ')', '[', ']', ':')
 $script:raceTypeRefRe = [regex]::new('(?<![A-Za-z0-9_.])([A-Z][A-Za-z0-9_]*)\s*\.')
-$script:raceAliasRe = [regex]::new('^\s*(?:global\s+)?using\s+([A-Za-z_][A-Za-z0-9_]*)\s*=')
+$script:raceAliasRe = [regex]::new('^\s*(?:global\s+)?using\s+@?([A-Za-z_][A-Za-z0-9_]*)\s*=')
 
 function New-RaceLexError([string]$What) {
     $line = 1
@@ -48,12 +53,32 @@ function Get-RaceAt([int]$J) {
     return [char]0
 }
 
+# True when only blanks stand between the start of the line and position P.
+function Test-RaceAtLineStart([int]$P) {
+    $t = $script:rlT
+    $j = $P - 1
+    while ($j -ge 0 -and ($t[$j] -ceq [char]32 -or $t[$j] -ceq [char]9 -or $t[$j] -ceq [char]11 -or $t[$j] -ceq [char]12)) { $j-- }
+    return ($j -lt 0 -or $t[$j] -ceq [char]10)
+}
+
+function Invoke-RaceBlankToEndOfLine {
+    $t = $script:rlT
+    $end = $t.IndexOf([char]10, $script:rlI)
+    if ($end -lt 0) { $end = $t.Length }
+    [void]$script:rlM.Append([char]32, $end - $script:rlI)
+    [void]$script:rlK.Append([char]32, $end - $script:rlI)
+    $script:rlI = $end
+}
+
 # Code until the end of the text, or (in a hole) until an unmatched '}', not consumed.
+# A preprocessor line (a '#' first on its line) is blanked like a comment: read as code,
+# `#region notes /*` would open a block comment over the real code below it.
 function Invoke-RaceLexCode([bool]$InHole) {
     $t = $script:rlT
     $depth = 0
+    if ($InHole) { $special = $script:rlHoleSpecial } else { $special = $script:rlSpecial }
     while ($script:rlI -lt $t.Length) {
-        $next = $t.IndexOfAny($script:rlSpecial, $script:rlI)
+        $next = $t.IndexOfAny($special, $script:rlI)
         if ($next -lt 0) { $next = $t.Length }
         if ($next -gt $script:rlI) {
             [void]$script:rlM.Append($t, $script:rlI, $next - $script:rlI)
@@ -63,12 +88,12 @@ function Invoke-RaceLexCode([bool]$InHole) {
         }
         $c = $t[$script:rlI]
         $n = Get-RaceAt ($script:rlI + 1)
+        if ($c -ceq [char]'#' -and (Test-RaceAtLineStart $script:rlI)) {
+            Invoke-RaceBlankToEndOfLine
+            continue
+        }
         if ($c -ceq [char]'/' -and $n -ceq [char]'/') {
-            $end = $t.IndexOf([char]10, $script:rlI)
-            if ($end -lt 0) { $end = $t.Length }
-            [void]$script:rlM.Append([char]32, $end - $script:rlI)
-            [void]$script:rlK.Append([char]32, $end - $script:rlI)
-            $script:rlI = $end
+            Invoke-RaceBlankToEndOfLine
             continue
         }
         if ($c -ceq [char]'/' -and $n -ceq [char]'*') {
@@ -90,18 +115,51 @@ function Invoke-RaceLexCode([bool]$InHole) {
             if (Invoke-RaceLexString) { continue }
         }
         if ($InHole) {
-            if ($c -ceq [char]'{') {
+            if ($c -ceq [char]'{' -or $c -ceq [char]'(' -or $c -ceq [char]'[') {
                 $depth++
+            }
+            elseif ($c -ceq [char]')' -or $c -ceq [char]']') {
+                if ($depth -gt 0) { $depth-- }
             }
             elseif ($c -ceq [char]'}') {
                 if ($depth -eq 0) { return }
                 $depth--
+            }
+            elseif ($c -ceq [char]':' -and $depth -eq 0) {
+                if ($n -ceq [char]':') {
+                    # `global::X` is code, not a format clause.
+                    Add-RaceBoth $c
+                    Add-RaceBoth $n
+                    $script:rlI = $script:rlI + 2
+                    continue
+                }
+                Invoke-RaceLexFormatClause
+                return
             }
         }
         Add-RaceBoth $c
         $script:rlI++
     }
     if ($InHole) { throw (New-RaceLexError 'an unterminated interpolation hole') }
+}
+
+# The format clause of a hole: the ':' and everything up to the hole's closing '}' (not
+# consumed) is literal text. A conditional operator in a hole compiles only in brackets, so a
+# ':' outside every bracket always starts this clause.
+function Invoke-RaceLexFormatClause {
+    $t = $script:rlT
+    Add-RaceBoth $t[$script:rlI]
+    $script:rlI++
+    while ($true) {
+        if ($script:rlI -ge $t.Length) { throw (New-RaceLexError 'an unterminated interpolation format clause') }
+        $c = $t[$script:rlI]
+        if ($c -ceq [char]'}') { return }
+        if ($c -ceq [char]'"' -or $c -ceq [char]10) {
+            throw (New-RaceLexError 'a quote or line break in an interpolation format clause')
+        }
+        Add-RaceBlank $c
+        $script:rlI++
+    }
 }
 
 function Invoke-RaceLexChar {
@@ -261,8 +319,10 @@ function Get-RaceScanVacuity($Scan, [string]$Gate, [int]$MinTypeReferences, [boo
     return $null
 }
 
-# The refusals every race gate shares, for one masked line: a `using X =` alias, or a backslash
-# in code (a unicode-escaped identifier). Adds the violation and returns $true when refused.
+# The refusals every race gate shares, for one masked line: a `using X =` alias, a backslash
+# in code (a unicode-escaped identifier), or a non-ASCII character in code (C# drops format
+# characters such as U+00AD from identifiers, so `Recording<U+00AD>Store` is RecordingStore).
+# Adds the violation and returns $true when refused.
 function Test-RaceStructural($File, [int]$Index, $Violations) {
     $line = $File.Lines[$Index]
     $m = $script:raceAliasRe.Match($line)
@@ -273,6 +333,12 @@ function Test-RaceStructural($File, [int]$Index, $Violations) {
     if ($line.IndexOf([char]92) -ge 0) {
         $Violations.Add($File.Rel + ':' + ($Index + 1) + ': [escape] \')
         return $true
+    }
+    foreach ($ch in $line.ToCharArray()) {
+        if ([int]$ch -gt 0x7F) {
+            $Violations.Add($File.Rel + ':' + ($Index + 1) + ': [non-ascii] U+' + ([int]$ch).ToString('X4', [System.Globalization.CultureInfo]::InvariantCulture))
+            return $true
+        }
     }
     return $false
 }
