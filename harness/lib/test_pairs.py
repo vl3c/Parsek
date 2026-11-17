@@ -470,6 +470,72 @@ class PairDispatchTests(unittest.TestCase):
         d = self.decide([tp.lane("S")], memory=P.MemoryReading(0.5, 0.5))
         self.assertEqual((P.ACTION_START, "S"), (d.action, d.lane_id))
 
+    def idle(self, pending, memory, memory_epoch, last_reap, now=None):
+        return P.decide_next(pending, [], BY_PROFILE, 2, False, memory,
+                             self.NOW if now is None else now, 900.0,
+                             memory_epoch=memory_epoch, last_reap_epoch=last_reap,
+                             idle_settle_seconds=10.0)
+
+    def test_a_reading_older_than_the_last_finish_never_ends_the_run(self):
+        # The reading was taken while the last lane still ran (995 < reap 999):
+        # it still counts that lane's copy, so it cannot say nothing will fit.
+        tight = P.MemoryReading(5.5, 12.0)
+        for epoch in (995.0, None):
+            with self.subTest(memory_epoch=epoch):
+                d = self.idle(self.pair(), tight, epoch, 999.0)
+                self.assertEqual((P.ACTION_WAIT, P.WAIT_MEMORY), (d.action, d.wait_kind))
+                self.assertIn("waits for a settled idle memory reading", d.reason)
+
+    def test_a_reading_older_than_the_last_finish_never_passes_the_pair_over(self):
+        d = self.idle(self.pair() + [tp.lane("S")], P.MemoryReading(5.5, 12.0), 995.0, 999.0)
+        self.assertEqual((P.ACTION_WAIT, P.WAIT_MEMORY), (d.action, d.wait_kind))
+        self.assertIsNone(d.lane_id)
+
+    def test_the_settle_bounds_the_idle_judgement(self):
+        tight = P.MemoryReading(5.5, 12.0)
+        # Fresh but inside the settle (the ended copy's memory may not be back yet).
+        d = self.idle(self.pair() + [tp.lane("S")], tight, 1000.0, 999.0)
+        self.assertEqual((P.ACTION_WAIT, P.WAIT_MEMORY), (d.action, d.wait_kind))
+        self.assertIn("1 s after the last lane ended", d.reason)
+        # A reading taken a full settle after the finish decides: pass over / DONE.
+        d = self.idle(self.pair() + [tp.lane("S")], tight, 1009.0, 999.0, now=1009.5)
+        self.assertEqual((P.ACTION_START, "S"), (d.action, d.lane_id))
+        d = self.idle(self.pair(), tight, 1009.0, 999.0, now=1009.5)
+        self.assertEqual(P.ACTION_DONE, d.action)
+        self.assertIn("nothing runs to free memory", d.reason)
+        # Admitting needs no settle: a fresh reading that fits starts the pair at once.
+        d = self.idle(self.pair(), P.MemoryReading(32.0, 12.0), 1000.0, 999.0)
+        self.assertEqual(P.ACTION_START_PAIR, d.action)
+        # No lane ended yet in this invocation: one idle reading decides.
+        d = self.idle(self.pair(), tight, 999.0, None)
+        self.assertEqual(P.ACTION_DONE, d.action)
+
+    def test_a_reading_from_before_the_last_start_never_admits_a_second_start(self):
+        # Mirror: the reading predates the copy that just started, so it cannot
+        # see any of it; it neither starts the next lane nor passes the pair over.
+        running = [P.Running("X", "stock-minimal-3", False, 990.0)]
+        for pending in ([tp.lane("S")], self.pair() + [tp.lane("S")]):
+            with self.subTest(pending=[l.lane_id for l in pending]):
+                d = P.decide_next(pending, running, BY_PROFILE, 3, False,
+                                  P.MemoryReading(32.0, 12.0), self.NOW, 990.0, gap_seconds=0.0,
+                                  memory_epoch=985.0, last_reap_epoch=None)
+                self.assertEqual((P.ACTION_WAIT, P.WAIT_MEMORY), (d.action, d.wait_kind))
+                self.assertIn("predates the last start", d.reason)
+        d = P.decide_next([tp.lane("S")], running, BY_PROFILE, 3, False,
+                          P.MemoryReading(32.0, 12.0), self.NOW, 990.0, gap_seconds=0.0,
+                          memory_epoch=991.0, last_reap_epoch=None)
+        self.assertEqual((P.ACTION_START, "S"), (d.action, d.lane_id))
+
+    def test_an_idle_reading_never_passes_the_pair_over_while_a_lane_runs(self):
+        # A settled reading with something running reserves as before: the pair
+        # waits on memory and the lane behind it does not jump it.
+        running = [P.Running("X", "stock-minimal-3", False, 990.0)]
+        d = P.decide_next(self.pair() + [tp.lane("S")], running, BY_PROFILE, 3, False,
+                          P.MemoryReading(10.0), self.NOW, 990.0, gap_seconds=0.0,
+                          memory_epoch=995.0, last_reap_epoch=None)
+        self.assertEqual((P.ACTION_WAIT, P.WAIT_MEMORY), (d.action, d.wait_kind))
+        self.assertIn("pair G, two copies", d.reason)
+
     def test_single_lane_memory_text_is_unchanged(self):
         holds = P.memory_holds(P.MemoryReading(5.0), 1)
         self.assertEqual("free RAM 5.0 GB - new copy 4.5 GB = 0.5 GB < 1.5 GB", holds[0][1])
@@ -1024,6 +1090,115 @@ class PairRunnerSmokeTests(unittest.TestCase):
         lines = self.summary("p11")
         self.assertEqual(["# totals no-results pending=2 of 2"], lines)
         self.assertIn("nothing runs to free memory", self.log("p11"))
+
+    def run_bounded(self, ctx, *argv, limit=30):
+        box = {}
+        worker = threading.Thread(target=lambda: box.setdefault(
+            "code", pr.main(list(argv), ctx=ctx)), daemon=True)
+        worker.start()
+        worker.join(limit)
+        self.assertFalse(worker.is_alive(), "the runner is still waiting on memory")
+        return box.get("code")
+
+    def test_a_reading_taken_while_the_last_lane_ran_never_ends_the_run(self):
+        # The review's shape: memory is low while C flies and free once it exits.
+        # The reading cached while C ran must not decide at the idle moment.
+        reads = []
+
+        def memory_fn():
+            reads.append(time.time())
+            return P.MemoryReading(5.0, 12.0) if len(reads) <= 2 else P.MemoryReading(32.0, 12.0)
+        ctx = self.ctx()
+        ctx.memory_fn = memory_fn
+        ctx.idle_settle_seconds = 0.3
+        code = self.run_bounded(ctx, "run", "--name", "s1", "--ids", "PB,C", "--slots", "2")
+        self.assertEqual(0, code, "%d memory reads; %s" % (len(reads), self.summary("s1")))
+        self.assertEqual("# totals PASS=3 pending=0 of 3", self.summary("s1")[-1])
+        self.assertNotIn("nothing runs to free memory", self.log("s1"))
+
+    def test_memory_that_stays_low_after_the_finish_ends_the_run_after_the_settle(self):
+        # Bounded settle: the idle DONE waits for one reading taken a full settle
+        # after the last lane ended, then ends the run; it never loops.
+        settle = 0.5
+        reads, finishes = [], []
+        real_finish = pr._finish_child
+
+        def finish(*a, **k):
+            finishes.append(time.time())
+            return real_finish(*a, **k)
+
+        def memory_fn():
+            reads.append(time.time())
+            return P.MemoryReading(5.0, 12.0)
+        ctx = self.ctx()
+        ctx.memory_fn = memory_fn
+        ctx.idle_settle_seconds = settle
+        with mock.patch.object(pr, "_finish_child", finish):
+            code = self.run_bounded(ctx, "run", "--name", "s2", "--ids", "PB,C", "--slots", "2")
+        self.assertEqual(P.EXIT_RED, code)
+        self.assertEqual(["C"], [r["lane"] for r in self.child_records()])
+        self.assertEqual(1, len(finishes))
+        # The deciding reading is the last one, taken a full settle after C ended
+        # (the reap precedes _finish_child by the pair bookkeeping only).
+        self.assertGreaterEqual(reads[-1] - finishes[0], settle - 0.1,
+                                "deciding read %.3f s after the finish"
+                                % (reads[-1] - finishes[0]))
+        # Bounded: the idle start, C's run, one read at the reap, one after the
+        # settle; a cached reading per 10 s while C ran can add one more.
+        self.assertTrue(4 <= len(reads) <= 6, "%d memory reads" % len(reads))
+        log = self.log("s2")
+        self.assertIn("nothing runs to free memory", log)
+        self.assertIn("waits for a settled idle memory reading", log)
+        self.assertIn("# totals", self.summary("s2")[-1])
+        self.assertIn("pending=2", self.summary("s2")[-1])
+
+    def starve_run(self, name, release_lag):
+        # A stream of unpaired lanes; the pair is first in order (longest p50) and
+        # memory fits it only when nothing runs. The first read is low (something
+        # outside the run holds memory), so A starts ahead of it. With
+        # ``release_lag`` the first read after every finish is still low, as when
+        # the OS has not handed an exited copy's memory back yet.
+        with open(os.path.join(self.harness, "coverage", "duration.json"), "w") as fh:
+            json.dump({"scenarios": {"PA": {"p50": 900}, "PB": {"p50": 900},
+                                     "A": {"p50": 300}, "B": {"p50": 200}}}, fh)
+        state = {"reads": 0, "running": 0, "lag": False}
+        real_spawn, real_finish = pr._spawn_child, pr._finish_child
+
+        def spawn(*a, **k):
+            state["running"] += 1
+            return real_spawn(*a, **k)
+
+        def finish(*a, **k):
+            state["running"] -= 1
+            state["lag"] = release_lag
+            return real_finish(*a, **k)
+
+        def memory_fn():
+            state["reads"] += 1
+            low = state["reads"] == 1 or state["running"] > 0 or state["lag"]
+            state["lag"] = False
+            return P.MemoryReading(5.0 if low else 32.0, 12.0)
+        ctx = self.ctx()
+        ctx.memory_fn = memory_fn
+        ctx.idle_settle_seconds = 0.3
+        with mock.patch.object(pr, "_spawn_child", spawn), \
+                mock.patch.object(pr, "_finish_child", finish):
+            code = self.run_bounded(ctx, "run", "--name", name, "--ids", "PB,A,B,C",
+                                    "--slots", "2")
+        order = [e["lane"] for e in self.events(name) if e["kind"] == "dispatch"]
+        return code, order
+
+    def test_a_stream_of_unpaired_lanes_never_starves_the_pair(self):
+        code, order = self.starve_run("s3", release_lag=False)
+        self.assertEqual(["A", "PA", "PB", "B", "C"], order, "the pair flies at the first idle")
+        self.assertEqual(0, code, self.log("s3"))
+        self.assertEqual("# totals PASS=5 pending=0 of 5", self.summary("s3")[-1])
+
+    def test_a_slow_memory_release_still_flies_the_pair_at_the_first_idle(self):
+        code, order = self.starve_run("s4", release_lag=True)
+        self.assertEqual(["A", "PA", "PB", "B", "C"], order)
+        self.assertEqual(0, code, self.log("s4"))
+        self.assertIn("waits for a settled idle memory reading", self.log("s4"))
 
     def test_a_stopped_pair_reads_stopped_with_its_halves_pending(self):
         # Both halves honour a stop before flying: no verdict line follows their

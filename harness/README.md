@@ -2180,7 +2180,16 @@ cd harness && python tools/parallel_runner.py run --name pair-1 --ids PAIR-1a-sh
   later lanes start in order, and when nothing else can start the run ends red
   with the pair pending and a line naming the pair and the memory arithmetic
   (`... nothing runs to free memory and memory guard (pair G, two copies): ...`;
-  free memory, then `resume`). With `slots` 1 the pair never starts and the run
+  free memory, then `resume`). That idle judgement is made only on a reading
+  taken with nothing running and at least `IDLE_SETTLE_SECONDS` (10 s) after the
+  last lane ended: the runner drops its cached reading at every start and every
+  finish (a reading taken while the lane ran still counts its copy), and a game
+  that just exited may not have handed its memory back yet. Until such a
+  reading exists the pair keeps the dispatch (`waits for a settled idle memory
+  reading`), so no later lane starts ahead of it at the idle moment; the wait is
+  bounded, because the runner reads afresh once the settle has passed and that
+  reading decides. A fresh reading that fits starts the pair at once, settle or
+  not. A reading taken before the last start never admits another start. With `slots` 1 the pair never starts and the run
   ends red with `lanes left unflown`: `set-slots 2`, then `resume`.
 - **Folders.** At dispatch, under the machine lock, the runner wipes and
   recreates the shared folder `<umbrella>/automation/rs/<run>/<group>/` and the

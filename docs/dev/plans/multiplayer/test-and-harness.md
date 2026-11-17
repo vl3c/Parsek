@@ -1403,6 +1403,13 @@ paired spec).
     the run ends DONE with the pair pending and the memory arithmetic named. A
     pair-dispatched line counts as pending but neither as a verdict nor red, so a stop
     honoured by both halves reads STOPPED and `status` shows a flying half as running.
+  - Third follow-up (2026-11-17, review of the second): the idle judgement read a memory
+    value cached while the last lane still ran, so the run could end with the pair unflown,
+    or pass it over after every finish and starve it. The runner now clears its memory
+    cache at every reap, and the pass-over / DONE needs a reading taken at least
+    `IDLE_SETTLE_SECONDS` (10 s) after the last finish; until then the pair keeps the
+    dispatch, and the runner re-reads once the settle has passed (bounded). A reading older
+    than the last start never admits another start.
 
 ### T-55 Race integration variants (lanes RCI-1 to RCI-9)
 

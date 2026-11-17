@@ -1344,7 +1344,15 @@ folder (a race lane's publisher and reader). Each half carries `[pair] group =
   by memory with nothing running is passed over instead (nothing would free the
   memory): later lanes start in order, and when nothing else can start the run
   ends (DONE) with the pair pending, naming the pair and the memory arithmetic;
-  no dispatch line is written for it. A profile with fewer than two provisioned copies refuses the run
+  no dispatch line is written for it. The idle judgement needs a reading
+  taken with nothing running and at least `IDLE_SETTLE_SECONDS` after the last
+  lane of the invocation ended (`parallel.idle_reading_settled`, fed the
+  reading's epoch and the last reap epoch): the runner clears its memory cache
+  at every start and every reap, and a just-exited game may not have released
+  its memory yet. Before such a reading the pair keeps the dispatch (a
+  `memory` wait); the runner re-reads as soon as the settle has passed, so the
+  wait is bounded by the settle plus one poll. A reading older than the last
+  start never admits a further start (`reading_predates_start`). A profile with fewer than two provisioned copies refuses the run
   (exit 2); with `slots` below 2 the pair never starts and the run ends red with
   lanes left unflown.
 - **Folders.** At dispatch, under the machine lock, the runner wipes and makes

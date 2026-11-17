@@ -521,6 +521,7 @@ class Context:
     heartbeat_seconds: float = HEARTBEAT_SECONDS
     dispatch_gap_seconds: float = parallel.DISPATCH_GAP_SECONDS
     boot_window_seconds: float = parallel.BOOT_WINDOW_SECONDS
+    idle_settle_seconds: float = parallel.IDLE_SETTLE_SECONDS
     bridge: Any = None
     unity_prefs: Any = None
     memory_fn: Callable[[], parallel.MemoryReading] = memory_reading
@@ -956,7 +957,10 @@ def _dispatch(ctx: Context, folder: RunFolder, plan: Dict, lanes: List[parallel.
     seq = max([int(e.get("seq") or 0) for e in folder.events()] + [0])
     result = LoopResult()
     last_start: Optional[float] = None
+    last_reap: Optional[float] = None
     last_wait: Optional[Tuple[str, str]] = None
+    # (epoch read, reading). Cleared at every start and every reap, so a reading
+    # never outlives a change in what runs; decide_next gets its epoch.
     mem_cache: Tuple[float, Optional[parallel.MemoryReading]] = (0.0, None)
     # A dispatched pair's halves as they finish: group -> {lane id: outcome or None}.
     pair_finished: Dict[str, Dict[str, Optional[parallel.LaneOutcome]]] = {}
@@ -965,6 +969,10 @@ def _dispatch(ctx: Context, folder: RunFolder, plan: Dict, lanes: List[parallel.
             if child.proc.poll() is None:
                 continue
             del running[s]
+            # The cached reading counts this lane's copy: the next one postdates
+            # the reap, and an idle judgement waits out the settle after it.
+            last_reap = time.time()
+            mem_cache = (0.0, None)
             if child.lane.paired:
                 _mark_pair_child_ended(folder, child, log)
             outcome, child_stopped = _finish_child(child, folder, lane_lines, log)
@@ -1000,14 +1008,22 @@ def _dispatch(ctx: Context, folder: RunFolder, plan: Dict, lanes: List[parallel.
         # runs (the first lane from idle is free; a pair's second half is not).
         if pending and not halt and (running or any(l.paired for l in pending)):
             now = time.time()
-            if now - mem_cache[0] >= MEMORY_CACHE_SECONDS or mem_cache[1] is None:
+            # Idle after a reap: once the settle has passed, a reading taken
+            # inside it is replaced at once, so the settle wait is bounded by
+            # the settle plus one poll whatever the cache interval.
+            settle_due = (not running and last_reap is not None
+                          and mem_cache[0] < last_reap + ctx.idle_settle_seconds <= now)
+            if now - mem_cache[0] >= MEMORY_CACHE_SECONDS or mem_cache[1] is None or settle_due:
                 mem_cache = (now, ctx.memory_fn())
             memory = mem_cache[1]
         running_view = [parallel.Running(c.lane.lane_id, c.slot, c.lane.exclusive, c.started)
                         for c in running.values()]
         decision = parallel.decide_next(pending, running_view, by_profile, slots_value, halt,
                                         memory, time.time(), last_start,
-                                        ctx.dispatch_gap_seconds, ctx.boot_window_seconds)
+                                        ctx.dispatch_gap_seconds, ctx.boot_window_seconds,
+                                        memory_epoch=mem_cache[0] if memory is not None else None,
+                                        last_reap_epoch=last_reap,
+                                        idle_settle_seconds=ctx.idle_settle_seconds)
         if decision.action == parallel.ACTION_DONE:
             if pending and not halt:
                 log.warn("Plan", "%s; %d lane(s) left pending" % (decision.reason, len(pending)))

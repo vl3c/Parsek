@@ -86,6 +86,19 @@ BOOT_WINDOW_SECONDS = 60.0
 # copy still booting is the guard's job, not this gap's.
 DISPATCH_GAP_SECONDS = slots.DEFAULT_LAUNCH_SPACING_SECONDS
 
+# The idle settle. With nothing running, a pair the memory guard holds is passed
+# over (later lanes start) and, when nothing else can start, the run ends with
+# the pair pending: nothing running would ever free the memory it waits for.
+# That idle judgement is made only on a reading taken while nothing ran, and at
+# least IDLE_SETTLE_SECONDS after the last lane of this invocation ended: a
+# reading taken earlier may still count the ended lane's copy (a cached reading
+# from while it ran, or a game process whose memory the OS has not handed back
+# yet). Until such a reading exists the pair keeps the dispatch (a wait, so no
+# later lane starts ahead of it at the idle moment). The wait is bounded: the
+# runner takes a fresh reading once the settle has passed, and that reading
+# decides (start the pair, pass it over, or end the run).
+IDLE_SETTLE_SECONDS = 10.0
+
 DEFAULT_SLOTS = 2
 MIN_SLOTS = 1
 MAX_SLOTS = 8
@@ -712,11 +725,16 @@ def decide_next(pending: Sequence[Lane], running: Sequence[Running],
                 memory: Optional[MemoryReading], now_epoch: float,
                 last_start_epoch: Optional[float],
                 gap_seconds: float = DISPATCH_GAP_SECONDS,
-                boot_window_seconds: float = BOOT_WINDOW_SECONDS) -> DispatchDecision:
+                boot_window_seconds: float = BOOT_WINDOW_SECONDS,
+                memory_epoch: Optional[float] = None,
+                last_reap_epoch: Optional[float] = None,
+                idle_settle_seconds: float = IDLE_SETTLE_SECONDS) -> DispatchDecision:
     """What the runner does next. ``pending`` is in dispatch order (ordered by
     ``order_lanes``); ``max_running`` is control.json's ``slots``, re-read
     before every call (a lower value never stops a running lane, it only holds
-    the next start)."""
+    the next start). ``memory_epoch`` is when ``memory`` was read and
+    ``last_reap_epoch`` when the last lane of this invocation ended (None: none
+    ended yet); see ``IDLE_SETTLE_SECONDS`` and ``reading_predates_start``."""
     if stop:
         if running:
             return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_STOP,
@@ -743,6 +761,11 @@ def decide_next(pending: Sequence[Lane], running: Sequence[Running],
             return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_GAP,
                                     reason="the last start was %.0f s ago (< %.0f s dispatch gap)"
                                     % (now_epoch - last_start_epoch, gap_seconds))
+        if running and reading_predates_start(memory, memory_epoch, last_start_epoch):
+            return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_MEMORY,
+                                    reason="memory guard: the reading predates the last start; "
+                                           "waiting for a fresh one",
+                                    log_key="stale-start")
         share = booting_share(running, now_epoch, boot_window_seconds)
         holds = memory_holds(memory, len(running), share)
         if holds:
@@ -762,6 +785,12 @@ def decide_next(pending: Sequence[Lane], running: Sequence[Running],
                     unstartable.append(lane.lane_id)
                     continue
                 if pair.wait_kind == WAIT_MEMORY and not running:
+                    if not idle_reading_settled(memory_epoch, last_start_epoch,
+                                                last_reap_epoch, idle_settle_seconds):
+                        # The reading may still count the copy that just ended: the
+                        # pair keeps the dispatch until a settled reading decides.
+                        return _settle_wait(pair, lane, memory_epoch, last_reap_epoch,
+                                            idle_settle_seconds)
                     # Nothing runs, so nothing will free memory: the pair does not
                     # reserve the dispatch, later lanes get their turn, and if none
                     # can start the run ends with the pair pending (below).
@@ -801,6 +830,49 @@ def decide_next(pending: Sequence[Lane], running: Sequence[Running],
                             reason="exclusive (%s), alone" % lane.exclusive_reason)
 
 
+def idle_reading_settled(memory_epoch: Optional[float], last_start_epoch: Optional[float],
+                         last_reap_epoch: Optional[float],
+                         idle_settle_seconds: float = IDLE_SETTLE_SECONDS) -> bool:
+    """Whether a reading may make the idle judgement (pass a memory-held pair
+    over, or end the run because nothing runs to free memory); the caller has
+    checked that nothing runs now. With no lane ended in this invocation any
+    reading taken with nothing running qualifies (a reading of unknown time is
+    trusted only then). Once a lane ended, the reading must be stamped at least
+    ``idle_settle_seconds`` after that end, and after the last start: running
+    only grows at a start and shrinks at a reap, so such a reading was taken
+    with nothing running."""
+    if last_reap_epoch is None:
+        return memory_epoch is None or last_start_epoch is None or \
+            memory_epoch >= last_start_epoch
+    if memory_epoch is None:
+        return False
+    if last_start_epoch is not None and memory_epoch < last_start_epoch:
+        return False
+    return memory_epoch - last_reap_epoch >= max(0.0, idle_settle_seconds)
+
+
+def reading_predates_start(memory: Optional[MemoryReading], memory_epoch: Optional[float],
+                           last_start_epoch: Optional[float]) -> bool:
+    """Whether a reading was taken before the last start, so it holds none of
+    that copy's memory and the booting ramp under-charges it. Such a reading
+    never admits a further start (the runner reads afresh after every start)."""
+    return memory is not None and memory_epoch is not None and \
+        last_start_epoch is not None and memory_epoch < last_start_epoch
+
+
+def _settle_wait(pair: "DispatchDecision", lane: Lane, memory_epoch: Optional[float],
+                 last_reap_epoch: Optional[float],
+                 idle_settle_seconds: float) -> "DispatchDecision":
+    if memory_epoch is None or last_reap_epoch is None or memory_epoch < last_reap_epoch:
+        age = "a reading taken before the last lane ended"
+    else:
+        age = "a reading taken %.0f s after the last lane ended" % (memory_epoch - last_reap_epoch)
+    return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_MEMORY, reason=(
+        "pair %s waits for a settled idle memory reading (%s, settle %.0f s): %s"
+        % (lane.pair_group, age, idle_settle_seconds, pair.reason)),
+        log_key="settle|" + (pair.log_key or ""))
+
+
 def _pair_decision(lane: Lane, pending: Sequence[Lane], running: Sequence[Running],
                    busy: set, by_profile: Dict[str, List[str]], cap: int,
                    memory: Optional[MemoryReading], share: float, now_epoch: float,
@@ -811,8 +883,9 @@ def _pair_decision(lane: Lane, pending: Sequence[Lane], running: Sequence[Runnin
     over. Otherwise the pair RESERVES the dispatch: until two slots of its
     profile are free and memory holds two copies, nothing after it starts, so a
     stream of single lanes can never starve it. The one exception is a memory
-    hold with nothing running (``decide_next`` passes over such a pair: nothing
-    would ever free the memory it waits for)."""
+    hold with nothing running on a settled reading (``decide_next`` passes over
+    such a pair: nothing would ever free the memory it waits for;
+    ``IDLE_SETTLE_SECONDS``)."""
     if lane.pair_role != hlib.PAIR_ROLE_A:
         return None
     partner = next((l for l in pending if l.pair_group == lane.pair_group
