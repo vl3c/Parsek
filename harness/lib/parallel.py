@@ -478,8 +478,17 @@ def pair_guard(own: "LaneOutcome", partner: Optional["LaneOutcome"],
 
 
 # The note on the line a pair's dispatch writes for each half before either child
-# starts (``pair_dispatch_outcome``).
+# starts (``pair_dispatch_outcome``). It is written with ``_`` for the spaces, so a
+# parsed line is recognised by its first word (``is_pair_dispatch_marker``).
 PAIR_DISPATCHED_NOTE = "pair-dispatched: no verdict yet"
+PAIR_DISPATCHED_KEY = "pair-dispatched"
+
+
+def is_pair_dispatch_marker(o: Optional["LaneOutcome"]) -> bool:
+    """True for a pair-dispatch line: pending, but neither a verdict nor red (the
+    half is flying, or its run ended before it reported; a resume flies it)."""
+    return (o is not None and o.verdict == VERDICT_NOT_RUN
+            and (o.note or "").startswith(PAIR_DISPATCHED_KEY))
 
 
 def pair_dispatch_outcome(lane_id: str, slot: str, ended_iso: str) -> "LaneOutcome":
@@ -744,6 +753,7 @@ def decide_next(pending: Sequence[Lane], running: Sequence[Running],
                                     log_key=memory_wait_log_key(
                                         memory, [l for l, _ in holds], len(running), booting))
         unstartable: List[str] = []
+        idle_memory_held: List[str] = []
         for lane in normal:
             if lane.paired:
                 pair = _pair_decision(lane, pending, running, busy, by_profile, cap, memory,
@@ -751,14 +761,26 @@ def decide_next(pending: Sequence[Lane], running: Sequence[Running],
                 if pair is None:
                     unstartable.append(lane.lane_id)
                     continue
+                if pair.wait_kind == WAIT_MEMORY and not running:
+                    # Nothing runs, so nothing will free memory: the pair does not
+                    # reserve the dispatch, later lanes get their turn, and if none
+                    # can start the run ends with the pair pending (below).
+                    unstartable.append(lane.lane_id)
+                    idle_memory_held.append(pair.reason)
+                    continue
                 return pair
             for slot in by_profile.get(lane.profile, []):
                 if slot not in busy:
                     return DispatchDecision(ACTION_START, lane_id=lane.lane_id, slot=slot,
                                             reason="p50=%.0fs" % lane.p50)
         if not running and len(unstartable) == len(normal):
-            # Nothing runs and nothing pending can ever start at this cap: end the
-            # run with them pending (RED, lanes left unflown) rather than wait forever.
+            # Nothing runs and nothing pending can ever start: end the run with them
+            # pending (RED, lanes left unflown, resumable) rather than wait forever.
+            if idle_memory_held:
+                return DispatchDecision(ACTION_DONE, reason=(
+                    "paired lane(s) %s cannot start: nothing runs to free memory and %s "
+                    "(free memory, then resume)"
+                    % (", ".join(unstartable), "; ".join(idle_memory_held))))
             return DispatchDecision(ACTION_DONE, reason=(
                 "paired lane(s) %s cannot start: a pair needs two slots at once, slots=%d "
                 "(set-slots 2, then resume)" % (", ".join(unstartable), cap)))
@@ -788,7 +810,9 @@ def _pair_decision(lane: Lane, pending: Sequence[Lane], running: Sequence[Runnin
     whose partner is not pending, or a pair that cannot fit at this cap, is passed
     over. Otherwise the pair RESERVES the dispatch: until two slots of its
     profile are free and memory holds two copies, nothing after it starts, so a
-    stream of single lanes can never starve it."""
+    stream of single lanes can never starve it. The one exception is a memory
+    hold with nothing running (``decide_next`` passes over such a pair: nothing
+    would ever free the memory it waits for)."""
     if lane.pair_role != hlib.PAIR_ROLE_A:
         return None
     partner = next((l for l in pending if l.pair_group == lane.pair_group
@@ -960,8 +984,11 @@ class LaneOutcome:
 
 def format_summary_line(o: LaneOutcome) -> str:
     """``<endedIso> <VERDICT> <id> attempts=N wall=Ns slot=S runIds=a,b``: the
-    first three fields are run.py's summary.txt order, so
-    ``tier_runner.tally_verdicts`` reads this file too."""
+    first three fields are run.py's summary.txt order, so the lines parse with
+    ``tier_runner.tally_verdicts`` (a test pins the format). No production caller
+    tallies this file with it: it counts every line, a lane's earlier lines, guard
+    rewrites and pair-dispatch markers included; ``tally`` reads each lane's
+    latest line."""
     line = "%s %s %s attempts=%d wall=%ds slot=%s runIds=%s" % (
         o.ended_iso, o.verdict, o.lane_id, o.attempts, int(o.wall_seconds), o.slot,
         ",".join(o.run_ids) or "-")
@@ -1050,7 +1077,7 @@ def tally(plan_ids: Sequence[str], lines: Sequence[str]) -> Tuple[Dict[str, int]
         o = latest.get(sid)
         if o is None or not lane_settled(o.verdict, o.attempts):
             pending += 1
-            if o is not None and o.verdict in RED_VERDICTS:
+            if o is not None and o.verdict in RED_VERDICTS and not is_pair_dispatch_marker(o):
                 counts[o.verdict] = counts.get(o.verdict, 0) + 1
             continue
         counts[o.verdict] = counts.get(o.verdict, 0) + 1
@@ -1076,7 +1103,8 @@ def selection_outcome(plan_ids: Sequence[str], lines: Sequence[str],
         return OUTCOME_NO_SELECTION, EXIT_USAGE, "nothing selected"
     latest = latest_outcomes(lines)
     counts, pending = tally(plan_ids, lines)
-    red = [sid for sid in plan_ids if sid in latest and latest[sid].verdict in RED_VERDICTS]
+    red = [sid for sid in plan_ids if sid in latest and latest[sid].verdict in RED_VERDICTS
+           and not is_pair_dispatch_marker(latest[sid])]
     detail = "%s pending=%d of %d" % (format_counts(counts), pending, len(plan_ids))
     if red:
         return OUTCOME_RED, EXIT_RED, detail

@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tomllib
 import unittest
@@ -425,10 +426,11 @@ class PairDispatchTests(unittest.TestCase):
                 self.assertEqual(P.ACTION_DONE, self.decide(lone).action)
 
     def test_the_memory_guard_charges_two_copies(self):
-        # Nothing running: the first half is the free first lane, the second is charged.
+        # Nothing running: the first half is the free first lane, the second is
+        # charged; nothing would free memory, so the run ends with the pair pending.
         tight = P.MemoryReading(free_ram_gb=5.0)
         d = self.decide(self.pair(), memory=tight)
-        self.assertEqual((P.ACTION_WAIT, P.WAIT_MEMORY), (d.action, d.wait_kind))
+        self.assertEqual(P.ACTION_DONE, d.action)
         self.assertIn("pair G, two copies", d.reason)
         self.assertEqual(P.ACTION_START, self.decide([tp.lane("S")], memory=tight).action)
         self.assertEqual(P.ACTION_START_PAIR,
@@ -440,6 +442,33 @@ class PairDispatchTests(unittest.TestCase):
         self.assertEqual(P.WAIT_MEMORY,
                          self.decide(self.pair(), running, memory=P.MemoryReading(10.0)).wait_kind)
         self.assertEqual([], P.memory_holds(P.MemoryReading(10.6), 1, 0.0, new_copies=2))
+
+    def test_a_pair_held_by_memory_from_idle_does_not_block_a_later_lane(self):
+        # (a) Nothing runs, so nothing frees memory: the pair does not reserve the
+        # dispatch, and the unpaired lane behind it starts (first lane free).
+        d = self.decide(self.pair() + [tp.lane("S")], max_running=2,
+                        memory=P.MemoryReading(5.5, 12.0))
+        self.assertEqual((P.ACTION_START, "S"), (d.action, d.lane_id))
+
+    def test_a_pair_held_by_memory_from_idle_ends_the_run_pending(self):
+        # (b) Only the memory-held pair is left and nothing runs: DONE, not a wait.
+        d = self.decide(self.pair(), max_running=2, memory=P.MemoryReading(5.5, 12.0))
+        self.assertEqual(P.ACTION_DONE, d.action)
+        self.assertIn("paired lane(s) PA, PB cannot start: nothing runs to free memory", d.reason)
+        self.assertIn("free RAM 5.5 GB", d.reason)
+        self.assertIn("free memory, then resume", d.reason)
+
+    def test_a_pair_held_by_memory_while_a_lane_runs_still_reserves(self):
+        # (c) Memory can still free while something runs: the pair waits and the
+        # lane behind it does not jump it.
+        running = [P.Running("X", "stock-minimal-3", False, 0.0)]
+        d = self.decide(self.pair() + [tp.lane("S")], running, memory=P.MemoryReading(10.0))
+        self.assertEqual((P.ACTION_WAIT, P.WAIT_MEMORY), (d.action, d.wait_kind))
+        self.assertIn("pair G, two copies", d.reason)
+
+    def test_an_unpaired_lane_from_idle_is_still_free(self):
+        d = self.decide([tp.lane("S")], memory=P.MemoryReading(0.5, 0.5))
+        self.assertEqual((P.ACTION_START, "S"), (d.action, d.lane_id))
 
     def test_single_lane_memory_text_is_unchanged(self):
         holds = P.memory_holds(P.MemoryReading(5.0), 1)
@@ -524,9 +553,11 @@ class PairResumeTests(unittest.TestCase):
         self.assertEqual(["PA", "PB"], self.remaining(*lines))
         outcome, code, detail = P.selection_outcome(self.PLAN, lines, False)
         self.assertEqual((P.OUTCOME_RED, P.EXIT_RED), (outcome, code))
-        self.assertIn("PASS=2 NOT-RUN=1 pending=1 of 3", detail)
-        self.assertEqual("# totals PASS=2 NOT-RUN=1 pending=1 of 3",
-                         P.format_totals_line(self.PLAN, lines))
+        self.assertIn("PASS=2 pending=1 of 3 (lanes left unflown)", detail)
+        self.assertEqual("# totals PASS=2 pending=1 of 3", P.format_totals_line(self.PLAN, lines))
+        # After a stop the same lines read STOPPED, as an unpaired stopped lane does.
+        self.assertEqual((P.OUTCOME_STOPPED, P.EXIT_SKIPPED),
+                         P.selection_outcome(self.PLAN, lines, True)[:2])
         self.assertIn("note=pair-dispatched", marker("PA"))
 
     def test_without_partners_the_rule_is_per_lane(self):
@@ -733,7 +764,6 @@ class PairChildSmokeTests(trs._SlotBox):
         self.assertEqual("staging", self.results()["PAIR-A"][0]["subkind"])
         self.assertEqual(0, rt.launch_count)
 
-
     @unittest.skipUnless(os.name == "nt", "a junction is a Windows folder link")
     def test_a_junction_shared_folder_is_refused_at_staging(self):
         # The Windows twin of the symlink cell: a junction needs no privilege.
@@ -753,6 +783,7 @@ class PairChildSmokeTests(trs._SlotBox):
         self.assertEqual("staging", self.results()["PAIR-A"][0]["subkind"])
         self.assertEqual(0, rt.launch_count)
         self.assertEqual([], os.listdir(target), "nothing written through the junction")
+
 
 # ---------------------------------------------------------------------------
 # The runner shell end to end: the real runner, the fake child, real barriers
@@ -874,21 +905,17 @@ class PairRunnerSmokeTests(unittest.TestCase):
         self.assertEqual("# totals PASS=2 pending=0 of 2", self.summary("p2")[-1])
 
     def test_the_memory_guard_charges_the_second_copy_of_a_pair_from_idle(self):
-        readings = [P.MemoryReading(5.0, 12.0)] * 2
-        calls = []
-
-        def memory_fn():
-            calls.append(1)
-            return readings.pop(0) if readings else P.MemoryReading(32.0, 12.0)
+        # Memory is read with nothing running, and a reading that cannot hold the
+        # second copy ends the run with the pair pending; a resume with memory free
+        # flies it.
         ctx = self.ctx()
-        ctx.memory_fn = memory_fn
-        with mock.patch.object(pr, "MEMORY_CACHE_SECONDS", 0.0):
-            code = pr.main(["run", "--name", "p10", "--ids", "PA", "--slots", "2"], ctx=ctx)
+        ctx.memory_fn = lambda: P.MemoryReading(5.0, 12.0)
+        code = pr.main(["run", "--name", "p10", "--ids", "PA", "--slots", "2"], ctx=ctx)
+        self.assertEqual(P.EXIT_RED, code, "\n".join(self.console))
+        self.assertIn("pair G1, two copies", self.log("p10"))
+        self.assertEqual([], self.child_records())
+        code = self.main("resume", "--name", "p10")
         self.assertEqual(0, code, "\n".join(self.console))
-        self.assertGreaterEqual(len(calls), 3, "memory is read with nothing running")
-        log = self.log("p10")
-        self.assertIn("memory: ", log)
-        self.assertIn("pair G1, two copies", log)
         self.assertEqual("# totals PASS=2 pending=0 of 2", self.summary("p10")[-1])
 
     def test_an_interrupted_re_flight_never_reads_green_from_a_stale_pass(self):
@@ -916,7 +943,7 @@ class PairRunnerSmokeTests(unittest.TestCase):
         self.assertNotEqual(0, code)
         lines = self.summary("p9")
         self.assertEqual("NOT-RUN", P.latest_outcomes(lines)["PB"].verdict, lines)
-        self.assertEqual("# totals PASS=1 NOT-RUN=1 pending=1 of 2", lines[-1])
+        self.assertEqual("# totals PASS=1 pending=1 of 2", lines[-1])
         # Flight 3: the pair is not settled, so both halves fly again.
         os.environ.pop("FAKE_CHILD_SLEEPS")
         before = (len(self.records("PA")), len(self.records("PB")))
@@ -979,6 +1006,50 @@ class PairRunnerSmokeTests(unittest.TestCase):
         self.assertEqual(P.EXIT_USAGE, code)
         self.assertIn("exactly one role A and one role B", "\n".join(self.console))
         self.assertEqual([], self.child_records())
+
+    def test_a_pair_memory_held_from_idle_ends_the_run_instead_of_looping(self):
+        # (b) end to end: the runner exits with the pair pending and no dispatch
+        # marker; bounded, so a regression fails instead of hanging the suite.
+        ctx = self.ctx()
+        ctx.memory_fn = lambda: P.MemoryReading(5.5, 12.0)
+        box = {}
+        worker = threading.Thread(target=lambda: box.setdefault(
+            "code", pr.main(["run", "--name", "p11", "--ids", "PA", "--slots", "2"], ctx=ctx)),
+            daemon=True)
+        worker.start()
+        worker.join(30)
+        self.assertFalse(worker.is_alive(), "the runner is still waiting on memory")
+        self.assertEqual(P.EXIT_RED, box.get("code"))
+        self.assertEqual([], self.child_records())
+        lines = self.summary("p11")
+        self.assertEqual(["# totals no-results pending=2 of 2"], lines)
+        self.assertIn("nothing runs to free memory", self.log("p11"))
+
+    def test_a_stopped_pair_reads_stopped_with_its_halves_pending(self):
+        # Both halves honour a stop before flying: no verdict line follows their
+        # dispatch markers, and the run reads STOPPED (exit 3), not RED.
+        os.environ["FAKE_CHILD_VERDICTS"] = json.dumps({"PA": "STOP", "PB": "STOP"})
+        code = self.main("run", "--name", "p12", "--ids", "PA", "--slots", "2")
+        self.assertEqual(P.EXIT_SKIPPED, code, "\n".join(self.console))
+        lines = self.summary("p12")
+        self.assertEqual("# totals no-results pending=2 of 2", lines[-1])
+        os.environ.pop("FAKE_CHILD_VERDICTS")
+        self.assertEqual(0, self.main("resume", "--name", "p12"))
+        self.assertEqual("# totals PASS=2 pending=0 of 2", self.summary("p12")[-1])
+
+    def test_status_counts_a_flying_half_as_running_not_done(self):
+        events = [{"kind": "start", "epoch": 1},
+                  {"kind": "dispatch", "seq": 1, "lane": "PA", "slot": "s1", "epoch": 2,
+                   "pair": "G1/A"},
+                  {"kind": "dispatch", "seq": 2, "lane": "PB", "slot": "s2", "epoch": 2,
+                   "pair": "G1/B"}]
+        markers = [P.format_summary_line(P.pair_dispatch_outcome(sid, "s", "2026-11-17T10:00:00Z"))
+                   for sid in ("PA", "PB")]
+        lines = P.format_status({"name": "x", "lanes": [{"id": "PA"}, {"id": "PB"}]}, 2, False,
+                                events, markers, 10, "running")
+        text = "\n".join(lines)
+        self.assertIn("running=2 done: no-results", text)
+        self.assertNotIn("NOT-RUN", text)
 
     def test_status_names_the_pair_of_a_running_half(self):
         events = [{"kind": "start", "epoch": 1},

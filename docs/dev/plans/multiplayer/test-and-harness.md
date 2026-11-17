@@ -1362,7 +1362,9 @@ paired spec).
     `slots` below 2 it never starts and the run ends red with lanes left unflown
     (`set-slots 2`, then `resume`). The memory guard charges both copies
     (`memory_holds(new_copies=2)`; with nothing running, the first half is free as any
-    first lane is).
+    first lane is). A pair held by memory with nothing running does not reserve the
+    dispatch: later lanes start, and when nothing else can start the run ends with the pair
+    pending (see the second follow-up below).
   - Barrier files: `<name>.<role>.arrived` and `<role>.ended`, the latter written by run.py
     when its drive is over, when it skips a barrier or when a harness step fails, and by the
     runner as a backstop when a child exits. A partner's arrival wins over its ended marker.
@@ -1395,6 +1397,12 @@ paired spec).
     line. The linked-shared-folder refusal is tested with a symlink on Linux only; its
     Windows twin (a junction made with `mklink /J`, `test_a_junction_shared_folder_is_refused_at_staging`)
     is committed but has not yet been run (it skips off Windows).
+  - Second follow-up (2026-11-17, review of the first): the idle memory read could hang the
+    runner (a pair held by memory with nothing running reserved the dispatch forever and
+    starved unpaired lanes); such a pair is now passed over, and when nothing else can start
+    the run ends DONE with the pair pending and the memory arithmetic named. A
+    pair-dispatched line counts as pending but neither as a verdict nor red, so a stop
+    honoured by both halves reads STOPPED and `status` shows a flying half as running.
 
 ### T-55 Race integration variants (lanes RCI-1 to RCI-9)
 

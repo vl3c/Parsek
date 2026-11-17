@@ -1339,8 +1339,12 @@ folder (a race lane's publisher and reader). Each half carries `[pair] group =
   not at all: two free slots of the profile inside `slots`, and the memory
   guard charging both copies (`memory_holds(new_copies=2)`; with nothing
   running the first half is the free first lane and the second is charged, so
-  the runner reads memory before a pair starts from idle too). While it waits, no later lane
-  starts. A profile with fewer than two provisioned copies refuses the run
+  the runner reads memory before a pair starts from idle too). While it waits
+  for slots, or for memory while a lane runs, no later lane starts. A pair held
+  by memory with nothing running is passed over instead (nothing would free the
+  memory): later lanes start in order, and when nothing else can start the run
+  ends (DONE) with the pair pending, naming the pair and the memory arithmetic;
+  no dispatch line is written for it. A profile with fewer than two provisioned copies refuses the run
   (exit 2); with `slots` below 2 the pair never starts and the run ends red with
   lanes left unflown.
 - **Folders.** At dispatch, under the machine lock, the runner wipes and makes
@@ -1370,8 +1374,10 @@ folder (a race lane's publisher and reader). Each half carries `[pair] group =
   when either is unsettled, unless one already settled red. Before spawning a
   pair the runner writes a NOT-RUN `pair-dispatched` line for both halves to
   `summary.txt`, so after a runner death between the two reports the
-  unreported half reads pending (and red in the totals), never an earlier
-  flight's PASS.
+  unreported half reads pending (the run red, lanes left unflown), never an
+  earlier flight's PASS. Such a line is pending but neither a verdict nor red
+  (`parallel.is_pair_dispatch_marker`): `tally` and `status` count it as pending
+  only, and a stop honoured by both halves before they flew reads STOPPED.
 
 ### Fixture staging
 

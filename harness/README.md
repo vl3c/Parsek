@@ -2174,10 +2174,14 @@ cd harness && python tools/parallel_runner.py run --name pair-1 --ids PAIR-1a-sh
   profile at once, inside `slots`, and the memory guard charges both copies (with
   nothing running, the first half is the free first lane, as for any lane, and
   the second is charged: the runner reads memory before a pair starts from idle
-  too). While the pair waits,
-  no later lane starts, so single lanes cannot starve it. With `slots` 1 the pair
-  never starts and the run ends red with `lanes left unflown`: `set-slots 2`,
-  then `resume`.
+  too). While the pair waits for slots, or for memory while a lane runs, no later
+  lane starts, so single lanes cannot starve it. A pair held by memory with
+  NOTHING running does not hold the dispatch (nothing would free the memory):
+  later lanes start in order, and when nothing else can start the run ends red
+  with the pair pending and a line naming the pair and the memory arithmetic
+  (`... nothing runs to free memory and memory guard (pair G, two copies): ...`;
+  free memory, then `resume`). With `slots` 1 the pair never starts and the run
+  ends red with `lanes left unflown`: `set-slots 2`, then `resume`.
 - **Folders.** At dispatch, under the machine lock, the runner wipes and
   recreates the shared folder `<umbrella>/automation/rs/<run>/<group>/` and the
   barrier folder `results/parallel/<run>/pairs/<group>/`, and passes them to both
@@ -2213,8 +2217,12 @@ cd harness && python tools/parallel_runner.py run --name pair-1 --ids PAIR-1a-sh
   At each dispatch the runner writes a `NOT-RUN ... note=pair-dispatched:_no_verdict_yet`
   line for BOTH halves to `summary.txt` before either child starts, so a half's
   latest line is never a verdict from an earlier flight of the pair: a runner
-  that dies between the two reports leaves the other half `NOT-RUN` (counted red
-  and pending in the totals) and the next `resume` flies the pair again.
+  that dies between the two reports leaves the other half pending (the run reads
+  red, lanes left unflown) and the next `resume` flies the pair again. A
+  pair-dispatched line is pending but neither a verdict nor red: the totals and
+  `status` count it as pending only (a flying half shows as running, not done),
+  and a pair whose halves honour a stop before flying reads STOPPED (exit 3) with
+  both halves pending, as an unpaired stopped lane does.
 - **Serial runs.** `run.py --dry-run` prints a `[PAIR   ]` line for a paired
   lane; flown by `run.py` itself (no `--pair-dir`) it is refused pre-boot.
 - **Status.** `status` shows `pair=<group>/<role>` on a running half; the plan
