@@ -1,6 +1,6 @@
 # Dimension registry (M-A5). Committed materialization of the scenario-catalog
 # section 1 (docs/dev/automated-testing-scenario-catalog.md) dimension space
-# D1-D18. AUTHORITATIVE machine source of the dimension value set: spec
+# D1-D19. AUTHORITATIVE machine source of the dimension value set: spec
 # validation (hlib.validate_spec) and the coverage denominator (hlib.compute_coverage)
 # both read THIS file, nothing else. The catalog markdown stays a narrative
 # companion kept in sync by a human in the same PR that adds a value (design N9).
@@ -767,3 +767,14 @@ values = ["committed-interaction-claiming", "ghost-conversion-quicksave",
           "cross-tree-chain-linking", "ghost-extension-past-endut", "background-event-claims",
           "chain-terminated-destruction-recovery", "chain-state-rederived",
           "time-jump-observables", "rewind-strip-respawn-cycle", "loop-first-run-is-real"]
+
+# D19 is the competitive multiplayer race (docs/dev/design-competitive-multiplayer.md;
+# plan docs/dev/plans/multiplayer/test-and-harness.md). Its values arrive with the race
+# lanes that claim them. `stock-sites` (multiplayer T-07, claimed by
+# RACE-0-stock-sites-baseline): the stock site baseline read through `ListHandles
+# kind=sites` in a single-player save (the working space center's position, each stock
+# launch site's spawn points, the recovery reference point and the terrain height at the
+# fixed sample points), the values SITES-2 (R2-13) compares a restored stock Kerbin
+# against.
+[D19]  # competitive multiplayer race
+values = ["stock-sites"]

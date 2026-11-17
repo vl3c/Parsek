@@ -33,7 +33,7 @@ fake-catalog cells in `ProductionAnchorWorldFrameResolverTests` (a tree only the
 resolves; a tree only the store holds fails `focus-tree-missing`). Owed on the PC: in-game
 `MapRender` and `GhostMap`, lanes S1.6, S1.7 and H44.
 
-## MP-P2A-PLAYBACK-CATALOG: playback looks recordings up by id through one port, so a second playback lane can answer from its own data [FILED 2026-11-16 for the multiplayer prerefactor P2a (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, P2a-01 to P2a-07). IN PROGRESS: P2a-05 done (branch `mp/p2a-05-anchor-resolver-catalog`); P2a-02, P2a-03, P2a-04, P2a-06, P2a-07 open; refactor, no product change]
+## MP-P2A-PLAYBACK-CATALOG: playback looks recordings up by id through one port, so a second playback lane can answer from its own data [FILED 2026-11-16 for the multiplayer prerefactor P2a (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, P2a-01 to P2a-07). IN PROGRESS: P2a-05 done (branch `mp/p2a-05-anchor-resolver-catalog`), P2a-03 done (branch `mp/p2a-03-positioner-catalog`), P2a-06 done (branch `mp/p2a-06-anchor-world-frame-catalog`), P2a-07 done (branch `mp/p2a-07-map-state-vectors-catalog`); P2a-02, P2a-04 open; refactor, no product change]
 
 `IPlaybackCatalog` and its own-timeline `RecordingPlaybackCatalog.Own` (both in
 `Source/Parsek/Recording/`) carry each lookup family as a named variant that keeps its search
@@ -43,8 +43,29 @@ through them (trailing optional catalog; null reads `Own`). Proof: `RecordingPla
 (truth table, plus a sweep that drives verbatim copies of the deleted resolver lookups and the
 catalog over the same 14 fixtures), fake-catalog cells in
 `RecordedRelativeAnchorPoseResolverTests`. Owed on the PC: in-game `Pipeline-Anchor` and
-`GhostMap`, lanes H11 and H44. Each later P2a task adds its variant's rows; the entry closes when
+`GhostMap`, lanes H11 and H44. P2a-03 added the committed-first containment tree lookup
+(`TryFindTreeHolding`, `CatalogTreeOrder.CommittedFirstContainsKey`) and the committed-list
+recording scope (`CatalogRecordingScope.CommittedListOnly`), and routed the flight positioner
+through them: a `catalog` field from a trailing optional constructor parameter (null reads `Own`),
+the relative-anchor focus tree, the Trace-Sep parent lookup, and the pending tree of
+`BuildFlightRelativeAnchorResolverContext` (now a catalog parameter). Proof: truth-table rows and
+sweeps against verbatim copies of the replaced lookups, a fake-catalog positioner cell. Owed on
+the PC: in-game `Pipeline-Anchor` and `PlaybackFidelity`, lanes H11, LT-1 and H36. Each later
+P2a task adds its variant's rows; the entry closes when
 P2a-07 and the last of P2a-02 to P2a-04 land.
+
+## MP-P2A-PLAYBACK-CATALOG, P2a-07 as built: the map's body-fixed anchor pid lookup reads the catalog [DONE 2026-11-16, branch `mp/p2a-07-map-state-vectors-catalog`; refactor, no product change; part of MP-P2A-PLAYBACK-CATALOG above]
+
+`GhostMapPresence.TryFindRecordingByIdForBodyFixedAnchorPid` (`GhostMapPresence.StateVectors.cs`,
+L6) keeps its own `IsNullOrWhiteSpace` guard and then calls
+`RecordingPlaybackCatalog.Own.TryFindRecording(id, TreesThenPendingThenList, ...)` (committed
+trees with a non-null value, then the pending tree, then the flat committed list); its copy of
+that walk is deleted. The file stays in `scripts/ers-els-audit-allowlist.txt`: the two
+active Re-Fly suppression reads (create time and `TrySuppressStateVectorUpdateForActiveReFly`)
+of `CommittedTrees`, the pending tree and `CommittedRecordings`, which the plan leaves for P3,
+remain. Proof: three cells in
+`GhostMapPresenceTests` pinning the order through `ResolveBodyFixedPrimaryAnchorPid`. Owed on
+the PC: in-game `GhostMap`, lanes H44 and S1.6.
 
 ## CS-LADDER-CHAIN-PINS: a campaign-chained replay of the scripted career cannot yet fly CS-0 to CS-7 unbroken [FILED 2026-11-16 by multiplayer T-49 (the campaign chain runner, branch `mp/t-49-campaign-chain-runner`), by reading the CS specs against the ladder `harness/campaigns/cs-career.toml`. OPEN; harness, no product change; low (the committed fixtures still fly every lane alone)]
 

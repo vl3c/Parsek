@@ -631,7 +631,7 @@ namespace Parsek
 
             rec.Points = points;
             rec.OrbitSegments = orbitSegments;
-            ApplyFlatFallbackHealSideEffects(rec, markDirty);
+            ApplyFlatFallbackHealSideEffects(rec, markDirty, rec.Points.Count);
             return true;
         }
 
@@ -672,8 +672,11 @@ namespace Parsek
         /// lists are assigned: the stats cache reset, then either
         /// <see cref="Recording.MarkFilesDirty"/> or (read path) the label-cache
         /// invalidation plus the "healed in memory only" Verbose line.
+        /// <paramref name="healedPointCount"/> is the point count that line reports: the
+        /// healed list's count, which the binary read path passes explicitly because its
+        /// decode has already dropped non-monotonic points from the list by then.
         /// </summary>
-        internal static void ApplyFlatFallbackHealSideEffects(Recording rec, bool markDirty)
+        internal static void ApplyFlatFallbackHealSideEffects(Recording rec, bool markDirty, int healedPointCount)
         {
             rec.CachedStats = null;
             rec.CachedStatsPointCount = 0;
@@ -693,7 +696,7 @@ namespace Parsek
                         $"TryHealMalformedFlatFallbackTrajectory: recording={rec.RecordingId} " +
                         "healed in memory only, sidecar left byte-identical " +
                         "(loadTimeHealKeepsSidecarEpoch) points=" +
-                        $"{rec.Points.Count} orbitSegments={rec.OrbitSegments.Count} " +
+                        $"{healedPointCount} orbitSegments={rec.OrbitSegments.Count} " +
                         $"sidecarEpoch={rec.SidecarEpoch}");
                 }
             }

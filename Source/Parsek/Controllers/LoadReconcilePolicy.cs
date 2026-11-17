@@ -263,9 +263,11 @@ namespace Parsek
                         "DiscardReFlyHandler via TryLoadGameAndAssign; arms DiscardReFlyLoadIntent after a successful load")
                 },
                 {
-                    "TestCommands/ParsekTestCommandAddon.cs",
+                    "LogIO/NewSaveStarter.cs",
                     new KnownLoadInitiator(1, new[] { EarlyLoadKind.InSession, EarlyLoadKind.Cold },
-                        "the LoadGame seam verb; Cold when save= names another save folder (DetectSaveFolderChange) "
+                        "LoadSave, the load step of the load-and-start route; its one caller is the LoadGame "
+                        + "seam verb (TestCommands/ParsekTestCommandAddon.cs); Cold when save= names another "
+                        + "save folder (DetectSaveFolderChange) "
                         + "or when the verb announces the load as the player's (playerLoad=true fires "
                         + "onGameStatePostLoad, a save-file load)")
                 },

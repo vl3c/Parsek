@@ -2367,7 +2367,8 @@ namespace Parsek
             var context = ParsekFlight.BuildFlightRelativeAnchorResolverContext(
                 focusTree,
                 focusedRecordingId,
-                marker);
+                marker,
+                RecordingPlaybackCatalog.Own);
 
             foreach (GhostAnchorCandidate candidate in host.engine.GetActiveAnchorCandidates(cachedTrajectories))
             {

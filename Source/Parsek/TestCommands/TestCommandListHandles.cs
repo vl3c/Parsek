@@ -32,6 +32,11 @@ namespace Parsek.TestCommands
         /// by source and kind and checked against the tombstoned ledger rows
         /// (<see cref="TestCommandTimelineReadback"/>).</summary>
         Timeline = 6,
+
+        /// <summary><c>kind=sites</c>: the working space center, the stock launch sites,
+        /// the recovery reference point and the terrain height at fixed sample points
+        /// (<see cref="TestCommandSitesReadback"/>).</summary>
+        Sites = 7,
     }
 
     /// <summary>One child slot of a rewind point, already resolved to open/closed.</summary>
@@ -205,6 +210,9 @@ namespace Parsek.TestCommands
         /// <summary>Wire literal for <see cref="ListHandlesKind.Timeline"/>.</summary>
         internal const string TimelineKindToken = "timeline";
 
+        /// <summary>Wire literal for <see cref="ListHandlesKind.Sites"/>.</summary>
+        internal const string SitesKindToken = "sites";
+
         /// <summary>Prefix of the one Info line the applier writes per ENUMERATED route
         /// (the route read-back a reload lane pins between steps; the wire alone is not
         /// in KSP.log).</summary>
@@ -272,7 +280,7 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// Parses the REQUIRED <c>kind=</c> arg. Fail-closed and case-sensitive: only the
-        /// six lowercase literals are accepted, so <c>Rewindpoints</c> / <c>RP</c> /
+        /// seven lowercase literals are accepted, so <c>Rewindpoints</c> / <c>RP</c> /
         /// an empty value are all <see cref="KindArgInvalidReason"/> rather than a
         /// tolerated spelling. Absent is its own reason so a spec author reads "you did
         /// not ask for a family" separately from "that is not a family".
@@ -311,6 +319,10 @@ namespace Parsek.TestCommands
                     kind = ListHandlesKind.Timeline;
                     rejectReason = null;
                     return true;
+                case SitesKindToken:
+                    kind = ListHandlesKind.Sites;
+                    rejectReason = null;
+                    return true;
                 default:
                     rejectReason = KindArgInvalidReason;
                     return false;
@@ -328,6 +340,7 @@ namespace Parsek.TestCommands
                 case ListHandlesKind.Chains: return ChainsKindToken;
                 case ListHandlesKind.Routes: return RoutesKindToken;
                 case ListHandlesKind.Timeline: return TimelineKindToken;
+                case ListHandlesKind.Sites: return SitesKindToken;
                 default: return string.Empty;
             }
         }
@@ -834,14 +847,17 @@ namespace Parsek.TestCommands
         /// The chains family's extra Info-line tail, read out of the built payload for
         /// the reason <see cref="CountFromPayload"/> is: <c> evaluated=.. digest=..</c>,
         /// plus <c> expected=.. match=..</c> when the payload carries a comparison; the
-        /// routes family's <c> dormant=..</c>. Empty for every other family, so their
-        /// pinned log lines do not move.
+        /// routes family's <c> dormant=..</c>; the sites family's <c> body=.. samples=..</c>.
+        /// Empty for every other family, so their pinned log lines do not move.
         /// </summary>
         internal static string ChainsLogTail(
             IReadOnlyList<KeyValuePair<string, string>> payload, ListHandlesKind kind)
         {
             if (kind == ListHandlesKind.Routes)
                 return " dormant=" + ValueOrEmpty(payload, "dormant");
+            if (kind == ListHandlesKind.Sites)
+                return " body=" + ValueOrEmpty(payload, "body")
+                    + " samples=" + ValueOrEmpty(payload, "samples");
             if (kind != ListHandlesKind.Chains)
                 return string.Empty;
             string tail = " evaluated=" + ValueOrEmpty(payload, "evaluated")

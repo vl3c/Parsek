@@ -874,6 +874,7 @@ namespace Parsek
             int evaReassignSkipped = 0;
             int spawnEvidenceSkipped = 0;
             int poolAdjustmentSkipped = 0;
+            int vesselEndSkipped = 0;
             int modeSeedSkipped = 0;
             int hireCostSuffixSuppressed = 0;
             int noopSpendSkipped = 0;
@@ -914,6 +915,14 @@ namespace Parsek
                 if (action.Type == GameActionType.StockPoolAdjustment)
                 {
                     poolAdjustmentSkipped++;
+                    continue;
+                }
+
+                // A vessel's end outside a recording is a race fact the race export reads;
+                // the player saw the vessel go, so the row draws no timeline entry.
+                if (action.Type == GameActionType.VesselEnded)
+                {
+                    vesselEndSkipped++;
                     continue;
                 }
 
@@ -1032,6 +1041,10 @@ namespace Parsek
             if (poolAdjustmentSkipped > 0)
                 ParsekLog.Verbose("Timeline",
                     $"Filtered {poolAdjustmentSkipped} stock pool adjustment action(s) (bookkeeping, no timeline entry by design)");
+
+            if (vesselEndSkipped > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {vesselEndSkipped} vessel-ended action(s) (race fact, no timeline entry by design)");
 
             if (modeSeedSkipped > 0)
                 ParsekLog.Verbose("Timeline",

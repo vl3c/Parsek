@@ -1,0 +1,128 @@
+schema = 1
+id = "RACE-0-stock-sites-baseline"
+tier = "operator"
+# =====================================================================================
+# THE STOCK SITE BASELINE (multiplayer T-07, plan docs/dev/plans/multiplayer/
+# test-and-harness.md section T-07; design docs/dev/design-competitive-multiplayer.md
+# section 7.3). AUTHORED 2026-11-16 on branch `mp/t-07-listhandles-sites`, NEVER FLOWN.
+#
+# WHAT IT READS. `ListHandles kind=sites` (new with this lane) in a fresh single-player
+# career at the Space Center, one Info line per fact:
+#   listhandles sites spaceCenter body=Kerbin lat=.. lon=.. alt=..
+#       the working space center's position, from its live transform;
+#   listhandles sites recovery lat=.. lon=..
+#       the latitude / longitude the space center cached at its start, which stock's
+#       recovery distance is measured from;
+#   listhandles sites launchSite index=<i> name='..' point='..' kind=.. editor=.. lat=..
+#       lon=.. alt=.. src=..
+#       every spawn point of every stock launch site: the KSC's own pad and runway
+#       (kind=facility) first, then the stock alternate sites set up in this game
+#       (kind=alternate; Making History is junctioned into every instance), each group
+#       ordinal by name;
+#   listhandles sites terrain index=<j> name=.. lat=.. lon=.. height=..
+#       the terrain height at the fixed sample points (pad, runwayWest, runwayEast).
+# Degrees carry seven decimals and metres three, invariant.
+#
+# WHY IT EXISTS. These are the stock values a race save moves (design 7.3: the space
+# center object, the launch-site spawn points, the recovery point, the terrain under the
+# patches). SITES-2 (R2-13) reads the same kind after a race save and compares it with
+# THIS lane's pins; SITES-1 to SITES-3 read their per-site values with the kind, not with
+# extra batches (OV-03). R2-12 adds the four race patches to the sample table and re-pins
+# the terrain lines here.
+#
+# WHAT IS PINNED EXACTLY, and what the first flight must fill in. Exact today: the summary
+# shape (truncated=false body=Kerbin samples=3), the facility pair's names, kinds and
+# editors (LaunchPad / VAB, Runway / SPH, believed from stock, never observed through this
+# read), and every sample point's name and coordinates (they are this lane's own inputs).
+# Regexed until the first flight: `count` (the alternate sites' spawn points; Making
+# History's set), the spawn point names, every measured value (pinned to the KSC's
+# neighbourhood: latitude -0.0xxxxxx, longitude -74.xxxxxxx, metres a positive number)
+# and each site's `src`. Two values may be negative until measured: the space center
+# transform's altitude (where stock roots the KSC object is not documented) and the
+# runwayEast height (a fixed point, see below). AFTER THE FIRST GREEN FLIGHT re-pin from its KSP.log, in place:
+#   - `listhandles kind=sites count=N` to the measured N;
+#   - the spaceCenter and recovery lines: lat / lon to four decimals, alt to one;
+#   - launchSite index=0 and index=1: point names exactly, lat / lon to four decimals,
+#     alt to one, src exactly;
+#   - one line per alternate spawn point the flight listed (name, point, kind, editor
+#     exactly; values as above);
+#   - the three terrain lines: height to one decimal. runwayEast's height also confirms the
+#     point lies on the strip (expect about the runway's 68 m from the 2026-11-14 survey;
+#     a very different height means the fixed point missed the strip, which is a table
+#     fix in TestCommandSitesReadback.SamplePoints, not a product defect).
+# Four decimals of a degree is about 10 m on Kerbin, inside the 50 m / 2 m tolerances
+# R2-03 / R2-05 compare with; T-46's `tolerance=` comparator replaces regex pins when it
+# lands.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse - considered B10 / CS-0 (the same
+# fresh-career boot) and not applied: a race lane is selected by the `race` tag
+# (`--tag race`, T-45) and RaceTagConventionTests refuses that tag on a non-race spec,
+# and SITES-2 names this lane as its baseline; the cost is the seam-only boot floor
+# (about 45 s, the PPB lanes). (2) no waits; (3)-(5) no dwells, burns or coasts; (6) the
+# read is deterministic, so `[retry] policy = "none"`; (7) recordings pinned {0,0}; the
+# count pin is (7)'s first-flight item above; (8) operator per the plan (a race lane);
+# (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+description = "Stock site baseline (multiplayer T-07, AUTHORED 2026-11-16, never flown): in a fresh single-player career at the Space Center, ListHandles kind=sites reads the working space center, the recovery point, every stock launch-site spawn point and the terrain height at the pad and both runway ends; SITES-2 compares a restored stock Kerbin against these pins."
+instanceProfile = "stock-minimal"
+tags = ["race", "RACE-0", "sites", "career", "cold-load", "runtime-handles"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",    args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "sites" }, label = "sites", expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+#   stock-sites <- the listhandles sites lines below
+D14 = ["career", "cold-load-ut0", "scene-ksc"]
+D19 = ["stock-sites"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# A fresh career; this lane records nothing.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  # The summary line. count is the number of launch-site spawn points (first-flight pin).
+  "listhandles kind=sites count=[0-9]+ truncated=false body=Kerbin samples=3",
+  # The working space center and the recovery reference point.
+  "listhandles sites spaceCenter body=Kerbin lat=-0\\.0[0-9]{6} lon=-74\\.[0-9]{7} alt=-?[0-9]+\\.[0-9]{3}",
+  "listhandles sites recovery lat=-0\\.0[0-9]{6} lon=-74\\.[0-9]{7}",
+  # The KSC's own launch sites, facility first, ordinal by name.
+  "listhandles sites launchSite index=0 name='LaunchPad' point='[^']*' kind=facility editor=VAB lat=-0\\.0[0-9]{6} lon=-74\\.[0-9]{7} alt=[0-9]+\\.[0-9]{3} src=(cache|transform)",
+  "listhandles sites launchSite index=1 name='Runway' point='[^']*' kind=facility editor=SPH lat=-0\\.0[0-9]{6} lon=-74\\.[0-9]{7} alt=[0-9]+\\.[0-9]{3} src=(cache|transform)",
+  # The fixed sample points: coordinates exact (the table's own inputs), heights measured.
+  "listhandles sites terrain index=0 name=pad lat=-0\\.0972000 lon=-74\\.5575000 height=[0-9]+\\.[0-9]{3}",
+  "listhandles sites terrain index=1 name=runwayWest lat=-0\\.0502000 lon=-74\\.7300000 height=[0-9]+\\.[0-9]{3}",
+  "listhandles sites terrain index=2 name=runwayEast lat=-0\\.0502000 lon=-74\\.5000000 height=-?[0-9]+\\.[0-9]{3}",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "listhandles rejected",
+  # Nothing the baseline needs may read `none`. An alternate site whose transform is not
+  # built into this scene may legitimately read none, so only the facility pair is held.
+  "listhandles sites (spaceCenter|recovery|terrain) [^\\n]*=none",
+  "listhandles sites launchSite index=[0-9]+ name='[^']*' point='[^']*' kind=facility [^\\n]*=none",
+  # A facility site listed after an alternate one would break the order SITES-2 indexes by.
+  "kind=alternate [^\\n]*\\n[\\s\\S]*?listhandles sites launchSite index=[0-9]+ name='[^']*' point='[^']*' kind=facility",
+]
+
+[runtime]
+budgetSeconds = 600
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

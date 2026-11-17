@@ -145,7 +145,8 @@ Callers that thread a catalog:
   `GhostPlaybackLogic.IsWatchProtectedRecording` (`GhostPlaybackLogic.cs:691-721`). That is a
   watch-protection query over the own list, not a by-id lookup; P2b-08 handles it.
 - `scripts/ers-els-audit-allowlist.txt` lists `GhostMapPresence.StateVectors.cs`,
-  `ParsekFlight.GhostPositioner.cs`, `RecordedRelativeAnchorPoseResolver.cs`,
+  `ParsekFlight.GhostPositioner.cs`, `RecordedRelativeAnchorPoseResolver.cs` (dropped by
+  P2a-03: no raw read left after P2a-05),
   `ParsekFlightPlaybackHost.cs` and, of the twelve positioner files, only
   `ParsekFlightGhostPositioner.TailLift.cs` (L7's raw read); the allowlist says the other
   positioner files read none. L2 reads `CommittedTrees`, which the gate's pattern
@@ -476,10 +477,15 @@ The port as specified:
   (`ParsekFlightGhostPositioner.RelativeAnchor.cs:200`) becomes an instance
   call of `catalog.TryFindTreeHolding(id, CommittedFirstContainsKey, ...)`; the diagnostic at
   `ParsekFlightGhostPositioner.Trace.cs:134` uses `TryFindRecording(id, CommittedListOnly, ...)`.
-  `BuildFlightRelativeAnchorResolverContext` (`ParsekFlight.TimelinePlayback.cs:553`) takes an
-  `IPlaybackCatalog` parameter and reads `PendingTree` from it; its two callers (positioner
-  `ParsekFlightGhostPositioner.RelativeAnchor.cs:123`, `ParsekFlightPlaybackHost.cs:2367`) pass the
-  own catalog. L7 is P2a-04.
+  `BuildFlightRelativeAnchorResolverContext` (`ParsekFlight.TimelinePlayback.cs:553`) takes a
+  trailing required `IPlaybackCatalog` parameter and reads `PendingTree` from it; the positioner
+  (`ParsekFlightGhostPositioner.RelativeAnchor.cs:123`) passes its own `catalog` field and
+  `ParsekFlightPlaybackHost.cs:2367` passes `RecordingPlaybackCatalog.Own` (P2b-09 swaps it for
+  `host.Lane.Catalog`). `TryFindRelativeAnchorFocusTree` stays a one-line instance method (the
+  fake-catalog cell calls it); `ResolveRecordingById` (L7) is untouched and is P2a-04's. As
+  built: the ERS allowlist entry for `RecordedRelativeAnchorPoseResolver.cs` is dropped here
+  (P2a-05 moved its last raw read into the catalog); `RelativeAnchor.cs` and `Trace.cs` were
+  never listed (L2 and L8 do not match the gate's pattern).
 - **Proof:** `RelativeAnchorResolutionTests`, `RecordedRelativeAnchorResolver*` tests,
   `GrepAuditNonLoopLivePidTests` green; a test that `TryFindRelativeAnchorFocusTree` sees a tree
   only the fake catalog holds. In-game `Pipeline-Anchor`, `PlaybackFidelity`; lanes H11, LT-1,
@@ -564,6 +570,10 @@ The port as specified:
 - **PC:** in-game, lanes H44, S1.6.
 - **Risk:** low; the one map-side site, kept on the own catalog because map presence is own-lane
   until P3 adds rival presence.
+- **As built (2026-11-16):** the method stays (guard, then the catalog call); its only caller,
+  `ResolveBodyFixedPrimaryAnchorPid`, already rejects a whitespace id, so the guard is a second
+  line. The method-local `[ERS-exempt]` comment went with the raw walk; the file keeps its
+  allowlist entry for the two raw reads that remain (now at about :1242-1251 and :1554-1561).
 
 ### P2b: the lane object
 
