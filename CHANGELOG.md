@@ -27,7 +27,8 @@ Not released yet.
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now
-  count as finished. (SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL)
+  count as finished, and "N flights can still be re-flown" counts flights, not recordings.
+  (SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL)
 - **A Re-Fly you kept open no longer closes by itself after a load.** Records broken by a ship
   picked up again after a load counted as part of its earlier, already merged flight, so the
   next load could seal its Re-Fly slot, and records from a flight you then rewound away were

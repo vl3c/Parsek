@@ -55,9 +55,19 @@ uses (`EffectiveTipRecordingId` with the tree as context and the loaded scenario
 rows): the recording it resolves to decides. A NotCommitted member never reads sealed; a member
 that resolves to itself, or to a recording that cannot be found, reads its own state; an
 Immutable member whose walk ends on an open tip reads open. `IsTreeFullySealed`,
-`CountReflyableRecordings` and the seam (`TestCommandSealSlot.RecordingIdsNeedingSeal` /
+`CountReflyableFlights` and the seam (`TestCommandSealSlot.RecordingIdsNeedingSeal` /
 `IsMemberSealed`, and the applier's re-read and remaining count) all use it; `IsTreeFullySealed`
-logs one rate-limited Verbose line per tree when it reads sealed only through tips.
+logs one rate-limited Verbose line per tree when it reads sealed only through tips, built only
+when verbose logging is on (the Logistics window polls it about once a second).
+
+Re-flyable count. The near-miss hover reads "not finished yet (N flights can still be re-flown)".
+It counted every non-Immutable RECORDING, so an open split chain (head + tip) read 2 even before
+this fix, and the through-tip read would have made a whole superseded subtree pointing at one
+open fork count each of its recordings. `RouteCandidateFinder.CountReflyableFlights` (was
+`CountReflyableRecordings`) now counts DISTINCT deciding recordings (the open tip a member
+resolves to, from `ResolveMemberSealState`'s `out` overload; a NotCommitted member counts as its
+own), so N is the number of flights the player can re-fly. Only the number changes; the wording
+and the tooltip budget are untouched.
 
 Re-Fly leftovers, settled by xUnit (`TreeSealedThroughTipTests`): an old recording superseded by
 a concluded fork reads sealed (was open), by an open fork reads open (unchanged); the splitter's
@@ -85,7 +95,14 @@ sealed and the create gate moves past `TreeNotSealed` (red on the old reader at 
 assertion); `TestCommandLogisticsVerbSeamTests.CreateGate_SealedSplitChain_ReadsSealed` pins the
 gate and its open mirror. Mutation: reverting `IsTreeFullySealed`, `CountReflyableRecordings`,
 `IsMemberSealed`, the NotCommitted guard or the committed-store tip lookup each reds at least one
-named test. The applier's re-read is Unity-only and has no xUnit cell.
+named test. The applier's re-read is Unity-only and has no xUnit cell. Review follow-up
+(PR #2714): the two 1 Hz Logistics derivations read the loaded scenario's rows, pinned by
+`TreeSealedThroughTipTests.DeriveCandidates_ReadsTheLoadedScenarioRows`,
+`DeriveNearMisses_ReadsTheLoadedScenarioRows` and `DeriveNearMisses_ReflyableCount_...`;
+passing empty rows in `DeriveCandidates`, in `DeriveNearMisses`, or to the near-miss count each
+reds one of them, and dropping the tip as the deciding id reds six flight-count cells. Walk
+boundary cells (Undock, foreign Board, own EVA, a different ChainBranch, the same ChainId in
+another tree, a NotCommitted in-place fork, a switch continuation) pin where the read must stop.
 
 Still open. No flight has proven the fix: AST-3 re-flown green, or any lane that seals a split
 Unfinished Flight and then creates a route, would. Separate from this entry: AST-3's flight
@@ -99,6 +116,16 @@ otherwise-equal Immutable anchor candidate. Reason it stays: it is a tie-break a
 that are all valid anchors, not a gate, and reading through the tip there needs a new backward
 Recording -> Rewind type dependency the layer ratchet forbids. Reopen it if a flight shows a
 relative-frame anchor choice that a sealed split head should have won.
+
+OPEN residue, left unguarded by decision: a supersede cycle through a recording outside the tree
+(rows X -> Z and Z -> X, Z Immutable) makes an open X read sealed. `EffectiveTipRecordingId`'s
+cycle guard stops on Z (and warns), and every slot consumer reads that same Z, so the Unfinished
+Flights list already shows the slot closed and the route gate agrees with it. A guard only in
+`ResolveMemberSealState` would make the gate disagree with the slot list and leave the tree
+unsealed with no slot left to seal. No writer produces the shape (each Re-Fly row points at a
+fresh fork id, and the load sweep drops self rows), so it needs hand-edited rows; pinned as
+`SupersedeCycleThroughAnOutsideRecording_ReadsWhatTheSlotWalkReads`. A fix belongs in the walk
+or the row loader, for every consumer at once.
 
 ## ~~RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK~~: a resumed recording whose end is a predicted terminal ahead of the clock gives its restore attempt a history cutoff in the future, so everything the resumed flight earns reads as committed history [FILED 2026-11-16 from the v1.0.2 release check, lane RF-11-both-slots-in-sequence, run `2026-11-16_2341` (release build) failing against the pass `2026-11-11_0134` (pre-#2622). FIXED 2026-11-17, branch `item30-restore-cutoff`, PR #2687; xUnit + mutation; LIVE-PROVEN 2026-11-17: RF-11 `2026-11-17_1712` and `2026-11-17_1730` PASS attempt 1, SE-1 `2026-11-17_1714` and `_1729` PASS, RC-7 `2026-11-17_1728` PASS; high (a Re-Fly slot the player kept open seals itself at the next load, and value from a discarded flight stays in the ledger). OPEN: residue (d) and the killed run note below]
 

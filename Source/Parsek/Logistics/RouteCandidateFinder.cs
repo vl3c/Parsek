@@ -22,9 +22,11 @@ namespace Parsek.Logistics
     /// families:
     /// <list type="bullet">
     ///   <item><b>Not fully sealed</b> (<see cref="NotSealed"/> true): at least one
-    ///   recording is still re-flyable (<see cref="MergeState"/> !=
-    ///   <see cref="MergeState.Immutable"/>); <see cref="ReflyableCount"/> counts
-    ///   them. <see cref="Status"/> is unused in this case.</item>
+    ///   member still reads re-flyable through its slot's effective tip
+    ///   (<see cref="EffectiveState.ResolveMemberSealState"/> !=
+    ///   <see cref="MergeState.Immutable"/>); <see cref="ReflyableCount"/> counts the
+    ///   distinct open flights behind them (<see cref="RouteCandidateFinder.CountReflyableFlights"/>).
+    ///   <see cref="Status"/> is unused in this case.</item>
     ///   <item><b>Sealed but ineligible</b> (<see cref="NotSealed"/> false):
     ///   <see cref="Status"/> carries the <see cref="RouteAnalysisEngine"/> reject
     ///   status.</item>
@@ -114,7 +116,8 @@ namespace Parsek.Logistics
                     readThroughTip++;
             }
 
-            if (readThroughTip > 0)
+            // Guarded so a 1 Hz Logistics poll builds no message while verbose is off.
+            if (readThroughTip > 0 && ParsekLog.IsVerboseEnabled)
             {
                 ParsekLog.VerboseRateLimited(Tag, "tree-sealed-through-tip-" + (tree.Id ?? "<no-id>"),
                     $"IsTreeFullySealed: tree={tree.Id ?? "<no-id>"} reads sealed with " +
@@ -319,7 +322,7 @@ namespace Parsek.Logistics
                     {
                         Tree = tree,
                         NotSealed = true,
-                        ReflyableCount = CountReflyableRecordings(tree, supersedes)
+                        ReflyableCount = CountReflyableFlights(tree, supersedes)
                     });
                     continue;
                 }
@@ -371,26 +374,40 @@ namespace Parsek.Logistics
             return result;
         }
 
-        // Count of recordings in the tree that still read re-flyable (NotCommitted or
-        // CommittedProvisional through EffectiveState.ResolveMemberSealState, the read
-        // IsTreeFullySealed uses). Null slots are excluded to match IsTreeFullySealed,
-        // which treats a null slot as can't-prove-unsealed and skips it.
-        internal static int CountReflyableRecordings(
+        // Number of distinct open flights in the tree: the recordings whose state decides
+        // an open member through EffectiveState.ResolveMemberSealState (the read
+        // IsTreeFullySealed uses), counted once each. Every member of one slot (a split
+        // chain head and its tip, a superseded recording and its open fork) resolves to
+        // the same open tip, so the near-miss hover's "N flights can still be re-flown"
+        // names the flights the player can re-fly, not the recordings behind them. A
+        // NotCommitted member counts as its own flight. Null slots are skipped, as in
+        // IsTreeFullySealed.
+        internal static int CountReflyableFlights(
             RecordingTree tree, IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
             if (tree?.Recordings == null)
                 return 0;
-            int count = 0;
+            HashSet<string> openFlights = null;
+            int unnamed = 0;
             foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
             {
                 Recording rec = kvp.Value;
                 if (rec == null)
                     continue;
-                if (EffectiveState.ResolveMemberSealState(rec, kvp.Key, tree, supersedes)
-                    != MergeState.Immutable)
-                    count++;
+                if (EffectiveState.ResolveMemberSealState(
+                        rec, kvp.Key, tree, supersedes, out string decidingId)
+                    == MergeState.Immutable)
+                    continue;
+                if (string.IsNullOrEmpty(decidingId))
+                {
+                    unnamed++;
+                    continue;
+                }
+                if (openFlights == null)
+                    openFlights = new HashSet<string>(StringComparer.Ordinal);
+                openFlights.Add(decidingId);
             }
-            return count;
+            return (openFlights?.Count ?? 0) + unnamed;
         }
 
         // Set of recording ids already referenced by a stored route's SourceRefs,

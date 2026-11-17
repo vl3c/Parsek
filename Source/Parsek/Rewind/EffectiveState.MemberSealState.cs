@@ -43,12 +43,31 @@ namespace Parsek
             RecordingTree tree,
             IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
+            return ResolveMemberSealState(rec, memberKey, tree, supersedes, out _);
+        }
+
+        /// <summary>
+        /// <see cref="ResolveMemberSealState(Recording, string, RecordingTree, IReadOnlyList{RecordingSupersedeRelation})"/>
+        /// that also names the recording whose state decided: the resolved tip, or the
+        /// member itself when it reads its own state. Members of one slot share it, so a
+        /// count of distinct deciding ids counts open flights rather than recordings.
+        /// Null for a null member.
+        /// </summary>
+        internal static MergeState ResolveMemberSealState(
+            Recording rec,
+            string memberKey,
+            RecordingTree tree,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            out string decidingRecordingId)
+        {
+            decidingRecordingId = null;
             if (rec == null)
                 return MergeState.Immutable;
-            if (rec.MergeState == MergeState.NotCommitted)
-                return MergeState.NotCommitted;
 
             string id = !string.IsNullOrEmpty(rec.RecordingId) ? rec.RecordingId : memberKey;
+            decidingRecordingId = id;
+            if (rec.MergeState == MergeState.NotCommitted)
+                return MergeState.NotCommitted;
             if (string.IsNullOrEmpty(id))
                 return rec.MergeState;
 
@@ -61,7 +80,10 @@ namespace Parsek
                 tree.Recordings.TryGetValue(tipId, out tip);
             if (tip == null)
                 tip = FindCommittedRecordingByIdRaw(tipId);
-            return tip != null ? tip.MergeState : rec.MergeState;
+            if (tip == null)
+                return rec.MergeState;
+            decidingRecordingId = tipId;
+            return tip.MergeState;
         }
     }
 }
