@@ -4095,10 +4095,12 @@ class RealTreeSmokeTests(unittest.TestCase):
     def test_recording_fanin_is_above_one_hundred(self):
         self.assertGreater(self.types["Recording"]["fanIn"], 100)
 
-    def test_interface_count_is_between_twenty_and_forty(self):
+    def test_interface_count_is_between_twenty_and_sixty(self):
+        # A sanity band on the role classifier, not a ratchet: the count grows
+        # with every seam interface (41 with the ghost part dresser).
         count = sum(1 for entry in self.model["types"] if entry["role"] == "interface")
         self.assertGreaterEqual(count, 20)
-        self.assertLessEqual(count, 40)
+        self.assertLessEqual(count, 60)
 
     def test_every_type_has_a_level_and_max_is_at_least_four(self):
         self.assertTrue(all(isinstance(entry["level"], int) for entry in self.model["types"]))
