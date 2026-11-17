@@ -888,6 +888,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # ballast in the miner's fuel tank and an empty Ore Silo 4 m behind it, ports
         # facing (harness/tools/build_miner_rover_relay.py, the MINE-4 host). Inherits the node.
         "miner-rover-relay": True,
+        # `miner-rover-depot` with its probe swapped for `miner-rover-watched`'s crewless
+        # watcher rover 120 m north (harness/tools/build_rover_crash_watched.py, the RVC-1
+        # host). Inherits the node.
+        "rover-crash-watched": True,
         "fresh-career": False,
         "fresh-sandbox": False,
         # `fresh-sandbox` plus the HH1 Hitchhiker Drop craft in the VAB (CX-2).
@@ -1434,6 +1438,37 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["6a000db202ee4a1d9b52a378fcf611c0",
                              "a0ba73e497014c88a5af8630ea130388",
                              "ef182ffd723f42b591ed029794f551dd"],
+            "schemaGeneration": 4,
+        },
+        # --- THE FIRST AIRCRAFT SUBJECT: A RUNWAY TAKEOFF TO A SPLASHDOWN ----
+        # PROVENANCE: air-circuit-recorded <- AIR-1-runway-circuit-splashdown, run
+        # 2026-11-16_2218, PASS attempt 1 (wall 465 s, the fourth flight and the
+        # first on raw elevator / aileron loops), automation DLL sha256 prefix
+        # 118b45ac built from d15595d4, --keep-parsek, from the run's own `_save`
+        # snapshot (situation gate SPLASHED,LANDED; diagnostics on the never-merged
+        # branch forge-logs-2026-11-16-air1d). The stock Mallard took off from the
+        # Runway on gs1-two-stage-pad, flew the three-waypoint circuit at ~1,030 m,
+        # glided east and splashed down at lat 0.0545 lon -73.697. ONE committed
+        # tree d07b9a6f ('Mallard') with TWO chain recordings of the one vessel:
+        # d563455e (chainIndex 0, launchSiteName Runway, startSituation Prelaunch,
+        # explicit UT 30.74 -> 393.14, the takeoff roll kept whole by rule 5b) and
+        # the optimizer's split at the splash, aacb1976 (chainIndex 1, UT 393.14 ->
+        # 427.18, terminal Splashed, spawnedPid 601857151 = the Mallard at rest in
+        # the sea, sit SPLASHED). Save clock (FLIGHTSTATE UT) 427.46. The GS1
+        # booster from the host stays on the pad as an unrecorded vessel. No lane
+        # consumes it yet: AIR-2 was handed it, but a harvest carries no rewind
+        # save (Parsek/Saves pruned), so AIR-2 flies the circuit itself and this
+        # fixture waits for a replay lane that needs no rewind. The facets below
+        # are read off the harvested bytes.
+        "air-circuit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Splashed": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 8,
+            "recordingIds": ["aacb197643994c00882ccebce95eea07",
+                             "d563455e5c8942079f50b6caecffee70"],
             "schemaGeneration": 4,
         },
         # --- THE ECCENTRIC-MOON LOOP SUBJECT -----------------------------

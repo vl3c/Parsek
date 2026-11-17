@@ -4965,7 +4965,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # item 3: AIR-1's plane flight rewound to launch and replayed at the Space Center, then
     # the LeafVesselPlacement category's one cell, `total=1` literal with the split
     # regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its `total=`.
-    # It is pending-fixture until AIR-1 is harvested and leaves on its first flight.
+    # It was pending-fixture until AIR-1's harvest (`air-circuit-recorded`, committed
+    # 2026-11-16 from run 2026-11-16_2218), then re-shaped before its first flight to
+    # fly the circuit itself (the harvest carries no rewind save); it leaves on its
+    # first flight.
     # H59-surface-route-map-lines and V27M-rover-route-endpoint-substituted-map-lines ENTERED
     # on 2026-11-16 (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 5, audit B3: the route ghost
     # read by position through the new RouteGhostPlacement category's one FLIGHT cell,
@@ -11036,7 +11039,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V31M-duna-ike-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B36's harvested `duna-ike-recorded` (one tree crossing Duna's SOI and Ike's), reading the lone-moon arrival hold and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
         "V32M-eve-gilly-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B37's harvested `eve-gilly-recorded` (one tree crossing Eve's SOI and Gilly's), reading the lone-moon arrival hold on the eccentric Gilly and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
         "V33M-jool-laythe-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B38's harvested `jool-laythe-recorded` (one tree crossing Jool's SOI and Laythe's, one Jool moon only), reading the lone-moon arrival hold and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
-        "AIR-1-runway-circuit-splashdown.toml": "tier=operator by the calibration discipline (its bank sign, rotate speed and coastline are unverified offline, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3 (2026-11-16): the first lane that flies a plane, the stock Mallard from the Runway around a circuit to a splashdown east of KSC, committed, to harvest `air-circuit-recorded` for its pending-fixture replay lane AIR-2; AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`); what is open is the flight, not a human review call",
+        "AIR-1-runway-circuit-splashdown.toml": "tier=operator by the calibration discipline (its glide slope and coastline are calibration readings), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3 (2026-11-16): the first lane that flies a plane, the stock Mallard from the Runway around a circuit to a splashdown east of KSC, committed, to harvest `air-circuit-recorded` (AIR-2 re-flies the circuit: a harvest carries no rewind save); LIVE-PROVEN 2026-11-16 (run 2026-11-16_2218, PASS attempt 1, 465 s, the fourth flight) and harvested; owed: the ordinary promotion call",
+        "AIR-2-runway-circuit-ksc-ghost.toml": "tier=operator by the calibration discipline (it flies AIR-1's plane circuit, whose first three flights were driver-INVALID, and its first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3 (2026-11-16): flies the Mallard's circuit itself on gs1-two-stage-pad (AIR-1's harvest carries no rewind save), commits, rewinds to launch and replays the plane's ghost at the Space Center, then reads the end spawn with LeafVesselPlacement; what is open is the flight, not a human review call",
+        "RVC-1-two-rover-head-on-crash.toml": "tier=operator by the calibration discipline (its impact speed, which parts die and whether the straight run-up retraces its line are stock physics nobody has measured, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3a (2026-11-16): V's mining rover docks and undocks the ore depot rover so both are members of one tree, then drives head-on into it (DriveVessel crash mode), committed at the Space Center, Rewound-to-Launch and replayed from a neighbour; AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`); what is open is the flight, not a human review call",
+        "LX-1-loop-armed-refly-discard-merge.toml": "tier=operator by the calibration discipline (its clock and recordings window are derived from IR-3's measured chain, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6 (audit B7, 2026-11-16): a mission loop on tree A of `rover-route-recorded` armed and playing while IR-3's Flea flight is Re-Flown, discarded, re-entered and Re-Flown again and merged, every scene publishing the unit live with the arm-time phase; AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`); what is open is the flight, not a human review call",
+        "LX-2-career-loop-watch-scene-change-reload.toml": "tier=operator by the calibration discipline (four loads and three watch entries never flown in this order, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6 (audit B7, 2026-11-16): a mission loop on `rover-route-recorded-career` watched through the Space Center, the Tracking Station, a return to flight and an F5 / F9, each scene change ending the watch and each scene rebuilding the unit with the arm-time phase, the career pools unchanged; AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`); what is open is the flight, not a human review call",
         "B43-vall-tylo-transfer.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2): B26's parent relay from the stripped `vall-park-nerv` with B29's elliptical capture at Tylo, a fresh Vall-rooted tree, to harvest `vall-tylo-recorded` for V43M; LIVE-PROVEN 2026-11-16 (run 2026-11-16_1638, PASS attempt 1, 1,097 s) and harvested; owed: the ordinary promotion call",
         "V43M-vall-tylo-player-loop.toml": "tier=operator by the calibration discipline (its count window re-pinned off the harvested fixture, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14): loops B43's harvested `vall-tylo-recorded` (a fresh Vall-rooted tree, three chain recordings ending at Tylo) and reads the moon-rooted phase lock (rule 4a); first flight 2026-11-16 (`2026-11-16_1726`) PARSEK-FAIL(expectation), todo MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH; LIVE-PROVEN 2026-11-16 (run 2026-11-16_1803, PASS attempt 1, 46 s) after the fix; owed: the ordinary promotion call",
         "B44-laythe-tylo-transfer.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2): B26's parent relay from `laythe-park-nerv` with B29's elliptical capture at Tylo, a fresh Laythe-rooted tree, to harvest `laythe-tylo-recorded` for V44M; LIVE-PROVEN 2026-11-15 (run 2026-11-15_2243, PASS attempt 1, 888 s) and harvested; owed: the ordinary promotion call",
@@ -14912,6 +14919,13 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # preset's loop starts after the save clock, so every copy spawns under the
         # tracer, and ceil(120 s / 6 s) = 20 copies is what the cap arithmetic allows.
         "OC-1-overlap-cap-per-recording.toml",
+        # THE TWO-ROVER CRASH (RVC-1, 2026-11-16, todo NEXT-TESTS-TO-BUILD-2026-11-11
+        # item 3a). Declares spawned {min 2} (the miner's ghost and the depot's, the two
+        # vessels its logContracts name) and keeps requireBalanced, because "no orphan
+        # ghost after the replayed crash" is half of what the lane asks. The floor is
+        # DERIVED from the tree shape, not censused: the lane has never flown, so the
+        # block is REPORT-ONLY and arming waits on its reading run.
+        "RVC-1-two-rover-head-on-crash.toml",
     }
 
     def test_ghost_lifecycle_declarers_are_the_recorded_roster(self):
@@ -19199,6 +19213,11 @@ class DriveVesselSourceSyncTests(unittest.TestCase):
                       text)
         self.assertEqual(("true",), hlib.DRIVEVESSEL_UNTIL_DOCKED_VALUES)
         self.assertIn('internal const string UntilDockedTrueToken = "true";', text)
+        self.assertIn('internal const string UntilCrashKey = "%s";'
+                      % hlib.DRIVEVESSEL_UNTIL_CRASH_KEY, text)
+        self.assertEqual(("true",), hlib.DRIVEVESSEL_UNTIL_CRASH_VALUES)
+        self.assertIn('internal const string UntilCrashTrueToken = "true";', text)
+        self.assertIn("if (settle || untilDocked)", text)
         self.assertIn("internal const double MaxDockSpeed = %.1f;" % hlib.DRIVEVESSEL_MAX_DOCK_SPEED,
                       text)
         self.assertIn("parsed <= 0.0 || parsed > MaxDockSpeed", text)
@@ -19232,6 +19251,9 @@ class DriveVesselSourceSyncTests(unittest.TestCase):
         self.assertIn("GameEvents.onPartCouple.Add(OnDriveVesselPartCouple);", applier)
         self.assertIn("GameEvents.onPartCouple.Remove(OnDriveVesselPartCouple);", applier)
         self.assertIn("TestCommandDriveVessel.ReadyPortStateName", applier)
+        # The crash drive ends on stock's first part death, and every exit path unhooks it.
+        self.assertIn("GameEvents.onPartDie.Add(OnDriveVesselPartDie);", applier)
+        self.assertIn("GameEvents.onPartDie.Remove(OnDriveVesselPartDie);", applier)
         addon = self._source("TestCommands", "ParsekTestCommandAddon.cs")
         # ClearTwoPhase owns the unsubscribe, so no exit path leaves the callback behind.
         clear = addon[addon.index("private void ClearTwoPhase()"):]
@@ -19300,6 +19322,20 @@ class DriveVesselSourceSyncTests(unittest.TestCase):
         errs = v(0, {"wheelThrottle": "0.5", "seconds": "30", "maxSpeed": "0.2"})
         self.assertEqual(1, len(errs), errs)
         self.assertIn("drivevessel-maxspeed-arg-unexpected", errs[0])
+        # Crash mode: untilCrash=true (the STRING), never with settle or dock.
+        self.assertEqual([], v(0, {"wheelThrottle": "1", "seconds": "25", "untilCrash": "true"}))
+        for bad in ("True", "1", True, "yes"):
+            with self.subTest(untilCrash=bad):
+                errs = v(0, {"wheelThrottle": "1", "seconds": "25", "untilCrash": bad})
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("drivevessel-crash-arg-invalid", errs[0])
+        errs = v(0, {"settleBelow": "0.05", "seconds": "20", "untilCrash": "true"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("drivevessel-crash-arg-conflict", errs[0])
+        errs = v(0, {"wheelThrottle": "0.5", "seconds": "20", "untilDocked": "true",
+                     "untilCrash": "true"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("drivevessel-crash-arg-conflict", errs[0])
 
     def test_validate_spec_runs_the_step_validator(self):
         spec = copy.deepcopy(load_spec(self.SPEC))
@@ -25547,12 +25583,16 @@ class SharedShipsManifestTests(unittest.TestCase):
     # lists a lane here.
     #
     # RE-ARMED 2026-11-16 by the aircraft pair (todo NEXT-TESTS-TO-BUILD-2026-11-11
-    # item 3): the forge AIR-1 is authored, not flown, and its Space Center replay
-    # lane names the fixture its harvest will become. Tier "pending-fixture" with an
-    # estimated WarpToUT target; its header lists the one-commit hand-over.
-    PENDING_FIXTURE_LANES = {
-        "AIR-2-runway-circuit-ksc-ghost.toml": "air-circuit-recorded",
-    }
+    # item 3): the forge AIR-1 was authored, not flown, and its Space Center replay
+    # lane named the fixture its harvest would become, tier "pending-fixture" with an
+    # estimated WarpToUT target and its one-commit hand-over in its header.
+    # AIR-2 retired 2026-11-16: AIR-1 flew green (`2026-11-16_2218`) and
+    # `air-circuit-recorded` is committed.
+    #
+    # RETIRED AGAIN 2026-11-16: the map is EMPTY, so the exemption is inert and the
+    # saveTemplate gate below is at full strength until a future two-stage program
+    # lists a lane here.
+    PENDING_FIXTURE_LANES = {}
 
     def test_the_pending_fixture_exemption_retires_itself(self):
         """The exemption's own guard, in BOTH directions. If the awaited fixture

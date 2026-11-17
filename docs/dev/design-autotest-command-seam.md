@@ -5018,6 +5018,25 @@ driver INVALID, not a PARSEK-FAIL. The hook is removed and the Brakes restored o
 when the driven vessel did not survive the dock (it was the absorbed side) the Brakes go back
 on the active vessel.
 
+**Crash mode (2026-11-16, lane RVC-1, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3a).**
+`cmd=DriveVessel wheelThrottle=<t> seconds=<s> untilCrash=true` drives into another vessel on
+the surface. `untilCrash` is closed to the string `true` (`drivevessel-crash-arg-invalid`) and
+cannot pair with `settleBelow` or `untilDocked` (`drivevessel-crash-arg-conflict`); both are
+deterministic. The gate is the drive's. A `GameEvents.onPartDie` hook (stock fires it inside
+`Part.Die`, after `Part.explode` on an impact, while the part still names its vessel) counts
+every part death during the drive, split into the driven vessel's own parts (their `flightID`s
+at the start) and every other part; the first one is the crash: `drivevessel crash hit: part=
+partPid= vesselPid= vesselName= own= impactSrfSpeed= ut=`, where `impactSrfSpeed` is the driven
+vessel's surface speed sampled by the fly-by-wire hook in the physics frame before the death.
+From then on the callback writes a zero throttle, so the wheels stop pushing the wreck. The
+completion checks the crash first, so a crash that destroyed the driven vessel itself still
+ends OK `crashed=true gameSeconds= maxSrfSpeed= impactSrfSpeed= pathMeters= crashUT=
+firstPart= firstPartVesselPid= ownPartsLost= otherPartsLost= activePid= activeName=`
+(`drivevessel crash start:` / `drivevessel crash end: outcome=crashed ...`); `seconds` of game
+time with no part death is ERROR `drivevessel-did-not-crash`, so a drive that misses its target
+reads a fast driver INVALID. The hook is removed and the Brakes restored on every exit, except
+on a driven vessel the crash destroyed or unloaded.
+
 #### ReadVesselResources (additive; the tank read, roadmap TC-1)
 
 **Why.** Every lane before it checked Parsek's own log lines about resources; none read a tank.
