@@ -1906,6 +1906,25 @@ its own commit before a route can name it, and the route captures the pending ad
 pass's flush (`RouteSourceRef.EffectiveSidecarEpoch`). Other post-creation dirty sites on a
 committed source are filed as ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE.
 
+## COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH: a real vessel whose committed leaf carries no spawn stamp is never resumed into its tree after a Cold FLIGHT load, and nothing logs why [FOUND 2026-11-16 by RSF-1's first flight; headless probe; low]
+
+On `rover-relay-c-recorded` the transport C (pid 612987736) has a committed leaf `ec4bf428`
+with a vessel snapshot, `vesselPersistentId` and `recordedVesselGuid` equal to the live vessel,
+and no `spawnedPid`. Before the crew pass, `TryFindCommittedTreeForSpawnedVessel` matches it
+(direct pid + guid branch). On every Cold load into FLIGHT,
+`ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT` sees UT past EndUT on a leaf not marked
+spawned, nulls its snapshot and sets `VesselSpawned=true` with no spawn pid. After that neither
+branch matches (the spawn-stamp branch needs `SpawnedVesselPersistentId == livePid`, the direct
+branch needs `!VesselSpawned`), and neither counts a refusal, so OnFlightReady and the 1 Hz
+retry return silently; the player's next flight of C opens a new tree. `VesselSpawned` is
+rebuilt from `spawnedPid` on load, so every Cold FLIGHT load repeats it. Normal in-flight
+commits stamp the active leaf (`CommitTreeFlight`), so the reach is a leaf committed by another
+path while its vessel stays real. Fix options: the crew pass stamps the live pid when the
+recorded vessel exists (guid-gated), or the finder treats spawned-with-no-pid (not
+`SpawnAbandoned`) as unstamped; either way the finder counts and logs the refusal. Evidence:
+RSF-1 run `2026-11-16_2349` (INVALID, CommitTree `no-active-tree`); a headless probe over the
+fixture's trees reads `found=True` before the crew pass and `found=False` after it.
+
 ## ~~ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE~~: a content-neutral rewrite of a route's source recording may pause the route as SourceChanged for good [SUSPECTED 2026-11-16 by code read. CONFIRMED by code trace and FIXED 2026-11-16, branch fix-route-source-epoch; xUnit; low]
 
 A route compares each source's `SidecarEpoch` (`RouteStore.FirstDifferingField`), and the next
@@ -1973,10 +1992,13 @@ and every runtime reader (ERS presence, revalidation, transport identities, the 
 frozen to creation members by `ComputeAutoExcludedNewIntervalKeys`) reads that fixed set, never
 a later recording of the vessel; `RouteCandidateFinder` leaves a continuation analysable.
 Live proof authored, not flown: lane `RSF-1-route-source-fixed-across-transport-reflight` on
-RCN-1's host creates and activates the route, F5 / F9 so the committed-tree restore resumes the
-real transport C in the route's own tree, drives C 5 s, merges (`examined=3 keptUnchanged=3
-changed=0`), F5 / F9 again and runs the cycle; the route must stay Active with no SourceChanged
-flip. `ListHandles kind=routes` gained `sources` / `sourceIds` / `sourceEpochs` (captured/live) /
+RCN-1's host creates and activates the route, F5 / F9, takes the real transport C out again in
+a NEW tree, drives C 5 s, merges, F5 / F9 again and runs the cycle; the route must stay Active
+with no SourceChanged flip. It cannot re-commit the route's own tree: the host's leaf
+`ec4bf428` has no spawn stamp, so a Cold FLIGHT load's crew pass
+(`OnLoadPhaseAutoUnreserveCrewPastEndUT`) marks it spawned with no pid and
+`TryFindCommittedTreeForSpawnedVessel` silently matches nothing. The re-commit path stays
+xUnit-proven. `ListHandles kind=routes` gained `sources` / `sourceIds` / `sourceEpochs` (captured/live) /
 `sourceDrift` (read-only `RouteStore.DescribeSourceState`) so the lane compares the source set
 taken at creation with the one after the merge, the F9 and the cycle by regex backreference.
 Known remaining case (review 2026-11-16, fails safe): `SessionMerger.MergeTree` still runs
