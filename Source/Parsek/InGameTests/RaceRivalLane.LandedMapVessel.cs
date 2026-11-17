@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using Parsek.InGameTests.Helpers;
 
 namespace Parsek.InGameTests
 {
@@ -253,9 +254,8 @@ namespace Parsek.InGameTests
                 GhostMapVessels.Unregister(pid);
             try
             {
-                string path = Path.Combine(KSPUtil.ApplicationRootPath ?? string.Empty, "saves",
-                    HighLogic.SaveFolder ?? string.Empty, saveSlot + ".sfs");
-                if (File.Exists(path)) File.Delete(path);
+                // SaveGame writes <slot>.sfs and <slot>.loadmeta; the helper deletes both.
+                QuickloadResumeHelpers.TryDeleteSaveSlot(saveSlot);
             }
             catch (Exception ex)
             {

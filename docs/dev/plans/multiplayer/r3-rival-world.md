@@ -392,7 +392,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
   current save's first committed recording (fields and lists copied in the cell), asserts
   the fixed answers and that a second attach is refused.
 - **Size:** S. **Depends on:** P2c-01, P12-01. **PC:** yes (one run of the cell). Its own
-  pull request; the category `RaceRivalLane` first appears here (lane catalog regen).
+  pull request. The category `RaceRivalLane` already exists: R3W-17 created it (one FLIGHT cell,
+  lane catalog and inventory regenerated there), so this cell only adds a declaration.
 - **Risk:** low; a value type with no callers yet beyond its tests and R3W-03.
 
 ### R3W-03 Header loader from the tree file
@@ -829,6 +830,10 @@ cells and stay their own pull requests; the one member that waits for a later ta
   no committed spec pins it: no tally moves; `flight-profiles.md` regenerated and the
   `autotest-ingame-category-inventory.md` row added (bucket B). Pins unchanged: 374 unreached, no
   headless, layer or lifetime re-pin. PC: the cell is owed on the owner's PC.
+  Review note for R3W-18: if anything after `Load` throws, `BuildLandedCore` unregisters the pid and
+  drops the ProtoVessel but leaves the live Vessel without `Die()` (P3-04's orbit builder behaves the
+  same; no post-load call can realistically throw today). The cell's cleanup deletes the scratch
+  slot through `QuickloadResumeHelpers.TryDeleteSaveSlot`, which also removes `<slot>.loadmeta`.
 
 ### R3W-18 `RivalMapPresence`
 
