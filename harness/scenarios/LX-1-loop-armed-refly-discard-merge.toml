@@ -50,7 +50,7 @@ tier = "operator"
 # WarpToUT 1000 runs before G is flown: G launches at ~1002 (IR-3 measured ~1.7 s of KSC
 # time for the exit + editor), the rewind point lands at ~1003, after any anchor. Each
 # Re-Fly warps to 1060 at 10x (under the >50x ghost hide), the merge then warps to 1110
-# (past at least one 30 s relaunch, so a fresh loop ghost spawns after the merge).
+# (past at least one 30 s relaunch; the merge ends at the Space Center, which publishes the unit live).
 #
 # THE FLIGHT:
 #   boot     LoadGame (FLIGHT on rover B), kill pair, settings (verbose + ghostRenderTracing).
@@ -76,7 +76,7 @@ tier = "operator"
 #     rebuild the unit (`MissionLoopUnit: ... overlapCadence=X ... phaseAnchor=Y`) with the
 #     same two values, byte for byte (both "R" formatted);
 #   - the loop ghost REPLAYS: a tracing-gated `phase=MeshSpawned` for recording 3582d724
-#     inside each flight window and after the merge;
+#     inside each flight window, and the unit published live at the Space Center after the merge;
 #   - nothing toggles the loop (`SetLoopEnabled: loop OFF` and a second `loop ON` are
 #     forbidden) and no scene after the arm publishes the unit before its first instance.
 #
@@ -103,7 +103,7 @@ tier = "operator"
 # pinned 9..9 from IR-3's measurement; (8) operator until flown, IR-3 measured ~172 s for
 # the same chain; (9) flight_efficiency.py after the first green flight.
 # =====================================================================================
-description = "LX-1 (audit B7, half a): on rover-route-recorded a mission loop is armed on tree A (rover A, span 392.58..432.24) and plays while a CS Flea Probe pad flight G is decoupled into a rewind point, committed and stashed, then Re-Flown, discarded (Space Center), re-entered and Re-Flown again and merged. The loop must stay armed with the same anchor through every load (Missions from memory on ReFlyStart / DiscardReFly), every scene must publish its unit live (never back before its first instance), the Re-Fly 1 flight and the post-discard Space Center must rebuild the unit with the arm-time phase anchor and overlap cadence, and the loop ghost must replay in each flight and after the merge. Design: rewind-to-separation section 8 (loops read ERS through the same filter, no per-feature change)."
+description = "LX-1 (audit B7, half a): on rover-route-recorded a mission loop is armed on tree A (rover A, span 392.58..432.24) and plays while a CS Flea Probe pad flight G is decoupled into a rewind point, committed and stashed, then Re-Flown, discarded (Space Center), re-entered and Re-Flown again and merged. The loop must stay armed with the same anchor through every load (Missions from memory on ReFlyStart / DiscardReFly), every scene must publish its unit live (never back before its first instance), the Re-Fly 1 flight and the post-discard Space Center must rebuild the unit with the arm-time phase anchor and overlap cadence, and the loop ghost must replay in each flight, and the Space Center the merge ends in must publish the unit live. Design: rewind-to-separation section 8 (loops read ERS through the same filter, no per-feature change)."
 instanceProfile = "stock-minimal"
 tags = ["LX-1", "loop-playback", "refly", "refly-discard", "refly-merge", "mission-loop",
         "timeline-ops", "runtime-handles", "recorded-fixture", "pending-flight"]
@@ -236,7 +236,10 @@ required = [
   "(?s)MISSIONMARK label=lx1-refly2-armed (?:(?!MISSIONMARK label=lx1-merge-armed ).)*Load classified: early=ReFlyStart (?:(?!MISSIONMARK label=lx1-merge-armed ).)*phase=MeshSpawned rec=\\S+ recId=3582d724892245c8939f6a354baff278 ",
   "answermergedialog complete choice=merge result=committed",
   # AFTER THE MERGE: the loop keeps relaunching (one 30 s launch cadence at least).
-  "(?s)MISSIONMARK label=lx1-merged (?:(?!MISSIONMARK label=lx1-after-merge ).)*phase=(?:MeshSpawned|LoopCycle) rec=\\S+ recId=3582d724892245c8939f6a354baff278 ",
+  # The merge leaves FLIGHT (AnswerMergeDialog completes only once the scene is no longer
+  # FLIGHT), so the post-merge window is the Space Center, which prints no GhostRenderTrace
+  # phases; the loop proves itself there by the KSC publish of the live unit.
+  "(?s)MISSIONMARK label=lx1-merge-armed (?:(?!MISSIONMARK label=lx1-after-merge ).)*\\[MissionLoopFirstRun\\] Loop units live at UT=[0-9.]+ scene=KSC: live=1 beforeFirstInstance=0",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
