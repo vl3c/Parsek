@@ -42,7 +42,7 @@ namespace Parsek.TestCommands
     /// so <c>rp=</c> + <c>slot=</c> is kept and reuses <c>InvokeRewind</c>'s
     /// <c>unknown-rp</c> / <c>unknown-slot</c> vocabulary verbatim. The CONSUMER that
     /// forced the promotion is tree-scoped, though: route candidacy requires EVERY
-    /// recording in a tree to be <c>MergeState.Immutable</c>
+    /// recording in a tree to read <c>MergeState.Immutable</c> through its effective tip
     /// (<c>RouteCandidateFinder.IsTreeFullySealed</c>), and a fixture typically carries
     /// more than one open provisional, so <c>tree=</c> seals the whole tree in one
     /// command. Both spellings drive the SAME production per-recording call.</para>
@@ -80,13 +80,13 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The <see cref="SealIncompleteReason"/> tail when NOTHING refused: every
-        /// remaining member got a SUCCESSFUL <c>TrySeal</c> that closed some OTHER
-        /// recording, because the handler seals a recording's slot's EFFECTIVE
-        /// chain+supersede tip rather than the recording itself. Such a member is
-        /// structurally unclosable by the Seal action (the UI button has the identical
-        /// residue), so the tree cannot be made a route candidate by sealing alone -
-        /// which is a fixture-shape answer, not a handler failure, and must not read as
-        /// one.
+        /// remaining member got a SUCCESSFUL <c>TrySeal</c> and still reads open. The
+        /// handler seals a recording's slot's EFFECTIVE chain+supersede tip, and a
+        /// member reads through its own effective tip, so a split chain head of a
+        /// sealed slot reads sealed; what is left here is a member whose own walk ends
+        /// on an open recording the seal did not reach (a slot tip outside any Rewind
+        /// Point the handler resolves). That is a tree-shape answer, not a handler
+        /// failure, and must not read as one.
         /// </summary>
         internal const string MemberNotSlotTipReason = "member-not-slot-tip";
 
@@ -134,12 +134,23 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
-        /// The recording ids in <paramref name="tree"/> that are NOT yet
-        /// <see cref="MergeState.Immutable"/>, in the tree's own enumeration order.
-        /// Null slots are skipped for the reason <c>IsTreeFullySealed</c> skips them:
-        /// a null slot cannot prove un-sealed. Pure (RecordingTree is plain data).
+        /// The recording ids in <paramref name="tree"/> that do NOT yet read
+        /// <see cref="MergeState.Immutable"/>, in the tree's own enumeration order. A
+        /// member reads through <c>EffectiveState.ResolveMemberSealState</c>, the same
+        /// read <c>IsTreeFullySealed</c> takes, so a split chain head whose slot is
+        /// closed is not listed. Null slots are skipped for the reason
+        /// <c>IsTreeFullySealed</c> skips them: a null slot cannot prove un-sealed.
+        /// Reads the loaded scenario's supersede rows.
         /// </summary>
         internal static List<string> RecordingIdsNeedingSeal(RecordingTree tree)
+        {
+            return RecordingIdsNeedingSeal(tree, EffectiveState.CurrentSupersedesOrEmpty());
+        }
+
+        /// <summary><see cref="RecordingIdsNeedingSeal(RecordingTree)"/> over explicit
+        /// supersede rows.</summary>
+        internal static List<string> RecordingIdsNeedingSeal(
+            RecordingTree tree, IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
             var ids = new List<string>();
             if (tree == null || tree.Recordings == null)
@@ -149,15 +160,26 @@ namespace Parsek.TestCommands
                 Recording rec = kvp.Value;
                 if (rec == null)
                     continue;
-                if (rec.MergeState != MergeState.Immutable)
+                if (!IsMemberSealed(rec, kvp.Key, tree, supersedes))
                     ids.Add(rec.RecordingId ?? kvp.Key);
             }
             return ids;
         }
 
         /// <summary>
-        /// How many recordings in <paramref name="tree"/> are still not Immutable.
-        /// Pure; the post-pass remaining count that decides the terminal verdict.
+        /// Whether one member reads sealed (see <see cref="RecordingIdsNeedingSeal(RecordingTree)"/>).
+        /// </summary>
+        internal static bool IsMemberSealed(
+            Recording rec, string memberKey, RecordingTree tree,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            return EffectiveState.ResolveMemberSealState(rec, memberKey, tree, supersedes)
+                == MergeState.Immutable;
+        }
+
+        /// <summary>
+        /// How many recordings in <paramref name="tree"/> still do not read Immutable.
+        /// The post-pass remaining count that decides the terminal verdict.
         /// </summary>
         internal static int CountUnsealed(RecordingTree tree)
         {

@@ -207,6 +207,33 @@ namespace Parsek.Tests
             Assert.Equal(InGameTestRunner.DefaultBatchRestoreNote, note);
         }
 
+        // catches: a FLIGHT baseline that drops the lane's DiscardTree suppression, so every
+        // baseline restore re-adopts the vessel's committed tree and the batch's
+        // idle-vessel tests skip or fail (H69 / H56 / H57 on rover-route-recorded).
+        [Theory]
+        [InlineData(313889796u, 313889796u, 313889796u)]
+        [InlineData(313889796u, 42u, 0u)]
+        [InlineData(0u, 313889796u, 0u)]
+        [InlineData(0u, 0u, 0u)]
+        public void CapturedCommittedRestoreSuppressedPid_OnlyForTheActiveVessel(
+            uint suppressedPid, uint activePid, uint expected)
+        {
+            Assert.Equal(expected,
+                InGameTestRunner.CapturedCommittedRestoreSuppressedPid(suppressedPid, activePid));
+        }
+
+        [Theory]
+        [InlineData(313889796u, 313889796u, true)]
+        [InlineData(313889796u, 42u, false)]
+        [InlineData(0u, 313889796u, false)]
+        [InlineData(0u, 0u, false)]
+        public void ShouldReapplyBaselineRestoreSuppression_OnlyForTheCapturedVessel(
+            uint capturedPid, uint activePid, bool expected)
+        {
+            Assert.Equal(expected,
+                InGameTestRunner.ShouldReapplyBaselineRestoreSuppression(capturedPid, activePid));
+        }
+
         [Theory]
         [InlineData(Vessel.Situations.PRELAUNCH, true)]
         [InlineData(Vessel.Situations.LANDED, false)]

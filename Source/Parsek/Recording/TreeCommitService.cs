@@ -255,16 +255,21 @@ namespace Parsek
         /// route's tree (a resumed committed vessel merged back, a Re-Fly union) re-merges and
         /// marks dirty every member it holds; for these the rewrite changes no byte the route
         /// read, yet it would advance their sidecar epoch and pause the route as
-        /// SourceChanged for good. Never null. One Verbose summary when a source is examined.
+        /// SourceChanged for good. A source with no committed copy (the tree came back from a
+        /// save that held it only as the active tree) is kept when it is clean and
+        /// <paramref name="matchesCapturedRouteSource"/> says it still equals a route's captured
+        /// ref: its sidecars are the ones the route read, and only the rewrite would move them.
+        /// Never null. One Verbose summary when a source is examined.
         /// </summary>
         internal static HashSet<string> CollectUnchangedRouteSourceIds(
-            RecordingTree tree, ICollection<string> routeSourceIds)
+            RecordingTree tree, ICollection<string> routeSourceIds,
+            Func<Recording, bool> matchesCapturedRouteSource = null)
         {
             var ids = new HashSet<string>(StringComparer.Ordinal);
             if (tree?.Recordings == null || routeSourceIds == null || routeSourceIds.Count == 0)
                 return ids;
 
-            int examined = 0, changed = 0, notCommitted = 0;
+            int examined = 0, changed = 0, notCommitted = 0, keptAtRouteCapture = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
@@ -274,7 +279,15 @@ namespace Parsek
                 int existingIndex = FindCommittedRecordingIndex(rec);
                 if (existingIndex < 0)
                 {
-                    notCommitted++;
+                    if (IsUncommittedSourceAtRouteCapture(rec, matchesCapturedRouteSource))
+                    {
+                        ids.Add(rec.RecordingId);
+                        keptAtRouteCapture++;
+                    }
+                    else
+                    {
+                        notCommitted++;
+                    }
                     continue;
                 }
                 if (IsUnchangedCommittedRecording(rec, RecordingStore.CommittedRecordings[existingIndex]))
@@ -287,8 +300,26 @@ namespace Parsek
                 ParsekLog.Verbose("RecordingStore",
                     $"CommitTree: route sources in tree '{tree.Id ?? "<none>"}' examined={examined} " +
                     $"keptUnchanged={ids.Count} changed={changed} notCommitted={notCommitted} " +
+                    $"keptAtRouteCapture={keptAtRouteCapture} " +
                     "(an unchanged source is not re-merged or rewritten, so its sidecar epoch holds)");
             return ids;
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/>, a route source with no committed copy, is clean
+        /// (not dirty, no deferred epoch advance) and
+        /// <paramref name="matchesCapturedRouteSource"/> reports it equal to a route's captured
+        /// source ref (epoch, span, tree slot and proof hash). False with no predicate. Pure
+        /// apart from the predicate.
+        /// </summary>
+        internal static bool IsUncommittedSourceAtRouteCapture(
+            Recording rec, Func<Recording, bool> matchesCapturedRouteSource)
+        {
+            if (rec == null || matchesCapturedRouteSource == null)
+                return false;
+            if (rec.FilesDirty || rec.SidecarEpochAdvancePending)
+                return false;
+            return matchesCapturedRouteSource(rec);
         }
 
         /// <summary>

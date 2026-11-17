@@ -676,6 +676,63 @@ namespace Parsek.Tests
             Assert.Empty(deletedRpIds);
         }
 
+        // ---------- SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL ----------
+        //
+        // The commit-time optimizer split COPIES the promoted CommittedProvisional onto
+        // the new chain tip and the player's Seal flips ONLY the slot's effective tip,
+        // so the head stays CommittedProvisional for good. The route candidacy gate must
+        // read the head through its tip, or the tree never becomes a route candidate.
+        [Fact]
+        public void SealOfOptimizerSplitSlot_LeavesTreeFullySealed()
+        {
+            var tree = MakeSplitTree("sealsplit", "bp_s", "child_a", "child_b",
+                TerminalState.Destroyed, TerminalState.Landed);
+            GiveAtmosphericToExoPayload(tree.Recordings["child_a"]);
+            var slot0 = Slot(0, "child_a");
+            var rp = Rp("sealsplit", "bp_s", 0, slot0, Slot(1, "child_b"));
+            var scenario = InstallScenario(rp);
+
+            TreeCommitService.CommitTree(tree);
+            CommittedListOptimizer.RunOptimizationPass();
+
+            // The split really happened: head child_a + a new chain tip, both carrying
+            // CommittedProvisional (the split copies, it does not move).
+            Assert.Equal(3, tree.Recordings.Count);
+            string tipId = slot0.EffectiveRecordingId(scenario.RecordingSupersedes);
+            Assert.NotEqual("child_a", tipId);
+            Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child_a"].MergeState);
+            Assert.Equal(MergeState.CommittedProvisional, tree.Recordings[tipId].MergeState);
+
+            // The player's Seal (the same call the Unfinished Flights button and the
+            // SealSlot seam make), handed the slot's origin recording.
+            string sealReason;
+            Assert.True(UnfinishedFlightSealHandler.TrySeal(tree.Recordings["child_a"], out sealReason),
+                "first seal refused: " + sealReason);
+            Assert.Equal(MergeState.Immutable, tree.Recordings[tipId].MergeState);
+            Assert.False(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(slot0));
+
+            // Both slots are now closed, so the seal reaped the rewind point. The head
+            // has no slot left: no later Seal (button, seam or sweep) can ever reach it.
+            Assert.Empty(scenario.RewindPoints);
+            Assert.False(UnfinishedFlightSealHandler.TrySeal(tree.Recordings["child_a"], out sealReason));
+            Assert.Equal("noMatchingRP", sealReason);
+
+            // Every slot is closed, so the tree must read as sealed for route candidacy,
+            // although the head itself stays CommittedProvisional.
+            Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child_a"].MergeState);
+            bool treeSealed = Parsek.Logistics.RouteCandidateFinder.IsTreeFullySealed(tree);
+            Assert.True(treeSealed,
+                "slot closed but head child_a is " + tree.Recordings["child_a"].MergeState);
+            Assert.Empty(Parsek.TestCommands.TestCommandSealSlot.RecordingIdsNeedingSeal(tree));
+
+            // The route create gate past TreeNotSealed (the next gate is the analysis,
+            // which this synthetic tree does not pass).
+            Assert.Equal(Parsek.TestCommands.RouteCreateRefusal.CandidateIneligible,
+                Parsek.TestCommands.TestCommandRouteCommand.ClassifyCreateRefusal(
+                    treeFound: true, dismissed: false, treeSealed: treeSealed,
+                    analysisEligible: false, alreadyPromoted: false));
+        }
+
         private static void GiveAtmosphericToExoPayload(Recording rec)
         {
             // An ascent crossing the Atmospheric -> ExoBallistic boundary: the

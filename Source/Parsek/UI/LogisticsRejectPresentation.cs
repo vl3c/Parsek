@@ -24,7 +24,7 @@ namespace Parsek
         /// candidate. When <paramref name="notSealed"/> is true the tree has at
         /// least one recording that can still be re-flown / re-written, so the
         /// route proof cannot be trusted: returns
-        /// "not fully sealed (N recording(s) still re-flyable)" with singular /
+        /// "not finished yet (N flight(s) can still be re-flown)" with singular /
         /// plural agreement on <paramref name="reflyableCount"/> (the
         /// <paramref name="status"/> argument is ignored in this branch). Otherwise
         /// the tree is sealed but ineligible, so the reason is the analysis status
@@ -35,8 +35,9 @@ namespace Parsek
         /// is sealed; ignored when <paramref name="notSealed"/> is true).</param>
         /// <param name="notSealed">True when the tree is not fully sealed (at least
         /// one non-Immutable recording).</param>
-        /// <param name="reflyableCount">Number of still-re-flyable (non-Immutable)
-        /// recordings; drives the singular / plural noun.</param>
+        /// <param name="reflyableCount">Number of distinct flights that can still be
+        /// re-flown (<c>RouteCandidateFinder.CountReflyableFlights</c>); drives the
+        /// singular / plural noun.</param>
         internal static string DescribeNearMiss(
             RouteAnalysisStatus status, bool notSealed, int reflyableCount)
         {

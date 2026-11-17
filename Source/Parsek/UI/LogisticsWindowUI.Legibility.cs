@@ -54,9 +54,11 @@ namespace Parsek
         // M3: the throttled "recently committed trees not yet eligible" near-miss
         // list. Same ~1 Hz timer as GetCandidates (both derive from the same
         // committed trees through RouteAnalysisEngine), so the subsection never
-        // scans live on the IMGUI draw path. Gate-safe: DeriveNearMisses reads only
-        // RecordingTree.Recordings[].MergeState + RouteAnalysisEngine, no raw
-        // committed-recording / ledger read.
+        // scans live on the IMGUI draw path. Gate-safe: DeriveNearMisses reads each
+        // member's MergeState through EffectiveState.ResolveMemberSealState (its slot's
+        // chain+supersede tip, over the loaded scenario's supersede rows; that resolver
+        // owns its one committed-store lookup) + RouteAnalysisEngine, no raw
+        // committed-recording / ledger read here.
         private List<RouteNearMiss> GetNearMisses()
         {
             float now = Time.realtimeSinceStartup;
