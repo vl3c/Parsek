@@ -206,6 +206,8 @@ Two limits of this table, stated so nobody over-reads it:
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |
 | `SpawnTerminalOrbit` | 4 | 4 | 0 | 0 | 0 | 4 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips; the fourth cell, the surface-relative low-orbit tail seed of 2026-10-18, is pinned 4/4 and not yet flown) | A |
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue wants autostrut parts in range) | B |
+| `SpikeS3` | 3 | 3 | 3 | 3 | 0 | 3 | NOT DRIVEN by a committed spec (spike branch `spike/mp-r0` only, never merged: the S3 looks probe, three AnyScene cells run through the command seam's `RunTests category=SpikeS3` by the hand-held sheet `spikes/r0/S3/PC-RUN.md`; every cell self-skips unless `PARSEK_SPIKE` arms `S3`, and the dress cell also without its control file) | C |
+| `SpikeS3Ghost` | 1 | 1 | 0 | 0 | 0 | 1 | NOT DRIVEN by a committed spec (spike branch only: the S3 ghost kerbal build and suit-swap timing, one FLIGHT cell run by the same sheet; self-skips unless `PARSEK_SPIKE` arms `S3`) | C |
 | `SpikeS4` | 1 | 0 | 0 | 0 | 1 | 1 | NOT DRIVEN (spike branch `spike/mp-r0` only, never merged: the S4a KSC state probe, run by hand from Ctrl+Shift+T; self-skips unless `PARSEK_SPIKE` arms `S4a`) | C |
 | `StandaloneLoopMap` | 1 | 1 | 1 | 1 | 0 | 1 | SLM-1-standalone-loop-map-position, SLM-2-standalone-loop-map-pause and SLM-1T-standalone-loop-ts-position (authored 2026-10-31 with the fix for RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP, all three LIVE-PROVEN 2026-11-01 after a first flight red on a fixture defect, each pinned whole `passed=1 failed=0 skipped=0`). One AnyScene cell, so every scene column counts 1: over the `standalone-loop-map` preset (a 1500 s orbital run on its own Recordings-tab loop, period 4000 s) it derives the loop clock's sample UT from the recording's own fields and reads the map ghost's position against the RECORDED orbit at that UT in FLIGHT and TRACKSTATION, or requires no map ghost in the pause between runs. Self-skips outside FLIGHT / TRACKSTATION, without the preset, and in the first run. Its own category so no pinned `BATCH_COMPLETE` tally moves | A |
 | `StartupNotices` | 3 | 3 | 3 | 3 | 0 | 1 | SN-1-startup-notices-clean-install (authored 2026-10-03, LIVE-PROVEN 2026-10-04: verdict run `2026-10-04_1830` PASS attempt 1, re-flown PASS on the final head `2026-10-04_1845`, `total=3 passed=3 failed=0 skipped=0` as predicted, pinned WHOLE). The live half of the startup notices (`StartupNotices.cs`, `ParsekHarmony.cs`) on the provisioned `fresh-career` host, a correct install: the install-location check over KSP's real `AssemblyLoader` paths answers null, this session's Harmony sweep applied every patch class, and stock `ScreenMessages` accepts a post in a settled scene; the spec forbids every startup-notice warn / post line. Three AnyScene cells, so every scene column counts 3. Its OWN category for the standing reason. The self-skip column is 1: the post cell skips when `ScreenMessages` has no instance | A |
@@ -237,12 +239,13 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **143 categories / 699 declarations**. Buckets **A 103 categories
-(393 declarations)**, **B 37 categories (300 declarations)**, **C 3 categories (6
+Totals, re-derived: **145 categories / 703 declarations**. Buckets **A 103 categories
+(393 declarations)**, **B 37 categories (300 declarations)**, **C 5 categories (10
 declarations)** - the C rows are `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes),
 `MoonArrivalHold`, opened 2026-11-07 by the lone-moon arrival hold, which waits for the
-moon flight-test program, and `SpikeS4`, which exists only on the R0 spike branch.
+moon flight-test program, and `SpikeS3`, `SpikeS3Ghost` and `SpikeS4`, which exist only on
+the R0 spike branch.
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
 the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it; both flew green the
 same day and it stays **B** (each lane is a scene slice, 4 of 9).
