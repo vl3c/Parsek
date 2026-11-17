@@ -145,6 +145,11 @@ namespace Parsek.InGameTests
             // pre-batch state regardless of which test triggered the
             // restore.
             public RecordingStoreTestSnapshot RecordingStoreSnapshot;
+            // The committed-tree restore suppression (a test-command DiscardTree) the
+            // active vessel carried at capture, or 0. A baseline restore is a fresh
+            // ParsekFlight that would re-adopt the vessel's committed tree; carrying the
+            // suppression keeps the vessel as idle as it was when the batch began.
+            public uint CommittedRestoreSuppressedPid;
         }
 
         internal sealed class StagedBatchFlightParsekSaveSnapshot : IDisposable
@@ -1744,7 +1749,12 @@ namespace Parsek.InGameTests
                     // fail-closed path. Cheap: shallow copies of the four
                     // list/slot references plus the auto-assigned-groups
                     // dict.
-                    RecordingStoreSnapshot = RecordingStoreTestSnapshot.Capture()
+                    RecordingStoreSnapshot = RecordingStoreTestSnapshot.Capture(),
+                    CommittedRestoreSuppressedPid = CapturedCommittedRestoreSuppressedPid(
+                        ParsekFlight.Instance != null
+                            ? ParsekFlight.Instance.committedSpawnedRestoreSuppressedPid
+                            : 0u,
+                        vessel != null ? vessel.persistentId : 0u)
                 };
             }
             catch
@@ -1755,6 +1765,66 @@ namespace Parsek.InGameTests
                 TryDeletePersistentSaveBackup(persistentBackupPath);
                 throw;
             }
+        }
+
+        /// <summary>
+        /// The suppressed pid a FLIGHT baseline carries: the live suppression when it names
+        /// the active vessel, else 0. Pure.
+        /// </summary>
+        internal static uint CapturedCommittedRestoreSuppressedPid(uint suppressedPid, uint activeVesselPid)
+            => suppressedPid != 0 && suppressedPid == activeVesselPid ? suppressedPid : 0u;
+
+        /// <summary>
+        /// True when a FLIGHT baseline restore must put the captured restore suppression
+        /// back: the baseline carried one and the restored active vessel is that vessel.
+        /// Pure.
+        /// </summary>
+        internal static bool ShouldReapplyBaselineRestoreSuppression(
+            uint capturedSuppressedPid, uint activeVesselPid)
+            => capturedSuppressedPid != 0 && capturedSuppressedPid == activeVesselPid;
+
+        /// <summary>
+        /// After a FLIGHT baseline restore lands: when the batch began with the active
+        /// vessel's committed-tree restore suppressed (the lane's DiscardTree before
+        /// RunTests), undo any re-adoption the fresh scene's restore already made (stop the
+        /// recorder, discard the clone in memory) and suppress again, so every test sees
+        /// the vessel as idle as the captured baseline was. A no-op otherwise.
+        /// </summary>
+        private static void ReapplyBaselineCommittedRestoreSuppression(
+            FlightBatchBaselineState baseline, string reason)
+        {
+            ParsekFlight flight = ParsekFlight.Instance;
+            Vessel active = FlightGlobals.ActiveVessel;
+            uint activePid = active != null ? active.persistentId : 0u;
+            if (baseline == null || flight == null
+                || !ShouldReapplyBaselineRestoreSuppression(baseline.CommittedRestoreSuppressedPid, activePid))
+                return;
+
+            bool hadTree = flight.HasActiveTree;
+            try
+            {
+                if (hadTree)
+                {
+                    if (ParsekFlight.HasLiveRecorderForTagging())
+                        flight.StopRecording();
+                    flight.AutoDiscardActiveTreeWithMessage(
+                        reason: "batch-baseline-restore-suppression",
+                        screenMessage: null,
+                        ledgerRecalcReason: "batch-baseline-restore-suppression");
+                }
+                flight.SuppressCommittedSpawnedRestoreForActiveVessel("batch-baseline-restore");
+            }
+            catch (Exception ex)
+            {
+                // The scene itself loaded; a failure here must not roll the restore back.
+                ParsekLog.Warn(Tag,
+                    $"Batch baseline restore ({reason}): re-applying the committed-tree restore " +
+                    $"suppression for pid={activePid} threw: {ex.Message}");
+                return;
+            }
+            ParsekLog.Info(Tag,
+                $"Batch baseline restore ({reason}): re-applied the captured committed-tree " +
+                $"restore suppression for pid={activePid} discardedReadoptedTree={hadTree}");
         }
 
         private const string CampaignPersistentSaveFileName = "persistent.sfs";
@@ -2985,6 +3055,7 @@ namespace Parsek.InGameTests
                     yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
                         previousFlightInstanceId, timeoutSeconds: 15f);
                     yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
+                    ReapplyBaselineCommittedRestoreSuppression(baseline, cleanupReason);
                     PerformBetweenRunCleanup(cleanupReason);
                     if (ShouldWaitForStockStageManager(baseline.ActiveVesselSituation))
                         yield return WaitForStockStageManagerReady(timeoutSeconds: 10f);

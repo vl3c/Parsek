@@ -20,15 +20,17 @@ namespace Parsek
 
         /// <summary>
         /// The route sources <paramref name="tree"/> carries unchanged into a commit
-        /// (<see cref="TreeCommitService.CollectUnchangedRouteSourceIds(RecordingTree, ICollection{string})"/>
-        /// over the ids a committed or dormant supply route names). This type already reads that
+        /// (<see cref="TreeCommitService.CollectUnchangedRouteSourceIds(RecordingTree, ICollection{string}, Func{Recording, bool})"/>
+        /// over the ids a committed or dormant supply route names, with the route store's captured-ref
+        /// match for a source the tree carries without a committed copy). This type already reads that
         /// source immutability set (design 4.7) for the pass below; the tree commit asks here so
         /// it does not read the route store itself. Never null.
         /// </summary>
         internal static HashSet<string> CollectUnchangedRouteSourceIds(RecordingTree tree)
         {
             HashSet<string> routeSourceIds = Logistics.RouteStore.CollectSourceRecordingIds();
-            return TreeCommitService.CollectUnchangedRouteSourceIds(tree, routeSourceIds);
+            return TreeCommitService.CollectUnchangedRouteSourceIds(
+                tree, routeSourceIds, Logistics.RouteStore.RecordingMatchesCapturedSourceRef);
         }
 
         /// <summary>

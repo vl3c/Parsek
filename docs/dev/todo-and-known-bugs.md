@@ -2673,7 +2673,7 @@ its own commit before a route can name it, and the route captures the pending ad
 pass's flush (`RouteSourceRef.EffectiveSidecarEpoch`). Other post-creation dirty sites on a
 committed source are filed as ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE.
 
-## COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH: a real vessel whose committed leaf carries no spawn stamp is never resumed into its tree after a Cold FLIGHT load, and nothing logs why [FOUND 2026-11-16 by RSF-1's first flight; headless probe; low]
+## ~~COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH~~: a real vessel whose committed leaf carries no spawn stamp is never resumed into its tree after a Cold FLIGHT load, and nothing logs why [FOUND 2026-11-16 by RSF-1's first flight; headless probe; low. FIXED 2026-11-17, branch coldload-fix; xUnit; RSF-1 reshaped to fly it]
 
 On `rover-relay-c-recorded` the transport C (pid 612987736) has a committed leaf `ec4bf428`
 with a vessel snapshot, `vesselPersistentId` and `recordedVesselGuid` equal to the live vessel,
@@ -2691,6 +2691,64 @@ recorded vessel exists (guid-gated), or the finder treats spawned-with-no-pid (n
 `SpawnAbandoned`) as unstamped; either way the finder counts and logs the refusal. Evidence:
 RSF-1 run `2026-11-16_2349` (INVALID, CommitTree `no-active-tree`); a headless probe over the
 fixture's trees reads `found=True` before the crew pass and `found=False` after it.
+
+**Fix (2026-11-17, branch `coldload-fix`):** the finder takes the second option.
+`ParsekFlight.TryFindCommittedTreeForSpawnedVessel` adds a third match,
+`IsUnstampedSpawnedLeafOfLiveLaunch`: spawned, no spawn pid, not `SpawnAbandoned`, and the live
+vessel POSITIVELY the recorded launch (`VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch`:
+pid equal and both launch guids known and equal; the mark carries no pid, so an unknown guid is
+never enough). A match logs `matched unstamped spawned leaf '<id>' in tree '<id>' for pid=N`
+(Info); a pid match the guid does not prove is counted and logged rate-limited
+(`refused N committed recording(s) ... marked spawned with no spawn pid ...`). The take path's
+existing clear-flags block resets the mark on the resumed clone, and the commit refreshes the
+nulled snapshot from the live vessel. The crew pass is unchanged. Offline, through the
+production codecs over every committed fixture save, the new match changes the active vessel's
+restore on four hosts only: `rover-relay-c-recorded` (+career) C, `rover-relay-recorded` rover C
+and `rover-route-recorded` (+career) B; every lane on them but GUI-13 / GUI-26 (operator) starts
+with the StopRecording / DiscardTree pair. Tests: `ColdLoadUnstampedLeafRestoreTests` (5,
+the two match cells red without the branch). RSF-1 is reshaped back to its first shape (the
+restore re-opens the route's tree and the merge re-commits it), owed a flight.
+
+**Follow-up (2026-11-17, same branch): the route-source guard on a tree with no committed copy.**
+The first flights (run `coldload-fix2`) passed RSF-1 and eight more lanes but red H59
+(`2026-11-17_1602`, PARSEK-FAIL: no `KSC SURFACE playback resolved` line, saveParse
+`routes.statuses.Active 0 < min 1`). The in-game batch's final baseline restore is a Cold load in
+FLIGHT with rover B active, B's leaf in route tree 73e50f1e is the unstamped one, so the new
+match takes a restore clone; OnSave writes it as the active tree over the committed copy; the
+load into the Space Center then stashes it pending and auto-commits it as a fresh tree. With no
+committed copy in memory, `TreeCommitService.CollectUnchangedRouteSourceIds` counted both route
+sources `notCommitted` (`keptUnchanged=0 notCommitted=2`), so the commit re-merged them and
+marked them dirty, the flush deferred an epoch advance, and the route flipped
+`Active->SourceChanged ... sidecar-epoch-drift`. Any save holding a route's tree only as the
+active tree reaches the same commit (a stamped leaf resumed and saved mid-flight too), so the
+guard is the fix, not the match: a source with no committed copy is kept unchanged when it is
+clean (not dirty, no deferred advance) and `RouteStore.RecordingMatchesCapturedSourceRef` finds a
+committed or dormant route whose captured ref equals, field for field, the ref the revalidation
+would build from it now. The summary line gains `keptAtRouteCapture=N`. Tests: four cells in
+`RouteSourceEpochMetadataRewriteTests` (the predicate tables, the H59 shape staying Active, and
+an edited source on that path still flipping SourceChanged).
+
+**Second flights (run `coldload-fix3`, 1c677cd059, 2 slots): 6 PASS of 9.** H59
+(`2026-11-17_1805`, 6 `KSC SURFACE playback resolved` lines, `keptAtRouteCapture=2`), V27M
+(same guard line), RSF-1, RVR-1, RVR-3 and RVR-21 PASS; no `->SourceChanged` in any lane. H56,
+H57 and H69 (all on `rover-route-recorded`) red: the lane's `StopRecording` / `DiscardTree`
+suppresses the committed-tree restore for rover B only until the scene ends, and the isolated
+batch's FLIGHT baseline prime and post-test restores are fresh scenes, so each one re-adopted B's
+tree through the new match and started recording (`matched unstamped spawned leaf '4370a799'`
+12 / 14 / 8 times). The AutoRecord tests then skipped as "recording already active" and the dock
+capture's undock never bound its origin proof. On main the crew pass's silent no-match had kept
+B idle for them. Test-runner fix: a FLIGHT baseline captures the restore suppression the active
+vessel carried (`FlightBatchBaselineState.CommittedRestoreSuppressedPid`), and
+`ReapplyBaselineCommittedRestoreSuppression` runs after every FLIGHT baseline restore lands:
+when it names the restored active vessel, it stops the recorder and discards a re-adopted clone
+in memory, suppresses again and logs `re-applied the captured committed-tree restore
+suppression for pid=N discardedReadoptedTree=<bool>`. Pure helpers in `InGameTestRunnerTests`; the
+setter's caller gate (`CommittedSpawnedRestoreSuppressionTests`) now names the seam verb and this
+automation-only restore. Re-flown as run `coldload-fix4` (e2252c2054, copy 1, serial): H56
+(`2026-11-17_2045`, `total=6 passed=6`), H57 (`2026-11-17_2047`, `total=3 passed=3`), H69
+(`2026-11-17_2048`, `total=10 passed=4 skipped=6`, the pinned tally) and H59 (`2026-11-17_2049`)
+all PASS attempt 1; the re-apply line fired before every restore with
+`discardedReadoptedTree=True` for pid 313889796; no `->SourceChanged` in any lane.
 
 ## ~~ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE~~: a content-neutral rewrite of a route's source recording may pause the route as SourceChanged for good [SUSPECTED 2026-11-16 by code read. CONFIRMED by code trace and FIXED 2026-11-16, branch fix-route-source-epoch; xUnit; low]
 

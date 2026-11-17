@@ -1491,6 +1491,42 @@ namespace Parsek.Logistics
             }
         }
 
+        /// <summary>
+        /// True when a committed or dormant route holds a source ref for
+        /// <paramref name="rec"/> that equals, field for field, the ref
+        /// <see cref="RevalidateSources"/> would build from it now (so that route reads no
+        /// drift on it). False for a null recording or one no route names.
+        /// </summary>
+        internal static bool RecordingMatchesCapturedSourceRef(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+            RouteSourceRef live = null;
+            return AnySourceRefMatches(committedRoutes, rec, ref live)
+                || AnySourceRefMatches(dormantRoutes, rec, ref live);
+        }
+
+        private static bool AnySourceRefMatches(List<Route> routes, Recording rec, ref RouteSourceRef live)
+        {
+            for (int i = 0; i < routes.Count; i++)
+            {
+                List<RouteSourceRef> refs = routes[i]?.SourceRefs;
+                if (refs == null) continue;
+                for (int s = 0; s < refs.Count; s++)
+                {
+                    RouteSourceRef sref = refs[s];
+                    if (sref == null
+                        || !string.Equals(sref.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                        continue;
+                    if (live == null)
+                        live = BuildLiveSourceRefForComparison(rec);
+                    if (FirstDifferingField(sref, live, out _))
+                        return true;
+                }
+            }
+            return false;
+        }
+
         /// <summary>Drift token for a route whose source refs all match their live recordings.</summary>
         internal const string SourceStateNone = "none";
 

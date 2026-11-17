@@ -33,6 +33,10 @@ Not released yet.
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now
   count as finished, and "N flights can still be re-flown" counts flights, not recordings.
   (SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL)
+- **A ship keeps its own mission after you load a save.** After loading a save made in flight,
+  flying a ship from a finished mission again could start a new mission for it. It now continues
+  its own mission, as it does when you fly it without loading.
+  (COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH)
 - **A vessel whose landing spot is taken is placed back along its own path.** When another
   vessel blocks the end spot, Parsek steps back along the recorded path; a lander that flew in
   near a base could be put down far away in a random direction instead. (TIP-SPAWN-PLACEMENT)
