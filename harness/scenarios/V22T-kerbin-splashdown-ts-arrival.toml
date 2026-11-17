@@ -1,5 +1,20 @@
 schema = 1
 id = "V22T-kerbin-splashdown-ts-arrival"
+# 2026-11-16 (todo V22T-TS-ADOPTION-BRANCH-UNFLOWN, branch `item29-v22t-repin`): the
+# duplicate-spawn pin is re-pinned and the D13 `pid-dedup` claim is dropped. RE-FLOWN
+# PASS `2026-11-16_2343_V22T-kerbin-splashdown-ts-arrival` (attempt 1, 74 s) on the
+# v1.0.2 release DLL (sha256 431dd6c5...): the stamp-move line once (head `28b6e543...`
+# to tip `c5bd3f7f...`, spawnedPid=2708531065), zero `Tracking-station handoff spawned`,
+# recordings 9. Since the load-time chain stamp move (todo
+# LOAD-SPLIT-SPAWN-STAMP-ON-HEAD, `RecordingOptimizer.MoveChainSpawnStampsToTip`) the
+# fixture's load-time split hands the head's spawn stamp (pid 2708531065) to the
+# terminal tip, so the Tracking Station reads the tip as already spawned and never
+# enters its handoff for it: the old required `Tracking-station handoff skipped
+# duplicate spawn` line (the adoption branch) no longer prints. The 1.0.2 release
+# flight red PARSEK-FAIL(expectation) on exactly that token, with the stamp-move line
+# printed, zero `Tracking-station handoff spawned` / `resolved` lines and one real
+# Kerbal X (pid 2708531065, LANDED) in the final save. The lane now requires the
+# stamp-move line and forbids a TS handoff spawn of "Kerbal X".
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
 # 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
@@ -234,15 +249,21 @@ steps = [
 ]
 
 [dimensionsCovered]
-# CLAIMED 2026-09-25 (branch `cov-wave1`), each off a REQUIRED token below:
-# D13 `pid-dedup` <- `Tracking-station handoff skipped duplicate spawn for #N "Kerbal
-#   X" - real vessel pid=P already exists` (GhostMapPresence.cs:7530). The TS spawn
-#   handoff for the looped member finds the recording's real vessel already in the
-#   save (`RealVesselExistsForRecording`), marks it spawned and removes the ghost
-#   presence instead of spawning a second copy. Measured on all five archived runs
-#   (`2026-08-24_1920` .. `2026-08-25_0012`, pid 2708531065 every time). A SEPARATE
-#   cell from D6 `spawn-at-end-pid-dedup` (supervisor ruling 2026-09-25): this is the
-#   tracking-station handoff path, not the flight-scene end-of-playback spawn.
+# Coverage wave 1 (2026-09-25, branch `cov-wave1`) claimed two cells here. D16 stands,
+# off its REQUIRED tokens (see the D16 note below); D13 is dropped:
+# D13 `pid-dedup` WAS CLAIMED here until 2026-11-16 and is DROPPED. The cell is the
+#   TS spawn handoff's ADOPTION branch: the handoff runs for the recording, finds its
+#   real vessel already in the save (`RealVesselExistsForRecording`), marks it spawned
+#   and removes the ghost presence instead of spawning a second copy, printing
+#   `Tracking-station handoff skipped duplicate spawn for #N "Kerbal X" - real vessel
+#   pid=P already exists` (measured on every archived run from `2026-08-24_1920` to the
+#   armed re-flight `2026-09-25_2026`, pid 2708531065). Since the load-time chain stamp
+#   move the tip this lane reaches is already stamped, the handoff's eligibility screen
+#   (`ShouldSpawnAtRecordingEnd`, "already spawned") skips it silently, and the
+#   adoption branch never runs. The player promise (no second Kerbal X) still holds and
+#   is still gated below, but by the stamp, not by the branch the cell names, so the
+#   claim is not truthful any more. No committed lane flies that branch now (todo
+#   V22T-TS-ADOPTION-BRANCH-UNFLOWN).
 # D16 `sidecar-pann` <- BOTH `Pannotations read OK: recordingId=... block=
 #   SmoothingSplineList` (SmoothingPipeline.cs:554, the fixture's committed `.pann`
 #   sidecars decoded at load) and `Pannotations write OK: recordingId=... bytes=N`
@@ -252,7 +273,6 @@ steps = [
 #   7c90492bd): the handoff line for #2 "Kerbal X" pid 2708531065, 7 reads, 3 writes.
 #   NEGATIVE CONTROL offline over that log: each token with a reversed literal, and
 #   the log with each token's matches removed, reds through `hlib.evaluate_expectations`.
-D13 = ["pid-dedup"]
 D14 = ["kerbin", "scene-ts", "sandbox"]
 D16 = ["sidecar-pann"]
 
@@ -298,14 +318,21 @@ required  = [
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
   "CreateGhostVesselsFromCommittedRecordings: created=\\d+ from \\d+ recordings",
   "skipped: debris=\\d+ .*loopMemberHidden=[1-9]",
-  # D13 pid-dedup + D16 sidecar-pann (2026-09-25, see [dimensionsCovered]).
-  "Tracking-station handoff skipped duplicate spawn for #[0-9]+ \"Kerbal X\" [^\\r\\n]*real vessel pid=[0-9]+ already exists",
+  # NO SECOND KERBAL X (re-pinned 2026-11-16, see the header): the fixture's
+  # load-time split hands the head's spawn stamp to the terminal tip, so the
+  # Tracking Station reads the tip as already spawned. The head id and the pid come
+  # from the fixture; the chain id and the tip id are generated at load. Paired
+  # with the `Tracking-station handoff spawned` forbid below.
+  "Chain spawn stamp moved to the tip: chain=\\S+ from '28b6e543d67c4d1c9e4763b451c01df5' \\(chain index [0-9]+\\) to '[0-9a-f]+' \\(chain index [0-9]+\\) spawnedPid=2708531065 vessel='Kerbal X'",
+  # D16 sidecar-pann (2026-09-25, see [dimensionsCovered]).
   "Pannotations read OK: recordingId=[0-9a-f]+ block=SmoothingSplineList ",
   "Pannotations write OK: recordingId=[0-9a-f]+ bytes=[1-9][0-9]* ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "timejump refused reason=backward-jump",
+  # A Tracking Station handoff that spawned a second Kerbal X beside the real one.
+  "Tracking-station handoff spawned #[0-9]+ \"Kerbal X\" pid=",
 ]
 
 [expectations.rewind]

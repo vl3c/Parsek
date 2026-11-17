@@ -26,7 +26,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 ## Never used by any lane
 
 - Seam verbs (of 62 implemented): none
-- Dimension values (1 of 251 registry values): D1 `sub-2-point-drop`
+- Dimension values (2 of 251 registry values): D1 `sub-2-point-drop`, D13 `pid-dedup`
 - In-game test categories (1 of 144 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `GuiMock`
 
 ## Lanes per family
@@ -798,7 +798,7 @@ Per registry dimension: values claimed by at least one lane, then the claimed va
 | D10 | 22/22 | candidate-detection 1, docked-depot-origin 1, inter-body-nth-window 1 +19 |
 | D11 | 18/18 | clone 1, default-mission 1, eccentric-inclined-targets 1, land-dock-dual-constraint 1 +14 |
 | D12 | 9/9 | crew-swap 1, dead-crew-strip 1, missed-endut-auto-free 1, rescue-marker 1 +5 |
-| D13 | 10/10 | bbox-block 1, ksc-exclusion 1, pid-dedup 1, situation-correction 1 +6 |
+| D13 | 9/10 | bbox-block 1, ksc-exclusion 1, situation-correction 1, surface-orbit-reseed 1 +5 |
 | D14 | 35/35 | dres 1, eeloo 1, moho 1, reward-multipliers 1, vessel-budget 1, zero-starting-funds 1 +29 |
 | D15 | 1/1 | timeline-projection 1 |
 | D16 | 12/12 | alias-mode 1, deflate-snapshots 1, path-validation 1, rp-quicksaves 1, safe-write 1 +7 |
@@ -1797,7 +1797,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V21T-mun-minmus-ts-arrival | operator | mun-minmus-recorded | seam | Kerbin, Mun, Minmus | reload, save, warp, time-jump, scene-change | - | RE-FLOWN GREEN 2026-11-11 ON THE 1.0.2 MO... |
 | V22K-kerbin-splashdown-ksc-arrival | operator | kerbin-splashdown-recorded | seam | Kerbin | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V22M-kerbin-splashdown-player-loop | operator | kerbin-splashdown-recorded | seam | Kerbin | warp, time-jump | - | LIVE-PROVEN 2026-07-20 |
-| V22T-kerbin-splashdown-ts-arrival | operator | kerbin-splashdown-recorded | seam | Kerbin | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
+| V22T-kerbin-splashdown-ts-arrival | operator | kerbin-splashdown-recorded | seam | Kerbin | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-11-16, RE-FLOWN PASS 20... |
 | V23M-mun-landing-player-loop | operator | mun-landing-recorded | seam | Mun | warp, time-jump | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V23T-mun-landing-ts-arrival | operator | mun-landing-recorded | seam | Mun | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V24W-duna-one-warp-stair | operator | duna-one-recorded | m3_loop_arrival_dwell | Kerbin, Duna | - | - | DISCIPLINE-COMPLETE 2026-08-25 ACROSS SIX... |
