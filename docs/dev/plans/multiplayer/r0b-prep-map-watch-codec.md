@@ -459,6 +459,24 @@ section 9), and any change to what is written to disk.
   change).
 - **Size:** S. **Depends on:** P3-03. **PC:** no.
 - **Risk:** low; dead in single player, covered by unit cases.
+- **As built (2026-11-17):** as specified. `GhostMapVessels.TryGetForeignOwner` sits after
+  `UnregisterAllOwnTimeline` (the test seam `TryGetForeignOwnerForTesting` is left as it was).
+  The shared branch is `ForeignLaneGhostRefusal.TryRefuse(pid, site)` in
+  `Patches/GhostVesselLoadPatch.cs` (query plus the one Verbose line; site tokens `icon-click`,
+  `vessel-switch`, `ts-select`; a null recording id prints `(none)`), and each site has its own
+  `internal static ShouldRefuseForeignLaneGhost(uint)` decider: `GhostIconClickPatch` (asked after
+  the left-click filter, so a right-click on any ghost still reaches stock's pin-text; a foreign
+  left-click returns false, so neither menu opens), `GhostVesselSwitchPatch` (asked right after the
+  ghost guard, before `FindRecordingIndexByVesselPid`; returns false, no ScreenMessage, no watch
+  request) and `GhostTrackingStationSelection` (asked in `SelectGhost` after the null check;
+  returns with the current selection untouched; its five callers keep their own refusal text,
+  which R3W-19 revisits). The plan's `:526` anchor named the chain-ghost ScreenMessage; the branch
+  sits before the recording lookup above it. `design-gui-inventory.md` checked: it counts the
+  ghost click refusals (section 3.14) but lists no conditions of the "will materialize" message, so
+  it is unchanged. xUnit: `GhostVesselLoadPatchTests` +6 (icon click and switch, foreign / own /
+  non-ghost, the decision following the owner record, the query itself),
+  `GhostTrackingStationPatchTests` +2. Pins unchanged (55 cross-type static writes, 374 unreached;
+  lifetimes and layers green with no re-pin).
 
 ### P3b: the lane-qualified watch target (deferred)
 

@@ -211,6 +211,41 @@ namespace Parsek.Patches
 
 
     /// <summary>
+    /// The neutral "whose ghost is this" branch of the three ghost click patch sites
+    /// (<see cref="GhostIconClickPatch"/>, <see cref="GhostVesselSwitchPatch"/>,
+    /// <see cref="GhostTrackingStationSelection.SelectGhost"/>). A ghost map vessel a foreign
+    /// lane owns has no entry in the own timeline's stores, so each site refuses it before its
+    /// own-store resolution and logs one line naming the site and the owner. Never taken in
+    /// single player, where every ghost map vessel is the own timeline's. Pure: a dictionary
+    /// lookup and a log line, so the Harmony Prefixes stay free of Unity calls here.
+    /// </summary>
+    internal static class ForeignLaneGhostRefusal
+    {
+        internal const string SiteIconClick = "icon-click";
+        internal const string SiteVesselSwitch = "vessel-switch";
+        internal const string SiteTrackingStationSelect = "ts-select";
+
+        /// <summary>
+        /// True when a foreign lane owns <paramref name="pid"/>: the caller returns without its
+        /// own-timeline path. False for an own-timeline ghost and for a pid that is no ghost.
+        /// </summary>
+        internal static bool TryRefuse(uint pid, string site)
+        {
+            if (!GhostMapVessels.TryGetForeignOwner(pid, out GhostMapVesselOwner owner))
+                return false;
+
+            ParsekLog.Verbose("GhostMap",
+                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "foreign-lane ghost {0} pid={1} lane={2} recording={3}",
+                    site ?? "(unknown)",
+                    pid,
+                    owner.LaneId ?? "(none)",
+                    owner.RecordingId ?? "(none)"));
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Ghost vessel icon click handling in map view.
     /// Left-click opens the custom ghost menu (Focus / Set Target / Watch).
     /// Right-click (and any non-left click) is passed through to KSP's default
@@ -248,6 +283,15 @@ namespace Parsek.Patches
             return true;
         }
 
+        /// <summary>
+        /// The site's foreign-lane decision: true for a ghost a foreign lane owns, which gets
+        /// no Parsek menu and no stock menu (the click is consumed).
+        /// </summary>
+        internal static bool ShouldRefuseForeignLaneGhost(uint pid)
+        {
+            return ForeignLaneGhostRefusal.TryRefuse(pid, ForeignLaneGhostRefusal.SiteIconClick);
+        }
+
         // Bind by original-argument index so the patch does not depend on KSP's
         // external parameter-name metadata staying exactly "btns".
         static bool Prefix(OrbitRendererBase __instance, [HarmonyArgument(1)] Mouse.Buttons btns)
@@ -261,6 +305,9 @@ namespace Parsek.Patches
             // behavior (toggles MapNode.pinned in the MapNode.OnPointerUp path) fires.
             if (TryPassThroughNonLeftClick(btns))
                 return true;
+
+            if (ShouldRefuseForeignLaneGhost(__instance.vessel.persistentId))
+                return false;
 
             Vessel v = __instance.vessel;
             int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(v.persistentId);
@@ -514,10 +561,23 @@ namespace Parsek.Patches
                 new[] { typeof(Vessel) });
         }
 
+        /// <summary>
+        /// The site's foreign-lane decision: true for a ghost a foreign lane owns, whose switch
+        /// is blocked with no screen message (the "will materialize" text is an own-timeline
+        /// promise) and no watch request.
+        /// </summary>
+        internal static bool ShouldRefuseForeignLaneGhost(uint pid)
+        {
+            return ForeignLaneGhostRefusal.TryRefuse(pid, ForeignLaneGhostRefusal.SiteVesselSwitch);
+        }
+
         static bool Prefix(Vessel v)
         {
             if (v == null || !GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return true;
+
+            if (ShouldRefuseForeignLaneGhost(v.persistentId))
+                return false;
 
             int recIndex = GhostMapPresence.FindRecordingIndexByVesselPid(v.persistentId);
             if (recIndex < 0)
