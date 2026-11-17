@@ -114,6 +114,7 @@ namespace Parsek.InGameTests.Spikes
             new SpikeRegistration("S6", S6.SpikeS6.Apply),
             // Each spike adds one line here, for example:
             // new SpikeRegistration("S4a", SpikeS4EventOrder.Apply),
+            new SpikeRegistration("S9", SpikeS9Cheats.Apply),
         };
 
         internal static IEnumerable<string> Ids()
