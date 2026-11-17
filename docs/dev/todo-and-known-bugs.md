@@ -20,6 +20,61 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## KSC-END-SPAWN-SKIPS-OFF-KERBIN: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. OPEN; medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
+
+What happened. LAY-1 landed the crewed Duna Rocket's pod on Laythe and committed it
+(`CommitTreeFlight terminal: rec=ba455ab6a039477ab19b9b362b1d4240 terminalState=Splashed
+terminalOrbitBody=Laythe`), rewound to launch (`Stripped 1 vessel(s) from save (1 by name
+[Duna Rocket] ...)`), visited the Tracking Station before the recording's start, loaded the Space
+Center and warped past the end (`warptout complete reachedUT=28820999.795564618 ut=28821000`).
+No vessel appeared: `LeafPlacement summary: scene=SPACECENTER compared=0 ok=0 bad=0 absent=0
+duplicate=0 unsupported=0 bodies=[]` (no committed recording carried a spawn pid at all), and the
+log holds no `KSCSpawn` line of any kind between the Space Center load and the batch. The Space
+Center's walk read `ParsekKSC initialized, 7 committed recordings, 0 eligible for KSC ghost
+playback` / `ineligible(Destroyed=5, <null>=1, Splashed=1)`.
+
+Cause. `ParsekKSC.Update` (`Controllers/ParsekKSC.cs`, the "Structural reject" branch) calls
+`IsKscStructurallyEligible`, which is false when `rec.Points[0].bodyName != "Kerbin"`, and then
+`continue`s before every Space Center spawn path: the non-looping end spawn
+(`UpdateSingleGhostKsc` -> `TrySpawnAtRecordingEnd`, including its "never created, past end"
+branch), the playback-disabled past-end detour (bug #433) and the loop first-run spawn
+(`TryLoopFirstRunSpawnKsc`). The predicate is a RENDER gate (the Space Center can only draw a
+ghost at Kerbin) used as a spawn gate, and the skip writes nothing. The spawn decision itself has
+no body rule: `GhostPlaybackLogic.ShouldSpawnAtKscEnd` defers Orbiting / Docked terminals to the
+flight scene by design (#171, logged `orbital vessel deferred to flight scene`) and otherwise
+answers like flight, and the Tracking Station's handoff
+(`GhostMapPresence.TryRunTrackingStationSpawnHandoffs` -> `ShouldSpawnAtTrackingStationEnd`) is
+body-agnostic. The fix-433 plan (`docs/dev/done/plans/fix-433-playback-enabled-visual-only.md`,
+"Risks") kept non-Kerbin out of the spawn detour on the premise that every structural cause
+describes a recording with no valid trajectory; that holds for `Points.Count < 2`, not for an
+off-Kerbin start.
+
+What the player sees. Land anywhere off Kerbin (or play such a recording forward after a rewind),
+return to the Space Center and time-warp past the landing: the vessel is not created. A save made
+at the Space Center lacks it, and its crew stays reserved (`Reservation extended: 'Valentina
+Kerman' endUT->Infinity`). It is created on the next Tracking Station visit (the body-agnostic
+handoff) or flight scene; LAY-1 did neither after the warp, so that late spawn is inferred from
+code, not measured. No green lane contradicts this: FAR-1 (Ike) and FAR-2 (Duna) read
+`compared>=1` at the Space Center on vessels their saves already held, not on a Space Center end
+spawn.
+
+Fix direction. Split the structural predicate into a render half and a spawn half: a recording
+with at least two points whose only reject is the off-Kerbin first point still runs the past-end
+spawn path (gated like the #433 detour: `currentUT > rec.EndUT && !historicalNeverReplayed`, plus
+the loop first-run spawn), and every skip logs once per recording (Verbose, `KSCSpawn`). The
+Landed / Splashed placement then goes through `SpawnAtKscEnd`, which already works from
+`protoVessels` in any scene. Not fixed here, because it changes the Space Center's behaviour for
+every far-body recording: before landing it, read the far-body lanes that sit at the Space Center
+past an off-Kerbin end (FAR-1's DD1, which the fixture already holds, must be adopted, not
+duplicated; V20K's Jool -> Kerbin recording stays deferred by #171; the moon loop lanes), add
+xUnit cells over the split predicate (`IsKscStructurallyEligible` is `internal static`) and
+re-fly them with LAY-1.
+
+Gate. LAY-1 keeps `LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]*
+bad=0 ... bodies=[...Laythe...]` and `BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* ...
+category=LeafVesselPlacement scene=SPACECENTER` unchanged; it is the lane that reds on this
+defect and goes green with the fix.
+
 ## V22T-TS-ADOPTION-BRANCH-UNFLOWN: no committed lane flies the Tracking Station's adoption of an already-live vessel [FILED 2026-11-16 from V22T's red on the 1.0.2 release flight; V22T RE-PINNED AND RE-FLOWN GREEN, branch `item29-v22t-repin`. OPEN: the coverage gap]
 
 What happened. `V22T-kerbin-splashdown-ts-arrival` red PARSEK-FAIL(expectation) on the v1.0.2
@@ -2298,13 +2353,16 @@ in parallel in the cloud):
 7. [ ] (AUTHORED 2026-11-16: FLIGHT in-game category `GhostFxIntegrity` and lane
    `FXR-1-ghost-engine-fx-across-refly-and-retry`, plus three cycle-2 FX tokens on GS-9. GS-9's
    half flown green 2026-11-17 (`2026-11-17_1402`, PASS attempt 1, 516 s: the three FX tokens
-   matched). FXR-1 is not yet green; its 2026-11-17 flight is read separately.)
+   matched). FXR-1's first flight `2026-11-17_1415` red on two spec errors only (the WarpToUT
+   reached-UT pins, and a third session at UT 240 where the ghost is 30 km out and draws no FX
+   by design); re-pinned 2026-11-17 to `ut=<target>` pins and a third session at UT 132 inside
+   the first burn. Re-flight of FXR-1 owed.)
    Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
    T48, has never been re-run). FXR-1 re-flies the open Probe slot of `refly-split-crewed-merged`
    with the committed Kerbal X re-fly as the live ghost, Retries from the Rewind Point (the stock
    revert inside a Re-Fly) and merges, running `GhostFxIntegrity` after each (the merge leaves
    FLIGHT, so the third run flies the Probe back in from the Space Center with SaveGame + LoadGame
-   `focusPid` and warps into the Poodle's second burn at UT 240): engine power equals
+   `focusPid`, still inside the first Poodle burn, and warps at 1x to UT 132): engine power equals
    the recording's consumed part events and the plume is lit exactly when it is above zero; every
    FX system is alive, under its own ghost and owned once, with no unowned ghost root; no ghost of
    a superseded or retired recording. Per session it pins the Poodle's ignition apply line and its
@@ -2333,7 +2391,9 @@ in parallel in the cloud):
      `startInOrbitGateMaxFrames`; `landingBodyName` adds a `landedOnBody` row). Gates an
      Atmospheric section on the active recorder, the chute part events, a Splashed / Landed
      terminal on Laythe, then Rewind-to-Launch, a Tracking Station visit (its map ghost read on flight 1, not gated) and the end
-     spawn (LeafVesselPlacement). Not checked: the ghost mid-descent. Eve was not used: its only
+     spawn (LeafVesselPlacement). Not checked: the ghost mid-descent. FIRST FLIGHT
+     `2026-11-17_1417`: everything through the commit, rewind and Tracking Station held; red on
+     the end spawn only, a Parsek defect (KSC-END-SPAWN-SKIPS-OFF-KERBIN); re-flight after its fix. Eve was not used: its only
      park (`eve-park-kerbalx`) is ~5,000 km high and its Mk1 pod has no heat shield.
    - `BOAT-1-mallard-water-taxi`: the stock Mallard afloat east of KSC drives 400 m on the water
      on its jets and comes to rest (new mission `boat1_water_taxi`, `mlib.boat_decide`), on the
