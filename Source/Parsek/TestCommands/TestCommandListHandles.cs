@@ -154,6 +154,18 @@ namespace Parsek.TestCommands
         internal int Paused;
         internal int Resumed;
         internal int Held;
+
+        /// <summary>Each source ref's short recording id, in ref order. Null is read as
+        /// empty.</summary>
+        internal List<string> SourceIds;
+
+        /// <summary>Each source ref's <c>captured/live</c> sidecar epoch pair (live
+        /// <c>missing</c> when the recording is not in ERS), in ref order.</summary>
+        internal List<string> SourceEpochs;
+
+        /// <summary>The first source problem the revalidation would see
+        /// (<c>RouteStore.DescribeSourceState</c>); null reads <c>none</c>.</summary>
+        internal string SourceDrift;
     }
 
     /// <summary>
@@ -269,6 +281,9 @@ namespace Parsek.TestCommands
 
         /// <summary>Most stops listed per route (the per-stop values are comma-joined).</summary>
         internal const int MaxStopsPerRoute = 8;
+
+        /// <summary>Cap on the comma-joined per-source lists of one route row.</summary>
+        internal const int MaxSourcesPerRoute = 8;
 
         /// <summary>
         /// Parses the REQUIRED <c>kind=</c> arg. Fail-closed and case-sensitive: only the
@@ -645,7 +660,8 @@ namespace Parsek.TestCommands
         /// route&lt;i&gt;origin route&lt;i&gt;stops route&lt;i&gt;stopPids route&lt;i&gt;stopFired
         /// route&lt;i&gt;dispatched route&lt;i&gt;debited route&lt;i&gt;pickedUp
         /// route&lt;i&gt;delivered route&lt;i&gt;paused route&lt;i&gt;resumed
-        /// route&lt;i&gt;held</c>.
+        /// route&lt;i&gt;held route&lt;i&gt;sources route&lt;i&gt;sourceIds
+        /// route&lt;i&gt;sourceEpochs route&lt;i&gt;sourceDrift</c>.
         ///
         /// <para>The read-back a reload lane takes right after a load and before the next
         /// tick: the loop cursor and the event counts are what tell "the load put the route
@@ -655,6 +671,16 @@ namespace Parsek.TestCommands
         /// <c>none</c>. <c>stops</c> is the FULL stop count; the comma-joined per-stop
         /// lists are capped at <see cref="MaxStopsPerRoute"/>, and a cut sets
         /// <c>truncated</c>.</para>
+        ///
+        /// <para>The source keys are the route's fixed source set: <c>sources</c> is the
+        /// FULL source-ref count, <c>sourceIds</c> the short recording ids,
+        /// <c>sourceEpochs</c> each ref's <c>captured/live</c> sidecar epoch, both capped at
+        /// <see cref="MaxSourcesPerRoute"/> (a cut sets <c>truncated</c>), and
+        /// <c>sourceDrift</c> the first problem the source revalidation would see
+        /// (<c>none</c>, <c>missing:&lt;id&gt;</c>, <c>&lt;field&gt;:&lt;id&gt;</c>,
+        /// <c>no-sources</c>). A reflight of the route's transport that changed a source
+        /// would read <c>sidecar-epoch:&lt;id&gt;</c> here before the next load flips the
+        /// route.</para>
         /// </summary>
         internal static List<KeyValuePair<string, string>> BuildRoutesPayload(
             IReadOnlyList<RouteRow> rows, int dormant)
@@ -671,6 +697,9 @@ namespace Parsek.TestCommands
                 string prefix = "route" + i.ToString(ic);
                 int stopTotal = row.StopPids != null ? row.StopPids.Count : 0;
                 if (stopTotal > MaxStopsPerRoute)
+                    truncated = true;
+                int sourceTotal = row.SourceIds != null ? row.SourceIds.Count : 0;
+                if (sourceTotal > MaxSourcesPerRoute)
                     truncated = true;
 
                 body.Add(Kv(prefix, row.Id ?? string.Empty));
@@ -698,6 +727,10 @@ namespace Parsek.TestCommands
                 body.Add(Kv(prefix + "paused", row.Paused.ToString(ic)));
                 body.Add(Kv(prefix + "resumed", row.Resumed.ToString(ic)));
                 body.Add(Kv(prefix + "held", row.Held.ToString(ic)));
+                body.Add(Kv(prefix + "sources", sourceTotal.ToString(ic)));
+                body.Add(Kv(prefix + "sourceIds", JoinCapped(row.SourceIds, v => v ?? string.Empty, MaxSourcesPerRoute)));
+                body.Add(Kv(prefix + "sourceEpochs", JoinCapped(row.SourceEpochs, v => v ?? string.Empty, MaxSourcesPerRoute)));
+                body.Add(Kv(prefix + "sourceDrift", string.IsNullOrEmpty(row.SourceDrift) ? NoneValue : row.SourceDrift));
             }
 
             var payload = new List<KeyValuePair<string, string>>
@@ -718,7 +751,8 @@ namespace Parsek.TestCommands
             "name", "status", "completed", "skipped", "cursor", "windowAnchor", "loopAnchorUT",
             "segment", "pendingStop", "cycleStartUT", "pendingDeliveryUT", "sendOnce", "pauseAfter",
             "origin", "stops", "stopPids", "stopFired", "dispatched", "debited", "pickedUp",
-            "delivered", "paused", "resumed", "held",
+            "delivered", "paused", "resumed", "held", "sources", "sourceIds", "sourceEpochs",
+            "sourceDrift",
         };
 
         /// <summary>
@@ -763,9 +797,14 @@ namespace Parsek.TestCommands
 
         private static string JoinCapped<T>(IReadOnlyList<T> values, Func<T, string> format)
         {
+            return JoinCapped(values, format, MaxStopsPerRoute);
+        }
+
+        private static string JoinCapped<T>(IReadOnlyList<T> values, Func<T, string> format, int cap)
+        {
             if (values == null || values.Count == 0)
                 return string.Empty;
-            int shown = Math.Min(values.Count, MaxStopsPerRoute);
+            int shown = Math.Min(values.Count, cap);
             var parts = new string[shown];
             for (int i = 0; i < shown; i++)
                 parts[i] = format(values[i]);

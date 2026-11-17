@@ -4974,9 +4974,16 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # read by position through the new RouteGhostPlacement category's one FLIGHT cell,
     # `total=1` literal with the split regexed). V27M is not an H-series id;
     # CommittedBatchTallySourceSyncTests gates its `total=`. Each leaves on its first flight.
+    # FXR-1-ghost-engine-fx-across-refly-and-retry ENTERED on 2026-11-16 (todo
+    # NEXT-TESTS-TO-BUILD-2026-11-11 item 7, audit B8: ghost engine FX across a Re-Fly, a
+    # Retry from Rewind Point and the merge, read by the new GhostFxIntegrity category's
+    # three FLIGHT cells three times, `total=3` literal with the split regexed). Not an
+    # H-series id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its
+    # first flight.
     INTERIM_PIN_IDS: set = {
         "AIR-2-runway-circuit-ksc-ghost",
         "FGV-1-fairing-ghost-visual",
+        "FXR-1-ghost-engine-fx-across-refly-and-retry",
         "H59-surface-route-map-lines",
         "V27M-rover-route-endpoint-substituted-map-lines",
     }
@@ -5502,7 +5509,9 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # ordinary path's executable ceiling is zero. Authored 2026-09-02, never flown,
         # INTERIM.
         # 2 -> 3 on 2026-10-16: the IR-10 scene-switch rebuild cell.
-        "H60-route-escrow-contention": ("RouteEscrowContention", 3),
+        # 3 -> 5 on 2026-11-16: the two ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW cells
+        # (docked-origin competitor holds; short pickup caps the delivery).
+        "H60-route-escrow-contention": ("RouteEscrowContention", 5),
         # THE FOURTH RECORDED `Logistics` HOST, and the first THREE-TREE,
         # NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted. Its
         # fixture `rover-relay-recorded` is the operator's 2026-09-02 two-hop
@@ -6141,6 +6150,19 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # regexed with a `passed=` floor of 1). Its first flight, `2026-11-07_0022` (PASS),
     # measured 2/0/0, so the spec pins it whole and the id left this set in the same
     # commit.
+    # NON-EMPTY AGAIN 2026-11-16 for `H60-route-escrow-contention`: two never-flown
+    # cells (the live proof of ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW) moved its total
+    # 3 -> 5. `total=5` is attribute-exact and `failed=0` a literal; the split is a
+    # class until the reading run, which predicts 5/0/0 because both new cells use the
+    # same spawn-path [12, 18) source band guard the first three measured green. The
+    # category is wholly batch-disabled, so the ordinary path's executable ceiling is
+    # zero and the `passed=[1-9][0-9]*` floor already rejects its line; WHICH cells
+    # passed is carried by the per-cell `EscrowContention:` summaries the spec pins.
+    # Owed: the reading run measures the split, the pin is replaced whole, and the id
+    # leaves this set in the same commit.
+    # EMPTY AGAIN 2026-11-17: H60's reading run (`2026-11-16_2354`, PASS attempt 1,
+    # `total=5 passed=5 failed=0 skipped=0`) measured the predicted split; the spec pins
+    # it whole and the id left this set in the same commit.
     INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
@@ -11044,6 +11066,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RVC-1-two-rover-head-on-crash.toml": "tier=operator by the calibration discipline (its impact speed, which parts die and whether the straight run-up retraces its line are stock physics nobody has measured, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3a (2026-11-16): V's mining rover docks and undocks the ore depot rover so both are members of one tree, then drives head-on into it (DriveVessel crash mode), committed at the Space Center, Rewound-to-Launch and replayed from a neighbour; AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`); what is open is the flight, not a human review call",
         "LX-1-loop-armed-refly-discard-merge.toml": "tier=operator by the calibration discipline (its clock and recordings window are derived from IR-3's measured chain, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6 (audit B7, 2026-11-16): a mission loop on tree A of `rover-route-recorded` armed and playing while IR-3's Flea flight is Re-Flown, discarded, re-entered and Re-Flown again and merged, every scene publishing the unit live with the arm-time phase; AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`); what is open is the flight, not a human review call",
         "LX-2-career-loop-watch-scene-change-reload.toml": "tier=operator by the calibration discipline (four loads and three watch entries never flown in this order, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6 (audit B7, 2026-11-16): a mission loop on `rover-route-recorded-career` watched through the Space Center, the Tracking Station, a return to flight and an F5 / F9, each scene change ending the watch and each scene rebuilding the unit with the arm-time phase, the career pools unchanged; AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`); what is open is the flight, not a human review call",
+        "FXR-1-ghost-engine-fx-across-refly-and-retry.toml": "tier=operator by the calibration discipline (its UT 128 warp target, the re-primed ghost's plume census and the three GhostFxIntegrity batches are unmeasured), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 7 (audit B8, 2026-11-16): seam-only on `refly-split-crewed-merged`, re-flies the open Probe slot with the committed Kerbal X re-fly as the live ghost, Retries from the Rewind Point and merges, running GhostFxIntegrity after each and pinning the Poodle's ignition, FX fingerprint and plume; AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`); what is open is the flight, not a human review call",
         "B43-vall-tylo-transfer.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2): B26's parent relay from the stripped `vall-park-nerv` with B29's elliptical capture at Tylo, a fresh Vall-rooted tree, to harvest `vall-tylo-recorded` for V43M; LIVE-PROVEN 2026-11-16 (run 2026-11-16_1638, PASS attempt 1, 1,097 s) and harvested; owed: the ordinary promotion call",
         "V43M-vall-tylo-player-loop.toml": "tier=operator by the calibration discipline (its count window re-pinned off the harvested fixture, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14): loops B43's harvested `vall-tylo-recorded` (a fresh Vall-rooted tree, three chain recordings ending at Tylo) and reads the moon-rooted phase lock (rule 4a); first flight 2026-11-16 (`2026-11-16_1726`) PARSEK-FAIL(expectation), todo MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH; LIVE-PROVEN 2026-11-16 (run 2026-11-16_1803, PASS attempt 1, 46 s) after the fix; owed: the ordinary promotion call",
         "B44-laythe-tylo-transfer.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2): B26's parent relay from `laythe-park-nerv` with B29's elliptical capture at Tylo, a fresh Laythe-rooted tree, to harvest `laythe-tylo-recorded` for V44M; LIVE-PROVEN 2026-11-15 (run 2026-11-15_2243, PASS attempt 1, 888 s) and harvested; owed: the ordinary promotion call",

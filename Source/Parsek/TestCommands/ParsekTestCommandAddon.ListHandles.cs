@@ -266,7 +266,8 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// Every committed route in store order, with its route event log rows counted by
-        /// type. Scene-agnostic: the route store is a process static that every scene ticks,
+        /// type and its source refs read against the current ERS (read-only, no status
+        /// change). Scene-agnostic: the route store is a process static that every scene ticks,
         /// so the answer is the same live state the next tick will read.
         /// </summary>
         private static List<RouteRow> GatherRouteRows()
@@ -313,6 +314,11 @@ namespace Parsek.TestCommands
                     StopPids = stopPids,
                     StopFiredCycleIndices = stopFired,
                 };
+                var sourceIds = new List<string>();
+                var sourceEpochs = new List<string>();
+                row.SourceDrift = Logistics.RouteStore.DescribeSourceState(route, sourceIds, sourceEpochs);
+                row.SourceIds = sourceIds;
+                row.SourceEpochs = sourceEpochs;
                 CountRouteEvents(events, route.Id, ref row);
                 rows.Add(row);
             }

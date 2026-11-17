@@ -1,0 +1,282 @@
+# =====================================================================================
+# RSF-1: A SUPPLY ROUTE IS FIXED TO THE RECORDINGS IT WAS CREATED FROM. FLYING ITS REAL
+# TRANSPORT AGAIN, MERGING THAT FLIGHT AND F5 / F9 LEAVE THE ROUTE ACTIVE WITH ITS SOURCES
+# UNCHANGED. AUTHORED 2026-11-16 (branch `route-pr`). FLOWN GREEN 2026-11-17: run
+# `2026-11-17_0049_RSF-1-route-source-fixed-across-transport-reflight`, PASS attempt 1 on
+# a2b931302c (automation DLL 5bea7795...), 11 recordings; every read-back from `rsf-created`
+# to `rsf-cycled` read `status=Active sources=3 sourceIds=8604fbc7,39ac117a,5c847692
+# sourceEpochs=3/3,3/3,3/3 sourceDrift=none`, and the cycle delivered 200 LF into A.
+# The first flight (`2026-11-16_2349`, INVALID) is the reason for the new-tree shape below.
+# Todo ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE: the owner rule live; the fix's own path
+# (a re-commit of the route's tree) is not reachable on this host and stays xUnit-proven
+# (`RouteSourceEpochMetadataRewriteTests`).
+#
+# THE OWNER RULE. A route is fixed to the recordings it was created from. A later flight
+# of the route's real transport vessel is NOT part of the route: merging it back must
+# leave the route's source recordings byte-for-byte as they were (same ids, same sidecar
+# epochs), and the route must stay Active across the next save and load.
+#
+# THE DEFECT THE FIX GUARDS (NOT REACHED ON THIS HOST, see WHAT THIS LANE CAN REACH).
+# Merging a later flight that the committed-tree restore resumed in the route's OWN tree
+# (a copy-on-write clone of it, with the new flight added) re-commits that tree. Before
+# the fix `TreeCommitService.CommitTreeCore` session-merged and forced FilesDirty on EVERY
+# member,
+# so the flush rewrote the unchanged route sources with a deferred sidecar epoch advance.
+# The route's captured epoch then read one lower than the live recording's effective
+# epoch, and the next load's `RouteStore.RevalidateSources("OnLoad")` flipped the route to
+# SourceChanged (`SourceChanged/sidecar-epoch-drift id=...`), a stop the player must
+# recreate the route to leave. The fix keeps an unchanged route source out of the session
+# merge and the forced rewrite; `CommitTree: route sources in tree '<id>' examined=N
+# keptUnchanged=N changed=N notCommitted=N` (Verbose, RecordingStore) is its line.
+#
+# WHAT THIS LANE CAN REACH. On this host no seam sequence re-opens tree 88c012a6 for C,
+# so the later flight lands in a NEW tree (IR-12 / RCN-1 / H58: a plain StartRecording on
+# C opens one) and the route's tree is never re-committed. Measured offline on the fixture
+# bytes (a headless probe through the production load codecs): the leaf ec4bf428 carries
+# no spawn stamp (`spawnedPid` absent), so every Cold load into FLIGHT past its EndUT runs
+# `ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT`, which nulls its snapshot and sets
+# `VesselSpawned` with no pid; `TryFindCommittedTreeForSpawnedVessel` then matches it
+# neither by a spawn pid (none) nor directly (that needs `VesselSpawned` false), and counts
+# no refusal, so neither OnFlightReady nor the 1 Hz retry logs anything. In normal play
+# the in-flight CommitTree stamps the active leaf (`CommitTreeFlight`), so the restore does
+# re-open a route's tree after a load; that path stays proven by xUnit only
+# (`RouteSourceEpochMetadataRewriteTests`). What this lane proves live is the owner rule's
+# other half: a later flight of the real transport, merged and carried across F5 / F9,
+# never touches the route's sources and never joins them.
+#
+# HOW THE LOG SHOWS IT. `ListHandles kind=routes` carries the route's source set on its
+# `listhandles route` line: `sources=<n> sourceIds=<short ids> sourceEpochs=<captured/live
+# per ref> sourceDrift=<token>` (`RouteStore.DescribeSourceState`, read-only: it changes
+# no status, so reading it cannot itself cause or hide a flip). A merge that rewrote a
+# source would show at `rsf-merged` BEFORE any load: a pair `e/e+1` and
+# `sourceDrift=sidecar-epoch:<id>`, and after the F9 `status=SourceChanged`. Required
+# here: every pair is `e/e`, the drift is `none`, and the ids
+# and pairs at `rsf-merged`, `rsf-reloaded` and `rsf-cycled` equal the ones taken when the
+# route was created (`rsf-created`), compared by regex backreference.
+#
+# THE HOST is RVR-7's `rover-relay-c-recorded` (save clock UT 410.40): three 16-part rovers
+# on the KSC shore, B (origin) 90564594, A (destination) 4280917262, C (transport, the
+# active vessel) 612987736, 313 m A-C and 1041 m B-C apart. Relay tree 88c012a6... ('C')
+# is C's run: pickup 154.4 LiquidFuel at B (window 0), delivery 200 at A (window 1). The
+# route carries 3 source refs (RVR-7 saveParse `sourceRefs=3`).
+#
+# WHY A RELOAD BEFORE THE REFLIGHT. The player's story: load a save with the route
+# running and take the transport out again. The Cold load of `rsf-routed` resumes nothing
+# for C (above), so `StartRecording` must start fresh (`already=false`) in a new tree.
+#
+# THE CLOCK (RS-1's / RCN-1's, MEASURED on the same host): loop span 162.74 s, the anchor is
+# the activation UT, so with activation at ~1001 the pickup is crossed at ~1045 and the
+# delivery at ~1164; the next cycle's pickup (~1208) is past every target here.
+#   boot ~410: kill triple, SealSlot, create (Paused); TimeJump 1000; activate ~1001
+#   READ rsf-created; F5 `rsf-routed`; F9 `rsf-routed` (Cold): nothing resumes C
+#   WarpToUT 1012 (1x)            READ rsf-loaded; StartRecording on C (a new tree)
+#   DriveVessel 5 s + settle      the later flight of the real transport
+#   StopRecording / CommitTree / StopRecording / DiscardTree   (MINE-4's merge sequence:
+#                                 the commit's own auto-resume clone of the NEW tree is
+#                                 stopped and discarded, the committed new tree keeps the
+#                                 flight)
+#   READ rsf-merged; F5 `rsf-quick`; F9 `rsf-quick` (Cold); 12 RecordingState; Stop/Discard
+#   READ rsf-reloaded
+#   TimeJump 1175  -> pickup (if not yet) and delivery   READ rsf-cycled
+# The pickup at ~1045 may land before or after the F5 depending on how much game time the
+# seam steps take; nothing below depends on which side it falls, only that the cycle
+# completes once by `rsf-cycled`.
+#
+# WHAT IT ASSERTS (required):
+#   * the route is created and activated, and at `rsf-created` it reads Active with
+#     `sources=3`, every epoch pair equal, `sourceDrift=none`;
+#   * the F9 of `rsf-routed` is a Cold save-file load that loads the route; after it
+#     `StartRecording` starts fresh (`already=false`, a new tree) and the drive moved C;
+#   * the merge commits that new tree (`committree committed=true`); if a commit ever
+#     does re-commit the route's tree here, it must not change a source (forbidden below);
+#   * at `rsf-merged`, `rsf-reloaded` and `rsf-cycled` the route reads Active, `sources=3`,
+#     the SAME route id, source ids and epoch pairs as at `rsf-created` (backreferences),
+#     `sourceDrift=none`;
+#   * the `rsf-quick` load is Cold and its `RevalidateSources reason=OnLoad routes=1
+#     transitioned=0`;
+#   * the cycle still runs: a delivery of 200 into A between `rsf-reloaded` and
+#     `rsf-cycled`, and the read-back there shows `completed=1 ... pickedUp=1 delivered=1`.
+# FORBIDDEN: any SourceChanged / MissingSourceRecording transition, any `-drift id=`, any
+# read-back with a drift other than `none`, C's last recording `ec4bf428` among the
+# route's sources, a commit that changes a source of tree 88c012a6, a hold, a dock.
+#
+# FAST-LANE CHECKLIST (harness/README.md). 1 (reuse a flight): the host's route needs no
+# flight; the one flight this lane adds is the reflight itself, 5 s of driving. 2 (no
+# idle waits): every game-time move is an explicit-UT TimeJump or WarpToUT, except the 12
+# RecordingState reads after the second F9 (RCN-1's live-proven wait for the restore the
+# kill pair then discards: the committed new tree's leaf IS stamped, so that load restores
+# it; the clock after that load is not known to the second). 3 (dwells): one 1x WarpToUT
+# of ~8 s to settle the loaded scene before the recording starts. 6 (fail fast):
+# deterministic, so `[retry] policy = "none"`. 7 (tight windows): `recordings.count`
+# 11..12 (the host's 10, plus the new tree's recording, plus one if the restore after the
+# second F9 continues it in a new segment). 8 / 9: tier and flight_efficiency.py after the
+# first green flight.
+#
+# GUESSES (not measured; read a first red against these):
+#   * nothing resumes C on the Cold load of `rsf-routed` (offline probe, above), so the
+#     StartRecording reads `already=false`; a restore there would read `already=true` and
+#     red that line, and would mean the route's own tree is reachable after all;
+#   * C's wheels move it at throttle 1 (RVR-21 measured rover B at throttle 1 for 8 s);
+#   * the activation lands at ~1001 so the load clock is below 1012 (`backward-warp` would
+#     ERROR the WarpToUT step);
+#   * the delivery line keeps RCN-1's measured shape (`requested=200 written=200`).
+# =====================================================================================
+
+schema = 1
+id = "RSF-1-route-source-fixed-across-transport-reflight"
+tier = "nightly"
+description = "RSF-1, FLOWN GREEN 2026-11-17_0049: on rover-relay-c-recorded create and activate the two-stop relay route, F5 and F9, then take the real transport C out again (StartRecording starts fresh in a new tree: this host's unstamped leaf is not restorable after a Cold load), drive C for 5 s, merge that later flight, F5 and F9 again, then let the cycle run. The route must stay Active, and the ListHandles route read-back's source ids and captured/live sidecar epochs after the merge, after the F9 and after the cycle must equal the ones taken at creation with sourceDrift=none; no SourceChanged flip, and C's later flight never joins the sources. Live proof of the owner rule that a route is fixed to the recordings it was created from; the re-commit of the route's own tree (ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE) stays xUnit-proven only."
+instanceProfile = "stock-minimal"
+tags = ["RSF-1", "logistics", "route", "route-source", "quickload", "commit",
+        "committed-tree-restore", "drive", "recorded-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" },   expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "RSF Relay" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1000" },                               expect = "OK", budget = 300 },
+  { cmd = "RouteCommand", args = { action = "activate", route = "RSF Relay" },  expect = "OK", budget = 120 },
+  # CREATED: the route's fixed source set, as created.
+  { cmd = "MissionMark",  args = { label = "rsf-created" },                     expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  # F5 / F9: a Cold load; nothing resumes C (the leaf is unstamped), so the later flight
+  # starts fresh in a new tree.
+  { cmd = "SaveGame",     args = { name = "rsf-routed" },                       expect = "OK", budget = 120 },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "rsf-routed", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",     args = { ut = "1012", maxRate = "1" },                expect = "OK", budget = 120 },
+  { cmd = "MissionMark",  args = { label = "rsf-loaded" },                      expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  # THE LATER FLIGHT of the route's real transport.
+  { cmd = "StartRecording",                                                     expect = "OK", budget = 180 },
+  { cmd = "DriveVessel",  args = { wheelThrottle = "1", seconds = "5" },        expect = "OK" },
+  { cmd = "DriveVessel",  args = { settleBelow = "0.05", seconds = "20" },      expect = "OK" },
+  # THE MERGE: commit the new tree, then stop and discard the commit's own auto-resume
+  # clone of it; the committed new tree keeps the flight.
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "CommitTree",                                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "rsf-merged" },                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  # F5 / F9 after the merge: the load the defect flipped the route on.
+  { cmd = "SaveGame",     args = { name = "rsf-quick" },                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "rsf-quick", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "DiscardTree",                                                        expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "rsf-reloaded" },                    expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  # The cycle still runs on the unchanged sources: pickup (if not yet) and delivery.
+  { cmd = "TimeJump",     args = { ut = "1175" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "rsf-cycled" },                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "routes" },                           expect = "OK" },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 10 committed recordings plus the later flight's new tree (1), plus one if the
+# restore after the second F9 continues that tree in a new segment.
+count = { min = 11, max = 12 }
+
+[expectations.routes]
+count           = { min = 1, max = 1 }
+dormant         = { max = 0 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 1, max = 1 }
+skippedCycles   = { max = 0 }
+statuses        = { Active = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='RSF Relay' status=Paused",
+  "routecommand complete action=activate route=.* name='RSF Relay' match=name statusBefore=Paused status=Active",
+  # ---- CREATED: Active, three sources, every captured epoch equal to the live one.
+  "(?s)MISSIONMARK label=rsf-created (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RSF Relay' status=Active [^\\r\\n]* sources=3 sourceIds=[0-9a-f]{8},[0-9a-f]{8},[0-9a-f]{8} sourceEpochs=(?P<e1>[0-9]+)/(?P=e1),(?P<e2>[0-9]+)/(?P=e2),(?P<e3>[0-9]+)/(?P=e3) sourceDrift=none\\b",
+  "savegame name=rsf-routed folder=.+ saved=true",
+  # ---- F9 #1: a Cold load of the route; the later flight starts fresh in a new tree.
+  "loadgame start save=\\S+ name=rsf-routed scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",
+  "(?s)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rsf-routed (?:(?!Load classified: ).)*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "(?s)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rsf-routed (?:(?!MISSIONMARK label=).)*LoadRoutesFrom: loaded 1 route\\(s\\)",
+  "(?s)MISSIONMARK label=rsf-loaded (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RSF Relay' status=Active ",
+  "(?s)MISSIONMARK label=rsf-loaded (?:(?!MISSIONMARK label=rsf-merged ).)*startrecording recordingId=[0-9a-f]+ already=false",
+  # ---- THE LATER FLIGHT: C moved under its own wheels.
+  "drivevessel end: outcome=moved vessel=C pid=612987736 ",
+  "drivevessel settle end: outcome=settled vessel=C pid=612987736 ",
+  # ---- THE MERGE commits the later flight's own tree.
+  "(?s)MISSIONMARK label=rsf-loaded (?:(?!MISSIONMARK label=rsf-merged ).)*committree committed=true",
+  # The same route, the same source ids and the same captured/live epochs as at creation:
+  # after the merge, after the F9, after the cycle.
+  "(?s)MISSIONMARK label=rsf-created (?:(?!listhandles route ).)*listhandles route index=0 id=(?P<rid>\\S+) [^\\r\\n]* sources=3 sourceIds=(?P<ids>\\S+) sourceEpochs=(?P<eps>\\S+) sourceDrift=none\\b(?:(?!MISSIONMARK label=rsf-merged ).)*MISSIONMARK label=rsf-merged (?:(?!listhandles route ).)*listhandles route index=0 id=(?P=rid) name='RSF Relay' status=Active [^\\r\\n]* sources=3 sourceIds=(?P=ids) sourceEpochs=(?P=eps) sourceDrift=none\\b",
+  "savegame name=rsf-quick folder=.+ saved=true",
+  # ---- F9 #2: Cold, the route loads and the revalidation flips nothing.
+  "loadgame start save=\\S+ name=rsf-quick scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",
+  "(?s)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rsf-quick (?:(?!Load classified: ).)*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "(?s)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rsf-quick (?:(?!MISSIONMARK label=).)*LoadRoutesFrom: loaded 1 route\\(s\\)",
+  "(?s)loadgame player-load: firing onGameStatePostLoad save=\\S+ name=rsf-quick (?:(?!MISSIONMARK label=).)*RevalidateSources reason=OnLoad routes=1 transitioned=0 ",
+  "(?s)MISSIONMARK label=rsf-created (?:(?!listhandles route ).)*listhandles route index=0 id=(?P<rid>\\S+) [^\\r\\n]* sources=3 sourceIds=(?P<ids>\\S+) sourceEpochs=(?P<eps>\\S+) sourceDrift=none\\b.*?MISSIONMARK label=rsf-reloaded (?:(?!listhandles route ).)*listhandles route index=0 id=(?P=rid) name='RSF Relay' status=Active [^\\r\\n]* sources=3 sourceIds=(?P=ids) sourceEpochs=(?P=eps) sourceDrift=none\\b",
+  # ---- THE CYCLE still runs once on the unchanged sources.
+  "(?s)MISSIONMARK label=rsf-reloaded (?:(?!MISSIONMARK label=rsf-cycled ).)*Delivery write: route=\\S+ dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 ",
+  "(?s)MISSIONMARK label=rsf-cycled (?:(?!listhandles route ).)*listhandles route index=0 id=\\S+ name='RSF Relay' status=Active completed=1 skipped=0 [^\\r\\n]* dispatched=1 debited=0 pickedUp=1 delivered=1 ",
+  "(?s)MISSIONMARK label=rsf-created (?:(?!listhandles route ).)*listhandles route index=0 id=(?P<rid>\\S+) [^\\r\\n]* sources=3 sourceIds=(?P<ids>\\S+) sourceEpochs=(?P<eps>\\S+) sourceDrift=none\\b.*?MISSIONMARK label=rsf-cycled (?:(?!listhandles route ).)*listhandles route index=0 id=(?P=rid) name='RSF Relay' status=Active [^\\r\\n]* sources=3 sourceIds=(?P=ids) sourceEpochs=(?P=eps) sourceDrift=none\\b",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "listhandles rejected",
+  # The defect's two faces: the flip on a load, and the drift on the read-back.
+  "SourceChanged/",
+  "MissingSourceRecording/",
+  "-drift id=",
+  "listhandles route [^\\r\\n]*sourceDrift=(?!none\\b)",
+  "listhandles route [^\\r\\n]*status=(?:SourceChanged|MissingSourceRecording)",
+  "RevalidateSources reason=OnLoad routes=[0-9]+ transitioned=[1-9]",
+  # The later flight is not part of the route: C's last leg never joins the source set.
+  "listhandles route [^\\r\\n]*sourceIds=[^ \\r\\n]*ec4bf428",
+  # The merge must not rewrite a source.
+  "CommitTree: route sources in tree '88c012a6eed94bf09ff73397a4a31410' [^\\r\\n]* changed=[1-9]",
+  # No hold, no dock of the driven transport, exactly one delivery.
+  "BLOCKED kind=",
+  "drivevessel dock couple",
+  "(?s)Delivery write: .*Delivery write: ",
+  "(?s)MISSIONMARK label=rsf-reloaded .*Origin debit: .*Origin debit: ",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

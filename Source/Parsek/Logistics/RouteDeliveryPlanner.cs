@@ -190,10 +190,20 @@ namespace Parsek.Logistics
 
     internal static class RouteDeliveryPlanner
     {
+        /// <summary>
+        /// Plans one stop's delivery against the destination's free capacity. The
+        /// optional <paramref name="supplyHoldback"/> (from
+        /// <c>RouteOrchestrator.ComputeDeliveryHoldback</c>) caps each resource at its
+        /// recorded amount less the part of this cycle's supply shortfall that the
+        /// route's later deliveries cannot absorb, so a short supply is never delivered
+        /// in full; the line keeps the recorded amount as <c>Requested</c>, so a capped
+        /// line reads as partial. Null (the dispatch-time capacity gate) caps nothing.
+        /// </summary>
         internal static DeliveryPlan PrepareDelivery(
             Route route,
             int stopIndex,
-            IDeliveryCapacityProbe probe)
+            IDeliveryCapacityProbe probe,
+            IReadOnlyDictionary<string, double> supplyHoldback = null)
         {
             // Null guards
             if (route == null || probe == null) return DeliveryPlan.Empty();
@@ -217,9 +227,10 @@ namespace Parsek.Logistics
                     if (string.IsNullOrEmpty(name)) continue;
                     double requested = stop.DeliveryManifest[name];
                     if (requested <= 0.0) continue;
+                    double supplied = CapBySupplyHoldback(requested, supplyHoldback, name);
                     double freeCapacity = probe.ProbeResourceFreeCapacity(name);
                     if (freeCapacity < 0.0) freeCapacity = 0.0;
-                    double available = Math.Min(requested, freeCapacity);
+                    double available = Math.Min(supplied, freeCapacity);
                     resources.Add(new ResourceDeliveryLine(name, requested, available));
                     if (available < requested) anyResourcePartial = true;
                     if (available > 0.0) anyResourceDelivered = true;
@@ -279,6 +290,22 @@ namespace Parsek.Logistics
             bool isPartial = anyResourcePartial || anyInventoryPartial;
             bool isZero = !anyResourceDelivered && !anyInventoryDelivered;
             return new DeliveryPlan(resources, inventory, isPartial, isZero);
+        }
+
+        /// <summary>
+        /// Pure: the amount of <paramref name="resourceName"/> a delivery may write
+        /// given its recorded amount and the amount it must hold back: the recorded
+        /// amount less the holdback, never below zero.
+        /// </summary>
+        internal static double CapBySupplyHoldback(
+            double recorded, IReadOnlyDictionary<string, double> holdback, string resourceName)
+        {
+            if (!(recorded > 0.0)) return 0.0;
+            if (holdback == null || string.IsNullOrEmpty(resourceName)
+                || !holdback.TryGetValue(resourceName, out double missing) || !(missing > 0.0))
+                return recorded;
+            double capped = recorded - missing;
+            return capped > 0.0 ? capped : 0.0;
         }
 
         /// <summary>
