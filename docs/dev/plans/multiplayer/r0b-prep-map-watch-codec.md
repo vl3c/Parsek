@@ -650,8 +650,10 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
 **P6-04 `TryValidatePayload` decodes without a `Recording`**
 - **Change:** `TrajectorySidecarBinary.TryValidatePayload` (`TrajectorySidecarBinary.cs:180-200`)
   decodes into a scratch payload instead of `new Recording()`. It keeps the unconditional Warn for
-  dropped non-monotonic points (today `Read` emits it with the probe's id because the scratch
-  recording's id is empty) through one shared `LogDroppedNonMonotonic(string id, int n)`
+  dropped non-monotonic points (corrected 2026-11-17: before P6-04 that Warn carried the scratch
+  recording's own random id, because `new Recording()` initializes `RecordingId` to a fresh
+  GUID and `Read` stamps the probe's id only over an empty one; P6-04 gives it the probe's id)
+  through one shared `LogDroppedNonMonotonic(string id, int n)`
   helper that `Read` uses too. Uncalled-method ratchet (A1): both new call paths are
   production (`LogDroppedNonMonotonic` from `Read` and `TryValidatePayload`; `Decode`'s
   second caller is `TryValidatePayload`, called in production at
@@ -662,6 +664,34 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
 - **Registers:** facts re-pin (`Decode` now has a second production caller).
 - **Size:** S. **Depends on:** P6-03. **PC:** no.
 - **Risk:** low; the only output of this path is a bool and a reason string.
+- **As built:** `TryValidatePayload` decodes into `new RecordingTrajectoryPayload()` and then
+  calls `LogDroppedNonMonotonic(probe.RecordingId, Stats.DroppedNonMonotonicPoints)`; `Read`
+  calls the same helper with `rec.RecordingId` where it wrote the Warn inline. The helper is
+  `internal` (P6-05's summary calls it with the caller's id), returns at a count of 0, and
+  ignores `RecordingStore.SuppressLogging` as the inline Warn did. Return value, failure
+  reasons and exception classification are unchanged: the code `Read` ran after `Decode` on
+  the scratch recording (list assignment, field stamps, string formatting) could not throw.
+  Log change, for the one production caller `AreRecordingFilesCurrentAtPaths` (the save gate,
+  run up to twice per recording per `OnSave`): a validation no longer writes the Verbose
+  `ReadBinaryTrajectoryFile: recording=<random> ...` summary nor, for a sidecar the read-path
+  heal applies to, the Verbose `TryHealMalformedFlatFallbackTrajectory: recording=<random>
+  healed in memory only ... sidecarEpoch=0` line; its drop Warn now names the recording
+  (the probe's id, which the gate has already matched to the caller's) instead of a random
+  id. Every load-side line is unchanged: the cold load and every other caller reach `Read`,
+  not `TryValidatePayload`. The two harness specs that pin `ReadBinaryTrajectoryFile` (`QR-1`,
+  `ST-4`) pin the cold-load line by recording id and rebuilt-point count, which a validation
+  never printed (it logged a random id). The P6-01 manifest reads through
+  `TryProbeTrajectorySidecar` + `DeserializeTrajectorySidecar` and passes with the manifest
+  file untouched. `RecordingTrajectoryPayloadTests` pins the new lines on synthetic files
+  (flat, section-authoritative and heal shapes, each with one dropped point: exactly the
+  Warn with the probe's id; a clean file: no line; the Warn under `SuppressLogging` on both
+  paths; the save gate end to end: current, one Warn with the recording's id); run against
+  the P6-03 head the six new cells red with the random id and the extra Verbose lines.
+  Registers: no re-pin. `Decode` was already reached through `Read`, so a second caller moves
+  nothing: after a Debug build `ilanalysis.py --write-pins` changed only its date line plus
+  `RecordingOptimizer::MergeInto` in the complexity watch band (as on the P6-03 head; this
+  task does not touch it), 374 unreached as before, and `layers.py --write-pins` only its date
+  line, so neither file changed.
 
 **P6-05 A production entry to load a trajectory from a given path**
 - **Change:** `RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(string path, bool

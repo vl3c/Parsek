@@ -257,11 +257,7 @@ namespace Parsek.Tests
         [Fact]
         public void FlatPathDrop_LogsPreDropPostPointsThenTheWarn()
         {
-            var written = new Recording { RecordingId = "payload-flat-drop" };
-            written.Points.Add(MakePoint(1.0, 0));
-            written.Points.Add(MakePoint(5.0, 1));
-            written.Points.Add(MakePoint(2.0, 2));
-            string path = WritePrec(written, sidecarEpoch: 3);
+            string path = WriteFlatDropPrec();
             TrajectorySidecarProbe probe = Probe(path);
 
             var rec = new Recording { RecordingId = "payload-flat-drop" };
@@ -279,13 +275,7 @@ namespace Parsek.Tests
         [Fact]
         public void SectionAuthoritativeDrop_LogsPreDropRebuiltPointsThenTheWarn()
         {
-            var written = new Recording { RecordingId = "payload-section-drop" };
-            TrajectoryPoint a = MakePoint(1.0, 0), b = MakePoint(3.0, 1), c = MakePoint(2.0, 2);
-            written.TrackSections.Add(AbsoluteSection(a, b));
-            written.TrackSections.Add(AbsoluteSection(c));
-            written.Points.AddRange(new[] { a, b, c });
-            Assert.True(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(written));
-            string path = WritePrec(written, sidecarEpoch: 1);
+            string path = WriteSectionDropPrec();
             TrajectorySidecarProbe probe = Probe(path);
 
             var rec = new Recording { RecordingId = "payload-section-drop" };
@@ -306,25 +296,7 @@ namespace Parsek.Tests
         [Fact]
         public void OrbitOnlyHealWithDrop_LogsHealThenReadThenWarn_WithPreDropCounts()
         {
-            var written = new Recording { RecordingId = "payload-heal-drop", SidecarEpoch = 4 };
-            TrajectoryPoint p1 = MakePoint(1.0, 0), p2 = MakePoint(2.0, 1), p5 = MakePoint(5.0, 2);
-            OrbitSegment segA = MakeSegment(100.0, 200.0, isPredicted: false);
-            // Predicted first, so the write-path checkpoint Ensure promotes nothing and the
-            // flat orbit list reaches the file as built.
-            OrbitSegment segX = MakeSegment(50.0, 90.0, isPredicted: true);
-            written.TrackSections.Add(AbsoluteSection(p1, p2));
-            written.TrackSections.Add(new TrackSection
-            {
-                environment = SegmentEnvironment.ExoBallistic,
-                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
-                startUT = segA.startUT,
-                endUT = segA.endUT,
-                source = TrackSectionSource.Checkpoint,
-                checkpoints = new List<OrbitSegment> { segA },
-            });
-            written.Points.AddRange(new[] { p1, p5, p2 });
-            written.OrbitSegments.AddRange(new[] { segX, segA });
-            string path = WritePrec(written, sidecarEpoch: 4);
+            string path = WriteHealDropPrec();
             TrajectorySidecarProbe probe = Probe(path);
 
             var rec = new Recording { RecordingId = "payload-heal-drop", SidecarEpoch = 4 };
@@ -355,6 +327,101 @@ namespace Parsek.Tests
             Assert.Equal(DumpLists(payload), DumpLists(rec));
         }
 
+        // ------------------------------------------------------------------ validate-only read
+
+        // TryValidatePayload decodes into a scratch payload: no Recording, so neither the
+        // heal line nor the read summary is written; the drop Warn alone, carrying the
+        // probe's recording id (the save gate has already matched it to the caller's).
+        [Theory]
+        [InlineData("flat")]
+        [InlineData("section")]
+        [InlineData("heal")]
+        public void ValidatePayload_WithADrop_LogsOnlyTheWarn_CarryingTheProbesId(string shape)
+        {
+            string path = WriteDropPrec(shape, out string id);
+            TrajectorySidecarProbe probe = Probe(path);
+            Assert.Equal(id, probe.RecordingId);
+
+            logLines.Clear();
+            Assert.True(TrajectorySidecarBinary.TryValidatePayload(path, probe, out string reason));
+            Assert.Null(reason);
+
+            AssertLogSequence(
+                "[WARN][RecordingStore] ReadBinaryTrajectoryFile: recording=" + id + " dropped 1 non-monotonic " +
+                "flat trajectory point(s) on load (#419-class)");
+        }
+
+        [Fact]
+        public void ValidatePayload_WithNoDrop_LogsNothing()
+        {
+            var written = new Recording { RecordingId = "payload-validate-clean" };
+            written.Points.Add(MakePoint(1.0, 0));
+            written.Points.Add(MakePoint(2.0, 1));
+            string path = WritePrec(written, sidecarEpoch: 2);
+            TrajectorySidecarProbe probe = Probe(path);
+
+            logLines.Clear();
+            Assert.True(TrajectorySidecarBinary.TryValidatePayload(path, probe, out string reason));
+            Assert.Null(reason);
+            AssertLogSequence();
+        }
+
+        // The drop Warn ignores RecordingStore.SuppressLogging on both paths, as Read's always
+        // did; the read summary stays gated.
+        [Fact]
+        public void DropWarn_IsWrittenUnderRecordingStoreSuppressLogging_ByReadAndValidate()
+        {
+            string path = WriteFlatDropPrec();
+            TrajectorySidecarProbe probe = Probe(path);
+            const string warn =
+                "[WARN][RecordingStore] ReadBinaryTrajectoryFile: recording=payload-flat-drop dropped 1 " +
+                "non-monotonic flat trajectory point(s) on load (#419-class)";
+
+            RecordingStore.SuppressLogging = true;
+            logLines.Clear();
+            TrajectorySidecarBinary.Read(path, new Recording { RecordingId = "payload-flat-drop" }, probe);
+            AssertLogSequence(warn);
+
+            logLines.Clear();
+            Assert.True(TrajectorySidecarBinary.TryValidatePayload(path, probe, out _));
+            AssertLogSequence(warn);
+        }
+
+        // The save gate, the one production caller: a sidecar with a non-monotonic point is
+        // current, and the one line its validation writes is the Warn with the recording's id.
+        [Fact]
+        public void SaveGate_OnADroppingSidecar_IsCurrent_AndWarnsOnceWithTheRecordingsId()
+        {
+            var written = new Recording
+            {
+                RecordingId = "payload-gate-drop",
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = 5,
+            };
+            written.Points.Add(MakePoint(1.0, 0));
+            written.Points.Add(MakePoint(5.0, 1));
+            written.Points.Add(MakePoint(2.0, 2));
+            string path = WritePrec(written, sidecarEpoch: 5);
+
+            logLines.Clear();
+            bool current = RecordingSidecarStore.AreRecordingFilesCurrentAtPaths(
+                written, path,
+                Path.Combine(tempDir, "absent_vessel.craft"),
+                Path.Combine(tempDir, "absent_ghost.craft"),
+                out string reason);
+
+            Assert.True(current, "reason=" + (reason ?? "<null>"));
+            Assert.Null(reason);
+            var readLines = logLines.Where(l =>
+                l.Contains("ReadBinaryTrajectoryFile") || l.Contains("TryHealMalformedFlatFallbackTrajectory")).ToList();
+            Assert.True(readLines.Count == 1, "got:\n" + string.Join("\n", readLines));
+            Assert.Contains(
+                "[WARN][RecordingStore] ReadBinaryTrajectoryFile: recording=payload-gate-drop dropped 1 non-monotonic " +
+                "flat trajectory point(s) on load (#419-class)",
+                readLines[0]);
+        }
+
         [Fact]
         public void Decode_RefusesAnUnsupportedProbe_AndANullTarget()
         {
@@ -375,6 +442,63 @@ namespace Parsek.Tests
                 "expected " + expected.Length + " RecordingStore lines, got:\n" + string.Join("\n", read));
             for (int i = 0; i < expected.Length; i++)
                 Assert.True(read[i].Contains(expected[i]), "line " + i + " was:\n" + read[i] + "\nexpected:\n" + expected[i]);
+        }
+
+        private string WriteDropPrec(string shape, out string id)
+        {
+            switch (shape)
+            {
+                case "flat": id = "payload-flat-drop"; return WriteFlatDropPrec();
+                case "section": id = "payload-section-drop"; return WriteSectionDropPrec();
+                case "heal": id = "payload-heal-drop"; return WriteHealDropPrec();
+                default: throw new ArgumentException(shape);
+            }
+        }
+
+        // Flat path, three points, the last one non-monotonic.
+        private string WriteFlatDropPrec()
+        {
+            var written = new Recording { RecordingId = "payload-flat-drop" };
+            written.Points.Add(MakePoint(1.0, 0));
+            written.Points.Add(MakePoint(5.0, 1));
+            written.Points.Add(MakePoint(2.0, 2));
+            return WritePrec(written, sidecarEpoch: 3);
+        }
+
+        // Section-authoritative, whose rebuilt flat list holds one non-monotonic point.
+        private string WriteSectionDropPrec()
+        {
+            var written = new Recording { RecordingId = "payload-section-drop" };
+            TrajectoryPoint a = MakePoint(1.0, 0), b = MakePoint(3.0, 1), c = MakePoint(2.0, 2);
+            written.TrackSections.Add(AbsoluteSection(a, b));
+            written.TrackSections.Add(AbsoluteSection(c));
+            written.Points.AddRange(new[] { a, b, c });
+            Assert.True(TrajectoryTextSidecarCodec.ShouldWriteSectionAuthoritativeTrajectory(written));
+            return WritePrec(written, sidecarEpoch: 1);
+        }
+
+        // Flat path whose orbit list the heal replaces, over non-monotonic flat points.
+        private string WriteHealDropPrec()
+        {
+            var written = new Recording { RecordingId = "payload-heal-drop", SidecarEpoch = 4 };
+            TrajectoryPoint p1 = MakePoint(1.0, 0), p2 = MakePoint(2.0, 1), p5 = MakePoint(5.0, 2);
+            OrbitSegment segA = MakeSegment(100.0, 200.0, isPredicted: false);
+            // Predicted first, so the write-path checkpoint Ensure promotes nothing and the
+            // flat orbit list reaches the file as built.
+            OrbitSegment segX = MakeSegment(50.0, 90.0, isPredicted: true);
+            written.TrackSections.Add(AbsoluteSection(p1, p2));
+            written.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = segA.startUT,
+                endUT = segA.endUT,
+                source = TrackSectionSource.Checkpoint,
+                checkpoints = new List<OrbitSegment> { segA },
+            });
+            written.Points.AddRange(new[] { p1, p5, p2 });
+            written.OrbitSegments.AddRange(new[] { segX, segA });
+            return WritePrec(written, sidecarEpoch: 4);
         }
 
         private string WritePrec(Recording rec, int sidecarEpoch)
