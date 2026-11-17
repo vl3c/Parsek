@@ -605,6 +605,8 @@ namespace Parsek
         public int skippedName;
         public int skippedPrefab;
         public int skippedMesh;
+        public int substitutedParts;
+        public GhostBuildOptions options;
         public bool raiseLightVisualOnly;
         public bool raiseRcsVisualOnly;
         public bool hasLoggedSplitYield;

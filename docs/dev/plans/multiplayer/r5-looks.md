@@ -238,14 +238,19 @@ change it.
   `internal interface IGhostPartDresser` with
   `string SubstitutePartName(string recordedPartName)` (null or empty = keep; R5-02 adds
   `DressMaterials` with its call site); `internal sealed class GhostBuildOptions {
-  IGhostPartDresser Dresser; }`. `TryBeginTimelineGhostBuild` and
+  readonly IGhostPartDresser Dresser; GhostBuildOptions(IGhostPartDresser dresser); }`.
+  `TryBeginTimelineGhostBuild` and
   `BuildTimelineGhostFromSnapshot` take an optional `GhostBuildOptions options = null`,
   stored on `PendingGhostVisualBuild`. In `AdvanceTimelineGhostBuild`, between the name
-  extraction (`:186`) and the lookup (`:196`):
+  extraction (`:187`) and the lookup (`:200`):
   `partName = ResolveBuildPartName(partName, build.options, out bool substituted)`, an
-  `internal static` pure helper (keeps the method's complexity flat). Counted per build;
+  `internal static` pure helper in `GhostVisualBuilder.Parsing.cs` beside
+  `ResolveAvailablePart` (keeps the method's complexity flat). A substitute equal to the
+  recorded name is not a substitution. Counted per build (`PendingGhostVisualBuild.substitutedParts`);
   one `ParsekLog.VerboseRateLimited` `[GhostVisual]` line per (recorded, used) pair:
-  `Ghost part substituted: recorded=<a> used=<b>`. The `Ghost built:` line is not reworded.
+  `Ghost part substituted: recorded=<a> used=<b>`. The `Ghost built:` line is not reworded:
+  it gains a `, <n> substituted` suffix only when n > 0, like its other conditional
+  suffixes, so a build with no substitute prints today's text.
 - **Proof:** xUnit `GhostBuildOptionsTests`: null options and a null dresser return the
   name unchanged and log nothing; a substitute is used and logged; an empty substitute keeps
   the recorded name. In-game `[InGameTest(Category = "GhostVisuals", Scene = FLIGHT)]`
@@ -257,10 +262,15 @@ change it.
   points gain an optional `options = null`, so every existing caller reaches the new code
   with the neutral default; `ResolveBuildPartName` is called from `AdvanceTimelineGhostBuild`
   and calls `SubstitutePartName` through the interface. No member waits for a later caller.
-- **Registers:** H15's `total=` re-pinned (`CommittedBatchTallySourceSyncTests`); no
-  CHANGELOG (no player-visible change).
+- **Registers:** H15's `total=` re-pinned 4 -> 5 (`CommittedBatchTallySourceSyncTests`;
+  also `IngameBatchWiringGroupTests.GROUP` in `test_hlib.py` and the `GhostVisuals` row and
+  totals of `docs/dev/autotest-ingame-category-inventory.md`, which
+  `IngameCategoryInventoryDocTests` derives from source); no CHANGELOG (no player-visible
+  change).
 - **Size:** S. **Depends on:** none. **PC:** yes, one in-game run; the xUnit cells prove
   the null path. **S3:** none.
+- **Status:** BUILT 2026-11-16, branch `mp/r5-01-ghost-part-substitute`; xUnit green; H15
+  flight at `total=5` owed.
 - **Risk:** low; an optional parameter that defaults to today's path.
 
 ### R5-02 Ghost build: a material override at the clone sites (A4, second half)

@@ -8139,6 +8139,81 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner",
                 $"Ghost '{withSnapshot.VesselName}' has {renderers.Length} MeshRenderers");
         }
+
+        private const string MissingEvaPartName = "kerbalEVAParsekMissing";
+        private const string StockEvaPartName = "kerbalEVA";
+
+        private sealed class SingleSubstituteDresser : IGhostPartDresser
+        {
+            private readonly string recorded;
+            private readonly string used;
+            internal int asked;
+
+            internal SingleSubstituteDresser(string recorded, string used)
+            {
+                this.recorded = recorded;
+                this.used = used;
+            }
+
+            public string SubstitutePartName(string recordedPartName)
+            {
+                asked++;
+                return string.Equals(recordedPartName, recorded, System.StringComparison.Ordinal)
+                    ? used
+                    : null;
+            }
+        }
+
+        [InGameTest(Category = "GhostVisuals", Scene = GameScenes.FLIGHT,
+            Description = "R5-01: a one-part EVA snapshot naming a part this install lacks builds no ghost, and builds one when a dresser substitutes kerbalEVA")]
+        public void EvaGhostWithUnknownPartBuildsWithSubstitute()
+        {
+            AvailablePart stockEva = PartLoader.getPartInfoByName(StockEvaPartName);
+            InGameAssert.IsTrue(stockEva != null && stockEva.partPrefab != null,
+                $"stock part '{StockEvaPartName}' is not loaded; every KSP install ships it");
+            InGameAssert.IsTrue(PartLoader.getPartInfoByName(MissingEvaPartName) == null,
+                $"'{MissingEvaPartName}' must not exist for this cell to mean anything");
+
+            ConfigNode snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", "ParsekTest_EvaSubstitute");
+            ConfigNode partNode = snapshot.AddNode("PART");
+            partNode.AddValue("name", MissingEvaPartName);
+            partNode.AddValue("persistentId", "100000");
+            partNode.AddValue("position", "0,0,0");
+            partNode.AddValue("rotation", "0,0,0,1");
+
+            var rec = new Recording
+            {
+                RecordingId = "parsektest-eva-substitute-" + System.Guid.NewGuid().ToString("N").Substring(0, 8),
+                VesselName = "ParsekTest_EvaSubstitute",
+                GhostVisualSnapshot = snapshot,
+            };
+
+            GhostBuildResult without = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                rec, "ParsekTest_EvaSubstitute_None");
+            if (without != null && without.root != null)
+                runner.TrackForCleanup(without.root);
+            InGameAssert.IsTrue(without == null,
+                "a snapshot naming a missing part built a ghost with no options; the build must stay "
+                + "today's (null, so the engine falls back to the sphere)");
+
+            var dresser = new SingleSubstituteDresser(MissingEvaPartName, StockEvaPartName);
+            GhostBuildResult with = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                rec, "ParsekTest_EvaSubstitute_Dressed", new GhostBuildOptions(dresser));
+            if (with != null && with.root != null)
+                runner.TrackForCleanup(with.root);
+
+            InGameAssert.IsTrue(dresser.asked == 1,
+                $"the dresser should be asked once for the one snapshot part, was asked {dresser.asked} times");
+            InGameAssert.IsNotNull(with, $"the dresser mapped '{MissingEvaPartName}' to '{StockEvaPartName}' "
+                + "but the build still produced zero visuals");
+            InGameAssert.IsNotNull(with.root, "the substituted build returned no root");
+            int renderers = with.root.GetComponentsInChildren<Renderer>(true).Length;
+            InGameAssert.IsGreaterThan(renderers, 0,
+                "the substituted kerbalEVA ghost has no renderers in its hierarchy");
+            ParsekLog.Verbose("TestRunner",
+                $"EVA substitute ghost built: recorded={MissingEvaPartName} used={StockEvaPartName} renderers={renderers}");
+        }
     }
 
     /// <summary>

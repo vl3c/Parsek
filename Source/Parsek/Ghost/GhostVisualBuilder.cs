@@ -105,16 +105,17 @@ namespace Parsek
         /// Builds a ghost GameObject from a recording's vessel snapshot, returning
         /// all per-module-type ghost info lists bundled in a GhostBuildResult.
         /// Returns null if the snapshot is missing or produces zero visuals.
+        /// <paramref name="options"/> null builds exactly the parts the snapshot names.
         /// </summary>
         internal static GhostBuildResult BuildTimelineGhostFromSnapshot(
-            IPlaybackTrajectory rec, string rootName)
+            IPlaybackTrajectory rec, string rootName, GhostBuildOptions options = null)
         {
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             HeaviestSpawnBuildType buildType = rec != null && rec.GhostVisualSnapshot != null
                 ? HeaviestSpawnBuildType.RecordingStartSnapshot
                 : HeaviestSpawnBuildType.VesselSnapshot;
             PendingGhostVisualBuild build =
-                TryBeginTimelineGhostBuild(rec, snapshotNode, rootName, buildType);
+                TryBeginTimelineGhostBuild(rec, snapshotNode, rootName, buildType, options);
             if (build == null)
                 return null;
 
@@ -123,7 +124,8 @@ namespace Parsek
         }
 
         internal static PendingGhostVisualBuild TryBeginTimelineGhostBuild(
-            IPlaybackTrajectory rec, ConfigNode snapshotNode, string rootName, HeaviestSpawnBuildType buildType)
+            IPlaybackTrajectory rec, ConfigNode snapshotNode, string rootName, HeaviestSpawnBuildType buildType,
+            GhostBuildOptions options = null)
         {
             if (snapshotNode == null)
             {
@@ -167,6 +169,7 @@ namespace Parsek
                     !string.IsNullOrEmpty(rec?.VesselName)
                     && rec.VesselName.StartsWith(RcsShowcaseRecordingPrefix, System.StringComparison.Ordinal),
                 buildType = buildType,
+                options = options,
             };
         }
 
@@ -191,6 +194,10 @@ namespace Parsek
                 }
                 else
                 {
+                    partName = ResolveBuildPartName(partName, build.options, out bool substituted);
+                    if (substituted)
+                        build.substitutedParts++;
+
                     // Read persistentId for ghost part naming (enables O(1) lookup during playback)
                     string pidStr = partNode.GetValue("persistentId");
                     uint persistentId = 0;
@@ -341,7 +348,8 @@ namespace Parsek
                 $"Ghost built: {build.visualCount}/{build.partNodes.Length} parts with visuals" +
                 (build.skippedName > 0 ? $", {build.skippedName} bad name" : "") +
                 (build.skippedPrefab > 0 ? $", {build.skippedPrefab} no prefab" : "") +
-                (build.skippedMesh > 0 ? $", {build.skippedMesh} no mesh" : ""), 60.0);
+                (build.skippedMesh > 0 ? $", {build.skippedMesh} no mesh" : "") +
+                (build.substitutedParts > 0 ? $", {build.substitutedParts} substituted" : ""), 60.0);
 
             if (!build.addedAnyVisual)
             {
