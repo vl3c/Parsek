@@ -1056,12 +1056,16 @@ class PairRunnerSmokeTests(unittest.TestCase):
                                                              hlib.STOP_REQUEST_FILENAME)
         self.script({"PB": {"role": "B", "barriers": ["one", "two"], "timeout": 20}})
         os.environ["FAKE_CHILD_SLEEP"] = "0.3"
+        # PB exits only once PA dropped the stop request: had PB ended first, its
+        # free slot would start C before the stop existed (a race, not the rule).
+        os.environ["FAKE_CHILD_AWAIT"] = json.dumps({"PB": "stop-dropped"})
         code = self.main("run", "--name", "p6", "--ids", "PA,C", "--slots", "2")
         self.assertEqual(P.EXIT_SKIPPED, code, "\n".join(self.console))
         self.assertEqual(["PA", "PB"], sorted(r["lane"] for r in self.child_records()))
         latest = P.latest_outcomes(self.summary("p6"))
         self.assertEqual(("PASS", "PASS"), (latest["PA"].verdict, latest["PB"].verdict))
         os.environ.pop("FAKE_CHILD_STOP_AFTER")
+        os.environ.pop("FAKE_CHILD_AWAIT")
         code = self.main("resume", "--name", "p6")
         self.assertEqual(0, code, "\n".join(self.console))
         self.assertEqual(["C", "PA", "PB"], sorted(r["lane"] for r in self.child_records()))

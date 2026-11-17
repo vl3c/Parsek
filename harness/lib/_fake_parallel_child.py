@@ -8,7 +8,10 @@ run.py's stop-honoured line and reports the lane NOT-RUN.
 ``$FAKE_CHILD_SLEEPS`` (``{lane: seconds}``) overrides ``$FAKE_CHILD_SLEEP`` (the
 time a child lingers before it reports) per lane. ``$FAKE_CHILD_STOP_AFTER`` names a lane that, once it finished, drops the
 runner's stop-request file (``$FAKE_CHILD_STOP_REQUEST``), as an operator's
-``--stop`` mid-run would.
+``--stop`` mid-run would, then writes ``stop-dropped`` under ``$FAKE_CHILD_STATE``.
+``$FAKE_CHILD_AWAIT`` (``{lane: file name under $FAKE_CHILD_STATE}``) holds a
+lane's exit until that file exists (at most ``AWAIT_LIMIT_SECONDS``), so a test
+orders two children's ends by an event, not by sleeps.
 
 A paired half (``--pair-dir`` / ``--pair-shared``, multiplayer T-54) reads its
 script from ``$FAKE_CHILD_PAIRS`` (``{lane: {"role", "barriers", "timeout"}}``):
@@ -23,6 +26,8 @@ import json
 import os
 import sys
 import time
+
+AWAIT_LIMIT_SECONDS = 30.0
 
 
 def main() -> int:
@@ -59,6 +64,11 @@ def main() -> int:
             verdict = "INVALID"
     sleeps = json.loads(os.environ.get("FAKE_CHILD_SLEEPS") or "{}")
     time.sleep(float(sleeps.get(lane, os.environ.get("FAKE_CHILD_SLEEP", "0.2"))))
+    awaited = json.loads(os.environ.get("FAKE_CHILD_AWAIT") or "{}").get(lane)
+    if awaited:
+        deadline = time.monotonic() + AWAIT_LIMIT_SECONDS
+        while not os.path.exists(os.path.join(state, awaited)) and time.monotonic() < deadline:
+            time.sleep(0.02)
     concurrent = max(concurrent, len([f for f in os.listdir(state) if f.startswith("running-")]))
     os.remove(marker)
     record = {"lane": lane, "slot": args.slot, "argv": sys.argv[1:], "start": start,
@@ -72,6 +82,7 @@ def main() -> int:
     if os.environ.get("FAKE_CHILD_STOP_AFTER") == lane:
         with open(os.environ["FAKE_CHILD_STOP_REQUEST"], "w", encoding="utf-8") as fh:
             fh.write("stop\n")
+        open(os.path.join(state, "stop-dropped"), "w").close()
     if verdict == "-":
         return 3
     entry = {"id": lane, "verdict": verdict, "attempts": 1, "runIds": ["run-" + lane],
