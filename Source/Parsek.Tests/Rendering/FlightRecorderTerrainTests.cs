@@ -516,6 +516,144 @@ namespace Parsek.Tests.Rendering
             Assert.Matches(@":\s*(ParsekFlight\.)?ResolveEffectiveAltitudeWithTailLift\(", positionGhostAt);
         }
 
+        // ----- The tail-lift lookup goes through the playback catalog (P2a-04) -----
+
+        [Fact]
+        public void TailLift_FakeCatalogRecording_DrivesThePlan()
+        {
+            // Only the fake catalog holds the recording; the store is empty.
+            Recording rec = CreateTailLiftRecording("tail_lift_catalog_only");
+            var fake = new FakeListCatalog(rec);
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 112.0;
+
+            double viaOwn = ParsekFlight.ResolveEffectiveAltitudeWithTailLift(
+                fakeKerbin, 1.0, 2.0,
+                recordedAltitude: 100.0,
+                recordedGroundClearance: double.NaN,
+                referenceFrame: ReferenceFrame.Absolute,
+                pointUT: 85.0,
+                recordingId: rec.RecordingId);
+            double viaFake = ParsekFlight.ResolveEffectiveAltitudeWithTailLift(
+                fakeKerbin, 1.0, 2.0,
+                recordedAltitude: 100.0,
+                recordedGroundClearance: double.NaN,
+                referenceFrame: ReferenceFrame.Absolute,
+                pointUT: 85.0,
+                recordingId: rec.RecordingId,
+                catalog: fake);
+
+            Assert.Equal(100.0, viaOwn);
+            Assert.Equal(106.0, viaFake);
+            Assert.Equal(1, fake.Calls);
+            Assert.Equal(CatalogRecordingScope.CommittedListOnly, fake.LastScope);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Terrain]")
+                && l.Contains("reason=recording-missing")
+                && l.Contains(rec.RecordingId));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Pipeline-Terrain]")
+                && l.Contains("TailLift active")
+                && l.Contains(rec.RecordingId));
+        }
+
+        [Fact]
+        public void TailLift_FakeCatalog_DoesNotReadTheStore()
+        {
+            Recording stored = CreateTailLiftRecording("tail_lift_store_only");
+            RecordingStore.AddCommittedInternal(stored);
+            var fake = new FakeListCatalog(null);
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 112.0;
+
+            Assert.Null(ParsekFlightGhostPositioner.ResolveRecordingById(stored.RecordingId, fake));
+            TerrainCorrector.TailLiftPlan viaFake =
+                ParsekFlightGhostPositioner.ResolveTailLiftPlan(stored.RecordingId, fakeKerbin, fake);
+            Assert.False(viaFake.Active);
+
+            // A miss is transient, so it is not cached: the own catalog still finds the plan.
+            Assert.Same(stored, ParsekFlightGhostPositioner.ResolveRecordingById(stored.RecordingId));
+            TerrainCorrector.TailLiftPlan viaOwn =
+                ParsekFlightGhostPositioner.ResolveTailLiftPlan(stored.RecordingId, fakeKerbin);
+            Assert.True(viaOwn.Active);
+            Assert.Equal(2, fake.Calls);
+        }
+
+        [Fact]
+        public void TailLift_ThrowingCatalog_ReadsAsMissingAndFallsBackToThePreview()
+        {
+            Recording preview = CreateTailLiftRecording("tail_lift_preview_only");
+            var fake = new FakeListCatalog(null) { Throw = true };
+            TerrainCacheBuckets.TerrainResolverForTesting = (name, lat, lon) => 112.0;
+            ParsekFlight.RegisterPreviewRecordingForTailLift(preview);
+            try
+            {
+                Assert.Null(ParsekFlightGhostPositioner.ResolveRecordingById(preview.RecordingId, fake));
+                TerrainCorrector.TailLiftPlan plan =
+                    ParsekFlightGhostPositioner.ResolveTailLiftPlan(preview.RecordingId, fakeKerbin, fake);
+                Assert.True(plan.Active);
+                Assert.Equal(2, fake.Calls);
+            }
+            finally
+            {
+                ParsekFlight.ClearPreviewRecordingForTailLift();
+            }
+        }
+
+        [Fact]
+        public void TailLift_PositionerPassesItsCatalogToEveryTailLiftCall()
+        {
+            string source = ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(LocateParsekFlightSource()));
+            System.Text.RegularExpressions.MatchCollection calls =
+                System.Text.RegularExpressions.Regex.Matches(
+                    source, @"ParsekFlight\.ResolveEffectiveAltitudeWithTailLift\(([^;]*)\);");
+            Assert.Equal(3, calls.Count);
+            foreach (System.Text.RegularExpressions.Match call in calls)
+                Assert.Matches(@"recordingId,\s*catalog$", call.Groups[1].Value);
+        }
+
+        /// <summary>
+        /// A catalog whose flat committed list holds one recording (or none);
+        /// counts its recording lookups and can throw like a mid-load mutation.
+        /// </summary>
+        private sealed class FakeListCatalog : IPlaybackCatalog
+        {
+            private readonly Recording held;
+
+            internal FakeListCatalog(Recording held)
+            {
+                this.held = held;
+            }
+
+            internal bool Throw;
+            internal int Calls;
+            internal CatalogRecordingScope LastScope;
+
+            public RecordingTree PendingTree => null;
+
+            public bool TryFindFocusTree(string recordingId, string treeId, out RecordingTree tree)
+            {
+                tree = null;
+                return false;
+            }
+
+            public bool TryFindTreeHolding(string id, CatalogTreeOrder order, out RecordingTree tree)
+            {
+                tree = null;
+                return false;
+            }
+
+            public bool TryFindRecording(string id, CatalogRecordingScope scope, out Recording rec)
+            {
+                Calls++;
+                LastScope = scope;
+                if (Throw)
+                    throw new InvalidOperationException("collection was modified");
+                rec = held != null && string.Equals(held.RecordingId, id, StringComparison.Ordinal)
+                    ? held
+                    : null;
+                return rec != null;
+            }
+        }
+
         private static Recording CreateTailLiftRecording(
             string recordingId,
             string terminalBodyName = "Kerbin")

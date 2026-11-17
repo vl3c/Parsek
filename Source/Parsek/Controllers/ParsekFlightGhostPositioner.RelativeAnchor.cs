@@ -123,7 +123,8 @@ namespace Parsek
             var context = ParsekFlight.BuildFlightRelativeAnchorResolverContext(
                 focusTree,
                 recordingId,
-                ParsekScenario.Instance?.ActiveReFlySessionMarker);
+                ParsekScenario.Instance?.ActiveReFlySessionMarker,
+                catalog);
             HashSet<string> visited = recordedRelativeAnchorVisited;
             visited.Clear();
             bool resolved;
@@ -197,39 +198,14 @@ namespace Parsek
             return true;
         }
 
-        internal static bool TryFindRelativeAnchorFocusTree(
+        internal bool TryFindRelativeAnchorFocusTree(
             string recordingId,
             out RecordingTree focusTree)
         {
-            focusTree = null;
-            if (string.IsNullOrEmpty(recordingId))
-                return false;
-
-            List<RecordingTree> committedTrees = RecordingStore.CommittedTrees;
-            if (committedTrees != null)
-            {
-                for (int i = 0; i < committedTrees.Count; i++)
-                {
-                    RecordingTree tree = committedTrees[i];
-                    if (tree?.Recordings != null
-                        && tree.Recordings.ContainsKey(recordingId))
-                    {
-                        focusTree = tree;
-                        return true;
-                    }
-                }
-            }
-
-            RecordingTree pending = PendingTreeSlot.HasPendingTree
-                ? PendingTreeSlot.PendingTree
-                : null;
-            if (pending?.Recordings != null && pending.Recordings.ContainsKey(recordingId))
-            {
-                focusTree = pending;
-                return true;
-            }
-
-            return false;
+            return catalog.TryFindTreeHolding(
+                recordingId,
+                CatalogTreeOrder.CommittedFirstContainsKey,
+                out focusTree);
         }
     }
 }

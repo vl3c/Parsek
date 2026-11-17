@@ -513,6 +513,8 @@ writes `testGame = False`.
   renumbers if main adds a dimension first) with value `stock-sites`;
   `autotest-status.md` row; `INTERIM_PIN_IDS` not needed (no batch).
 - **Size:** M. **Depends on:** nothing. **PC:** yes (one flight of RACE-0).
+- **Flown:** RACE-0's first flight, `2026-11-17_0035`, PASS attempt 1 (46 s); the lane is
+  re-pinned from its KSP.log (count=11: three KSC facility points, eight Making History sites).
 - **Risk:** low; read-only.
 
 ### T-08 Race grep gates: shared scanner and "no store in the rules"

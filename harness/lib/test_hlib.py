@@ -10816,7 +10816,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "CT-1-contracts-discard-economy.toml": "tier=operator by the calibration discipline, NOT debt: the first lane to run the in-game `Contracts` category (two DiscardEconomyPreservation cells on L2's career pad host). Written 2026-10-26; owed: the reading run, then the ordinary promotion call",
         "SCI-1-science-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: science re-earned after a Rewind-to-Launch in the stock Science game cs-science-new (CS-1's VAB hop with one pad Goo committed, rewound, a fresh CS Flea's three Goo units re-read unrecorded on the pad, then the LedgerGroundTruth batch); authored 2026-10-25 on career-science-pad, whose first flight was INVALID (ProbesBeforeCrew locked the Flea's parts in the VAB), re-cut 2026-10-26; its reading run red the pre-ruling pins as predicted, and it was RE-PINNED 2026-10-27 to the owner ruling (earliest recovery wins: the re-run paid in full, the committed flight capped, nothing taken back; todo SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT closed by design). LIVE-PROVEN 2026-10-27 (`2026-10-27_1710`) after one premise-pin re-cut; owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CTW-1-contract-goal-twin-withdrawn.toml": "tier=operator by MECHANISM, NOT debt: its host `career-new-goal-twin` derives from `cs-career-new`, which needs the stock-tree instance (not in the nightly instance set). Seam-only: a committed pad launch, the original 'reach space' offer accepted at the Space Center, Rewind-to-Launch, the Offered copy withdrawn by its goal key and its Accept refused (todo CONTRACT-TWIN-GUID-SEEDED-TYPES). AUTHORED 2026-11-06, NEVER FLOWN; owed: its first flight",
-        "RACE-0-stock-sites-baseline.toml": "tier=operator by MECHANISM, NOT debt: a race lane (multiplayer plan test-and-harness section 4: every race lane is operator-tier and flies with `--tag race`), seam-only on `fresh-career`: `ListHandles kind=sites` reads the stock site baseline SITES-2 compares against (T-07). AUTHORED 2026-11-16, NEVER FLOWN; owed: its first flight and the re-pin of its measured values from that flight's KSP.log (the list is in the spec header)",
+        "RACE-0-stock-sites-baseline.toml": "tier=operator by MECHANISM, NOT debt: a race lane (multiplayer plan test-and-harness section 4: every race lane is operator-tier and flies with `--tag race`), seam-only on `fresh-career`: `ListHandles kind=sites` reads the stock site baseline SITES-2 compares against (T-07). AUTHORED 2026-11-16; LIVE-PROVEN 2026-11-17 (`2026-11-17_0035`, first flight, PASS attempt 1, 46 s) and its measured values re-pinned from that flight's KSP.log; owed: one confirming flight of the re-pinned spec and its flight_efficiency.py reading",
         "WR-1-world-record-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: WF-1's twin for the repeatable world-record nodes (todo RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN, owner ruling 2026-10-26 pay once per career, earliest crossing wins) on `cs-career-new`: a committed Jumping Flea hop crosses the altitude and speed thresholds, a Rewind-to-Launch, a relaunch held on the pad past the committed crossings under a live recorder, the same hop again (both hops inside the one mission `record_climb_rewind`), then LedgerGroundTruth. AUTHORED 2026-10-27; LIVE-PROVEN on its second flight `2026-10-27_1723` (the first stalled on a mission bug, fixed); owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CS-3b-career-hire-upgrade.toml": "operator by the calibration discipline, NOT debt: scripted campaign stage 3's KSC half on `cs-career-contracts` (CS-3's produced save plus one seeded applicant): three contract accepts, the career's first hire, the Mission Control upgrade and basicRocketry research, each ledgered, then a same-craft relaunch whose rollout must be ledgered, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-26 (`2026-10-26_0426`); owed: the ordinary promotion call",
         "CS-4b-career-tracking-station.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 4's KSC half on `cs-career-orbit` (CS-4's produced save, stock-tree, not in the nightly instance set): the Tracking Station and the Launch Pad upgraded to level 1, generalRocketry and stability researched, each ledgered, then a same-craft Flea relaunch inside the duplicate-rollout window whose rollout must be ledgered as a new launch, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-27 (`2026-10-27_1957`, after a first flight red on a spec cost error); owed: the ordinary promotion call",
@@ -18216,8 +18216,9 @@ class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
     """`LoadGame playerLoad=true` (design-load-restores-the-save.md 4.1). Reads OUTSIDE
     harness/: the key, the one value and the refusal reason of the comment-stripped
     TestCommands/TestCommandLoadGame.cs; the dispatcher's parse before the recorder term;
-    and the applier's guarded onGameStatePostLoad fire after the load and the failed-route
-    check, before every route's scene request."""
+    and the applier's guarded call of LogIO/NewSaveStarter.cs's FirePlayerLoad (the one
+    onGameStatePostLoad fire, pinned inside FirePlayerLoad's own body) after the load and the failed-route check,
+    before every route's scene request."""
 
     def _source(self, *parts):
         path = os.path.join(PARSEK_SOURCE_DIR, *parts)
@@ -18225,6 +18226,20 @@ class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
                         "the C# LoadGame playerLoad tables moved; this mirror is vacuous: %s" % path)
         with open(path, encoding="utf-8-sig") as fh:
             return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def _brace_body(self, text, signature):
+        """The brace-matched body of the method declared by `signature`, braces included."""
+        self.assertIn(signature, text, "%s moved; this mirror is vacuous" % signature)
+        start = text.index("{", text.index(signature) + len(signature))
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+        self.fail("%s body is unbalanced" % signature)
 
     def test_the_key_value_and_reason_mirror_the_c_sharp(self):
         text = self._source("TestCommands", "TestCommandLoadGame.cs")
@@ -18257,14 +18272,21 @@ class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
         end = applier.index("FlightDriver.StartAndFocusVessel(game, idx);", start) + 1
         end = applier.index("SetExecResult(PendingVerdict, null, null);", end)
         body = applier[start:end]
-        fire = "GameEvents.onGameStatePostLoad.Fire(game.config);"
+        fire = "NewSaveStarter.FirePlayerLoad(game);"
         self.assertEqual(1, body.count(fire), "exactly one fire site in LoadGameImpl")
-        self.assertEqual(1, applier.count("onGameStatePostLoad.Fire("),
+        self.assertEqual(1, applier.count("NewSaveStarter.FirePlayerLoad("),
                          "no other fire site in the applier")
+        self.assertEqual(0, applier.count("onGameStatePostLoad.Fire("),
+                         "the applier fires through NewSaveStarter only")
+        starter = self._source("LogIO", "NewSaveStarter.cs")
+        post_load = "GameEvents.onGameStatePostLoad.Fire(game.config);"
+        fire_body = self._brace_body(starter, "internal static void FirePlayerLoad(Game game)")
+        self.assertEqual(1, fire_body.count(post_load), "the fire sits inside FirePlayerLoad")
+        self.assertEqual(1, starter.count(post_load), "and nowhere else in NewSaveStarter")
         guard = body.rindex("if (playerLoad)", 0, body.index(fire))
         # The fire sits inside the guard's own block (no block close at the guard's depth).
         self.assertNotIn(chr(10) + "            }", body[guard:body.index(fire)])
-        self.assertLess(body.index("GamePersistence.LoadGame(name, save, true, false)"), guard)
+        self.assertLess(body.index("NewSaveStarter.LoadSave(save, name)"), guard)
         self.assertLess(body.index("if (route == LoadRoute.Failed)"), guard)
         self.assertLess(body.index("game.flightState.activeVesselIdx = focusIdx;"), guard)
         for request in ("game.Start();", "FlightDriver.StartAndFocusVessel(game, idx);"):

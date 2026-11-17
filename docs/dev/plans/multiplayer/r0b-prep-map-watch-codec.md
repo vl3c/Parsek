@@ -320,6 +320,18 @@ section 9), and any change to what is written to disk.
 - **Size:** S. **Depends on:** P3-01, P2a-07 (order: same partial class, E.3.8). **PC:** no
   (the in-game test is re-run with P3-04).
 - **Risk:** low; same object, same calls, proven by the unchanged suite.
+- **As built (2026-11-17):** as specified. `GhostMapVessels.ResetForTesting` clears the set and
+  zeroes the depth; `GhostMapPresence.ResetForTesting` calls it in place of its two old lines,
+  and `ResetBetweenTestRuns` keeps its `ghostMapVesselPids.Clear()` through the forwarder (a
+  call on the same instance, not a static write). `GhostMapVesselsTests` holds 8 cells (same
+  instance, register / unregister and count, the test seam, nesting and the zero floor, the
+  presence entry points on the same depth, both resets, no log line). Pins: `lifetime_pins.toml`
+  drops the two `GhostMapPresence` keys; `layer_pins.toml` renames seven pairs
+  (`BackgroundRecorder`, `ChainTipStaleVessel`, `FlightRecorder`, `CrewReservationManager`,
+  `KerbalRosterFacade`, `GameStateRecorder`, `RecoveryDispatchScope` reached `GhostMapPresence`
+  only through the moved members, so the semantic graph's forwarder rule now lands them on
+  `GhostMapVessels`) with every count unchanged; `facts_pins.toml` unchanged (55 cross-type
+  static writes, 374 unreached, before and after).
 
 **P3-03 Owner record and a teardown that leaves other lanes' pids alone**
 - **Change:** in `GhostMapVessels.cs`, `internal readonly struct GhostMapVesselOwner` with two
@@ -349,6 +361,20 @@ section 9), and any change to what is written to disk.
 - **Size:** S. **Depends on:** P3-02. **PC:** no.
 - **Risk:** low; the only production behavior edge is a whole-set clear replaced by a
   per-pid filter over an empty dictionary.
+- **As built (2026-11-17):** as specified; `GhostMapVesselOwner` sits in `GhostMapVessels.cs`.
+  `UnregisterAllOwnTimeline` clears the set when `foreignOwners` is empty and otherwise keeps
+  `Pids.IntersectWith(foreignOwners.Keys)` (no removal while enumerating). Writers re-pointed:
+  `Register(.., OwnTimeline)` at `ProtoVesselLifecycle.cs:1770`, `OverlapInstances.cs:691` and the
+  test seam `RegisterGhostMapVesselPidForTesting` (`GhostMapPresence.cs:727`); `Unregister` at
+  `ProtoVesselLifecycle.cs:225`, `:779`, `:2027`, `OverlapInstances.cs:767` and the between-run
+  removal `GhostMapPresence.cs:1468`; `UnregisterAllOwnTimeline` at `ProtoVesselLifecycle.cs:353`.
+  Whole clears left: `GhostMapVessels.ResetForTesting` (now also clears `foreignOwners`) and
+  `ResetBetweenTestRuns` (`GhostMapPresence.cs:1537`, set only: it cannot reach the private
+  dictionary, so a foreign owner would outlive it; empty in single player, R3W-18 decides).
+  Test seams `RegisterForeignForTesting`, `TryGetForeignOwnerForTesting`,
+  `ForeignOwnerCountForTesting`. `GhostMapVesselsTests` gains 8 cells (16 in all). Pins:
+  `lifetime_pins.toml` and `layer_pins.toml` unchanged by their tools; `facts_pins.toml`
+  unchanged (55 cross-type static writes, 374 unreached).
 
 **P3-04 Move the ProtoVessel mechanics into `GhostMapVessels`**
 - **Change:** move, bodies verbatim apart from re-homing, from
@@ -638,8 +664,10 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
 **P6-04 `TryValidatePayload` decodes without a `Recording`**
 - **Change:** `TrajectorySidecarBinary.TryValidatePayload` (`TrajectorySidecarBinary.cs:180-200`)
   decodes into a scratch payload instead of `new Recording()`. It keeps the unconditional Warn for
-  dropped non-monotonic points (today `Read` emits it with the probe's id because the scratch
-  recording's id is empty) through one shared `LogDroppedNonMonotonic(string id, int n)`
+  dropped non-monotonic points (corrected 2026-11-17: before P6-04 that Warn carried the scratch
+  recording's own random id, because `new Recording()` initializes `RecordingId` to a fresh
+  GUID and `Read` stamps the probe's id only over an empty one; P6-04 gives it the probe's id)
+  through one shared `LogDroppedNonMonotonic(string id, int n)`
   helper that `Read` uses too. Uncalled-method ratchet (A1): both new call paths are
   production (`LogDroppedNonMonotonic` from `Read` and `TryValidatePayload`; `Decode`'s
   second caller is `TryValidatePayload`, called in production at
@@ -650,6 +678,34 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
 - **Registers:** facts re-pin (`Decode` now has a second production caller).
 - **Size:** S. **Depends on:** P6-03. **PC:** no.
 - **Risk:** low; the only output of this path is a bool and a reason string.
+- **As built:** `TryValidatePayload` decodes into `new RecordingTrajectoryPayload()` and then
+  calls `LogDroppedNonMonotonic(probe.RecordingId, Stats.DroppedNonMonotonicPoints)`; `Read`
+  calls the same helper with `rec.RecordingId` where it wrote the Warn inline. The helper is
+  `internal` (P6-05's summary calls it with the caller's id), returns at a count of 0, and
+  ignores `RecordingStore.SuppressLogging` as the inline Warn did. Return value, failure
+  reasons and exception classification are unchanged: the code `Read` ran after `Decode` on
+  the scratch recording (list assignment, field stamps, string formatting) could not throw.
+  Log change, for the one production caller `AreRecordingFilesCurrentAtPaths` (the save gate,
+  run up to twice per recording per `OnSave`): a validation no longer writes the Verbose
+  `ReadBinaryTrajectoryFile: recording=<random> ...` summary nor, for a sidecar the read-path
+  heal applies to, the Verbose `TryHealMalformedFlatFallbackTrajectory: recording=<random>
+  healed in memory only ... sidecarEpoch=0` line; its drop Warn now names the recording
+  (the probe's id, which the gate has already matched to the caller's) instead of a random
+  id. Every load-side line is unchanged: the cold load and every other caller reach `Read`,
+  not `TryValidatePayload`. The two harness specs that pin `ReadBinaryTrajectoryFile` (`QR-1`,
+  `ST-4`) pin the cold-load line by recording id and rebuilt-point count, which a validation
+  never printed (it logged a random id). The P6-01 manifest reads through
+  `TryProbeTrajectorySidecar` + `DeserializeTrajectorySidecar` and passes with the manifest
+  file untouched. `RecordingTrajectoryPayloadTests` pins the new lines on synthetic files
+  (flat, section-authoritative and heal shapes, each with one dropped point: exactly the
+  Warn with the probe's id; a clean file: no line; the Warn under `SuppressLogging` on both
+  paths; the save gate end to end: current, one Warn with the recording's id); run against
+  the P6-03 head the six new cells red with the random id and the extra Verbose lines.
+  Registers: no re-pin. `Decode` was already reached through `Read`, so a second caller moves
+  nothing: after a Debug build `ilanalysis.py --write-pins` changed only its date line plus
+  `RecordingOptimizer::MergeInto` in the complexity watch band (as on the P6-03 head; this
+  task does not touch it), 374 unreached as before, and `layers.py --write-pins` only its date
+  line, so neither file changed.
 
 **P6-05 A production entry to load a trajectory from a given path**
 - **Change:** `RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(string path, bool

@@ -584,7 +584,9 @@ namespace Parsek.Tests
             Assert.Single(fake.RecordingQueries);
         }
 
-        private sealed class FakeCatalog : IPlaybackCatalog
+        // Shared with ProductionAnchorWorldFrameResolverTests: one fake per port, so a
+        // member added to IPlaybackCatalog is implemented once.
+        internal sealed class FakeCatalog : IPlaybackCatalog
         {
             internal RecordingTree FocusTree;
             internal RecordingTree Pending;
@@ -607,6 +609,12 @@ namespace Parsek.Tests
                 FocusTreeQueries.Add(recordingId + "|" + treeId);
                 tree = FocusTree;
                 return tree != null;
+            }
+
+            // The resolver has no containment-only tree lookup; it never asks this.
+            public bool TryFindTreeHolding(string id, CatalogTreeOrder order, out RecordingTree tree)
+            {
+                throw new InvalidOperationException("TryFindTreeHolding is not the resolver's lookup");
             }
 
             public bool TryFindRecording(string id, CatalogRecordingScope scope, out Recording rec)

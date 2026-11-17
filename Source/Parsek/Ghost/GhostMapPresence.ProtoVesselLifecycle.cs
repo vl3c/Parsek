@@ -222,7 +222,7 @@ namespace Parsek
                 EndGhostTeardown();
             }
 
-            ghostMapVesselPids.Remove(ghostPid);
+            GhostMapVessels.Unregister(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
             ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
@@ -350,7 +350,7 @@ namespace Parsek
                 EndGhostTeardown();
             }
 
-            ghostMapVesselPids.Clear();
+            GhostMapVessels.UnregisterAllOwnTimeline();
             ghostsWithSuppressedIcon.Clear();
             ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
@@ -776,7 +776,7 @@ namespace Parsek
                 EndGhostTeardown();
             }
 
-            ghostMapVesselPids.Remove(ghostPid);
+            GhostMapVessels.Unregister(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
             ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
@@ -1767,7 +1767,7 @@ namespace Parsek
 
                 // PRE-REGISTER PID before Load — pv.Load fires onVesselCreate and guards
                 // must see this PID as a ghost vessel during the event cascade.
-                ghostMapVesselPids.Add(pv.persistentId);
+                GhostMapVessels.Register(pv.persistentId, GhostMapVesselOwner.OwnTimeline);
 
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
 
@@ -2024,7 +2024,7 @@ namespace Parsek
 
         private static void RemoveGhostProtoVessel(ProtoVessel pv, bool nullSafeFlightState)
         {
-            ghostMapVesselPids.Remove(pv.persistentId);
+            GhostMapVessels.Unregister(pv.persistentId);
             if (nullSafeFlightState)
                 HighLogic.CurrentGame?.flightState?.protoVessels?.Remove(pv);
             else
