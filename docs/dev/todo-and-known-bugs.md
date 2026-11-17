@@ -74,7 +74,7 @@ Not built, because no seam verb exists (proposals, not implemented):
 
 Done when each lane has flown once as a reading run and is re-pinned (count windows, the interim
 `BATCH_COMPLETE` split) or its red is filed.
-## SPAWN-TS-STACK-NO-DE-OVERLAP: two landed deliveries that end on one spot while the player is in the Tracking Station are spawned inside each other [FILED 2026-11-17 by the end-of-recording spawn audit (END-SPAWN-SCENE-LANES-2026-11-17), by code reading; lane `TSS-3-two-deliveries-same-spot-ts` authored to red on it, NEVER FLOWN. OPEN; medium (two vessels' colliders in one place on the first flight load of that spot)]
+## ~~SPAWN-TS-STACK-NO-DE-OVERLAP~~: two landed deliveries that end on one spot while the player is in the Tracking Station are spawned inside each other [FILED 2026-11-17 by the end-of-recording spawn audit (END-SPAWN-SCENE-LANES-2026-11-17), by code reading; lane `TSS-3-two-deliveries-same-spot-ts` authored to red on it, NEVER FLOWN. ~~done~~ 2026-11-17, branch `wip/spawnfix3`; NOT YET FLOWN (TSS-3 is its regression lane)]
 
 What the code does. The Space Center end spawn nudges a Landed / Splashed spawn clear of every
 existing same-body landed vessel, proto vessels included (`ParsekKSC.cs`, the `#duplicate-stack`
@@ -97,9 +97,25 @@ Lane. `TSS-3-two-deliveries-same-spot-ts` (injected preset `spawn-stack`: two co
 probes ending 20 s apart on one KSC grass point) crosses both ends at 100,000x in the Tracking
 Station and pins `Spawning vessel: ... nearest vessel=<D>m` with D >= 10 for both, then loads FLIGHT
 on the spot and forbids `Spawn-death detected`. Red today on the second probe's nearest-vessel
-distance (~0 m expected). Fix: call the same gather + de-overlap from the Tracking Station handoff
-(or from the shared end-of-recording spawn path, so far flight loads get it too), logged like the
-Space Center's line; re-pin TSS-3 to the new line in the same commit.
+distance (~0 m expected). The same gap held for an end spawn far from the player in flight
+(defect F of the 2026-11-17 placement audit): the vessels there are unloaded too.
+
+Fix (2026-11-17). The shared end-of-recording spawn (`VesselSpawner.SpawnOrRecoverIfTooClose`,
+called by the Tracking Station handoff and by every flight end spawn) now runs the Space Center's
+de-overlap before its collision check (`ApplyEndOfRecordingLandedDeOverlap`, gated by the pure
+`ShouldDeOverlapEndOfRecordingSpawn`: non-EVA, Landed or Splashed, not on the recorded terminal
+orbit). It gathers with `GatherExistingLandedVesselPositions(..., includeLoadedVessels: false)`:
+loaded vessels stay with the bounding-box check and the trajectory walkback as before, so a spawn
+next to the player behaves as it did, and the unloaded rest (every vessel in the Tracking Station,
+the far ones in flight, including a delivery spawned earlier in the same handoff pass) is kept
+15 m clear. The tree-sibling and earlier-tree exemptions are the gather's, so a placed-part
+cluster is not pulled apart. A nudged Landed spawn re-runs the underground floor at its new spot
+(`ClampAltitudeForLanded`); the Space Center block does not, and still keeps its own altitude.
+Logged `[Spawner] De-overlap for #N "<name>": nudged <M>m (site=end-of-recording, ...)` (Verbose
+`clear` otherwise), worded like the Space Center line so the EVA-6 / EVA-9 / EVA-10 forbidden
+nudge patterns cover both sites. TSS-3 re-pinned: no longer an expected red, its `nearest vessel`
+pins kept, plus the de-overlap line. Tests: `TipSpawnPlacementTests` (`EndOfRecordingDeOverlap_*`,
+`Wiring_EndOfRecordingSpawn_DeOverlapsAgainstUnloadedLandedVesselsBeforeTheCollisionCheck`).
 
 ## END-SPAWN-SCENE-LANES-2026-11-17: lanes for end-of-recording spawns in the Tracking Station and at the Space Center, and a placement check on the existing end-spawn lanes [FILED 2026-11-17 (the end-of-recording spawn audit). AUTHORED 2026-11-17, branch `wip/spawnlanes1`, harness and test-generator code only; NEVER FLOWN; OPEN for the first flights]
 
@@ -113,7 +129,7 @@ step each (loose interim batch pin, `INTERIM_PIN_IDS`):
 - `TSS-2-mun-orbit-end-ts` (scope 1b, `mun-park-kerbalx`): a 65 s Mun-orbit coast committed and
   rewound, its Orbiting end paid by the Tracking Station on the recorded terminal orbit.
 - `TSS-3-two-deliveries-same-spot-ts` (scope 1c, `gloops-airshow` + the new preset `spawn-stack`):
-  EXPECTED RED on SPAWN-TS-STACK-NO-DE-OVERLAP (above).
+  authored EXPECTED RED on SPAWN-TS-STACK-NO-DE-OVERLAP (above), now its regression lane (fixed).
 - `KSS-1-mun-lander-ksc-end-spawn` (scope 2a, B13's flight on `b2-lko-craft`): a Kerbin-launched
   Mun landing, rewound, its Landed-on-the-Mun end spawned at the Space Center (the live proof of
   KSC-END-SPAWN-SKIPS-OFF-KERBIN's fix).
@@ -141,15 +157,24 @@ Test-generator support: `RecordingBuilder.WithTerminalPosition` and `ScenarioWri
 preset `spawn-stack` (`SyntheticRecordingTests.InjectSpawnStack`, wired in `hlib.INJECTED_RECORDINGS`,
 `run.py` and `scripts/inject-recordings.ps1`).
 
-Proposal, not built (needs C#): `LeafVesselPlacement` checks a Landed / Splashed leaf by surface
-distance only (lat / lon, `MaxSurfaceDistanceMeters` 100), never its height above the ground, so a
-vessel buried or floating a few metres reads ok. Add a vertical
-verdict for a Landed / Splashed leaf: live altitude against `body.TerrainAltitude(lat, lon, true)`
-(PQS), bad when more than ~1 m below the terrain or more than ~5-10 m above it (Splashed: altitude
-near 0), counted in the summary as its own token so the existing pins stay valid.
+~~Proposal: a vertical verdict in `LeafVesselPlacement`~~ (built 2026-11-17, branch
+`wip/spawnfix3`, REPORT-ONLY). The cell checked a Landed / Splashed leaf by surface distance only,
+so a vessel buried or floating a few metres read ok. Each Landed / Splashed leaf now also logs
+`LeafPlacement height: rec=... terminal=... body=... altM=... surfaceM=... aboveM=...
+heightVerdict=ok|below-surface|above-surface|unsupported` (pure
+`LeafVesselPlacement.CompareHeight`: Landed against `body.TerrainAltitude(lat, lon, true)`,
+Splashed against sea level 0; bad below 1 m under or above 10 m over that surface), and one
+`LeafPlacement height summary: scene=... checked= ok= bad= unsupported=` line. Its own prefix and
+token: the pinned `LeafPlacement summary:` line, the `LeafPlacement: ... verdict=` rows and the
+cell's pass / fail are unchanged (no new `[InGameTest]`), and none of the 25 committed specs that
+run the cell has a pattern matching the new lines (checked by script). Caveats: the live altitude
+is the vessel's reference point, not its lowest part, and the terrain is PQS only (a vessel on the
+pad or a building reads high). To gate a lane on it, pin
+`LeafPlacement height: [^\r\n]*heightVerdict=(?!ok)` as forbidden after a reading run.
 
-First flights owed, in this order: TSS-1, TSS-2, KSS-2, TSS-3 (expected red), KSS-1 (a full B13
-flight), then re-fly the four changed lanes. Each is a reading run: pin what it measures.
+First flights owed, in this order: TSS-1, TSS-2, KSS-2, TSS-3 (no longer an expected red:
+SPAWN-TS-STACK-NO-DE-OVERLAP is fixed), KSS-1 (a full B13 flight), then re-fly the four changed
+lanes. Each is a reading run: pin what it measures, the new height lines included.
 
 ---
 

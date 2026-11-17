@@ -27,11 +27,17 @@ namespace Parsek
         /// ground part, a vessel of an earlier committed tree already standing there when it was
         /// recorded (<see cref="CoexistingTreeSiblingSpawn"/>). Only same-body surface
         /// vessels are returned — orbital/flying vessels do not constrain a ground footprint.
+        ///
+        /// <paramref name="includeLoadedVessels"/> false leaves out vessels loaded into
+        /// physics: the end-of-recording spawn keeps those with its bounding-box check and
+        /// trajectory walkback, and de-overlaps only against the unloaded rest (the Tracking
+        /// Station, and flight spawns far from the player).
         /// </summary>
         internal static List<(double lat, double lon)> GatherExistingLandedVesselPositions(
             CelestialBody body, uint excludePid, Recording spawningRecording = null,
             double spawnLat = double.NaN, double spawnLon = double.NaN,
-            double exemptionRangeMeters = double.NaN)
+            double exemptionRangeMeters = double.NaN,
+            bool includeLoadedVessels = true)
         {
             var result = new List<(double lat, double lon)>();
             if (body == null)
@@ -42,6 +48,7 @@ namespace Parsek
             int siblingCount = 0;
             int otherTreeCount = 0;
             int unresolvedFarCount = 0;
+            int skippedLoadedCount = 0;
             try
             {
                 var vessels = FlightGlobals.Vessels;
@@ -52,6 +59,7 @@ namespace Parsek
                         Vessel v = vessels[i];
                         if (v == null) continue;
                         if (v.persistentId == excludePid) continue;
+                        if (!includeLoadedVessels && v.loaded) { skippedLoadedCount++; continue; }
                         if (v.mainBody != body) continue;
                         if (!(v.Landed || v.Splashed)) continue;
                         if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
@@ -110,7 +118,9 @@ namespace Parsek
             ParsekLog.Verbose("Spawner",
                 $"GatherExistingLandedVesselPositions: body={body.name} excludePid={excludePid} " +
                 $"loaded={loadedCount} proto={protoCount} coexistingTreeSiblings={siblingCount} otherTreeStanding={otherTreeCount} " +
-                $"beyondExemptionRange={unresolvedFarCount} total={result.Count}");
+                $"beyondExemptionRange={unresolvedFarCount} " +
+                (includeLoadedVessels ? "" : $"skippedLoaded={skippedLoadedCount} ") +
+                $"total={result.Count}");
             return result;
         }
 
@@ -384,6 +394,14 @@ namespace Parsek
                 }
             }
 
+            // Landed de-overlap against UNLOADED same-body landed vessels (todo
+            // SPAWN-TS-STACK-NO-DE-OVERLAP): the bounding-box check below sees loaded vessels
+            // only, so in the Tracking Station and far from the player in flight two
+            // deliveries ending on one spot were placed inside each other. The Space Center
+            // spawn's de-overlap, with loaded vessels left to the check and walkback below.
+            if (ShouldDeOverlapEndOfRecordingSpawn(isEva, useRecordedTerminalOrbit, rec.TerminalStateValue))
+                ApplyEndOfRecordingLandedDeOverlap(rec, index, body, ref spawnLat, ref spawnLon, ref spawnAlt);
+
             Vector3d spawnPos = body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt);
 
             // T57: resolve parent vessel PID for EVA collision exemption.
@@ -604,6 +622,96 @@ namespace Parsek
                 // transient spawn copies are stripped separately before ProtoVessel load.
                 StripDeliberatePositionOverrideStampFromRecording(rec, logContext);
             }
+        }
+
+        /// <summary>
+        /// Whether an end-of-recording spawn runs the landed de-overlap: a non-EVA spawn that
+        /// ends Landed or Splashed at its recorded endpoint. EVA kerbals stand beside their
+        /// vessel by design, and a recorded-terminal-orbit spawn is not a ground footprint.
+        /// The same rule as the Space Center end spawn.
+        /// </summary>
+        internal static bool ShouldDeOverlapEndOfRecordingSpawn(
+            bool isEva, bool useRecordedTerminalOrbit, TerminalState? terminalState)
+        {
+            return !isEva && !useRecordedTerminalOrbit && IsSurfaceTerminal(terminalState);
+        }
+
+        /// <summary>
+        /// Nudges a landed or splashed end-of-recording spawn clear of every unloaded
+        /// same-body landed vessel (<see cref="SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn"/>,
+        /// <see cref="SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters"/>), the Space
+        /// Center's de-overlap with loaded vessels left out (they stay with
+        /// <see cref="CheckSpawnCollisions"/>). Exemptions are the gather's: the recording's own
+        /// tree siblings that stood beside it, and the earlier-tree vessel an EVA kerbal or
+        /// placed part was recorded next to. A nudged Landed spawn re-runs the underground
+        /// floor at its new spot so a slope cannot bury it; Splashed stays at sea level.
+        /// </summary>
+        private static void ApplyEndOfRecordingLandedDeOverlap(
+            Recording rec, int index, CelestialBody body,
+            ref double spawnLat, ref double spawnLon, ref double spawnAlt)
+        {
+            // excludePid 0: the craft-baked VesselPersistentId is shared by every delivery of
+            // the same craft, so excluding it would drop the very vessels to de-overlap from.
+            var existingLanded = GatherExistingLandedVesselPositions(
+                body, 0u, rec, spawnLat, spawnLon,
+                SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters,
+                includeLoadedVessels: false);
+            var deOverlap = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
+                spawnLat,
+                spawnLon,
+                existingLanded,
+                SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters,
+                body.Radius);
+            // Rate-limited per recording: a spawn the bounding-box check holds re-runs this
+            // every frame until it clears or gives up.
+            string rateKey = "eor-de-overlap|" + index.ToString(CultureInfo.InvariantCulture)
+                + "|" + (rec.RecordingId ?? rec.VesselName);
+            if (!deOverlap.Nudged)
+            {
+                ParsekLog.VerboseRateLimited("Spawner", rateKey,
+                    FormatEndOfRecordingDeOverlapLine(index, rec.VesselName, deOverlap,
+                        existingLanded.Count, spawnLat, spawnLon, spawnAlt, spawnAlt));
+                return;
+            }
+
+            double nudgedAlt = spawnAlt;
+            if (rec.TerminalStateValue == TerminalState.Landed)
+                nudgedAlt = ClampAltitudeForLanded(spawnAlt,
+                    body.TerrainAltitude(deOverlap.Latitude, deOverlap.Longitude),
+                    index, rec.VesselName);
+            ParsekLog.InfoRateLimited("Spawner", rateKey,
+                FormatEndOfRecordingDeOverlapLine(index, rec.VesselName, deOverlap,
+                    existingLanded.Count, spawnLat, spawnLon, spawnAlt, nudgedAlt));
+            spawnLat = deOverlap.Latitude;
+            spawnLon = deOverlap.Longitude;
+            spawnAlt = nudgedAlt;
+        }
+
+        /// <summary>
+        /// The end-of-recording de-overlap line, worded like the Space Center's
+        /// (<c>De-overlap for #N "name": nudged ...</c>) so the lanes that forbid a nudge of a
+        /// cluster member cover both spawn sites.
+        /// </summary>
+        internal static string FormatEndOfRecordingDeOverlapLine(
+            int index, string vesselName, SpawnCollisionDetector.DeOverlapResult deOverlap,
+            int existingCount, double fromLat, double fromLon, double fromAlt, double toAlt)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string min = SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters.ToString("F0", ic);
+            if (!deOverlap.Nudged)
+            {
+                return $"De-overlap for #{index} \"{vesselName}\": clear " +
+                    $"(site=end-of-recording, existing unloaded landed={existingCount}, " +
+                    $"nearest={deOverlap.NearestBlockerMeters.ToString("F1", ic)}m >= min={min}m)";
+            }
+            return $"De-overlap for #{index} \"{vesselName}\": " +
+                $"nudged {deOverlap.NudgeMeters.ToString("F1", ic)}m " +
+                $"(site=end-of-recording, existing unloaded landed={existingCount}, " +
+                $"nearest now={deOverlap.NearestBlockerMeters.ToString("F1", ic)}m, min={min}m" +
+                (deOverlap.Exhausted ? ", spiral-exhausted" : "") + ") " +
+                $"lat {fromLat.ToString("F6", ic)}->{deOverlap.Latitude.ToString("F6", ic)} " +
+                $"lon {fromLon.ToString("F6", ic)}->{deOverlap.Longitude.ToString("F6", ic)} " +
+                $"alt {fromAlt.ToString("F1", ic)}->{toAlt.ToString("F1", ic)}";
         }
 
         private static void ApplyResolvedSpawnStateOverrides(

@@ -23,6 +23,12 @@ namespace Parsek.InGameTests
     /// carrying one recording's spawn pid fail. Zero compared pairs skip, so a lane that pins
     /// <c>passed=1</c> reds when nothing was there to compare.</para>
     ///
+    /// <para>A landed or splashed leaf also gets a REPORT-ONLY vertical reading
+    /// (<see cref="LeafVesselPlacement.CompareHeight"/>): its own <c>LeafPlacement height:</c>
+    /// line with a <c>heightVerdict=</c> token and a <c>LeafPlacement height summary:</c> line.
+    /// It never changes the pinned summary or the cell's pass / fail; a lane gates on it by
+    /// pinning those lines.</para>
+    ///
     /// <para>A Parsek <c>TimeJump</c> (<see cref="TimeJumpManager"/>) epoch-shifts every orbit
     /// so nothing moves while the clock jumps, which by design leaves an orbiting leaf one
     /// jump span behind its recorded phase; a lane that runs this cell must move the clock
@@ -54,6 +60,7 @@ namespace Parsek.InGameTests
             double ut = Planetarium.GetUniversalTime();
 
             int compared = 0, ok = 0, bad = 0, absent = 0, duplicate = 0, unsupported = 0;
+            int heightChecked = 0, heightOk = 0, heightBad = 0, heightUnsupported = 0;
             var bodies = new SortedSet<string>(System.StringComparer.Ordinal);
             var failures = new List<string>();
 
@@ -91,6 +98,7 @@ namespace Parsek.InGameTests
                 }
 
                 string line;
+                string heightLine = null;
                 bool pairOk;
                 string recordedBody;
                 if (ts == TerminalState.Orbiting)
@@ -157,11 +165,26 @@ namespace Parsek.InGameTests
                     pairOk = verdict.Ok;
                     line = LeafVesselPlacement.FormatSurfaceLine(rec.RecordingId, rec.VesselName, pid,
                         recordedBody, body.name, verdict);
+
+                    // Report-only vertical check: its own line and summary, never the pass/fail.
+                    LeafVesselPlacement.HeightVerdict height = LeafVesselPlacement.CompareHeight(
+                        ts, live.altitude, body.TerrainAltitude(live.latitude, live.longitude, true));
+                    heightLine = LeafVesselPlacement.FormatHeightLine(rec.RecordingId, rec.VesselName,
+                        pid, body.name, ts, live.altitude, height);
+                    if (height.Reason == "unsupported") heightUnsupported++;
+                    else
+                    {
+                        heightChecked++;
+                        if (height.Ok) heightOk++;
+                        else heightBad++;
+                    }
                 }
 
                 compared++;
                 bodies.Add(recordedBody);
                 ParsekLog.Info(Tag, line);
+                if (heightLine != null)
+                    ParsekLog.Info(Tag, heightLine);
                 if (pairOk)
                 {
                     ok++;
@@ -175,6 +198,8 @@ namespace Parsek.InGameTests
 
             ParsekLog.Info(Tag, LeafVesselPlacement.FormatSummary(scene.ToString(), compared, ok, bad,
                 absent, duplicate, unsupported, string.Join(",", new List<string>(bodies).ToArray())));
+            ParsekLog.Info(Tag, LeafVesselPlacement.FormatHeightSummary(scene.ToString(),
+                heightChecked, heightOk, heightBad, heightUnsupported));
 
             if (failures.Count > 0)
             {

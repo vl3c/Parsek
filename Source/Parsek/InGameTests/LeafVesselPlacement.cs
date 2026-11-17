@@ -29,6 +29,15 @@ namespace Parsek.InGameTests
         internal const double MaxMeanLongitudeDeg = 1.0;
         internal const double MaxSurfaceDistanceMeters = 100.0;
 
+        /// <summary>A landed or splashed leaf more than this far below its surface reads
+        /// <c>below-surface</c> (buried, or sunk under the water).</summary>
+        internal const double MaxBelowSurfaceMeters = 1.0;
+
+        /// <summary>A landed or splashed leaf more than this far above its surface reads
+        /// <c>above-surface</c> (left hanging in the air). Generous on purpose: the live
+        /// altitude is the vessel's own reference point, not its lowest part.</summary>
+        internal const double MaxAboveSurfaceMeters = 10.0;
+
         /// <summary>LAN is only defined for an inclined orbit; below this both sides skip it.</summary>
         internal const double LanDefinedMinInclinationDeg = 1.0;
 
@@ -67,6 +76,16 @@ namespace Parsek.InGameTests
             public bool Ok;
             public string Reason;
             public double DistanceMeters;
+        }
+
+        internal struct HeightVerdict
+        {
+            public bool Ok;
+            public string Reason;
+            /// <summary>The surface the leaf should rest on: terrain for Landed, sea level for Splashed.</summary>
+            public double SurfaceMeters;
+            /// <summary>Live altitude minus <see cref="SurfaceMeters"/>; negative is below it.</summary>
+            public double AboveSurfaceMeters;
         }
 
         /// <summary>Folds an angle difference into (-180, 180].</summary>
@@ -168,6 +187,45 @@ namespace Parsek.InGameTests
             return v;
         }
 
+        /// <summary>
+        /// The vertical half of a landed or splashed leaf's placement: a Landed leaf against the
+        /// terrain under it (<c>CelestialBody.TerrainAltitude(lat, lon, true)</c>, negative on a
+        /// sea floor), a Splashed leaf against sea level (0). Bad when more than
+        /// <see cref="MaxBelowSurfaceMeters"/> below that surface or more than
+        /// <see cref="MaxAboveSurfaceMeters"/> above it. The terrain is PQS only, so a vessel
+        /// standing on a building, the launch pad or the island runway reads high by the
+        /// structure's height.
+        /// </summary>
+        internal static HeightVerdict CompareHeight(TerminalState terminal, double liveAltitude,
+            double terrainAltitude)
+        {
+            var v = new HeightVerdict();
+            if (terminal == TerminalState.Landed)
+                v.SurfaceMeters = terrainAltitude;
+            else if (terminal == TerminalState.Splashed)
+                v.SurfaceMeters = 0.0;
+            else
+            {
+                v.Reason = "unsupported";
+                v.SurfaceMeters = double.NaN;
+                v.AboveSurfaceMeters = double.NaN;
+                return v;
+            }
+            v.AboveSurfaceMeters = liveAltitude - v.SurfaceMeters;
+            if (double.IsNaN(v.AboveSurfaceMeters) || double.IsInfinity(v.AboveSurfaceMeters))
+                v.Reason = "unsupported";
+            else if (v.AboveSurfaceMeters < -MaxBelowSurfaceMeters)
+                v.Reason = "below-surface";
+            else if (v.AboveSurfaceMeters > MaxAboveSurfaceMeters)
+                v.Reason = "above-surface";
+            else
+            {
+                v.Ok = true;
+                v.Reason = "ok";
+            }
+            return v;
+        }
+
         internal static string FormatOrbitLine(string recordingId, string vesselName, uint pid,
             string recordedBody, string liveBody, OrbitVerdict v)
         {
@@ -187,6 +245,28 @@ namespace Parsek.InGameTests
                 "LeafPlacement: rec={0} vessel='{1}' pid={2} kind=surface body={3} liveBody={4} "
                 + "distM={5:F1} verdict={6}",
                 recordingId, vesselName, pid, recordedBody, liveBody, v.DistanceMeters, v.Reason);
+        }
+
+        /// <summary>The per-leaf vertical line. Its own prefix and its own token
+        /// (<c>heightVerdict=</c>), so it never matches a lane's <c>LeafPlacement: ... verdict=</c>
+        /// pattern and stays report-only until a lane pins it.</summary>
+        internal static string FormatHeightLine(string recordingId, string vesselName, uint pid,
+            string body, TerminalState terminal, double liveAltitude, HeightVerdict v)
+        {
+            return string.Format(IC,
+                "LeafPlacement height: rec={0} vessel='{1}' pid={2} terminal={3} body={4} "
+                + "altM={5:F1} surfaceM={6:F1} aboveM={7:F1} heightVerdict={8}",
+                recordingId, vesselName, pid, terminal, body,
+                liveAltitude, v.SurfaceMeters, v.AboveSurfaceMeters, v.Reason);
+        }
+
+        /// <summary>The vertical summary, a line of its own beside <see cref="FormatSummary"/>.</summary>
+        internal static string FormatHeightSummary(string scene, int checkedCount, int ok, int bad,
+            int unsupported)
+        {
+            return string.Format(IC,
+                "LeafPlacement height summary: scene={0} checked={1} ok={2} bad={3} unsupported={4}",
+                scene, checkedCount, ok, bad, unsupported);
         }
 
         /// <summary>The one summary line the lanes pin. <paramref name="bodies"/> is the

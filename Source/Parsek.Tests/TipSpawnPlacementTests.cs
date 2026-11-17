@@ -447,6 +447,108 @@ namespace Parsek.Tests
                 body.Replace("\r", ""));
         }
 
+        // ---- landed de-overlap on the end-of-recording spawn (SPAWN-TS-STACK-NO-DE-OVERLAP) ----
+
+        [Fact]
+        public void EndOfRecordingDeOverlap_OnlyForANonEvaSurfaceEndAtItsEndpoint()
+        {
+            Assert.True(VesselSpawner.ShouldDeOverlapEndOfRecordingSpawn(false, false, TerminalState.Landed));
+            Assert.True(VesselSpawner.ShouldDeOverlapEndOfRecordingSpawn(false, false, TerminalState.Splashed));
+            Assert.False(VesselSpawner.ShouldDeOverlapEndOfRecordingSpawn(true, false, TerminalState.Landed));
+            Assert.False(VesselSpawner.ShouldDeOverlapEndOfRecordingSpawn(false, true, TerminalState.Landed));
+            Assert.False(VesselSpawner.ShouldDeOverlapEndOfRecordingSpawn(false, false, TerminalState.Orbiting));
+            Assert.False(VesselSpawner.ShouldDeOverlapEndOfRecordingSpawn(false, false, null));
+        }
+
+        [Fact]
+        public void EndOfRecordingDeOverlap_SecondDeliveryOnOneSpot_IsPlacedClear()
+        {
+            // TSS-3's spot: the first delivery already stands there as an unloaded proto.
+            var existing = new List<(double lat, double lon)> { (-0.1000, -74.8300) };
+            var result = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
+                -0.1000, -74.8300, existing,
+                SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters, R);
+
+            Assert.True(result.Nudged);
+            Assert.False(result.Exhausted);
+            Assert.True(result.NearestBlockerMeters >= 10.0,
+                "nearest after the nudge was " + result.NearestBlockerMeters + " m");
+        }
+
+        [Fact]
+        public void EndOfRecordingDeOverlapLine_IsInvariantAndMatchesTheLanesNudgePattern()
+        {
+            var prior = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                var nudged = new SpawnCollisionDetector.DeOverlapResult
+                {
+                    Latitude = -0.099865, Longitude = -74.83, Nudged = true,
+                    NudgeMeters = 15.0, NearestBlockerMeters = 15.0,
+                };
+                string line = VesselSpawner.FormatEndOfRecordingDeOverlapLine(
+                    7, "Stack Probe B", nudged, 1, -0.1, -74.83, 66.0, 67.5);
+                Assert.Contains("De-overlap for #7 \"Stack Probe B\": nudged 15.0m", line);
+                Assert.Contains("site=end-of-recording, existing unloaded landed=1", line);
+                Assert.Contains("lat -0.100000->-0.099865", line);
+                Assert.Contains("alt 66.0->67.5", line);
+                // The forbidden-nudge pattern EVA-6 / EVA-9 / EVA-10 pin covers this site too.
+                Assert.Matches("De-overlap for #[0-9]+ \\\"Stack Probe B\\\": nudged", line);
+
+                var clear = new SpawnCollisionDetector.DeOverlapResult
+                {
+                    Latitude = -0.1, Longitude = -74.83, NearestBlockerMeters = 42.2,
+                };
+                string clearLine = VesselSpawner.FormatEndOfRecordingDeOverlapLine(
+                    7, "Stack Probe A", clear, 0, -0.1, -74.83, 66.0, 66.0);
+                Assert.Contains("De-overlap for #7 \"Stack Probe A\": clear", clearLine);
+                Assert.Contains("nearest=42.2m >= min=15m", clearLine);
+                Assert.DoesNotContain("nudged", clearLine);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prior;
+            }
+        }
+
+        [Fact]
+        public void Wiring_EndOfRecordingSpawn_DeOverlapsAgainstUnloadedLandedVesselsBeforeTheCollisionCheck()
+        {
+            string eor = StripLineComments(File.ReadAllText(
+                ParsekSource("Controllers", "VesselSpawner.EndOfRecording.cs"))).Replace("\r", "");
+            string spawn = ExtractMethodBody(eor,
+                "public static void SpawnOrRecoverIfTooClose(\n            Recording rec,");
+            int orbit = spawn.IndexOf("TryResolveRecordedTerminalOrbitSpawnState(", StringComparison.Ordinal);
+            int decide = spawn.IndexOf(
+                "ShouldDeOverlapEndOfRecordingSpawn(isEva, useRecordedTerminalOrbit, rec.TerminalStateValue)",
+                StringComparison.Ordinal);
+            int apply = spawn.IndexOf(
+                "ApplyEndOfRecordingLandedDeOverlap(rec, index, body, ref spawnLat, ref spawnLon, ref spawnAlt)",
+                StringComparison.Ordinal);
+            int pos = spawn.IndexOf("body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt)", StringComparison.Ordinal);
+            int check = spawn.IndexOf("CheckSpawnCollisions(", StringComparison.Ordinal);
+            Assert.True(orbit >= 0 && decide >= 0 && apply >= 0 && pos >= 0 && check >= 0);
+            Assert.True(orbit < decide && decide < apply && apply < pos && pos < check,
+                "the de-overlap must run after the endpoint is resolved and before the spawn position and collision check");
+
+            string helper = ExtractMethodBody(eor, "private static void ApplyEndOfRecordingLandedDeOverlap(");
+            Assert.Contains("GatherExistingLandedVesselPositions(", helper);
+            Assert.Contains("includeLoadedVessels: false", helper);
+            Assert.Contains("SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(", helper);
+            Assert.Contains("ClampAltitudeForLanded(", helper);
+
+            string gather = ExtractMethodBody(eor,
+                "internal static List<(double lat, double lon)> GatherExistingLandedVesselPositions(");
+            Assert.Contains("if (!includeLoadedVessels && v.loaded)", gather);
+
+            // The Space Center spawn keeps every landed vessel, loaded ones included.
+            string ksc = StripLineComments(File.ReadAllText(ParsekSource("Controllers", "ParsekKSC.cs")));
+            Assert.Contains("VesselSpawner.GatherExistingLandedVesselPositions(", ksc);
+            Assert.DoesNotContain("includeLoadedVessels", ksc);
+        }
+
         // ---- source helpers ----
 
         private static string ParsekSource(string folder, string file)

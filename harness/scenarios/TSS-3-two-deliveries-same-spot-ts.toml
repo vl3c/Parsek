@@ -3,30 +3,30 @@ id = "TSS-3-two-deliveries-same-spot-ts"
 tier = "operator"
 # =============================================================================
 # TSS-3: TWO LANDED DELIVERIES THAT END ON THE SAME SPOT, BOTH CROSSED AT MAX WARP IN THE
-# TRACKING STATION. EXPECTED RED: THIS LANE EXISTS TO EXPOSE A KNOWN DEFECT.
+# TRACKING STATION. THE REGRESSION LANE FOR A FIXED DEFECT.
 #
 # Authored 2026-11-17 for the end-of-recording spawn audit (todo
 # END-SPAWN-SCENE-LANES-2026-11-17, scope 1c). NEVER FLOWN (tag `pending-flight`).
 #
-# THE DEFECT (todo SPAWN-TS-STACK-NO-DE-OVERLAP, code-read CONFIRMED): the Space Center
-# end spawn nudges a landed spawn away from an existing landed vessel
-# (`VesselSpawner.ComputeDeOverlappedLandedSpawn`, whose only caller is ParsekKSC), but the
-# Tracking Station handoff has no such guard, and its collision check
+# THE DEFECT (todo SPAWN-TS-STACK-NO-DE-OVERLAP, FIXED 2026-11-17, branch `wip/spawnfix3`):
+# the Space Center end spawn nudged a landed spawn away from an existing landed vessel
+# (`SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn`), but the Tracking Station
+# handoff had no such guard, and its collision check
 # (`SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels`, a Physics.OverlapBox) sees
-# only LOADED vessels, of which the Tracking Station has none. So two deliveries that end
-# on one spot while the player sits in the Tracking Station are placed inside each other,
-# and the first FLIGHT load of that spot puts two vessels' colliders in one place.
-# THIS LANE REDS UNTIL THE TRACKING STATION SEPARATES THEM (or defers one). Its red tokens:
+# only LOADED vessels, of which the Tracking Station has none. So two deliveries that ended
+# on one spot while the player sat in the Tracking Station were placed inside each other.
+# THE FIX: the shared end-of-recording spawn (`VesselSpawner.SpawnOrRecoverIfTooClose`,
+# which the handoff calls) now runs the same de-overlap against every UNLOADED same-body
+# landed vessel before its collision check (`ApplyEndOfRecordingLandedDeOverlap`, logged
+# `De-overlap for #N "<name>": nudged <M>m (site=end-of-recording, ...`). The tokens:
 #   * the two `Spawning vessel: "<name>" ... nearest vessel=<D>m` lines
 #     (VesselSpawner.EndOfRecording.cs LogSpawnContext; D is the distance from the
 #     RESOLVED spawn position to the nearest vessel on Kerbin, unloaded ones included, via
-#     GetWorldPos3D). The later of the two reads ~0 m today; both are pinned >= 10 m.
+#     GetWorldPos3D). Both are pinned >= 10 m (the de-overlap keeps 15 m).
+#   * the de-overlap line of the later probe (whichever of the two spawns second).
 #   * the FLIGHT visit afterwards: both probes at their terminal place (LeafVesselPlacement
-#     compared=2 ok=2, within 100 m) with no `Spawn-death detected` (ParsekPlaybackPolicy.cs) while two
-#     sets of colliders load on one spot.
-# A fix that separates them by a different mechanism (a de-overlap line of its own, a
-# deferral) re-pins these tokens in the same commit; a fix that only defers one keeps the
-# nearest-vessel pin on the deferred one's eventual spawn.
+#     compared=2 ok=2, within 100 m) with no `Spawn-death detected` (ParsekPlaybackPolicy.cs)
+#     and no `LeafPlacement:` row whose verdict is not ok.
 #
 # HOST: `gloops-airshow` (CN-1T / RSC-1's) plus the synthetic preset `spawn-stack`
 # (SyntheticRecordingTests.SpawnStackRecording): two committed single-recording trees,
@@ -46,21 +46,20 @@ tier = "operator"
 # This is also the lane that crosses a LANDED end at 100,000x (TSS-1's live rover end is
 # crossed during the warp's climb).
 #
-# FIRST-FLIGHT RISKS: the expected red itself (read which tokens red and how far apart the
-# two probes really are); whether the handoff spawns both in one tick or two (either
-# stacks); what the FLIGHT load does to two overlapping probes (explode, push apart or
-# nothing: read, the pins say what a fixed build must show).
+# FIRST-FLIGHT RISKS: whether the handoff spawns both in one tick or two (the second sees
+# the first's proto vessel either way); how far apart the two probes really are (read the
+# nearest-vessel distances and the de-overlap line).
 #
 # FAST-LANE CHECKLIST (harness/README.md): (1) reuse: a synthetic host, no flight to fly;
 # SS-1's spot, RSC-1's host. (2) one explicit-UT WarpToUT. (3) no dwell keys. (4) no
 # burns. (5) b5 coasts do not apply. (6) every verb refuses in one frame. (7) count exact
-# (2, injected). (8) tier operator until flown and until the defect is fixed. (9)
+# (2, injected). (8) tier operator until flown. (9)
 # flight_efficiency.py owed after the first green flight.
 # =============================================================================
-description = "EXPECTED RED until todo SPAWN-TS-STACK-NO-DE-OVERLAP is fixed; NEVER FLOWN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1c): gloops-airshow plus the spawn-stack preset (two committed Landed probes ending 20 s apart on the same KSC grass point, 30,000 s after the save). Boots into the Tracking Station, warps uncapped to 100,000x across both ends, and pins that the two spawns are placed at least 10 m apart (the spawn-context nearest-vessel distance), then LeafVesselPlacement in FLIGHT on the spot with both probes loaded and no spawn-death."
+description = "Regression lane for todo SPAWN-TS-STACK-NO-DE-OVERLAP (fixed 2026-11-17); NEVER FLOWN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1c): gloops-airshow plus the spawn-stack preset (two committed Landed probes ending 20 s apart on the same KSC grass point, 30,000 s after the save). Boots into the Tracking Station, warps uncapped to 100,000x across both ends, and pins that the two spawns are placed at least 10 m apart (the spawn-context nearest-vessel distance), then LeafVesselPlacement in FLIGHT on the spot with both probes loaded and no spawn-death."
 instanceProfile = "stock-minimal"
 tags = ["TSS-3", "spawn", "end-spawn", "tracking-station", "ts-handoff", "warp", "max-warp",
-        "spawn-overlap", "expected-red", "leaf-placement", "ingame-batch", "kerbin",
+        "spawn-overlap", "landed-de-overlap", "leaf-placement", "ingame-batch", "kerbin",
         "sandbox", "pending-flight"]
 
 [fixture]
@@ -124,9 +123,12 @@ required = [
   "Tracking-station handoff spawned #[0-9]+ \"Stack Probe A\" pid=[0-9]+ [\\s\\S]*?warptout complete reachedUT=[0-9.]+ ut=200000 rate=[0-9.]+ maxRate=100000 ",
   "Tracking-station handoff spawned #[0-9]+ \"Stack Probe B\" pid=[0-9]+ [\\s\\S]*?warptout complete reachedUT=[0-9.]+ ut=200000 ",
   # THE DEFECT TOKENS (header): each probe's resolved spawn spot is at least 10 m from the
-  # nearest vessel on Kerbin, so the later one is not inside the earlier one. Red today.
+  # nearest vessel on Kerbin, so the later one is not inside the earlier one.
   "\\[Spawner\\] Spawning vessel: \"Stack Probe A\" sit=[A-Z_]+, nearest vessel=[1-9][0-9]+m",
   "\\[Spawner\\] Spawning vessel: \"Stack Probe B\" sit=[A-Z_]+, nearest vessel=[1-9][0-9]+m",
+  # THE FIX (VesselSpawner.EndOfRecording.cs FormatEndOfRecordingDeOverlapLine): the later
+  # probe is nudged clear of the earlier one's unloaded proto vessel.
+  "\\[Spawner\\] De-overlap for #[0-9]+ \\\"Stack Probe [AB]\\\": nudged [0-9.]+m \\(site=end-of-recording, existing unloaded landed=[1-9]",
   "MISSIONMARK label=tss3-spawned-2-Stack Probe [AB]-true-[0-9]+-Stack Probe [AB]-true-[0-9]+-end ",
   # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs, in FLIGHT on the spot
   # (both probes loaded, physics running).

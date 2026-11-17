@@ -14,6 +14,10 @@ Not released yet.
   Klaw grab with a rewind, a release, rock mining onto a supply route, a Re-Fly across a grab and
   a comet grab.
 
+- **Dev: the leaf placement check also reads height.** For a vessel that ended landed or at sea
+  it now reports whether the vessel sits buried, on the ground or water, or hanging in the air,
+  on a line of its own that does not change the check's result yet.
+
 ### Changed
 
 - **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
@@ -53,6 +57,10 @@ Not released yet.
 - **A Re-Fly no longer spawns end vessels of unrelated flights.** During a Re-Fly, recordings
   of other missions from before the save could spawn their vessels again. Only the flight being
   flown again is treated as replayed now. (REFLY-LIFTS-HISTORICAL-GATE-FOR-ALL)
+- **Two vessels that end on one spot are no longer created inside each other.** When two
+  deliveries land on the same spot while you are in the Tracking Station or far away in flight,
+  the later one is now set down 15 m clear, as the Space Center already did, instead of in the
+  same place where they could explode on the next load. (SPAWN-TS-STACK-NO-DE-OVERLAP)
 - **A vessel that ends away from Kerbin appears when you wait at the Space Center.** A landing
   or splashdown on another body, recorded from there, now appears when you time-warp past its
   end at the Space Center, not only on the next Tracking Station or flight visit. Like those
