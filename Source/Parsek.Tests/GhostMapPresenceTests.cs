@@ -813,9 +813,9 @@ namespace Parsek.Tests
             var vesselNode = new ConfigNode("VESSEL");
             vesselNode.AddNode("ACTIONGROUPS");
 
-            // The production insertion, called the way BuildAndLoadGhostProtoVesselCore
+            // The production insertion, called the way GhostMapVessels.TryLoadGhostProtoVessel
             // calls it - not a copy of it written in the test body.
-            GhostMapPresence.EnsureDefensiveVesselNodes(vesselNode);
+            GhostMapVessels.EnsureDefensiveVesselNodes(vesselNode);
 
             Assert.NotNull(vesselNode.GetNode("ACTIONGROUPS"));
             Assert.NotNull(vesselNode.GetNode("FLIGHTPLAN"));

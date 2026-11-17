@@ -27,7 +27,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
             mun = TestBodyRegistry.CreateBody("Mun", 200000.0, 6.5138398e10);
-            GhostMapPresence.FindBodyByNameForTesting = name =>
+            GhostMapVessels.FindBodyByNameForTesting = name =>
                 string.Equals(name, "Mun", StringComparison.Ordinal) ? mun
                 : string.Equals(name, "Kerbin", StringComparison.Ordinal) ? kerbin
                 : null;
