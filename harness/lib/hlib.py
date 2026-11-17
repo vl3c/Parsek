@@ -818,6 +818,12 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     gameSeconds= maxSrfSpeed= pathMeters= dockUT= partnerPid= partnerName= activePid=
     #     activeName= activeParts=`; seconds spent with no couple is ERROR
     #     drivevessel-did-not-dock; no Ready port refuses no-docking-port.
+    #     Crash mode (2026-11-16): `untilCrash=true` with wheelThrottle drives until the first
+    #     stock part death (onPartDie, any vessel), then cuts the throttle: OK `crashed=true
+    #     gameSeconds= maxSrfSpeed= impactSrfSpeed= pathMeters= crashUT= firstPart=
+    #     firstPartVesselPid= ownPartsLost= otherPartsLost= activePid= activeName=` (OK even
+    #     when the crash destroyed the driven vessel); no part death in the span is ERROR
+    #     drivevessel-did-not-crash.
     "DriveVessel",
     # ADDITIVE (51 -> 52 implemented, reserved unchanged at 4), roadmap TC-1.
     #   ReadVesselResources (pid=<p>[,<p>...] | rec=<id>[,<id>...]) [resources=<R>[,<R>...]]
@@ -4265,6 +4271,9 @@ def validate_revert_to_launch_step(index: int, step_args: Dict) -> List[str]:
 # an OPTIONAL `maxSpeed=` (m/s, finite, in (0, 1]; only with `untilDocked=`). It ends OK at
 # stock's first couple of one of the vessel's Ready docking ports, else ERROR
 # drivevessel-did-not-dock when the span runs out.
+# Crash mode: the drive mode plus `untilCrash=true` (closed; refused with `settleBelow=` or
+# `untilDocked=`). It ends OK at the first stock part death of any vessel during the drive,
+# else ERROR drivevessel-did-not-crash when the span runs out.
 DRIVEVESSEL_VERB = "DriveVessel"
 DRIVEVESSEL_THROTTLE_KEY = "wheelThrottle"
 DRIVEVESSEL_SECONDS_KEY = "seconds"
@@ -4272,6 +4281,8 @@ DRIVEVESSEL_SETTLE_KEY = "settleBelow"
 DRIVEVESSEL_UNTIL_DOCKED_KEY = "untilDocked"
 DRIVEVESSEL_MAX_SPEED_KEY = "maxSpeed"
 DRIVEVESSEL_UNTIL_DOCKED_VALUES: Tuple[str, ...] = ("true",)
+DRIVEVESSEL_UNTIL_CRASH_KEY = "untilCrash"
+DRIVEVESSEL_UNTIL_CRASH_VALUES: Tuple[str, ...] = ("true",)
 DRIVEVESSEL_MAX_SECONDS = 30.0
 DRIVEVESSEL_MAX_SETTLE_BELOW = 0.1
 DRIVEVESSEL_MAX_DOCK_SPEED = 1.0
@@ -4281,6 +4292,7 @@ DRIVEVESSEL_REASONS: Tuple[str, ...] = (
     "drivevessel-seconds-arg-missing", "drivevessel-seconds-arg-invalid",
     "drivevessel-dock-arg-invalid", "drivevessel-dock-arg-conflict",
     "drivevessel-maxspeed-arg-invalid", "drivevessel-maxspeed-arg-unexpected",
+    "drivevessel-crash-arg-invalid", "drivevessel-crash-arg-conflict",
     "drivevessel-no-active-vessel", "drivevessel-vessel-packed",
     "drivevessel-not-on-surface", "drivevessel-no-wheel-motor",
     "drivevessel-no-docking-port",
@@ -4288,6 +4300,7 @@ DRIVEVESSEL_REASONS: Tuple[str, ...] = (
 DRIVEVESSEL_ERROR_REASONS: Tuple[str, ...] = (
     "drivevessel-vessel-lost", "drivevessel-did-not-move", "drivevessel-timeout",
     "drivevessel-did-not-settle", "drivevessel-did-not-dock",
+    "drivevessel-did-not-crash",
 )
 
 
@@ -4422,7 +4435,8 @@ def validate_drive_vessel_step(index: int, step_args: Dict) -> List[str]:
     """Pre-launch shape check for one ``DriveVessel`` step: ``wheelThrottle=`` (drive) or
     ``settleBelow=`` (settle), never both, plus ``seconds=``, each REQUIRED and in range
     (the C# validators' bounds); the dock mode's ``untilDocked=true`` (not with settle) and
-    its optional ``maxSpeed=``; and no other key (the verb reads none, so it would be
+    its optional ``maxSpeed=``; the crash mode's ``untilCrash=true`` (not with settle or
+    dock); and no other key (the verb reads none, so it would be
     sent and silently ignored)."""
     errors: List[str] = []
     raw = step_args.get(DRIVEVESSEL_THROTTLE_KEY)
@@ -4489,8 +4503,22 @@ def validate_drive_vessel_step(index: int, step_args: Dict) -> List[str]:
                 "driver.steps[%d].args.%s: %r is not a speed in (0, %g] m/s; the seam answers "
                 "REJECTED drivevessel-maxspeed-arg-invalid"
                 % (index, DRIVEVESSEL_MAX_SPEED_KEY, max_speed, DRIVEVESSEL_MAX_DOCK_SPEED))
+    crash = step_args.get(DRIVEVESSEL_UNTIL_CRASH_KEY)
+    if crash is not None:
+        if isinstance(crash, bool) or str(crash) not in DRIVEVESSEL_UNTIL_CRASH_VALUES:
+            errors.append(
+                "driver.steps[%d].args.%s: %r is not the string 'true'; the seam answers "
+                "REJECTED drivevessel-crash-arg-invalid"
+                % (index, DRIVEVESSEL_UNTIL_CRASH_KEY, crash))
+        elif settle is not None or docked is not None:
+            errors.append(
+                "driver.steps[%d].args: %s=true takes neither %s nor %s; the seam answers "
+                "REJECTED drivevessel-crash-arg-conflict"
+                % (index, DRIVEVESSEL_UNTIL_CRASH_KEY, DRIVEVESSEL_SETTLE_KEY,
+                   DRIVEVESSEL_UNTIL_DOCKED_KEY))
     known = (DRIVEVESSEL_THROTTLE_KEY, DRIVEVESSEL_SECONDS_KEY, DRIVEVESSEL_SETTLE_KEY,
-             DRIVEVESSEL_UNTIL_DOCKED_KEY, DRIVEVESSEL_MAX_SPEED_KEY)
+             DRIVEVESSEL_UNTIL_DOCKED_KEY, DRIVEVESSEL_MAX_SPEED_KEY,
+             DRIVEVESSEL_UNTIL_CRASH_KEY)
     extra = sorted(str(k) for k in step_args if k not in known)
     if extra:
         errors.append("driver.steps[%d].args: %s reads only %s, so %s would be "
@@ -12703,6 +12731,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "drivevessel-dock-arg-conflict": "driver-arg",
     "drivevessel-maxspeed-arg-invalid": "driver-arg",
     "drivevessel-maxspeed-arg-unexpected": "driver-arg",
+    "drivevessel-crash-arg-invalid": "driver-arg",
+    "drivevessel-crash-arg-conflict": "driver-arg",
     "drivevessel-no-active-vessel": "driver-gate",
     "drivevessel-vessel-packed": "driver-gate",
     "drivevessel-not-on-surface": "driver-gate",
@@ -13519,6 +13549,7 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "drivevessel-throttle-arg-invalid", "drivevessel-throttle-arg-missing",
     "drivevessel-dock-arg-invalid", "drivevessel-dock-arg-conflict",
     "drivevessel-maxspeed-arg-invalid", "drivevessel-maxspeed-arg-unexpected",
+    "drivevessel-crash-arg-invalid", "drivevessel-crash-arg-conflict",
     "crewtransfer-kerbal-arg-missing", "crewtransfer-part-arg-missing",
     "cyclevessel-direction-arg-invalid", "cyclevessel-direction-arg-missing",
     "cyclevessel-forceghost-arg-invalid",

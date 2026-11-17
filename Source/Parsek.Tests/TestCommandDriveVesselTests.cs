@@ -453,5 +453,116 @@ namespace Parsek.Tests
             Assert.Equal("30.9", payload[4].Value);
             Assert.Equal("LANDED", payload[5].Value);
         }
+
+        // ----- crash mode -----
+
+        [Theory]
+        // Absent: the other modes, whatever else holds.
+        [InlineData(null, false, false, null, false)]
+        [InlineData(null, true, false, null, false)]
+        [InlineData(null, false, true, null, false)]
+        [InlineData("true", false, false, null, true)]
+        // Closed to "true".
+        [InlineData("True", false, false, "drivevessel-crash-arg-invalid", false)]
+        [InlineData("1", false, false, "drivevessel-crash-arg-invalid", false)]
+        [InlineData("", false, false, "drivevessel-crash-arg-invalid", false)]
+        // Refused with settle and with dock; a malformed value is named first.
+        [InlineData("true", true, false, "drivevessel-crash-arg-conflict", false)]
+        [InlineData("true", false, true, "drivevessel-crash-arg-conflict", false)]
+        [InlineData("yes", true, false, "drivevessel-crash-arg-invalid", false)]
+        public void ValidateCrash_ParsesTheMode(string untilCrash, bool settle, bool untilDocked,
+            string reason, bool expectCrash)
+        {
+            Assert.Equal(reason, TestCommandDriveVessel.ValidateCrash(untilCrash, settle, untilDocked,
+                out bool crash));
+            Assert.Equal(expectCrash, crash);
+        }
+
+        [Fact]
+        public void CrashReasons_AreArgRefusalsBeforeTheGate_AndOnePostStartError()
+        {
+            var reasons = new List<string>(TestCommandDriveVessel.Reasons);
+            int invalid = reasons.IndexOf("drivevessel-crash-arg-invalid");
+            int conflict = reasons.IndexOf("drivevessel-crash-arg-conflict");
+            Assert.True(invalid > reasons.IndexOf("drivevessel-maxspeed-arg-unexpected"));
+            Assert.Equal(invalid + 1, conflict);
+            Assert.True(conflict < reasons.IndexOf("drivevessel-no-active-vessel"));
+            Assert.Contains(TestCommandDriveVessel.DidNotCrashReason, TestCommandDriveVessel.ErrorReasons);
+            Assert.Equal("drivevessel-did-not-crash", TestCommandDriveVessel.DidNotCrashReason);
+            Assert.Equal("untilCrash", TestCommandDriveVessel.UntilCrashKey);
+            Assert.Equal("true", TestCommandDriveVessel.UntilCrashTrueToken);
+        }
+
+        [Theory]
+        [InlineData(1f, false, 1f)]
+        [InlineData(-0.5f, false, -0.5f)]
+        [InlineData(1f, true, 0f)]
+        [InlineData(-1f, true, 0f)]
+        public void ResolveCrashThrottle_CutsTheWheelsOnceAPartDied(float throttle, bool crashed,
+            float expected)
+        {
+            Assert.Equal(expected, TestCommandDriveVessel.ResolveCrashThrottle(throttle, crashed));
+        }
+
+        [Theory]
+        // A part death ends the drive OK even when the crash destroyed the driven vessel, and
+        // even past the span or the wall budget.
+        [InlineData(true, false, 3.0, 25.0, 3.0, 60.0, "Crashed")]
+        [InlineData(true, true, 30.0, 25.0, 70.0, 60.0, "Crashed")]
+        [InlineData(false, false, 3.0, 25.0, 3.0, 60.0, "VesselLost")]
+        [InlineData(false, true, 25.0, 25.0, 26.0, 60.0, "DidNotCrash")]
+        [InlineData(false, true, 2.0, 25.0, 60.0, 60.0, "Timeout")]
+        [InlineData(false, true, 2.0, 25.0, 3.0, 60.0, "StillDriving")]
+        public void DecideCrashCompletion(bool crashed, bool usable, double gameElapsed,
+            double requested, double wallElapsed, double budget, string expected)
+        {
+            Assert.Equal(expected, TestCommandDriveVessel.DecideCrashCompletion(
+                crashed, usable, gameElapsed, requested, wallElapsed, budget).ToString());
+        }
+
+        [Fact]
+        public void CrashLinesAndPayload_AreInvariantAndGrepStable()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Assert.Equal("drivevessel crash start: vessel=Mining Rover RC pid=110406740 "
+                    + "wheelThrottle=1.00 seconds=25.0 wheelMotors=4 parts=28 brakesWereOn=true "
+                    + "startUT=80.25 srfSpeed=0.03",
+                    TestCommandDriveVessel.FormatCrashStartLine("Mining Rover RC", 110406740u, 1f,
+                        25.0, 4, 28, true, 80.25, 0.03));
+                Assert.Equal("drivevessel crash hit: part='dockingPort3' partPid=2411209819 "
+                    + "vesselPid=110406740 vesselName='Mining Rover RC' own=true "
+                    + "impactSrfSpeed=13.48 ut=88.12",
+                    TestCommandDriveVessel.FormatCrashHitLine("dockingPort3", 2411209819u,
+                        110406740u, "Mining Rover RC", true, 13.476, 88.12));
+                Assert.Equal("drivevessel crash end: outcome=crashed vessel=Mining Rover RC "
+                    + "pid=110406740 gameSeconds=7.90 maxSrfSpeed=13.51 impactSrfSpeed=13.48 "
+                    + "pathMeters=52.3 displacementMeters=51.9 crashUT=88.12 "
+                    + "firstPart='dockingPort3' firstPartVesselPid=110406740 ownPartsLost=2 "
+                    + "otherPartsLost=1 activePid=110406740 activeName='Mining Rover RC'",
+                    TestCommandDriveVessel.FormatCrashEndLine("crashed", "Mining Rover RC",
+                        110406740u, 7.9, 13.51, 13.476, 52.31, 51.94, 88.12, "dockingPort3",
+                        110406740u, 2, 1, 110406740u, "Mining Rover RC"));
+                List<KeyValuePair<string, string>> payload = TestCommandDriveVessel.BuildCrashedPayload(
+                    7.9, 13.51, 13.476, 52.31, 88.12, "dockingPort3", 110406740u, 2, 1,
+                    110406740u, "Mining Rover RC");
+                Assert.Equal(new[] { "crashed", "gameSeconds", "maxSrfSpeed", "impactSrfSpeed",
+                    "pathMeters", "crashUT", "firstPart", "firstPartVesselPid", "ownPartsLost",
+                    "otherPartsLost", "activePid", "activeName" },
+                    payload.ConvertAll(kv => kv.Key).ToArray());
+                Assert.Equal("true", payload[0].Value);
+                Assert.Equal("13.48", payload[3].Value);
+                Assert.Equal("52.3", payload[4].Value);
+                Assert.Equal("88.12", payload[5].Value);
+                Assert.Equal("2", payload[8].Value);
+                Assert.Equal("1", payload[9].Value);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
     }
 }
