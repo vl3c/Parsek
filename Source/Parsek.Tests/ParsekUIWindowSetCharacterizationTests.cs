@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Security;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Parsek.Tests
@@ -383,16 +385,19 @@ namespace Parsek.Tests
 
         // Construction: the ten windows in this order (built by the window set, called back
         // from the ParsekUI constructor at its first step after the scene fields), then the
-        // instance goes live, the mode latch seeds, and the signal hooks attach.
-        [Theory]
-        [InlineData("internal ParsekUI(ParsekFlight flight, Func<ParsekUI, IParsekUIWindows> buildWindows)")]
-        [InlineData("internal ParsekUI(UIMode mode, Func<ParsekUI, IParsekUIWindows> buildWindows)")]
-        public void Constructor_BuildsTheWindowsFirst_BeforeGoingLive(string signature)
+        // instance goes live, the mode latch seeds, and the signal hooks attach. Both scene
+        // constructors chain to this one body (see the next cell).
+        private const string SharedConstructorSignature =
+            "private ParsekUI(UIMode mode, ParsekFlight flight, Func<ParsekUI, IParsekUIWindows> buildWindows)";
+
+        [Fact]
+        public void Constructor_BuildsTheWindowsFirst_BeforeGoingLive()
         {
-            string body = Body("UI/ParsekUI.cs", signature);
-            AssertCallsInOrder("ParsekUI " + signature, body, new[]
+            string body = Body("UI/ParsekUI.cs", SharedConstructorSignature);
+            AssertCallsInOrder("ParsekUI " + SharedConstructorSignature, body, new[]
             {
-                "this.mode = ",
+                "this.flight = flight;",
+                "this.mode = mode;",
                 "this.windows = buildWindows(this);",
                 "this.recordingsTableUI = windows.RecordingsTable;",
                 "this.spawnControlUI = windows.SpawnControl;",
@@ -411,6 +416,27 @@ namespace Parsek.Tests
                 "kerbalsUI.SubscribeLiveCrewEvents();",
             });
             Assert.DoesNotContain("new ", body);
+        }
+
+        // Each scene constructor is only a chain to the shared body: the flight one passes
+        // UIMode.Flight and its host, the Space Center one its mode and no host. A statement
+        // in either body would run in one scene only.
+        [Theory]
+        [InlineData("internal ParsekUI(ParsekFlight flight, Func<ParsekUI, IParsekUIWindows> buildWindows)",
+            ": this(UIMode.Flight, flight, buildWindows)")]
+        [InlineData("internal ParsekUI(UIMode mode, Func<ParsekUI, IParsekUIWindows> buildWindows)",
+            ": this(mode, null, buildWindows)")]
+        public void SceneConstructors_OnlyChainToTheSharedBody(string signature, string initializer)
+        {
+            string src = SourceScanText.StripCSharpComments(
+                File.ReadAllText(MainWindowLauncherOrderTests.SourcePath("UI/ParsekUI.cs")));
+            int sig = src.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(sig >= 0, "UI/ParsekUI.cs: " + signature + " not found, this gate is vacuous");
+            int open = src.IndexOf('{', sig);
+            string between = Regex.Replace(
+                src.Substring(sig + signature.Length, open - sig - signature.Length), @"\s+", " ").Trim();
+            Assert.Equal(initializer, between);
+            Assert.Equal("{}", Regex.Replace(Body("UI/ParsekUI.cs", signature), @"\s+", ""));
         }
 
         [Fact]

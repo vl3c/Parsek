@@ -242,12 +242,12 @@ namespace Parsek.Tests
                 case Recorded:
                 {
                     RecordingStore.AddCommittedTreeForTesting(tree);
-                    object[] args = { rec, null };
+                    object[] args = { rec, RecordingPlaybackCatalog.Own, null };
                     MethodInfo m = typeof(RecordedRelativeAnchorPoseResolver).GetMethod(
                         "TryBuildContext", BindingFlags.Static | BindingFlags.NonPublic);
                     Assert.NotNull(m);
                     Assert.True((bool)m.Invoke(null, args));
-                    return (RelativeAnchorResolverContext)args[1];
+                    return (RelativeAnchorResolverContext)args[2];
                 }
                 case Production:
                 {
@@ -260,7 +260,8 @@ namespace Parsek.Tests
                     return (RelativeAnchorResolverContext)args[1];
                 }
                 case FlightPlayback:
-                    return ParsekFlight.BuildFlightRelativeAnchorResolverContext(tree, rec.RecordingId, null);
+                    return ParsekFlight.BuildFlightRelativeAnchorResolverContext(
+                        tree, rec.RecordingId, null, RecordingPlaybackCatalog.Own);
                 case ActiveRecorder:
                 {
                     var recorder = new FlightRecorder();

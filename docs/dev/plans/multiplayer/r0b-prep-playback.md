@@ -73,7 +73,8 @@ ghost-map-vessel primitive (P3), the trajectory codec change (P6), the ghost-cou
   - Implementers: `Recording.cs:49` (auto-property, default -1; cloned at :1139),
     `Reaim/ReaimedTrajectory.cs:117` (get and set forward to the inner trajectory),
     `Source/Parsek.Tests/MockTrajectory.cs:43`, six test trajectories in
-    `InGameTests/RuntimeTests.cs` (27179, 27276, 27377, 27427, 27510, 27578).
+    `InGameTests/RuntimeTests.cs` (27179, 27276, 27377, 27427, 27510, 27578) and a seventh,
+    `PrimitiveWitnessTrajectory` in `InGameTests/GhostMapPrimitiveRuntimeTest.cs:360`.
   - Test setters: `ZoneRenderingTests.cs` 629-851, `Issue316WatchProtectionTests.cs` 155, 165.
   - Runtime-only: `SaveRoundTrip/RecordingSaveRoundTripTests.cs:41` excludes it from round trip.
 - Engine diagnostics writes into the static `Diagnostics/DiagnosticsState.cs`:
@@ -113,7 +114,7 @@ ghost-map-vessel primitive (P3), the trajectory codec change (P6), the ghost-cou
 | L3 | `RecordedRelativeAnchorPoseResolver.cs:165-200` `TryFindFocusTree` | committed trees in order, match `(TreeId nonempty && tree.Id == TreeId) || Recordings.ContainsKey(id)` (a null `Recordings` is skipped); then pending (:189), same match | false |
 | L4 | `Rendering/ProductionAnchorWorldFrameResolver.cs:411-445` `TryFindFocusTree(Recording)` | identical to L3 (pending at :433) | false |
 | L5 | `RecordedRelativeAnchorPoseResolver.cs:203-258` `TryFindRecordingById` | committed trees (`TryGetValue`, non-null), then pending (:227, same), then the flat `RecordingStore.CommittedRecordings` list | false |
-| L6 | `GhostMapPresence.StateVectors.cs:735-785` `TryFindRecordingByIdForBodyFixedAnchorPid` | identical to L5 (pending at :765) | false |
+| L6 | `GhostMapPresence.StateVectors.cs:735-785` `TryFindRecordingByIdForBodyFixedAnchorPid` | as L5 (pending at :765), except its guard rejects a whitespace-only id (`IsNullOrWhiteSpace`, :745) where L5 rejects only null or empty | false |
 | L7 | `ParsekFlightGhostPositioner.TailLift.cs:16` `ResolveRecordingById` | committed list only, inside try/catch | null; `ResolveRecordingForTailLift` (:40) then falls back to `ParsekFlight.s_previewRecordingForTailLift` |
 | L8 | `ParsekFlightGhostPositioner.Trace.cs:134` (diagnostic) | `RecordingStore.TryFindCommittedRecordingById` = committed list only (`RecordingStore.cs:1211-1222`) | no diagnostic distance |
 | L9 | `RecordedRelativeAnchorPoseResolver.cs:120-133` `TryFindFocusRecording` | `trajectory as Recording` cast first, else L5 | false |
@@ -145,9 +146,11 @@ Callers that thread a catalog:
   `GhostPlaybackLogic.IsWatchProtectedRecording` (`GhostPlaybackLogic.cs:691-721`). That is a
   watch-protection query over the own list, not a by-id lookup; P2b-08 handles it.
 - `scripts/ers-els-audit-allowlist.txt` lists `GhostMapPresence.StateVectors.cs`,
-  `ParsekFlight.GhostPositioner.cs`, `RecordedRelativeAnchorPoseResolver.cs`,
+  `ParsekFlight.GhostPositioner.cs`, `RecordedRelativeAnchorPoseResolver.cs` (dropped by
+  P2a-03: no raw read left after P2a-05),
   `ParsekFlightPlaybackHost.cs` and, of the twelve positioner files, only
-  `ParsekFlightGhostPositioner.TailLift.cs` (L7's raw read); the allowlist says the other
+  `ParsekFlightGhostPositioner.TailLift.cs` (L7's raw read; dropped by P2a-04, which moved it
+  into the catalog); the allowlist says the other
   positioner files read none. L2 reads `CommittedTrees`, which the gate's pattern
   (`.CommittedRecordings`, `Ledger.Actions`) does not match. A P2a or P2b edit that writes
   `.CommittedRecordings` in any other positioner file reds `GrepAuditTests`. The gate has no
@@ -256,9 +259,12 @@ Tests and gates that pin these names:
   name at :450, fold rules at :169-186). Under a fold every `NEW::` token reads `OLD::`, the hop
   `ldfld class OLD NEW::<host>` and the lazy accessor `call(virt) instance class NEW OLD::get_*()`
   are dropped, callvirt reads call, and nested paths of NEW read OLD. A renamed field (a
-  positioner `lane` field in place of `host`) or a new parameter is not folded.
-- Its tests are `scripts/refactor/test_parsekflight_tools.py` (fold cells at :119-446). CI does not
-  run them: `.github/workflows/tests.yml` runs `harness/lib`, `missions/lib`, `provision` (:89-91)
+  positioner `lane` field in place of `host`) or a new parameter is not folded. Measured on
+  main: only the after build's types were re-keyed (`fold_types`), so a step whose before
+  build already holds NEW (P2b-03 to P2b-06) reported NEW as `type-only-before`; P2b-01 folds
+  both builds.
+- Its tests are `scripts/refactor/test_parsekflight_tools.py` (fold cells at :119-446). CI did not
+  run them before P2b-01 (which adds the step): `.github/workflows/tests.yml` runs `harness/lib`, `missions/lib`, `provision` (:89-91)
   and `scripts/arch` (:100, :191) only.
 - Module placement: the folder is the module (pull request #2611). `scripts/arch/modules.toml`
   holds one `[[module]] name / folder` rule per module and no name rules; a `.cs` file in the
@@ -285,12 +291,14 @@ differences, with the leftovers (accessor, host field, constructor) named in the
 
 - **Change:** `IPlaybackTrajectory.cs:82` becomes `int LoopSyncParentIdx { get; }`. `Recording`
   keeps `{ get; set; }` (`Recording.cs:49`), so `CommittedListOptimizer` is untouched.
-  `Reaim/ReaimedTrajectory.cs:117` drops its setter. `MockTrajectory` and the six in-game test
+  `Reaim/ReaimedTrajectory.cs:117` drops its setter. `MockTrajectory` and the seven in-game test
   trajectories keep their auto-properties (a class may keep a setter). Any test that sets the value
   through an `IPlaybackTrajectory`-typed variable sets it through the concrete type instead.
 - **Proof:** full xUnit suite; `il_compare` without a fold lists exactly two removed members
   (`IPlaybackTrajectory::set_LoopSyncParentIdx`, `ReaimedTrajectory::set_LoopSyncParentIdx`) and
-  no body differences.
+  no body differences. The eight setters that stay (`Recording` and the seven in-game test
+  trajectories) no longer implement an interface member, so their method flags drop
+  `final newslot virtual`; that is a flags-only difference, not a body difference.
 - **Registers:** `scripts/arch/facts_pins.toml` re-pin if `uncalledInAssembly` falls (slack is not
   enforced, so optional). CLAUDE.md: none.
 - **Size:** S. **Depends on:** none. **PC:** no.
@@ -325,7 +333,9 @@ differences, with the leftovers (accessor, host field, constructor) named in the
   carrying the six fields of `GhostPlaybackEngine.cs:882-887` with their present types,
   `AppendPlaybackFrame(float realtime, long totalMicroseconds)` (:889) and
   `CheckPlaybackBudgetThreshold(...)` with the argument list of :928. The global sink bodies are
-  the present statements verbatim. The engine keeps the order of these calls.
+  the present statements verbatim. The engine keeps the order of these calls. (Re-anchored on the
+  P2c-02 base: the resets are :398, :403, :408, the six fields :892-897, the append :899 and the
+  threshold call, `DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown`, :938.)
 - **Proof:** sink unit tests for each member against `DiagnosticsState` (budget fields equal, one
   history sample, the threshold check reached with the same arguments through a log-sink capture of
   its existing line); the source gate widens to every `DiagnosticsState.` and
@@ -339,15 +349,25 @@ differences, with the leftovers (accessor, host field, constructor) named in the
 **P2c-04 Spawn budget object an engine can share**
 
 - **Change:** new `Source/Parsek/Ghost/GhostSpawnFrameBudget.cs` (module Ghost): a class with
-  `int Used`, `int MaxPerFrame` (from `GhostPlayback.MaxSpawnsPerFrame`), `bool IsExhausted`
-  (through `GhostPlaybackLogic.ShouldThrottleSpawn(Used, MaxPerFrame)`), `void Consume()`,
-  `void ResetForFrame()`. The engine gets `spawnBudget` and `ownsSpawnBudget`: a constructor
+  `int Used`, `int MaxPerFrame` (from `GhostPlayback.MaxSpawnsPerFrame`), `void Consume()`,
+  `void ResetForFrame()`. (Corrected when built: no `bool IsExhausted` member. Calling
+  `GhostPlaybackLogic.ShouldThrottleSpawn` from the budget put the budget in the 437-type knot,
+  since `GhostPlaybackLogic` and the engine are both in it; the engine keeps the decision at its
+  one site as `GhostPlaybackLogic.ShouldThrottleSpawn(spawnBudget.Used, spawnBudget.MaxPerFrame)`,
+  so the budget references no knot type and no canary moves.) The engine gets `spawnBudget` and `ownsSpawnBudget`: a constructor
   overload takes an optional external budget; null creates a private budget and owns it, a
   budget passed in is not owned. The existing constructors chain to it with null, so the
   overload has a production caller before R3W-09 (section 8).
   `ResetPerFramePlaybackCounters` calls `spawnBudget.ResetForFrame()`
-  only when it owns the budget. `TryReserveSpawnSlot` checks `spawnBudget.IsExhausted`; the
+  only when it owns the budget. `TryReserveSpawnSlot` checks the budget's `Used` against its
+  `MaxPerFrame`; the
   increment at `GhostPlaybackEngine.GhostVisuals.cs:25` also calls `spawnBudget.Consume()`.
+  (Re-anchored on the P2c-03 base: the constructors are `GhostPlaybackEngine.cs:364` (one
+  argument) and :369 (positioner and sink, P2c-02); the overload is a third constructor
+  `(IGhostPositioner, IGhostPlaybackDiagnosticsSink, GhostSpawnFrameBudget)` that the two-argument
+  one chains to with null, so `ParsekFlight.cs:1210` is unchanged; the reset is :1071, the frame
+  log :922, the test hooks :1327-1348. A shared budget also logs one extra `[Engine]` line at
+  construction naming it; the owned case logs only the existing `GhostPlaybackEngine created`.)
   `frameSpawnCount` stays as the engine's own count for its log lines (`GhostPlaybackEngine.cs:911`,
   `Diagnostics.cs:297`) and the throttle log at `SpawnDestroy.cs:444` keeps its text, printing
   the budget's `Used`. The test hooks keep their names and drive both counters. With one engine
@@ -363,8 +383,8 @@ differences, with the leftovers (accessor, host field, constructor) named in the
   `LoopFirstRunSpawnTests`, `ChainLoopFirstRunSpawnTests`, `Bug406GhostReuseLoopCycleTests` and
   `StalePastEndCleanupDeferralTests` stay green. In-game `GhostPlayback` (lane S1.4, daily) and
   `GhostLifecycle` (LT-5, nightly).
-- **Registers:** knot canary if the budget class joins the knot (it references only
-  `GhostPlaybackLogic`; re-pin if it moves). No static, so no lifetime entry.
+- **Registers:** none: the budget references only the `GhostPlayback` constants and stays out of
+  the knot (measured: knots `[437, 9, 4, 3, 2]` unchanged). No static, so no lifetime entry.
 - **Size:** S. **Depends on:** P2c-02 (both edit the engine constructor at :362).
 - **PC:** in-game `GhostPlayback`, lanes S1.4, LT-5.
 - **Risk:** low; one engine sees one budget whose count equals today's field.
@@ -405,6 +425,9 @@ The port as specified:
     - `bool TryFindRecording(string id, CatalogRecordingScope scope, out Recording rec)` with
       `CatalogRecordingScope { CommittedListOnly, TreesThenPendingThenList }`.
     The enum members name the orders of section 3.2 so each call site states its own order.
+    `TryFindFocusTree` and `TryFindRecording` answer false for a null or empty id (as built
+    by P2a-05): every L3 / L4 caller rejects such an id before the lookup, and without the
+    guard L3's `ContainsKey(null)` would throw.
   - New `Source/Parsek/Recording/RecordingPlaybackCatalog.cs` (module Recording):
     `internal sealed class RecordingPlaybackCatalog : IPlaybackCatalog` over `RecordingStore`
     and `PendingTreeSlot`, each variant a verbatim copy of the site it will replace, and
@@ -470,10 +493,15 @@ The port as specified:
   (`ParsekFlightGhostPositioner.RelativeAnchor.cs:200`) becomes an instance
   call of `catalog.TryFindTreeHolding(id, CommittedFirstContainsKey, ...)`; the diagnostic at
   `ParsekFlightGhostPositioner.Trace.cs:134` uses `TryFindRecording(id, CommittedListOnly, ...)`.
-  `BuildFlightRelativeAnchorResolverContext` (`ParsekFlight.TimelinePlayback.cs:553`) takes an
-  `IPlaybackCatalog` parameter and reads `PendingTree` from it; its two callers (positioner
-  `ParsekFlightGhostPositioner.RelativeAnchor.cs:123`, `ParsekFlightPlaybackHost.cs:2367`) pass the
-  own catalog. L7 is P2a-04.
+  `BuildFlightRelativeAnchorResolverContext` (`ParsekFlight.TimelinePlayback.cs:553`) takes a
+  trailing required `IPlaybackCatalog` parameter and reads `PendingTree` from it; the positioner
+  (`ParsekFlightGhostPositioner.RelativeAnchor.cs:123`) passes its own `catalog` field and
+  `ParsekFlightPlaybackHost.cs:2367` passes `RecordingPlaybackCatalog.Own` (P2b-09 swaps it for
+  `host.Lane.Catalog`). `TryFindRelativeAnchorFocusTree` stays a one-line instance method (the
+  fake-catalog cell calls it); `ResolveRecordingById` (L7) is untouched and is P2a-04's. As
+  built: the ERS allowlist entry for `RecordedRelativeAnchorPoseResolver.cs` is dropped here
+  (P2a-05 moved its last raw read into the catalog); `RelativeAnchor.cs` and `Trace.cs` were
+  never listed (L2 and L8 do not match the gate's pattern).
 - **Proof:** `RelativeAnchorResolutionTests`, `RecordedRelativeAnchorResolver*` tests,
   `GrepAuditNonLoopLivePidTests` green; a test that `TryFindRelativeAnchorFocusTree` sees a tree
   only the fake catalog holds. In-game `Pipeline-Anchor`, `PlaybackFidelity`; lanes H11, LT-1,
@@ -497,17 +525,28 @@ The port as specified:
 - **Registers:** none.
 - **Size:** S. **Depends on:** P2a-03 (same positioner constructor). **PC:** in-game, lane S1.4.
 - **Risk:** low.
+- **As built:** `ResolveRecordingById` became `internal static` with its own trailing optional
+  catalog (null reads `Own`), so the old-versus-new sweep in `RecordingPlaybackCatalogTests`
+  drives the production lookup; the sweep's fixtures grew to 16 (a duplicate id in the flat list,
+  and case or space variants of the id ahead of the match). The tail-lift file's ERS allowlist
+  entry is dropped (its one raw read moved into the catalog), and the `[ERS-exempt]` comments of
+  `RecordingPlaybackCatalog.cs` and its allowlist entry now name the tail-lift lookup. The plan
+  caches stay keyed by recording id alone, so a plan cached through one catalog answers every
+  catalog; a miss is transient and never cached. The fake-catalog cells and a source gate on the
+  positioner's three calls sit in `Rendering/FlightRecorderTerrainTests`.
 
 **P2a-05 RecordedRelativeAnchorPoseResolver through the catalog (L3, L5, L9, P2)**
 
 - **Change:** both `TryResolveSectionAnchorPose` overloads
   (`RecordedRelativeAnchorPoseResolver.cs:49`, :63) gain a trailing optional
-  `IPlaybackCatalog catalog = null` (null reads `Own`) that flows to `TryFindFocusRecording`,
-  `TryBuildContext` (`pendingTree: catalog.PendingTree`), `TryFindFocusTree`
-  (`catalog.TryFindFocusTree`) and `TryFindRecordingById`
-  (`catalog.TryFindRecording(id, TreesThenPendingThenList, ...)`). The `is Recording` cast at
-  :120-133 stays first. Callers `ParsekKSC.Playback.cs:549` and
-  `GhostMapPresence.StateVectors.cs:1106` pass nothing.
+  `IPlaybackCatalog catalog = null` (null reads `Own`) that flows to `TryBuildContext`
+  (`pendingTree: catalog.PendingTree`), whose `TryFindFocusTree` becomes
+  `catalog.TryFindFocusTree`. `TryFindFocusRecording` (:122) is a separate entry point (the
+  map calls it before the pose, `GhostMapPresence.StateVectors.cs:1105`), so it gains its own
+  trailing optional catalog, and its `TryFindRecordingById` becomes
+  `catalog.TryFindRecording(id, TreesThenPendingThenList, ...)`. The private `TryFindFocusTree`
+  and `TryFindRecordingById` are deleted. The `is Recording` cast at :127 stays first. Callers
+  `ParsekKSC.Playback.cs:549` and `GhostMapPresence.StateVectors.cs:1105-1106` pass nothing.
 - **First P2a task (P2a-01):** this task creates `IPlaybackCatalog.cs`,
   `RecordingPlaybackCatalog.cs` and `Own` with only the members its call sites use:
   `PendingTree`, `TryFindFocusTree`, and `TryFindRecording` with the enum
@@ -536,12 +575,19 @@ The port as specified:
 - **Registers:** layer pins: Rendering -> Recording is forward; none move.
 - **Size:** S. **Depends on:** P2a-05. **PC:** in-game, lanes S1.6, S1.7, H44.
 - **Risk:** low.
+- **As built (2026-11-16):** the resolver already had two constructors (a public parameterless
+  one for the two production sites and an internal modelled-world one that tests use); the
+  catalog is the trailing optional parameter of the internal one, which the parameterless one
+  chains to, so there is still one constructor that takes a catalog and no overload was added.
+  The context builder's own null-or-empty id guard stays in front of the lookup.
 
 **P2a-07 Map state vectors through the catalog (L6)**
 
 - **Change:** `TryFindRecordingByIdForBodyFixedAnchorPid` (`GhostMapPresence.StateVectors.cs:735`)
   becomes a call of `RecordingPlaybackCatalog.Own.TryFindRecording(id, TreesThenPendingThenList,
-  ...)`. The raw reads at :1274-1288 and :1591-1598 are not lookups by id and stay (they are P3's).
+  ...)`, keeping its own `IsNullOrWhiteSpace` guard (:745) in front of the call: the catalog
+  rejects only a null or empty id (section 3.2, L6), so a whitespace-only id would otherwise be
+  searched. The raw reads at :1274-1288 and :1591-1598 are not lookups by id and stay (they are P3's).
   No catalog member is added (P2a-05 added the variant).
 - **Proof:** `GhostMapPresence` state-vector tests green. In-game `GhostMap`; lanes H44, S1.6.
 - **Registers:** none.
@@ -549,6 +595,10 @@ The port as specified:
 - **PC:** in-game, lanes H44, S1.6.
 - **Risk:** low; the one map-side site, kept on the own catalog because map presence is own-lane
   until P3 adds rival presence.
+- **As built (2026-11-16):** the method stays (guard, then the catalog call); its only caller,
+  `ResolveBodyFixedPrimaryAnchorPid`, already rejects a whitespace id, so the guard is a second
+  line. The method-local `[ERS-exempt]` comment went with the raw walk; the file keeps its
+  allowlist entry for the two raw reads that remain (now at about :1242-1251 and :1554-1561).
 
 ### P2b: the lane object
 
@@ -560,13 +610,35 @@ after P2b-10.
 **P2b-01 il_compare folds a renamed reference field**
 
 - **Change:** `scripts/refactor/il_compare.py` gains a repeatable
-  `--alias-field TYPE::NEW=OLD`, applied after the folds: `ldfld class X TYPE::NEW` reads
-  `ldfld class X TYPE::OLD`, and the alias field's declaration is listed among the expected
-  leftovers. Docstring updated.
+  `--alias-field TYPE::NEW=OLD`, applied after the folds and to the after build only:
+  `ldfld class X TYPE::NEW` reads `ldfld class X TYPE::OLD` (X kept, so a read whose folded
+  type is not OLD's still differs); a store, an address, a nested or other type and a longer
+  name are not aliased, so NEW's declaration and the constructor that stores it are the
+  expected leftovers. Each alias is checked against the declarations (kind `alias-field`, a
+  difference): OLD declared once on TYPE before, NEW once after and not before, NEW's folded
+  type equal to OLD's. An alias set that is not a pure renaming per type (two aliases share a
+  NEW or an OLD, or a chain) is refused (exit 2). The run prints
+  `aliased TYPE::NEW onto OLD: N reads`. Both builds are now folded (3.4), so P2b-03 to
+  P2b-06, whose before build already holds the lane, fold; because a fold then merges what
+  both builds hold, each build is first checked (kind `fold-collision`) for a field name
+  (instance, static, auto-property or event backing field; literals skipped) declared on both
+  OLD and NEW, a method signature on both whose bodies differ unless exactly one is a
+  pass-through forwarder to the other (one basic block: arguments loaded once in order, one
+  call of the same folded signature on the other type, its result returned), and a
+  same-named user nested type on both. The 25 same-signature pairs the nine ParsekFlight
+  seams on main hold are all such forwarders; none is flagged. CI now runs the suite (step "Refactor tool tests"). Docstring updated.
 - **Proof:** new cells in `scripts/refactor/test_parsekflight_tools.py`: an alias folds a
   `lane.x` body onto a `host.Lane.x` body; without the alias the difference is reported; an alias
-  on another type does not apply. Run locally with
-  `python3 -m unittest discover -s scripts/refactor -q` (not in CI, Corrections 11).
+  on another type does not apply; and still reported: a renamed field whose type differs, a read
+  redirected to another field of the same type (a second lane field, or another lane member),
+  and a body change beside the rename; two aliases onto one OLD are refused; a read or call
+  moved between same-named members of OLD and NEW is a `fold-collision`. Run with
+  `python3 -m unittest discover -s scripts/refactor -q` (CI runs it since P2b-01; Corrections
+  11 predates that). Real IL
+  (2026-11-16, scratch Debug builds of main with two log-once sets moved onto a lane, then the
+  positioner given a `lane` field): 4 reads aliased and the leftovers are exactly the field, the
+  constructor pair and `ParsekFlight::get_Positioner`; each mutation above is reported in its
+  own method.
 - **Registers:** none.
 - **Size:** S. **Depends on:** none. **PC:** no.
 - **Risk:** low; tooling only, and a too-broad alias would hide differences, which the negative
@@ -650,7 +722,9 @@ after P2b-10.
   lazy `Positioner` (`ParsekFlight.cs:948-950`) passes `Lane`.
 - **Proof:** `il_compare --fold Parsek.ParsekFlight=Parsek.ParsekFlightPlaybackLane
   --alias-field Parsek.ParsekFlightGhostPositioner::lane=host` reports 0 moved-body differences;
-  leftovers: the field and the changed constructor. Full xUnit.
+  leftovers: the field, the changed constructor (`method-only-before` / `-after`) and the body of
+  `ParsekFlight::get_Positioner` (it now passes `Lane`); the alias line's read count equals the
+  number of `lane.` reads in the positioner. Full xUnit.
 - **Registers:** none.
 - **Size:** S. **Depends on:** P2b-01, P2b-05. **PC:** no.
 - **Risk:** low.

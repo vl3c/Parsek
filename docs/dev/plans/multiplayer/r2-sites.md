@@ -615,9 +615,12 @@ Logging (tag `RaceSites`, design section 10):
 #### R2-08 Launch rules: the own site and, when the race uses them, the alternate sites
 
 - **Change:** `RaceCore/RaceLaunchRules.cs`: `Decide(alternateSites, makingHistoryInstalled,
-  siteName) -> (allowed, reason)`: "LaunchPad" and "Runway" always; the four Making History
-  names (LaunchSiteExclusionZones.cs:79) only when `alternateSites` and the expansion is
-  installed; any other name refused. `Patches/RaceLaunchGuardPatch.cs`: in a race save a
+  siteName) -> (allowed, reason)`: "LaunchPad" and "Runway" always; the Making History
+  names only when `alternateSites` and the expansion is installed; any other name refused.
+  The expansion has EIGHT sites, not the four `StockLaunchSiteNames` lists
+  (LaunchSiteExclusionZones.cs:79): RACE-0's first flight (`2026-11-17_0035`) reads
+  Cove_Launch_Site, Crater_Launch_Site, Desert_Airfield, Desert_Launch_Site,
+  GlacierLake_Launch_Site, Island_Airfield, MahiMahi_Launch_Site and Woomerang_Launch_Site. `Patches/RaceLaunchGuardPatch.cs`: in a race save a
   prefix on `FlightDriver.StartWithNewLaunch` skips a refused launch with a Warn line and one
   screen message (an event: the launch did not happen), and a postfix on
   `EditorDriver.OtherLaunchSitesValid` returns false when the race does not use the

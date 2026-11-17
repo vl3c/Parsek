@@ -66,8 +66,8 @@ Citations read `plan :line`, using the short names above. "go" means the owner's
   wait for S3) is listed as soft.
 - An owner gate (an answer to a section 10 question) is shown but not counted in the waves, since
   the owner can answer at any time. "assumed" marks a question the plan already answers with a
-  stated assumption; "answered" marks one the owner answered (the answers of 2026-11-15 are in
-  `design-corrections.md` part 2).
+  stated assumption; "answered" marks one the owner answered (the answers of 2026-11-15 and
+  2026-11-16 are in `design-corrections.md` part 2).
 - A task that lands inside another task's pull request takes that task's wave, and that pull
   request waits for the dependencies of both.
 - Wave 0 holds tasks whose only need is the owner's go. Wave N holds tasks whose hard
@@ -108,7 +108,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 
 | id | title (short) | size | hard dependencies | spikes | soft (not counted) | owner gate | PC | lands in PR of | wave |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | Spike branch and spike instances | S | go | - | - | r0 Q2 | spike | - | 0 |
+| S0 | Spike branch and spike instances | S | go | - | - | r0 Q2 (answered: a) | spike | - | 0 |
 | S1b | Finer terrain scan of the three spots | S | - | S0, S4a | - | - | spike | - | 2 |
 | S2 | KSC science at a moved site, and none from... | M | - | S4b, S5 | - | - | spike | - | 4 |
 | S3 | The four looks, replacement sets, a missing... | M | - | S0 | - | - | spike | - | 1 |
@@ -124,7 +124,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | S10b | How far a flattened stretch drifts from its... | S | - | S10a | - | - | spike | - | 2 |
 | S11 | Ghost cost per frame at race scale (new) | S | - | S0 | - | - | spike | - | 1 |
 | S12 | Hashing and signing inside KSP's Mono (new,... | S | - | S0 | - | - | spike | - | 1 |
-| S13 | Close-out: results into the design | S | - | every spike S0..S12 except S8a, S8b (they run last) | - | r0 Q4 | no | - | 5 |
+| S13 | Close-out: results into the design | S | - | every spike S0..S12 except S8a, S8b (they run last) | - | r0 Q4 (answered: a) | no | - | 5 |
 
 ### A.2 `r0b-prep-small.md` (11 tasks, 2 dropped, 9 pull requests)
 
@@ -360,7 +360,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | T-02 | Fake synced store and fake clocks | M | go | - | - | - | no | - | 0 |
 | T-03 | Shared-folder staging in run.py | M | go | - | - | - | no | - | 0 |
 | T-04 | Snapshot every save a lane creates | S | go | - | - | - | no | - | 0 |
-| T-05 | Pure race evaluator, part 1: leak scan and... | M | go | - | - | T Q2 (assumed a) | no | - | 0 |
+| T-05 | Pure race evaluator, part 1: leak scan and... | M | go | - | - | T Q2 (answered: a) | no | - | 0 |
 | T-06 | Harness-side folder step | S | T-03 | - | - | - | no | - | 1 |
 | T-07 | Seam read kind `ListHandles kind=sites` | M | go | - | - | - | flight | - | 0 |
 | T-08 | Race grep gates: shared scanner and "no sto... | - | dropped: work moved to R1-06 | - | - | - | - | - | - |
@@ -382,7 +382,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | T-24 | Lane RACE-2-import-generator-folder | S | T-17, T-19, T-20, T-21 | - | R3W-20 (adds the Tracking Station step) | - | flight | - | 16 |
 | T-25 | Lane RACE-8-export-self-heal-offline | S | T-19, T-21, T-06, R3E-20 | - | - | - | flight | - | 15 |
 | T-26 | Lane RACE-3-rival-ghosts-flight | M | T-17, T-19, T-20 | - | - | - | flight | - | 16 |
-| T-27 | Lane RACE-4-isolation-whole-save | M | T-04, T-05, T-17, T-19 | - | R3W-18, R3W-24 (content) | T Q2 (assumed a) | flight | - | 14 |
+| T-27 | Lane RACE-4-isolation-whole-save | M | T-04, T-05, T-17, T-19 | - | R3W-18, R3W-24 (content) | T Q2 (answered: a) | flight | - | 14 |
 | T-28 | Lane RACE-6-two-saves-in-turn | M | R1-10, R1-11, T-19, T-20, T-21, R3E-16, T-39 | - | R4-04 (row assertion) | T Q1 (assumed a) | flight | - | 16 |
 | T-29 | In-game race context helper and the Space Center host lane RACE-9 | M | T-03, R1-10, R1-11 | - | R1-07 (logContract); T-17, T-19, R2-03, R2-05, R5-11, R3W-05 and the first test of each other Space Center category (each joins RACE-9 in its own PR) | - | flight | - | 8 |
 | T-30 | `ListHandles kind=board` | S | R4-04, R1-23 | - | T-40 (extends it to every mark) | - | no (rides a lane) | - | 14 |

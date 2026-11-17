@@ -114,6 +114,11 @@ namespace Parsek
                 // must go with it; the default would PRESERVE it and keep refusing the
                 // spawn of a flight that no longer exists.
                 case GameActionType.VesselRecovered:
+                // VesselEnded: a race fact that the owner recording's vessel ended outside a
+                // recording. A re-fly that supersedes the owner deletes that flight, so the
+                // end goes with it, like the recovery above; the default would PRESERVE it
+                // and keep ending a leftover of a flight that no longer exists.
+                case GameActionType.VesselEnded:
                 // ResourceScanUnlocked: a scan a superseded flight made. The Re-Fly's
                 // quicksave predates it, so the scan exists again only if the new attempt
                 // makes it; the default would PRESERVE the row and the patcher would

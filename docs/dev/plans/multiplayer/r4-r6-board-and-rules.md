@@ -519,6 +519,17 @@ the one test of design 7.8.
   owner's PC prove the pictures did not move (optional; the unit gates cover the code).
   **Risk:** low; source gates that grep `StructureListWindowUI.cs` for the inline calls may
   need their needle moved, which the PR shows.
+- **Landed shape (2026-11-16):** the constructor takes the window id key, lock id, the two log
+  names (position `StructureList` / `RouteHistory`, resize `Structure window` / `Route History
+  window`), the minimum size, the first-open rect as a `Func<Rect, Rect>`, the owner-built
+  `TooltipEchoBox` (so the strip height stays in the window's own file, which
+  `TooltipEchoBudgetTests` reads) and the owner's Close callback. `WindowRect` backs the
+  owner's `WindowRectForTesting`. The pure decisions are `NeedsFirstOpenPlacement` and
+  `DecideInputLock`. The chrome names `ParsekUI`, so it joins the dependency knot (437 -> 438,
+  canary re-pinned in `scripts/arch/test_archview.py`). `ParsekUI.cs` is untouched. Gates whose
+  needle moved: `SharedStyleConsistencyTests.MissionLogEmpty_*` (the body in
+  `StructureListWindowUI.DrawWindowBody`, the strip / Close order in the chrome's `DrawWindow`)
+  and `PickerWindowLayoutTests` (`DrawWindowBody`).
 
 ### R4-09 The Space Race window: skeleton and registration
 

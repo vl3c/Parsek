@@ -281,36 +281,67 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// The current save's folder, <c>&lt;KSP root&gt;/saves/&lt;save&gt;</c>, as a full path;
+        /// <see cref="SaveRootOverrideForTesting"/> wins when set. Null without a save
+        /// context (logged Verbose, rate limited) or when the path cannot be built (logged
+        /// Error).
+        /// </summary>
+        internal static string ResolveSaveRoot()
+        {
+            string overrideRoot = SaveRootOverrideForTesting;
+            if (!string.IsNullOrEmpty(overrideRoot))
+                return Path.GetFullPath(overrideRoot);
+
+            if (!TryGetSaveContext(
+                    "ResolveSaveRoot",
+                    "resolve-save-root-missing-context",
+                    null,
+                    out string root,
+                    out string saveFolder,
+                    allowNullRelativePath: true))
+                return null;
+
+            try
+            {
+                return Path.GetFullPath(Path.Combine(root, "saves", saveFolder));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("Paths",
+                    $"ResolveSaveRoot failed: saveFolder='{saveFolder}' " +
+                    $"ex={ex.GetType().Name}:{ex.Message}");
+                return null;
+            }
+        }
+
         internal static bool ValidateRecordingId(
             string id,
             RecordingIdValidationLogContext logContext = RecordingIdValidationLogContext.Production)
         {
-            if (string.IsNullOrEmpty(id))
+            // The character set is SafeFileId's fixed one, never the running platform's, so an
+            // id is accepted or refused the same way on every operating system.
+            switch (SafeFileId.Check(id))
             {
-                LogRecordingIdValidationFailure(
-                    "Recording id validation failed: id is null or empty",
-                    logContext);
-                return false;
-            }
-            if (id.Contains("/") || id.Contains("\\") || id.Contains(".."))
-            {
-                LogRecordingIdValidationFailure(
-                    $"Recording id validation failed for '{id}': contains invalid path sequence",
-                    logContext);
-                return false;
-            }
-            char[] invalidChars = Path.GetInvalidFileNameChars();
-            for (int i = 0; i < id.Length; i++)
-            {
-                if (Array.IndexOf(invalidChars, id[i]) >= 0)
-                {
+                case SafeFileIdVerdict.Ok:
+                    return true;
+                case SafeFileIdVerdict.NullOrEmpty:
+                    LogRecordingIdValidationFailure(
+                        "Recording id validation failed: id is null or empty",
+                        logContext);
+                    return false;
+                case SafeFileIdVerdict.PathSequence:
+                    LogRecordingIdValidationFailure(
+                        $"Recording id validation failed for '{id}': contains invalid path sequence",
+                        logContext);
+                    return false;
+                case SafeFileIdVerdict.InvalidChar:
+                default:
                     LogRecordingIdValidationFailure(
                         $"Recording id validation failed for '{id}': contains invalid file-name char",
                         logContext);
                     return false;
-                }
             }
-            return true;
         }
 
         private static void LogRecordingIdValidationFailure(
