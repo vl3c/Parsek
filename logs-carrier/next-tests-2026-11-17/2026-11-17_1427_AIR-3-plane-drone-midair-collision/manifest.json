@@ -1,0 +1,44 @@
+{
+  "archivedUtc": "2026-11-17T14:44:53Z",
+  "files": [
+    {
+      "bytes": 11078,
+      "name": "2026-11-17_1427_AIR-3-plane-drone-midair-collision.json",
+      "sourceBytes": 11078
+    },
+    {
+      "bytes": 1955,
+      "name": "2026-11-17_1427_AIR-3-plane-drone-midair-collision_status.json",
+      "sourceBytes": 1955
+    },
+    {
+      "bytes": 3750,
+      "name": "2026-11-17_1427_AIR-3-plane-drone-midair-collision_mission.json",
+      "sourceBytes": 3750
+    },
+    {
+      "bytes": 401106,
+      "name": "2026-11-17_1427_AIR-3-plane-drone-midair-collision_mission.stdout.log",
+      "sourceBytes": 401106
+    },
+    {
+      "bytes": 84840,
+      "name": "2026-11-17_142738_stock-minimal-2_harness.log.gz",
+      "sourceBytes": 966709
+    },
+    {
+      "bytes": 178173,
+      "name": "KSP.log.gz",
+      "sourceBytes": 1859241
+    }
+  ],
+  "gitHead": "65ac33ee8a199edee4aae1238d3193e5725448db",
+  "harnessLog": "slice",
+  "missing": [],
+  "origin": "run",
+  "parsekDllSha256": "7d9f2510d4d321e9eb43cff3b9ff65f6bc7b7abd54485a48d21dc3ad4dde6eea",
+  "runId": "2026-11-17_1427_AIR-3-plane-drone-midair-collision",
+  "schema": 1,
+  "totalBytes": 680902,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests"
+}

@@ -1,0 +1,21 @@
+{
+ "exitCode": 0,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "",
+   "id": "BOAT-1-mallard-water-taxi",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests\\harness\\results\\2026-11-17_1419_BOAT-1-mallard-water-taxi.json"
+   ],
+   "runIds": [
+    "2026-11-17_1419_BOAT-1-mallard-water-taxi"
+   ],
+   "subkind": "",
+   "verdict": "PASS",
+   "wallSeconds": 205
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal-2"
+}

@@ -1,0 +1,121 @@
+{
+  "createdUtc": "2026-11-17T14:02:24Z",
+  "gitHead": "65ac33ee8a199edee4aae1238d3193e5725448db",
+  "includeExclusive": false,
+  "lanes": [
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "GS-9-kerbalx-repeat-rewind",
+      "p50": 491.0,
+      "p50Source": "duration.json",
+      "profile": "stock-minimal",
+      "tier": "nightly"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "AIR-2-runway-circuit-ksc-ghost",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "RVC-1-two-rover-head-on-crash",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "LX-1-loop-armed-refly-discard-merge",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "LX-2-career-loop-watch-scene-change-reload",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "FXR-1-ghost-engine-fx-across-refly-and-retry",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "LAY-1-laythe-reentry-splashdown",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "BOAT-1-mallard-water-taxi",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "SOI-2-mun-exit-formation-wingman",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "AIR-3-plane-drone-midair-collision",
+      "p50": 120.0,
+      "p50Source": "default",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "H59-surface-route-map-lines",
+      "p50": 84.0,
+      "p50Source": "duration.json",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    },
+    {
+      "exclusive": false,
+      "exclusiveReason": null,
+      "id": "V27M-rover-route-endpoint-substituted-map-lines",
+      "p50": 64.0,
+      "p50Source": "duration.json",
+      "profile": "stock-minimal",
+      "tier": "operator"
+    }
+  ],
+  "name": "next-tests-2026-11-17",
+  "notFlown": [],
+  "schema": "parsek-parallel-plan/1",
+  "skipped": [],
+  "slotsAtStart": 2,
+  "windowMode": "desktop"
+}

@@ -1,0 +1,640 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_1417_LAY-1-laythe-reentry-splashdown_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 716,
+  "collectLogs": {
+    "path": "Collecting logs into: 2026-11-17_1629_LAY-1-laythe-reentry-splashdown/",
+    "ran": true
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "laythe-park-nerv",
+          "scene": "FLIGHT",
+          "ut": "28817026.357051536"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "28817026.617051531"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "28817026.63705153"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "28817026.65705153",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "28817026.677051529",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "ghostRenderTracing",
+          "ut": "28817026.717051528",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "mapRenderTracing",
+          "ut": "28817026.737051528",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "ba455ab6a039477ab19b9b362b1d4240",
+          "ut": "28817026.757051528"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "expect": "MISSION-OK",
+        "id": "0009",
+        "met": true,
+        "missionVerdict": "MISSION-OK",
+        "phase": "mission",
+        "subkind": null,
+        "verdict": "MISSION-OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "28818102.377180159"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "committed": "true",
+          "ut": "28818102.417180158"
+        },
+        "cmd": "CommitTree",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "28818102.437180158"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lay1-committed",
+          "ut": "28818102.457180157"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "adjustedUT": "28817011.8",
+          "rec": "ba455ab6a039477ab19b9b362b1d4240",
+          "rewound": "true",
+          "tree": "fc2643853fa64fc48dd59fae217b7e38",
+          "ut": "28817011.817051526"
+        },
+        "cmd": "InvokeRewindToLaunch",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "28817011.837051526",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lay1-rewound",
+          "ut": "28817011.877051525"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "28817011.897051524"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "laythe-park-nerv",
+          "scene": "TRACKSTATION",
+          "ut": "28817011.957051523"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "0",
+          "recording": "false",
+          "scene": "TRACKSTATION",
+          "tree": "",
+          "ut": "28817011.977051523"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "0",
+          "recording": "false",
+          "scene": "TRACKSTATION",
+          "tree": "",
+          "ut": "28817012.017051522"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lay1-ts",
+          "ut": "28817012.037051521"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0021",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "28817012.07705152"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0022",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "laythe-park-nerv",
+          "scene": "SPACECENTER",
+          "ut": "28817012.157051519"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0023",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "3987.8229484818876",
+          "maxRate": "1000",
+          "target": "28821000",
+          "ut": "28820999.795564618"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0024",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lay1-past-end",
+          "ut": "28820999.795564618"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0025",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "failed": "0",
+          "passed": "0",
+          "results": "parsek-test-results.txt",
+          "skipped": "1",
+          "ut": "28821000.875564594"
+        },
+        "cmd": "RunTests",
+        "expect": "OK",
+        "id": "0026",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "28821000.915564593"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0027",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "28821000.975564592"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0028",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T14:29:05Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": 619,
+  "note": "",
+  "runId": "2026-11-17_1417_LAY-1-laythe-reentry-splashdown",
+  "scenarioId": "LAY-1-laythe-reentry-splashdown",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 1663010,
+    "files": 67,
+    "path": "2026-11-17_1417_LAY-1-laythe-reentry-splashdown_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PARSEK-FAIL"
+  },
+  "startedUtc": "2026-11-17T14:17:08Z",
+  "subkind": "expectation",
+  "tier": "operator",
+  "verdict": "PARSEK-FAIL",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\laythe-park-nerv\\analysis\\laythe-park-nerv.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\laythe-park-nerv\\analysis\\laythe-park-nerv.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": "LeafVesselPlacement",
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": 0,
+      "found": true,
+      "matchedRuns": 1,
+      "multi": false,
+      "perCategoryCount": 1,
+      "runsShort": false,
+      "status": "PASS"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [
+        "logContracts.required not matched: MISSIONMARK label=lay1-past-end ut=[\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[(?:[A-Za-z]+,)*Laythe(?:,[A-Za-z]+)*\\]",
+        "logContracts.required not matched: BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER"
+      ],
+      "observed": {
+        "recordings": {
+          "count": 7
+        }
+      },
+      "reserved": [],
+      "status": "FAIL"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": false,
+      "status": "PASS"
+    },
+    "mission": {
+      "missionVerdict": "MISSION-OK",
+      "status": "PASS",
+      "subkind": ""
+    },
+    "missionOutcome": {
+      "firstUnmet": null,
+      "gatingVerbs": [],
+      "reason": "no-gating-verbs",
+      "status": "SKIPPED"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [
+        "rewind"
+      ],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 569,
+            "recordings": 7,
+            "smallest": 4,
+            "total": 866,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "JointBreak": 2
+            },
+            "committedTrees": 1,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "Duna Rocket": 2,
+              "Duna Rocket Debris": 5
+            },
+            "recordings": 7,
+            "spaceObjectParts": {
+              "Ast. AXI-284": 1,
+              "Ast. EZT-295": 1,
+              "Ast. GNJ-818": 1,
+              "Ast. LYX-471": 1,
+              "Ast. MBD-541": 1,
+              "Ast. ORB-975": 1,
+              "Ast. STU-261": 1,
+              "Ast. TFE-411": 1,
+              "Ast. YRZ-308": 1,
+              "UnknownComet": 1
+            },
+            "spawnedVessels": 0,
+            "terminalStates": {
+              "Destroyed": 5,
+              "Splashed": 1
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "Duna Rocket Debris": 2
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": 0,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 0
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 0,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 716
+}

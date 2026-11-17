@@ -1,0 +1,149 @@
+{
+  "assertions": [
+    {
+      "body": "Mun",
+      "crew": 1,
+      "eccentricity": 0.00012634901918909196,
+      "met": true,
+      "minCrew": 1,
+      "name": "handoffHomePark",
+      "periapsis": 139526.06390815857,
+      "value": "ORBITING"
+    },
+    {
+      "cutPeriapsis": 139589.0522176805,
+      "cutTimeToSoi": 6603.938900922978,
+      "cutUT": 21786.134045295614,
+      "met": true,
+      "name": "escapeTrajectory",
+      "nextBody": "Kerbin",
+      "peakThrust": 249999.984375,
+      "targetEccentricity": 1.2,
+      "value": 1.2314249313040844
+    },
+    {
+      "crossWarpMode": "NONE",
+      "crossWarpRate": 1.0,
+      "formationWarpFrames": 0,
+      "lastHomeUT": 28376.343392375584,
+      "lastHomeWarpRate": 1.0,
+      "maxStageAgeSeconds": 50.0,
+      "met": true,
+      "name": "crossedInFormationAt1x",
+      "stageAgeAtCrossing": 24.900000000543514,
+      "stageTimeToSoi": 24.846130398600508,
+      "stageUT": 28351.743392375047,
+      "stageWarpRate": 1.0,
+      "value": 28376.64339237559,
+      "warpIssues": 1
+    },
+    {
+      "endUT": 28407.023392376253,
+      "liquidFuelAtEnd": 0.0,
+      "met": true,
+      "name": "endedInParentSoi",
+      "parentBody": "Kerbin",
+      "phasesReached": [
+        "SOI1-START",
+        "SOI1-ALIGN",
+        "SOI1-ESCAPE-BURN",
+        "SOI1-COAST",
+        "SOI1-APPROACH",
+        "SOI1-FORMATION-COAST",
+        "SOI1-IN-PARENT"
+      ],
+      "trailSeconds": 30.0,
+      "value": "Kerbin"
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.1680918000638485,
+    "rpcPort": 50002
+  },
+  "error": null,
+  "handoff": {
+    "terminal": "SOI1-IN-PARENT",
+    "unverifiedByMission": [
+      "physicsSoiSectionSplit"
+    ],
+    "verifiedBy": [
+      "logContracts",
+      "recordings"
+    ]
+  },
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "soi1_mun_exit_burn",
+  "phasesReached": [
+    "SOI1-START",
+    "SOI1-ALIGN",
+    "SOI1-ESCAPE-BURN",
+    "SOI1-COAST",
+    "SOI1-APPROACH",
+    "SOI1-FORMATION-COAST",
+    "SOI1-IN-PARENT"
+  ],
+  "reason": "all telemetry assertions met; handoff mission - physicsSoiSectionSplit not verified here, owned by logContracts, recordings",
+  "schema": 1,
+  "verdict": "MISSION-OK",
+  "wallSeconds": 241.221,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.0,
+      "gameSecondsPerWallSecond": 0.0,
+      "phase": "SOI1-START",
+      "wallSeconds": 0.05,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 15.414,
+      "gameSecondsPerWallSecond": 1.864,
+      "phase": "SOI1-ALIGN",
+      "wallSeconds": 8.268,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 22.92,
+      "gameSecondsPerWallSecond": 0.995,
+      "phase": "SOI1-ESCAPE-BURN",
+      "wallSeconds": 23.03,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 1,
+      "gameSeconds": 6429.589,
+      "gameSecondsPerWallSecond": 377.322,
+      "phase": "SOI1-COAST",
+      "wallSeconds": 17.04,
+      "warpCommands": 1
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 136.02,
+      "gameSecondsPerWallSecond": 0.996,
+      "phase": "SOI1-APPROACH",
+      "wallSeconds": 136.616,
+      "warpCommands": 1
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 55.28,
+      "gameSecondsPerWallSecond": 0.986,
+      "phase": "SOI1-FORMATION-COAST",
+      "wallSeconds": 56.042,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.0,
+      "gameSecondsPerWallSecond": 0.0,
+      "phase": "SOI1-IN-PARENT",
+      "wallSeconds": 0.001,
+      "warpCommands": 0
+    }
+  ]
+}

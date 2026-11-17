@@ -1,0 +1,226 @@
+[Harness][Info][Select] select expr='--ids-file C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\RVC-1-two-rover-head-on-crash.ids' -> 1 scenarios: ['RVC-1-two-rover-head-on-crash']
+[Harness][Info][Select] slot mode slot=stock-minimal instance=C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal window=desktop
+[Harness][Info][Lock] runner check ok: runner pid=6900 holds the machine lock
+[Harness][Info][Lock] slot-lock acquired slot=stock-minimal (acquired-free) path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-slot-stock-minimal.lock pid=30388
+[Harness][Info][Build] tests prebuild skipped (--tests-prebuilt: the caller built C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\Source\Parsek.Tests\bin\Debug\net472\Parsek.Tests.dll); verifiers run -NoBuild
+[Harness][Info][Admit] admit parsek-dll vs stock-minimal: skipped (same instance)
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Verbose][Preflight] kRPC settings already carry rpc=50000 stream=50001
+[Harness][Info][Preflight] port-check rpc=50000 stream=50001 result=CLEAR
+[Harness][Verbose][Stage] shared-ship overlay: no rows for save=rover-crash-watched (Ships/VAB carries 0 committed craft)
+[Harness][Info][Settings] settings-sidecar baseline written phase=stage tracers=off readableMirrors=on
+[Harness][Info][Stage] stage save=rover-crash-watched template=fixtures/saves/rover-crash-watched inject=none craft=0 results-rotated=False manifest-rotated=False
+[Harness][Info][Launch] launch exe=C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal\KSP_x64.exe pid=39564 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0 ISOLATED=0 RENDER_MANIFEST=0] batchIsolated=False budget=2100s
+[Harness][Info][Launch] launch args=-logFile C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal\Player.log -screen-fullscreen 0 -screen-width 1280 -screen-height 720 window=desktop desktopId=8611d2b8-3fd1-40e7-b7ed-966d22e4f24c returnForeground=263394
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Info][Boot-Wait] boot at main menu elapsed=27.9s kspLogBytes=1335445; watching until the seam's first receipt (rule no-seam-receipt)
+[Harness][Info][Boot-Wait] boot ready via=seam-receipt elapsed=27.9s kspLogBytes=1335445; boot-stall watchdog off for this attempt
+[Harness][Info][Window] window mode=desktop placement=desktop=moved foreground=not-foreground action=none (Parsek moved its window to the target desktop)
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Info][Drive] drive resp id=0001 verdict=OK met=True
+[Harness][Info][Drive] captured id=0001 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=1 id=0002 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0002 verdict=OK met=True
+[Harness][Info][Drive] captured id=0002 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=2 id=0003 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] captured id=0003 label=- fields=ut,nothing
+[Harness][Info][Drive] drive step=3 id=0004 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Drive] captured id=0004 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=4 id=0005 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0005 verdict=OK met=True
+[Harness][Info][Drive] captured id=0005 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=5 id=0006 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0006 verdict=OK met=True
+[Harness][Info][Drive] captured id=0006 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=6 id=0007 cmd=PartAction expect=OK
+[Harness][Info][Drive] drive resp id=0007 verdict=OK met=True
+[Harness][Info][Drive] captured id=0007 label=- fields=ut,button,pid,part,partId,event,newPid,newName,vesselsBefore,vesselsAfter,activePid,activeName,converter,state,count,packed,warpIndex,warpRate
+[Harness][Info][Drive] drive step=7 id=0008 cmd=StartRecording expect=OK
+[Harness][Info][Drive] drive resp id=0008 verdict=OK met=True
+[Harness][Info][Drive] captured id=0008 label=- fields=ut,recordingId
+[Harness][Info][Drive] drive step=8 id=0009 cmd=RecordingState expect=OK
+[Harness][Info][Drive] drive resp id=0009 verdict=OK met=True
+[Harness][Info][Drive] captured id=0009 label=- fields=ut,recording,tree,points,scene
+[Harness][Info][Drive] drive step=9 id=0010 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0010 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0010 elapsed=20/660
+[Harness][Info][Drive] drive resp id=0010 verdict=OK met=True
+[Harness][Info][Drive] captured id=0010 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=10 id=0011 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0011 verdict=OK met=True
+[Harness][Info][Drive] captured id=0011 label=- fields=ut,label
+[Harness][Info][Drive] drive step=11 id=0012 cmd=DriveVessel expect=OK
+[Harness][Info][Drive] drive resp id=0012 verdict=OK met=True
+[Harness][Info][Drive] captured id=0012 label=dk fields=ut,docked,gameSeconds,maxSrfSpeed,pathMeters,dockUT,partnerPid,partnerName,activePid,activeName,activeParts
+[Harness][Info][Drive] drive step=12 id=0013 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0013 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0013 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0013 elapsed=30/660
+[Harness][Info][Drive] drive resp id=0013 verdict=OK met=True
+[Harness][Info][Drive] captured id=0013 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=13 id=0014 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0014 verdict=OK met=True
+[Harness][Info][Drive] captured id=0014 label=- fields=ut,label
+[Harness][Info][Drive] drive step=14 id=0015 cmd=PartAction expect=OK
+[Harness][Info][Drive] drive resp id=0015 verdict=OK met=True
+[Harness][Info][Drive] captured id=0015 label=und fields=ut,button,pid,part,partId,event,newPid,newName,vesselsBefore,vesselsAfter,activePid,activeName,converter,state,count,packed,warpIndex,warpRate
+[Harness][Info][Drive] drive step=15 id=0016 cmd=WarpToUT expect=OK
+[Harness][Info][Drive] drive resp id=0016 verdict=OK met=True
+[Harness][Info][Drive] captured id=0016 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=16 id=0017 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0017 verdict=OK met=True
+[Harness][Info][Drive] captured id=0017 label=- fields=ut,label
+[Harness][Info][Drive] drive step=17 id=0018 cmd=DriveVessel expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0018 elapsed=10/120
+[Harness][Info][Drive] drive resp id=0018 verdict=OK met=True
+[Harness][Info][Drive] captured id=0018 label=rv fields=ut,moved,gameSeconds,maxSrfSpeed,pathMeters,displacementMeters,situation
+[Harness][Info][Drive] drive step=18 id=0019 cmd=DriveVessel expect=OK
+[Harness][Info][Drive] drive resp id=0019 verdict=OK met=True
+[Harness][Info][Drive] captured id=0019 label=- fields=ut,settled,gameSeconds,srfSpeed,situation
+[Harness][Info][Drive] drive step=19 id=0020 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0020 verdict=OK met=True
+[Harness][Info][Drive] captured id=0020 label=- fields=ut,label
+[Harness][Info][Drive] drive step=20 id=0021 cmd=DriveVessel expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=10/120
+[Harness][Verbose][Drive] poll: pendingId=0021 elapsed=20/120
+[Harness][Info][Drive] drive resp id=0021 verdict=OK met=True
+[Harness][Info][Drive] captured id=0021 label=cr fields=ut,crashed,gameSeconds,maxSrfSpeed,impactSrfSpeed,pathMeters,crashUT,firstPart,firstPartVesselPid,ownPartsLost,otherPartsLost,activePid,activeName
+[Harness][Info][Drive] drive step=21 id=0022 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=30/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=40/660
+[Harness][Info][Drive] drive resp id=0022 verdict=OK met=True
+[Harness][Info][Drive] captured id=0022 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] substituted id=0023 arg=label ref=${cr.firstPartVesselPid} value=110406740
+[Harness][Info][Drive] substituted id=0023 arg=label ref=${cr.ownPartsLost} value=1
+[Harness][Info][Drive] substituted id=0023 arg=label ref=${cr.otherPartsLost} value=0
+[Harness][Info][Drive] drive step=22 id=0023 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0023 verdict=OK met=True
+[Harness][Info][Drive] captured id=0023 label=- fields=ut,label
+[Harness][Info][Drive] drive step=23 id=0024 cmd=RecordingState expect=OK
+[Harness][Info][Drive] drive resp id=0024 verdict=OK met=True
+[Harness][Info][Drive] captured id=0024 label=- fields=ut,recording,tree,points,scene
+[Harness][Info][Drive] drive step=24 id=0025 cmd=ExitToSpaceCenter expect=OK
+[Harness][Info][Drive] drive resp id=0025 verdict=OK met=True
+[Harness][Info][Drive] captured id=0025 label=- fields=ut,scene
+[Harness][Info][Drive] drive step=25 id=0026 cmd=SaveGame expect=OK
+[Harness][Info][Drive] drive resp id=0026 verdict=OK met=True
+[Harness][Info][Drive] captured id=0026 label=- fields=ut,saved
+[Harness][Info][Drive] drive step=26 id=0027 cmd=LoadGame expect=OK
+[Harness][Info][Drive] drive resp id=0027 verdict=OK met=True
+[Harness][Info][Drive] captured id=0027 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=27 id=0028 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0028 verdict=OK met=True
+[Harness][Info][Drive] captured id=0028 label=- fields=ut,stopped
+[Harness][Info][Drive] drive step=28 id=0029 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0029 verdict=OK met=True
+[Harness][Info][Drive] captured id=0029 label=- fields=ut,discarded
+[Harness][Info][Drive] drive step=29 id=0030 cmd=ListHandles expect=OK
+[Harness][Info][Drive] drive resp id=0030 verdict=OK met=True
+[Harness][Info][Drive] captured id=0030 label=c0 fields=ut,kind,count,truncated,rec0,rec0tree,rec0pid,rec0spawnedPid,rec0name,rec0spawned,rec0state,rec1,rec1tree,rec1pid,rec1spawnedPid,rec1name,rec1spawned,rec1state,rec2,rec2tree,rec2pid,rec2spawnedPid,rec2name,rec2spawned,rec2state,rec3,rec3tree,rec3pid,rec3spawnedPid,rec3name,rec3spawned,rec3state
+[Harness][Info][Drive] substituted id=0031 arg=label ref=${c0.count} value=4
+[Harness][Info][Drive] drive step=30 id=0031 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0031 verdict=OK met=True
+[Harness][Info][Drive] captured id=0031 label=- fields=ut,label
+[Harness][Info][Drive] drive step=31 id=0032 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0032 verdict=OK met=True
+[Harness][Info][Drive] captured id=0032 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=32 id=0033 cmd=InvokeRewindToLaunch expect=OK
+[Harness][Info][Drive] drive resp id=0033 verdict=OK met=True
+[Harness][Info][Drive] captured id=0033 label=- fields=ut,rewound,rec,tree,adjustedUT
+[Harness][Info][Drive] drive step=33 id=0034 cmd=SaveGame expect=OK
+[Harness][Info][Drive] drive resp id=0034 verdict=OK met=True
+[Harness][Info][Drive] captured id=0034 label=- fields=ut,saved
+[Harness][Info][Drive] drive step=34 id=0035 cmd=LoadGame expect=OK
+[Harness][Info][Drive] drive resp id=0035 verdict=OK met=True
+[Harness][Info][Drive] captured id=0035 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=35 id=0036 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0036 verdict=OK met=True
+[Harness][Info][Drive] captured id=0036 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=36 id=0037 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0037 verdict=OK met=True
+[Harness][Info][Drive] captured id=0037 label=- fields=ut,nothing
+[Harness][Info][Drive] drive step=37 id=0038 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0038 verdict=OK met=True
+[Harness][Info][Drive] captured id=0038 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=38 id=0039 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0039 verdict=OK met=True
+[Harness][Info][Drive] captured id=0039 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=39 id=0040 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0040 verdict=OK met=True
+[Harness][Info][Drive] captured id=0040 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=40 id=0041 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0041 verdict=OK met=True
+[Harness][Info][Drive] captured id=0041 label=- fields=ut,label
+[Harness][Info][Drive] drive step=41 id=0042 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0042 elapsed=10/660
+[Harness][Info][Drive] drive resp id=0042 verdict=OK met=True
+[Harness][Info][Drive] captured id=0042 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=42 id=0043 cmd=ListHandles expect=OK
+[Harness][Info][Drive] drive resp id=0043 verdict=OK met=True
+[Harness][Info][Drive] captured id=0043 label=c1 fields=ut,kind,count,truncated,rec0,rec0tree,rec0pid,rec0spawnedPid,rec0name,rec0spawned,rec0state,rec1,rec1tree,rec1pid,rec1spawnedPid,rec1name,rec1spawned,rec1state,rec2,rec2tree,rec2pid,rec2spawnedPid,rec2name,rec2spawned,rec2state,rec3,rec3tree,rec3pid,rec3spawnedPid,rec3name,rec3spawned,rec3state
+[Harness][Info][Drive] drive step=43 id=0044 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0044 verdict=OK met=True
+[Harness][Info][Drive] captured id=0044 label=- fields=ut,label
+[Harness][Info][Drive] drive step=44 id=0045 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=30/660
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=40/660
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=50/660
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=60/660
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=70/660
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=80/660
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=90/660
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=100/660
+[Harness][Verbose][Drive] poll: pendingId=0045 elapsed=110/660
+[Harness][Info][Drive] drive resp id=0045 verdict=OK met=True
+[Harness][Info][Drive] captured id=0045 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=45 id=0046 cmd=ListHandles expect=OK
+[Harness][Info][Drive] drive resp id=0046 verdict=OK met=True
+[Harness][Info][Drive] captured id=0046 label=c2 fields=ut,kind,count,truncated,rec0,rec0tree,rec0pid,rec0spawnedPid,rec0name,rec0spawned,rec0state,rec1,rec1tree,rec1pid,rec1spawnedPid,rec1name,rec1spawned,rec1state,rec2,rec2tree,rec2pid,rec2spawnedPid,rec2name,rec2spawned,rec2state,rec3,rec3tree,rec3pid,rec3spawnedPid,rec3name,rec3spawned,rec3state
+[Harness][Info][Drive] drive step=46 id=0047 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0047 verdict=OK met=True
+[Harness][Info][Drive] captured id=0047 label=- fields=ut,label
+[Harness][Info][Drive] drive step=47 id=0048 cmd=SaveGame expect=OK
+[Harness][Info][Drive] drive resp id=0048 verdict=OK met=True
+[Harness][Info][Drive] captured id=0048 label=- fields=ut,saved
+[Harness][Info][Drive] drive step=48 id=0049 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0049 verdict=OK met=True
+[Harness][Info][Drive] captured id=0049 label=- fields=ut,saved
+[Harness][Info][Verify] verify driverValidity status=PASS allMet=True subkind=-
+[Harness][Info][Verify] verify batchComplete status=SKIPPED found=False failed=None multi=False perCategory=0 runs=0/1
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None
+[Harness][Info][Verify] verify timing analyzer=9.0s logValidate=8.8s mode=concurrent
+[Harness][Info][Verify] verify logValidate status=PASS recRulesSuppressed=False killedRunMode=False
+[Harness][Info][Verify] verify anomalySweep status=PASS hits=[] counts={}
+[Harness][Info][Verify] verify unityExceptions status=REPORT gating=False total=6042 counts={'NullReferenceException': 6042, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0} parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=0 afterQuitFrameless=0
+[Harness][Warn][Verify] unityExceptions saw 6042 raw Unity exception line(s) (REPORT-ONLY, not gating; arm with [expectations.unityExceptions] maxTotal = N): {'NullReferenceException': 6042, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0}
+[Harness][Info][Verify] verify expectations status=FAIL mismatches=2
+[Harness][Info][Verify] verify saveParse status=REPORT gating=False blocks=['recordings.structure'] armed=- scenarioFound=True supersedeRows=0 tombstones=0 rewindPoints=0 pointsTotal=519 pointsLargest=259 pointsSmallest=16 pointsUnparsed=0 routes=0 routeStatuses={} routeCodecRejects=0 mismatches=0
+[Harness][Info][Verify] verify renderCompose status=REPORT gating=False blocks=- armed=- parsed=None dwells=- cycles=- unevaluable=- findings={'FAIL': 0, 'WARN': 0, 'INFO': 0} mismatches=0 declared=-
+[Harness][Info][Verify] verify ghostLifecycle status=REPORT gating=False blocks=['ghostLifecycle'] armed=- spawned=4 spawnLines=4 destroyLines=4 unbalanced=0 malformed=0 reasons={'playback completed': 4} mismatches=0 declared={'gating': False, 'spawned': {'min': 2}, 'requireBalanced': True}
+[Harness][Info][Classify] verdict=PARSEK-FAIL scenario=RVC-1-two-rover-head-on-crash attempt=1 reason=expectations manifest mismatch
+[Harness][Info][Collect] collect-logs label=RVC-1-two-rover-head-on-crash -> Collecting logs into: 2026-11-17_1616_RVC-1-two-rover-head-on-crash/
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1411_RVC-1-two-rover-head-on-crash.json
+[Harness][Info][Snapshot] produced-save snapshot run=2026-11-17_1411_RVC-1-two-rover-head-on-crash result=copied bytes=3527299 files=77 reason=every-verdict-default verdict=PARSEK-FAIL path=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1411_RVC-1-two-rover-head-on-crash_save
+[Harness][Verbose][Snapshot] save-snapshot retention skipped (slot mode; the runner sweeps)
+[Harness][Verbose][Artifacts] screenshots skipped: 800 prior-run, 0 over-cap, 0 copy-failed
+[Harness][Info][Artifacts] artifacts collected run=2026-11-17_1411_RVC-1-two-rover-head-on-crash kspLog=True truncated=False screenshots=0 renderManifest=False -> C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1411_RVC-1-two-rover-head-on-crash_shots
+[Harness][Verbose][Artifacts] shots-dir retention skipped (slot mode; the runner sweeps)
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1411_RVC-1-two-rover-head-on-crash.json
+[Harness][Info][Sheet] contact sheet written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1411_RVC-1-two-rover-head-on-crash_contact.html (+ index.html)
+[Harness][Info][Settings] settings-sidecar baseline written phase=teardown tracers=off readableMirrors=on (cleared leaked: ghostRenderTracing)
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1411_RVC-1-two-rover-head-on-crash.json
+[Harness][Info][Sheet] contact sheet written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1411_RVC-1-two-rover-head-on-crash_contact.html (+ index.html)
+[Harness][Info][Cost] scenario cost attempts=1 wallTotal=348s terminal=PARSEK-FAIL
+[Harness][Info][Archive] results archived run=2026-11-17_1411_RVC-1-two-rover-head-on-crash files=3 bytes=573753 missing=3 -> C:\Users\USER\Documents\Code\Parsek\automation\results-archive\2026-11-17_1411_RVC-1-two-rover-head-on-crash
+[Harness][Verbose][Archive] run index append skipped (slot mode; the runner appends 2026-11-17_1411_RVC-1-two-rover-head-on-crash)
+[Harness][Info][Lock] run-lock released path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-slot-stock-minimal.lock (slot=stock-minimal)
+[Harness][Info][Report] run report -> C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\RVC-1-two-rover-head-on-crash.3.report.json lanes=1 exit=1

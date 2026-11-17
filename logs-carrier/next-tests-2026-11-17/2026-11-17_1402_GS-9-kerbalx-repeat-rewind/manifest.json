@@ -1,0 +1,44 @@
+{
+  "archivedUtc": "2026-11-17T14:11:06Z",
+  "files": [
+    {
+      "bytes": 12209,
+      "name": "2026-11-17_1402_GS-9-kerbalx-repeat-rewind.json",
+      "sourceBytes": 12209
+    },
+    {
+      "bytes": 2786,
+      "name": "2026-11-17_1402_GS-9-kerbalx-repeat-rewind_status.json",
+      "sourceBytes": 2786
+    },
+    {
+      "bytes": 12840,
+      "name": "2026-11-17_1402_GS-9-kerbalx-repeat-rewind_mission.json",
+      "sourceBytes": 12840
+    },
+    {
+      "bytes": 439831,
+      "name": "2026-11-17_1402_GS-9-kerbalx-repeat-rewind_mission.stdout.log",
+      "sourceBytes": 439831
+    },
+    {
+      "bytes": 24351,
+      "name": "2026-11-17_140231_stock-minimal_harness.log.gz",
+      "sourceBytes": 511087
+    },
+    {
+      "bytes": 2184052,
+      "name": "KSP.log.gz",
+      "sourceBytes": 30494216
+    }
+  ],
+  "gitHead": "65ac33ee8a199edee4aae1238d3193e5725448db",
+  "harnessLog": "slice",
+  "missing": [],
+  "origin": "run",
+  "parsekDllSha256": "7d9f2510d4d321e9eb43cff3b9ff65f6bc7b7abd54485a48d21dc3ad4dde6eea",
+  "runId": "2026-11-17_1402_GS-9-kerbalx-repeat-rewind",
+  "schema": 1,
+  "totalBytes": 2676069,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests"
+}

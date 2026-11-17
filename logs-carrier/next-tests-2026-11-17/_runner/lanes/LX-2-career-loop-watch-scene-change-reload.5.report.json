@@ -1,0 +1,21 @@
+{
+ "exitCode": 0,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "",
+   "id": "LX-2-career-loop-watch-scene-change-reload",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests\\harness\\results\\2026-11-17_1414_LX-2-career-loop-watch-scene-change-reload.json"
+   ],
+   "runIds": [
+    "2026-11-17_1414_LX-2-career-loop-watch-scene-change-reload"
+   ],
+   "subkind": "",
+   "verdict": "PASS",
+   "wallSeconds": 76
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal-2"
+}

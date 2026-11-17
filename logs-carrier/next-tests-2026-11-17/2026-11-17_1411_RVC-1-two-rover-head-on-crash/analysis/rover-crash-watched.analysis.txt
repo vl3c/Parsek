@@ -1,0 +1,6 @@
+[Analyzer] save=rover-crash-watched generation=4 FAIL=0 WARN=5 INFO=0 STALE=0 BASELINED=0 RED=0
+WARN INV2-UNCOVERED-SPAN target=b9534e20a2054feebcdb316fd4dac270#8 INV2 uncovered recording=b9534e20a2054feebcdb316fd4dac270 span=[155.26000000000616,185.22000000002149] orbitBridged=False
+WARN INV5-ORPHAN-SIDECAR target=0a3e8b54d23e40a0a733ed6bf5e70067 INV5 orphan-sidecar recording=0a3e8b54d23e40a0a733ed6bf5e70067 sidecarGen=4
+WARN INV5-ORPHAN-SIDECAR target=12100ebc1b5240a5b4c5b1fce8f0c92d INV5 orphan-sidecar recording=12100ebc1b5240a5b4c5b1fce8f0c92d sidecarGen=4
+WARN INV5-ORPHAN-SIDECAR target=757826866b774d68abdbdeb899381fd8 INV5 orphan-sidecar recording=757826866b774d68abdbdeb899381fd8 sidecarGen=4
+WARN INV5-ORPHAN-SIDECAR target=b2fa9d83419f44f8b086c6023aab0ead INV5 orphan-sidecar recording=b2fa9d83419f44f8b086c6023aab0ead sidecarGen=4

@@ -1,0 +1,4 @@
+[Analyzer] save=rover-route-recorded generation=4 FAIL=0 WARN=3 INFO=0 STALE=0 BASELINED=0 RED=0
+WARN INV11-EMPTY-SECTION target=0996f1ba7c7b4d3a8d95cf8be77fbe6d#0 INV11 empty-section recording=0996f1ba7c7b4d3a8d95cf8be77fbe6d#0 env=Atmospheric ref=Absolute ut=[594.27999999974952,594.31999999974948] frames=0 bodyFixedFrames=0 checkpoints=0
+WARN INV11-EMPTY-SECTION target=d161c3706d5b4c0b850dba36c1d85abf#0 INV11 empty-section recording=d161c3706d5b4c0b850dba36c1d85abf#0 env=SurfaceStationary ref=Absolute ut=[1001.0436437982255,1001.0836437982255] frames=0 bodyFixedFrames=0 checkpoints=0
+WARN INV2-UNCOVERED-SPAN target=4370a799d00644f68d9b4a2ca9f72d0c#4 INV2 uncovered recording=4370a799d00644f68d9b4a2ca9f72d0c span=[619.57999999972651,1001.5036437982251] orbitBridged=False

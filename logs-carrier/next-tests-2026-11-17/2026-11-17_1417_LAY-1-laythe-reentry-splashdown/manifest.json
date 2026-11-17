@@ -1,0 +1,44 @@
+{
+  "archivedUtc": "2026-11-17T14:29:13Z",
+  "files": [
+    {
+      "bytes": 15809,
+      "name": "2026-11-17_1417_LAY-1-laythe-reentry-splashdown.json",
+      "sourceBytes": 15809
+    },
+    {
+      "bytes": 2419,
+      "name": "2026-11-17_1417_LAY-1-laythe-reentry-splashdown_status.json",
+      "sourceBytes": 2419
+    },
+    {
+      "bytes": 2487,
+      "name": "2026-11-17_1417_LAY-1-laythe-reentry-splashdown_mission.json",
+      "sourceBytes": 2487
+    },
+    {
+      "bytes": 385002,
+      "name": "2026-11-17_1417_LAY-1-laythe-reentry-splashdown_mission.stdout.log",
+      "sourceBytes": 385002
+    },
+    {
+      "bytes": 26219,
+      "name": "2026-11-17_141707_stock-minimal_harness.log.gz",
+      "sourceBytes": 435811
+    },
+    {
+      "bytes": 262213,
+      "name": "KSP.log.gz",
+      "sourceBytes": 2438943
+    }
+  ],
+  "gitHead": "65ac33ee8a199edee4aae1238d3193e5725448db",
+  "harnessLog": "slice",
+  "missing": [],
+  "origin": "run",
+  "parsekDllSha256": "7d9f2510d4d321e9eb43cff3b9ff65f6bc7b7abd54485a48d21dc3ad4dde6eea",
+  "runId": "2026-11-17_1417_LAY-1-laythe-reentry-splashdown",
+  "schema": 1,
+  "totalBytes": 694149,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests"
+}

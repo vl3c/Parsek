@@ -1,0 +1,71 @@
+[Parallel][Info][Plan] run next-tests-2026-11-17: 12 lane(s), p50 sum 0.5 h (serial), slots=2, window=desktop, estimates: default=9 duration.json=3
+[Parallel][Info][Plan] lane GS-9-kerbalx-repeat-rewind profile=stock-minimal p50=491s (duration.json)
+[Parallel][Info][Plan] lane AIR-2-runway-circuit-ksc-ghost profile=stock-minimal p50=120s (default)
+[Parallel][Info][Plan] lane RVC-1-two-rover-head-on-crash profile=stock-minimal p50=120s (default)
+[Parallel][Info][Plan] lane LX-1-loop-armed-refly-discard-merge profile=stock-minimal p50=120s (default)
+[Parallel][Info][Plan] lane LX-2-career-loop-watch-scene-change-reload profile=stock-minimal p50=120s (default)
+[Parallel][Info][Plan] lane FXR-1-ghost-engine-fx-across-refly-and-retry profile=stock-minimal p50=120s (default)
+[Parallel][Info][Plan] lane LAY-1-laythe-reentry-splashdown profile=stock-minimal p50=120s (default)
+[Parallel][Info][Plan] lane BOAT-1-mallard-water-taxi profile=stock-minimal p50=120s (default)
+[Parallel][Info][Plan] lane SOI-2-mun-exit-formation-wingman profile=stock-minimal p50=120s (default)
+[Parallel][Info][Plan] lane AIR-3-plane-drone-midair-collision profile=stock-minimal p50=120s (default)
+[Parallel][Info][Plan] lane H59-surface-route-map-lines profile=stock-minimal p50=84s (duration.json)
+[Parallel][Info][Plan] lane V27M-rover-route-endpoint-substituted-map-lines profile=stock-minimal p50=64s (duration.json)
+[Parallel][Info][Plan] plan written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\plan.json
+[Parallel][Info][Slots] slots in use: stock-minimal, stock-minimal-2, stock-minimal-3
+[Parallel][Info][Lock] machine lock acquired (acquired-free) kind=parallel-runner pid=6900
+[Parallel][Info][Job] child job object armed (KILL_ON_JOB_CLOSE)
+[Parallel][Info][Window] window=desktop desktop 2 of 2 (current=b3f15e00-3c2c-4e97-82a3-9dca2c1eace1) desktop=8611d2b8-3fd1-40e7-b7ed-966d22e4f24c
+[Parallel][Info][UnityPrefs] unity prefs snapshot -> C:\Users\USER\Documents\Code\Parsek\automation\.unity-prefs-snapshot.json (Screenmanager Fullscreen mode Default_h401710285=1, Screenmanager Fullscreen mode_h3630240806=3, Screenmanager Resolution Height Default_h1380706816=720, Screenmanager Resolution Height_h2627697771=720, Screenmanager Resolution Use Native Default_h1405981789=1, Screenmanager Resolution Use Native_h1405027254=0, +4 more)
+[Parallel][Info][UnityPrefs] begin: snapshot
+[Parallel][Info][Build] tests prebuild: dotnet build C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\Source\Parsek.Tests\Parsek.Tests.csproj (once per selection; the verifiers then run -NoBuild)
+[Parallel][Info][Build] tests prebuild ok wall=6.8s; verifiers run -NoBuild
+[Parallel][Info][Plan] 12 lane(s) to fly, 0 already settled, 0 not flown
+[Parallel][Info][Dispatch] lane=GS-9-kerbalx-repeat-rewind slot=stock-minimal seq=1 pid=19668 window=desktop p50=491s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\GS-9-kerbalx-repeat-rewind.1.log
+[Parallel][Info][Wait] dispatch-gap: the last start was 0 s ago (< 15 s dispatch gap)
+[Parallel][Info][Dispatch] lane=AIR-2-runway-circuit-ksc-ghost slot=stock-minimal-2 seq=2 pid=10104 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\AIR-2-runway-circuit-ksc-ghost.2.log
+[Parallel][Info][Wait] slots: 2 running, slots=2
+[Parallel][Info][Finish] lane=GS-9-kerbalx-repeat-rewind slot=stock-minimal verdict=PASS attempts=1 wall=516s exit=0 runIds=2026-11-17_1402_GS-9-kerbalx-repeat-rewind
+[Parallel][Info][Dispatch] lane=RVC-1-two-rover-head-on-crash slot=stock-minimal seq=3 pid=30388 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\RVC-1-two-rover-head-on-crash.3.log
+[Parallel][Info][Wait] slots: 2 running, slots=2
+[Parallel][Info][Finish] lane=AIR-2-runway-circuit-ksc-ghost slot=stock-minimal-2 verdict=PASS attempts=1 wall=558s exit=0 runIds=2026-11-17_1402_AIR-2-runway-circuit-ksc-ghost
+[Parallel][Info][Dispatch] lane=LX-1-loop-armed-refly-discard-merge slot=stock-minimal-2 seq=4 pid=16984 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\LX-1-loop-armed-refly-discard-merge.4.log
+[Parallel][Info][Wait] slots: 2 running, slots=2
+[Parallel][Info][Finish] lane=LX-1-loop-armed-refly-discard-merge slot=stock-minimal-2 verdict=PASS attempts=1 wall=145s exit=0 runIds=2026-11-17_1412_LX-1-loop-armed-refly-discard-merge
+[Parallel][Info][Dispatch] lane=LX-2-career-loop-watch-scene-change-reload slot=stock-minimal-2 seq=5 pid=25012 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\LX-2-career-loop-watch-scene-change-reload.5.log
+[Parallel][Info][Wait] slots: 2 running, slots=2
+[Parallel][Info][Finish] lane=LX-2-career-loop-watch-scene-change-reload slot=stock-minimal-2 verdict=PASS attempts=1 wall=78s exit=0 runIds=2026-11-17_1414_LX-2-career-loop-watch-scene-change-reload
+[Parallel][Info][Dispatch] lane=FXR-1-ghost-engine-fx-across-refly-and-retry slot=stock-minimal-2 seq=6 pid=17556 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\FXR-1-ghost-engine-fx-across-refly-and-retry.6.log
+[Parallel][Info][Wait] slots: 2 running, slots=2
+[Parallel][Warn][Finish] lane=RVC-1-two-rover-head-on-crash slot=stock-minimal verdict=PARSEK-FAIL attempts=1 wall=360s exit=1 runIds=2026-11-17_1411_RVC-1-two-rover-head-on-crash
+[Parallel][Info][Dispatch] lane=LAY-1-laythe-reentry-splashdown slot=stock-minimal seq=7 pid=19224 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\LAY-1-laythe-reentry-splashdown.7.log
+[Parallel][Info][Wait] slots: 2 running, slots=2
+[Parallel][Warn][Finish] lane=FXR-1-ghost-engine-fx-across-refly-and-retry slot=stock-minimal-2 verdict=PARSEK-FAIL attempts=1 wall=211s exit=1 runIds=2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry
+[Parallel][Info][Dispatch] lane=BOAT-1-mallard-water-taxi slot=stock-minimal-2 seq=8 pid=8508 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\BOAT-1-mallard-water-taxi.8.log
+[Parallel][Info][Wait] slots: 2 running, slots=2
+[Parallel][Info][Finish] lane=BOAT-1-mallard-water-taxi slot=stock-minimal-2 verdict=PASS attempts=1 wall=207s exit=0 runIds=2026-11-17_1419_BOAT-1-mallard-water-taxi
+[Parallel][Info][Dispatch] lane=SOI-2-mun-exit-formation-wingman slot=stock-minimal-2 seq=9 pid=38404 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\SOI-2-mun-exit-formation-wingman.9.log
+[Parallel][Info][Wait] slots: 2 running, slots=2
+[Parallel][Info][Finish] lane=SOI-2-mun-exit-formation-wingman slot=stock-minimal-2 verdict=PASS attempts=1 wall=291s exit=0 runIds=2026-11-17_1422_SOI-2-mun-exit-formation-wingman
+[Parallel][Info][Dispatch] lane=AIR-3-plane-drone-midair-collision slot=stock-minimal-2 seq=10 pid=29700 window=desktop p50=120s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\AIR-3-plane-drone-midair-collision.10.log
+[Parallel][Info][Wait] slots: 2 running, slots=2
+[Parallel][Warn][Finish] lane=LAY-1-laythe-reentry-splashdown slot=stock-minimal verdict=PARSEK-FAIL attempts=1 wall=727s exit=1 runIds=2026-11-17_1417_LAY-1-laythe-reentry-splashdown
+[Parallel][Info][Dispatch] lane=H59-surface-route-map-lines slot=stock-minimal seq=11 pid=5588 window=desktop p50=84s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\H59-surface-route-map-lines.11.log
+[Parallel][Info][Wait] slots: 2 running, slots=2
+[Parallel][Info][Finish] lane=H59-surface-route-map-lines slot=stock-minimal verdict=PASS attempts=1 wall=90s exit=0 runIds=2026-11-17_1429_H59-surface-route-map-lines
+[Parallel][Info][Dispatch] lane=V27M-rover-route-endpoint-substituted-map-lines slot=stock-minimal seq=12 pid=21480 window=desktop p50=64s log=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\V27M-rover-route-endpoint-substituted-map-lines.12.log
+[Parallel][Info][Wait] drain: no lane left to start; 2 running
+[Parallel][Info][Finish] lane=V27M-rover-route-endpoint-substituted-map-lines slot=stock-minimal verdict=PASS attempts=1 wall=72s exit=0 runIds=2026-11-17_1430_V27M-rover-route-endpoint-substituted-map-lines
+[Parallel][Warn][Finish] lane=AIR-3-plane-drone-midair-collision slot=stock-minimal-2 verdict=INVALID attempts=2 wall=1035s exit=1 runIds=2026-11-17_1427_AIR-3-plane-drone-midair-collision,2026-11-17_1436_AIR-3-plane-drone-midair-collision_a2
+[Parallel][Info][Archive] run index C:\Users\USER\Documents\Code\Parsek\automation\results-archive\index.jsonl: added=13 replaced=0 unchanged=0 skipped=0
+[Harness][Info][Lock] maintenance under the parallel runner: runner pid=6900 holds the machine lock
+[Harness][Warn][Coverage] flake quarantine scenario=AIR-3-plane-drone-midair-collision stage=run rate=1.00 over 7d
+[Harness][Warn][Duration] duration regression scenario=GUI-24-census-timeline-filters last=123s p50=73s p95=123s n=6 lastVsP50=1.69x
+[Harness][Info][Duration] duration record scenarios=368 measured-this-run=8 (PASS results only) -> C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\coverage\duration.json
+[Harness][Info][Coverage] coverage: values=251 covered=249 uncovered=2 expectedFail=0 xpass=0
+[Harness][Info][Lock] maintenance under the parallel runner: runner pid=6900 holds the machine lock
+[Harness][Info][Artifacts] sweep: results retention done (C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results)
+[Parallel][Info][UnityPrefs] unity prefs restored: wrote 0 value(s), deleted 0 (Screenmanager Fullscreen mode Default_h401710285=1, Screenmanager Fullscreen mode_h3630240806=3, Screenmanager Resolution Height Default_h1380706816=720, Screenmanager Resolution Height_h2627697771=720, Screenmanager Resolution Use Native Default_h1405981789=1, Screenmanager Resolution Use Native_h1405027254=0, +4 more)
+[Parallel][Info][UnityPrefs] end: restored
+[Parallel][Info][Lock] run-lock released path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-machine.lock
+[Parallel][Warn][Done] run next-tests-2026-11-17 outcome=RED exit=1 PASS=8 PARSEK-FAIL=3 INVALID=1 pending=0 of 12; summary C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\summary.txt

@@ -1,0 +1,21 @@
+{
+ "exitCode": 0,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "",
+   "id": "V27M-rover-route-endpoint-substituted-map-lines",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests\\harness\\results\\2026-11-17_1430_V27M-rover-route-endpoint-substituted-map-lines.json"
+   ],
+   "runIds": [
+    "2026-11-17_1430_V27M-rover-route-endpoint-substituted-map-lines"
+   ],
+   "subkind": "",
+   "verdict": "PASS",
+   "wallSeconds": 70
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal"
+}

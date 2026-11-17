@@ -1,0 +1,505 @@
+{
+  "assertions": [
+    {
+      "discardAltitude": 28613.430610459996,
+      "discardUT": 119.03999999999346,
+      "met": true,
+      "name": "coreDiscardedWithEnginesOff",
+      "stageCommanded": true,
+      "throttleObservedZero": true,
+      "throttleZeroEpsilon": 0.01,
+      "value": 0.0
+    },
+    {
+      "armedBy": "thrust",
+      "met": true,
+      "name": "boosterStagesDropped",
+      "peakThrustNewtons": 2434731.25,
+      "required": 3,
+      "value": 3
+    },
+    {
+      "commitUT": 140.91999999999828,
+      "craft": "Kerbal X",
+      "expectedVesselName": "Kerbal X",
+      "launchUT": 30.719999999999434,
+      "met": true,
+      "name": "recordedSpanSeconds",
+      "peakApoapsis": 61095.565295372275,
+      "rolloutObservedName": "Kerbal X",
+      "rolloutVesselLostFrames": 0,
+      "value": 110.19999999999885,
+      "window": [
+        60.0,
+        600.0
+      ]
+    },
+    {
+      "commitResult": "OK",
+      "met": true,
+      "name": "treeCommitted",
+      "recorderIdleObserved": true,
+      "recorderIdleReading": "false",
+      "stopResult": "OK",
+      "value": "1634beb92c0f4e30bdc3acb33c21d919"
+    },
+    {
+      "met": true,
+      "name": "rewoundToLaunch",
+      "postRewindUT": 18.27999999999938,
+      "preRewindUT": 172.44000000001407,
+      "rejectReason": null,
+      "required": 1.0,
+      "seamResult": "OK",
+      "tree": "1634beb92c0f4e30bdc3acb33c21d919",
+      "value": 154.1600000000147
+    },
+    {
+      "accepted": [
+        "PRE_LAUNCH",
+        "LANDED"
+      ],
+      "autoRecordDisabled": "OK",
+      "autoRecordSetting": "autoRecordOnLaunch",
+      "craft": "Jumping Flea",
+      "debounceK": 2,
+      "expectedVesselName": "Jumping Flea",
+      "launchCommanded": true,
+      "met": true,
+      "name": "watcherOnPad",
+      "observedName": "Jumping Flea",
+      "postRewindVesselLostFrames": 8,
+      "value": "PRE_LAUNCH"
+    },
+    {
+      "enterMapViewReason": null,
+      "enterMapViewResult": "OK",
+      "enterWatchModeAttempts": 1,
+      "enterWatchModeReason": null,
+      "enterWatchModeResult": "OK",
+      "enterWatchModeScopeTree": "1634beb92c0f4e30bdc3acb33c21d919",
+      "enterWatchModeSelectedIndex": "0",
+      "enterWatchModeSelectedRecId": "3875a1601e0343af89be26cc3d3e2b40",
+      "exitMapViewReason": null,
+      "exitMapViewResult": "OK",
+      "met": true,
+      "metOnRejectionByDesign": true,
+      "name": "renderVerbsDriven",
+      "value": "OK/OK/OK"
+    },
+    {
+      "frameCap": 1600,
+      "marginSeconds": 30.0,
+      "met": true,
+      "name": "playbackWatchedOut",
+      "recordedEndUT": 140.91999999999828,
+      "targetUT": 170.91999999999828,
+      "value": 171.1200000000134
+    },
+    {
+      "completed": 2,
+      "cycles": [
+        {
+          "autoRecordDisabled": "OK",
+          "cycle": 1,
+          "enterMapViewResult": "OK",
+          "enterWatchModeAttempts": 1,
+          "enterWatchModeReason": null,
+          "enterWatchModeResult": "OK",
+          "enterWatchModeSelectedIndex": "0",
+          "enterWatchModeSelectedRecId": "3875a1601e0343af89be26cc3d3e2b40",
+          "exitMapViewResult": "OK",
+          "playbackLastUT": 171.42000000001354,
+          "playbackTargetUT": 170.91999999999828,
+          "playbackWatchedOut": true,
+          "postRewindUT": 17.599999999999394,
+          "preRewindIdleReading": "false",
+          "preRewindUT": 142.9199999999993,
+          "rewindResult": "OK",
+          "utRegression": 125.31999999999991,
+          "watcherObservedName": "Jumping Flea",
+          "watcherOnPad": true
+        },
+        {
+          "autoRecordDisabled": "OK",
+          "cycle": 2,
+          "enterMapViewResult": "OK",
+          "enterWatchModeAttempts": 1,
+          "enterWatchModeReason": null,
+          "enterWatchModeResult": "OK",
+          "enterWatchModeSelectedIndex": "0",
+          "enterWatchModeSelectedRecId": "3875a1601e0343af89be26cc3d3e2b40",
+          "exitMapViewResult": "OK",
+          "playbackLastUT": 171.1200000000134,
+          "playbackTargetUT": 170.91999999999828,
+          "playbackWatchedOut": true,
+          "postRewindUT": 18.27999999999938,
+          "preRewindIdleReading": "false",
+          "preRewindUT": 172.44000000001407,
+          "rewindResult": "OK",
+          "utRegression": 154.1600000000147,
+          "watcherObservedName": "Jumping Flea",
+          "watcherOnPad": true
+        }
+      ],
+      "met": true,
+      "metOnRejectionByDesign": true,
+      "name": "rewindCyclesCompleted",
+      "required": 2,
+      "value": 2
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.17054830002598464,
+    "rpcPort": 50000
+  },
+  "error": null,
+  "handoff": {
+    "terminal": "DONE",
+    "unverifiedByMission": [
+      "ghostPartEventReplay",
+      "ghostRenderLifecycle",
+      "recordedEnvironmentBoundary"
+    ],
+    "verifiedBy": [
+      "logContracts",
+      "ghostLifecycle"
+    ]
+  },
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "kx_rewind_watch",
+  "phasesReached": [
+    "ROLLOUT",
+    "PRELAUNCH",
+    "ASCENT",
+    "BOOSTER-CUT",
+    "BOOSTER-STAGE",
+    "BOOSTER-CUT",
+    "BOOSTER-STAGE",
+    "BOOSTER-CUT",
+    "BOOSTER-STAGE",
+    "ASCENT",
+    "CORE-CUT",
+    "CORE-DISCARD",
+    "COAST",
+    "TREE-STATE",
+    "COMMIT",
+    "STOP",
+    "RECORDER-IDLE",
+    "REWIND",
+    "SPACECENTER",
+    "AUTORECORD-OFF",
+    "WATCHER-LAUNCH",
+    "WATCHER-READY",
+    "MAP-VIEW",
+    "MAP-EXIT",
+    "WATCH",
+    "PLAYBACK-WAIT",
+    "REWIND",
+    "SPACECENTER",
+    "AUTORECORD-OFF",
+    "WATCHER-LAUNCH",
+    "WATCHER-READY",
+    "MAP-VIEW",
+    "MAP-EXIT",
+    "WATCH",
+    "PLAYBACK-WAIT",
+    "DONE"
+  ],
+  "reason": "all telemetry assertions met; handoff mission - ghostPartEventReplay, ghostRenderLifecycle, recordedEnvironmentBoundary not verified here, owned by logContracts, ghostLifecycle",
+  "schema": 1,
+  "verdict": "MISSION-OK",
+  "wallSeconds": 445.36,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 2.86,
+      "gameSecondsPerWallSecond": 0.448,
+      "phase": "ROLLOUT",
+      "wallSeconds": 6.386,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 0.996,
+      "phase": "PRELAUNCH",
+      "wallSeconds": 0.522,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 29.28,
+      "gameSecondsPerWallSecond": 0.993,
+      "phase": "ASCENT",
+      "wallSeconds": 29.495,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.06,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "BOOSTER-CUT",
+      "wallSeconds": 1.06,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 0.998,
+      "phase": "BOOSTER-STAGE",
+      "wallSeconds": 0.521,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.62,
+      "gameSecondsPerWallSecond": 0.988,
+      "phase": "BOOSTER-CUT",
+      "wallSeconds": 1.639,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 0.997,
+      "phase": "BOOSTER-STAGE",
+      "wallSeconds": 0.522,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.68,
+      "gameSecondsPerWallSecond": 1.003,
+      "phase": "BOOSTER-CUT",
+      "wallSeconds": 1.675,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 0.996,
+      "phase": "BOOSTER-STAGE",
+      "wallSeconds": 0.522,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 51.56,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "ASCENT",
+      "wallSeconds": 51.566,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.04,
+      "gameSecondsPerWallSecond": 1.001,
+      "phase": "CORE-CUT",
+      "wallSeconds": 1.038,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 1.001,
+      "phase": "CORE-DISCARD",
+      "wallSeconds": 0.52,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 20.2,
+      "gameSecondsPerWallSecond": 0.992,
+      "phase": "COAST",
+      "wallSeconds": 20.354,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.02,
+      "gameSecondsPerWallSecond": 0.997,
+      "phase": "TREE-STATE",
+      "wallSeconds": 1.023,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.66,
+      "gameSecondsPerWallSecond": 0.656,
+      "phase": "COMMIT",
+      "wallSeconds": 1.005,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.0,
+      "gameSecondsPerWallSecond": 0.994,
+      "phase": "STOP",
+      "wallSeconds": 1.006,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.0,
+      "gameSecondsPerWallSecond": 0.995,
+      "phase": "RECORDER-IDLE",
+      "wallSeconds": 1.005,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": -125.82,
+      "gameSecondsPerWallSecond": -30.782,
+      "phase": "REWIND",
+      "wallSeconds": 4.087,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.5,
+      "gameSecondsPerWallSecond": 0.994,
+      "phase": "SPACECENTER",
+      "wallSeconds": 0.503,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.02,
+      "gameSecondsPerWallSecond": 0.999,
+      "phase": "AUTORECORD-OFF",
+      "wallSeconds": 1.021,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 1.002,
+      "phase": "WATCHER-LAUNCH",
+      "wallSeconds": 0.519,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 2.86,
+      "gameSecondsPerWallSecond": 0.42,
+      "phase": "WATCHER-READY",
+      "wallSeconds": 6.81,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.98,
+      "gameSecondsPerWallSecond": 0.966,
+      "phase": "MAP-VIEW",
+      "wallSeconds": 1.015,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.02,
+      "gameSecondsPerWallSecond": 0.986,
+      "phase": "MAP-EXIT",
+      "wallSeconds": 1.034,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 13.22,
+      "gameSecondsPerWallSecond": 0.999,
+      "phase": "WATCH",
+      "wallSeconds": 13.239,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 135.22,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "PLAYBACK-WAIT",
+      "wallSeconds": 135.223,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": -154.68,
+      "gameSecondsPerWallSecond": -33.998,
+      "phase": "REWIND",
+      "wallSeconds": 4.55,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 0.999,
+      "phase": "SPACECENTER",
+      "wallSeconds": 0.521,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.02,
+      "gameSecondsPerWallSecond": 1.014,
+      "phase": "AUTORECORD-OFF",
+      "wallSeconds": 1.006,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.5,
+      "gameSecondsPerWallSecond": 0.994,
+      "phase": "WATCHER-LAUNCH",
+      "wallSeconds": 0.503,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 2.86,
+      "gameSecondsPerWallSecond": 0.419,
+      "phase": "WATCHER-READY",
+      "wallSeconds": 6.825,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.0,
+      "gameSecondsPerWallSecond": 0.995,
+      "phase": "MAP-VIEW",
+      "wallSeconds": 1.005,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.02,
+      "gameSecondsPerWallSecond": 1.003,
+      "phase": "MAP-EXIT",
+      "wallSeconds": 1.017,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 12.3,
+      "gameSecondsPerWallSecond": 1.001,
+      "phase": "WATCH",
+      "wallSeconds": 12.29,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 134.14,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "PLAYBACK-WAIT",
+      "wallSeconds": 134.147,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.0,
+      "gameSecondsPerWallSecond": 0.0,
+      "phase": "DONE",
+      "wallSeconds": 0.001,
+      "warpCommands": 0
+    }
+  ]
+}

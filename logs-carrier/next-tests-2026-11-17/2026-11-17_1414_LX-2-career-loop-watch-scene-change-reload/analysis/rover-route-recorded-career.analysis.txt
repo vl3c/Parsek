@@ -1,0 +1,6 @@
+[Analyzer] save=rover-route-recorded-career generation=4 FAIL=0 WARN=4 INFO=1 STALE=0 BASELINED=0 RED=0
+WARN INV11-EMPTY-SECTION target=0996f1ba7c7b4d3a8d95cf8be77fbe6d#0 INV11 empty-section recording=0996f1ba7c7b4d3a8d95cf8be77fbe6d#0 env=Atmospheric ref=Absolute ut=[594.27999999974952,594.31999999974948] frames=0 bodyFixedFrames=0 checkpoints=0
+WARN INV11-EMPTY-SECTION target=0996f1ba7c7b4d3a8d95cf8be77fbe6d#0 INV11 empty-section recording=0996f1ba7c7b4d3a8d95cf8be77fbe6d#0 env=Atmospheric ref=Absolute ut=[594.27999999974952,594.31999999974948] frames=0 bodyFixedFrames=0 checkpoints=0
+WARN INV2-UNCOVERED-SPAN target=4370a799d00644f68d9b4a2ca9f72d0c#4 INV2 uncovered recording=4370a799d00644f68d9b4a2ca9f72d0c span=[619.57999999972651,1000.3695932763756] orbitBridged=False
+WARN INV2-UNCOVERED-SPAN target=4370a799d00644f68d9b4a2ca9f72d0c#4 INV2 uncovered recording=4370a799d00644f68d9b4a2ca9f72d0c span=[619.57999999972651,1000.3695932763756] orbitBridged=False
+INFO INV8-CAREER-DIFF target=rover-route-recorded-career INV8 career-diff reconstruction-not-available (headless recalc deferred)

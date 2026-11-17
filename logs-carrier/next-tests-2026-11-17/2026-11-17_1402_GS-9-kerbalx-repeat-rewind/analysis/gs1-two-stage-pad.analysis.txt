@@ -1,0 +1,2 @@
+[Analyzer] save=gs1-two-stage-pad generation=4 FAIL=0 WARN=0 INFO=1 STALE=0 BASELINED=0 RED=0
+INFO INV9-REWINDPOINT target=gs1-two-stage-pad INV9 orphan-rewind-saves count=1 (unreferenced parsek_rw_*; expected per ParsekFlight)

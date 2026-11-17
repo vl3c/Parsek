@@ -1,0 +1,134 @@
+[Harness][Info][Select] select expr='--ids-file C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\FXR-1-ghost-engine-fx-across-refly-and-retry.ids' -> 1 scenarios: ['FXR-1-ghost-engine-fx-across-refly-and-retry']
+[Harness][Info][Select] slot mode slot=stock-minimal-2 instance=C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal-2 window=desktop
+[Harness][Info][Lock] runner check ok: runner pid=6900 holds the machine lock
+[Harness][Info][Lock] slot-lock acquired slot=stock-minimal-2 (acquired-free) path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-slot-stock-minimal-2.lock pid=17556
+[Harness][Info][Build] tests prebuild skipped (--tests-prebuilt: the caller built C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\Source\Parsek.Tests\bin\Debug\net472\Parsek.Tests.dll); verifiers run -NoBuild
+[Harness][Info][Admit] admit parsek-dll vs stock-minimal: match instance=7d9f2510d4d3 reference=7d9f2510d4d3
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Verbose][Preflight] kRPC settings already carry rpc=50002 stream=50003
+[Harness][Info][Preflight] port-check rpc=50002 stream=50003 result=CLEAR
+[Harness][Verbose][Stage] shared-ship overlay: 3 craft into refly-split-crewed-merged/Ships/VAB [GS1 Auto-Chute Booster.craft, Jumping Flea.craft, Kerbal X.craft]
+[Harness][Info][Settings] settings-sidecar baseline written phase=stage tracers=off readableMirrors=on
+[Harness][Info][Stage] stage save=refly-split-crewed-merged template=fixtures/saves/refly-split-crewed-merged inject=none craft=0 results-rotated=False manifest-rotated=False
+[Harness][Info][Launch] launch exe=C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal-2\KSP_x64.exe pid=21776 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0 ISOLATED=0 RENDER_MANIFEST=0] batchIsolated=False budget=7400s
+[Harness][Info][Launch] launch args=-logFile C:\Users\USER\Documents\Code\Parsek\automation\stock-minimal-2\Player.log -screen-fullscreen 0 -screen-width 1280 -screen-height 720 window=desktop desktopId=8611d2b8-3fd1-40e7-b7ed-966d22e4f24c returnForeground=263394
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Info][Boot-Wait] boot at main menu elapsed=27.9s kspLogBytes=1332948; watching until the seam's first receipt (rule no-seam-receipt)
+[Harness][Info][Boot-Wait] boot ready via=seam-receipt elapsed=28.4s kspLogBytes=1335536; boot-stall watchdog off for this attempt
+[Harness][Info][Window] window mode=desktop placement=desktop=moved foreground=not-foreground action=none (Parsek moved its window to the target desktop)
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Info][Drive] drive resp id=0001 verdict=OK met=True
+[Harness][Info][Drive] captured id=0001 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=1 id=0002 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0002 verdict=OK met=True
+[Harness][Info][Drive] captured id=0002 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=2 id=0003 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] captured id=0003 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=3 id=0004 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Drive] captured id=0004 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=4 id=0005 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0005 verdict=OK met=True
+[Harness][Info][Drive] captured id=0005 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=5 id=0006 cmd=ListHandles expect=OK
+[Harness][Info][Drive] drive resp id=0006 verdict=OK met=True
+[Harness][Info][Drive] captured id=0006 label=handles fields=ut,kind,count,truncated,rp0,rp0ut,rp0provisional,rp0corrupted,rp0slots,rp0slot0,rp0slot0open,rp0slot1,rp0slot1open
+[Harness][Info][Drive] drive step=6 id=0007 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0007 verdict=OK met=True
+[Harness][Info][Drive] captured id=0007 label=- fields=ut,label
+[Harness][Info][Drive] substituted id=0008 arg=rp ref=${handles.rp0} value=rp_4788f26ac3e34eb1af8d17a883dd9d17
+[Harness][Info][Drive] drive step=7 id=0008 cmd=InvokeRewind expect=OK
+[Harness][Info][Drive] drive resp id=0008 verdict=OK met=True
+[Harness][Info][Drive] captured id=0008 label=- fields=ut,rewound,session,rp,slot,activePid
+[Harness][Info][Drive] drive step=8 id=0009 cmd=ListHandles expect=OK
+[Harness][Info][Drive] drive resp id=0009 verdict=OK met=True
+[Harness][Info][Drive] captured id=0009 label=- fields=ut,kind,count,truncated,evaluated,digest
+[Harness][Info][Drive] drive step=9 id=0010 cmd=RecordingState expect=OK
+[Harness][Info][Drive] drive resp id=0010 verdict=OK met=True
+[Harness][Info][Drive] captured id=0010 label=- fields=ut,recording,tree,points,scene
+[Harness][Info][Drive] drive step=10 id=0011 cmd=WarpToUT expect=OK
+[Harness][Info][Drive] drive resp id=0011 verdict=OK met=True
+[Harness][Info][Drive] captured id=0011 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=11 id=0012 cmd=RunTests expect=OK
+[Harness][Info][Drive] drive resp id=0012 verdict=OK met=True
+[Harness][Info][Drive] captured id=0012 label=- fields=ut,passed,failed,skipped,results
+[Harness][Info][Drive] drive step=12 id=0013 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0013 verdict=OK met=True
+[Harness][Info][Drive] captured id=0013 label=- fields=ut,label
+[Harness][Info][Drive] drive step=13 id=0014 cmd=ReFlyRevert expect=OK
+[Harness][Info][Drive] drive resp id=0014 verdict=OK met=True
+[Harness][Info][Drive] captured id=0014 label=- fields=ut,choice,target,scene,session,rp,rpKept,slot,slotListed,unfinishedFlights,marker
+[Harness][Info][Drive] drive step=14 id=0015 cmd=RecordingState expect=OK
+[Harness][Info][Drive] drive resp id=0015 verdict=OK met=True
+[Harness][Info][Drive] captured id=0015 label=- fields=ut,recording,tree,points,scene
+[Harness][Info][Drive] drive step=15 id=0016 cmd=WarpToUT expect=OK
+[Harness][Info][Drive] drive resp id=0016 verdict=OK met=True
+[Harness][Info][Drive] captured id=0016 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=16 id=0017 cmd=RunTests expect=OK
+[Harness][Info][Drive] drive resp id=0017 verdict=OK met=True
+[Harness][Info][Drive] captured id=0017 label=- fields=ut,passed,failed,skipped,results
+[Harness][Info][Drive] drive step=17 id=0018 cmd=MissionMark expect=OK
+[Harness][Info][Drive] drive resp id=0018 verdict=OK met=True
+[Harness][Info][Drive] captured id=0018 label=- fields=ut,label
+[Harness][Info][Drive] drive step=18 id=0019 cmd=AnswerMergeDialog expect=OK
+[Harness][Info][Drive] drive resp id=0019 verdict=OK met=True
+[Harness][Info][Drive] captured id=0019 label=- fields=ut,choice,result
+[Harness][Info][Drive] drive step=19 id=0020 cmd=SaveGame expect=OK
+[Harness][Info][Drive] drive resp id=0020 verdict=OK met=True
+[Harness][Info][Drive] captured id=0020 label=- fields=ut,saved
+[Harness][Info][Drive] drive step=20 id=0021 cmd=LoadGame expect=OK
+[Harness][Info][Drive] drive resp id=0021 verdict=OK met=True
+[Harness][Info][Drive] captured id=0021 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=21 id=0022 cmd=WarpToUT expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=30/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=40/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=50/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=60/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=70/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=80/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=90/660
+[Harness][Verbose][Drive] poll: pendingId=0022 elapsed=100/660
+[Harness][Info][Drive] drive resp id=0022 verdict=OK met=True
+[Harness][Info][Drive] captured id=0022 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=22 id=0023 cmd=RunTests expect=OK
+[Harness][Info][Drive] drive resp id=0023 verdict=OK met=True
+[Harness][Info][Drive] captured id=0023 label=- fields=ut,passed,failed,skipped,results
+[Harness][Info][Drive] drive step=23 id=0024 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0024 verdict=OK met=True
+[Harness][Info][Drive] captured id=0024 label=- fields=ut,saved
+[Harness][Info][Verify] verify driverValidity status=PASS allMet=True subkind=-
+[Harness][Info][Verify] verify batchComplete status=PASS found=True failed=0 multi=False perCategory=3 runs=3/3
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None
+[Harness][Info][Verify] verify timing analyzer=9.3s logValidate=9.0s mode=concurrent
+[Harness][Info][Verify] verify logValidate status=PASS recRulesSuppressed=True killedRunMode=False
+[Harness][Info][Verify] verify anomalySweep status=PASS hits=[] counts={}
+[Harness][Info][Verify] verify unityExceptions status=REPORT gating=False total=1 counts={'NullReferenceException': 1, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0} parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=1 afterQuitFrameless=1
+[Harness][Warn][Verify] unityExceptions saw 1 raw Unity exception line(s) (REPORT-ONLY, not gating; arm with [expectations.unityExceptions] maxTotal = N): {'NullReferenceException': 1, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0}
+[Harness][Info][Verify] verify expectations status=FAIL mismatches=3
+[Harness][Info][Verify] verify saveParse status=REPORT gating=False blocks=- armed=- scenarioFound=True supersedeRows=2 tombstones=2 rewindPoints=1 pointsTotal=1169 pointsLargest=330 pointsSmallest=33 pointsUnparsed=0 routes=0 routeStatuses={} routeCodecRejects=0 mismatches=0
+[Harness][Info][Verify] verify renderCompose status=REPORT gating=False blocks=- armed=- parsed=None dwells=- cycles=- unevaluable=- findings={'FAIL': 0, 'WARN': 0, 'INFO': 0} mismatches=0 declared=-
+[Harness][Info][Verify] verify ghostLifecycle status=REPORT gating=False blocks=- armed=- spawned=2 spawnLines=13 destroyLines=12 unbalanced=0 malformed=0 reasons={'engine teardown': 11, 'stale past-end ghost (no longer held)': 1} mismatches=0 declared=-
+[Harness][Info][Classify] verdict=PARSEK-FAIL scenario=FXR-1-ghost-engine-fx-across-refly-and-retry attempt=1 reason=expectations manifest mismatch
+[Harness][Info][Collect] collect-logs label=FXR-1-ghost-engine-fx-across-refly-and-retry -> Collecting logs into: 2026-11-17_1619_FXR-1-ghost-engine-fx-across-refly-and-retry/
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry.json
+[Harness][Info][Snapshot] produced-save snapshot run=2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry result=copied bytes=4412139 files=131 reason=every-verdict-default verdict=PARSEK-FAIL path=C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry_save
+[Harness][Verbose][Snapshot] save-snapshot retention skipped (slot mode; the runner sweeps)
+[Harness][Verbose][Artifacts] screenshots skipped: 165 prior-run, 0 over-cap, 0 copy-failed
+[Harness][Info][Artifacts] artifacts collected run=2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry kspLog=True truncated=False screenshots=0 renderManifest=False -> C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry_shots
+[Harness][Verbose][Artifacts] shots-dir retention skipped (slot mode; the runner sweeps)
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry.json
+[Harness][Info][Sheet] contact sheet written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry_contact.html (+ index.html)
+[Harness][Info][Settings] settings-sidecar baseline written phase=teardown tracers=off readableMirrors=on (cleared leaked: ghostRenderTracing)
+[Harness][Info][Result] result written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry.json
+[Harness][Info][Sheet] contact sheet written C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry_contact.html (+ index.html)
+[Harness][Info][Cost] scenario cost attempts=1 wallTotal=200s terminal=PARSEK-FAIL
+[Harness][Info][Archive] results archived run=2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry files=3 bytes=721139 missing=3 -> C:\Users\USER\Documents\Code\Parsek\automation\results-archive\2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry
+[Harness][Verbose][Archive] run index append skipped (slot mode; the runner appends 2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry)
+[Harness][Info][Lock] run-lock released path=C:\Users\USER\Documents\Code\Parsek\automation\.ksp-slot-stock-minimal-2.lock (slot=stock-minimal-2)
+[Harness][Info][Report] run report -> C:\Users\USER\Documents\Code\Parsek\Parsek-next-tests\harness\results\parallel\next-tests-2026-11-17\lanes\FXR-1-ghost-engine-fx-across-refly-and-retry.6.report.json lanes=1 exit=1

@@ -1,0 +1,96 @@
+{
+  "assertions": [
+    {
+      "expectedVesselName": "Mallard",
+      "handoffFrames": 3,
+      "met": true,
+      "name": "handoffAfloat",
+      "startLat": 0.05459361924433288,
+      "startLon": -73.69817890659289,
+      "value": "SPLASHED",
+      "vessel": "Mallard"
+    },
+    {
+      "cruiseSpeed": 12.0,
+      "maxSpeed": 16.601916562611628,
+      "met": true,
+      "name": "travelledOnWater",
+      "reachUT": 462.2999999998695,
+      "targetMeters": 400.0,
+      "value": 559.8898049295587
+    },
+    {
+      "allowedFrames": 6,
+      "met": true,
+      "name": "stayedOnWater",
+      "situationsSeen": [],
+      "value": 0
+    },
+    {
+      "met": true,
+      "name": "cameToRest",
+      "phasesReached": [
+        "BOAT-HANDOFF",
+        "BOAT-TAXI",
+        "BOAT-STOP",
+        "BOAT-DONE"
+      ],
+      "restSpeed": 1.0,
+      "restUT": 498.5999999998365,
+      "value": 0.5127652449708302
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.1527404000516981,
+    "rpcPort": 50002
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "boat1_water_taxi",
+  "phasesReached": [
+    "BOAT-HANDOFF",
+    "BOAT-TAXI",
+    "BOAT-STOP",
+    "BOAT-DONE"
+  ],
+  "reason": "all telemetry assertions met",
+  "schema": 1,
+  "verdict": "MISSION-OK",
+  "wallSeconds": 69.511,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.02,
+      "gameSecondsPerWallSecond": 0.977,
+      "phase": "BOAT-HANDOFF",
+      "wallSeconds": 1.044,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 32.02,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "BOAT-TAXI",
+      "wallSeconds": 32.017,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 36.3,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "BOAT-STOP",
+      "wallSeconds": 36.29,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.0,
+      "gameSecondsPerWallSecond": 0.0,
+      "phase": "BOAT-DONE",
+      "wallSeconds": 0.0,
+      "warpCommands": 0
+    }
+  ]
+}

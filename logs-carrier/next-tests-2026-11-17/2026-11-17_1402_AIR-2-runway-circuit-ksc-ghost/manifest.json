@@ -1,0 +1,44 @@
+{
+  "archivedUtc": "2026-11-17T14:12:05Z",
+  "files": [
+    {
+      "bytes": 11142,
+      "name": "2026-11-17_1402_AIR-2-runway-circuit-ksc-ghost.json",
+      "sourceBytes": 11142
+    },
+    {
+      "bytes": 2010,
+      "name": "2026-11-17_1402_AIR-2-runway-circuit-ksc-ghost_status.json",
+      "sourceBytes": 2010
+    },
+    {
+      "bytes": 4376,
+      "name": "2026-11-17_1402_AIR-2-runway-circuit-ksc-ghost_mission.json",
+      "sourceBytes": 4376
+    },
+    {
+      "bytes": 346527,
+      "name": "2026-11-17_1402_AIR-2-runway-circuit-ksc-ghost_mission.stdout.log",
+      "sourceBytes": 346527
+    },
+    {
+      "bytes": 36735,
+      "name": "2026-11-17_140247_stock-minimal-2_harness.log.gz",
+      "sourceBytes": 413645
+    },
+    {
+      "bytes": 203022,
+      "name": "KSP.log.gz",
+      "sourceBytes": 2053802
+    }
+  ],
+  "gitHead": "65ac33ee8a199edee4aae1238d3193e5725448db",
+  "harnessLog": "slice",
+  "missing": [],
+  "origin": "run",
+  "parsekDllSha256": "7d9f2510d4d321e9eb43cff3b9ff65f6bc7b7abd54485a48d21dc3ad4dde6eea",
+  "runId": "2026-11-17_1402_AIR-2-runway-circuit-ksc-ghost",
+  "schema": 1,
+  "totalBytes": 603812,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests"
+}

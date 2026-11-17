@@ -1,0 +1,115 @@
+{
+  "assertions": [
+    {
+      "met": true,
+      "name": "reachedOrbit",
+      "required": "ORBIT",
+      "value": "SPLASHDOWN"
+    },
+    {
+      "floor": 60000.0,
+      "met": true,
+      "name": "apoapsisFloor",
+      "value": 87931.2853429981
+    },
+    {
+      "accepted": [
+        "LANDED",
+        "SPLASHED"
+      ],
+      "met": true,
+      "name": "landedSituation",
+      "value": "SPLASHED"
+    },
+    {
+      "armCommanded": true,
+      "debounceK": 2,
+      "deployAltitude": 8000.0,
+      "lastChuteState": "Deployed",
+      "met": true,
+      "name": "craftCanopyObserved",
+      "required": "Deployed",
+      "value": true
+    },
+    {
+      "apoapsis": 87931.28164094966,
+      "body": "Laythe",
+      "gateFrames": 3,
+      "met": true,
+      "minPeriapsis": 52000.0,
+      "name": "startedInOrbit",
+      "periapsis": 56240.318704717676,
+      "requiredBody": "Laythe",
+      "value": "ORBITING"
+    },
+    {
+      "finalSituation": "SPLASHED",
+      "met": true,
+      "name": "landedOnBody",
+      "required": "Laythe",
+      "value": "Laythe"
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.15683639992494136,
+    "rpcPort": 50000
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "b4_reentry",
+  "phasesReached": [
+    "PRELAUNCH",
+    "ORBIT",
+    "DEORBIT",
+    "REENTRY",
+    "SPLASHDOWN"
+  ],
+  "reason": "all telemetry assertions met",
+  "schema": 1,
+  "verdict": "MISSION-OK",
+  "wallSeconds": 619.284,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.06,
+      "gameSecondsPerWallSecond": 0.98,
+      "phase": "PRELAUNCH",
+      "wallSeconds": 1.081,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 1.001,
+      "phase": "ORBIT",
+      "wallSeconds": 0.52,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 49.9,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "DEORBIT",
+      "wallSeconds": 49.897,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 792.72,
+      "gameSecondsPerWallSecond": 2.353,
+      "phase": "REENTRY",
+      "wallSeconds": 336.885,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 228.72,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "SPLASHDOWN",
+      "wallSeconds": 228.716,
+      "warpCommands": 0
+    }
+  ]
+}

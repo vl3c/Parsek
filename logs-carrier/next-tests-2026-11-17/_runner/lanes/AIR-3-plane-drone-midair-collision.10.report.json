@@ -1,0 +1,23 @@
+{
+ "exitCode": 1,
+ "lanes": [
+  {
+   "attempts": 2,
+   "failureClass": "autopilot-flake",
+   "id": "AIR-3-plane-drone-midair-collision",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests\\harness\\results\\2026-11-17_1427_AIR-3-plane-drone-midair-collision.json",
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests\\harness\\results\\2026-11-17_1436_AIR-3-plane-drone-midair-collision_a2.json"
+   ],
+   "runIds": [
+    "2026-11-17_1427_AIR-3-plane-drone-midair-collision",
+    "2026-11-17_1436_AIR-3-plane-drone-midair-collision_a2"
+   ],
+   "subkind": "autopilot-flake",
+   "verdict": "INVALID",
+   "wallSeconds": 1016
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal-2"
+}

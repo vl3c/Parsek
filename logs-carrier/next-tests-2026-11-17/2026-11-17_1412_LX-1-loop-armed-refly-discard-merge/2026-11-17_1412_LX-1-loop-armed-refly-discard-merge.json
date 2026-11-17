@@ -1,0 +1,1115 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_1412_LX-1-loop-armed-refly-discard-merge_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 142,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "rover-route-recorded",
+          "scene": "FLIGHT",
+          "ut": "980.819999999398"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "980.93999999939786"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "980.95999999939784"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "980.9999999993978",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnEva",
+          "ut": "981.01999999939778",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "981.03999999939776",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "ghostRenderTracing",
+          "ut": "981.05999999939775",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "anchorUt": "981.09999999939771",
+          "autoLoopIntervalSeconds": "30",
+          "cadenceSeconds": "45",
+          "compressedSpanSeconds": "40.759999999962929",
+          "intervalSeconds": "10",
+          "loiterCutCount": "0",
+          "loiterCuts": "",
+          "loop": "true",
+          "mission": "A",
+          "overlapCadenceSeconds": "10",
+          "phaseAnchorUt": "982.53999999993289",
+          "spanSeconds": "40.759999999962929",
+          "spanStartUt": "392.53999999993295",
+          "tree": "6a2d7247996a43159a7b9f7595de708d",
+          "unit": "sec",
+          "unitBuilt": "true",
+          "ut": "981.09999999939771"
+        },
+        "cmd": "MissionConfig",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "18.860000000602327",
+          "maxRate": "5",
+          "target": "1000",
+          "ut": "999.80364379822663"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-armed",
+          "ut": "999.84364379822659"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "scene": "SPACECENTER",
+          "ut": "999.9436437982265"
+        },
+        "cmd": "ExitToSpaceCenter",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "craft": "CS Flea Probe",
+          "facility": "VAB",
+          "parts": "11",
+          "scene": "EDITOR",
+          "ship": "CS Flea Probe",
+          "ut": "1000.0436437982264"
+        },
+        "cmd": "GoToEditor",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "pid": "3615170000",
+          "scene": "FLIGHT",
+          "site": "LaunchPad",
+          "situation": "PRELAUNCH",
+          "ut": "1000.3436437982261",
+          "vessel": "CS Flea Probe"
+        },
+        "cmd": "LaunchFromEditor",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "07b2f91bf30d45169a712318fbc33266",
+          "ut": "1000.483643798226"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "CS Flea Probe",
+          "activePid": "3615170000",
+          "button": "decouple",
+          "converter": "",
+          "count": "1",
+          "event": "Decouple",
+          "newName": "CS Flea Probe",
+          "newPid": "2015049740",
+          "packed": "1",
+          "part": "radialDecoupler",
+          "partId": "257118628",
+          "pid": "3615170000",
+          "state": "",
+          "ut": "1000.523643798226",
+          "vesselsAfter": "13",
+          "vesselsBefore": "12",
+          "warpIndex": "0",
+          "warpRate": "1"
+        },
+        "cmd": "PartAction",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "0",
+          "recording": "false",
+          "scene": "FLIGHT",
+          "tree": "e7871baa88d3418aaafde88f2d0b07c4",
+          "ut": "1000.5636437982259"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "24.396356201774097",
+          "maxRate": "1",
+          "target": "1025",
+          "ut": "1024.8036437982039"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "1025.0236437982037"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "committed": "true",
+          "ut": "1025.0436437982037"
+        },
+        "cmd": "CommitTree",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "1025.0636437982037"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "1",
+          "kind": "rewindpoints",
+          "rp0": "rp_7afeb2d47e8749278c23d4e39a17def8",
+          "rp0corrupted": "false",
+          "rp0provisional": "false",
+          "rp0slot0": "07b2f91bf30d45169a712318fbc33266",
+          "rp0slot0open": "false",
+          "rp0slot1": "d3d5a7e39f6f4b3f87492f28eca2d1e2",
+          "rp0slot1open": "true",
+          "rp0slots": "2",
+          "rp0ut": "1001.0436437982255",
+          "truncated": "false",
+          "ut": "1025.0836437982036"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0021",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "rp": "rp_7afeb2d47e8749278c23d4e39a17def8",
+          "slot": "0",
+          "stashed": "true",
+          "tip": "07b2f91bf30d45169a712318fbc33266",
+          "tipMergeState": "CommittedProvisional",
+          "tipMergeStateBefore": "Immutable",
+          "unfinishedFlight": "true",
+          "unfinishedRow": "07b2f91bf30d45169a712318fbc33266",
+          "ut": "1025.1236437982036"
+        },
+        "cmd": "StashSlot",
+        "expect": "OK",
+        "id": "0022",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "rp",
+            "ref": "${handles.rp0}",
+            "value": "rp_7afeb2d47e8749278c23d4e39a17def8"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-split",
+          "ut": "1025.1436437982036"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0023",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-refly1-armed",
+          "ut": "1025.1636437982036"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0024",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activePid": "3615170001",
+          "rewound": "true",
+          "rp": "rp_7afeb2d47e8749278c23d4e39a17def8",
+          "session": "sess_5d5262c0127c42af96f344af05ae95ec",
+          "slot": "0",
+          "ut": "1001.1636437982254"
+        },
+        "cmd": "InvokeRewind",
+        "expect": "OK",
+        "id": "0025",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "rp",
+            "ref": "${handles.rp0}",
+            "value": "rp_7afeb2d47e8749278c23d4e39a17def8"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "0",
+          "digest": "811c9dc5",
+          "evaluated": "true",
+          "kind": "chains",
+          "truncated": "false",
+          "ut": "1001.4036437982252"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0026",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "0",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "e7871baa88d3418aaafde88f2d0b07c4",
+          "ut": "1001.4436437982251"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0027",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-refly1-started",
+          "ut": "1001.4836437982251"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0028",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "57.576356201775752",
+          "maxRate": "10",
+          "target": "1060",
+          "ut": "1059.7967243951314"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0029",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-refly1-warped",
+          "ut": "1059.9367243951313"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0030",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "choice": "discard",
+          "marker": "none",
+          "rp": "rp_7afeb2d47e8749278c23d4e39a17def8",
+          "rpKept": "true",
+          "scene": "SPACECENTER",
+          "session": "sess_5d5262c0127c42af96f344af05ae95ec",
+          "slot": "07b2f91bf30d45169a712318fbc33266",
+          "slotListed": "true",
+          "target": "launch",
+          "unfinishedFlights": "2",
+          "ut": "1001.1436437982254"
+        },
+        "cmd": "ReFlyRevert",
+        "expect": "OK",
+        "id": "0031",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-discarded",
+          "ut": "1001.4036437982252"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0032",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "1001.4236437982252",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0033",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnEva",
+          "ut": "1001.4436437982251",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0034",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "lx1-after-discard",
+          "ut": "1001.4636437982251"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0035",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-reenter",
+          "ut": "1001.5236437982251"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0036",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "rover-route-recorded",
+          "scene": "FLIGHT",
+          "ut": "1002.7836437982239"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0037",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "1002.9236437982238",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0038",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnEva",
+          "ut": "1002.9436437982238",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0039",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "1002.9636437982238",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0040",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "ghostRenderTracing",
+          "ut": "1002.9836437982237",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0041",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "1003.0236437982237"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0042",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "1",
+          "kind": "rewindpoints",
+          "rp0": "rp_7afeb2d47e8749278c23d4e39a17def8",
+          "rp0corrupted": "false",
+          "rp0provisional": "false",
+          "rp0slot0": "07b2f91bf30d45169a712318fbc33266",
+          "rp0slot0open": "true",
+          "rp0slot1": "d3d5a7e39f6f4b3f87492f28eca2d1e2",
+          "rp0slot1open": "true",
+          "rp0slots": "2",
+          "rp0ut": "1001.0436437982255",
+          "truncated": "false",
+          "ut": "1003.0436437982237"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0043",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-reentered",
+          "ut": "1003.0636437982237"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0044",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-refly2-armed",
+          "ut": "1003.1036437982236"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0045",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activePid": "3615170001",
+          "rewound": "true",
+          "rp": "rp_7afeb2d47e8749278c23d4e39a17def8",
+          "session": "sess_a36b2e3b50664538b80176cae636775e",
+          "slot": "0",
+          "ut": "1001.1636437982254"
+        },
+        "cmd": "InvokeRewind",
+        "expect": "OK",
+        "id": "0046",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "rp",
+            "ref": "${handles2.rp0}",
+            "value": "rp_7afeb2d47e8749278c23d4e39a17def8"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "0",
+          "digest": "811c9dc5",
+          "evaluated": "true",
+          "kind": "chains",
+          "truncated": "false",
+          "ut": "1001.4036437982252"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0047",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "0",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "e7871baa88d3418aaafde88f2d0b07c4",
+          "ut": "1001.4436437982251"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0048",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-refly2-started",
+          "ut": "1001.4436437982251"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0049",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "57.596356201775734",
+          "maxRate": "10",
+          "target": "1060",
+          "ut": "1059.7951461785792"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0050",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-merge-armed",
+          "ut": "1059.8951461785791"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0051",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "choice": "merge",
+          "result": "committed",
+          "ut": "1059.995146178579"
+        },
+        "cmd": "AnswerMergeDialog",
+        "expect": "OK",
+        "id": "0052",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-merged",
+          "ut": "1060.1351461785789"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0053",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "49.844853821421111",
+          "maxRate": "10",
+          "target": "1110",
+          "ut": "1109.7913394158663"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0054",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "lx1-after-merge",
+          "ut": "1109.9113394158662"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0055",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "1109.9313394158662"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0056",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T14:14:29Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-17_1412_LX-1-loop-armed-refly-discard-merge",
+  "scenarioId": "LX-1-loop-armed-refly-discard-merge",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 3867663,
+    "files": 94,
+    "path": "2026-11-17_1412_LX-1-loop-armed-refly-discard-merge_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-17T14:12:06Z",
+  "subkind": "",
+  "tier": "operator",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-2\\saves\\rover-route-recorded\\analysis\\rover-route-recorded.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-2\\saves\\rover-route-recorded\\analysis\\rover-route-recorded.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 9
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 6031,
+            "legacyLines": 0,
+            "maxRotDeg": 0.0,
+            "maxRotDegAt": {
+              "path": "overlap-primary",
+              "playbackUT": "392.829",
+              "rec": "3582d724",
+              "rotRef": "surface"
+            },
+            "perRef": {
+              "surface": {
+                "maxRotDeg": 0.0,
+                "maxRotDegAt": {
+                  "path": "overlap-primary",
+                  "playbackUT": "392.829",
+                  "rec": "3582d724",
+                  "rotRef": "surface"
+                },
+                "resolvedLines": 6031,
+                "sweepDeg": 179.967,
+                "sweepRec": "3582d724"
+              }
+            },
+            "resolvedLines": 6031,
+            "sweepDeg": 179.967,
+            "sweepRec": "3582d724",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {
+            "1": 1,
+            "2": 4,
+            "3": 3,
+            "4": 3,
+            "5": 2,
+            "6": 2,
+            "7": 2
+          },
+          "cycleLines": 17,
+          "cycleModes": {
+            "overlap-demote": 17
+          },
+          "cycleRecordings": 1,
+          "destroyLines": 25,
+          "destroyedReasons": {
+            "engine teardown": 17,
+            "overlap expired": 6,
+            "playback completed": 2
+          },
+          "destroyedRecordings": 2,
+          "malformed": 0,
+          "peakLive": 5,
+          "peakLiveFrame": 11830,
+          "peakLiveRecording": "3582d724892245c8939f6a354baff278",
+          "perVessel": {
+            "A": {
+              "destroyLines": 22,
+              "spawnLines": 22,
+              "spawned": 1
+            },
+            "CS Flea Probe": {
+              "destroyLines": 3,
+              "spawnLines": 3,
+              "spawned": 1
+            }
+          },
+          "spawnLines": 25,
+          "spawnReasons": {
+            "ghost-created": 25
+          },
+          "spawned": 2,
+          "spawnedRecordingIds": [
+            "3582d724892245c8939f6a354baff278",
+            "d3d5a7e39f6f4b3f87492f28eca2d1e2"
+          ],
+          "unbalanced": [],
+          "vessels": [
+            "A",
+            "CS Flea Probe"
+          ]
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": false,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 116,
+            "recordings": 9,
+            "smallest": 4,
+            "total": 654,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "Dock": 1,
+              "JointBreak": 1,
+              "Undock": 1
+            },
+            "committedTrees": 3,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "A": 2,
+              "B": 3,
+              "CS Flea Probe": 4
+            },
+            "recordings": 9,
+            "spaceObjectParts": {
+              "Ast. CMN-096": 1,
+              "Ast. EZO-679": 1,
+              "Ast. GYN-298": 1,
+              "Ast. HAO-840": 1,
+              "Ast. SDT-697": 1,
+              "Ast. TSV-307": 1,
+              "Ast. UGF-148": 1,
+              "Ast. UZR-158": 1
+            },
+            "spawnedVessels": 2,
+            "terminalStates": {
+              "Docked": 1,
+              "Landed": 5,
+              "SubOrbital": 1
+            },
+            "treeNodes": 3,
+            "trees": 3,
+            "vesselNames": {
+              "A": 1,
+              "B": 1,
+              "CS Flea Probe": 1,
+              "rover fuel 0": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 1,
+          "rewindRetirements": 0,
+          "supersedeRows": 1,
+          "tombstones": 1
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 1,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 0
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 0,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 142
+}

@@ -1,0 +1,44 @@
+{
+  "archivedUtc": "2026-11-17T14:27:36Z",
+  "files": [
+    {
+      "bytes": 9888,
+      "name": "2026-11-17_1422_SOI-2-mun-exit-formation-wingman.json",
+      "sourceBytes": 9888
+    },
+    {
+      "bytes": 2417,
+      "name": "2026-11-17_1422_SOI-2-mun-exit-formation-wingman_status.json",
+      "sourceBytes": 2417
+    },
+    {
+      "bytes": 3667,
+      "name": "2026-11-17_1422_SOI-2-mun-exit-formation-wingman_mission.json",
+      "sourceBytes": 3667
+    },
+    {
+      "bytes": 190715,
+      "name": "2026-11-17_1422_SOI-2-mun-exit-formation-wingman_mission.stdout.log",
+      "sourceBytes": 190715
+    },
+    {
+      "bytes": 15872,
+      "name": "2026-11-17_142247_stock-minimal-2_harness.log.gz",
+      "sourceBytes": 219481
+    },
+    {
+      "bytes": 185120,
+      "name": "KSP.log.gz",
+      "sourceBytes": 3147803
+    }
+  ],
+  "gitHead": "65ac33ee8a199edee4aae1238d3193e5725448db",
+  "harnessLog": "slice",
+  "missing": [],
+  "origin": "run",
+  "parsekDllSha256": "7d9f2510d4d321e9eb43cff3b9ff65f6bc7b7abd54485a48d21dc3ad4dde6eea",
+  "runId": "2026-11-17_1422_SOI-2-mun-exit-formation-wingman",
+  "schema": 1,
+  "totalBytes": 407679,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests"
+}

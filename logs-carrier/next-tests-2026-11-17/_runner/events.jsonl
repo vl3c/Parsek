@@ -1,0 +1,38 @@
+{"epoch":1794924144.627294,"kind":"start","lanes":12,"pid":6900,"utc":"2026-11-17T14:02:24Z"}
+{"epoch":1794924151.4651508,"kind":"dispatch","lane":"GS-9-kerbalx-repeat-rewind","pid":19668,"reason":"p50=491s","seq":1,"slot":"stock-minimal","utc":"2026-11-17T14:02:31Z","window":"desktop"}
+{"epoch":1794924151.5235984,"kind":"wait","reason":"the last start was 0 s ago (< 15 s dispatch gap)","utc":"2026-11-17T14:02:31Z","waitKind":"dispatch-gap"}
+{"epoch":1794924167.5792978,"kind":"dispatch","lane":"AIR-2-runway-circuit-ksc-ghost","pid":10104,"reason":"p50=120s","seq":2,"slot":"stock-minimal-2","utc":"2026-11-17T14:02:47Z","window":"desktop"}
+{"epoch":1794924167.6164455,"kind":"wait","reason":"2 running, slots=2","utc":"2026-11-17T14:02:47Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794924667.758931,"exit":0,"kind":"finish","lane":"GS-9-kerbalx-repeat-rewind","runIds":["2026-11-17_1402_GS-9-kerbalx-repeat-rewind"],"seq":1,"slot":"stock-minimal","utc":"2026-11-17T14:11:07Z","verdict":"PASS","wall":516}
+{"epoch":1794924667.7678144,"kind":"dispatch","lane":"RVC-1-two-rover-head-on-crash","pid":30388,"reason":"p50=120s","seq":3,"slot":"stock-minimal","utc":"2026-11-17T14:11:07Z","window":"desktop"}
+{"epoch":1794924667.8141193,"kind":"wait","reason":"2 running, slots=2","utc":"2026-11-17T14:11:07Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794924726.055663,"exit":0,"kind":"finish","lane":"AIR-2-runway-circuit-ksc-ghost","runIds":["2026-11-17_1402_AIR-2-runway-circuit-ksc-ghost"],"seq":2,"slot":"stock-minimal-2","utc":"2026-11-17T14:12:06Z","verdict":"PASS","wall":558}
+{"epoch":1794924726.06377,"kind":"dispatch","lane":"LX-1-loop-armed-refly-discard-merge","pid":16984,"reason":"p50=120s","seq":4,"slot":"stock-minimal-2","utc":"2026-11-17T14:12:06Z","window":"desktop"}
+{"epoch":1794924726.1109736,"kind":"wait","reason":"2 running, slots=2","utc":"2026-11-17T14:12:06Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794924870.763236,"exit":0,"kind":"finish","lane":"LX-1-loop-armed-refly-discard-merge","runIds":["2026-11-17_1412_LX-1-loop-armed-refly-discard-merge"],"seq":4,"slot":"stock-minimal-2","utc":"2026-11-17T14:14:30Z","verdict":"PASS","wall":145}
+{"epoch":1794924870.771588,"kind":"dispatch","lane":"LX-2-career-loop-watch-scene-change-reload","pid":25012,"reason":"p50=120s","seq":5,"slot":"stock-minimal-2","utc":"2026-11-17T14:14:30Z","window":"desktop"}
+{"epoch":1794924870.8143044,"kind":"wait","reason":"2 running, slots=2","utc":"2026-11-17T14:14:30Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794924949.1534052,"exit":0,"kind":"finish","lane":"LX-2-career-loop-watch-scene-change-reload","runIds":["2026-11-17_1414_LX-2-career-loop-watch-scene-change-reload"],"seq":5,"slot":"stock-minimal-2","utc":"2026-11-17T14:15:49Z","verdict":"PASS","wall":78}
+{"epoch":1794924949.1623816,"kind":"dispatch","lane":"FXR-1-ghost-engine-fx-across-refly-and-retry","pid":17556,"reason":"p50=120s","seq":6,"slot":"stock-minimal-2","utc":"2026-11-17T14:15:49Z","window":"desktop"}
+{"epoch":1794924949.2024999,"kind":"wait","reason":"2 running, slots=2","utc":"2026-11-17T14:15:49Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794925027.5148854,"exit":1,"kind":"finish","lane":"RVC-1-two-rover-head-on-crash","runIds":["2026-11-17_1411_RVC-1-two-rover-head-on-crash"],"seq":3,"slot":"stock-minimal","utc":"2026-11-17T14:17:07Z","verdict":"PARSEK-FAIL","wall":360}
+{"epoch":1794925027.5235555,"kind":"dispatch","lane":"LAY-1-laythe-reentry-splashdown","pid":19224,"reason":"p50=120s","seq":7,"slot":"stock-minimal","utc":"2026-11-17T14:17:07Z","window":"desktop"}
+{"epoch":1794925027.5619812,"kind":"wait","reason":"2 running, slots=2","utc":"2026-11-17T14:17:07Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794925160.1723092,"exit":1,"kind":"finish","lane":"FXR-1-ghost-engine-fx-across-refly-and-retry","runIds":["2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry"],"seq":6,"slot":"stock-minimal-2","utc":"2026-11-17T14:19:20Z","verdict":"PARSEK-FAIL","wall":211}
+{"epoch":1794925160.1802855,"kind":"dispatch","lane":"BOAT-1-mallard-water-taxi","pid":8508,"reason":"p50=120s","seq":8,"slot":"stock-minimal-2","utc":"2026-11-17T14:19:20Z","window":"desktop"}
+{"epoch":1794925160.2247934,"kind":"wait","reason":"2 running, slots=2","utc":"2026-11-17T14:19:20Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794925367.1461725,"exit":0,"kind":"finish","lane":"BOAT-1-mallard-water-taxi","runIds":["2026-11-17_1419_BOAT-1-mallard-water-taxi"],"seq":8,"slot":"stock-minimal-2","utc":"2026-11-17T14:22:47Z","verdict":"PASS","wall":207}
+{"epoch":1794925367.1540105,"kind":"dispatch","lane":"SOI-2-mun-exit-formation-wingman","pid":38404,"reason":"p50=120s","seq":9,"slot":"stock-minimal-2","utc":"2026-11-17T14:22:47Z","window":"desktop"}
+{"epoch":1794925367.1979218,"kind":"wait","reason":"2 running, slots=2","utc":"2026-11-17T14:22:47Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794925658.43859,"exit":0,"kind":"finish","lane":"SOI-2-mun-exit-formation-wingman","runIds":["2026-11-17_1422_SOI-2-mun-exit-formation-wingman"],"seq":9,"slot":"stock-minimal-2","utc":"2026-11-17T14:27:38Z","verdict":"PASS","wall":291}
+{"epoch":1794925658.4885945,"kind":"dispatch","lane":"AIR-3-plane-drone-midair-collision","pid":29700,"reason":"p50=120s","seq":10,"slot":"stock-minimal-2","utc":"2026-11-17T14:27:38Z","window":"desktop"}
+{"epoch":1794925658.5286958,"kind":"wait","reason":"2 running, slots=2","utc":"2026-11-17T14:27:38Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794925754.9303105,"exit":1,"kind":"finish","lane":"LAY-1-laythe-reentry-splashdown","runIds":["2026-11-17_1417_LAY-1-laythe-reentry-splashdown"],"seq":7,"slot":"stock-minimal","utc":"2026-11-17T14:29:14Z","verdict":"PARSEK-FAIL","wall":727}
+{"epoch":1794925754.9395893,"kind":"dispatch","lane":"H59-surface-route-map-lines","pid":5588,"reason":"p50=84s","seq":11,"slot":"stock-minimal","utc":"2026-11-17T14:29:14Z","window":"desktop"}
+{"epoch":1794925754.9736533,"kind":"wait","reason":"2 running, slots=2","utc":"2026-11-17T14:29:14Z","waitKind":"slots"}
+{"attempts":1,"epoch":1794925845.3452358,"exit":0,"kind":"finish","lane":"H59-surface-route-map-lines","runIds":["2026-11-17_1429_H59-surface-route-map-lines"],"seq":11,"slot":"stock-minimal","utc":"2026-11-17T14:30:45Z","verdict":"PASS","wall":90}
+{"epoch":1794925845.3998032,"kind":"dispatch","lane":"V27M-rover-route-endpoint-substituted-map-lines","pid":21480,"reason":"p50=64s","seq":12,"slot":"stock-minimal","utc":"2026-11-17T14:30:45Z","window":"desktop"}
+{"epoch":1794925845.400217,"kind":"wait","reason":"no lane left to start; 2 running","utc":"2026-11-17T14:30:45Z","waitKind":"drain"}
+{"attempts":1,"epoch":1794925917.427242,"exit":0,"kind":"finish","lane":"V27M-rover-route-endpoint-substituted-map-lines","runIds":["2026-11-17_1430_V27M-rover-route-endpoint-substituted-map-lines"],"seq":12,"slot":"stock-minimal","utc":"2026-11-17T14:31:57Z","verdict":"PASS","wall":72}
+{"attempts":2,"epoch":1794926693.6474414,"exit":1,"kind":"finish","lane":"AIR-3-plane-drone-midair-collision","runIds":["2026-11-17_1427_AIR-3-plane-drone-midair-collision","2026-11-17_1436_AIR-3-plane-drone-midair-collision_a2"],"seq":10,"slot":"stock-minimal-2","utc":"2026-11-17T14:44:53Z","verdict":"INVALID","wall":1035}
+{"detail":"PASS=8 PARSEK-FAIL=3 INVALID=1 pending=0 of 12","epoch":1794926696.1861467,"exit":1,"kind":"end","outcome":"RED","utc":"2026-11-17T14:44:56Z"}

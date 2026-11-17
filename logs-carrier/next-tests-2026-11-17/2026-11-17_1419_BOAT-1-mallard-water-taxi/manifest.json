@@ -1,0 +1,44 @@
+{
+  "archivedUtc": "2026-11-17T14:22:46Z",
+  "files": [
+    {
+      "bytes": 12671,
+      "name": "2026-11-17_1419_BOAT-1-mallard-water-taxi.json",
+      "sourceBytes": 12671
+    },
+    {
+      "bytes": 2006,
+      "name": "2026-11-17_1419_BOAT-1-mallard-water-taxi_status.json",
+      "sourceBytes": 2006
+    },
+    {
+      "bytes": 2131,
+      "name": "2026-11-17_1419_BOAT-1-mallard-water-taxi_mission.json",
+      "sourceBytes": 2131
+    },
+    {
+      "bytes": 63695,
+      "name": "2026-11-17_1419_BOAT-1-mallard-water-taxi_mission.stdout.log",
+      "sourceBytes": 63695
+    },
+    {
+      "bytes": 9434,
+      "name": "2026-11-17_141920_stock-minimal-2_harness.log.gz",
+      "sourceBytes": 83287
+    },
+    {
+      "bytes": 164884,
+      "name": "KSP.log.gz",
+      "sourceBytes": 1614400
+    }
+  ],
+  "gitHead": "65ac33ee8a199edee4aae1238d3193e5725448db",
+  "harnessLog": "slice",
+  "missing": [],
+  "origin": "run",
+  "parsekDllSha256": "7d9f2510d4d321e9eb43cff3b9ff65f6bc7b7abd54485a48d21dc3ad4dde6eea",
+  "runId": "2026-11-17_1419_BOAT-1-mallard-water-taxi",
+  "schema": 1,
+  "totalBytes": 254821,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests"
+}

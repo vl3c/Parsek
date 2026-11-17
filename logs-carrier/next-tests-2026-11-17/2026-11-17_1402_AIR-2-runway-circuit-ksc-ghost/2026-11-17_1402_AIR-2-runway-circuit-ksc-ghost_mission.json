@@ -1,0 +1,186 @@
+{
+  "assertions": [
+    {
+      "expectedVesselName": "Mallard",
+      "launchSite": "Runway",
+      "met": true,
+      "name": "rolloutObserved",
+      "value": "Mallard"
+    },
+    {
+      "met": true,
+      "name": "stagedAtPrelaunch",
+      "note": "Parsek's first-staging auto-record trigger requires PRELAUNCH",
+      "stageUT": 30.639999999999436,
+      "value": "PRE_LAUNCH"
+    },
+    {
+      "abortThrottleReadback": null,
+      "groundSteerConfirmed": false,
+      "groundSteerFlipped": false,
+      "groundSteerSign": 1.0,
+      "limitMeters": 1500.0,
+      "maxGroundHeadingErr": 0.04335784912109375,
+      "maxRollPitch": 4.31683349609375,
+      "met": true,
+      "name": "airborne",
+      "rotatePitchConfirmed": true,
+      "rotatePitchFlipped": false,
+      "rotatePitchSign": 1.0,
+      "rotateStartPitch": 0.437408447265625,
+      "rotateUT": 50.64000000000232,
+      "takeoffSpeed": 73.65147366770488,
+      "takeoffUT": 58.240000000003505,
+      "value": 749.1208071762716
+    },
+    {
+      "band": 60.0,
+      "cruiseAltitude": 1000.0,
+      "met": true,
+      "name": "cruiseAltitudeReached",
+      "value": 1032.9584762199083
+    },
+    {
+      "bankSignConfirmed": true,
+      "bankSignFlipped": false,
+      "captureUTs": [
+        116.75999999999391,
+        166.3400000000113,
+        222.94000000004024
+      ],
+      "met": true,
+      "name": "circuitFlown",
+      "rollInputSign": 1.0,
+      "rollSignConfirmed": true,
+      "rollSignFlipped": false,
+      "value": 3,
+      "waypoints": 3
+    },
+    {
+      "lat": 0.10708148143893582,
+      "lon": -73.72474732252016,
+      "met": true,
+      "missMeters": 1441.4284568992402,
+      "name": "touchedDown",
+      "speed": 57.11883358267381,
+      "touchdownUT": 392.0599999999334,
+      "value": "SPLASHED",
+      "verticalSpeed": -3.38565790437136
+    },
+    {
+      "met": true,
+      "name": "cameToRest",
+      "phasesReached": [
+        "ROLLOUT",
+        "ARM",
+        "RECORD-SETTLE",
+        "TAKEOFF-ROLL",
+        "CLIMB",
+        "CIRCUIT",
+        "FINAL",
+        "STOP",
+        "DONE"
+      ],
+      "stopSpeed": 1.0,
+      "value": 426.539999999902
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.18066519999410957,
+    "rpcPort": 50002
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "air1_runway_circuit",
+  "phasesReached": [
+    "ROLLOUT",
+    "ARM",
+    "RECORD-SETTLE",
+    "TAKEOFF-ROLL",
+    "CLIMB",
+    "CIRCUIT",
+    "FINAL",
+    "STOP",
+    "DONE"
+  ],
+  "reason": "all telemetry assertions met",
+  "schema": 1,
+  "verdict": "MISSION-OK",
+  "wallSeconds": 403.032,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 2.88,
+      "gameSecondsPerWallSecond": 0.461,
+      "phase": "ROLLOUT",
+      "wallSeconds": 6.245,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 1.001,
+      "phase": "ARM",
+      "wallSeconds": 0.519,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 4.7,
+      "gameSecondsPerWallSecond": 0.965,
+      "phase": "RECORD-SETTLE",
+      "wallSeconds": 4.869,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 22.9,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "TAKEOFF-ROLL",
+      "wallSeconds": 22.896,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 18.94,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "CLIMB",
+      "wallSeconds": 18.932,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 145.76,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "CIRCUIT",
+      "wallSeconds": 145.765,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 169.12,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "FINAL",
+      "wallSeconds": 169.145,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 34.48,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "STOP",
+      "wallSeconds": 34.478,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.0,
+      "gameSecondsPerWallSecond": 0.0,
+      "phase": "DONE",
+      "wallSeconds": 0.0,
+      "warpCommands": 0
+    }
+  ]
+}

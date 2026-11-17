@@ -1,0 +1,153 @@
+{
+  "assertions": [
+    {
+      "expectedVesselName": "AIR Drone Carrier",
+      "launchSite": "Runway",
+      "met": true,
+      "name": "rolloutObserved",
+      "value": "AIR Drone Carrier"
+    },
+    {
+      "met": true,
+      "name": "stagedAtPrelaunch",
+      "note": "Parsek's first-staging auto-record trigger requires PRELAUNCH",
+      "stageUT": 30.85999999999943,
+      "value": "PRE_LAUNCH"
+    },
+    {
+      "abortThrottleReadback": null,
+      "groundSteerConfirmed": true,
+      "groundSteerFlipped": false,
+      "groundSteerSign": 1.0,
+      "limitMeters": 1500.0,
+      "maxGroundHeadingErr": 3.731842041015625,
+      "maxRollPitch": 2.860870361328125,
+      "met": true,
+      "name": "airborne",
+      "rotatePitchConfirmed": true,
+      "rotatePitchFlipped": false,
+      "rotatePitchSign": 1.0,
+      "rotateStartPitch": 0.44207763671875,
+      "rotateUT": 50.80000000000234,
+      "takeoffSpeed": 75.68706126059375,
+      "takeoffUT": 59.4800000000037,
+      "value": 813.8558385247796
+    },
+    {
+      "droneParts": 4,
+      "loiterCaptures": 1,
+      "met": true,
+      "name": "droneReleased",
+      "ownPartsAfterRelease": 38,
+      "releaseAltitude": 1617.642315522884,
+      "releaseLat": 0.19411205800557083,
+      "releaseLon": -74.14019096262814,
+      "releaseUT": 235.9400000000469,
+      "targetVesselName": "AIR Drone Carrier Probe",
+      "value": 237.04000000004746
+    },
+    {
+      "bankSign": 1.0,
+      "bankSignFlipped": false,
+      "closestRange": 7.935939231686235,
+      "collisionUT": null,
+      "droneParts": null,
+      "limitMeters": 250.0,
+      "met": false,
+      "name": "midAirCollision",
+      "ownParts": null,
+      "passRanges": [
+        7.935939231686235
+      ],
+      "passesBefore": 1,
+      "rangeMeters": null,
+      "rollInputSign": 1.0,
+      "value": null
+    },
+    {
+      "chaserDownUT": null,
+      "droneDownUT": null,
+      "met": false,
+      "name": "bothDown",
+      "phasesReached": [
+        "AIR",
+        "ASCEND",
+        "EXTEND",
+        "PURSUE"
+      ],
+      "value": [
+        null,
+        null
+      ]
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.19364109996240586,
+    "rpcPort": 50002
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "air3_drone_intercept",
+  "phasesReached": [
+    "AIR",
+    "ASCEND",
+    "EXTEND",
+    "PURSUE"
+  ],
+  "reason": "phase PURSUE: the drone sank to 150 m (floor 150 m) after 1 pass(es), closest ranges ['7.9']",
+  "schema": 1,
+  "verdict": "MISSION-FLAKE",
+  "wallSeconds": 460.945,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 50.88,
+      "gameSecondsPerWallSecond": 0.936,
+      "phase": "AIR",
+      "wallSeconds": 54.376,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 157.56,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "ASCEND",
+      "wallSeconds": 157.559,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 25.32,
+      "gameSecondsPerWallSecond": 0.994,
+      "phase": "EXTEND",
+      "wallSeconds": 25.474,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 114.08,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "PURSUE",
+      "wallSeconds": 114.093,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 25.36,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "EXTEND",
+      "wallSeconds": 25.361,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 83.88,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "PURSUE",
+      "wallSeconds": 83.879,
+      "warpCommands": 0
+    }
+  ]
+}

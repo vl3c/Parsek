@@ -1,0 +1,13 @@
+2026-11-17T14:11:07Z PASS GS-9-kerbalx-repeat-rewind attempts=1 wall=516s slot=stock-minimal runIds=2026-11-17_1402_GS-9-kerbalx-repeat-rewind
+2026-11-17T14:12:06Z PASS AIR-2-runway-circuit-ksc-ghost attempts=1 wall=558s slot=stock-minimal-2 runIds=2026-11-17_1402_AIR-2-runway-circuit-ksc-ghost
+2026-11-17T14:14:30Z PASS LX-1-loop-armed-refly-discard-merge attempts=1 wall=145s slot=stock-minimal-2 runIds=2026-11-17_1412_LX-1-loop-armed-refly-discard-merge
+2026-11-17T14:15:49Z PASS LX-2-career-loop-watch-scene-change-reload attempts=1 wall=78s slot=stock-minimal-2 runIds=2026-11-17_1414_LX-2-career-loop-watch-scene-change-reload
+2026-11-17T14:17:07Z PARSEK-FAIL RVC-1-two-rover-head-on-crash attempts=1 wall=360s slot=stock-minimal runIds=2026-11-17_1411_RVC-1-two-rover-head-on-crash
+2026-11-17T14:19:20Z PARSEK-FAIL FXR-1-ghost-engine-fx-across-refly-and-retry attempts=1 wall=211s slot=stock-minimal-2 runIds=2026-11-17_1415_FXR-1-ghost-engine-fx-across-refly-and-retry
+2026-11-17T14:22:47Z PASS BOAT-1-mallard-water-taxi attempts=1 wall=207s slot=stock-minimal-2 runIds=2026-11-17_1419_BOAT-1-mallard-water-taxi
+2026-11-17T14:27:38Z PASS SOI-2-mun-exit-formation-wingman attempts=1 wall=291s slot=stock-minimal-2 runIds=2026-11-17_1422_SOI-2-mun-exit-formation-wingman
+2026-11-17T14:29:14Z PARSEK-FAIL LAY-1-laythe-reentry-splashdown attempts=1 wall=727s slot=stock-minimal runIds=2026-11-17_1417_LAY-1-laythe-reentry-splashdown
+2026-11-17T14:30:45Z PASS H59-surface-route-map-lines attempts=1 wall=90s slot=stock-minimal runIds=2026-11-17_1429_H59-surface-route-map-lines
+2026-11-17T14:31:57Z PASS V27M-rover-route-endpoint-substituted-map-lines attempts=1 wall=72s slot=stock-minimal runIds=2026-11-17_1430_V27M-rover-route-endpoint-substituted-map-lines
+2026-11-17T14:44:53Z INVALID AIR-3-plane-drone-midair-collision attempts=2 wall=1035s slot=stock-minimal-2 runIds=2026-11-17_1427_AIR-3-plane-drone-midair-collision,2026-11-17_1436_AIR-3-plane-drone-midair-collision_a2
+# totals PASS=8 PARSEK-FAIL=3 INVALID=1 pending=0 of 12

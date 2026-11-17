@@ -1,0 +1,21 @@
+{
+ "exitCode": 1,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "expectation",
+   "id": "RVC-1-two-rover-head-on-crash",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests\\harness\\results\\2026-11-17_1411_RVC-1-two-rover-head-on-crash.json"
+   ],
+   "runIds": [
+    "2026-11-17_1411_RVC-1-two-rover-head-on-crash"
+   ],
+   "subkind": "expectation",
+   "verdict": "PARSEK-FAIL",
+   "wallSeconds": 348
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal"
+}

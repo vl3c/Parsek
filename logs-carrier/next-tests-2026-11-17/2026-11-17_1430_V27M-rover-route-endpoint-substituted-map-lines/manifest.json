@@ -1,0 +1,33 @@
+{
+  "archivedUtc": "2026-11-17T14:31:56Z",
+  "files": [
+    {
+      "bytes": 18295,
+      "name": "2026-11-17_1430_V27M-rover-route-endpoint-substituted-map-lines.json",
+      "sourceBytes": 18295
+    },
+    {
+      "bytes": 3191,
+      "name": "2026-11-17_143045_stock-minimal_harness.log.gz",
+      "sourceBytes": 12327
+    },
+    {
+      "bytes": 246430,
+      "name": "KSP.log.gz",
+      "sourceBytes": 2733349
+    }
+  ],
+  "gitHead": "65ac33ee8a199edee4aae1238d3193e5725448db",
+  "harnessLog": "slice",
+  "missing": [
+    "2026-11-17_1430_V27M-rover-route-endpoint-substituted-map-lines_status.json",
+    "2026-11-17_1430_V27M-rover-route-endpoint-substituted-map-lines_mission.json",
+    "2026-11-17_1430_V27M-rover-route-endpoint-substituted-map-lines_mission.stdout.log"
+  ],
+  "origin": "run",
+  "parsekDllSha256": "7d9f2510d4d321e9eb43cff3b9ff65f6bc7b7abd54485a48d21dc3ad4dde6eea",
+  "runId": "2026-11-17_1430_V27M-rover-route-endpoint-substituted-map-lines",
+  "schema": 1,
+  "totalBytes": 267916,
+  "worktree": "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests"
+}

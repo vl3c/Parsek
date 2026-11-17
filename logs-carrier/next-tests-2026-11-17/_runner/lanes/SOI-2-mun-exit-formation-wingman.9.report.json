@@ -1,0 +1,21 @@
+{
+ "exitCode": 0,
+ "lanes": [
+  {
+   "attempts": 1,
+   "failureClass": "",
+   "id": "SOI-2-mun-exit-formation-wingman",
+   "resultPaths": [
+    "C:\\Users\\USER\\Documents\\Code\\Parsek\\Parsek-next-tests\\harness\\results\\2026-11-17_1422_SOI-2-mun-exit-formation-wingman.json"
+   ],
+   "runIds": [
+    "2026-11-17_1422_SOI-2-mun-exit-formation-wingman"
+   ],
+   "subkind": "",
+   "verdict": "PASS",
+   "wallSeconds": 288
+  }
+ ],
+ "schema": "parsek-run-report/1",
+ "slot": "stock-minimal-2"
+}
