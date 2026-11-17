@@ -5003,10 +5003,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # `total=1` literal with the split regexed). CommittedBatchTallySourceSyncTests gates
     # their `total=`. Each leaves on its first flight.
     # TSS-1..3 / KSS-1..2 (todo END-SPAWN-SCENE-LANES-2026-11-17, authored 2026-11-17) and the
-    # LeafVesselPlacement step added the same day to EVA-10, EVA-15, SEAT-2 and SS-1: one
+    # LeafVesselPlacement step added the same day to EVA-15, SEAT-2 and SS-1: one
     # LeafVesselPlacement cell each, `total=1` literal with the split regexed. Not H-series
     # ids; CommittedBatchTallySourceSyncTests gates their `total=`. Each leaves on its first
-    # flight (for the four existing lanes, the first flight after the step was added).
+    # flight (for the three existing lanes, the first flight after the step was added).
     # LAY-1-laythe-reentry-splashdown LEFT on run 2026-11-17_1740 (passed=1 failed=0 skipped=0,
     # pinned whole; its first flight 2026-11-17_1417 was red on KSC-END-SPAWN-SKIPS-OFF-KERBIN).
     INTERIM_PIN_IDS: set = {
@@ -5025,7 +5025,6 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "TSS-3-two-deliveries-same-spot-ts",
         "KSS-1-mun-lander-ksc-end-spawn",
         "KSS-2-orbit-deferred-ksc-then-ts",
-        "EVA-10-mun-ground-science-cluster",
         "EVA-15-orbiting-eva-deferred-spawn",
         "SEAT-2-seat-occupant-survives-spawn",
         "SS-1-spawn-safety-corrections",

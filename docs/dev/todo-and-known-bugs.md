@@ -120,8 +120,19 @@ step each (loose interim batch pin, `INTERIM_PIN_IDS`):
 - `KSS-2-orbit-deferred-ksc-then-ts` (scope 2b, `eva2-lko-crewed`): an LKO coast end deferred at
   the Space Center (nothing spawned) and paid on the next Tracking Station visit.
 
-Scope 3: `EVA-10`, `EVA-15`, `SEAT-2` and `SS-1` gained a final `RunTests LeafVesselPlacement` step
-(loose interim pins until re-flown). Not changed, and why: LAB-7 and MINE-2 / MINE-9 (their spawns
+Scope 3: `EVA-15` and `SS-1` gained a final `RunTests LeafVesselPlacement` step, `SEAT-2` one right
+after its spawn (before the switch, whose committed-tree restore clears the recording's spawn
+pid); loose interim batch pins until re-flown. Each pin was checked against what the lane's last
+green flight proves (EVA-15: both Orbital spawns in its required tokens; SS-1: both vessels in its
+armed census, the synthetic Situation Hopper carrying no `TerminalPosition`, so unsupported;
+SEAT-2: the one recording's spawn pid in its `seat2-spawned` mark). WITHDRAWN from `EVA-10`: in its
+re-flight `2026-11-17_1735` the rewind KEEPS the fixture recording `06f15e8c...` as committed history
+with spawn pid 2708531065, and the stock Kerbal X the lane launches from the SPH takes that same
+craft-baked pid on Kerbin (`launchfromeditor complete ... pid=2708531065`); whether a later
+reconcile clears that stamp is not readable from the log, and if it does not, the cell (which
+matches by bare pid) compares a Mun terminal position against a Kerbin runway vessel and FAILS a
+lane green today. Proposal (C#, not built): guid-gate the cell's pid match through
+`VesselLaunchIdentity` the way spawn adoption is. Not changed, and why: LAB-7 and MINE-2 / MINE-9 (their spawns
 come through `TimeJump`, a different path), RSC-1 (its synthetic leaves carry no
 `TerminalPosition`, so the cell reads them unsupported), RSC-3, the AST lanes (walkback spawns
 are moved on purpose), the stationary MINE rovers (the vessel never left its spot).

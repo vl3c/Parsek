@@ -67,6 +67,12 @@ tags = ["TSS-3", "spawn", "end-spawn", "tracking-station", "ts-handoff", "warp",
 saveTemplate       = "fixtures/saves/gloops-airshow"
 injectedRecordings = "spawn-stack"
 craft              = []
+# The fixture carries `ScenarioNewGameIntro tsComplete = False`, so stock's first
+# Tracking Station visit sets the `intro_TS` lock, which holds TIMEWARP and makes
+# WarpToUT refuse above 1x there (`warptout refused reason=warp-locked
+# holders=intro_TS`). The stage step sets it complete in the staged copy
+# (savepatch.apply_ts_intro_done; logged `trackingStationIntroDone patched`).
+trackingStationIntroDone = true
 
 [driver]
 kind = "seam"

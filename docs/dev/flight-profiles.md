@@ -562,7 +562,7 @@ Lanes per family (rows) per timeline operation (columns).
 | DiscardTree | 248 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, SPW 9, TP 9 +38 |
 | WarpToUT | 236 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, SPW 11, CI 8, VN 8 +53 |
 | RecordingState | 234 | RF 27, V 21, LAB 14, QL 14, MINE 12, CS 11, EVA 11, L 11, VN 11 +46 |
-| RunTests | 221 | H 71, RW 25, V 13, CS 10, SPW 9, L 8, CN 6, LT 5, S 5, FAR 4, RF 4 +39 |
+| RunTests | 220 | H 71, RW 25, V 13, CS 10, SPW 9, L 8, CN 6, LT 5, S 5, FAR 4, RF 4 +39 |
 | StartRecording | 187 | B 23, RW 23, EVA 14, LAB 14, MINE 12, SPW 9, VN 8, FAR 6, S 6 +42 |
 | MissionMark | 181 | RW 25, LAB 17, EVA 13, MINE 12, SPW 11, CS 10, IR 6, L 6, QL 6 +41 |
 | CommitTree | 171 | RW 24, EVA 14, MINE 11, QL 9, SPW 9, VN 9, CS 8, L 8, LAB 8, B 7 +41 |
@@ -619,12 +619,12 @@ Lanes per family (rows) per timeline operation (columns).
 
 ## Lanes per in-game test category
 
-Categories named by `RunTests` steps (`(all)`: a step with no category). 221 lanes run at least one batch.
+Categories named by `RunTests` steps (`(all)`: a step with no category). 220 lanes run at least one batch.
 
 | category | lanes | lane ids |
 |---|---|---|
 | LedgerGroundTruth | 53 | CS-2-science-engineering101, CS-3-career-first-contracts +51 |
-| LeafVesselPlacement | 25 | AIR-2-runway-circuit-ksc-ghost, BOAT-1-mallard-water-taxi +23 |
+| LeafVesselPlacement | 24 | AIR-2-runway-circuit-ksc-ghost, BOAT-1-mallard-water-taxi +22 |
 | Logistics | 12 | H34-logistics-inter-body, H35-logistics-route-proof, H38-logistics-isolated +9 |
 | MoonArrivalHold | 12 | V31M-duna-ike-continuation-player-loop +11 |
 | Rewind | 6 | R7a-rewind-session-absent, R7c-rewind-spacecenter +4 |
@@ -1027,7 +1027,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | EVA-1-pad-flag | nightly | gloops-airshow | seam | Kerbin | - | - | LIVE-PROVEN 2026-07-24 |
-| EVA-10-mun-ground-science-cluster | nightly | mun-landing-recorded | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | LIVE-PROVEN 2026-10-06 |
+| EVA-10-mun-ground-science-cluster | nightly | mun-landing-recorded | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +1 | - | LIVE-PROVEN 2026-10-06 |
 | EVA-11-construction-foreign-claim | nightly | eva-construct-pad | seam | Kerbin | rewind-to-launch, reload, save, warp | - | LIVE-PROVEN 2026-10-15 |
 | EVA-12-cargo-from-foreign-kerbal-rewind | nightly | eva-construct-pad | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | LIVE-PROVEN 2026-10-23 |
 | EVA-13-construction-cross-tree-adopted-hold | nightly | eva-construct-pad | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | LIVE-PROVEN 2026-10-24 |

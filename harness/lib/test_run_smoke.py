@@ -5481,6 +5481,77 @@ class RenderManifestFilenamePinTests(unittest.TestCase):
                       "collect-logs.py no longer names the manifest run.py reads")
 
 
+class TrackingStationIntroStageTests(unittest.TestCase):
+    """The shell half of `[fixture] trackingStationIntroDone`: `stage_fixture` must set
+    `tsComplete = True` in the STAGED COPY only, log it, and leave a spec that does
+    not declare the key byte-identical."""
+
+    SAVE = "\n".join([
+        "GAME",
+        "{",
+        "\tSCENARIO",
+        "\t{",
+        "\t\tname = ScenarioNewGameIntro",
+        "\t\tkscComplete = True",
+        "\t\teditorComplete = True",
+        "\t\ttsComplete = False",
+        "\t}",
+        "}",
+        "",
+    ])
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-tsintro-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "tsintro-template")
+        os.makedirs(self.template, exist_ok=True)
+        self.template_sfs = os.path.join(self.template, "persistent.sfs")
+        with open(self.template_sfs, "wb") as fh:
+            fh.write(self.SAVE.encode("utf-8"))
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(
+            os.path.join(run.RESULTS_DIR, "tsintro_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _stage(self, declared):
+        spec = _make_spec(self.template, 30, 600)
+        if declared:
+            spec["fixture"]["trackingStationIntroDone"] = True
+        ok, name, subkind = run.stage_fixture(spec, self.instance, FakeRuntime("pass"),
+                                              self.logger)
+        with open(os.path.join(self.instance, "saves", name, "persistent.sfs"),
+                  "rb") as fh:
+            staged = fh.read().decode("utf-8")
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            log = fh.read()
+        return ok, subkind, staged, log
+
+    def test_the_declared_key_reaches_the_staged_save_only(self):
+        before = open(self.template_sfs, "rb").read()
+        ok, subkind, staged, log = self._stage(True)
+        self.assertTrue(ok)
+        self.assertEqual("", subkind)
+        # Both other intros are done in this save, so the node goes (stock's own
+        # end state once all three are complete).
+        self.assertEqual("GAME\n{\n}\n", staged)
+        self.assertIn("trackingStationIntroDone patched tsComplete False->True; "
+                      "ScenarioNewGameIntro removed", log)
+        self.assertEqual(before, open(self.template_sfs, "rb").read())
+
+    def test_undeclared_stages_byte_identical(self):
+        ok, _subkind, staged, log = self._stage(False)
+        self.assertTrue(ok)
+        self.assertEqual(self.SAVE, staged)
+        self.assertNotIn("trackingStationIntroDone", log)
+
+
 class LiveStateStageTests(unittest.TestCase):
     """The shell half of `[[fixture.liveState]]`: `stage_fixture` must patch the
     STAGED COPY (never the committed template), log one line per entry, and FAIL

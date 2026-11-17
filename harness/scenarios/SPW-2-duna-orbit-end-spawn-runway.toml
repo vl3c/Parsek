@@ -125,7 +125,7 @@ forbidden = [
   "invokerewindtolaunch refused",
   "invokerewindtolaunch failed",
   "warptout refused",
-  "gotoeditor refused",
+  "goeditor (?:rejected|error) ",
   "launchfromeditor refused",
   "timejump ",
   # Exactly one spawn, and never the snapshot fallback for an Orbiting end.

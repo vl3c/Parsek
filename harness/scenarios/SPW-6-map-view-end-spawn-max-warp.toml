@@ -126,7 +126,7 @@ forbidden = [
   "invokerewindtolaunch refused",
   "invokerewindtolaunch failed",
   "warptout refused",
-  "entermapview refused",
+  "entermapview (?:REJECTED|ERROR|threw) ",
   "timejump ",
   "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(Kerbal X\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\(Kerbal X\\)",
   "Vessel spawn for #[0-9]+ \\(Kerbal X\\)",
