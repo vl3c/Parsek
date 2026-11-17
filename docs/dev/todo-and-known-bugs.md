@@ -93,6 +93,13 @@ variance (the Depot and Miner re-entering after a 449 s docked phase, against 34
 flight `2026-11-15_2130`) is a lane robustness matter for the mission; with the fix the lane may
 still need its route shape (a Depot left in orbit) to pass its later steps.
 
+OPEN residue, left unfixed by decision: `AnchorDetector.IsSealedRecordingAnchor` still reads a
+member's own MergeState, so the CommittedProvisional head of a sealed split chain ranks below an
+otherwise-equal Immutable anchor candidate. Reason it stays: it is a tie-break among candidates
+that are all valid anchors, not a gate, and reading through the tip there needs a new backward
+Recording -> Rewind type dependency the layer ratchet forbids. Reopen it if a flight shows a
+relative-frame anchor choice that a sealed split head should have won.
+
 ## ~~RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK~~: a resumed recording whose end is a predicted terminal ahead of the clock gives its restore attempt a history cutoff in the future, so everything the resumed flight earns reads as committed history [FILED 2026-11-16 from the v1.0.2 release check, lane RF-11-both-slots-in-sequence, run `2026-11-16_2341` (release build) failing against the pass `2026-11-11_0134` (pre-#2622). FIXED 2026-11-17, branch `item30-restore-cutoff`, PR #2687; xUnit + mutation; LIVE-PROVEN 2026-11-17: RF-11 `2026-11-17_1712` and `2026-11-17_1730` PASS attempt 1, SE-1 `2026-11-17_1714` and `_1729` PASS, RC-7 `2026-11-17_1728` PASS; high (a Re-Fly slot the player kept open seals itself at the next load, and value from a discarded flight stays in the ledger). OPEN: residue (d) and the killed run note below]
 
 What the player sees: re-fly a slot, merge with "Commit, don't seal" while the vessel still
