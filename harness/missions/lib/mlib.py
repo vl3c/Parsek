@@ -39206,7 +39206,9 @@ def _ax_aftermath_controls(state: AxState,
         state, cmd = _ax_attitude(state, snapshot, AX_AFTERMATH_PITCH, 0.0, None)
         return state, power + cmd
     if snapshot.vessel_lost:
-        return state, power
+        # No active vessel: a throttle or control action would fail in the
+        # runner's perform, so record the cut and send nothing.
+        return state, []
     air, controls = _air_controls_release(state.air)
     return replace(state, air=air), power + controls
 

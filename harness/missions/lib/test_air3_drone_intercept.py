@@ -584,7 +584,9 @@ class CollisionTests(unittest.TestCase):
         st2, acts = mlib.ax_decide(st, lost)
         self.assertEqual(mlib.AX_AFTERMATH, st2.phase)
         self.assertEqual("chaser-lost", st2.collision_kind)
-        self.assertEqual([mlib.ACTION_SET_THROTTLE], kinds(acts))
+        # No active vessel: no vessel-bound action may be sent.
+        self.assertEqual([], kinds(acts))
+        self.assertTrue(all(a.kind in mlib.VESSEL_FREE_ACTION_KINDS for a in acts))
         st3, acts = self._near(name="AIR Drone Carrier Debris", oparts=5)
         self.assertEqual("chaser-replaced(AIR Drone Carrier Debris)", st3.collision_kind)
         # The active vessel is a fragment: neutral controls, never a dive.
