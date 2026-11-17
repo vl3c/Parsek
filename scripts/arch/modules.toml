@@ -123,6 +123,10 @@ folder = "Trajectory"
 name = "UI"
 folder = "UI"
 
+[[module]]
+name = "RaceCore"
+folder = "RaceCore"
+
 # Core, the kernel, stays last: archview.py --place scores the module the last rule
 # names (the old catch-all), which is the kernel list now.
 [[module]]
@@ -164,7 +168,7 @@ order = ["floor", "model", "features", "presentation", "entry"]
 
 [layers.modules]
 floor = ["LogIO", "Config", "Core", "Trajectory"]
-model = ["Recording", "GameActions", "Crew"]
+model = ["Recording", "GameActions", "Crew", "RaceCore"]
 features = ["Ghost", "Rewind", "Missions", "Logistics", "MapRender", "SwitchIntent", "Reaim", "Rendering", "Display"]
 presentation = ["UI", "Timeline"]
 entry = ["Controllers", "Patches"]
@@ -185,6 +189,7 @@ Trajectory = "pure math over orbits and samples and the trajectory data vocabula
 Missions = "the Missions tab model: composition trees, structure, periodicity, per-vessel rows; the stock Mission Control annotation and the live vessel-name writers placed here are its leaks"
 Timeline = "builds the timeline's entries from ledger and recording events; no method names a game type itself, but its display text calls live formatters and name lookups in other modules (the time format, facility and strategy names), which the leak list names"
 Reaim = "re-aiming a recorded mission: descent triggers, loiter compression and arrival hold planning, rules over recorded data; its live reads of bodies and orbits are its leaks"
+RaceCore = "the race's vocabulary and rules (design 15.2): the race mark and its codec, the race formats and their classifier, the race scenario's child dispatch; plain data over ConfigNode, with no game type, no store and nothing above the floor"
 
 # --- dependency policy -----------------------------------------------------
 # Both lists use the edge form "From -> To", meaning "code in From references
@@ -219,6 +224,23 @@ runtimeCoupled = ["Controllers", "Display", "Ghost", "MapRender", "Patches", "Re
 edges = [
   "Missions -> Logistics",
   "Ghost -> GameActions",
+  # Design 15.4, the edges whose two ends exist (RaceWorld and RaceExport add theirs
+  # when they register). Only the entry layer and the UI may name the race:
+  "Recording -> RaceCore",
+  "GameActions -> RaceCore",
+  "Crew -> RaceCore",
+  "Rewind -> RaceCore",
+  "Missions -> RaceCore",
+  "Logistics -> RaceCore",
+  "SwitchIntent -> RaceCore",
+  "Reaim -> RaceCore",
+  "Timeline -> RaceCore",
+  "Ghost -> RaceCore",
+  "MapRender -> RaceCore",
+  "Display -> RaceCore",
+  "Rendering -> RaceCore",
+  # The rules module names nothing above the floor:
+  "RaceCore -> Recording | GameActions | Crew | Ghost | Rewind | Missions | Logistics | MapRender | SwitchIntent | Reaim | Rendering | Display | UI | Timeline | Controllers | Patches",
 ]
 
 [allowed]

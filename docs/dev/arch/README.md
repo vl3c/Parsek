@@ -717,7 +717,7 @@ lower layers.
 | Layer | Modules | What it is |
 | --- | --- | --- |
 | floor | LogIO, Config, Core, Trajectory | the vocabulary every module leans on: logging and file I/O, settings, the Core kernel files, the trajectory math and data |
-| model | Recording, GameActions, Crew | the persistent model: recordings and their store, the ledger, the kerbal state the ledger books (`KerbalsModule`) |
+| model | Recording, GameActions, Crew, RaceCore | the persistent model: recordings and their store, the ledger, the kerbal state the ledger books (`KerbalsModule`), the race mark and its formats (`RaceLink`) |
 | features | Ghost, Rewind, Missions, Logistics, MapRender, SwitchIntent, Reaim, Rendering, Display | what the mod does with the model |
 | presentation | UI, Timeline | the windows and the timeline rows they show |
 | entry | Controllers, Patches | what KSP calls: the scene controllers (the composition roots that build the windows) and the Harmony patches |
@@ -821,6 +821,7 @@ for instructions, and the leaks of the headless ones (`*`):
 
 | Module | Methods | Can reach | Direct | Only via a callee | Instructions | Can reach | Direct | Leaks |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| RaceCore * | 13 | 0% | 0% | 0% | 754 | 0% | 0% | 0 |
 | Core * | 188 | 7% | 3% | 4% | 10,044 | 7% | 3% | 14 |
 | Trajectory * | 269 | 21% | 17% | 4% | 18,722 | 22% | 10% | 77 |
 | LogIO | 95 | 15% | 7% | 7% | 4,890 | 23% | 13% |  |
@@ -872,6 +873,11 @@ rules is headless however long its leak list.
 - **Reaim**: re-aim planning (descent triggers, loiter compression, arrival
   hold), rules over recorded data; its live reads of bodies and orbits are its
   leaks.
+- **RaceCore**: the race-mode rules (multiplayer): the race mark's value,
+  its read codec over ConfigNode, the race format constants and the child
+  handler contract. It names no game type and has no leaks. Only the floor,
+  the UI and the entry layer may name it, and it names nothing above the
+  floor (the `[forbidden]` edges in `modules.toml`, design 15.4).
 
 Left out, with the reason: **Rendering** (its share of methods is close to
 Reaim's, but its job is anchoring drawn trajectories to the live world:

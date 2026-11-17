@@ -8,7 +8,7 @@
 # [coupling] records the facts.toml lists the leaks were measured under, and the
 # DLL-free suite reds when facts.toml differs or the declared modules change without
 # a re-pin, so widening the inert list is a deliberate diff here.
-# 275 leaks in 5 modules.
+# 275 leaks in 6 modules.
 # Pinned from Parsek.dll 2026-11-15
 
 # The measure at this pin, which the README section prints (not gated against a build).
@@ -29,6 +29,7 @@ top_things = [
     { thing = "game:VesselNaming", count = 5 },
 ]
 modules = [
+    { name = "RaceCore", headless = true, methods = 13, reachMethods = 0, directMethods = 0, instructions = 754, reachInstructions = 0, directInstructions = 0, leaks = 0 },
     { name = "Core", headless = true, methods = 188, reachMethods = 14, directMethods = 6, instructions = 10044, reachInstructions = 669, directInstructions = 264, leaks = 14 },
     { name = "Trajectory", headless = true, methods = 269, reachMethods = 57, directMethods = 47, instructions = 18722, reachInstructions = 4169, directInstructions = 1930, leaks = 77 },
     { name = "LogIO", headless = false, methods = 95, reachMethods = 14, directMethods = 7, instructions = 4890, reachInstructions = 1107, directInstructions = 650 },
@@ -319,6 +320,11 @@ leaks = [
     "Parsek.VesselRenameWriter::UpdateProtoPriorityNamingPart -> game:ProtoPartSnapshot",
     "Parsek.VesselRenameWriter::UpdateProtoPriorityNamingPart -> game:ProtoVessel",
     "Parsek.VesselRenameWriter::UpdateProtoPriorityNamingPart -> game:VesselNaming",
+]
+
+[[module]]
+name = "RaceCore"
+leaks = [
 ]
 
 [[module]]

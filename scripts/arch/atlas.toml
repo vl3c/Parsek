@@ -99,6 +99,9 @@ summary = "Pure math over orbits and samples, and the trajectory data vocabulary
 [modules.Recording]
 summary = "The recording itself: <span class=\"id\">Recording</span>, its tree, the store, the flight and background recorders and the part-state poller they share, sidecar codecs, the optimizer."
 
+[modules.RaceCore]
+summary = "The race's vocabulary and rules, headless: the race mark and its codec, the race format constants and classifier, the child hooks of the race scenario node. It names nothing above the floor."
+
 [modules.Core]
 summary = "The kernel files used across many modules and owned by none: branch points, the playback trajectory interface, launch identity, the pure snapshot operations, milestone and group stores, inventory manifests."
 
