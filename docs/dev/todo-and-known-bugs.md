@@ -20,6 +20,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## AIR1-GLIDE-SLOPE-STEEPER-THAN-PLANNED: AIR-1's approach glides at about 8.6 deg, not the planned 6 [FILED 2026-11-16 from AIR-1's first green flight, run `2026-11-16_2218` (diagnostics on branch `forge-logs-2026-11-16-air1d`). OPEN; low, harness only, cosmetic for the lane]
+
+The Mallard's final glide toward the touchdown point came out at about 8.6 deg instead of the
+`glideSlopeDeg = 6` the mission flies, crossing the aim point at 120 m and splashing down
+about 1.4 km past it (touchedDown `missMeters` 1376). The lane passed: the splashdown is in open
+water either way and nothing gates the slope. Worth a look only if a later lane needs a precise
+touchdown point (a runway landing): the pitch loop's glide target or the throttle on the final.
+
+A log reader's note from the same flight, not a defect: while the Mallard was airborne the
+active recorder's finalizer cache logged `[FinalizerCache] Refresh accepted: ... terminal=Destroyed
+terminalUT=...` (and `status=Fresh terminal=Destroyed` in the refresh summary) on its periodic
+refreshes. That is the ballistic extrapolator's FORECAST of where an unpowered plane would end
+if the recording stopped at that moment, not the recording's terminal: the committed recording
+finalized `terminal=Splashed`, and the produced save holds `Splashed 1`, `Destroyed 0`.
+
 ## ~~EVA-SWITCH-STOP-DROPS-OPEN-SECTION~~: an EVA leg that ends by boarding loses its last track section [FILED 2026-11-16 from the D5 residual review (vessel-switch stop distance, branch `fix-residuals-contract-d5`), by code reading. FIXED 2026-11-16, branch fix-board-merge-open-section; xUnit; no lane gates it yet; medium (the ghost of a kerbal's walk or jetpack flight to the hatch is wrong after a save)]
 
 What was wrong. `FlightRecorder.HandleVesselSwitchDuringRecording` (the ChainToVessel decision:
@@ -2105,9 +2120,10 @@ in parallel in the cloud):
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
    decline), each a forge plus a loop lane. Before this group only Laythe -> Vall, Mun -> Minmus and
    Laythe -> Jool had flown on the new rule.
-3. [ ] (AUTHORED 2026-11-16 as `AIR-1-runway-circuit-splashdown` / `AIR-2-runway-circuit-ksc-ghost`,
-   never flown: mission `air1_runway_circuit`, the stock Mallard from the Runway around a circuit to
-   a splashdown east of KSC; AIR-2 is pending-fixture until AIR-1's `air-circuit-recorded` harvest.
+3. [ ] (AUTHORED 2026-11-16 as `AIR-1-runway-circuit-splashdown` / `AIR-2-runway-circuit-ksc-ghost`:
+   mission `air1_runway_circuit`, the stock Mallard from the Runway around a circuit to a
+   splashdown east of KSC. AIR-1 LIVE-PROVEN 2026-11-16 on its fourth flight and harvested as
+   `air-circuit-recorded`; AIR-2 handed over the same day (operator, never flown).
    FIRST FLIGHT 2026-11-16 DRIVER-INVALID: runs `2026-11-16_1955` and `_1956_a2` (PC,
    `gs1-two-stage-pad`, diagnostics on branch `forge-logs-2026-11-16-air1`), MISSION-FLAKE both
    times, no Parsek verdict. Rollout, staging and the auto-record start were fine. Under the
@@ -2145,18 +2161,60 @@ in parallel in the cloud):
    engaged anywhere in AIR-1; from lift-off the mission flies raw inputs, the elevator from a
    pitch-error P-D loop (the rotation's gains), the ailerons from a bank-error P-D loop with a
    self-checking sign (`rollInputSign`), heading changes by banking toward the bearing with the
-   nose a little higher in the bank, rudder neutral, SAS off. Next: the reading flight.)
+   nose a little higher in the bank, rudder neutral, SAS off. FOURTH FLIGHT 2026-11-16 PASS:
+   run `2026-11-16_2218`, attempt 1, 465 s (automation DLL from d15595d4, diagnostics on branch
+   `forge-logs-2026-11-16-air1d`). The Mallard took off, flew the circuit at about 1,030 m (25 deg
+   bank), glided east and splashed down near lat 0.055 lon -73.70; terminal Splashed, the tree
+   committed, 2 recordings (the optimizer's split at the splash; the runway run stayed whole), zero
+   gear RoboticMotion lines. Harvested as `air-circuit-recorded` (tree d07b9a6f) and registered;
+   AIR-2 re-pinned off it (WarpToUT 487.18 = EndUT 427.18 + 60, count {2,2}). AIR-2 RE-SHAPED
+   the same day before its first flight: the harvest prunes `Parsek/Saves` and clears every
+   `rewindSave` value, so `InvokeRewindToLaunch` on it answers REJECTED "No rewind save
+   available" (`RewindLauncher.CanRewindPreFileCheck`), and Warp-to-time's backward plan needs the
+   same pruned files. AIR-2 now flies `air1_runway_circuit` itself on `gs1-two-stage-pad` (AIR-1's
+   parameters, BAY-1's commit-then-rewind recipe), rewinds, warps to UT 900 at 10x and reads the
+   KSC ghost, the end spawn and `LeafVesselPlacement`; count {1,40}. `air-circuit-recorded` stays
+   for a replay lane that needs no rewind. Next: fly AIR-2.
+   Follow-up: AIR1-GLIDE-SLOPE-STEEPER-THAN-PLANNED.)
    Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center. Open after AIR-2: no in-game check reads a
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the
    end spawn through `LeafVesselPlacement`); it needs a new Space Center category that samples each
    live KSC ghost's world position against the recording's interpolated lat / lon / alt.
-3a. [ ] Two rovers driving into each other (owner request 2026-11-16): two recorded rovers collide
+3a. [ ] (AUTHORED 2026-11-16 as `RVC-1-two-rover-head-on-crash`, NEVER FLOWN; branch `crash-lanes`.)
+   Two rovers driving into each other (owner request 2026-11-16): two recorded rovers collide
    on the ground; checks both recordings end at the impact (Destroyed or a stopped Landed terminal)
    and both ghosts replay the collision at the same place and time.
+   Shape: the seam drives only the active vessel and a switch to a vessel outside the tree does not
+   add it, so the second rover joins by a dock and an undock (MINE-5b's live-proven pair on the new
+   fixture `rover-crash-watched`: V's miner, the ore depot rover 1.5 m ahead, a watcher rover 120 m
+   north). The depot is then a loaded background member; the miner backs away 10 s at full reverse
+   and drives head-on into it in the new `DriveVessel untilCrash=true` mode (automation-only C#:
+   drive until the first stock part death on any vessel, then cut the wheels). Gated: both
+   recorders' part-death lines, the split check, both leaves' Landed / Destroyed terminals, the
+   Space Center commit, and after Rewind-to-Launch, from the watcher, both ghost meshes and the
+   destroyed-part visibility applied on two ghosts. Report-only: ghost lifecycle balance, structure.
+   Not checked: that the two ghosts meet at the same place (no in-game check samples two live
+   ghosts' positions). Flight risks: a lateral miss or too soft an impact (driver INVALID
+   `drivevessel-did-not-crash`), part loss on one side only. Next: provision a DLL built from the
+   branch and fly the reading run.
 3b. [ ] Two airplanes flying into each other (owner request 2026-11-16): one plane chases the
    other's live position (`mlib.air_steer_toward`) until they collide; checks both recordings end
    Destroyed at the same UT and both ghosts meet at the recorded impact point.
+   What it needs beyond RVC-1 (noted 2026-11-16): (1) AIR-1 flying green first, since its
+   take-off and AutoPilot steering are the base; (2) both planes in ONE tree and both loaded: a
+   switch to an outside vessel is not added to the tree, so the target must come out of the
+   chaser's own tree, e.g. two light planes joined by a decoupler or docking port and separated
+   in the air (a split branch makes the other a loaded background member), staying within the
+   2.25 km physics range; that needs a new craft and a forge or file-built fixture; (3) the
+   target cannot be flown once it is not active (kRPC and the seam drive the active vessel), so
+   it must hold a straight line on its own: SAS / AutoPilot heading and throttle set before the
+   separation, or a glide; (4) a mission that reads the target's live position each frame
+   through kRPC and steers the chaser with `mlib.air_steer_toward` onto it, with a lead and a
+   closing-speed check, and a terminal on the first part death read through kRPC (a part
+   count drop; the seam's DriveVessel crash witness needs a landed vessel with wheel motors); (5)
+   both recordings ending Destroyed or Splashed, a replay from a watcher at the Space Center or
+   in FLIGHT, as AIR-2 does.
 4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
    B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M green
    `2026-11-14_2320` on 2d8c25442.)
@@ -2177,10 +2235,38 @@ in parallel in the cloud):
    Tracking Station lanes V18T / V26T (proto-vessel map ghosts placed by orbit propagation, a
    different comparison); V26M was deleted 2026-11-12. Unsupported unit shapes (re-aim,
    descent trigger, overlapping members, orbital checkpoint sections) are counted, not judged.
-6. [ ] Loops meeting a Re-Fly, a career save and a scene change in watch mode (audit B7; LF-1 and
-   LF-2 cover only a plain Rewind-to-Launch with a loop armed).
-7. [ ] Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
-   T48, has never been re-run).
+6. [ ] (AUTHORED 2026-11-16, never flown: lanes `LX-1-loop-armed-refly-discard-merge` and
+   `LX-2-career-loop-watch-scene-change-reload`, operator, tag `pending-flight`, branch
+   `loop-crossings`, harness only.) Loops meeting a Re-Fly, a career save and a scene change in
+   watch mode (audit B7; LF-1 and LF-2 cover only a plain Rewind-to-Launch with a loop armed).
+   LX-1 loops tree A of `rover-route-recorded` while IR-3's Flea flight is Re-Flown, discarded,
+   re-entered and Re-Flown again and merged: every scene publishes the unit live with the
+   arm-time phase anchor and launch cadence, and the loop ghost replays in each flight and after
+   the merge. A loop on the Re-Fly's OWN tree cannot be playing during that Re-Fly (its anchor is
+   the arm UT, after the span, so the rewind point lies before it: LF-2's first-run case). LX-2
+   arms the loop in `rover-route-recorded-career`, watches it, exits to the Space Center, opens
+   the Tracking Station, returns to flight and F5 / F9s while watching: each scene change ends
+   the watch, each scene and the Cold reload rebuild the unit with the arm-time phase, and the
+   ledger oracle reads the template pools unchanged. Close the item after both fly green.
+7. [ ] (AUTHORED 2026-11-16, never flown: FLIGHT in-game category `GhostFxIntegrity` and lane
+   `FXR-1-ghost-engine-fx-across-refly-and-retry`, plus three cycle-2 FX tokens on GS-9; one
+   reading run of FXR-1 and the next GS-9 flight owed.)
+   Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
+   T48, has never been re-run). FXR-1 re-flies the open Probe slot of `refly-split-crewed-merged`
+   with the committed Kerbal X re-fly as the live ghost, Retries from the Rewind Point (the stock
+   revert inside a Re-Fly) and merges, running `GhostFxIntegrity` after each (the merge leaves
+   FLIGHT, so the third run flies the Probe back in from the Space Center with SaveGame + LoadGame
+   `focusPid` and warps into the Poodle's second burn at UT 240): engine power equals
+   the recording's consumed part events and the plume is lit exactly when it is above zero; every
+   FX system is alive, under its own ghost and owned once, with no unowned ghost root; no ghost of
+   a superseded or retired recording. Per session it pins the Poodle's ignition apply line and its
+   FX fingerprint equal across the revert, and forbids any ghost of the superseded TIP or the
+   re-flown Probe. The engine-fx start witness is not gated (wall-clock rate limit, hidden
+   prime); the cell's `lit=` count is. The Rewind-to-Launch half rides GS-9's two-cycle flight (fingerprint equal
+   across the cycles, the replayed ignition and its witness). A second Re-Fly on the same host is
+   not possible: the merge closes the point's last open slot. T48 is a separate stock-vs-modded
+   A/B with no spec and no pins (nothing is stale); re-running it needs a spec that injects the
+   `part-showcase` preset on the modded-compat profile, which this item does not need.
 8. [x] ~~A load-time optimizer pass over a route WITH source recording refs, asserting the route
    does not flip to SourceChanged (audit C8, xUnit).~~ Done 2026-11-14: `RouteSourceOptimizerTests`
    went red (the pass merged, split and trimmed route sources) and found
@@ -2585,8 +2671,11 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   `rover-relay-recorded` would show the 73.2 residual, but its endpoints are post-relay, B empty).
 - [ ] B3 / item 3: route render lanes still pin counts and log lines, not where the route ghost or
   its line is (only the SLM lanes read a loop ghost's position).
-- [ ] B7: loops never meet a Re-Fly, a career save or a scene change in watch mode.
-- [ ] B8: ghost FX across a Re-Fly or a revert has no lane.
+- [ ] B7: loops never meet a Re-Fly, a career save or a scene change in watch mode (LX-1 / LX-2
+  authored 2026-11-16, never flown; NEXT-TESTS-TO-BUILD-2026-11-11 item 6).
+- [ ] B8: ghost FX across a Re-Fly or a revert has no lane. Authored 2026-11-16 (never flown):
+  `FXR-1-ghost-engine-fx-across-refly-and-retry` with the `GhostFxIntegrity` category, and three
+  FX tokens on GS-9's second Rewind-to-Launch cycle (item 7).
 - [ ] B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost,
   GhostReapplyFrame, GuiMock, JointBreakCheckCoroutine and TreeRestoreCoroutine: no committed spec
   names any of them). Wired 2026-11-16 (no new lane) except GuiMock: the five FLIGHT categories

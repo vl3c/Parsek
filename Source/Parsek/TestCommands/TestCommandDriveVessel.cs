@@ -59,6 +59,22 @@ namespace Parsek.TestCommands
     /// <c>drivevessel-maxspeed-arg-unexpected</c>. The gate adds
     /// <c>drivevessel-no-docking-port</c>: no docking port of the vessel is in stock's
     /// <c>Ready</c> state. The did-not-move check does not apply: a dock is the outcome.</para>
+    ///
+    /// <para><b>Crash mode.</b> <c>cmd=DriveVessel wheelThrottle=&lt;..&gt; seconds=&lt;bound&gt;
+    /// untilCrash=true</c> drives the way the drive mode does until the first stock
+    /// <c>GameEvents.onPartDie</c> of ANY part while the drive runs (a collision explodes the
+    /// part, <c>Part.explode</c> -&gt; <c>Die</c>), then cuts the throttle at once and answers OK
+    /// <c>crashed=true</c> at the next poll, so the wheels stop pushing the wreck and the
+    /// parking brake goes back on. The crash is checked before the vessel, so a crash that
+    /// destroyed the driven vessel itself still ends OK (the dock mode's rule for the absorbed
+    /// half). The answer counts the parts that died before the poll, split into the driven
+    /// vessel's own (its parts at the start, by <c>flightID</c>) and every other vessel's, and
+    /// names the first dead part, its vessel and the driven vessel's surface speed sampled the
+    /// physics frame before the impact. A span that ends with no part death is ERROR
+    /// <c>drivevessel-did-not-crash</c> (the vessel missed its target). <c>untilCrash=</c> is
+    /// closed to <c>true</c> (<c>drivevessel-crash-arg-invalid</c>) and refused with
+    /// <c>settleBelow=</c> or <c>untilDocked=</c> (<c>drivevessel-crash-arg-conflict</c>). The
+    /// gate and the did-not-move rule are the drive mode's: the crash is the outcome.</para>
     /// </summary>
     internal static class TestCommandDriveVessel
     {
@@ -68,9 +84,13 @@ namespace Parsek.TestCommands
         internal const string SettleBelowKey = "settleBelow";
         internal const string UntilDockedKey = "untilDocked";
         internal const string MaxSpeedKey = "maxSpeed";
+        internal const string UntilCrashKey = "untilCrash";
 
         /// <summary>The one value <c>untilDocked=</c> takes.</summary>
         internal const string UntilDockedTrueToken = "true";
+
+        /// <summary>The one value <c>untilCrash=</c> takes.</summary>
+        internal const string UntilCrashTrueToken = "true";
 
         /// <summary>The dock-mode speed cap when <c>maxSpeed=</c> is absent: under stock
         /// <c>ModuleDockingNode.captureMaxRvel</c> (0.3 m/s), so the capture is not refused
@@ -116,6 +136,8 @@ namespace Parsek.TestCommands
             "drivevessel-dock-arg-conflict",
             "drivevessel-maxspeed-arg-invalid",
             "drivevessel-maxspeed-arg-unexpected",
+            "drivevessel-crash-arg-invalid",
+            "drivevessel-crash-arg-conflict",
             "drivevessel-no-active-vessel",
             "drivevessel-vessel-packed",
             "drivevessel-not-on-surface",
@@ -128,6 +150,7 @@ namespace Parsek.TestCommands
         internal const string TimeoutReason = "drivevessel-timeout";
         internal const string DidNotSettleReason = "drivevessel-did-not-settle";
         internal const string DidNotDockReason = "drivevessel-did-not-dock";
+        internal const string DidNotCrashReason = "drivevessel-did-not-crash";
 
         /// <summary>The post-start ERROR vocabulary.</summary>
         internal static readonly string[] ErrorReasons =
@@ -137,6 +160,7 @@ namespace Parsek.TestCommands
             "drivevessel-timeout",
             "drivevessel-did-not-settle",
             "drivevessel-did-not-dock",
+            "drivevessel-did-not-crash",
         };
 
         /// <summary>
@@ -191,6 +215,50 @@ namespace Parsek.TestCommands
             untilDocked = true;
             maxSpeed = parsed;
             return null;
+        }
+
+        /// <summary>
+        /// Parses the crash-mode arg after the dock args parsed: <c>untilCrash=</c> absent leaves
+        /// the other modes; present it must be exactly <c>true</c> and neither in settle mode
+        /// nor in dock mode. Null on success, else the refusal reason.
+        /// </summary>
+        internal static string ValidateCrash(string untilCrashRaw, bool settle, bool untilDocked,
+            out bool untilCrash)
+        {
+            untilCrash = false;
+            if (untilCrashRaw == null)
+                return null;
+            if (!string.Equals(untilCrashRaw, UntilCrashTrueToken, StringComparison.Ordinal))
+                return "drivevessel-crash-arg-invalid";
+            if (settle || untilDocked)
+                return "drivevessel-crash-arg-conflict";
+            untilCrash = true;
+            return null;
+        }
+
+        /// <summary>The throttle a crash drive writes this frame: none once a part died (the
+        /// wheels stop pushing the wreck), else the requested throttle.</summary>
+        internal static float ResolveCrashThrottle(float throttle, bool crashed)
+        {
+            return crashed ? 0f : throttle;
+        }
+
+        /// <summary>
+        /// The crash-mode completion decision. A part death seen during the drive ends it OK
+        /// first (the crash may have destroyed the driven vessel, so it is checked before the
+        /// vessel); a lost vessel with no part death ends it at once; once the game clock
+        /// covered the span with no part death it ends ERROR did-not-crash; a clock that never
+        /// covered it within the wall budget ends ERROR timeout.
+        /// </summary>
+        internal static DriveCompletion DecideCrashCompletion(bool crashed, bool vesselUsable,
+            double gameSecondsElapsed, double requestedSeconds, double wallSecondsElapsed,
+            double budgetSeconds)
+        {
+            if (crashed) return DriveCompletion.Crashed;
+            if (!vesselUsable) return DriveCompletion.VesselLost;
+            if (gameSecondsElapsed >= requestedSeconds) return DriveCompletion.DidNotCrash;
+            if (wallSecondsElapsed >= budgetSeconds) return DriveCompletion.Timeout;
+            return DriveCompletion.StillDriving;
         }
 
         /// <summary>The throttle a dock drive writes this frame: none once docked, none at or
@@ -279,6 +347,8 @@ namespace Parsek.TestCommands
             DidNotSettle,
             Docked,
             DidNotDock,
+            Crashed,
+            DidNotCrash,
         }
 
         /// <summary>
@@ -481,6 +551,89 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("activePid", activePid.ToString(ic)),
                 new KeyValuePair<string, string>("activeName", activeName ?? string.Empty),
                 new KeyValuePair<string, string>("activeParts", activeParts.ToString(ic)),
+            };
+        }
+
+        /// <summary>The crash-mode start line (after the brakes are released and the callback
+        /// and the part-death hook are subscribed).</summary>
+        internal static string FormatCrashStartLine(string vesselName, uint pid, float throttle,
+            double seconds, int wheelMotors, int parts, bool brakesWereOn, double startUT,
+            double srfSpeed)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "drivevessel crash start: vessel=" + (vesselName ?? string.Empty)
+                + " pid=" + pid.ToString(ic)
+                + " wheelThrottle=" + throttle.ToString("F2", ic)
+                + " seconds=" + seconds.ToString("F1", ic)
+                + " wheelMotors=" + wheelMotors.ToString(ic)
+                + " parts=" + parts.ToString(ic)
+                + " brakesWereOn=" + (brakesWereOn ? "true" : "false")
+                + " startUT=" + startUT.ToString("F2", ic)
+                + " srfSpeed=" + srfSpeed.ToString("F2", ic);
+        }
+
+        /// <summary>The line written once, at the first part death of a crash drive.
+        /// <paramref name="impactSrfSpeed"/> is the driven vessel's surface speed sampled in
+        /// the physics frame before the death.</summary>
+        internal static string FormatCrashHitLine(string partName, uint partPid, uint vesselPid,
+            string vesselName, bool own, double impactSrfSpeed, double ut)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "drivevessel crash hit: part='" + (partName ?? string.Empty) + "'"
+                + " partPid=" + partPid.ToString(ic)
+                + " vesselPid=" + vesselPid.ToString(ic)
+                + " vesselName='" + (vesselName ?? string.Empty) + "'"
+                + " own=" + (own ? "true" : "false")
+                + " impactSrfSpeed=" + impactSrfSpeed.ToString("F2", ic)
+                + " ut=" + ut.ToString("F2", ic);
+        }
+
+        /// <summary>The crash-mode end line, written for every terminal after the start. The
+        /// part counts cover every death from the start to the completing poll.</summary>
+        internal static string FormatCrashEndLine(string outcome, string vesselName, uint pid,
+            double gameSeconds, double maxSrfSpeed, double impactSrfSpeed, double pathMeters,
+            double displacementMeters, double crashUT, string firstPart, uint firstPartVesselPid,
+            int ownPartsLost, int otherPartsLost, uint activePid, string activeName)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "drivevessel crash end: outcome=" + (outcome ?? string.Empty)
+                + " vessel=" + (vesselName ?? string.Empty)
+                + " pid=" + pid.ToString(ic)
+                + " gameSeconds=" + gameSeconds.ToString("F2", ic)
+                + " maxSrfSpeed=" + maxSrfSpeed.ToString("F2", ic)
+                + " impactSrfSpeed=" + impactSrfSpeed.ToString("F2", ic)
+                + " pathMeters=" + pathMeters.ToString("F1", ic)
+                + " displacementMeters=" + displacementMeters.ToString("F1", ic)
+                + " crashUT=" + crashUT.ToString("F2", ic)
+                + " firstPart='" + (firstPart ?? string.Empty) + "'"
+                + " firstPartVesselPid=" + firstPartVesselPid.ToString(ic)
+                + " ownPartsLost=" + ownPartsLost.ToString(ic)
+                + " otherPartsLost=" + otherPartsLost.ToString(ic)
+                + " activePid=" + activePid.ToString(ic)
+                + " activeName='" + (activeName ?? string.Empty) + "'";
+        }
+
+        /// <summary>The crash-mode OK payload, in wire order.</summary>
+        internal static List<KeyValuePair<string, string>> BuildCrashedPayload(double gameSeconds,
+            double maxSrfSpeed, double impactSrfSpeed, double pathMeters, double crashUT,
+            string firstPart, uint firstPartVesselPid, int ownPartsLost, int otherPartsLost,
+            uint activePid, string activeName)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("crashed", "true"),
+                new KeyValuePair<string, string>("gameSeconds", gameSeconds.ToString("F2", ic)),
+                new KeyValuePair<string, string>("maxSrfSpeed", maxSrfSpeed.ToString("F2", ic)),
+                new KeyValuePair<string, string>("impactSrfSpeed", impactSrfSpeed.ToString("F2", ic)),
+                new KeyValuePair<string, string>("pathMeters", pathMeters.ToString("F1", ic)),
+                new KeyValuePair<string, string>("crashUT", crashUT.ToString("F2", ic)),
+                new KeyValuePair<string, string>("firstPart", firstPart ?? string.Empty),
+                new KeyValuePair<string, string>("firstPartVesselPid", firstPartVesselPid.ToString(ic)),
+                new KeyValuePair<string, string>("ownPartsLost", ownPartsLost.ToString(ic)),
+                new KeyValuePair<string, string>("otherPartsLost", otherPartsLost.ToString(ic)),
+                new KeyValuePair<string, string>("activePid", activePid.ToString(ic)),
+                new KeyValuePair<string, string>("activeName", activeName ?? string.Empty),
             };
         }
 
