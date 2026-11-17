@@ -980,15 +980,36 @@ Common to every spike task below:
   Only R7 (signed standings) waits on it.
 - **Change:** test `CryptoProbe` in `Source/Parsek/InGameTests/Spikes/S12/SpikeS12Crypto.cs`:
   SHA-256 of 1 MB and 10 MB buffers; RSA 2048 and ECDsa P-256 key creation, sign and verify of a 1
-  KB blob; export and import of the key as XML / parameters; each wrapped so a
-  `PlatformNotSupportedException` is logged, not thrown.
+  KB blob; export and import of the key as XML / parameters; each wrapped so ANY exception
+  (not only `PlatformNotSupportedException`: the cloud's Mono 6.8 throws
+  `NotImplementedException` from `ECDsa.Create`) is logged with its type and message and the
+  probe goes on. As built: one `[Spike.S12] step` line and one `probe.csv` row per step, timed
+  with `Stopwatch`; SHA-256 timed once cold and over three warm repeats; RSA signed both with
+  `SignData(byte[], HashAlgorithmName, RSASignaturePadding)` and with the string-named
+  `SignData(byte[], "SHA256")` overload KSP's own DLC check uses (with MD5 there), a tampered
+  blob must be refused, and the public key is also written to and read back from the spike
+  output folder. The question's "is the key container writable" gets its own probe: a named
+  `CspParameters` container (`parsek-spike-s12-<run>`) is persisted, reopened by name with
+  `UseExistingKey`, then deleted (`PersistKeyInCsp = false`, `Clear()`), and a listing diff
+  of the runtime's default key stores (Mono's `%APPDATA%\.mono\keypairs`, the machine one, and
+  the CryptoAPI user stores) says what, if anything, stayed. The pure half (`SpikeS12Plan`)
+  and a smoke run of the probe list under the test host's runtime (labelled NOT the answer for
+  KSP's Mono) are xUnit-tested in `Source/Parsek.Tests/Spikes/SpikeS12Tests.cs`.
 - **Procedure:** rides in the S10b session on day 4 (session C4), after S10b's runs; it is a
   10 minute check and needs no file or sync setup, so it no longer waits for S8b, which
-  runs last.
-- **Pass:** SHA-256 over 10 MB under 100 ms; at least one signing algorithm creates,
-  signs, verifies and round-trips its key with no exception.
+  runs last. HAND, not a lane: the test is AnyScene and batch-disabled with no restore flag
+  (there is no flight state to restore), so neither batch path admits it; the owner runs it
+  alone from Ctrl+Shift+T at the Space Center with `PARSEK_SPIKE=S12`
+  (`spikes/r0/S12/PC-RUN.md`).
+- **Pass:** SHA-256 over 10 MB under 100 ms (the median of the warm repeats, with the pinned
+  digest and the FIPS "abc" vector right; the cold first run is reported beside it); at least
+  one signing algorithm creates, signs, verifies, refuses a tampered blob and round-trips its
+  key (XML or parameters) with no exception. The test fails when this verdict does; a
+  missing algorithm alone does not fail it.
 - **Fallback:** a managed implementation shipped in the mod (R7 sizes it).
-- **Artifacts:** results lines in `<umbrella>/logs/spikes/S12/<date>/`.
+- **Artifacts:** results lines in `<umbrella>/logs/spikes/S12/<date>/`: `KSP.log`'s
+  `[Spike.S12]` lines, `parsek-spike/S12/` (`probe.csv`, `verdict.csv`, `rsa-public-<run>.xml`)
+  and `parsek-test-results.txt`.
 - **Duration:** 2 hours of agent work, 10 minutes on the PC.
 - **Proof:** a short report of its own.
 - **Registers:** report folder only.
@@ -1077,7 +1098,7 @@ last step needs.
 None on `multiplayer`. The spike branch carries one manual xUnit test (S10a) that skips unless
 its env var is set, and the S1b tooling PR extends the scan tool's `--selftest`. As built, the
 spikes' pure parts (parsers, statistics, formatting) also carry ordinary xUnit tests under
-`Source/Parsek.Tests/Spikes/` on the spike branch (S0, S6, S11).
+`Source/Parsek.Tests/Spikes/` on the spike branch (S0, S4a, S6, S9, S10a, S11, S12).
 
 ### 6.2 In-game tests
 
