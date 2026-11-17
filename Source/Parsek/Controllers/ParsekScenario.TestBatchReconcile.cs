@@ -164,7 +164,7 @@ namespace Parsek
         /// Idempotent recursive replace: deletes the live dir then copies the snapshot
         /// in. The snapshot dir itself is left in place for the deferred reload + the
         /// post-reload artifact sweep.</summary>
-        private static bool RestoreParsekSidecarDirOnReconcile(string snapshotDir)
+        internal static bool RestoreParsekSidecarDirOnReconcile(string snapshotDir)
         {
             if (string.IsNullOrEmpty(snapshotDir))
                 return true; // DiskOnly mode: no sidecar snapshot to restore
@@ -183,9 +183,20 @@ namespace Parsek
                         "crash-reconcile: could not resolve live save-scoped Parsek/ dir");
                     return false;
                 }
-                if (System.IO.Directory.Exists(liveParsekDir))
-                    DeleteDirectoryRecursiveOnReconcile(liveParsekDir);
-                CopyDirectoryRecursiveOnReconcile(snapshotDir, liveParsekDir);
+                // Parsek/Race/ is not the batch's to revert: it leaves before the delete and
+                // comes back after the copy. A failed move-aside throws here, before anything
+                // is deleted.
+                string raceAside = RaceDirectoryKeep.MoveAside(liveParsekDir);
+                try
+                {
+                    if (System.IO.Directory.Exists(liveParsekDir))
+                        DeleteDirectoryRecursiveOnReconcile(liveParsekDir);
+                    CopyDirectoryRecursiveOnReconcile(snapshotDir, liveParsekDir);
+                }
+                finally
+                {
+                    RaceDirectoryKeep.MoveBack(liveParsekDir, raceAside);
+                }
                 ParsekLog.Info("TestBatch",
                     $"crash-reconcile: reverted Parsek/ sidecar dir from snapshot '{snapshotDir}'");
                 return true;
@@ -236,11 +247,15 @@ namespace Parsek
         private static void CopyDirectoryRecursiveOnReconcile(string sourceDir, string destDir)
         {
             System.IO.Directory.CreateDirectory(destDir);
+            // The skip keys on the same resolved Parsek/Race/ folder the move-aside keeps.
+            bool skipRace = RaceDirectoryKeep.ResolveRaceDirectory(sourceDir) != null;
             foreach (string dir in System.IO.Directory.GetDirectories(
                 sourceDir, "*", System.IO.SearchOption.AllDirectories))
             {
                 string rel = dir.Substring(sourceDir.Length)
                     .TrimStart(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+                if (skipRace && RaceDirectoryKeep.IsInRaceDirectory(rel))
+                    continue;
                 System.IO.Directory.CreateDirectory(System.IO.Path.Combine(destDir, rel));
             }
             foreach (string file in System.IO.Directory.GetFiles(
@@ -248,6 +263,8 @@ namespace Parsek
             {
                 string rel = file.Substring(sourceDir.Length)
                     .TrimStart(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+                if (skipRace && RaceDirectoryKeep.IsInRaceDirectory(rel))
+                    continue;
                 string destFile = System.IO.Path.Combine(destDir, rel);
                 string destParent = System.IO.Path.GetDirectoryName(destFile);
                 if (!string.IsNullOrEmpty(destParent))
