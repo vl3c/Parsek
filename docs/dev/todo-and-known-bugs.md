@@ -2279,7 +2279,8 @@ in parallel in the cloud):
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the
    end spawn through `LeafVesselPlacement`); it needs a new Space Center category that samples each
    live KSC ghost's world position against the recording's interpolated lat / lon / alt.
-3a. [ ] (AUTHORED 2026-11-16 as `RVC-1-two-rover-head-on-crash`, NEVER FLOWN; branch `crash-lanes`.)
+3a. [ ] (AUTHORED 2026-11-16 as `RVC-1-two-rover-head-on-crash`; branch `crash-lanes`. Flown once
+   2026-11-17, red on the spec, re-shaped.)
    Two rovers driving into each other (owner request 2026-11-16): two recorded rovers collide
    on the ground; checks both recordings end at the impact (Destroyed or a stopped Landed terminal)
    and both ghosts replay the collision at the same place and time.
@@ -2294,8 +2295,18 @@ in parallel in the cloud):
    destroyed-part visibility applied on two ghosts. Report-only: ghost lifecycle balance, structure.
    Not checked: that the two ghosts meet at the same place (no in-game check samples two live
    ghosts' positions). Flight risks: a lateral miss or too soft an impact (driver INVALID
-   `drivevessel-did-not-crash`), part loss on one side only. Next: provision a DLL built from the
-   branch and fly the reading run.
+   `drivevessel-did-not-crash`), part loss on one side only.
+   Flight 1 (2026-11-17, `2026-11-17_1411`, DLL from main 65ac33ee8): PARSEK-FAIL(expectation),
+   red only on the background part death and the two-distinct-recordings replay token, both a
+   spec mistake, not a defect: the miner hit the depot at about 15 m/s and pushed it about 70 m
+   with nothing broken (`Environment transition: pid=717435167 -> SurfaceMobile at UT=130.14`),
+   then wrecked itself 36 m on (`drivevessel crash hit: part='fuelTankSmall' ...
+   vesselPid=110406740 own=true impactSrfSpeed=5.69`, `ownPartsLost=1 otherPartsLost=0`); every
+   `Exploded!!` was a miner or miner-debris part, the depot stayed a loaded background member and
+   committed Landed with no part lost, so its recorder had nothing to record. Re-shaped: after the
+   crash the lane explodes one depot radiator (`PartAction button=explode`, pid 2576286852) for a
+   deterministic background part death, and gates that the impact reached the depot (its
+   background SurfaceMobile transition before the explode). Next: fly it again (harness only).
 3b. [ ] (AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`, NEVER FLOWN; branch `air-crash`.)
    Two airplanes flying into each other (owner request 2026-11-16): two recorded aircraft collide
    in the air; checks both recordings end at the impact and both ghosts replay it.

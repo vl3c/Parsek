@@ -1586,7 +1586,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| RVC-1-two-rover-head-on-crash | operator | rover-crash-watched | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | NEVER FLOWN, tag pending-flight |
+| RVC-1-two-rover-head-on-crash | operator | rover-crash-watched | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | FLOWN ONCE RED, tag pending-flight |
 
 ### RVR (19)
 
