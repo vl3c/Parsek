@@ -462,6 +462,30 @@ namespace Parsek.Tests
                 && l.Contains("moved back 195 -> 180"));
         }
 
+        // catches: the held-path adopt skipped silently when the save names no resume instant
+        // (a save from a build without the keys): the flight's own arm instant stands, logged.
+        [Fact]
+        public void ColdLoad_InPlaceAttempt_SaveWithoutResumeFacts_LogsTheSkippedAdopt()
+        {
+            ConfigNode save = WriteSaveInsideAttempt(withHeldEvent: true);
+            save.RemoveNode(save.GetNodes("RECORDING_TREE").Single(n => ParsekScenario.IsActiveTreeNode(n)));
+            SimulateColdLoad(save);
+            Assert.False(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.Cold, loadedSceneIsFlight: true));
+            Assert.Equal(0, ParsekScenario.ApplySaveAttemptEventsAfterActiveTreeRestore());
+
+            logLines.Clear();
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(
+                RecordingStore.CommittedTrees.Single(t => t.Id == TreeId), OriginalArmReason, RootId, 195.0);
+            Assert.Equal(1, ParsekScenario.ResolveHeldSaveAttemptEventsOnArm(TreeId));
+
+            Assert.True(CommittedTreeRestoreAttempt.TryGetEventCutoff(RootId, out double cutoff));
+            Assert.Equal(CommittedTreeRestoreAttempt.LargestDoubleBelow(195.0), cutoff);
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][Scenario]")
+                && l.Contains("Held ATTEMPT_EVENTS name no resume instant: attemptTreeId=" + TreeId)
+                && l.Contains("reason=no-resumed-recording-id"));
+            Assert.DoesNotContain(logLines, l => l.Contains("AdoptSavedResumeInstant"));
+        }
+
         // ---- wiring ----
 
         // catches: the re-arm moved after the splice or the detach (the cutoffs would then come

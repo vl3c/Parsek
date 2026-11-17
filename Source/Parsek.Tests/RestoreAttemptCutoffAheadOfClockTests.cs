@@ -402,6 +402,20 @@ namespace Parsek.Tests
             Assert.False(GameStateStore.TryReadAttemptResumeValues(garbled, out _, out _));
         }
 
+        [Fact]
+        public void AttemptResumeValuesMissingReason_NamesWhatIsMissing()
+        {
+            Assert.Equal("no-attempt-node", GameStateStore.AttemptResumeValuesMissingReason(null));
+            var node = new ConfigNode(GameStateStore.AttemptEventsNodeName);
+            Assert.Equal("no-resumed-recording-id", GameStateStore.AttemptResumeValuesMissingReason(node));
+            node.AddValue(GameStateStore.AttemptResumedRecordingIdKey, ResumedId);
+            Assert.Equal("no-resume-ut", GameStateStore.AttemptResumeValuesMissingReason(node));
+            node.AddValue(GameStateStore.AttemptResumeUTKey, "Infinity");
+            Assert.Equal("resume-ut-unreadable", GameStateStore.AttemptResumeValuesMissingReason(node));
+            node.SetValue(GameStateStore.AttemptResumeUTKey, "132.5");
+            Assert.Null(GameStateStore.AttemptResumeValuesMissingReason(node));
+        }
+
         // catches: the held-path re-arm (an attempt resumed in place; the flight arms afresh at
         // the load's clock) moving the cutoff forward past the attempt's own held events, or
         // adopting an instant of another recording or a later one.

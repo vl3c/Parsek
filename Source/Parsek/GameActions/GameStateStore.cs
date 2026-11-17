@@ -1207,6 +1207,23 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Pure: why <see cref="TryReadAttemptResumeValues"/> finds no resume facts in
+        /// <paramref name="attemptNode"/>: <c>no-attempt-node</c>, <c>no-resumed-recording-id</c>
+        /// (the save was written by a build without the keys, or the attempt named none),
+        /// <c>no-resume-ut</c>, <c>resume-ut-unreadable</c>; null when they read.
+        /// </summary>
+        internal static string AttemptResumeValuesMissingReason(ConfigNode attemptNode)
+        {
+            if (attemptNode == null)
+                return "no-attempt-node";
+            if (string.IsNullOrEmpty(attemptNode.GetValue(AttemptResumedRecordingIdKey)))
+                return "no-resumed-recording-id";
+            if (string.IsNullOrEmpty(attemptNode.GetValue(AttemptResumeUTKey)))
+                return "no-resume-ut";
+            return TryReadAttemptResumeValues(attemptNode, out _, out _) ? null : "resume-ut-unreadable";
+        }
+
         internal static bool SaveEventFile()
         {
             return WriteEventsNode(BuildEventsNode(

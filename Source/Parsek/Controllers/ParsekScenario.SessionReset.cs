@@ -603,6 +603,13 @@ namespace Parsek
                 CommittedTreeRestoreAttempt.AdoptSavedResumeInstant(
                     savedResumedId, savedResumeUT, "held ATTEMPT_EVENTS on the flight's re-arm");
             }
+            else
+            {
+                ParsekLog.Verbose("Scenario",
+                    "Held ATTEMPT_EVENTS name no resume instant: attemptTreeId=" + heldId
+                    + " reason=" + GameStateStore.AttemptResumeValuesMissingReason(held)
+                    + " - the flight's arm keeps its own resume instant");
+            }
             // The re-arm builds its cutoffs from the committed copy alone, so an event of a
             // recording the attempt made after the resume (gone with the save's missing active
             // tree) is not one it would keep off the file: drop it rather than let the next

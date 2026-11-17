@@ -90,8 +90,25 @@ Left as is, not built:
       lane pins its text). The log validator's only WRN rule (`WRN-001`) flags a redundant
       `WARNING:` / `WARN:` prefix, which it does not have, so this now reachable designed case is
       not flagged.
+  (d) OPEN (review follow-up): when the clock is BEHIND a stored event of the resumed recording
+      (load UT 131.5, stored seed 131.6) the raise keeps the cutoff at that event, so an award in
+      the gap between the clock and the event still reads as history and the RF-11 effect
+      remains for that gap. The cleaner fix is for the arm gate to refuse such a resume:
+      `ParsekFlight.IsCommittedRecordingAheadOfLiveClock` checks recorded data only, so a points=0
+      provisional with stored events past the clock slips past it.
+  (e) Downgrade: a save written by this build and loaded by 1.0.2 has the two new keys ignored, so
+      the old defect returns there; no data is lost.
   OPEN: the KILLED run `2026-11-16_2307` (same lane, same build) froze at the first
   AnswerMergeDialog; unexplained and separate from this defect.
+
+Wiring, admission. `VesselSwitchTreeTests` drives `TryTakeCommittedTreeForSpawnedVesselRestore`
+with `liveUT` (red with the call site's recording id nulled, and with its `liveUT` replaced by
+NaN). The RF-11 provisional (terminal Destroyed) was resumed because it was the tree's ACTIVE
+recording: `IsCommittedSpawnedRecordingRestorable` refuses a Destroyed / Recovered / Docked /
+Boarded terminal only for a non-active (background) member, so a background tip needs a live
+terminal such as Orbiting. Same take path either way (`ResumeActiveRecording` vs
+`PromoteFromBackground`); both shapes are cells. A held save without the resume facts logs
+`Held ATTEMPT_EVENTS name no resume instant: ... reason=...` and keeps the flight's own instant.
 
 ## AIR1-GLIDE-SLOPE-STEEPER-THAN-PLANNED: AIR-1's approach glides at about 8.6 deg, not the planned 6 [FILED 2026-11-16 from AIR-1's first green flight, run `2026-11-16_2218` (diagnostics on branch `forge-logs-2026-11-16-air1d`). OPEN; low, harness only, cosmetic for the lane]
 
