@@ -146,17 +146,6 @@ namespace Parsek
         [NonSerialized] internal bool RestoredFromCommittedTreeThisFrame;
 
         /// <summary>
-        /// Marks this recording as needing its <c>.prec</c> sidecar file rewritten
-        /// on the next <c>OnSave</c>. MUST be called after any mutation to
-        /// <see cref="Points"/>, <see cref="PartEvents"/>, <see cref="OrbitSegments"/>,
-        /// <see cref="FlagEvents"/>, or <see cref="TrackSections"/> — the sidecar is
-        /// only written when <see cref="FilesDirty"/> is true, so without this call
-        /// the data lives only in memory and is lost on scene reload
-        /// (<see cref="TryRestoreActiveTreeNode"/> reads the stale file and
-        /// produces a 0-point recording). See <c>docs/dev/todo-and-known-bugs.md</c>
-        /// #273 for the 2026-04-09 data-loss bug this invariant closes.
-        /// </summary>
-        /// <summary>
         /// Clears every end-of-recording spawn bookkeeping field as one set: the spawn claim
         /// (<see cref="VesselSpawned"/>, <see cref="SpawnedVesselPersistentId"/>), the attempt
         /// and death counters and the abandon family (<see cref="SpawnAbandoned"/>,
@@ -182,6 +171,17 @@ namespace Parsek
             DuplicateBlockerRecovered = false;
         }
 
+        /// <summary>
+        /// Marks this recording as needing its <c>.prec</c> sidecar file rewritten
+        /// on the next <c>OnSave</c>. MUST be called after any mutation to
+        /// <see cref="Points"/>, <see cref="PartEvents"/>, <see cref="OrbitSegments"/>,
+        /// <see cref="FlagEvents"/>, or <see cref="TrackSections"/> — the sidecar is
+        /// only written when <see cref="FilesDirty"/> is true, so without this call
+        /// the data lives only in memory and is lost on scene reload
+        /// (<see cref="TryRestoreActiveTreeNode"/> reads the stale file and
+        /// produces a 0-point recording). See <c>docs/dev/todo-and-known-bugs.md</c>
+        /// #273 for the 2026-04-09 data-loss bug this invariant closes.
+        /// </summary>
         internal void MarkFilesDirty()
         {
             FilesDirty = true;

@@ -354,8 +354,10 @@ namespace Parsek
 
             if (!identity.HasName) return;
 
-            // onVesselTerminated also fires after onVesselRecovered for the same vessel.
-            // The guard in UpdateRecordingsForTerminalEvent prevents overwriting Recovered with Destroyed.
+            // Stock fires onVesselTerminated only from SpaceTracking.OnVesselDeleteConfirm
+            // (Tracking Station Terminate / Delete), never from a recovery. The guard in
+            // UpdateRecordingsForTerminalEvent still keeps a Recovered stamp from being
+            // overwritten with Destroyed.
             bool updated = UpdateRecordingsForTerminalEvent(
                 identity, TerminalState.Destroyed, now, pv.persistentId);
             if (updated)
@@ -372,8 +374,7 @@ namespace Parsek
         /// a stock KSC-declutter autoclean of an unrelated "&lt;Craft&gt; Debris" stamped every
         /// same-named pending debris recording Recovered and dropped its snapshot.
         /// Recovered/Destroyed can overwrite situation-based terminal states (Orbiting, Landed, etc.)
-        /// that were set by OnSceneChangeRequested. Only prevents Destroyed from overwriting Recovered
-        /// (onVesselTerminated fires after onVesselRecovered for the same vessel).
+        /// that were set by OnSceneChangeRequested. Only prevents Destroyed from overwriting Recovered.
         /// </summary>
         internal static bool UpdateRecordingsForTerminalEvent(string vesselName, TerminalState state, double ut)
         {
@@ -600,7 +601,8 @@ namespace Parsek
         /// <summary>
         /// Determines whether a new terminal state can overwrite the existing one.
         /// Recovered/Destroyed can overwrite null or situation-based states (Orbiting, Landed, etc.).
-        /// Destroyed cannot overwrite Recovered (onVesselTerminated fires after onVesselRecovered).
+        /// Destroyed cannot overwrite Recovered (a guard: stock fires onVesselTerminated only
+        /// from the Tracking Station delete confirm, never after a recovery).
         /// </summary>
         internal static bool CanOverwriteTerminalState(TerminalState? existing, TerminalState incoming)
         {

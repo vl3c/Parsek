@@ -400,6 +400,24 @@ namespace Parsek.Tests
             Assert.Contains("ApplyDiscardReFlyVesselHolds(recordings, KerbalsModule.ReadLoadedSaveUT())", Collapse(body));
         }
 
+        // catches: dropping the in-session restore of the persisted spawn-death count. The
+        // tree-mutable-state reset zeroes the count; without the restore an in-session load
+        // re-arms a recording whose spawn kept dying, so the 3-cycle cap never binds
+        // (SPAWNED-VESSEL-TERMINATED-RESPAWNS).
+        [Fact]
+        public void InSessionLoadRestoresTheSpawnDeathCountAfterTheReset()
+        {
+            string body = PreparedMethodBody(ScenarioPath, "public override void OnLoad(ConfigNode node)");
+            Assert.Equal(1, Occurrences(body, "RestorePersistedSpawnDeathCount("));
+            int reset = IndexOrFail(body, "ResetTreeRecordingMutableStateForLoad(recordings);");
+            int pid = IndexOrFail(body, "recordings[i].SpawnedVesselPersistentId = savedPid;");
+            int restore = IndexOrFail(body, "RestorePersistedSpawnDeathCount(recordings[i], savedTreeRecNode);");
+            int abandon = IndexOrFail(body, "RestorePersistedTerminalAbandon(");
+            Assert.True(reset < pid && pid < restore && restore < abandon,
+                "load-reconcile gate: the in-session restore loop must put the persisted spawn-death "
+                + "count back after the tree-mutable-state reset, beside the spawned-pid restore");
+        }
+
         [Fact]
         public void InSessionLoadRecalculatesAfterTheSweepRemovedZombieRows()
         {

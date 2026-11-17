@@ -210,7 +210,18 @@ evidence. `RunSpawnDeathChecks` clears the spawn claim with no respawn when the 
 `SpawnDeathCount` is now saved (`spawnDeathCount`, written when above 0, restored on in-session
 loads by `RestorePersistedSpawnDeathCount`), and a recording that already reached the cap stays
 abandoned with no further increment. A genuine spawn death (not the player) still retries within
-the cap. Tests: `VesselTerminatedRowTests`.
+the cap. The row also ends the crew holds of the terminated vessel: `KerbalsModule`'s walk adds
+a closure at the row's UT for each kerbal its owner recording still carries (Aboard / Unknown),
+scoped like a recovery (`CollectTerminationClosures`, `RecoveryClosesHold`), and the crew
+reservation walk now reads the row. It is never a recovery (no `KerbalRecovered` row, no reward);
+stock's own Missing -> respawn handling takes the kerbal from there, a rewind before the row holds
+him again, and a supersede that tombstones the row reopens the hold. Without it the vessel, which
+no longer respawned for a later recovery, left its crew reserved forever. Tests:
+`VesselTerminatedRowTests`; in `KerbalRecoveryReservationCloseTests`
+`TerminatedCrewedVessel_EndsTheOpenEndedHold_WithoutARecovery`,
+`TerminationClosure_RewindReReserves_AndATombstonedRowReopensTheHold`,
+`CollectTerminationClosures_OnlyTheOwnersAboardCrew_NeverARecovery`; the in-session restore of
+the count is gated by `LoadReconcileWiringGateTests.InSessionLoadRestoresTheSpawnDeathCountAfterTheReset`.
 
 ## ~~SPAWN-FAILED-NO-GHOST-NEVER-RETRIED~~: a completion with no ghost whose end spawn fails is not retried in that scene [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; low (the vessel appears late, on the next scene change)]
 

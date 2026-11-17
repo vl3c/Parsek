@@ -34,9 +34,9 @@ Not released yet.
   last vessel of a chain and on every fallback path too. An orbital chain end is also checked for
   room where it will actually appear on its orbit, not where it was recorded. (TIP-SPAWN-PLACEMENT)
 - **A vessel you terminate or delete stays gone.** Terminating or deleting a recording's end
-  vessel in the Tracking Station no longer brings it back in the next flight or after a load.
-  A spawned vessel that keeps dying on arrival still gets its retries, and the retry count now
-  survives a save, so a reload does not restart the loop. (SPAWNED-VESSEL-TERMINATED-RESPAWNS)
+  vessel in the Tracking Station no longer brings it back in the next flight or after a load,
+  and its crew are no longer held for it. A vessel that keeps dying on arrival still gets its
+  retries, and the retry count now survives a save. (SPAWNED-VESSEL-TERMINATED-RESPAWNS)
 - **An end vessel whose spawn fails with no ghost on screen is tried again.** When a recording
   ended out of view and its vessel could not be placed, it was never tried again in that scene.
   It is now retried for a short while, like a recording whose ghost is still showing, and spawns

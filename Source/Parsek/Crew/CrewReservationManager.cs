@@ -999,6 +999,8 @@ namespace Parsek
             // source of truth for "which kerbal actions are still effective."
             // Feed roster-creation rows as well as assignments so tombstoned
             // roster cleanup can preserve kerbals still created by surviving ELS.
+            // VesselTerminated rows end the terminated vessel's crew holds
+            // (KerbalsModule.CollectTerminationClosures).
             var els = EffectiveState.ComputeELS();
             var kerbalActions = new List<GameAction>();
             if (els != null)
@@ -1011,7 +1013,8 @@ namespace Parsek
                         && a.Type != GameActionType.KerbalHire
                         && a.Type != GameActionType.KerbalRescue
                         && a.Type != GameActionType.KerbalStandIn
-                        && a.Type != GameActionType.KerbalRecovered)
+                        && a.Type != GameActionType.KerbalRecovered
+                        && a.Type != GameActionType.VesselTerminated)
                         continue;
                     kerbalActions.Add(a);
                 }
