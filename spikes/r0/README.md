@@ -71,7 +71,7 @@ spike's author picks one and adds its `SpikeRegistry` line.
 | S7 | `InGameTests/Spikes/S7/SpikeS7FlagReplica.cs` | `SpikeS7` | none named | `spike-r0` |
 | S8a | `spikes/r0/S8/fileaccess.py` (no game) | script | none | none |
 | S8b | `InGameTests/Spikes/S8/SpikeS8Io.cs` | `SpikeS8`: `MainThreadRead` | none named | `spike-r0` |
-| S9 | `InGameTests/Spikes/S9/SpikeS9Cheats.cs` | hand-applied postfixes, 1 Hz poll | plan names no id (`S9` is the natural one) | `spike-r0` |
+| S9 | `InGameTests/Spikes/S9/SpikeS9Cheats.cs`, `SpikeS9Hooks.cs`, `SpikeS9Format.cs` (pure, xUnit `Parsek.Tests.Spikes.SpikeS9FormatTests`, `SpikeS9HooksTests`), `spikes/r0/S9/summarize_s9.py`, PC run sheet `spikes/r0/S9/PC-RUN.md` | `SpikeS9Cheats` (addon from `Apply`): 85 hand-applied entry prefixes + scope finalizers, 12 GameEvents, 1 Hz switch poll; output `[Spike.S9]` lines and `parsek-spike/S9/observed.csv` | `S9`; `PARSEK_TEST_COMMANDS=1` (seam `MissionMark` segment marks) | `spike-r0` |
 | S10a | `Source/Parsek.Tests/Spikes/RelativeCopyCensusTests.cs` (manual xUnit; pure part in `RelativeCopyCensus.cs`), `spikes/r0/S10/summarize_census.py`, PC run sheet `spikes/r0/S10/PC-RUN.md` | xUnit `Manual_RelativeCopyCensus_WritesCsv` | `PARSEK_SPIKE_S10_SAVE` (one copy or several, `;`), `PARSEK_SPIKE_OUT` | none (cloud or PC) |
 | S10b | `InGameTests/Spikes/S10/SpikeS10Flatten.cs` | `SpikeS10` | `S10b` | `spike-r0` |
 | S11 | `InGameTests/Spikes/S11/SpikeS11Cost.cs` | `SpikeS11`: `GhostCostSweep` | none named | `spike-r0` |
