@@ -1,0 +1,152 @@
+schema = 1
+id = "SPW-2-duna-orbit-end-spawn-runway"
+# =====================================================================================
+# SPW-2: A TRUE END SPAWN AT DUNA, IN FLIGHT, WITH THE PLAYER ON THE KERBIN RUNWAY.
+# (End-spawn program, 2026-11-17, todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
+# tag `pending-flight`.) SPW-1's question at Duna, with the other player position: a
+# freshly launched, LANDED active vessel (EVA-10's road) instead of a debris in orbit, so
+# the end crosses with stock's rails ceiling lifted.
+#
+# THE HOST. `duna-park-probe` (Parsek-stripped): the DD1 Duna Direct Probe (pid 2200110044)
+# ORBITING Duna (SMA 1,038,215 m, ~718 km up, period ~12,100 s), nobody's committed leaf,
+# and the asteroid Ast. VPA-167. Nothing else: after the rewind strips DD1 the world holds
+# no vessel the lane could focus, so a SaveGame + LoadGame cannot boot FLIGHT and the lane
+# launches the stock Kerbal X from the SPH instead (EVA-10 / FAR-2, both LIVE-PROVEN).
+#
+# THE FLIGHT:
+#   boot    LoadGame (FLIGHT on DD1, Duna orbit, UT 9,160,396.8), hygiene.
+#   R       StartRecording, WarpToUT 9160700 (rails, ~300 s), stop, CommitTree, stop.
+#   rewind  InvokeRewindToLaunch tree=latest: the owner strip removes DD1, the Space
+#           Center at R's start - 15 s.
+#   launch  GoToEditor SPH + Kerbal X, LaunchFromEditor (recording off): FLIGHT on the
+#           runway, PRELAUNCH. The editor does not move the clock.
+#   cross   WarpToUT 9161000 (no cap; a landed vessel lifts the rails ceiling).
+#   read    ListHandles before / after, LeafVesselPlacement in FLIGHT (DD1 on its recorded
+#           Duna orbit and phase), SaveGame, quit.
+#
+# PRE-REGISTERED READINGS: SPW-1's, with Duna for Laythe and DD1 for the Duna Rocket. One
+# more: the Kerbal X launched for the read is itself never a recording (autoRecordOnLaunch
+# off), so `compared` counts DD1 alone.
+#
+# FAST-LANE CHECKLIST: SPW-1's; the editor hop is the cheapest FLIGHT entry this host
+# allows (no vessel survives the strip).
+# =====================================================================================
+tier = "operator"
+description = "Far-body end spawn in FLIGHT (Duna): on duna-park-probe ~300 s of DD1's Duna orbit is recorded and committed, Rewound-to-Launch (the strip removes DD1), the stock Kerbal X is launched from the SPH onto the runway, and an uncapped rails warp past the end must create DD1 once at Duna through the recorded-terminal-orbit path, read back spawned with that pid and on its recorded orbit and phase (LeafVesselPlacement in FLIGHT)."
+instanceProfile = "stock-minimal"
+tags = ["SPW-2", "end-spawn", "far-body", "duna", "orbital", "rewind-to-launch",
+        "leaf-placement", "ingame-batch", "warp", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-park-probe"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw2-boot" },                              expect = "OK" },
+  # R: a segment of the Duna orbit.
+  { cmd = "StartRecording",                                                           expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",   args = { ut = "9160700" },                                   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "CommitTree",                                                               expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",                 expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw2-commit-count-${c0.count}" },          expect = "OK" },
+  # The rewind, then a fresh Kerbal X on the runway (no vessel survives the strip).
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "GoToEditor", args = { facility = "SPH", craft = "Kerbal X" },              expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                         expect = "OK", budget = 180 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",                 expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw2-reloaded-count-${c1.count}-a-${c1.rec0}-${c1.rec0spawned}-${c1.rec0spawnedPid}-end" }, expect = "OK" },
+  # THE SUBJECT: past the end, with the player on the Kerbin runway.
+  { cmd = "WarpToUT",   args = { ut = "9161000" },                                   expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",                 expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw2-spawned-count-${c2.count}-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-end" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                  expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["duna", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+# REPORT-ONLY until a reading run: one tree, one Orbiting recording, one spawned vessel,
+# DD1 once in the produced save beside the Kerbal X launched for the read.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1, max = 1 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "DD1 Duna Direct Probe" = 1, "Kerbal X" = 1 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Captured rewind save at UT ([0-9.]+): vessel \"DD1 Duna Direct Probe\" in ORBITING \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  "CommitTreeFlight terminal: rec=[0-9a-f]+ terminalState=Orbiting terminalOrbitBody=Duna",
+  "committree committed=true",
+  "MISSIONMARK label=spw2-commit-count-1 ",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # The reload lands before the end: unspawned, no pid.
+  "launchfromeditor complete scene=FLIGHT vessel=Kerbal X pid=[0-9]+ site=Runway situation=PRELAUNCH ",
+  "MISSIONMARK label=spw2-reloaded-count-1-a-[0-9a-f-]+-false-0-end ",
+  # THE SPAWN: once, at Duna, from the recorded terminal orbit.
+  "Spawn #[0-9]+ \\(DD1 Duna Direct Probe\\): using recorded terminal orbit propagated to current UT \\(ut=[0-9.]+, body=Duna,",
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(DD1 Duna Direct Probe\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw2-spawned-count-1-a-[0-9a-f-]+-true-\\1-end ",
+  # Placement: on Duna, on its recorded orbit and phase, no pid on two vessels.
+  "LeafPlacement: rec=[0-9a-f]+ vessel='DD1 Duna Direct Probe' pid=[0-9]+ kind=orbit body=Duna liveBody=Duna [^\\r\\n]*verdict=ok",
+  "MISSIONMARK label=spw2-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Duna\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "gotoeditor refused",
+  "launchfromeditor refused",
+  "timejump ",
+  # Exactly one spawn, and never the snapshot fallback for an Orbiting end.
+  "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(DD1 Duna Direct Probe\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\(DD1 Duna Direct Probe\\)",
+  "Vessel spawn for #[0-9]+ \\(DD1 Duna Direct Probe\\)",
+  "Spawn ABANDONED for #[0-9]+ \\(DD1 Duna Direct Probe\\)",
+  "Spawn RETIRED for #[0-9]+ \\(DD1 Duna Direct Probe\\)",
+  "Vessel spawn failed[^\\r\\n]*\\(DD1 Duna Direct Probe\\)",
+  "SpawnAtPosition returned 0",
+  "Spawn-death detected",
+  "Cannot spawn terminal orbit safely",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+# 300 LoadGame + 180 StartRecording + 2 x 300 warps + 120 CommitTree + 300 rewind + 120
+# GoToEditor + 180 LaunchFromEditor + 120 SaveGame + 300 RunTests = 2220, plus the inert steps.
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

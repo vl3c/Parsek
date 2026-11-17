@@ -1,0 +1,159 @@
+schema = 1
+id = "SPW-7-end-spawn-while-recording"
+# =====================================================================================
+# SPW-7: A RECORDING ENDS AND SPAWNS ITS VESSEL WHILE THE PLAYER IS RECORDING ANOTHER.
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
+# tag `pending-flight`.)
+#
+# WHY. Every committed end-spawn lane crosses its end with no recorder running. A player
+# who is recording while an older recording ends is the ordinary case: the spawn must not
+# stop, split or re-target the live recorder, must not pull the spawned vessel into the
+# live tree, and must still happen exactly once. Nothing gates that today.
+#
+# THE HOST AND ROAD: EVA-15's (`eva2-lko-crewed`, index-0 asteroid removed) without the
+# EVA: record Kerbal X 424 -> 470 at 1x, commit, Rewind-to-Launch, SaveGame + LoadGame at
+# once into FLIGHT on the first pad `Kerbal X Debris` (landed). Then StartRecording on that
+# debris (the player's live recording, a second tree), RecordingState, a 1x wait across
+# the end (UT 490: the completion takes the DIRECT spawn path, no warp deferral, unlike
+# SPW-4/5/6), RecordingState again, StopRecording, CommitTree, read.
+#
+# WHAT IS GATED: the first commit (count 1), the strip, the reload before the end; the
+# recorder live on tree T before the end and STILL live on the same T after the spawn;
+# exactly one Orbital spawn of Kerbal X, read back spawned with that pid; no tree branch is
+# created after the spawn (the spawned vessel joins nothing); the second commit lands as
+# its own tree (2 recordings, 2 trees); LeafVesselPlacement ok, no duplicate.
+#
+# PRE-REGISTERED READINGS:
+#   - `startrecording start-refused` on a debris-type vessel: Parsek declined to record the
+#     debris; re-author on SPW-5's probe focus (the in-bubble collision then confounds).
+#   - a `Tree branch created` after the spawn, or `recordingstate ... tree=` changing: the
+#     spawn was taken into the live recording (a finding, filed).
+#   - the spawn ~100 km up is unloaded (no collision check) as in EVA-15.
+#
+# FAST-LANE CHECKLIST: (1) EVA-15's host and road. (2) explicit-UT waits; the 1x crossing
+# is ~80 s of wall. (3)/(4)/(5) none. (6) retry once. (7) count exact 2. (8) operator until
+# measured. (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "operator"
+description = "End spawn while recording: on eva2-lko-crewed (asteroid removed) ~46 s of Kerbal X's low Kerbin orbit is recorded and committed, Rewound-to-Launch and reloaded into FLIGHT on a landed pad debris; the player starts recording that debris and a 1x wait crosses the end. Pins that Kerbal X spawns exactly once on its recorded orbit while the recorder stays live on the same tree, takes no branch, and commits as its own second tree."
+instanceProfile = "stock-minimal"
+tags = ["SPW-7", "spawn", "end-spawn", "terminal-orbit", "recording-active",
+        "rewind-to-launch", "kerbin", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+# Ast. VPA-167, FLIGHTSTATE index 0 (EVA-15's recipe).
+[[fixture.liveState]]
+pid    = 1490391000
+remove = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw7-boot" },                     expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "424", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",   args = { ut = "470", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw7-commit-count-${c0.count}" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "spw7-rewound" },                    expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "spw7-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw7-reloaded-count-${c1.count}-a-${c1.rec0}-${c1.rec0spawned}-${c1.rec0spawnedPid}-end" }, expect = "OK" },
+  # THE SUBJECT: the player records the debris while the end passes at 1x (header).
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "490", maxRate = "1" },                 expect = "OK", budget = 150 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw7-spawned-count-${c2.count}-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-end" }, expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c3",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw7-final-count-${c3.count}" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },         expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 2, max = 2 }
+committedTrees = { min = 2, max = 2 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Orbiting = { min = 1, max = 1 }, Landed = { min = 1, max = 1 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "Kerbal X" = 1, "Kerbal X Probe" = 1, "Kerbal X Debris" = 4 }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "committree committed=true",
+  "MISSIONMARK label=spw7-commit-count-1 ",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "MISSIONMARK label=spw7-reloaded-count-1-a-[0-9a-f-]+-false-0-end ",
+  # The live recorder before the end, and the same tree still live after the spawn.
+  "MISSIONMARK label=spw7-reloaded-count-[\\s\\S]*?startrecording recordingId=[0-9a-f]+ already=false[\\s\\S]*?recordingstate recording=true tree=(\\S+) [\\s\\S]*?\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\) pid=[0-9]+ [^\\r\\n]*terminal=Orbiting[\\s\\S]*?recordingstate recording=true tree=\\1 ",
+  # The direct path: no warp, so no deferral.
+  "MISSIONMARK label=spw7-final-count-2 ",
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw7-spawned-count-1-a-[0-9a-f-]+-true-\\1-end ",
+  "LeafPlacement: rec=[0-9a-f]+ vessel='Kerbal X' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
+  "MISSIONMARK label=spw7-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  # The spawn is not a deferred one (1x crossing) and joins no tree.
+  "MISSIONMARK label=spw7-reloaded-count-[\\s\\S]*Deferred spawn during warp: #[0-9]+ \"Kerbal X\"",
+  "Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\)(?:(?!MISSIONMARK label=spw7-spawned-)[\\s\\S])*Tree branch created",
+  "startrecording start-refused",
+  "timejump ",
+  "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(Kerbal X\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\(Kerbal X\\)",
+  "Vessel spawn for #[0-9]+ \\(Kerbal X\\)",
+  "Spawn ABANDONED",
+  "Spawn RETIRED",
+  "Vessel spawn failed",
+  "SpawnAtPosition returned 0",
+  "Spawn-death detected",
+  "Deferred spawn cannot execute safely",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

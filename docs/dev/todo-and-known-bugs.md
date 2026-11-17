@@ -20,6 +20,61 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN: loading a save into FLIGHT after a recording's end, before its vessel spawned, drops the vessel for good [FILED 2026-11-17 by code reading during the end-spawn lane program (todo END-SPAWN-LANES-2026-11-17); no flight yet; SPW-8 and SPW-9 are pre-registered to red on it; high (a vessel the player was owed never appears, silently apart from one log line)]
+
+What happens. Every Cold load (a save-file load: the Load menu, and stock F9, which classifies Cold
+`coldReason=save-file` in `LoadReconcilePolicy`) runs the phase `crew-auto-unreserve`
+(`ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT`). Outside the Space Center it takes every
+non-loop recording whose EndUT is already past and whose vessel never spawned, unreserves its crew,
+NULLS its vessel snapshot and marks it spawned (`Auto-unreserved crew for recording #N (<name>) -
+EndUT passed without spawn`). Nothing spawns it afterwards: the flight scene sees a spawned recording
+with no snapshot.
+
+Two ordinary ways to get there:
+- a spawn still owed when the player quicksaves: a terminal-orbit spawn held until its next safe UT
+  (SS-1's Low Perigee Probe), a collision-held spawn, a spawn deferred by warp; F9 then drops it
+  (lane SPW-8);
+- a save written at the Space Center after an Orbiting or Docked end: the KSC never spawns those
+  (#171, `GhostPlaybackLogic.ShouldSpawnAtKscEnd` defers them to the flight scene), so the save holds
+  the recording unspawned past its end, and loading it into FLIGHT drops it (lane SPW-9).
+
+The phase predates the deferral paths: it was written when a past-end unspawned recording meant a
+spawn that could no longer happen. The comment above the call names only the Space Center exemption
+(bug #99), and it ignores `PlaybackScopeTracker` and every deferral state.
+
+Fix: not designed. The shape the lanes gate: a Cold load into FLIGHT (or the Tracking Station)
+leaves a past-end unspawned recording owed, and the scene's own end-spawn path makes it once
+(recorded terminal orbit for Orbiting ends). Whether the crew unreserve should still run for a
+recording that will spawn is part of the design question.
+
+## END-SPAWN-LANES-2026-11-17: harness lanes for end spawns at far bodies, under high warp and with a busy player [FILED 2026-11-17, branch `wip/spawnlanes2`, harness only; eleven lanes AUTHORED, NEVER FLOWN (tag `pending-flight`); OPEN: the flights, and two seam proposals]
+
+The lanes (each `tier = "operator"` until measured; rows in `docs/dev/autotest-status.md`):
+- `SPW-1` / `SPW-3` / `SPW-10`: a segment of a parked orbit at Laythe / Tylo / the Mun is recorded,
+  Rewound-to-Launch (the owner strip removes the vessel, so the end spawn has to CREATE it) and
+  reloaded into FLIGHT elsewhere; one Orbital spawn, read by LeafVesselPlacement in FLIGHT.
+  `SPW-2` does the same at Duna with the player sitting on the runway.
+- `SPW-4`: two EVA-split leaves crossed inside one uncapped rails warp (100000x).
+- `SPW-5`: an end crossed under 4x physics warp inside the bubble, ~30 m from the active probe.
+- `SPW-6`: an end crossed under uncapped warp with the map view open.
+- `SPW-7`: an end spawn while the player records another vessel (the recorder stays on its tree).
+- `SPW-8` / `SPW-9`: a quickload during a held spawn, and a Cold load past an unspawned end; both
+  pre-registered to red on COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN.
+- `SPW-11`: Real Spawn Control's row Warp pressed from orbit on EX-2's blocked target, its warp spawn
+  watch outcome, and the press refused once the target's end has passed.
+
+Not built, because no seam verb exists (proposals, not implemented):
+- "Warp to Next Spawn": `UiAction op=warpnext window=spawncontrol`, pressing the bottom-bar button
+  through its own click body (`SpawnControlUI` -> `ParsekFlight.WarpToNextCraftSpawn`), REJECTED with
+  the button's disabled reason when no candidate qualifies. A Mun target for Real Spawn Control
+  (a Mun-landed host with a short EVA walk recorded beside the lander) waits on it.
+- A merge dialog left standing in FLIGHT while an end passes: `AnswerMergeDialog` raises and presses
+  in one pass and `UiAction op=raise` covers four other popups, so no seam holds a tree merge dialog
+  open. Proposal: a raise-only mode (`AnswerMergeDialog hold=true`, answered by a later step).
+
+Done when each lane has flown once as a reading run and is re-pinned (count windows, the interim
+`BATCH_COMPLETE` split) or its red is filed.
+
 ## ~~KSC-END-SPAWN-SKIPS-OFF-KERBIN~~: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. FIXED 2026-11-17, branch `kscspawn`; xUnit; re-flights owed (LAY-1 goes green, the lanes below confirm nothing new spawns); medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
 
 What happened. LAY-1 landed the crewed Duna Rocket's pod on Laythe and committed it

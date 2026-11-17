@@ -1334,8 +1334,26 @@ class CommittedSpecUsageTests(unittest.TestCase):
         ),
         # EVA-15 removes the index-0 asteroid so a Space Center save written after the
         # rewind strips Kerbal X focuses the first pad `Kerbal X Debris` (1365670035).
+        # SPW-4/6/7/9 remove only the asteroid (EVA-15's recipe); SPW-5 also removes the
+        # four pad debris so the save after the strip focuses `Kerbal X Probe`.
         "eva2-lko-crewed": (
             1490391000,   # `Ast. VPA-167`, FLIGHTSTATE index 0
+            1365670035,   # `Kerbal X Debris`, pad
+            3734310169,   # `Kerbal X Debris`, pad
+            1277750907,   # `Kerbal X Debris`, pad
+            2325190904,   # `Kerbal X Debris`, pad
+        ),
+        # SPW-1 / SPW-3 remove the index-0 asteroid so the Space Center save after the
+        # strip focuses the first `Duna Rocket Debris` (1165394793, Kerbin orbit).
+        "laythe-park-nerv": (
+            1490391000,   # `Ast. VPA-167`, FLIGHTSTATE index 0
+        ),
+        "tylo-park-nerv": (
+            1490391000,   # `Ast. VPA-167`, FLIGHTSTATE index 0
+        ),
+        # SPW-10 removes the index-0 asteroid so that save focuses the first pad debris.
+        "mun-park-kerbalx": (
+            2815888106,   # `Ast. MII-526`, FLIGHTSTATE index 0
         ),
     }
 
