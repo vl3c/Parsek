@@ -516,9 +516,11 @@ writes `testGame = False`.
 - **Flown:** RACE-0's first flight, `2026-11-17_0035`, PASS attempt 1 (46 s); the lane is
   re-pinned from its KSP.log (count=11: three KSC facility points, eight Making History sites).
   The confirming flight `2026-11-17_0317` read PARSEK-FAIL on the Crater altitude window sized
-  from that one flight (stock site values move a few centimetres between boots); the altitude
-  windows were re-sized from both flights (todo RACE-0-ALT-PIN-FROM-ONE-FLIGHT) and a third
-  flight is owed. SITES-2 must compare with tolerances of this size or wider, never exact.
+  from that one flight (the stock site values of the two flights differ by a few centimetres);
+  the altitude windows were re-sized from both flights (todo RACE-0-ALT-PIN-FROM-ONE-FLIGHT).
+  The third flight `2026-11-17_0340` read PASS attempt 1 (52 s) with every site value
+  byte-identical to 0317 (same install and build), so only 0035 differs. SITES-2 must compare
+  with tolerances of this size or wider, never exact.
 - **Risk:** low; read-only.
 
 ### T-08 Race grep gates: shared scanner and "no store in the rules"

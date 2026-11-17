@@ -13,7 +13,8 @@ tier = "operator"
 # window pinned at 169.78-169.879 from the first flight's 169.834. The cause was the pin
 # (sized from one boot), not Parsek: the alt windows and the two high-latitude
 # longitude windows were re-sized from both flights (see "WHY THE SITE VALUES MOVE"
-# below; todo RACE-0-ALT-PIN-FROM-ONE-FLIGHT). A third flight is owed.
+# below; todo RACE-0-ALT-PIN-FROM-ONE-FLIGHT). The third flight `2026-11-17_0340` (same
+# install and build as 0317) read PASS attempt 1 in 52 s on the re-sized windows.
 #
 # WHAT IT READS. `ListHandles kind=sites` in a fresh single-player career at the Space
 # Center, one Info line per fact:
@@ -70,7 +71,7 @@ tier = "operator"
 #     +-0.30 m, snapped outward to whole centimetres (the printed millimetre is free);
 #   - terrain height: to one decimal, a 0.1 m window with at least 0.04 m of margin
 #     each side.
-# WHY THE SITE VALUES MOVE BETWEEN BOOTS AND THE TERRAIN DOES NOT. Every launchSite row
+# WHY THE SITE VALUES MOVE BETWEEN RUNS AND THE TERRAIN DOES NOT. Every launchSite row
 # is `src=cache`: stock's `LaunchSite.SpawnPoint.SetSpawnPointLatLonAlt` (called from
 # `PQSCity.Orientate` / `PQSCity2.Orientate` through `SetSpawnPointsLatLonAlt`) fills
 # the cache with `body.GetLatLonAlt((Vector3d)spawnPointTransform.position)`, and the
@@ -80,12 +81,15 @@ tier = "operator"
 # rotating body; the world position read back is float32 again. The double
 # lat/lon/alt conversion is exact, so each value carries a few float32 roundings at
 # 600 km (a few centimetres each, up to about 0.15 m together), and where they fall
-# depends on the body's rotation and the world origin at the instant Orientate ran,
-# which differs from boot to boot. Measured between 0035 and 0317: alt up to 0.083 m
-# (Crater), along the ground up to 0.10 m (spaceCenter longitude). The terrain rows are
-# `PQS` height evaluated in double at fixed lat/lon inputs and were byte-identical. The
-# +-0.30 m alt windows hold two such boots at opposite extremes; a 1 m shift, a moved
-# site or a wrong site list still reds.
+# depends on the body's rotation and the world origin at the instant Orientate ran.
+# Measured between 0035 and 0317: alt up to 0.083 m (Crater), along the ground up to
+# 0.10 m (spaceCenter longitude). The terrain rows are `PQS` height evaluated in double
+# at fixed lat/lon inputs and were byte-identical. OBSERVED, NOT EXPLAINED: 0317 and
+# 0340, two boots of one provisioned install and one build, read every value
+# byte-identical; only 0035 (an earlier provisioning, another build) differs. So the
+# values did not move between those two boots, and what changed between 0035 and the
+# later pair is not established. The +-0.30 m alt windows hold both measured sets with
+# at least 0.26 m to an edge; a 1 m shift, a moved site or a wrong site list still reds.
 # Window, not truncation: a truncated prefix can sit a few millimetres from its edge
 # (LaunchPad's alt=72.497 truncates to 72.4 with 3 mm left), and a window placed on the
 # value cannot. The windows sit well inside the 50 m / 2 m tolerances R2-03 / R2-05
