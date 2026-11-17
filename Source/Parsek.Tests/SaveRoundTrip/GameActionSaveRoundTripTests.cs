@@ -91,6 +91,7 @@ namespace Parsek.Tests.SaveRoundTrip
             [GameActionType.KerbalExperience] = Kerbal.Concat(new[] { "KerbalCareerEntries" }).ToArray(),
             [GameActionType.KerbalRecovered] = Kerbal,
             [GameActionType.VesselRecovered] = new[] { "RecoveredVesselName", "RecoveredVesselPid" },
+            [GameActionType.VesselTerminated] = new[] { "RecoveredVesselName", "RecoveredVesselPid" },
             [GameActionType.ResourceScanUnlocked] = new[] { "ScanBodyName", "ScanBiomeName" },
             [GameActionType.ScienceLabEarning] = new[] { "ScienceAwarded", "Method", "ScanBodyName" },
             [GameActionType.StockPoolAdjustment] = new[] { "AdjustmentPool", "AdjustmentAmount", "AdjustmentCarriedFrom" },

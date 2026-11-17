@@ -848,19 +848,32 @@ namespace Parsek
 
         /// <summary>
         /// Cold-load phase "crew-auto-unreserve" of <see cref="OnLoad"/>: outside the Space
-        /// Center, unreserves the crew of every non-loop recording whose EndUT passed without a
-        /// spawn and marks it spawned.
+        /// Center, unreserves the crew of every non-loop, historical recording whose EndUT
+        /// passed without a spawn and marks it spawned. A recording in replay scope
+        /// (<see cref="PlaybackScopeTracker.IsInReplayScope"/>, installed from the save before
+        /// this phase) is kept: the player replayed it from before its start, so it still owes
+        /// its end vessel (a spawn deferred by warp, held, or left for flight by the Space
+        /// Center), and the playback spawn path settles it.
         /// </summary>
         internal static void OnLoadPhaseAutoUnreserveCrewPastEndUT(IReadOnlyList<Recording> recordings, double currentUT)
         {
             if (HighLogic.LoadedScene != GameScenes.SPACECENTER)
             {
+                int keptOwed = 0;
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     var rec = recordings[i];
                     if (rec.LoopPlayback) continue;
                     if (rec.VesselSnapshot != null && !rec.VesselSpawned && currentUT > rec.EndUT)
                     {
+                        if (PlaybackScopeTracker.IsInReplayScope(rec.RecordingId))
+                        {
+                            keptOwed++;
+                            ParsekLog.Verbose("Scenario",
+                                $"Crew auto-unreserve skipped for recording #{i} ({rec.VesselName}): " +
+                                "in replay scope, its end vessel is still owed");
+                            continue;
+                        }
                         CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                         rec.VesselSnapshot = null;
                         rec.VesselSpawned = true;
@@ -868,6 +881,10 @@ namespace Parsek
                             $"({rec.VesselName}) — EndUT passed without spawn");
                     }
                 }
+                if (keptOwed > 0)
+                    ParsekLog.Info("Scenario",
+                        "Crew auto-unreserve: kept " + keptOwed.ToString(CultureInfo.InvariantCulture) +
+                        " past-end recording(s) in replay scope for their end spawn");
             }
         }
 
@@ -1736,6 +1753,8 @@ namespace Parsek
                                 // Keep the VesselSpawned flag in sync with the spawned-pid invariant
                                 // so the scene-enter resume path's filter matches after save/load.
                                 recordings[i].VesselSpawned = savedPid != 0;
+
+                                RestorePersistedSpawnDeathCount(recordings[i], savedTreeRecNode);
 
                                 string resIdxStr = savedTreeRecNode.GetValue("lastResIdx");
                                 int resIdx = -1;

@@ -373,13 +373,14 @@ namespace Parsek
                 // the non-looping render/spawn branches below and every recording's
                 // terminal SPAWN, including a looping one's first run
                 // (TryLoopFirstRunSpawnKsc); looping + mission-unit RENDERS (explicit live
-                // opt-in) run through their own branches and ignore it. The active re-fly session is
-                // exempt. Orbital recordings whose extrapolated tail extends past the
+                // opt-in) run through their own branches and ignore it. The active re-fly session's
+                // own tree is exempt (IsInReFlySessionTree). Orbital recordings whose extrapolated tail extends past the
                 // live UT would otherwise draw a duplicate ghost of the player's
                 // still-live vessel at the Space Center.
                 double kscActivationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
                 PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, kscActivationStartUT);
-                bool historicalNeverReplayed = SessionSuppressionState.ActiveMarker == null
+                bool historicalNeverReplayed =
+                    !GhostPlaybackLogic.IsInReFlySessionTree(SessionSuppressionState.ActiveMarker, rec)
                     && PlaybackScopeTracker.IsHistoricalNeverReplayed(
                         rec.RecordingId, currentUT, kscActivationStartUT);
 

@@ -721,24 +721,11 @@ namespace Parsek
         /// state and retires the chain instead of keeping it active.
         /// </summary>
         /// <summary>
-        /// True when <paramref name="chain"/>'s tip recording is settled as a KSC
-        /// retirement (<see cref="VesselSpawner.IsSettledAsKscRetirement"/>), i.e. a chain-tip
-        /// spawn call returned pid 0 because the tip was retired, not because it failed or
-        /// was blocked. Callers treat such a chain as done.
-        /// </summary>
-        internal static bool IsChainTipSettledAsKscRetirement(GhostChain chain)
-        {
-            if (chain == null || string.IsNullOrEmpty(chain.TipRecordingId))
-                return false;
-            return VesselSpawner.IsSettledAsKscRetirement(FindTipRecording(chain.TipRecordingId));
-        }
-
-        /// <summary>
         /// Scene-side cleanup of a chain whose tip was retired at KSC: removes the chain's
         /// ghost map vessel (reason <c>chain-tip-ksc-retired</c>), the same removal a tip
         /// spawn performs minus the target transfer (there is no vessel to target), and logs
-        /// one Info line. The caller drops the chain from its active set. Shared by the
-        /// flight chain-tip spawn and the time-jump chain-tip spawn.
+        /// one Info line. The caller (the flight chain-tip spawn) drops the chain from its
+        /// active set.
         /// </summary>
         internal static void ReleaseChainRetiredAtKsc(GhostChain chain, string context)
         {

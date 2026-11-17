@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN: loading a save into FLIGHT after a recording's end, before its vessel spawned, drops the vessel for good [FILED 2026-11-17 by code reading during the end-spawn lane program (todo END-SPAWN-LANES-2026-11-17); no flight yet; SPW-8 and SPW-9 are pre-registered to red on it; high (a vessel the player was owed never appears, silently apart from one log line)]
+## ~~COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN~~: loading a save into FLIGHT after a recording's end, before its vessel spawned, drops the vessel for good [FILED 2026-11-17 by code reading during the end-spawn lane program (todo END-SPAWN-LANES-2026-11-17); no flight yet; SPW-8 and SPW-9 are pre-registered to red on it; high (a vessel the player was owed never appears, silently apart from one log line); FIXED 2026-11-17 under the id COLD-LOAD-DROPS-OWED-SPAWN (the same defect, found twice the same day); SPW-8 and SPW-9 should now read green]
 
 What happens. Every Cold load (a save-file load: the Load menu, and stock F9, which classifies Cold
 `coldReason=save-file` in `LoadReconcilePolicy`) runs the phase `crew-auto-unreserve`
@@ -189,6 +189,90 @@ flight), then re-fly the four changed lanes. Each is a reading run: pin what it 
   at its terminal orbit propagated to the spawn UT: `SpawnAtChainTip` now resolves that state
   first and checks there. The other three H claims (per-kerbal crew, the attempts cap, the EVA
   exempt pid) were refuted.
+
+---
+
+## ~~SPAWNED-VESSEL-TERMINATED-RESPAWNS~~: an end vessel the player terminates or deletes in the Tracking Station is spawned again [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; medium (a vessel the player threw away comes back)]
+
+Cause. `ParsekScenario.OnVesselTerminated` (fired by stock only from
+`SpaceTracking.OnVesselDeleteConfirm`, i.e. TS Terminate / Delete) stamped only the pending tree.
+The committed recording kept `VesselSpawned` and its pid, so the next flight's
+`RunSpawnDeathChecks` found the pid missing, counted a spawn death and reset the recording for a
+respawn. The 3-cycle cap did not bound it: `SpawnDeathCount` was not saved and every in-session
+load zeroed it.
+
+Fix. A termination writes a `VesselTerminated` ledger row (new `GameActionType` 42, additive, same
+keys as `VesselRecovered`; `LedgerOrchestrator.OnRealVesselTerminated`), mirroring the owner-ruled
+recovery row: same owner selection, skipped under crew-event suppression, pid 0 or an active
+Re-Fly, deduplicated, retired by a Re-Fly supersede, no impact on any resource. It is not recovery
+evidence. `RunSpawnDeathChecks` clears the spawn claim with no respawn when the row exists
+(`TryClearTerminatedSpawnClaim`), and `TryRejectSpawnForTerminalAndSituation` rejects the spawn.
+`SpawnDeathCount` is now saved (`spawnDeathCount`, written when above 0, restored on in-session
+loads by `RestorePersistedSpawnDeathCount`), and a recording that already reached the cap stays
+abandoned with no further increment. A genuine spawn death (not the player) still retries within
+the cap. Tests: `VesselTerminatedRowTests`.
+
+## ~~SPAWN-FAILED-NO-GHOST-NEVER-RETRIED~~: a completion with no ghost whose end spawn fails is not retried in that scene [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; low (the vessel appears late, on the next scene change)]
+
+Cause. `ParsekPlaybackPolicy.HandlePlaybackCompleted` held a failed spawn for retry only when a
+ghost was active (`heldGhosts`); `FlushDeferredSpawns` logged "flushed without materializing" and
+dropped it, and the engine's completion is one-shot. Real trigger: an Orbiting end deferred from
+the Space Center to flight, entered past its end, held by `TerminalOrbitSpawnSafety` or pending
+placement.
+
+Fix. A separate id-keyed retry set `ghostlessSpawnRetries` (kept out of `heldGhosts` so the
+engine's `IsGhostHeld` and ghost release are untouched) is armed from both places and driven by
+`RetryGhostlessSpawns` at the start of `RetryHeldGhostSpawns`, with the held-ghost timeout and
+decision (`DecideHeldGhostAction`); under warp it hands the spawn to the deferred queue. Logs
+"Spawn retry armed with no ghost" / "succeeded" / "gave up". Tests in `DeferredSpawnTests`
+(`NoGhostCompletion_*`, `WarpFlush_FailedSpawnWithNoHeldGhost_ArmsTheRetry`).
+
+## ~~SPAWN-ABANDON-SURVIVES-LOAD~~: an in-session load or a Re-Fly strip keeps the spawn abandon state while clearing the spawn claim [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; low]
+
+Cause. `ResetTreeRecordingMutableStateForLoad` and `ReconcileSpawnStateAfterStrip` cleared
+`VesselSpawned`, the pid, `SpawnAttempts` and `SpawnDeathCount` but left `SpawnAbandoned`,
+`WalkbackExhausted`, `CollisionBlockCount` and `DuplicateBlockerRecovered`; only
+`RewindLauncher.ClearSpawnState` cleared them. The recording was eligible again with a stale
+abandon: a failed retry was marked spawned with pid 0 and no failure log, and a successful one was
+never death-checked.
+
+Fix. One `Recording.ClearTransientSpawnState` clears the whole family and all three resets call
+it (the load reset also clears `TerminalOrbitSpawnSafety`), so an in-session load starts the
+recording like a cold load. The persisted terminal-orbit abandon and the persisted spawn-death
+count are put back after the reset as before. Tests in `SpawnStateReconciliationTests`
+(`InSessionLoadReset_ClearsTheAbandonFamily_LikeAColdLoad`,
+`ReFlyStripReconcile_ClearsTheAbandonFamily`).
+
+## ~~COLD-LOAD-DROPS-OWED-SPAWN~~: a cold load into flight marks in-scope recordings that still owe their end spawn as spawned [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; low (the vessel appears on the next scene change, its crew free meanwhile)]
+
+Cause. `ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT` unreserves the crew, drops the
+snapshot and stamps `VesselSpawned` for every non-loop recording past its end outside the Space
+Center, without consulting `PlaybackScopeTracker`, so warp-deferred, held and KSC-deferred orbit
+spawns were dropped too.
+
+Fix. A recording in replay scope (`PlaybackScopeTracker.IsInReplayScope`, installed from the save
+before this step) is skipped, with a Verbose line per recording and one Info summary. The plain
+historical case is unchanged. Test:
+`ParsekScenarioOnLoadPhaseTests.AutoUnreserve_ColdLoadIntoFlight_KeepsInScopeRecordingThatOwesItsSpawn`.
+
+## ~~REFLY-LIFTS-HISTORICAL-GATE-FOR-ALL~~: an active Re-Fly lifts the historical-never-replayed gate for every recording, not only the session's tree [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; low]
+
+Cause. Flight, Tracking Station, Space Center and the TS map lifecycle passed "Re-Fly active" into
+`GhostPlaybackLogic.ResolveHistoricalNeverReplayed`, which then answered false for every
+recording, so an unrelated historical recording with pid 0 could spawn during a Re-Fly.
+
+Fix. The exemption is scoped to the session's tree: `IsInReFlySessionTree(marker, rec)` (marker
+tree id equal to the recording's; a marker with no tree id keeps the old whole-world answer).
+Tests in `LoopFirstRunSpawnTests` (`ReFlyActive_UnrelatedTreeRecording_KeepsHistoricalGate`,
+`IsInReFlySessionTree_NoMarker_StandaloneRecording_AndTreelessMarker`).
+
+## ~~TIMEJUMP-CROSSED-CHAIN-TIPS-DEAD~~: `TimeJumpManager.SpawnCrossedChainTips` was unreachable and bypassed the end-spawn gate [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; cleanup]
+
+Every `ExecuteJump` caller passed no chains, so the step never ran; wired up, it would have
+spawned past `ShouldSpawnAtRecordingEnd`. Deleted with `FindCrossedChainTips`,
+`VesselGhoster.IsChainTipSettledAsKscRetirement` and their tests; `ExecuteJump(targetUT)` takes the
+target only, and end spawns after a jump come from the playback loop. The
+`facts_pins.toml` uncalled pin is gone with it.
 
 ---
 

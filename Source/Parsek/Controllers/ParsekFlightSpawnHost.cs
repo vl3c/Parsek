@@ -1038,8 +1038,8 @@ namespace Parsek
             }
 
             TimeJumpManager.NotifyRecorder(host.recorder, currentUT, targetUT);
-            // Pass null chains — let the engine playback loop handle spawn naturally
-            TimeJumpManager.ExecuteJump(targetUT, null, host.vesselGhoster);
+            // The engine playback loop handles the end spawn after the jump
+            TimeJumpManager.ExecuteJump(targetUT);
             host.PlaybackHost.RefreshBlockedChainTipGhostOrbitsAfterJump();
             ArmSpawnWarpWatch(rec, targetUT);
         }
@@ -1176,7 +1176,7 @@ namespace Parsek
 
             TimeJumpManager.NotifyRecorder(host.recorder, currentUT, targetUT);
             // Epoch-shifted jump: preserves rendezvous geometry
-            TimeJumpManager.ExecuteJump(targetUT, null, host.vesselGhoster);
+            TimeJumpManager.ExecuteJump(targetUT);
             host.PlaybackHost.RefreshBlockedChainTipGhostOrbitsAfterJump();
 
             ParsekLog.ScreenMessage(
@@ -1452,9 +1452,8 @@ namespace Parsek
                     targetUT, targetUT - currentUT));
 
             TimeJumpManager.NotifyRecorder(host.recorder, currentUT, targetUT);
-            // Pass null chains - let the engine playback loop handle spawn naturally,
-            // as WarpToRecordingEnd does.
-            TimeJumpManager.ExecuteJump(targetUT, null, host.vesselGhoster);
+            // The engine playback loop handles the end spawns, as WarpToRecordingEnd does.
+            TimeJumpManager.ExecuteJump(targetUT);
             host.PlaybackHost.RefreshBlockedChainTipGhostOrbitsAfterJump();
             return true;
         }

@@ -135,15 +135,8 @@ namespace Parsek
         /// </summary>
         internal static void ClearSpawnState(Recording rec)
         {
-            rec.VesselSpawned = false;
+            rec.ClearTransientSpawnState();
             rec.VesselDestroyed = false;
-            rec.SpawnAttempts = 0;
-            rec.SpawnDeathCount = 0;
-            rec.SpawnedVesselPersistentId = 0;
-            rec.CollisionBlockCount = 0;
-            rec.SpawnAbandoned = false;
-            rec.WalkbackExhausted = false;
-            rec.DuplicateBlockerRecovered = false;
             TerminalOrbitSpawnSafety.Clear(rec);
         }
 

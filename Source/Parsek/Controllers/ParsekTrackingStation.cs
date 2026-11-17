@@ -430,7 +430,7 @@ namespace Parsek
                             && GhostPlaybackLogic.RealVesselRelaysForRecording(rec);
                         input.HistoricalNeverReplayed = GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
                             loopingLike,
-                            reFlyActive,
+                            GhostPlaybackLogic.IsInReFlySessionTree(SessionSuppressionState.ActiveMarker, rec),
                             PlaybackScopeTracker.IsHistoricalNeverReplayed(
                                 rec.RecordingId, currentUT, activationStartUT),
                             forSpawn: true);

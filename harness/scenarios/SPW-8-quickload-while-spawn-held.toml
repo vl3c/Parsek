@@ -5,7 +5,7 @@ id = "SPW-8-quickload-while-spawn-held"
 # (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
 # tag `pending-flight`.)
 #
-# EXPECTED TO RED ON A KNOWN DEFECT: COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN (todo). Stock F9
+# WAS EXPECTED TO RED ON COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN, FIXED 2026-11-17 AS COLD-LOAD-DROPS-OWED-SPAWN (todo). Stock F9
 # is a save-file load and classifies Cold (`LoadReconcilePolicy`, `coldReason=save-file`).
 # The Cold flow's phase `crew-auto-unreserve`
 # (`ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT`) runs outside the Space Center

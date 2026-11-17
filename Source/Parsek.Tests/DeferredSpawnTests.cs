@@ -1184,5 +1184,154 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Spawn retry with no ghost (a completion that had no ghost to hold)
+
+        private static Recording LandedEndRecording(string id)
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", "Retry Rover");
+            snapshot.AddValue("sit", "LANDED");
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = "Retry Rover",
+                VesselPersistentId = 5151,
+                ExplicitStartUT = 1000,
+                ExplicitEndUT = 2000,
+                VesselSnapshot = snapshot,
+                TerminalStateValue = TerminalState.Landed,
+                PlaybackEnabled = true,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 1000, bodyName = "Kerbin", latitude = -0.09, longitude = -74.4, altitude = 70 },
+                    new TrajectoryPoint { ut = 2000, bodyName = "Kerbin", latitude = -0.09, longitude = -74.4, altitude = 70 }
+                }
+            };
+        }
+
+        private static int CommittedIndexOf(Recording rec)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            for (int k = 0; k < committed.Count; k++)
+                if (ReferenceEquals(committed[k], rec)) return k;
+            return -1;
+        }
+
+        private ParsekPlaybackPolicy NoGhostPolicy(
+            GhostPlaybackEngine engine, Recording rec, Func<float> clock, Action<Recording> spawn)
+        {
+            return new ParsekPlaybackPolicy(engine,
+                (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight)))
+            {
+                IsWarpActiveOverrideForTesting = () => false,
+                CurrentRealTimeOverrideForTesting = clock,
+                CurrentUTOverrideForTesting = () => rec.EndUT + 1.0,
+                TimelineInactiveIdsOverrideForTesting = c => new Dictionary<string, TimelineInactiveReason>(),
+                WatchedRecordingIndexOverrideForTesting = () => -1,
+                SpawnVesselOrChainTipOverrideForTesting = (r, i) => spawn(r),
+            };
+        }
+
+        // The completion fired with no ghost (the scene was entered past the recording's end)
+        // and its spawn failed: the spawn is retried every second, and given up after the
+        // held-ghost timeout, never left for the rest of the scene and never unbounded.
+        [Fact]
+        public void NoGhostCompletion_FailedSpawn_IsRetriedThenGivenUpAfterTheTimeout()
+        {
+            var rec = LandedEndRecording("rec-noghost-retry");
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            int index = CommittedIndexOf(rec);
+            int spawnCalls = 0;
+            float now = 10f;
+            var engine = new GhostPlaybackEngine(null) { DestroyGhostResourcesOverrideForTesting = st => { } };
+            var policy = NoGhostPolicy(engine, rec, () => now, r => spawnCalls++);
+            var flags = new TrajectoryPlaybackFlags
+            {
+                recordingId = rec.RecordingId, needsSpawn = true, chainEndUT = rec.EndUT,
+            };
+
+            engine.RunPastEndFrameTailForTesting(index, rec, flags, rec.EndUT + 1.0, queueCompletion: true);
+            Assert.Equal(1, spawnCalls);
+            Assert.True(policy.ghostlessSpawnRetries.ContainsKey(rec.RecordingId));
+            Assert.False(policy.heldGhosts.ContainsKey(index));
+
+            for (int k = 0; k < 12; k++)
+            {
+                now += 0.6f;
+                policy.RetryHeldGhostSpawns();
+            }
+
+            Assert.InRange(spawnCalls, 3, 1 + (int)(ParsekPlaybackPolicy.HeldGhostTimeoutSeconds
+                / ParsekPlaybackPolicy.HeldGhostRetryIntervalSeconds));
+            Assert.Empty(policy.ghostlessSpawnRetries);
+            Assert.Contains(logLines, l => l.Contains("[Policy]")
+                && l.Contains("Spawn retry armed with no ghost") && l.Contains("source=completion"));
+            Assert.Contains(logLines, l => l.Contains("[Policy]")
+                && l.Contains("Spawn retry with no ghost gave up"));
+
+            int callsAtGiveUp = spawnCalls;
+            now += 10f;
+            policy.RetryHeldGhostSpawns();
+            Assert.Equal(callsAtGiveUp, spawnCalls);
+        }
+
+        // A retry that succeeds stops the retries: one vessel, no second spawn.
+        [Fact]
+        public void NoGhostCompletion_RetrySucceeds_SpawnsOnce()
+        {
+            var rec = LandedEndRecording("rec-noghost-once");
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            int index = CommittedIndexOf(rec);
+            int spawnCalls = 0;
+            float now = 10f;
+            var engine = new GhostPlaybackEngine(null) { DestroyGhostResourcesOverrideForTesting = st => { } };
+            var policy = NoGhostPolicy(engine, rec, () => now, r =>
+            {
+                spawnCalls++;
+                if (spawnCalls >= 2)
+                {
+                    r.VesselSpawned = true;
+                    r.SpawnedVesselPersistentId = 777u;
+                }
+            });
+            var flags = new TrajectoryPlaybackFlags
+            {
+                recordingId = rec.RecordingId, needsSpawn = true, chainEndUT = rec.EndUT,
+            };
+
+            engine.RunPastEndFrameTailForTesting(index, rec, flags, rec.EndUT + 1.0, queueCompletion: true);
+            for (int k = 0; k < 10; k++)
+            {
+                now += 1.1f;
+                policy.RetryHeldGhostSpawns();
+                policy.FlushDeferredSpawns();
+            }
+
+            Assert.Equal(2, spawnCalls);
+            Assert.True(rec.VesselSpawned);
+            Assert.Empty(policy.ghostlessSpawnRetries);
+            Assert.Contains(logLines, l => l.Contains("Spawn retry with no ghost succeeded"));
+        }
+
+        // A warp-deferred spawn with no held ghost that fails at warp end gets the same retries.
+        [Fact]
+        public void WarpFlush_FailedSpawnWithNoHeldGhost_ArmsTheRetry()
+        {
+            var rec = LandedEndRecording("rec-noghost-flush");
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            float now = 10f;
+            var engine = new GhostPlaybackEngine(null) { DestroyGhostResourcesOverrideForTesting = st => { } };
+            var policy = NoGhostPolicy(engine, rec, () => now, r => { });
+            policy.pendingSpawnRecordingIds.Add(rec.RecordingId);
+
+            policy.FlushDeferredSpawns();
+
+            Assert.DoesNotContain(rec.RecordingId, policy.pendingSpawnRecordingIds);
+            Assert.True(policy.ghostlessSpawnRetries.ContainsKey(rec.RecordingId));
+            Assert.Contains(logLines, l => l.Contains("Spawn retry armed with no ghost") && l.Contains("source=warp-flush"));
+        }
+
+        #endregion
     }
 }

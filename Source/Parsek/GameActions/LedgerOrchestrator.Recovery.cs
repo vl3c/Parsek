@@ -408,6 +408,100 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The termination twin of <see cref="OnRealVesselRecovered"/>: the player terminated
+        /// (Tracking Station Terminate / Delete) a real vessel. When it continues a committed
+        /// recording (the same owner picker,
+        /// <see cref="CrewRecoveryReservationClose.SelectOwnerRecordings"/>), write one
+        /// <see cref="GameActionType.VesselTerminated"/> row per owner at <paramref name="ut"/>,
+        /// so the owner's vessel is never spawned again: the next flight scene's spawn-death
+        /// check clears the claim instead of counting a death, and the end-spawn gate refuses
+        /// (<see cref="RecoveredRecordingEvidence.IsTerminatedByLedgerRow"/>). Refused under the
+        /// same filters as the recovery row (crew events suppressed, a Re-Fly session active,
+        /// no pid); deduplicated per owner recording.
+        /// </summary>
+        /// <returns>Rows written.</returns>
+        internal static int OnRealVesselTerminated(
+            double ut,
+            uint vesselPid,
+            string launchGuid,
+            string vesselName)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string utText = ut.ToString("F1", ic);
+            string vesselText = vesselName ?? "(null)";
+            if (GameStateRecorder.SuppressCrewEvents)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Vessel termination row skipped: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
+                    $"ut={utText} - crew events suppressed (programmatic removal)");
+                return 0;
+            }
+            if (vesselPid == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Vessel termination row skipped: vessel='{vesselText}' ut={utText} - no vessel pid");
+                return 0;
+            }
+            var scenarioForReFly = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenarioForReFly)
+                && scenarioForReFly.ActiveReFlySessionMarker != null)
+            {
+                ParsekLog.Info(Tag,
+                    $"Vessel termination row skipped: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
+                    $"ut={utText} - Re-Fly session " +
+                    $"{scenarioForReFly.ActiveReFlySessionMarker.SessionId ?? "<no-id>"} active");
+                return 0;
+            }
+
+            Initialize();
+
+            var ers = EffectiveState.ComputeERS();
+            var owners = CrewRecoveryReservationClose.SelectOwnerRecordings(
+                ers, vesselPid, launchGuid, ut);
+            if (owners.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Vessel termination row: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
+                    $"guid={launchGuid ?? "(null)"} ut={utText} - no committed recording continues " +
+                    "this vessel, nothing to write");
+                return 0;
+            }
+
+            int written = 0;
+            int deduped = 0;
+            for (int i = 0; i < owners.Count; i++)
+            {
+                var owner = owners[i];
+                var row = BuildVesselRecoveredRow(ut, owner, vesselName, vesselPid);
+                row.Type = GameActionType.VesselTerminated;
+                var single = DeduplicateAgainstLedger(new List<GameAction> { row });
+                if (single.Count == 0)
+                {
+                    deduped++;
+                    continue;
+                }
+
+                row.Sequence = AllocateKscSequence();
+                Ledger.AddAction(row, LedgerRowWriter.StockApplied);
+                written++;
+                ParsekLog.Info(Tag,
+                    $"Vessel terminated recorded: vessel='{vesselText}' pid={vesselPid.ToString(ic)} " +
+                    $"terminateUT={utText} recordingId={owner.RecordingId} " +
+                    $"terminal={(owner.TerminalStateValue.HasValue ? owner.TerminalStateValue.Value.ToString() : "<none>")} " +
+                    $"spawnedPid={owner.SpawnedVesselPersistentId.ToString(ic)}");
+            }
+
+            ParsekLog.Info(Tag,
+                $"Vessel termination rows: vessel='{vesselText}' pid={vesselPid.ToString(ic)} ut={utText} " +
+                $"owners={owners.Count.ToString(ic)} written={written.ToString(ic)} " +
+                $"deduped={deduped.ToString(ic)}");
+
+            if (written > 0)
+                RecalculateAndPatchForLiveTimelineEvent(ut, "vessel-terminated");
+            return written;
+        }
+
+        /// <summary>
         /// <see cref="OnRealVesselRecovered"/>'s row: the
         /// <see cref="GameActionType.VesselRecovered"/> action for one owner recording at the
         /// recovery UT, naming the recovered vessel. Pure; the caller dedups, sequences and writes it.

@@ -5,7 +5,7 @@ id = "SPW-9-cold-load-past-unspawned-end"
 # (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
 # tag `pending-flight`.)
 #
-# EXPECTED TO RED ON A KNOWN DEFECT: COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN (todo; SPW-8 is
+# WAS EXPECTED TO RED ON COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN, FIXED 2026-11-17 AS COLD-LOAD-DROPS-OWED-SPAWN (todo; SPW-8 is
 # its quickload twin). The Space Center never spawns an Orbiting end: it defers it to the
 # flight scene (#171, `GhostPlaybackLogic.ShouldSpawnAtKscEnd`: `orbital vessel deferred to
 # flight scene (terminal=Orbiting)`). A save written there after the end therefore holds

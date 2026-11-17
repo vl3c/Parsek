@@ -1062,7 +1062,8 @@ namespace Parsek
                 // auto-spawn a NEW duplicate vessel for a purely-historical recording (the
                 // player progressed past it in normal forward time and never rewound to
                 // replay it). The adoption path (the recorded vessel already exists live)
-                // is harmless and still runs; the active re-fly session is exempt. A looping
+                // is harmless and still runs; the active re-fly session's own tree is exempt
+                // (IsInReFlySessionTree). A looping
                 // / mission-unit member is NOT exempt here: this is its first-run terminal
                 // spawn, a real spawn gated like any recording's (only its render ignores
                 // the scope gate). Explicit "Warp to Spawn"
@@ -1073,15 +1074,15 @@ namespace Parsek
                     && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
                 bool wouldAdoptExistingVessel =
                     ShouldSkipTrackingStationDuplicateSpawn(rec, realVesselExists);
-                if (!wouldAdoptExistingVessel
-                    && SessionSuppressionState.ActiveMarker == null)
+                if (!wouldAdoptExistingVessel)
                 {
                     double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
                     PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, activationStartUT);
                     bool loopingLike = rec.LoopPlayback || loopUnits.IsMember(i);
                     if (GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
                             loopingLike,
-                            reFlyActive: false,
+                            inReFlySessionTree: GhostPlaybackLogic.IsInReFlySessionTree(
+                                SessionSuppressionState.ActiveMarker, rec),
                             scopeHistorical: PlaybackScopeTracker.IsHistoricalNeverReplayed(
                                 rec.RecordingId, currentUT, activationStartUT),
                             forSpawn: true))

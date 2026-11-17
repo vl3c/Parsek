@@ -2215,7 +2215,9 @@ namespace Parsek
                 // (spawn evidence only, no pool moves); the merge retires it through
                 // IsSupersedeTombstoneEligible. A NEW type falls through to `return true`,
                 // which would strict-block every supersede over a recovered recording.
+                // VesselTerminated is the same record for a terminated vessel.
                 case GameActionType.VesselRecovered:
+                case GameActionType.VesselTerminated:
                 // StrategyScienceDebit (STRATEGY-SCIENCE-CONVERSION-LEAK): the science
                 // INPUT leg of a stock currency-exchange strategy. Listed EXPLICITLY,
                 // against this method's twice-stated warning that a NEW type falls

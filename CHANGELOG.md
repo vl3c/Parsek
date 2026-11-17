@@ -33,6 +33,26 @@ Not released yet.
 - **A vessel whose whole crew died is never created as an empty capsule.** This now holds for the
   last vessel of a chain and on every fallback path too. An orbital chain end is also checked for
   room where it will actually appear on its orbit, not where it was recorded. (TIP-SPAWN-PLACEMENT)
+- **A vessel you terminate or delete stays gone.** Terminating or deleting a recording's end
+  vessel in the Tracking Station no longer brings it back in the next flight or after a load.
+  A spawned vessel that keeps dying on arrival still gets its retries, and the retry count now
+  survives a save, so a reload does not restart the loop. (SPAWNED-VESSEL-TERMINATED-RESPAWNS)
+- **An end vessel whose spawn fails with no ghost on screen is tried again.** When a recording
+  ended out of view and its vessel could not be placed, it was never tried again in that scene.
+  It is now retried for a short while, like a recording whose ghost is still showing, and spawns
+  once. (SPAWN-FAILED-NO-GHOST-NEVER-RETRIED)
+- **An end vessel Parsek gave up on starts clean after a scene change.** After a quickload or a
+  Re-Fly start, a vessel Parsek had given up placing (no clear spot, crew lost) tried again but
+  kept half of the old "given up" state: a failed try was marked done in silence, and a vessel
+  that did appear was no longer watched for loss. Each load now starts it fresh.
+  (SPAWN-ABANDON-SURVIVES-LOAD)
+- **Loading a save into flight no longer skips a vessel that is still due.** Loading straight
+  into flight just after a replayed flight ended skipped that flight's end vessel and freed its
+  crew until the next scene change. The vessel now appears and its crew stay reserved.
+  (COLD-LOAD-DROPS-OWED-SPAWN)
+- **A Re-Fly no longer spawns end vessels of unrelated flights.** During a Re-Fly, recordings
+  of other missions from before the save could spawn their vessels again. Only the flight being
+  flown again is treated as replayed now. (REFLY-LIFTS-HISTORICAL-GATE-FOR-ALL)
 - **A vessel that ends away from Kerbin appears when you wait at the Space Center.** A landing
   or splashdown on another body, recorded from there, now appears when you time-warp past its
   end at the Space Center, not only on the next Tracking Station or flight visit. Like those
