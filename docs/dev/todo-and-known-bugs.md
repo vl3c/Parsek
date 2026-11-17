@@ -20,6 +20,69 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL: sealing an Unfinished Flight whose recording was split keeps its tree "not finished" forever, so no supply route can be made from it [FILED 2026-11-17 from AST-3's red, run `2026-11-17_1636_AST-3-klaw-mine-route` (PARSEK-FAIL(expectation)), by log and code reading plus a headless repro; branch `item31-seal-split-chain`. OPEN; medium (route creation blocked for that tree for good, no data loss)]
+
+What happened. The "AST Depot" re-entered and was destroyed after its undock, so its slot under
+the undock's Rewind Point committed as an open Unfinished Flight (CommittedProvisional). At the
+tree commit the optimizer split its recording at the ExoBallistic -> Atmospheric boundary
+(`Split candidate (PersistedPhaseChange): rec=fae42b9b... splitUT=1291.94`, then `Split:
+MergeState=CommittedProvisional carried with terminal=Destroyed onto the second half`): chain
+`c98f39e5` = head `fae42b9b` (UT 1030.39-1291.94) + tip `8e79fc01` (1291.94-1469.54, Destroyed).
+`SealSlot mode=Tree` then logged `Sealed slot=0 rec=fae42b9b... tip=8e79fc01...
+mergeState=CommittedProvisional->Immutable` and `Sealed slot=1 rec=990818d4...` (the Miner), and
+ended `sealslot incomplete ... total=8 sealed=2 failed=0 remaining=1
+firstReason=member-not-slot-tip`; the route-create gate refused `sealed=False ...
+refusal=TreeNotSealed`. The produced save holds `fae42b9b` at CommittedProvisional.
+
+Proven (code + xUnit). Every slot seal flips ONE recording, the slot's effective chain+supersede
+tip: the player's Seal button (`UnfinishedFlightSealHandler.TrySeal`, `Rewind/
+UnfinishedFlightSealHandler.cs:94-99`), the missing-quicksave and value-sealed load sweeps
+(`Rewind/LoadTimeSweep.cs:365`, `:474`) and the seam (which calls `TrySeal`). Two producers leave a
+non-tip chain member CommittedProvisional: the commit promotion demotes a qualifying head AND its
+chain tip separately (`Recording/TreeCommitService.cs:459`, `:496`), and the split COPIES the
+state onto the new tip and leaves the head's copy (`Recording/RecordingOptimizer.cs:1780-1789`;
+`MergeDialog.Commit.cs:117-121` promotes, then runs the optimizer pass). No writer ever demotes
+that head (grep of every `.MergeState =` in `Source/Parsek`). Open/closed for Re-Fly reads only the
+tip, so the head is inert there, but `RouteCandidateFinder.IsTreeFullySealed`
+(`Logistics/RouteCandidateFinder.cs:83-95`) reads every member's RAW MergeState. It gates route
+candidates (`DeriveCandidates`), the near-miss list ("Not finished yet", N "still re-flyable") and
+the seam's create gate. The seal also reaps the Rewind Point once its last slot closes, after
+which the head resolves no slot (`TrySeal` -> `noMatchingRP`), so no action can ever close it.
+`CollapseSealMergeStateRegressionTests.SealOfOptimizerSplitSlot_LeavesTreeFullySealed` drives the
+real `CommitTree` -> `RunOptimizationPass` -> `TrySeal` and reds on the final
+`IsTreeFullySealed` with the head at CommittedProvisional; it is committed SKIPPED (asserts the
+intended behavior) until the fix lands.
+
+Player reachability: yes, without the seam. Any tree with a Rewind Point slot whose recording is a
+chain (a phase-change split at commit, or a chain born in flight) and that the player seals reads
+"Not finished yet" in Logistics forever. For a supply route that means any re-flyable vessel of the
+run that crossed an atmosphere boundary (the AST-3 Depot and Miner re-entries; a controlled stage
+falling back). The seam's `member-not-slot-tip` token and `design-autotest-command-seam.md` call
+this a "fixture-shape answer"; it is the same residue the button leaves, so it is a product
+defect, not a fixture property. `Inv12SplitClosedSlot` already notes the seal produces this pair.
+
+Guessed, not checked: a Re-Fly merge leaves the superseded origin chain's members in the tree at
+their old MergeState too (SupersedeCommit flips the fork and the tip only), which would block
+route candidacy the same way.
+
+Proposed fix (smallest, reader side): `IsTreeFullySealed` (and `CountReflyableRecordings`, and
+the seam's `TestCommandSealSlot.RecordingIdsNeedingSeal` so the verb agrees) reads each member's
+open/closed bit through its effective tip, `EffectiveState.EffectiveTipRecordingId(rec.RecordingId,
+supersedes, recById, treeContext: tree)`, exactly as every slot consumer does: a member is sealed
+when the recording it resolves to is Immutable. Tree-local, needs no Rewind Point (which may be
+reaped), and also covers the superseded case above. Mirror direction checked: a head that must read
+OPEN is one whose tip is CommittedProvisional (stash re-opens only the tip, and a re-opened tip is
+itself a member), so the tip read still reads open; NotCommitted stays unsealed. Writer-side
+alternatives (the split moves instead of copies, promotion skips a non-tip head, or Seal flips the
+whole chain) each fix one producer only and leave existing saves stuck. Also check
+`AnchorDetector.IsSealedRecordingAnchor` (`Recording/AnchorDetector.cs:321`), another raw
+per-member Immutable read that keeps such a head out of anchor candidacy.
+
+Separate from this entry: AST-3's flight variance (the Depot and Miner re-entering after a 449 s
+docked phase, against 343 s in the green flight `2026-11-15_2130`) is a lane robustness matter for
+the mission, not this defect; with the fix the lane may still need its route shape (a Depot left
+in orbit) to pass its later steps.
+
 ## ~~KSC-END-SPAWN-SKIPS-OFF-KERBIN~~: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. FIXED 2026-11-17, branch `kscspawn`; xUnit; re-flights owed (LAY-1 goes green, the lanes below confirm nothing new spawns); medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
 
 What happened. LAY-1 landed the crewed Duna Rocket's pod on Laythe and committed it
