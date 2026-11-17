@@ -828,7 +828,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | AIR-1-runway-circuit-splashdown | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | - | - | LIVE-PROVEN 2026-11-16 |
 | AIR-2-runway-circuit-ksc-ghost | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | rewind-to-launch, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
-| AIR-3-plane-drone-midair-collision | operator | gs1-two-stage-pad | air3_drone_intercept | Kerbin | rewind-to-launch, warp, scene-change | - | NEVER FLOWN, tag pending-flight |
+| AIR-3-plane-drone-midair-collision | operator | gs1-two-stage-pad | air3_drone_intercept | Kerbin | rewind-to-launch, warp, scene-change | - | FLOWN TWICE 2026-11-17, INVALID autopilot... |
 
 ### AJ (1)
 
@@ -1083,7 +1083,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| FXR-1-ghost-engine-fx-across-refly-and-retry | operator | refly-split-crewed-merged | seam | Kerbin | re-fly, revert, reload, save, warp | GhostFxIntegrity | NEVER FLOWN, tag pending-flight; batch pi... |
+| FXR-1-ghost-engine-fx-across-refly-and-retry | operator | refly-split-crewed-merged | seam | Kerbin | re-fly, revert, reload, save, warp | GhostFxIntegrity | FLIGHT 1 2026-11-17 2026-11-17_1415 PARSE... |
 
 ### GC (2)
 
@@ -1322,7 +1322,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| LAY-1-laythe-reentry-splashdown | operator | laythe-park-nerv | b4_reentry | Kerbin, Laythe | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | NEVER FLOWN, tag pending-flight |
+| LAY-1-laythe-reentry-splashdown | operator | laythe-park-nerv | b4_reentry | Kerbin, Laythe | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | FLIGHT 1 2026-11-17 2026-11-17_1417 PARSE... |
 
 ### LF (2)
 
@@ -1586,7 +1586,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| RVC-1-two-rover-head-on-crash | operator | rover-crash-watched | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | NEVER FLOWN, tag pending-flight |
+| RVC-1-two-rover-head-on-crash | operator | rover-crash-watched | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | FLOWN ONCE RED, tag pending-flight |
 
 ### RVR (19)
 

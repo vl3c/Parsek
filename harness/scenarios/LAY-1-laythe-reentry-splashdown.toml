@@ -10,6 +10,12 @@ tier = "operator"
 # source (file cited); the windows that depend on stock physics (where the pod comes down,
 # how many debris pieces survive) are left open.
 #
+# FLIGHT 1 (2026-11-17, `2026-11-17_1417`, PARSEK-FAIL(expectation)): every pin through the
+# commit (Splashed on Laythe), the rewind and the Tracking Station visit held; the two
+# LeafVesselPlacement pins red on `compared=0` because the Space Center skips every spawn path
+# for a recording whose first point is off Kerbin (todo KSC-END-SPAWN-SKIPS-OFF-KERBIN, a
+# Parsek defect). Those pins stay as written: the lane goes green with the fix.
+#
 # HOST: `laythe-park-nerv` (B25's Laythe park, Parsek-stripped): the crewed "Duna Rocket"
 # ORBITING Laythe, SMA 572,085.8 m ecc 0.0277 (periapsis ~56.2 km, apoapsis ~87.9 km,
 # above Laythe's 50 km atmosphere), Mk1 pod + HeatShield1 (Ablator 200/200) + TR-18A

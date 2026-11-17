@@ -38730,11 +38730,16 @@ def evaluate_boat_assertions(frames, params: BoatParams,
 #              150 deg), and a vertical-speed target that arrives at the drone's
 #              altitude (corrected for the curvature of the surface) at the
 #              intercept, never faster than 1 / 0.4 s of time to go nor slower than
-#              1 / 10 s. A pass is an approach that came inside approachGate and
-#              then opened by AX_PASS_OPEN_MARGIN on two polls; an approach pointed
-#              at the drone that is not closing at minClosingSpeed inside
-#              approachGate for six polls is a pass too. A pass counts an attempt
-#              and goes back to EXTEND; maxAttempts passes give up.
+#              1 / 5 s. The pitch for that vertical speed rides on a LEARNED trim
+#              (ax_learn_trim, from the release on, wings level only): the fixed
+#              angle-of-attack trim AIR-1 flies left the vertical speed 1.3 - 1.5 m/s
+#              short all the way in and both 2026-11-17 flights passed 5.5 m above
+#              the drone. A pass is an ARMED approach (inside approachGate, pointed
+#              at the drone) whose range then opened by AX_PASS_OPEN_MARGIN on two
+#              polls; an approach pointed at the drone that is not closing at
+#              minClosingSpeed inside approachGate for six polls is a pass too. A
+#              pass counts an attempt and goes back to EXTEND; maxAttempts passes
+#              give up.
 #   AFTERMATH  the collision is a PART-COUNT DROP on either vessel, the drone
 #              ABSENT after it was seen, the chaser LOST (no vessel, or the active
 #              vessel is no longer the Mallard), with the last range read under
@@ -38773,8 +38778,16 @@ AX_ATTEMPT_TIMEOUT_SECONDS = 240.0  # one EXTEND + PURSUE cycle
 AX_VEL_ALPHA = 0.5                  # EMA weight of the newest drone-velocity sample
 AX_MAX_LEAD = 300.0                 # m, the largest lead offset
 AX_MIN_CLOSING = 20.0               # m/s, the floor of the closing speed in time-to-go
-AX_VS_GAIN_MIN = 0.1                # 1/s
+AX_VS_GAIN_MIN = 0.2                # 1/s
 AX_VS_GAIN_MAX = 0.4                # 1/s
+# The learned pitch trim (see ``ax_learn_trim``): the first two flights (2026-11-17)
+# held the vertical speed 1.3 - 1.5 m/s above its target all the way in, because the
+# Mallard flies the pursuit at 84 m/s on about 1.4 deg of angle of attack against the
+# fixed AIR_AOA_TRIM_DEG of 3, and passed 5.5 m ABOVE the drone both times.
+AX_TRIM_GAIN = 0.15                 # deg of pitch per (m/s of vs error) per second
+AX_TRIM_MAX = 4.0                   # deg, the learned trim's bound either way
+AX_TRIM_MAX_ROLL = 10.0             # deg; banked harder, the trim does not learn
+AX_TRIM_MAX_ERR = 2.0               # m/s, the most vs error one second integrates
 AX_TURN_LATCH_DEG = 150.0
 AX_TURN_UNLATCH_DEG = 120.0
 AX_PASS_OPEN_FRAMES = 2
@@ -38791,7 +38804,7 @@ class AxParams:
     air: AirParams
     target_vessel_name: str
     loiter: Optional[Tuple[Tuple[float, float], ...]] = ()
-    release_altitude: float = 1600.0
+    release_altitude: float = 2500.0
     release_min_longitude: float = -74.30
     extend_seconds: float = 25.0
     pursue_speed: float = 75.0
@@ -38799,7 +38812,7 @@ class AxParams:
     approach_gate: float = 1500.0
     min_closing_speed: float = 25.0
     collision_range: float = 250.0
-    max_attempts: int = 4
+    max_attempts: int = 5
     min_target_altitude: float = 150.0
     max_range: float = 8000.0
     aftermath_min_seconds: float = 45.0
@@ -38815,7 +38828,7 @@ def ax_params_from_dict(params: Dict) -> AxParams:
                                           if air.expected_vessel_name else "")
                                or ""),
         loiter=air_parse_points(params.get("loiterPoints", AX_DEFAULT_LOITER)),
-        release_altitude=float(params.get("releaseAltitude", 1600.0)),
+        release_altitude=float(params.get("releaseAltitude", 2500.0)),
         release_min_longitude=float(params.get("releaseMinLongitude", -74.30)),
         extend_seconds=float(params.get("extendSeconds", 25.0)),
         pursue_speed=float(params.get("pursueSpeed", 75.0)),
@@ -38823,7 +38836,7 @@ def ax_params_from_dict(params: Dict) -> AxParams:
         approach_gate=float(params.get("approachGate", 1500.0)),
         min_closing_speed=float(params.get("minClosingSpeed", 25.0)),
         collision_range=float(params.get("collisionRange", 250.0)),
-        max_attempts=int(params.get("maxAttempts", 4)),
+        max_attempts=int(params.get("maxAttempts", 5)),
         min_target_altitude=float(params.get("minTargetAltitude", 150.0)),
         max_range=float(params.get("maxRange", 8000.0)),
         aftermath_min_seconds=float(params.get("aftermathMinSeconds", 45.0)),
@@ -38896,10 +38909,19 @@ class AxState:
     attempt_min_range: Optional[float] = None
     open_streak: int = 0
     closing_low_streak: int = 0
+    # The attempt's approach: armed once the drone was inside approachGate with the
+    # nose pointed at it (AX_POINTED_DEG). Only an armed approach can be a pass, so a
+    # range still opening at the PURSUE entry (a short extendSeconds leaves the drone
+    # inside the gate behind the plane) is the turn back, not a missed pass.
+    approach_armed: bool = False
     pass_ranges: Tuple[float, ...] = ()
     turn_latch: float = 0.0
     last_aim_lead: Optional[float] = None
     last_tgo: Optional[float] = None
+    # The learned pitch trim (deg, added to AIR_AOA_TRIM_DEG) and the poll it was last
+    # updated on; carried across attempts (it is the airframe's, not the pass's).
+    pitch_trim: float = 0.0
+    trim_ut: Optional[float] = None
     # The collision and what it read.
     collision_ut: Optional[float] = None
     collision_kind: Optional[str] = None
@@ -39010,6 +39032,42 @@ def ax_intercept_vs(target_vs: float, alt_err: float, tgo: float) -> float:
     gain = _air_clamp(1.0 / tgo if tgo > 0.0 else AX_VS_GAIN_MAX,
                       AX_VS_GAIN_MIN, AX_VS_GAIN_MAX)
     return _air_clamp(base + gain * float(alt_err), -AIR_MAX_SINK, AIR_MAX_CLIMB_RATE)
+
+
+def ax_learn_trim(state: AxState, snapshot: TelemetrySnapshot,
+                  vs_target: float) -> AxState:
+    """Integrate this poll's vertical-speed error into the learned pitch trim.
+
+    ``air_pitch_command`` assumes AIR_AOA_TRIM_DEG of angle of attack; the pursuit
+    flies faster than AIR-1's circuit on less, so a proportional-only law holds the
+    vertical speed short of its target by a fixed amount and arrives above the drone
+    by that amount over the altitude gain (measured 2026-11-17: 1.3 - 1.5 m/s, 5.5 m
+    above at both passes). The trim is the integral of (target - measured) vertical
+    speed at AX_TRIM_GAIN deg per (m/s) per second, each second's error clamped to
+    AX_TRIM_MAX_ERR, the whole to +/-AX_TRIM_MAX. It learns only wings level (roll
+    within AX_TRIM_MAX_ROLL: a turn needs its own pitch) and with an unsaturated
+    target (a saturated one is a transient the plane cannot follow, not a bias); a
+    poll outside AIR_RATE_MIN_DT .. AIR_RATE_MAX_DT of the last one only restarts the
+    clock. Pure."""
+    ut = snapshot.ut
+    if not _is_finite(ut):
+        return state
+    dt = (float(ut) - state.trim_ut) if state.trim_ut is not None else float("nan")
+    state = replace(state, trim_ut=float(ut))
+    if not (_is_finite(dt) and AIR_RATE_MIN_DT <= dt <= AIR_RATE_MAX_DT):
+        return state
+    if not (_is_finite(vs_target) and _is_finite(snapshot.vertical_speed)
+            and _is_finite(snapshot.roll)):
+        return state
+    if abs(snapshot.roll) > AX_TRIM_MAX_ROLL:
+        return state
+    if not (-AIR_MAX_SINK < vs_target < AIR_MAX_CLIMB_RATE):
+        return state
+    err = _air_clamp(float(vs_target) - float(snapshot.vertical_speed),
+                     -AX_TRIM_MAX_ERR, AX_TRIM_MAX_ERR)
+    trim = _air_clamp(state.pitch_trim + AX_TRIM_GAIN * err * dt, -AX_TRIM_MAX,
+                      AX_TRIM_MAX)
+    return replace(state, pitch_trim=trim)
 
 
 def ax_latched_error(err: float, latch: float) -> Tuple[float, float]:
@@ -39131,13 +39189,16 @@ def _ax_turn_check(state: AxState, snapshot: TelemetrySnapshot, bearing: float,
 def _ax_level_hold(state: AxState, snapshot: TelemetrySnapshot, heading: float,
                    altitude_target: float, vs_ff: float,
                    speed: float) -> Tuple[AxState, List[Action]]:
-    """Straight flight on ``heading`` toward ``altitude_target``."""
+    """Straight flight on ``heading`` toward ``altitude_target``, on the learned
+    pitch trim (which this poll's vertical-speed error then updates)."""
     p = state.params
     err = (air_heading_error(snapshot.heading, heading)
            if _is_finite(snapshot.heading) and heading is not None else float("nan"))
     bank = air_bank_command(err, p.air.max_bank, state.air.bank_sign)
     vs_t = air_vs_target(altitude_target, snapshot.altitude, vs_ff)
-    pitch = air_pitch_command(vs_t, snapshot.vertical_speed, snapshot.surface_speed)
+    pitch = air_pitch_command(vs_t, snapshot.vertical_speed, snapshot.surface_speed,
+                              trim=AIR_AOA_TRIM_DEG + state.pitch_trim)
+    state = ax_learn_trim(state, snapshot, vs_t)
     if (_is_finite(snapshot.surface_speed)
             and snapshot.surface_speed < AIR_STALL_GUARD_SPEED):
         pitch = min(pitch, AIR_AOA_TRIM_DEG)
@@ -39148,10 +39209,11 @@ def _ax_level_hold(state: AxState, snapshot: TelemetrySnapshot, heading: float,
 
 def ax_pursue_command(state: AxState,
                       snapshot: TelemetrySnapshot) -> Tuple[float, float, float, float,
-                                                            float, float, float]:
+                                                            float, float, float, float]:
     """One poll of the pursuit law: (pitch target, bank limit, throttle, heading
-    error to the led aim point, its bearing, lead metres, time to go). Pure; reads
-    the tracked drone off the state. The caller latches the error and banks."""
+    error to the led aim point, its bearing, lead metres, time to go, vertical-speed
+    target). Pure; reads the tracked drone and the learned pitch trim off the state.
+    The caller latches the error, banks and updates the trim."""
     p = state.params
     rel = snapshot.air_target_rel_position
     horizontal = math.hypot(float(rel[1]), float(rel[2]))
@@ -39169,13 +39231,14 @@ def ax_pursue_command(state: AxState,
     vs_t = ax_intercept_vs(state.tgt_vu if state.tgt_vel_known else 0.0,
                            state.tgt_alt - snapshot.altitude
                            if _is_finite(snapshot.altitude) else float("nan"), tgo)
-    pitch = air_pitch_command(vs_t, snapshot.vertical_speed, snapshot.surface_speed)
+    pitch = air_pitch_command(vs_t, snapshot.vertical_speed, snapshot.surface_speed,
+                              trim=AIR_AOA_TRIM_DEG + state.pitch_trim)
     if (_is_finite(snapshot.surface_speed)
             and snapshot.surface_speed < AIR_STALL_GUARD_SPEED):
         pitch = min(pitch, AIR_AOA_TRIM_DEG)
     throttle = air_throttle_command(p.pursue_speed, snapshot.surface_speed,
                                     AIR_CRUISE_MIN_THROTTLE)
-    return pitch, limit, throttle, err, brg, math.hypot(ln, le), tgo
+    return pitch, limit, throttle, err, brg, math.hypot(ln, le), tgo, vs_t
 
 
 def _ax_collide(state: AxState, snapshot: TelemetrySnapshot,
@@ -39352,7 +39415,7 @@ def ax_decide(state: AxState, snapshot: TelemetrySnapshot) -> Tuple[AxState, Lis
         if (state.target_seen and state.tgt_alt is not None
                 and _air_elapsed(state.air, ut, state.phase_entry_ut) >= p.extend_seconds):
             state = _ax_enter(state, AX_PURSUE, ut, attempt_min_range=None, open_streak=0,
-                              closing_low_streak=0, turn_latch=0.0,
+                              closing_low_streak=0, turn_latch=0.0, approach_armed=False,
                               air=replace(state.air, turn_check_frames=0,
                                           turn_check_start_err=None))
         return state, cmd
@@ -39363,13 +39426,16 @@ def ax_decide(state: AxState, snapshot: TelemetrySnapshot) -> Tuple[AxState, Lis
             # A blind poll: hold the last commands (kRPC keeps them) and wait.
             return state, []
         rng = state.last_range
-        pitch, limit, throttle, err, brg, lead, tgo = ax_pursue_command(state, snapshot)
+        pitch, limit, throttle, err, brg, lead, tgo, vs_t = ax_pursue_command(state,
+                                                                             snapshot)
         closing = state.closing_speed
-        # The pass: the approach came inside approachGate, then the range grew, past
-        # its closest by AX_PASS_OPEN_MARGIN, on two polls in a row (raw ranges: the
-        # smoothed closing speed lags a pass by a poll or two).
+        # The pass: an ARMED approach (inside approachGate, pointed at the drone),
+        # then the range grew, past its closest by AX_PASS_OPEN_MARGIN, on two polls in
+        # a row (raw ranges: the smoothed closing speed lags a pass by a poll or two).
+        armed = state.approach_armed or (rng <= p.approach_gate and _is_finite(err)
+                                         and abs(err) < AX_POINTED_DEG)
         least = state.attempt_min_range
-        opened = (least is not None and least <= p.approach_gate
+        opened = (armed and least is not None and least <= p.approach_gate
                   and rng > least + AX_PASS_OPEN_MARGIN
                   and prev_range is not None and rng > prev_range)
         open_streak = state.open_streak + 1 if opened else 0
@@ -39378,7 +39444,8 @@ def ax_decide(state: AxState, snapshot: TelemetrySnapshot) -> Tuple[AxState, Lis
                    and abs(err) < AX_POINTED_DEG
                    and (closing is None or closing < p.min_closing_speed))
         closing_low = state.closing_low_streak + 1 if stalled else 0
-        state = replace(state, open_streak=open_streak, closing_low_streak=closing_low)
+        state = replace(state, open_streak=open_streak, closing_low_streak=closing_low,
+                        approach_armed=armed)
         if open_streak >= AX_PASS_OPEN_FRAMES or closing_low >= AX_CLOSING_ABORT_FRAMES:
             attempts = state.attempts + 1
             closest = least if least is not None else rng
@@ -39390,13 +39457,14 @@ def ax_decide(state: AxState, snapshot: TelemetrySnapshot) -> Tuple[AxState, Lis
                                                       state.pass_ranges])), []
             state = _ax_enter(state, AX_EXTEND, ut, extend_heading=air_wrap_heading(
                 snapshot.heading), attempt_start_ut=ut, attempt_min_range=None,
-                open_streak=0, closing_low_streak=0)
+                open_streak=0, closing_low_streak=0, approach_armed=False)
             return _ax_level_hold(state, snapshot, state.extend_heading, state.tgt_alt,
                                   state.tgt_vu if state.tgt_vel_known else 0.0,
                                   p.pursue_speed)
         err, latch = ax_latched_error(err, state.turn_latch)
         bank = air_bank_command(err, limit, state.air.bank_sign, gain=p.pursue_bank_gain)
         sign = state.air.bank_sign
+        state = ax_learn_trim(state, snapshot, vs_t)
         state = _ax_turn_check(replace(state, turn_latch=latch, last_aim_lead=lead,
                                        last_tgo=tgo), snapshot, brg, err, bank)
         if state.air.bank_sign != sign:

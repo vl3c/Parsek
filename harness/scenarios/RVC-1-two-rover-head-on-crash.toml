@@ -6,9 +6,42 @@ tier = "operator"
 #
 # Authored 2026-11-16 for todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3a ("two rovers crash
 # into each other, to check the reliability of the recording system and playback
-# rendering"). NEVER FLOWN: its first flight is a READING run (tag `pending-flight`). Every
-# regex below matches a literal found in C# source (file cited); the windows that depend on
-# stock physics (how many parts die, which ones, the impact speed) are left open.
+# rendering"). Not yet green (tag `pending-flight`). Every regex below matches a literal
+# found in C# source (file cited); the windows that depend on stock physics (how many parts
+# die, which ones, the impact speed) are left open.
+#
+# FLIGHT 1 (2026-11-17, `2026-11-17_1411`, Debug DLL from main 65ac33ee8, PARSEK-FAIL
+# (expectation) attempt 1, 348 s; every other verifier green). Red on exactly two tokens,
+# both a wrong assumption of this spec, not a Parsek defect:
+#   * the background `Part death on background vessel ... vesselPid=<bgChild>` line: the
+#     depot (bgChild 717435167) lost NO part. The miner hit it head-on at about 15 m/s
+#     (BgRecorder `dist=` 109 m at UT 120.2, 34 m at 125.3, 1 m at 130.3 and 135.4) and
+#     pushed it about 70 m north (`Environment transition: pid=717435167 -> SurfaceMobile
+#     at UT=130.14`, back to SurfaceStationary at 141.28) with nothing broken on either
+#     side; the miner then slid off it and wrecked itself about 36 m further on
+#     (`drivevessel crash hit: part='fuelTankSmall' ... vesselPid=110406740 ... own=true
+#     impactSrfSpeed=5.69 ut=140.08`, `crash end: ... firstPartVesselPid=110406740
+#     ownPartsLost=1 otherPartsLost=0`, mark `rvc1-after-crash-110406740-1-0`). Every stock
+#     `Exploded!!` line between the crash marks is a miner part or a `Mining Rover RC
+#     Debris` part (fuelTankSmall, 4 rtg, radialRCSTank, MiniISRU, radPanelSm), the
+#     background recorder sampled the depot as a loaded BackgroundMap member throughout,
+#     its onPartDie handler was subscribed, and the depot leaf committed `terminal=Landed`
+#     with its 24 parts. So the recorder had nothing to record.
+#   * the replay's two-distinct-recordings `apply family=Destroyed` token: both lines are
+#     on rec=2, the miner's post-undock recording (fuelTankSmall 740760190, MiniISRU
+#     98504651), correct for a depot that lost nothing.
+# Re-shaped after it: a head-on rover impact does not reliably break the struck rover, so
+# the background part death is now made deterministic by `PartAction button=explode` on one
+# depot radiator (stock Part.explode, the crash path: FX then Die, so onPartDie fires as on
+# an impact) once the wreck has settled, and a new token gates that the impact REACHED the
+# depot (its background `Environment transition: pid=<bgChild> -> SurfaceMobile` between the
+# crash mark and the explode), which a miss followed by a terrain crash would not give.
+# Read on flight 1: the active-side split ran (`Deferred split classified: source=joint-break,
+# result=DebrisSplit, newVessels=8 ... recordedPid=110406740`, the coalescer window opened,
+# four `ProcessBreakupEvent: debris child created ... alive=False`); those four one-point
+# debris recordings were dropped from the commit (tree 8 -> 4 recordings, analyzer WARN
+# INV5-ORPHAN-SIDECAR x4, not red); 4 ghost meshes spawned and 4 destroyed (balanced); the
+# structure block read one tree, one Dock, one Undock.
 #
 # HOST: `rover-crash-watched` (harness/tools/build_rover_crash_watched.py): V's
 # "Mining Rover RC" (pid 110406740, index 0, active, 28 parts, a Clamp-O-Tron Jr on its
@@ -41,10 +74,16 @@ tier = "operator"
 # WHAT IT GATES (the reliability question, recording half):
 #   * both rovers recorded at once next to each other: the Dock merge and the Undock branch
 #     with the depot as the background child, by recording id and pid;
+#   * the impact reached the depot: its background `Environment transition: pid=<bgChild>
+#     -> SurfaceMobile` (BackgroundRecorder.TrackSections.cs) after the crash mark and before
+#     the explode (flight 1: the miner pushed the depot about 70 m);
 #   * part loss on BOTH vessels while recording: the active recorder's `Part event:
-#     Destroyed` (FlightRecorder.PartEvents.cs OnPartDie) and the background recorder's
-#     `Part death on background vessel: Destroyed ... vesselPid=<the undock's bgChild pid>`
-#     (BackgroundRecorder.GameEventHandlers.cs), both between the crash marks;
+#     Destroyed` (FlightRecorder.PartEvents.cs OnPartDie) from the crash itself, and the
+#     background recorder's `Part death on background vessel: Destroyed 'radPanelSm'
+#     pid=2576286852 vesselPid=<the undock's bgChild pid>`
+#     (BackgroundRecorder.GameEventHandlers.cs) for the depot radiator the lane explodes
+#     after the crash (flight 1: the impact broke no depot part), both between the crash
+#     marks;
 #   * the scene-exit commit of the whole tree (GS-7's tokens: either an active or a pending
 #     tree reaches the Space Center under autoMerge) with at least three recordings.
 # (playback half, after Rewind-to-Launch and a reload onto the watcher):
@@ -52,7 +91,8 @@ tier = "operator"
 #     (`[GhostRenderTrace] phase=MeshSpawned ... recId=<bgChild>`, GhostRenderTrace.cs);
 #   * the ghosts apply the recorded part deaths on TWO distinct recordings
 #     (`apply family=Destroyed surface=visibility rec=N ... applied=[1-9]`,
-#     GhostPartEventApplyLog.cs FormatLine; the second rec index differs by back-reference).
+#     GhostPartEventApplyLog.cs FormatLine; the second rec index differs by back-reference),
+#     one of them the exploded depot radiator by its part pid.
 #   * [expectations.ghostLifecycle] (REPORT-ONLY): every MeshSpawned balanced by a
 #     MeshDestroyed by the end of the replay; [expectations.recordings.structure]
 #     (REPORT-ONLY): one tree, one Dock, one Undock.
@@ -74,8 +114,11 @@ tier = "operator"
 #   * too soft an impact: both front parts are Clamp-O-Tron Jrs; if nothing dies, the same
 #     ERROR. Raise the reverse span (keep the miner well under 200 m from the depot so the
 #     depot stays unpacked).
-#   * part loss on one side only: the background or active `Destroyed` contract reds as an
-#     expectation; read which side lost what before re-tuning (stock decides it).
+#   * part loss on one side only: flight 1 showed it (the depot unbroken), hence the explode.
+#     If the impact itself ever breaks the exploded radiator (pid 2576286852), the explode
+#     answers ERROR (part not found; driver INVALID): pick another depot leaf part.
+#   * a miss: the miner passes the depot and wrecks on terrain; the impact token reds (read
+#     the BgRecorder `dist=` samples before calling it a Parsek verdict).
 #   * the miner's root probe core is behind its adapter and port; if it dies the tree goes
 #     pending, which ExitToSpaceCenter's alternation covers.
 #   * the undock leaves the miner FLYING for a few frames (MINE-4 _0945_a2), hence the wait
@@ -89,7 +132,7 @@ tier = "operator"
 # recording is 1x physics (the drives need it); the replay runs 5x on rails to the dock and
 # 1x through the crash; (4)-(5) no burns, no coast; (6) retry once (a missed or soft impact
 # is physics); (7) count is a floor; (8)/(9) after the first green flight.
-description = "RVC-1: V's mining rover docks the ore depot rover and undocks it so both are members of one recording tree, backs away and drives head-on into it at full throttle (DriveVessel crash mode); gates both recorders' part-death lines, the split handling and the scene-exit commit, then after Rewind-to-Launch replays both ghosts from a neighbouring rover through the impact and gates the ghost meshes and the destroyed-part visibility applied on both recordings."
+description = "RVC-1: V's mining rover docks the ore depot rover and undocks it so both are members of one recording tree, backs away and drives head-on into it at full throttle (DriveVessel crash mode), then explodes one depot radiator; gates the impact reaching the depot, both recorders' part-death lines and the scene-exit commit, then after Rewind-to-Launch replays both ghosts from a neighbouring rover through the impact and gates the ghost meshes and the destroyed-part visibility applied on both recordings."
 instanceProfile = "stock-minimal"
 tags = ["rover", "crash", "dock-undock", "part-destroyed", "background-recording", "rewind", "ghost-playback", "RVC-1", "pending-flight", "reading-run"]
 
@@ -131,8 +174,15 @@ steps = [
   # 4. THE CRASH: full throttle back along the same line until the first part dies.
   { cmd = "MissionMark",         args = { label = "rvc1-crash" },                         expect = "OK" },
   { cmd = "DriveVessel",         args = { wheelThrottle = "1", seconds = "30", untilCrash = "true" }, label = "cr", expect = "OK" },
-  # The wreck settles at 1x with both recorders running (the drives end by about UT 170).
-  { cmd = "WarpToUT",            args = { ut = "185", maxRate = "1" },                    expect = "OK", budget = 120 },
+  # The wreck settles at 1x with both recorders running (the drives end by UT 166 at the
+  # latest: reverse from about 95.5 for 10 s, settle and crash at most 30 s each; flight 1
+  # ended the crash at UT 140.08).
+  { cmd = "WarpToUT",            args = { ut = "170", maxRate = "1" },                    expect = "OK", budget = 120 },
+  # The background part death, made deterministic (flight 1's impact broke no depot part):
+  # one depot radiator, a leaf on the MiniISRU (no split), on the depot by the undock's new
+  # pid, stock Part.explode (FX then Die, so onPartDie fires as on an impact).
+  { cmd = "PartAction",          args = { button = "explode", pid = "${und.newPid}", part = "radPanelSm", partPid = "2576286852" }, label = "dx", expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "185", maxRate = "1" },                    expect = "OK", budget = 60 },
   { cmd = "MissionMark",         args = { label = "rvc1-after-crash-${cr.firstPartVesselPid}-${cr.ownPartsLost}-${cr.otherPartsLost}" }, expect = "OK" },
   { cmd = "RecordingState",                                                               expect = "OK" },
   # 5. THE COMMIT: leave for the Space Center (an active OR a pending tree, GS-7's gate).
@@ -173,10 +223,12 @@ steps = [
 # `cross-tree-foreign-dock` and `undock-split` <- the depot joins the miner's tree by a dock
 # with a vessel outside it and leaves as the Undock branch's background child (MINE-5b's
 # pair); `bg-recording` <- the depot is recorded as a loaded background member through the
-# crash (its `Part death on background vessel` line is gated).
+# crash (its impact `Environment transition` and, for the exploded radiator, its `Part death
+# on background vessel` line are gated).
 D5  = ["cross-tree-foreign-dock", "undock-split", "bg-recording"]
-# `decouple-stage-destroy` <- parts destroyed by impact, recorded as `Destroyed` part events
-# on both recorders and applied on both ghosts; `dock-undock` <- the dock and undock.
+# `decouple-stage-destroy` <- parts destroyed (the miner's by the impact, one depot radiator
+# by stock Part.explode), recorded as `Destroyed` part events on both recorders and applied
+# on both ghosts; `dock-undock` <- the dock and undock.
 D7  = ["decouple-stage-destroy", "dock-undock"]
 D1  = ["commit-scene-exit", "auto-merge"]
 D6  = ["basic-playback"]
@@ -225,9 +277,15 @@ required = [
   "drivevessel crash end: outcome=crashed vessel=",
   # Part loss on the ACTIVE miner while recording (FlightRecorder.PartEvents.cs OnPartDie).
   "(?s)MISSIONMARK label=rvc1-crash (?:(?!MISSIONMARK label=).)*?\\[Recorder\\] Part event: Destroyed '[^'\\r\\n]+' pid=[0-9]+(?:(?!MISSIONMARK label=).)*?MISSIONMARK label=rvc1-after-crash-",
+  # The impact REACHED the depot: the background recorder saw the parked depot start moving
+  # (BackgroundRecorder.TrackSections.cs) after the crash mark and before the explode below
+  # (flight 1: `Environment transition: pid=717435167 -> SurfaceMobile at UT=130.14`, the
+  # miner pushing it). A miss followed by a terrain crash leaves the depot parked.
+  "Tree branch created: type=Undock, [^\\r\\n]*bgChild=[0-9a-f]+ \\(pid=([1-9][0-9]*)\\)[\\s\\S]*MISSIONMARK label=rvc1-crash (?:(?!MISSIONMARK label=|partaction applied button=explode )[\\s\\S])*?\\[BgRecorder\\] Environment transition: pid=\\1 -> SurfaceMobile at UT=(?:(?!MISSIONMARK label=)[\\s\\S])*?partaction applied button=explode pid=\\1 part='radPanelSm' partId=[0-9]+ event=explode ",
   # Part loss on the BACKGROUND depot while recording, on the undock's bgChild pid
-  # (BackgroundRecorder.GameEventHandlers.cs; the pid by back-reference).
-  "Tree branch created: type=Undock, [^\\r\\n]*bgChild=[0-9a-f]+ \\(pid=([1-9][0-9]*)\\)[\\s\\S]*MISSIONMARK label=rvc1-crash (?:(?!MISSIONMARK label=)[\\s\\S])*?Part death on background vessel: Destroyed '[^'\\r\\n]+' pid=[0-9]+ vesselPid=\\1(?:(?!MISSIONMARK label=)[\\s\\S])*?MISSIONMARK label=rvc1-after-crash-",
+  # (BackgroundRecorder.GameEventHandlers.cs; the pid by back-reference): the radiator the
+  # explode step destroys (the impact token above gates the explode's own applied line).
+  "Tree branch created: type=Undock, [^\\r\\n]*bgChild=[0-9a-f]+ \\(pid=([1-9][0-9]*)\\)[\\s\\S]*MISSIONMARK label=rvc1-crash (?:(?!MISSIONMARK label=)[\\s\\S])*?Part death on background vessel: Destroyed 'radPanelSm' pid=2576286852 vesselPid=\\1(?:(?!MISSIONMARK label=)[\\s\\S])*?MISSIONMARK label=rvc1-after-crash-",
   # --- 5. THE COMMIT (GS-7's tokens; ParsekTestCommandAddon.ExitToSpaceCenter.cs,
   # ParsekScenario.AutoCommit.cs Silent / Limbo-preserving full-fidelity) ---
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=(?:false hasPendingTree=true|true hasPendingTree=false)",
@@ -248,6 +306,8 @@ required = [
   "Tree branch created: type=Undock, [^\\r\\n]*bgChild=([0-9a-f]+) \\(pid=[0-9]+\\)[\\s\\S]*MISSIONMARK label=rvc1-rewound-reloaded [\\s\\S]*?\\[GhostRenderTrace\\] phase=MeshSpawned rec=\\S+ recId=\\1 ",
   # The recorded deaths hidden on TWO distinct ghosts during the replay.
   "(?s)MISSIONMARK label=rvc1-replay-before-undock .*?apply family=Destroyed surface=visibility rec=([0-9]+) pid=[0-9]+ applied=[1-9][0-9]* .*?apply family=Destroyed surface=visibility rec=(?!\\1 )[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* .*?MISSIONMARK label=rvc1-replayed ",
+  # One of them the depot radiator the background recorder recorded, by its part pid.
+  "(?s)MISSIONMARK label=rvc1-replay-before-undock .*?apply family=Destroyed surface=visibility rec=[0-9]+ pid=2576286852 applied=[1-9][0-9]* .*?MISSIONMARK label=rvc1-replayed ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
