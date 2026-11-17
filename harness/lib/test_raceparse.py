@@ -9,6 +9,7 @@ Runnable with the stdlib runner only::
 """
 
 import os
+import re
 import shutil
 import struct
 import tempfile
@@ -846,6 +847,33 @@ class RaceParseRowTests(unittest.TestCase):
         row = self.evaluate(("a", files)).saves[0].to_dict()
         self.assertEqual(rp.ROW_FINDINGS_CAP + 5, row["findingCount"])
         self.assertEqual(rp.ROW_FINDINGS_CAP, len(row["findings"]))
+
+
+class RaceMarkSourceSyncTests(unittest.TestCase):
+    """Reads OUTSIDE harness/: the race mark's scenario name and player-id key are
+    mirrored from Source/Parsek/RaceCore (RaceFormat.ScenarioModuleName and
+    RaceLinkCodec.KeyPlayerId, comment-stripped), so a rename on one side alone reds
+    here instead of every race row reading "0 SCENARIO nodes named ..."."""
+
+    RACE_CORE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "Source", "Parsek", "RaceCore")
+
+    def _const(self, file_name, const_name):
+        path = os.path.join(self.RACE_CORE, file_name)
+        self.assertTrue(os.path.isfile(path), "the race mark constants moved: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+        text = re.sub(r"//[^\n]*", "", text)
+        found = re.findall(r'internal const string %s\s*=\s*"([^"]*)"\s*;' % const_name, text)
+        self.assertEqual(1, len(found), "%s.%s not found once in %s" % (file_name, const_name, path))
+        return found[0]
+
+    def test_the_scenario_name_is_the_c_sharp_constant(self):
+        self.assertEqual(self._const("RaceFormat.cs", "ScenarioModuleName"), rp.RACE_MARK_SCENARIO)
+
+    def test_the_player_key_is_the_c_sharp_constant(self):
+        self.assertEqual(self._const("RaceLink.cs", "KeyPlayerId"), rp.RACE_MARK_PLAYER_KEY)
 
 
 if __name__ == "__main__":

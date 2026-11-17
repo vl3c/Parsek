@@ -27,6 +27,9 @@ namespace Parsek.Tests.SaveRoundTrip
                 "orchestrator: every node OnSave writes is produced by a covered type's own codec",
             ["Parsek.LiveVesselSnapshot"] =
                 "SaveOrbitToNode writes a stock ORBIT node for a spawn, which stock KSP reads, not Parsek",
+            ["Parsek.IRaceScenarioChild"] =
+                "interface with no fields: each implementer's Save / Load is its own row; the race scenario node "
+                + "around them is written back verbatim (RaceScenarioChildTests pins it byte-equal)",
         };
 
         private static readonly string[] Prefixes = { "Save", "Load", "Serialize", "Deserialize", "TryLoad" };

@@ -398,6 +398,51 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   list changed; `RaceCore` should show no leak). Also: `lifetimes.toml` needs nothing (no
   static); `log_tags.json`; the lane catalog for the new `RaceMode` category
   (`python harness/tools/lane_catalog.py`).
+- **As built (2026-11-17, branch `mp/r1-03-race-link-and-scenario`):**
+  - `RaceFormat.Classify(int? stored, int current)` takes the current value as a second
+    argument: the mark (`LinkCurrent`) and the exchange (`Current`) are two formats with one
+    baseline, so each caller names its own current. `RaceFormatPinTests` checks it against
+    `SaveFormat.Classify(stored, Baseline, current)` on a table of pairs, and pins the five class
+    names and ordinals equal to `SaveFormatClass`'s.
+  - `RaceLink` holds readonly fields, not properties (no getter joins the uncalled-method
+    ratchet before R1-10 reads them); `RaceLinkCodec.Write` is not added. `TryRead` reads
+    `raceLinkFormat` first (a newer mark is refused `format-newer` even with no other key), then
+    the ten keys in design order; an empty value reads as `missing:<key>`, and `siteSlot` outside
+    0..3 is `bad-value:siteSlot`. Unknown keys survive by the module's verbatim path, so that cell
+    is in `RaceScenarioChildTests`, not the codec class.
+  - The child dispatch and the write-back are the static `RaceScenarioChildren` in
+    `RaceScenarioChild.cs`: values first (stock writes `name` and `scene` itself), then the
+    children in their loaded order, the first child of a handler's name written by that handler
+    in place, and a handler whose child the save lacks appending its own. When the mark is held
+    (inert, or it does not read) no handler runs and the whole node is written back.
+  - Log lines: `[Race] Mark loaded: raceId=.. playerId=.. slot=.. format=.. children=..
+    handled=..` (Info), `[Race] Mark held verbatim: reason=.. values=.. nodes=..` (Info) and a
+    Verbose `[Race] Mark saved: ..` per save.
+  - `ParsekGameModeGateTests.GatedEntryPointNames` lists `ParsekRaceScenario.OnLoad`, so the
+    IL check proves the scenario's load calls `ParsekGameModeGate.CheckInert`.
+  - `SaveRoundTripCoverageGateTests.Exempt` has a row for `IRaceScenarioChild`: the gate counts
+    any type with a `Save*` / `Load*` method over a ConfigNode, and the interface has no fields to
+    round-trip. Each implementer is its own row or covered test when it lands (R3E-15 first).
+    `RaceLinkCodec.TryRead` and `ParsekRaceScenario.OnLoad` / `OnSave` do not match the gate's
+    name prefixes, and `RaceLinkCodec.Write` (R1-10) will not either, so R1-10's field-level
+    round trip of `RaceLink` in `RaceLinkCodecTests` is required by this plan, not by the gate.
+  - The 29 forbidden edges are 13 single edges into RaceCore and one list edge out of it with
+    its 16 targets. `headless_pins.toml` gained only the RaceCore rows (measured: 13 methods,
+    754 instructions, no reach, no leak). `ilanalysis.coupling_report` now writes zero reach
+    counts for a module none of whose methods reach the game (RaceCore is the first; the
+    measured headless row read a missing key). `log_tags.json` gained the `Race` and
+    `RaceModeInGame` tags only. The uncalled count stays at its bound, 374.
+  - `harness/lib/test_raceparse.RaceMarkSourceSyncTests` pins `raceparse.RACE_MARK_SCENARIO`
+    and `RACE_MARK_PLAYER_KEY` to the C# constants; the category inventory has a `RaceMode`
+    row (NOT DRIVEN, bucket B).
+  - S6 PREDICTION, from the decompiled stock code (not a result): `Game(ConfigNode)` keeps every
+    `SCENARIO` child as a proto with no type or option check; a proto's scenes come from its saved
+    `scene` value; `GamePersistence.UpdateScenarioModules` adds or removes a proto only for the
+    `AddTo*` / `RemoveFrom*` options; `ScenarioRunner` instantiates a proto in its scenes by type
+    name with no option check; a proto with no live module is saved verbatim. So a `None` proto
+    should survive load, update and save and be instantiated. R1-10 must write the `scene` value
+    (or add the proto with `Game.AddProtoScenarioModule(Type, GameScenes[])`, which sets the
+    scenes). S6 and `MarkSurvivesSaveLoad` on the PC confirm or refute it; neither has run.
 - **Size:** M. **Depends on:** P12-01, S6. **PC:** yes, the in-game test.
 - **Risk:** medium; if S6 shows stock drops a proto of a `None` module, the module needs
   another creation option, which the in-game test would show at once.
@@ -452,12 +497,35 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
 
 ### R1-05 The race mark's row in `LoadReconcilePolicy`
 
-- **Change:** `LoadReconcilePolicy.cs`: new `LoadStateCategory.RaceLink` (`:59-103`);
-  `Decide` returns `LoadReconcileAction.Save` for every load kind, with the reason "identity
-  that never changes after creation; every load takes the loaded save's copy" (design 15.7).
+- **Change:** `LoadReconcilePolicy.cs`: new `LoadStateCategory.RaceLink` (`:59-103`, measured
+  before the row; `:59-106` with it); `Decide` returns `LoadReconcileAction.Save` for every load
+  kind, with the reason "identity that never changes after creation; every load takes the loaded
+  save's copy" (design 15.7).
 - **Proof:** `LoadReconcilePolicyTests` (table shape covers the new category; `DecideEarly`
   consistency).
 - **Registers:** none beyond the test.
+- **As built (2026-11-17, branch `mp/r1-05-race-link-policy-row`):**
+  - `LoadStateCategory.RaceLink` is the last member (`:59-106`); `Decide` dispatches it to
+    `DecideRaceLink`, one `Save` cell per load kind with the reason `RaceLinkFromSave`, which
+    names the reader (`ParsekRaceScenario.OnLoad`, `RaceLinkCodec.TryRead`) and carries the
+    spec's wording. An unknown kind throws like every other row.
+  - `IsConsumedEarly(RaceLink)` is true: the race scenario module's OnLoad reads the mark with
+    no load kind at all, so the three refined in-session kinds share the cell and
+    `DecideEarly(InSession, RaceLink)` answers `Save`. The method's comment says so. Marking it
+    late would have needed the QuickloadFlight / InSessionOther suffix notes on two cells that
+    differ from the rest, against the spec's one reason for every kind.
+  - `LoadReconcilePolicyTests.RaceLinkCells_TakeTheLoadedSavesCopyOnEveryKind` pins the seven
+    cells, the reason (the reader's names through `nameof`, so a rename reds), the early
+    decision for every early kind, and that the mark is not a PARSEK staging node. The table
+    shape cells (`EveryKindHasADecisionForEveryCategory`, `EarlyDecisionsAreIdentical...`,
+    `DecideEarly_NonInSessionKind_IsDecideOfThatKind`, `DecideThrowsForUnknownMember`) cover
+    the new member by enumeration. No wiring gate enumerates categories against staging nodes:
+    the mark lives in its own scenario node, so `StagingNodeCategories` and
+    `LoadReconcileWiringGateTests` are unchanged. No harness mirror or doc table lists the
+    categories.
+  - Additive enum member of a pure table: no save-format bump (nothing persisted changes) and
+    no CHANGELOG entry. The new private method is reached through `Decide`; the unreached count
+    stays 374.
 - **Size:** S. **Depends on:** R1-03. **PC:** no.
 - **Risk:** low; a table row with no behavior of its own.
 

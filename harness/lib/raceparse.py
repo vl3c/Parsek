@@ -798,9 +798,8 @@ GATING_KEY = "gating"
 RACE_BLOCK_KEYS: Tuple[str, ...] = (GATING_KEY,)
 
 # The race mark (multiplayer R1-03): one SCENARIO node of this name in the save's
-# persistent.sfs, carrying the save's own player id. Literals from the R1 plan; the
-# R1-03 pull request owes a source-sync cell against RaceFormat.ScenarioModuleName
-# and RaceLinkCodec's key.
+# persistent.sfs, carrying the save's own player id. Mirrors RaceFormat.ScenarioModuleName
+# and RaceLinkCodec.KeyPlayerId (test_raceparse.RaceMarkSourceSyncTests).
 RACE_MARK_SCENARIO = "ParsekRaceScenario"
 RACE_MARK_PLAYER_KEY = "playerId"
 

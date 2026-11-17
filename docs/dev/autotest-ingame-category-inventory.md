@@ -1,4 +1,4 @@
-# In-game test category inventory (all 142 categories)
+# In-game test category inventory (all 144 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -170,6 +170,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `PreParsekBackup` | 4 | 4 | 4 | 4 | 0 | 4 | PPB-1 | A |
 | `PromotionConverterSeed` | 1 | 1 | 0 | 0 | 0 | 1 | MINE-15-promotion-converter-seed (authored 2026-10-24 with the live witness for TAIL-TRIM-UNWITNESSED-RESOURCE-CHANGES' promotion seeds, PR #2221; LIVE-PROVEN on its first flight `2026-10-24_2357`, PASS attempt 1, `total=1 passed=1 failed=0 skipped=0` pinned whole). One FLIGHT cell over `miner-rover-landed` with the drills and ISRU running: the recorder's promotion seed pass emits one `ConverterActivated` seed per running converter part on a fresh recording and none on a recording that already holds a converter edge. Self-skips when no converter runs on the active vessel. Its own category so no pinned `BATCH_COMPLETE` tally moves | A |
 | `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | H65-quickload-resume-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2014`: PASS attempt 1, 63 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=QuickloadResume scene=FLIGHT` pinned whole. EXECUTED 3 of 3, i.e. the WHOLE category on the isolated path. KSP's stock PROGRAMMATIC quickload backend over `gs1-two-stage-pad`: the `DontDestroyOnLoad` bridge surviving a real quicksave / quickload on a disposable slot, and a mid-recording F5/F9 resuming the SAME `activeRecordingId`. The R6 wave's ONLY partly-batch-disabled member - ordinary executes 1, isolated executes 3 - so it is declared in `PARTLY_BATCH_DISABLED_IDS`; while interim its `passed=` was a FLOOR OF 2, since the plain `[1-9][0-9]*` spelling would accept `passed=1`, the exact line a run that lost the isolated arg prints, and the measured literal 3 now clears that ceiling by construction. Its baseline-slot literal is 2, not the category total 3: only two of the three declarations carry the restore flag. Claims nothing beyond D14 - D9 `rewind-to-launch` names Parsek's own rewind machinery, not KSP's F5/F9) | A |
+| `RaceMode` | 1 | 0 | 1 | 0 | 0 | 1 | NOT DRIVEN (multiplayer R1-03, 2026-11-17, branch `mp/r1-03-race-link-and-scenario`). One SPACECENTER cell, `MarkSurvivesSaveLoad`: a `ParsekRaceScenario` proto added to a scratch copy of the loaded game (FLIGHTSTATE removed, so no vessel is built) must survive stock's `new Game(node)`, `GamePersistence.UpdateScenarioModules`, `Game.Save` and a second load byte-equal, an unknown key and child included; in a race save the live module must be instantiated and write its node back verbatim (that half logs and returns in a save with no race mark). The live proof of the `ScenarioCreationOptions.None` prediction spike S6 must confirm. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips without a loaded game, a save folder or the save's persistent.sfs. NEVER FLOWN; RACE-9 (T-29) will host it. Bucket **B** until a lane drives it | B |
 | `RaceRivalLane` | 1 | 1 | 0 | 0 | 0 | 1 | NOT DRIVEN (multiplayer R3W-17, 2026-11-17, branch `mp/r3w-17-landed-map-vessel`). One FLIGHT cell, `LandedMapVesselIsInert`, the live caller of `GhostMapVessels.BuildLanded`: it builds a landed ghost map vessel 40 m from a landed active vessel and asserts the pid is in the guard set at `onVesselCreate`, the marker is a LANDED one-part `Ghost: ` vessel under the owner it was built for, KSP loads it and asks it off rails and it stays packed (the `Blocked GoOffRails` line) with no enabled collider, and a real `GamePersistence.SaveGame` to a scratch slot writes no VESSEL for it; it then removes the vessel and the slot. Self-skips without a landed or splashed active vessel or under time warp. The category is the rival lane's, whose host lane is T-35's RACE-10 (not yet committed), so no pinned `BATCH_COMPLETE` tally moves. NEVER FLOWN. Bucket **B** until RACE-10 drives it | B |
 | `ReFlyWorldPreservation` | 6 | 6 | 0 | 0 | 0 | 6 | S4.2 | A |
 | `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | MC-2-restock-compat (`modded-compat` instance profile, LIVE-PROVEN 2026-08-04 run `2026-08-04_2011`, PASS attempt 1, tally pinned WHOLE at `total=9 passed=8 failed=0 skipped=1`; the one skip is `ReStockAloneNormalScanNonEmpty`'s inverse gate, which Waterfall's presence on that profile closes by design. This row read `-` until 2026-09-06 and was simply stale - the spec has driven the category since 2026-08-04) | B |
@@ -237,8 +238,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **143 categories / 701 declarations**. Buckets **A 103 categories
-(393 declarations)**, **B 38 categories (303 declarations)**, **C 2 categories (5
+Totals, re-derived: **144 categories / 702 declarations**. Buckets **A 103 categories
+(393 declarations)**, **B 39 categories (304 declarations)**, **C 2 categories (5
 declarations)** - the C rows are `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes), and
 `MoonArrivalHold`, opened 2026-11-07 by the lone-moon arrival hold, which waits for the
@@ -272,7 +273,9 @@ cell) landed WITH its lanes (live-proven 2026-11-01) into **A** on the same stan
 2026-11-07 fairing snapshot lane's `FairingGhostVisual` (FGV-1, one FLIGHT cell) landed WITH its never-flown lane into **A**
 on the same standing, A 102 -> 103 categories, 391 -> 392 declarations. The 2026-11-17 landed ghost map
 vessel (multiplayer R3W-17) opened `RaceRivalLane` with one FLIGHT cell and no lane yet (its host RACE-10 is
-T-35's), into **B**, B 37 -> 38 categories, 302 -> 303 declarations. All re-derived
+T-35's), into **B**, B 37 -> 38 categories, 302 -> 303 declarations. The 2026-11-17 race mark (multiplayer
+R1-03) opened `RaceMode` (one SPACECENTER cell) NOT DRIVEN in **B**, B 38 -> 39 categories, 303 -> 304
+declarations. All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;
