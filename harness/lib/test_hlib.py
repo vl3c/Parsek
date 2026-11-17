@@ -11658,6 +11658,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # rides the `pending-flight` tag and its own status row, exactly as
         # FORGE-gs1-two-stage's and FORGE-b17-duna-pad's did before they flew, and
         # it is a flight to run rather than an operator REVIEW debt.
+        # The EIGHTH forge, same mechanism: it launches the committed PSUB-1 (built by
+        # construction, build_psub_craft.py) onto the pad UNCREWED to stamp psub-pad,
+        # which build_psub_splashed.py relocates into the sea as psub-splashed for the
+        # SUB lanes. NOT FLOWN; that debt rides the `pending-flight` tag.
+        "FORGE-psub-pad.toml":              "forge-mechanism - manual by design (a forge is operator-invoked to MINT a fixture, never a tier member); AUTHORED 2026-11-17, NEVER FLOWN, stamps psub-pad for build_psub_splashed.py",
         "FORGE-logi-pad.toml":              "forge-mechanism - manual by design (a forge is operator-invoked to MINT a fixture, never a tier member); FLOWN 2026-08-28, run `2026-08-28_1734` PASS attempt 1, which stamped the committed logi-cargo-pad save the H38/H41 isolated Logistics lanes consume",
         # B18 is operator BY THE CALIBRATION DISCIPLINE (the V1/V2 precedent), and
         # for a reason particular to it: it is the FIRST flight of a DOWNLOADED

@@ -1,0 +1,93 @@
+schema = 1
+id = "FORGE-psub-pad"
+# =====================================================================================
+# FIXTURE-FORGE for the stock submarine test kit (SUB-1 / SUB-2 / SUB-3). NOT a coverage
+# flight. (Submarine kit, 2026-11-17. Todo SUBMARINE-TEST-KIT. AUTHORED, NEVER FLOWN:
+# tag `pending-flight`.)
+#
+# operator tier by mechanism, like every forge: it NEVER runs on a cadence, only under
+# an explicit `--id FORGE-psub-pad`. It boots the committed bdock-forge-base, launches
+# the committed `PSUB-1` craft (built by construction, harness/tools/build_psub_craft.py,
+# which carries the derivation, the staging table, the buoyancy estimate and the
+# assumptions C1-C5) onto the LaunchPad UNCREWED via kRPC launch_vessel, waits for it to
+# settle PRELAUNCH, and SaveGame + FlushAndQuit persist the pad state.
+#
+# THEN, the two steps that turn the pad save into the splashed host (both offline):
+#
+#   python harness/tools/harvest_bdock_station.py \
+#       --save-dir harness/results/<runId>_save \
+#       --target-name psub-pad --expect-situation PRELAUNCH
+#   python harness/tools/build_psub_splashed.py --write
+#
+# The first writes the committed `fixtures/saves/psub-pad` (Parsek state pruned, title
+# normalized). The second RELOCATES the PSUB-1 VESSEL node into the sea east of the KSC
+# (SPLASHED at the surface, over a ~710 m deep floor) and writes the committed
+# `fixtures/saves/psub-splashed` the SUB lanes boot. Commit both in one commit, then do
+# the harvest checklist in todo SUBMARINE-TEST-KIT (fixture-set registration, the
+# PENDING_FIXTURE_LANES retirement).
+#
+# WHY A PAD FORGE AND NOT A SPLASHDOWN. A 5.75 t vessel under parachutes hits the water
+# far too fast (AIR-3 measured 0.44 t sinking at 4.7 m/s under one Mk16), and a powered
+# boat or hop is a whole new flight profile. ProtoVessel.Load places a LANDED / SPLASHED
+# vessel from its saved lat / lon / alt, so moving the node in the save is exact and costs
+# no flight. Only the craft's load (C1) needs KSP, which is what this forge is for.
+#
+# The pad holds the base's own `mk1-capsule` PRELAUNCH; launch_vessel recovers whatever
+# sits on the launch site, the same as every pad forge here.
+#
+# A failure classifies driver-INVALID (retryable), never PARSEK-FAIL: the forge asserts
+# nothing about Parsek and its required list is empty on purpose. A craft that loads with
+# missing parts or at a silly height is assumption C1 (build_psub_craft.py), not a Parsek
+# finding.
+# =====================================================================================
+tier = "operator"
+description = "FIXTURE-FORGE: boot the committed forge base, launch the stock submarine PSUB-1 onto the pad uncrewed, settle PRELAUNCH, SaveGame -- stamps the psub-pad fixture (harvest_bdock_station.py --target-name psub-pad), which build_psub_splashed.py relocates into the sea as psub-splashed."
+instanceProfile = "stock-minimal"
+tags = ["FORGE", "fixture", "SUB", "submarine", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-forge-base"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "forge_station"
+# `steps` stays in [driver], above the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 120 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+craftName            = "PSUB-1"
+launchSite           = "LaunchPad"
+# UNCREWED: PSUB-1 is a probe hull (one ModuleCommand, the Octo2); an empty crew list,
+# the FORGE-b17-duna-pad shape (minCrew defaults to len(crewNames) = 0).
+crewNames            = []
+launchTimeoutSeconds = 120
+settleDebounceFrames = 3
+
+[dimensionsCovered]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 1 }
+
+[expectations.logContracts]
+required  = []
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

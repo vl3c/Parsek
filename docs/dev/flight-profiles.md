@@ -8,18 +8,18 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 | what | lanes |
 |---|---|
-| lanes | 627 |
+| lanes | 628 |
 | tier daily | 29 |
 | tier nightly | 290 |
-| tier operator | 303 |
+| tier operator | 304 |
 | tier longhaul | 5 |
-| profile stock-minimal | 583 |
+| profile stock-minimal | 584 |
 | profile stock-tree | 40 |
 | profile modded-compat | 4 |
-| autopilot (mission) lanes | 152 |
+| autopilot (mission) lanes | 153 |
 | seam-only lanes | 475 |
 | LIVE-PROVEN date in status row | 493 |
-| no LIVE-PROVEN date | 134 |
+| no LIVE-PROVEN date | 135 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -58,7 +58,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | FAR | 6 | - | - | 6 | - | - | 6 |
 | FGV | 1 | - | - | 1 | - | - | 1 |
 | FLG | 1 | - | 1 | - | - | - | 1 |
-| FORGE | 8 | - | - | 8 | - | 8 | 3 |
+| FORGE | 9 | - | - | 9 | - | 9 | 3 |
 | FXR | 1 | - | - | 1 | - | - | 1 |
 | GC | 2 | - | 1 | 1 | - | - | 2 |
 | GS | 10 | - | 3 | 7 | - | 10 | 6 |
@@ -135,7 +135,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 ## Lanes per host save
 
-The host is the leaf of `fixture.saveTemplate`. 140 hosts serve 627 lanes.
+The host is the leaf of `fixture.saveTemplate`. 140 hosts serve 628 lanes.
 
 | host save | lanes | families |
 |---|---|---|
@@ -150,8 +150,8 @@ The host is the leaf of `fixture.saveTemplate`. 140 hosts serve 627 lanes.
 | career-pad-craft | 15 | QL 6, CL 2, L 2, CT 1, H 1, KD 1, R 1, STR 1 |
 | fresh-career | 14 | L 5, AH 1, B 1, CS 1, GUI 1, H 1, HV 1, LAB 1, R 1, SN 1 |
 | kerbin-splashdown-recorded | 12 | EVA 4, V 3, CX 2, RR 1, SE 1, W 1 |
+| bdock-forge-base | 10 | FORGE 9, LABX 1 |
 | pad-runway-pair | 10 | SLM 3, LF 2, EX 1, LS 1, OC 1, RL 1, TSS 1 |
-| bdock-forge-base | 9 | FORGE 8, LABX 1 |
 | gs2-orbital-stack | 9 | RF 3, GS 2, H 2, PAD 1, ST 1 |
 | career-earned-pad | 8 | L 4, CLK 1, H 1, LT 1, ST 1 |
 | jool-orbit-recorded | 8 | B 6, V 2 |
@@ -317,7 +317,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 381 | 121 | 300 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +73 |
+| Kerbin | 382 | 122 | 300 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +73 |
 | Mun | 59 | 15 | 46 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, SOI 2, EVA 1, GUI 1 +9 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -346,7 +346,7 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 | re-fly | 59 | RF 24, RB 5, RW 5, S 5, QL 4, CI 3, LAB 2, VN 2, AJ 1, AST 1, FXR 1 +6 |
 | revert | 21 | RW 4, IR 3, QL 3, VN 3, LAB 2, FAR 1, FXR 1, LX 1, REV 1, RF 1, STR 1 |
 | reload | 168 | V 30, QL 19, RF 17, LAB 10, SPW 9, EVA 8, MINE 7, RW 6, RB 5, VN 5 +32 |
-| save | 265 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +52 |
+| save | 266 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +52 |
 | warp | 236 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, SPW 11, CI 8, VN 8 +53 |
 | physics-warp | 16 | QL 5, PWR 3, RF 2, CA 1, FAR 1, L 1, SPW 1, STR 1, V 1 |
 | time-jump | 123 | V 44, RVR 14, RF 9, TP 8, S 6, GUI 5, H 5, QL 5, IR 4, MINE 4 +17 |
@@ -361,7 +361,7 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 381 | 95 | 48 | 15 | 136 | 194 | 186 | 14 | 46 | 139 | 12 | - |
+| Kerbin | 382 | 95 | 48 | 15 | 136 | 195 | 186 | 14 | 46 | 139 | 12 | - |
 | Mun | 59 | 27 | 6 | 5 | 12 | 39 | 38 | - | 10 | 35 | - | 1 |
 | Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
@@ -411,7 +411,7 @@ Lanes per family (rows) per timeline operation (columns).
 | FAR | 6 | 2 | - | 1 | 3 | 4 | 4 | 1 | - | 3 | 1 | - |
 | FGV | 1 | - | - | - | - | - | 1 | - | - | - | - | - |
 | FLG | 1 | 1 | - | - | - | - | 1 | - | - | - | - | - |
-| FORGE | 8 | - | - | - | - | 8 | - | - | - | - | - | - |
+| FORGE | 9 | - | - | - | - | 9 | - | - | - | - | - | - |
 | FXR | 1 | - | 1 | 1 | 1 | 1 | 1 | - | - | - | - | - |
 | GC | 2 | - | - | - | 1 | 1 | 1 | - | - | - | 1 | - |
 | GS | 10 | - | - | - | - | - | - | - | - | 3 | 1 | - |
@@ -488,7 +488,7 @@ Lanes per family (rows) per timeline operation (columns).
 
 ## Lanes per mission machine
 
-152 autopilot lanes fly 57 mission machines.
+153 autopilot lanes fly 57 mission machines.
 
 | mission | lanes | lane ids |
 |---|---|---|
@@ -496,8 +496,8 @@ Lanes per family (rows) per timeline operation (columns).
 | gs1_auto_chute_booster | 13 | CA-1-commit-abort-booster-live, GS-1-auto-chute-booster +11 |
 | kx_rewind_watch | 12 | GS-10-kerbalx-debris-ttl, GS-11-kerbalx-debris-promotion +10 |
 | b25_laythe_orbit | 9 | B25-laythe-orbit, B33-tylo-orbit, B34-bop-orbit, B35-pol-orbit +5 |
+| forge_station | 7 | FORGE-b17-duna-pad, FORGE-b18-dres-pad, FORGE-bdock-station, FORGE-eva3-pad +3 |
 | gs1_auto_chute_booster_career | 7 | L13-career-ground-truth-after-refly-and-f9 +6 |
-| forge_station | 6 | FORGE-b17-duna-pad, FORGE-b18-dres-pad, FORGE-bdock-station, FORGE-eva3-pad +2 |
 | ast_klaw_grab | 5 | AST-1-klaw-grab-rewind, AST-2-klaw-release, AST-3-klaw-mine-route +2 |
 | gs2_orbital_probe_deploy | 5 | GS-2-orbital-probe-deploy, GS-3-switch-nudge-deployed +3 |
 | b29_jool_kerbin | 4 | B29-jool-kerbin-return, B43-vall-tylo-transfer, B44-laythe-tylo-transfer +1 |
@@ -554,11 +554,11 @@ Lanes per family (rows) per timeline operation (columns).
 
 | verb | lanes | families |
 |---|---|---|
-| FlushAndQuit | 627 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +89 |
-| LoadGame | 627 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +89 |
+| FlushAndQuit | 628 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +89 |
+| LoadGame | 628 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +89 |
 | SetSetting | 619 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +89 |
 | StopRecording | 351 | V 65, RF 25, RW 24, RVR 19, LAB 17, EVA 16, H 15, B 14, MINE 14 +55 |
-| SaveGame | 265 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +52 |
+| SaveGame | 266 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +52 |
 | DiscardTree | 248 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, SPW 9, TP 9 +38 |
 | WarpToUT | 236 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, SPW 11, CI 8, VN 8 +53 |
 | RecordingState | 234 | RF 27, V 21, LAB 14, QL 14, MINE 12, CS 11, EVA 11, L 11, VN 11 +46 |
@@ -773,8 +773,8 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 220 lan
 
 | block | lanes present |
 |---|---|
-| logContracts | 626 |
-| recordings | 613 |
+| logContracts | 627 |
+| recordings | 614 |
 | rewind | 151 |
 | renderComposition | 42 |
 | routes | 29 |
@@ -1073,7 +1073,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | FLG-1-pickup-rewind | nightly | gloops-airshow | seam | Kerbin | rewind-to-launch, warp | - | LIVE-PROVEN 2026-11-04 |
 
-### FORGE (8)
+### FORGE (9)
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
@@ -1085,6 +1085,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | FORGE-gs1-two-stage | operator | bdock-forge-base | forge_station | Kerbin | save | - | FLOWN 2026-08-05 |
 | FORGE-gs2-orbital-stack | operator | bdock-forge-base | forge_lko | Kerbin | save | - | FIXTURE-FORGE, not a coverage flight. The... |
 | FORGE-logi-pad | operator | bdock-forge-base | forge_station | Kerbin | save | - | forge mechanism |
+| FORGE-psub-pad | operator | bdock-forge-base | forge_station | Kerbin | save | - | forge mechanism; AUTHORED 2026-11-17, NEV... |
 
 ### FXR (1)
 
