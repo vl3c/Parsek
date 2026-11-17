@@ -27,7 +27,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 - Seam verbs (of 62 implemented): none
 - Dimension values (1 of 251 registry values): D1 `sub-2-point-drop`
-- In-game test categories (9 of 145 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `ChainTipBlockedGhost`, `DeployedScienceGhost`, `FreeTechUnlock`, `GhostReapplyFrame`, `GuiMock`, `JointBreakCheckCoroutine`, `SpikeS12`, `SpikeS4`, `TreeRestoreCoroutine`
+- In-game test categories (11 of 147 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `ChainTipBlockedGhost`, `DeployedScienceGhost`, `FreeTechUnlock`, `GhostReapplyFrame`, `GuiMock`, `JointBreakCheckCoroutine`, `SpikeS12`, `SpikeS3`, `SpikeS3Ghost`, `SpikeS4`, `TreeRestoreCoroutine`
 
 ## Lanes per family
 

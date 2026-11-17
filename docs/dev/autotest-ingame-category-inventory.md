@@ -208,6 +208,8 @@ Two limits of this table, stated so nobody over-reads it:
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue wants autostrut parts in range) | B |
 | `SpikeS11` | 1 | 0 | 0 | 0 | 1 | 1 | SPIKE-S11-ghost-cost (ISOLATED, SPIKE BRANCH ONLY: `spike/mp-r0`, never merged; plan `docs/dev/plans/multiplayer/r0-spikes.md` task S11; authored 2026-11-17, NEVER FLOWN). The R0 ghost cost sweep `GhostCostSweep`: frame time and engine time with 0 / 8 / 16 / 32 / 64 injected ghosts in flight and map view, plus a sidecar first-open, flown by the owner against `automation/spike-r0` with `PARSEK_SPIKE=S11`. Wholly batch-disabled (it toggles playback on 64 recordings and moves the camera and frame cap), so only the isolated path runs it; self-skips when S11 is not armed or the preset is missing. On the spike branch only; it never reaches `main` | A |
 | `SpikeS12` | 1 | 0 | 0 | 0 | 1 | 1 | NOT DRIVEN (SPIKE BRANCH ONLY: `spike/mp-r0`, never merged; plan `docs/dev/plans/multiplayer/r0-spikes.md` task S12; authored 2026-11-17). The R0 crypto probe `CryptoProbe`: SHA-256 of 1 MB and 10 MB, RSA 2048 and ECDsa P-256 sign / verify / export / import and a named key container written, reopened and deleted, timed inside KSP's own Mono. One AnyScene cell, `AllowBatchExecution = false` with NO restore flag, so no batch path admits it: the owner runs it by hand from Ctrl+Shift+T on `automation/spike-r0` with `PARSEK_SPIKE=S12` (`spikes/r0/S12/PC-RUN.md`). Self-skips when S12 is not armed. On the spike branch only; it never reaches `main` | C |
+| `SpikeS3` | 3 | 3 | 3 | 3 | 0 | 3 | NOT DRIVEN by a committed spec (spike branch `spike/mp-r0` only, never merged: the S3 looks probe, three AnyScene cells run through the command seam's `RunTests category=SpikeS3` by the hand-held sheet `spikes/r0/S3/PC-RUN.md`; every cell self-skips unless `PARSEK_SPIKE` arms `S3`, and the dress cell also without its control file) | C |
+| `SpikeS3Ghost` | 1 | 1 | 0 | 0 | 0 | 1 | NOT DRIVEN by a committed spec (spike branch only: the S3 ghost kerbal build and suit-swap timing, one FLIGHT cell run by the same sheet; self-skips unless `PARSEK_SPIKE` arms `S3`) | C |
 | `SpikeS4` | 1 | 0 | 0 | 0 | 1 | 1 | NOT DRIVEN (spike branch `spike/mp-r0` only, never merged: the S4a KSC state probe, run by hand from Ctrl+Shift+T; self-skips unless `PARSEK_SPIKE` arms `S4a`) | C |
 | `StandaloneLoopMap` | 1 | 1 | 1 | 1 | 0 | 1 | SLM-1-standalone-loop-map-position, SLM-2-standalone-loop-map-pause and SLM-1T-standalone-loop-ts-position (authored 2026-10-31 with the fix for RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP, all three LIVE-PROVEN 2026-11-01 after a first flight red on a fixture defect, each pinned whole `passed=1 failed=0 skipped=0`). One AnyScene cell, so every scene column counts 1: over the `standalone-loop-map` preset (a 1500 s orbital run on its own Recordings-tab loop, period 4000 s) it derives the loop clock's sample UT from the recording's own fields and reads the map ghost's position against the RECORDED orbit at that UT in FLIGHT and TRACKSTATION, or requires no map ghost in the pause between runs. Self-skips outside FLIGHT / TRACKSTATION, without the preset, and in the first run. Its own category so no pinned `BATCH_COMPLETE` tally moves | A |
 | `StartupNotices` | 3 | 3 | 3 | 3 | 0 | 1 | SN-1-startup-notices-clean-install (authored 2026-10-03, LIVE-PROVEN 2026-10-04: verdict run `2026-10-04_1830` PASS attempt 1, re-flown PASS on the final head `2026-10-04_1845`, `total=3 passed=3 failed=0 skipped=0` as predicted, pinned WHOLE). The live half of the startup notices (`StartupNotices.cs`, `ParsekHarmony.cs`) on the provisioned `fresh-career` host, a correct install: the install-location check over KSP's real `AssemblyLoader` paths answers null, this session's Harmony sweep applied every patch class, and stock `ScreenMessages` accepts a post in a settled scene; the spec forbids every startup-notice warn / post line. Three AnyScene cells, so every scene column counts 3. Its OWN category for the standing reason. The self-skip column is 1: the post cell skips when `ScreenMessages` has no instance | A |
@@ -239,14 +241,15 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **145 categories / 701 declarations**. Buckets **A 104 categories
-(394 declarations)**, **B 37 categories (300 declarations)**, **C 4 categories (7
+Totals, re-derived: **147 categories / 705 declarations**. Buckets **A 104 categories
+(394 declarations)**, **B 37 categories (300 declarations)**, **C 6 categories (11
 declarations)** - the C rows are `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes),
 `MoonArrivalHold`, opened 2026-11-07 by the lone-moon arrival hold, which waits for the
 moon flight-test program, and, on the spike branch only (`spike/mp-r0`, never merged),
-`SpikeS4`, the S4a KSC state probe, and `SpikeS12`, the R0 crypto probe, a manual-only
-cell the owner runs by hand.
+`SpikeS3` and `SpikeS3Ghost`, the S3 looks probe and its ghost kerbal cell, `SpikeS4`,
+the S4a KSC state probe, and `SpikeS12`, the R0 crypto probe, a manual-only cell the
+owner runs by hand.
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
 the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it; both flew green the
 same day and it stays **B** (each lane is a scene slice, 4 of 9).

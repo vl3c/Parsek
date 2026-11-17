@@ -1098,7 +1098,7 @@ last step needs.
 None on `multiplayer`. The spike branch carries one manual xUnit test (S10a) that skips unless
 its env var is set, and the S1b tooling PR extends the scan tool's `--selftest`. As built, the
 spikes' pure parts (parsers, statistics, formatting) also carry ordinary xUnit tests under
-`Source/Parsek.Tests/Spikes/` on the spike branch (S0, S4a, S6, S9, S10a, S11, S12).
+`Source/Parsek.Tests/Spikes/` on the spike branch (S0, S3, S4a, S6, S9, S10a, S11, S12).
 
 ### 6.2 In-game tests
 
