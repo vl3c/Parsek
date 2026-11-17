@@ -1377,14 +1377,17 @@ act.
 
 **One tree-mode outcome deserves its own reading, because it looks like a handler failure
 and is not.** `TrySeal` never seals the recording it is handed - it flips that recording's
-slot's EFFECTIVE chain+supersede tip. A tree can therefore carry an open member that is not
-its own slot's tip (`TreeCommitService.CommitTree` demotes both a qualifying HEAD and a chain
-tip), and for such a member every `TrySeal` SUCCEEDS while the member stays
-`CommittedProvisional` forever. The pass reports `ERROR seal-incomplete member-not-slot-tip`
-with `failed=0 remaining=N` - the distinct token exists precisely so an operator does not go
-hunting a refusal that never happened. It is a FIXTURE-SHAPE answer: that tree cannot be
-made a route candidate by sealing alone, and the UI's Seal button has the identical residue.
-A lane author reading it should change the fixture, not the verb.
+slot's EFFECTIVE chain+supersede tip. A tree can carry a member that is not its own slot's
+tip and stays `CommittedProvisional` for good (`TreeCommitService.CommitTree` demotes both a
+qualifying HEAD and a chain tip, and the optimizer split copies the state onto the new tip),
+so the pass, like `RouteCandidateFinder.IsTreeFullySealed`, reads every member through its
+own effective tip (`EffectiveState.ResolveMemberSealState`): a split chain head of a sealed
+slot reads sealed and is neither listed nor counted as remaining (todo
+SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL; before that fix it read open, and AST-3's run
+`2026-11-17_1636` red on it). What can still end `ERROR seal-incomplete member-not-slot-tip`
+with `failed=0 remaining=N` is a member whose own walk ends on an open recording the seals
+did not reach. The distinct token exists so an operator does not go hunting a refusal that
+never happened; it is a tree-shape answer, and the UI's Seal button leaves the same state.
 
 **No new `_SEAM_REFUSAL_SUBKINDS` rows are needed**, and that is a property of the design
 rather than an oversight: every REJECTED token above is already mapped for another verb,

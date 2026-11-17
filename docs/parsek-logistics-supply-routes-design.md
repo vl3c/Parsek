@@ -822,6 +822,8 @@ The route analysis pass validates the committed tree/path:
 7. v1: no pickup deltas are present in the same connection window. Formally, after EC/IntakeAir filtering, any positive `transportGain` or `endpointLoss` rejects the candidate as pickup or mixed transfer
 8. v1: non-KSC origins are eligible only when the recording starts docked to a real origin depot vessel and captures that vessel PID; non-KSC candidates without that proof are rejected
 
+**Sealed gate (before validation).** `RouteCandidateFinder` analyses a tree only when it is fully sealed, because an open Unfinished Flight can still be re-flown and rewrite the route's proof. A member counts as sealed when it reads `Immutable` through its Rewind Point slot's effective chain+supersede tip (`EffectiveState.ResolveMemberSealState`), the same walk every slot consumer reads open / closed from: Seal, Stash, the load sweeps and the Re-Fly merge flip only that tip, so a chain head left at `CommittedProvisional` by the commit promotion or the optimizer split, and a recording superseded by a concluded fork, read sealed once their slot is closed. A NotCommitted member never reads sealed, a member that resolves to itself or to a recording that cannot be found reads its own state, and an Immutable member whose walk ends on an open tip reads open. The near-miss re-flyable count and the `SealSlot` seam use the same read (todo SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL).
+
 If validation fails, the route confirmation UI shows what's missing (e.g., "Transport must undock from destination to enable route — the endpoint needs to be free for the next cycle").
 
 ### 5.4 Player confirmation

@@ -24,6 +24,10 @@ Not released yet.
 
 ### Fixed
 
+- **Sealing a flight that was split in two now lets you make a supply route from it.** When an
+  Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
+  sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now
+  count as finished. (SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL)
 - **A vessel that ends away from Kerbin appears when you wait at the Space Center.** A landing
   or splashdown on another body, recorded from there, now appears when you time-warp past its
   end at the Space Center, not only on the next Tracking Station or flight visit. Like those

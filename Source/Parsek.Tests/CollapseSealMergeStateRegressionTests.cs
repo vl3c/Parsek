@@ -676,15 +676,13 @@ namespace Parsek.Tests
             Assert.Empty(deletedRpIds);
         }
 
-        // ---------- SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL (open) ----------
+        // ---------- SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL ----------
         //
-        // The commit-time optimizer split COPIES the promoted CommittedProvisional onto the new chain tip, the player's
-        // Seal flips ONLY the slot's effective tip, and RouteCandidateFinder.
-        // IsTreeFullySealed reads every member's raw MergeState, so the head stays
-        // CommittedProvisional forever and the tree can never become a route candidate.
-        // Asserts the INTENDED behavior, so it is red on the current build and skipped
-        // until the fix lands (drop the Skip in the fixing commit).
-        [Fact(Skip = "SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL: open defect repro; red until the fix lands")]
+        // The commit-time optimizer split COPIES the promoted CommittedProvisional onto
+        // the new chain tip and the player's Seal flips ONLY the slot's effective tip,
+        // so the head stays CommittedProvisional for good. The route candidacy gate must
+        // read the head through its tip, or the tree never becomes a route candidate.
+        [Fact]
         public void SealOfOptimizerSplitSlot_LeavesTreeFullySealed()
         {
             var tree = MakeSplitTree("sealsplit", "bp_s", "child_a", "child_b",
@@ -719,10 +717,20 @@ namespace Parsek.Tests
             Assert.False(UnfinishedFlightSealHandler.TrySeal(tree.Recordings["child_a"], out sealReason));
             Assert.Equal("noMatchingRP", sealReason);
 
-            // Every slot is closed, so the tree must read as sealed for route candidacy.
-            // Current build: child_a is still CommittedProvisional and this is false.
-            Assert.True(Parsek.Logistics.RouteCandidateFinder.IsTreeFullySealed(tree),
+            // Every slot is closed, so the tree must read as sealed for route candidacy,
+            // although the head itself stays CommittedProvisional.
+            Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child_a"].MergeState);
+            bool treeSealed = Parsek.Logistics.RouteCandidateFinder.IsTreeFullySealed(tree);
+            Assert.True(treeSealed,
                 "slot closed but head child_a is " + tree.Recordings["child_a"].MergeState);
+            Assert.Empty(Parsek.TestCommands.TestCommandSealSlot.RecordingIdsNeedingSeal(tree));
+
+            // The route create gate past TreeNotSealed (the next gate is the analysis,
+            // which this synthetic tree does not pass).
+            Assert.Equal(Parsek.TestCommands.RouteCreateRefusal.CandidateIneligible,
+                Parsek.TestCommands.TestCommandRouteCommand.ClassifyCreateRefusal(
+                    treeFound: true, dismissed: false, treeSealed: treeSealed,
+                    analysisEligible: false, alreadyPromoted: false));
         }
 
         private static void GiveAtmosphericToExoPayload(Recording rec)

@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL: sealing an Unfinished Flight whose recording was split keeps its tree "not finished" forever, so no supply route can be made from it [FILED 2026-11-17 from AST-3's red, run `2026-11-17_1636_AST-3-klaw-mine-route` (PARSEK-FAIL(expectation)), by log and code reading plus a headless repro; branch `item31-seal-split-chain`. OPEN; medium (route creation blocked for that tree for good, no data loss)]
+## ~~SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL~~: sealing an Unfinished Flight whose recording was split kept its tree "not finished" forever, so no supply route could be made from it [FILED 2026-11-17 from AST-3's red, run `2026-11-17_1636_AST-3-klaw-mine-route` (PARSEK-FAIL(expectation)), by log and code reading plus a headless repro. FIXED 2026-11-17, branch `item31-seal-split-chain`; xUnit + mutation; NO FLIGHT HAS PROVEN THE FIX YET; medium (route creation blocked for that tree for good, no data loss)]
 
 What happened. The "AST Depot" re-entered and was destroyed after its undock, so its slot under
 the undock's Rewind Point committed as an open Unfinished Flight (CommittedProvisional). At the
@@ -34,54 +34,64 @@ ended `sealslot incomplete ... total=8 sealed=2 failed=0 remaining=1
 firstReason=member-not-slot-tip`; the route-create gate refused `sealed=False ...
 refusal=TreeNotSealed`. The produced save holds `fae42b9b` at CommittedProvisional.
 
-Proven (code + xUnit). Every slot seal flips ONE recording, the slot's effective chain+supersede
-tip: the player's Seal button (`UnfinishedFlightSealHandler.TrySeal`, `Rewind/
-UnfinishedFlightSealHandler.cs:94-99`), the missing-quicksave and value-sealed load sweeps
-(`Rewind/LoadTimeSweep.cs:365`, `:474`) and the seam (which calls `TrySeal`). Two producers leave a
-non-tip chain member CommittedProvisional: the commit promotion demotes a qualifying head AND its
-chain tip separately (`Recording/TreeCommitService.cs:459`, `:496`), and the split COPIES the
-state onto the new tip and leaves the head's copy (`Recording/RecordingOptimizer.cs:1780-1789`;
-`MergeDialog.Commit.cs:117-121` promotes, then runs the optimizer pass). No writer ever demotes
-that head (grep of every `.MergeState =` in `Source/Parsek`). Open/closed for Re-Fly reads only the
-tip, so the head is inert there, but `RouteCandidateFinder.IsTreeFullySealed`
-(`Logistics/RouteCandidateFinder.cs:83-95`) reads every member's RAW MergeState. It gates route
-candidates (`DeriveCandidates`), the near-miss list ("Not finished yet", N "still re-flyable") and
-the seam's create gate. The seal also reaps the Rewind Point once its last slot closes, after
-which the head resolves no slot (`TrySeal` -> `noMatchingRP`), so no action can ever close it.
-`CollapseSealMergeStateRegressionTests.SealOfOptimizerSplitSlot_LeavesTreeFullySealed` drives the
-real `CommitTree` -> `RunOptimizationPass` -> `TrySeal` and reds on the final
-`IsTreeFullySealed` with the head at CommittedProvisional; it is committed SKIPPED (asserts the
-intended behavior) until the fix lands.
+Cause. Every slot seal flips ONE recording, the slot's effective chain+supersede tip: the
+player's Seal button (`UnfinishedFlightSealHandler.TrySeal`), the missing-quicksave and
+value-sealed load sweeps (`LoadTimeSweep`) and the seam (which calls `TrySeal`). Two producers
+leave a non-tip chain member CommittedProvisional: the commit promotion demotes a qualifying head
+AND its chain tip separately (`TreeCommitService.ApplyRewindProvisionalMergeStates`), and the
+split COPIES the state onto the new tip and keeps the head's copy
+(`RecordingOptimizer.TransferTerminalFieldsToSecondHalf`; `MergeDialog.MergeCommit` promotes,
+then runs the optimizer pass). No writer ever demotes that head. Re-Fly open / closed reads only
+the tip, but `RouteCandidateFinder.IsTreeFullySealed` read every member's RAW MergeState, and it
+gates route candidates, the near-miss list ("Not finished yet", N "still re-flyable") and the
+seam's create gate. The seal also reaps the Rewind Point once its last slot closes, after which
+the head resolves no slot (`TrySeal` -> `noMatchingRP`), so nothing could ever close it. The
+player reached this without the seam: any sealed tree with a Rewind Point slot whose recording is
+a chain (a commit-time phase-change split, or a chain born in flight).
 
-Player reachability: yes, without the seam. Any tree with a Rewind Point slot whose recording is a
-chain (a phase-change split at commit, or a chain born in flight) and that the player seals reads
-"Not finished yet" in Logistics forever. For a supply route that means any re-flyable vessel of the
-run that crossed an atmosphere boundary (the AST-3 Depot and Miner re-entries; a controlled stage
-falling back). The seam's `member-not-slot-tip` token and `design-autotest-command-seam.md` call
-this a "fixture-shape answer"; it is the same residue the button leaves, so it is a product
-defect, not a fixture property. `Inv12SplitClosedSlot` already notes the seal produces this pair.
+Fix (reader side). `EffectiveState.ResolveMemberSealState` (new,
+`Rewind/EffectiveState.MemberSealState.cs`) reads a member through the walk every slot consumer
+uses (`EffectiveTipRecordingId` with the tree as context and the loaded scenario's supersede
+rows): the recording it resolves to decides. A NotCommitted member never reads sealed; a member
+that resolves to itself, or to a recording that cannot be found, reads its own state; an
+Immutable member whose walk ends on an open tip reads open. `IsTreeFullySealed`,
+`CountReflyableRecordings` and the seam (`TestCommandSealSlot.RecordingIdsNeedingSeal` /
+`IsMemberSealed`, and the applier's re-read and remaining count) all use it; `IsTreeFullySealed`
+logs one rate-limited Verbose line per tree when it reads sealed only through tips.
 
-Guessed, not checked: a Re-Fly merge leaves the superseded origin chain's members in the tree at
-their old MergeState too (SupersedeCommit flips the fork and the tip only), which would block
-route candidacy the same way.
+Re-Fly leftovers, settled by xUnit (`TreeSealedThroughTipTests`): an old recording superseded by
+a concluded fork reads sealed (was open), by an open fork reads open (unchanged); the splitter's
+HEAD kept visible walks HEAD -> chain -> TIP -> supersede -> fork and reads the fork (was open
+whatever the fork); a provisional retired empty leaves no row, so its origin reads its own open
+state (unchanged). Must-stay-open cases: an open split chain, a NotCommitted head with a sealed
+tip, a NotCommitted tip, a Stash-reopened slot (head included, which before read sealed on its
+own), a tip in another committed tree that is open, and a dangling supersede row on an open
+member. The walk is deterministic, so every slot tip resolves to itself and an open slot always
+reads open.
 
-Proposed fix (smallest, reader side): `IsTreeFullySealed` (and `CountReflyableRecordings`, and
-the seam's `TestCommandSealSlot.RecordingIdsNeedingSeal` so the verb agrees) reads each member's
-open/closed bit through its effective tip, `EffectiveState.EffectiveTipRecordingId(rec.RecordingId,
-supersedes, recById, treeContext: tree)`, exactly as every slot consumer does: a member is sealed
-when the recording it resolves to is Immutable. Tree-local, needs no Rewind Point (which may be
-reaped), and also covers the superseded case above. Mirror direction checked: a head that must read
-OPEN is one whose tip is CommittedProvisional (stash re-opens only the tip, and a re-opened tip is
-itself a member), so the tip read still reads open; NotCommitted stays unsealed. Writer-side
-alternatives (the split moves instead of copies, promotion skips a non-tip head, or Seal flips the
-whole chain) each fix one producer only and leave existing saves stuck. Also check
-`AnchorDetector.IsSealedRecordingAnchor` (`Recording/AnchorDetector.cs:321`), another raw
-per-member Immutable read that keeps such a head out of anchor candidacy.
+Other raw "sealed" reads, from a grep of every `MergeState.Immutable` / `CommittedProvisional`
+read in `Source/Parsek`: the seal, stash, reaper, load sweeps, disk-usage and list-handles reads
+already read the slot's tip; the classifier's qualify checks, the promotion loop, the optimizer
+carry and the codec are not seal gates. One per-member read is reached by the head leftover and
+left as is: `AnchorDetector.IsSealedRecordingAnchor` ranks a sealed recording first among
+equally valid relative-frame anchor candidates. It is the first tie-break among eligible candidates, not a
+gate (a head of a closed slot stays eligible and only loses to an otherwise-equal sealed
+candidate, both valid anchors), and reading through the tip there would add a new backward
+Recording -> Rewind dependency.
 
-Separate from this entry: AST-3's flight variance (the Depot and Miner re-entering after a 449 s
-docked phase, against 343 s in the green flight `2026-11-15_2130`) is a lane robustness matter for
-the mission, not this defect; with the fix the lane may still need its route shape (a Depot left
-in orbit) to pass its later steps.
+Proof. `CollapseSealMergeStateRegressionTests.SealOfOptimizerSplitSlot_LeavesTreeFullySealed`
+drives the real `CommitTree` -> `RunOptimizationPass` -> `TrySeal` and asserts the tree reads
+sealed and the create gate moves past `TreeNotSealed` (red on the old reader at its final
+assertion); `TestCommandLogisticsVerbSeamTests.CreateGate_SealedSplitChain_ReadsSealed` pins the
+gate and its open mirror. Mutation: reverting `IsTreeFullySealed`, `CountReflyableRecordings`,
+`IsMemberSealed`, the NotCommitted guard or the committed-store tip lookup each reds at least one
+named test. The applier's re-read is Unity-only and has no xUnit cell.
+
+Still open. No flight has proven the fix: AST-3 re-flown green, or any lane that seals a split
+Unfinished Flight and then creates a route, would. Separate from this entry: AST-3's flight
+variance (the Depot and Miner re-entering after a 449 s docked phase, against 343 s in the green
+flight `2026-11-15_2130`) is a lane robustness matter for the mission; with the fix the lane may
+still need its route shape (a Depot left in orbit) to pass its later steps.
 
 ## ~~KSC-END-SPAWN-SKIPS-OFF-KERBIN~~: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. FIXED 2026-11-17, branch `kscspawn`; xUnit; re-flights owed (LAY-1 goes green, the lanes below confirm nothing new spawns); medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
 

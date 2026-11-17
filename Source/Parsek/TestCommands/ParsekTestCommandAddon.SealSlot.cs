@@ -10,7 +10,7 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>WHY THIS VERB EXISTS.</b> Route candidacy is gated on a FULLY SEALED
     /// tree: <c>RouteCandidateFinder.IsTreeFullySealed</c> requires every recording in
-    /// the tree to be <c>MergeState.Immutable</c>, and a flight whose terminals are
+    /// the tree to read <c>MergeState.Immutable</c> through its slot's effective tip, and a flight whose terminals are
     /// flight-class leaves open provisionals behind. Nothing an unattended run could
     /// reach closed them - the Seal action is a per-row button in the Unfinished
     /// Flights UI - so H35's route fixture is documented as deliberately NOT a
@@ -74,7 +74,9 @@ namespace Parsek.TestCommands
             }
 
             int total = tree.Recordings != null ? tree.Recordings.Count : 0;
-            List<string> pending = TestCommandSealSlot.RecordingIdsNeedingSeal(tree);
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                EffectiveState.CurrentSupersedesOrEmpty();
+            List<string> pending = TestCommandSealSlot.RecordingIdsNeedingSeal(tree, supersedes);
             int sealedCount = 0;
             int failed = 0;
             string firstFailureReason = null;
@@ -83,9 +85,11 @@ namespace Parsek.TestCommands
             {
                 Recording rec = FindRecordingInTree(tree, pending[i]);
                 // A prior TrySeal may already have closed this one (the handler seals
-                // the slot's EFFECTIVE tip, which need not be the recording passed in),
-                // so re-read rather than trusting the snapshot.
-                if (rec == null || rec.MergeState == MergeState.Immutable)
+                // the slot's EFFECTIVE tip, which need not be the recording passed in,
+                // and a member reads through its own tip), so re-read rather than
+                // trusting the snapshot.
+                if (rec == null
+                    || TestCommandSealSlot.IsMemberSealed(rec, pending[i], tree, supersedes))
                     continue;
 
                 string reason;
@@ -104,17 +108,14 @@ namespace Parsek.TestCommands
 
             // WHY THE INCOMPLETE REASON IS NOT "unknown". TrySeal never seals the
             // recording it is handed - it flips the recording's slot's EFFECTIVE
-            // chain+supersede tip. So a member that is still open after a SUCCESSFUL
-            // TrySeal is a member that is not its own slot's tip, and nothing in this
-            // pass (or in the production handler) will ever close it: it is
-            // structurally unclosable by the Seal action rather than refused by it.
-            // `failed == 0 && remaining > 0` is exactly that case - every remaining
-            // member DID get a TrySeal (the re-read above only skips ones already
-            // Immutable) and every one of them succeeded on some other recording - so
-            // it earns its own reason token instead of borrowing a refusal's.
-            // CommitTree's chain-tip demotion (RecordingStore.ApplyRewindProvisional-
-            // MergeStates) is how a tree acquires such a member.
-            int remaining = TestCommandSealSlot.CountUnsealed(tree);
+            // chain+supersede tip - and a member reads through its own effective tip,
+            // so a split chain head of a sealed slot already reads sealed. A member
+            // still open after a SUCCESSFUL TrySeal is one whose own walk ends on an
+            // open recording the seal did not reach; `failed == 0 && remaining > 0` is
+            // exactly that case (every remaining member DID get a TrySeal and every one
+            // succeeded on some other recording), so it earns its own reason token
+            // instead of borrowing a refusal's.
+            int remaining = TestCommandSealSlot.RecordingIdsNeedingSeal(tree, supersedes).Count;
             bool alreadySealed = TestCommandSealSlot.IsAlreadySealed(sealedCount, remaining);
             string verdict = TestCommandSealSlot.ClassifyTreeSealVerdict(remaining);
 

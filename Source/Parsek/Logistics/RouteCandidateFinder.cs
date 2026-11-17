@@ -50,8 +50,8 @@ namespace Parsek.Logistics
     /// <summary>
     /// Derives Supply Run candidates from committed recording trees. A tree
     /// becomes a candidate only when it is <b>fully sealed</b> (every recording
-    /// is <see cref="MergeState.Immutable"/> — committed and slot-closed, so the
-    /// route proof can no longer drift) AND <see cref="RouteAnalysisEngine"/>
+    /// reads <see cref="MergeState.Immutable"/> through its slot's effective tip:
+    /// committed and slot-closed, so the route proof can no longer drift) AND <see cref="RouteAnalysisEngine"/>
     /// finds it eligible AND its source recording is not already backing a
     /// promoted route.
     /// </summary>
@@ -75,22 +75,52 @@ namespace Parsek.Logistics
         private const string Tag = "Route";
 
         /// <summary>
-        /// True when every recording in the tree is
-        /// <see cref="MergeState.Immutable"/> (committed and slot-closed).
-        /// A tree with no recordings, or any recording still
-        /// NotCommitted / CommittedProvisional, is not fully sealed.
+        /// True when every recording in the tree reads
+        /// <see cref="MergeState.Immutable"/> (committed and slot-closed) through
+        /// <see cref="EffectiveState.ResolveMemberSealState"/>: a member counts by the
+        /// state of its slot's effective chain+supersede tip, because a seal closes
+        /// only that tip and leaves a split chain head or a superseded recording at
+        /// CommittedProvisional for good (todo SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL).
+        /// A tree with no recordings, or any member that reads NotCommitted /
+        /// CommittedProvisional, is not fully sealed. Reads the loaded scenario's
+        /// supersede rows.
         /// </summary>
         internal static bool IsTreeFullySealed(RecordingTree tree)
+        {
+            return IsTreeFullySealed(tree, EffectiveState.CurrentSupersedesOrEmpty());
+        }
+
+        /// <summary>
+        /// <see cref="IsTreeFullySealed(RecordingTree)"/> over explicit supersede rows.
+        /// Logs one rate-limited summary when the tree reads sealed only because some
+        /// members were read through their tip.
+        /// </summary>
+        internal static bool IsTreeFullySealed(
+            RecordingTree tree, IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
             if (tree?.Recordings == null || tree.Recordings.Count == 0)
                 return false;
 
-            foreach (Recording rec in tree.Recordings.Values)
+            int readThroughTip = 0;
+            foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
             {
+                Recording rec = kvp.Value;
                 if (rec == null)
                     continue; // a null slot can't prove un-sealed; the live recordings decide
-                if (rec.MergeState != MergeState.Immutable)
+                if (EffectiveState.ResolveMemberSealState(rec, kvp.Key, tree, supersedes)
+                    != MergeState.Immutable)
                     return false;
+                if (rec.MergeState != MergeState.Immutable)
+                    readThroughTip++;
+            }
+
+            if (readThroughTip > 0)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "tree-sealed-through-tip-" + (tree.Id ?? "<no-id>"),
+                    $"IsTreeFullySealed: tree={tree.Id ?? "<no-id>"} reads sealed with " +
+                    $"{readThroughTip.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                    "member(s) not Immutable themselves, read through their slot's closed effective tip " +
+                    "(a split chain head or a superseded recording)");
             }
             return true;
         }
@@ -127,6 +157,8 @@ namespace Parsek.Logistics
             }
 
             HashSet<string> promotedRecIds = BuildPromotedRecordingIdSet(existingRoutes);
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                EffectiveState.CurrentSupersedesOrEmpty();
 
             int notSealed = 0;
             int ineligible = 0;
@@ -161,7 +193,7 @@ namespace Parsek.Logistics
                     continue;
                 }
 
-                if (!IsTreeFullySealed(tree))
+                if (!IsTreeFullySealed(tree, supersedes))
                 {
                     notSealed++;
                     continue;
@@ -231,9 +263,10 @@ namespace Parsek.Logistics
         /// near-miss carrying its <see cref="RouteAnalysisStatus"/>; an eligible
         /// tree (whether already promoted to a route or still an open candidate) is
         /// NOT a near-miss and is skipped. Exposed for direct xUnit testing without
-        /// touching the static stores. Gate-safe: reads only
-        /// <see cref="RecordingTree.Recordings"/>[].<see cref="MergeState"/> and the
-        /// <see cref="RouteAnalysisEngine"/>, never a raw ledger / committed read.
+        /// touching the static stores. Gate-safe: reads the members' MergeState through
+        /// <see cref="EffectiveState.ResolveMemberSealState"/> (which owns its own
+        /// store lookup) and the <see cref="RouteAnalysisEngine"/>, never a raw ledger /
+        /// committed read here.
         /// </summary>
         internal static List<RouteNearMiss> DeriveNearMisses(
             IReadOnlyList<RecordingTree> committedTrees,
@@ -245,6 +278,9 @@ namespace Parsek.Logistics
                 ParsekLog.Verbose(Tag, "DeriveNearMisses: no committed trees");
                 return result;
             }
+
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                EffectiveState.CurrentSupersedesOrEmpty();
 
             int notSealed = 0;
             int ineligible = 0;
@@ -276,14 +312,14 @@ namespace Parsek.Logistics
                     continue;
                 }
 
-                if (!IsTreeFullySealed(tree))
+                if (!IsTreeFullySealed(tree, supersedes))
                 {
                     notSealed++;
                     result.Add(new RouteNearMiss
                     {
                         Tree = tree,
                         NotSealed = true,
-                        ReflyableCount = CountReflyableRecordings(tree)
+                        ReflyableCount = CountReflyableRecordings(tree, supersedes)
                     });
                     continue;
                 }
@@ -335,20 +371,23 @@ namespace Parsek.Logistics
             return result;
         }
 
-        // Count of recordings in the tree that are still re-flyable (MergeState !=
-        // Immutable, i.e. NotCommitted or CommittedProvisional). Null slots are
-        // excluded to match IsTreeFullySealed, which treats a null slot as
-        // can't-prove-unsealed and skips it.
-        private static int CountReflyableRecordings(RecordingTree tree)
+        // Count of recordings in the tree that still read re-flyable (NotCommitted or
+        // CommittedProvisional through EffectiveState.ResolveMemberSealState, the read
+        // IsTreeFullySealed uses). Null slots are excluded to match IsTreeFullySealed,
+        // which treats a null slot as can't-prove-unsealed and skips it.
+        internal static int CountReflyableRecordings(
+            RecordingTree tree, IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
             if (tree?.Recordings == null)
                 return 0;
             int count = 0;
-            foreach (Recording rec in tree.Recordings.Values)
+            foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
             {
+                Recording rec = kvp.Value;
                 if (rec == null)
                     continue;
-                if (rec.MergeState != MergeState.Immutable)
+                if (EffectiveState.ResolveMemberSealState(rec, kvp.Key, tree, supersedes)
+                    != MergeState.Immutable)
                     count++;
             }
             return count;
