@@ -63,6 +63,10 @@ Not released yet.
   deliveries land on the same spot while you are in the Tracking Station or far away in flight,
   the later one is now set down 15 m clear, as the Space Center already did, instead of in the
   same place where they could explode on the next load. (SPAWN-TS-STACK-NO-DE-OVERLAP)
+- **A Re-Fly you kept open no longer closes by itself after a load.** Records broken by a ship
+  picked up again after a load counted as part of its earlier, already merged flight, so the
+  next load could seal its Re-Fly slot, and records from a flight you then rewound away were
+  kept. They now belong to the new flight only. (RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK)
 - **A vessel that ends away from Kerbin appears when you wait at the Space Center.** A landing
   or splashdown on another body, recorded from there, now appears when you time-warp past its
   end at the Space Center, not only on the next Tracking Station or flight visit. Like those

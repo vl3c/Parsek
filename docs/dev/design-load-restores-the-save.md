@@ -281,7 +281,9 @@ GAME_STATE
     PARSEK_MILESTONES { ... }   // MilestoneStore, after the OnSave flush
     BASELINES { PARSEK_BASELINE { ... }* }
     PENDING_SCIENCE { SUBJECT { ... }* }   // GameStateRecorder.PendingScienceSubjects
-    ATTEMPT_EVENTS { attemptTreeId = <id>  attemptArmReason = <reason>  GAME_STATE_EVENT* }   // see below
+    ATTEMPT_EVENTS { attemptTreeId = <id>  attemptArmReason = <reason>
+                     [attemptResumedRecordingId = <id>  attemptResumeUT = <R>]
+                     GAME_STATE_EVENT* }   // see below
 }
 ```
 
@@ -304,8 +306,13 @@ VERIFY V8 outcome (Phase 2, open question 3 closed): the cold active-tree restor
 attempt. In `TryRestoreActiveTreeNode`, on a Cold load whose save names an attempt for the
 restored tree id, `TryRearmSaveAttemptForRestoredTree` arms it from the save's committed copy of
 that tree (just loaded by `LoadRecordingTrees`), the same input the original arm in
-`TryTakeCommittedTreeForSpawnedVesselRestore` had, so the recording ids and event cutoffs are
-the original ones; the reason reads `cold load re-armed it from the save; armed by: <original>`
+`TryTakeCommittedTreeForSpawnedVesselRestore` had, together with the optional resume facts the
+node carries (the recording the attempt resumed and the live UT it resumed at; the resumed
+recording's cutoff is that instant when its end lies ahead of it, todo
+RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK; absent keys arm every cutoff at its end), so the
+recording ids and event cutoffs are the original ones; an attempt resumed in place, re-armed by
+the flight at the load's clock, moves its resume instant back to the saved one before the held
+events are restored; the reason reads `cold load re-armed it from the save; armed by: <original>`
 (not wrapped again on later cycles). For a re-armed attempt the restore then skips the splice
 and the detach: both trees come from the same `OnSave` and the clone descends from the committed
 copy, so the splice has nothing newer to bring in, while its same-id refresh would overwrite the
