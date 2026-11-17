@@ -1963,7 +1963,7 @@ its own commit before a route can name it, and the route captures the pending ad
 pass's flush (`RouteSourceRef.EffectiveSidecarEpoch`). Other post-creation dirty sites on a
 committed source are filed as ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE.
 
-## COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH: a real vessel whose committed leaf carries no spawn stamp is never resumed into its tree after a Cold FLIGHT load, and nothing logs why [FOUND 2026-11-16 by RSF-1's first flight; headless probe; low]
+## ~~COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH~~: a real vessel whose committed leaf carries no spawn stamp is never resumed into its tree after a Cold FLIGHT load, and nothing logs why [FOUND 2026-11-16 by RSF-1's first flight; headless probe; low. FIXED 2026-11-17, branch coldload-fix; xUnit; RSF-1 reshaped to fly it]
 
 On `rover-relay-c-recorded` the transport C (pid 612987736) has a committed leaf `ec4bf428`
 with a vessel snapshot, `vesselPersistentId` and `recordedVesselGuid` equal to the live vessel,
@@ -1981,6 +1981,23 @@ recorded vessel exists (guid-gated), or the finder treats spawned-with-no-pid (n
 `SpawnAbandoned`) as unstamped; either way the finder counts and logs the refusal. Evidence:
 RSF-1 run `2026-11-16_2349` (INVALID, CommitTree `no-active-tree`); a headless probe over the
 fixture's trees reads `found=True` before the crew pass and `found=False` after it.
+
+**Fix (2026-11-17, branch `coldload-fix`):** the finder takes the second option.
+`ParsekFlight.TryFindCommittedTreeForSpawnedVessel` adds a third match,
+`IsUnstampedSpawnedLeafOfLiveLaunch`: spawned, no spawn pid, not `SpawnAbandoned`, and the live
+vessel POSITIVELY the recorded launch (`VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch`:
+pid equal and both launch guids known and equal; the mark carries no pid, so an unknown guid is
+never enough). A match logs `matched unstamped spawned leaf '<id>' in tree '<id>' for pid=N`
+(Info); a pid match the guid does not prove is counted and logged rate-limited
+(`refused N committed recording(s) ... marked spawned with no spawn pid ...`). The take path's
+existing clear-flags block resets the mark on the resumed clone, and the commit refreshes the
+nulled snapshot from the live vessel. The crew pass is unchanged. Offline, through the
+production codecs over every committed fixture save, the new match changes the active vessel's
+restore on four hosts only: `rover-relay-c-recorded` (+career) C, `rover-relay-recorded` rover C
+and `rover-route-recorded` (+career) B; every lane on them but GUI-13 / GUI-26 (operator) starts
+with the StopRecording / DiscardTree pair. Tests: `ColdLoadUnstampedLeafRestoreTests` (5,
+the two match cells red without the branch). RSF-1 is reshaped back to its first shape (the
+restore re-opens the route's tree and the merge re-commits it), owed a flight.
 
 ## ~~ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE~~: a content-neutral rewrite of a route's source recording may pause the route as SourceChanged for good [SUSPECTED 2026-11-16 by code read. CONFIRMED by code trace and FIXED 2026-11-16, branch fix-route-source-epoch; xUnit; low]
 

@@ -2082,6 +2082,7 @@ namespace Parsek
 
             int refusedOtherLaunchStamps = 0;
             int refusedAheadOfClock = 0;
+            int refusedUnprovenUnstamped = 0;
             for (int t = committedTrees.Count - 1; t >= 0; t--)
             {
                 RecordingTree candidate = committedTrees[t];
@@ -2108,7 +2109,15 @@ namespace Parsek
                         && rec.VesselPersistentId != 0
                         && rec.VesselPersistentId == activeVesselPid
                         && VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, activeVesselPid, activeVesselGuid);
-                    if (!spawnedMatch && !directMatch)
+                    // The Cold-load crew pass marks a leaf whose EndUT passed spawned with no
+                    // spawn pid, so neither match above reads it, even when the live vessel is
+                    // the recording's own vessel (it was never despawned).
+                    bool unstampedMatch = !spawnedMatch && !directMatch
+                        && IsUnstampedSpawnedLeafOfLiveLaunch(rec, activeVesselPid, activeVesselGuid);
+                    if (!spawnedMatch && !directMatch && !unstampedMatch
+                        && IsUnprovenUnstampedSpawnedLeaf(rec, activeVesselPid, activeVesselGuid))
+                        refusedUnprovenUnstamped++;
+                    if (!spawnedMatch && !directMatch && !unstampedMatch)
                         continue;
 
                     if (!IsCommittedSpawnedRecordingRestorable(candidate, rec))
@@ -2131,10 +2140,19 @@ namespace Parsek
                 {
                     tree = candidate;
                     recordingId = bestMatch.RecordingId;
+                    if (IsUnstampedSpawnedLeafOfLiveLaunch(bestMatch, activeVesselPid, activeVesselGuid))
+                    {
+                        ParsekLog.Info("Flight",
+                            $"TryFindCommittedTreeForSpawnedVessel: matched unstamped spawned leaf " +
+                            $"'{bestMatch.RecordingId}' in tree '{candidate.Id}' for " +
+                            $"pid={activeVesselPid.ToString(CultureInfo.InvariantCulture)} by its launch guid " +
+                            "(spawned mark without a spawn pid; the live vessel is the recording's own)");
+                    }
                     ParsekFlightSwitchContinuation.LogRefusedOtherLaunchSpawnStamps(
                         "TryFindCommittedTreeForSpawnedVessel", activeVesselPid, activeVesselGuid,
                         refusedOtherLaunchStamps);
                     LogRefusedAheadOfClockRestores(activeVesselPid, liveUT, refusedAheadOfClock);
+                    LogRefusedUnprovenUnstampedRestores(activeVesselPid, refusedUnprovenUnstamped);
                     return true;
                 }
             }
@@ -2143,7 +2161,53 @@ namespace Parsek
                 "TryFindCommittedTreeForSpawnedVessel", activeVesselPid, activeVesselGuid,
                 refusedOtherLaunchStamps);
             LogRefusedAheadOfClockRestores(activeVesselPid, liveUT, refusedAheadOfClock);
+            LogRefusedUnprovenUnstampedRestores(activeVesselPid, refusedUnprovenUnstamped);
             return false;
+        }
+
+        /// <summary>
+        /// Pure: true when <paramref name="rec"/> is marked spawned with no spawn pid (the
+        /// Cold-load crew pass's mark for a leaf whose EndUT passed, not an abandoned spawn)
+        /// and the live vessel is POSITIVELY its recorded launch: pid equal and both launch
+        /// guids known and equal. The mark carries no pid to compare, so an unknown guid is
+        /// never enough here: a relaunch of the same craft shares the baked pid.
+        /// </summary>
+        internal static bool IsUnstampedSpawnedLeafOfLiveLaunch(Recording rec, uint livePid, string liveGuid)
+        {
+            return rec != null
+                && rec.VesselSpawned
+                && rec.SpawnedVesselPersistentId == 0
+                && !rec.SpawnAbandoned
+                && VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(rec, livePid, liveGuid);
+        }
+
+        /// <summary>
+        /// Pure: the refusal half of <see cref="IsUnstampedSpawnedLeafOfLiveLaunch"/>, counted
+        /// for the summary line: an unstamped spawned leaf whose recorded pid equals the live
+        /// pid but whose launch the guids do not prove (one or both unknown, or different).
+        /// </summary>
+        internal static bool IsUnprovenUnstampedSpawnedLeaf(Recording rec, uint livePid, string liveGuid)
+        {
+            return rec != null
+                && rec.VesselSpawned
+                && rec.SpawnedVesselPersistentId == 0
+                && !rec.SpawnAbandoned
+                && livePid != 0
+                && rec.VesselPersistentId == livePid
+                && !VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(rec, livePid, liveGuid);
+        }
+
+        private static void LogRefusedUnprovenUnstampedRestores(uint activeVesselPid, int refused)
+        {
+            if (refused <= 0)
+                return;
+            // Re-reached by the 1 Hz Update retry: rate-limited per pid.
+            ParsekLog.InfoRateLimited("Flight",
+                "committed-restore-unproven-unstamped-" + activeVesselPid.ToString(CultureInfo.InvariantCulture),
+                $"TryFindCommittedTreeForSpawnedVessel: refused {refused.ToString(CultureInfo.InvariantCulture)} " +
+                $"committed recording(s) for pid={activeVesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                "marked spawned with no spawn pid whose launch guid does not prove the live vessel " +
+                "is the recorded one");
         }
 
         /// <summary>

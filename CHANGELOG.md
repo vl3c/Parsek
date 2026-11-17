@@ -24,6 +24,10 @@ Not released yet.
 
 ### Fixed
 
+- **A ship keeps its own mission after you load a save.** After loading a save made in flight,
+  flying a ship from a finished mission again could start a new mission for it. It now continues
+  its own mission, as it does when you fly it without loading.
+  (COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH)
 - **A kerbal's walk back to a hatch replays correctly after a save.** When an EVA ended by
   boarding a vessel, the last stretch of the walk or jetpack flight could replay far from where
   the kerbal went once the game was saved and loaded. It now replays on the kerbal's real path.
