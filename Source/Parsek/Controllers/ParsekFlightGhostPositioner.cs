@@ -13,9 +13,14 @@ namespace Parsek
     {
         private readonly ParsekFlight host;
 
-        internal ParsekFlightGhostPositioner(ParsekFlight host)
+        // The recordings this positioner resolves by id (focus tree, diagnostic parent lookup,
+        // the pending tree of the anchor resolver context). Never null.
+        private readonly IPlaybackCatalog catalog;
+
+        internal ParsekFlightGhostPositioner(ParsekFlight host, IPlaybackCatalog catalog = null)
         {
             this.host = host;
+            this.catalog = catalog ?? RecordingPlaybackCatalog.Own;
         }
 
         // M4b phasing-knob body-fixed derotation: the time shift (seconds) of the positioning call

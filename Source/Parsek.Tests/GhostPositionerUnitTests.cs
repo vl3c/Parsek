@@ -594,23 +594,112 @@ namespace Parsek.Tests
         [Fact]
         public void FocusTree_FindsCommittedThenPending()
         {
-            Assert.False(ParsekFlightGhostPositioner.TryFindRelativeAnchorFocusTree(null, out var tree));
+            var positioner = new ParsekFlightGhostPositioner(null);
+            Assert.False(positioner.TryFindRelativeAnchorFocusTree(null, out var tree));
             Assert.Null(tree);
-            Assert.False(ParsekFlightGhostPositioner.TryFindRelativeAnchorFocusTree("r1", out tree));
+            Assert.False(positioner.TryFindRelativeAnchorFocusTree("r1", out tree));
 
             var committed = new RecordingTree { Id = "c" };
             committed.Recordings["r1"] = new Recording { RecordingId = "r1" };
             RecordingStore.CommittedTrees.Add(committed);
-            Assert.True(ParsekFlightGhostPositioner.TryFindRelativeAnchorFocusTree("r1", out tree));
+            Assert.True(positioner.TryFindRelativeAnchorFocusTree("r1", out tree));
             Assert.Same(committed, tree);
 
             var pending = new RecordingTree { Id = "p" };
             pending.Recordings["r2"] = new Recording { RecordingId = "r2" };
             PendingTreeSlot.StashPendingTree(pending);
-            Assert.True(ParsekFlightGhostPositioner.TryFindRelativeAnchorFocusTree("r2", out tree));
+            Assert.True(positioner.TryFindRelativeAnchorFocusTree("r2", out tree));
             Assert.Same(pending, tree);
-            Assert.False(ParsekFlightGhostPositioner.TryFindRelativeAnchorFocusTree("r3", out tree));
+            Assert.False(positioner.TryFindRelativeAnchorFocusTree("r3", out tree));
             Assert.Null(tree);
+        }
+
+        [Fact]
+        public void FocusTree_AsksThePositionersCatalog_NotTheStore()
+        {
+            // The store holds r1 in a committed tree; the fake catalog holds only r2.
+            var stored = new RecordingTree { Id = "c" };
+            stored.Recordings["r1"] = new Recording { RecordingId = "r1" };
+            RecordingStore.CommittedTrees.Add(stored);
+            var catalogTree = new RecordingTree { Id = "f" };
+            catalogTree.Recordings["r2"] = new Recording { RecordingId = "r2" };
+            var fake = new FakeTreeCatalog(catalogTree);
+            var positioner = new ParsekFlightGhostPositioner(null, fake);
+
+            Assert.True(positioner.TryFindRelativeAnchorFocusTree("r2", out var tree));
+            Assert.Same(catalogTree, tree);
+            Assert.False(positioner.TryFindRelativeAnchorFocusTree("r1", out tree));
+            Assert.Null(tree);
+            Assert.Equal(2, fake.TreeHoldingCalls);
+            Assert.Equal(CatalogTreeOrder.CommittedFirstContainsKey, fake.LastOrder);
+        }
+
+        [Fact]
+        public void FocusTree_NullCatalogReadsTheOwnTimeline()
+        {
+            var committed = new RecordingTree { Id = "c" };
+            committed.Recordings["r1"] = new Recording { RecordingId = "r1" };
+            RecordingStore.CommittedTrees.Add(committed);
+
+            var positioner = new ParsekFlightGhostPositioner(null, null);
+            Assert.True(positioner.TryFindRelativeAnchorFocusTree("r1", out var tree));
+            Assert.Same(committed, tree);
+        }
+
+        [Fact]
+        public void FlightAnchorContext_ReadsThePendingTreeFromTheCatalog()
+        {
+            var stashed = new RecordingTree { Id = "stashed" };
+            PendingTreeSlot.StashPendingTree(stashed);
+            var catalogPending = new RecordingTree { Id = "fake-pending" };
+            var fake = new FakeTreeCatalog(null) { Pending = catalogPending };
+            var focus = new RecordingTree { Id = "focus" };
+
+            RelativeAnchorResolverContext context =
+                ParsekFlight.BuildFlightRelativeAnchorResolverContext(focus, "r1", null, fake);
+            Assert.Same(catalogPending, context.PendingTree);
+
+            RelativeAnchorResolverContext own =
+                ParsekFlight.BuildFlightRelativeAnchorResolverContext(
+                    focus, "r1", null, RecordingPlaybackCatalog.Own);
+            Assert.Same(stashed, own.PendingTree);
+        }
+
+        /// <summary>A catalog that knows one tree and answers every recording lookup false.</summary>
+        private sealed class FakeTreeCatalog : IPlaybackCatalog
+        {
+            private readonly RecordingTree tree;
+
+            internal FakeTreeCatalog(RecordingTree tree)
+            {
+                this.tree = tree;
+            }
+
+            internal RecordingTree Pending;
+            internal int TreeHoldingCalls;
+            internal CatalogTreeOrder LastOrder;
+
+            public RecordingTree PendingTree => Pending;
+
+            public bool TryFindFocusTree(string recordingId, string treeId, out RecordingTree found)
+            {
+                found = null;
+                return false;
+            }
+
+            public bool TryFindTreeHolding(string id, CatalogTreeOrder order, out RecordingTree found)
+            {
+                TreeHoldingCalls++;
+                LastOrder = order;
+                found = tree != null && id != null && tree.Recordings.ContainsKey(id) ? tree : null;
+                return found != null;
+            }
+
+            public bool TryFindRecording(string id, CatalogRecordingScope scope, out Recording rec)
+            {
+                rec = null;
+                return false;
+            }
         }
     }
 }

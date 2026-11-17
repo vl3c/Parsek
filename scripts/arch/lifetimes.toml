@@ -564,6 +564,14 @@ lifecycleDestroyedThisTick = "process: per-tick diagnostic counter, zeroed by Em
 lifecycleUpdatedThisTick = "process: per-tick diagnostic counter, zeroed by EmitLifecycleSummary"
 
 [[type]]
+name = "Parsek.GhostMapVessels"
+reason = "the ghost map vessel guard state"
+[type.fields]
+Pids = "scene: guard set of live ghost map vessels; each own-timeline teardown (UnregisterAllOwnTimeline) drops the own pids and keeps every pid a foreign lane owns, so it ends a teardown empty only while no foreign owner exists (always, in single player)"
+teardownDepth = "scoped: depth counter, back to 0 at the end of each teardown"
+foreignOwners = "scene: owner of a non-own ghost map pid; empty in single player; the own-timeline teardown keeps every entry, so only Unregister of that pid (the owning lane's own removal) or ResetForTesting drops one"
+
+[[type]]
 name = "Parsek.WatchModeController"
 reason = "watch-mode camera follow"
 [type.fields]

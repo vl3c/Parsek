@@ -79,7 +79,7 @@ namespace Parsek
         string ParentAnchorRecordingId { get; }
 
         // === Loop sync (debris follows parent's loop clock) ===
-        int LoopSyncParentIdx { get; set; }
+        int LoopSyncParentIdx { get; }
 
         // === Terminal orbit (for ghost map presence) ===
         string TerminalOrbitBody { get; }

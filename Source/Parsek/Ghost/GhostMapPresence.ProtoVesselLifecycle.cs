@@ -222,7 +222,7 @@ namespace Parsek
                 EndGhostTeardown();
             }
 
-            ghostMapVesselPids.Remove(ghostPid);
+            GhostMapVessels.Unregister(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
             ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
@@ -350,7 +350,7 @@ namespace Parsek
                 EndGhostTeardown();
             }
 
-            ghostMapVesselPids.Clear();
+            GhostMapVessels.UnregisterAllOwnTimeline();
             ghostsWithSuppressedIcon.Clear();
             ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
@@ -776,7 +776,7 @@ namespace Parsek
                 EndGhostTeardown();
             }
 
-            ghostMapVesselPids.Remove(ghostPid);
+            GhostMapVessels.Unregister(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
             ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
@@ -1285,26 +1285,9 @@ namespace Parsek
                     vessel.orbitRenderer?.enabled, vessel.orbitRenderer?.drawMode));
         }
 
-        /// <summary>
-        /// Strip ghost ProtoVessels from flightState before save.
-        /// Ghost vessels are transient — reconstructed from recording data on load.
-        /// Called from ParsekScenario.OnSave.
-        /// </summary>
+        /// <summary>Forwards to <see cref="GhostMapVessels.StripFromSave"/>. Called from ParsekScenario.OnSave.</summary>
         internal static int StripFromSave(FlightState flightState)
-        {
-            if (flightState == null || ghostMapVesselPids.Count == 0)
-                return 0;
-
-            int stripped = flightState.protoVessels.RemoveAll(
-                pv => ghostMapVesselPids.Contains(pv.persistentId));
-
-            if (stripped > 0)
-                ParsekLog.Info(Tag,
-                    string.Format(ic,
-                        "Stripped {0} ghost ProtoVessel(s) from save", stripped));
-
-            return stripped;
-        }
+            => GhostMapVessels.StripFromSave(flightState);
 
         // ------------------------------------------------------------------
         // Helpers
@@ -1364,25 +1347,9 @@ namespace Parsek
             });
         }
 
-        /// <summary>
-        /// Find a CelestialBody by name without LINQ allocation.
-        /// Returns null if FlightGlobals.Bodies is null or name not found.
-        /// </summary>
+        /// <summary>Forwards to <see cref="GhostMapVessels.FindBodyByName"/>.</summary>
         private static CelestialBody FindBodyByName(string bodyName)
-        {
-            if (FindBodyByNameForTesting != null)
-            {
-                CelestialBody testBody = FindBodyByNameForTesting(bodyName);
-                if (!object.ReferenceEquals(testBody, null))
-                    return testBody;
-            }
-
-            var bodies = FlightGlobals.Bodies;
-            if (bodies == null) return null;
-            for (int i = 0; i < bodies.Count; i++)
-                if (bodies[i].name == bodyName || bodies[i].bodyName == bodyName) return bodies[i];
-            return null;
-        }
+            => GhostMapVessels.FindBodyByName(bodyName);
 
         /// <summary>
         /// Shared ProtoVessel creation: resolves body, builds orbit + vessel node,
@@ -1753,89 +1720,26 @@ namespace Parsek
             string orbitSource = null,
             string orbitSourceDetail = null)
         {
-            ProtoVessel pv = null;
+            GhostMapVesselLoad load = default(GhostMapVesselLoad);
             try
             {
-
-                ConfigNode vesselNode = BuildGhostProtoVesselNode(
-                    traj,
-                    orbit,
-                    out VesselType vtype,
-                    out string vesselName);
-
-                pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
-
-                // PRE-REGISTER PID before Load — pv.Load fires onVesselCreate and guards
-                // must see this PID as a ghost vessel during the event cascade.
-                ghostMapVesselPids.Add(pv.persistentId);
-
-                HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
-
-                // Load — creates Vessel GO, OrbitDriver, MapObject, OrbitRenderer,
-                // registers in FlightGlobals, fires GameEvents.onVesselCreate
-                pv.Load(HighLogic.CurrentGame.flightState);
-
-                if (pv.vesselRef == null)
-                {
-                    ParsekLog.Error(Tag,
-                        string.Format(ic,
-                            "BuildAndLoadGhostProtoVessel: vesselRef is null after Load for {0}",
-                            logContext));
-                    RemoveGhostProtoVessel(pv, nullSafeFlightState: false);
+                // GhostMapVessels builds, pre-registers, loads and hardens the ProtoVessel and
+                // writes its own lines; this side names it and writes the creation line and the
+                // GhostCreated trace, which read own-timeline state (the suppressed-icon set).
+                if (!GhostMapVessels.TryLoadGhostProtoVessel(
+                        traj,
+                        orbit,
+                        BuildGhostProtoVesselName(traj.VesselName),
+                        GhostMapVesselOwner.OwnTimeline,
+                        logContext,
+                        out load))
                     return null;
-                }
 
-                // Log creation + OrbitDriver state for diagnostics (#172)
-                Vessel v = pv.vesselRef;
-                // KSP promotes a single-part root with PhysicsSignificance=1 back to
-                // FULL, and the thermal explode site checks temperature > maxTemp
-                // independent of physical significance. Without this pass the marker's
-                // sensorBarometer (maxTemp=1200) overheats and Part.explode() destroys
-                // the vessel mid-Re-Fly whenever the active vessel passes through dense
-                // atmosphere at orbital speed (repro at logs/2026-05-19_1847_refly-
-                // booster-explosion, log line 18:44:50.128).
-                HardenGhostVesselPartPhysics(v, logContext);
-                NormalizeGhostOrbitDriverTargetIdentity(v, logContext);
-                string driverState = "no-orbitDriver";
-                if (v.orbitDriver != null)
-                {
-                    Orbit drv = v.orbitDriver.orbit;
-
-                    driverState = string.Format(ic,
-                        "updateMode={0} sma={1:F0} ecc={2:F6} inc={3:F4} " +
-                        "argPe={4:F4} mna={5:F6} epoch={6:F1} vesselPos=({7:F1},{8:F1},{9:F1}) {10} registered={11}",
-                        v.orbitDriver.updateMode,
-                        drv.semiMajorAxis, drv.eccentricity, drv.inclination,
-                        drv.argumentOfPeriapsis, drv.meanAnomalyAtEpoch, drv.epoch,
-                        v.GetWorldPos3D().x, v.GetWorldPos3D().y, v.GetWorldPos3D().z,
-                        BuildGhostOrbitDriverIdentity(v),
-                        IsVesselRegistered(v));
-                }
-
-                // Ensure OrbitRenderer is enabled — in Tracking Station, pv.Load()
-                // may create the renderer in a disabled state.
-                bool rendererForceEnabled = false;
-                if (v.orbitRenderer != null)
-                {
-                    v.orbitRenderer.drawMode = OrbitRendererBase.DrawMode.REDRAW_AND_RECALCULATE;
-                    v.orbitRenderer.drawIcons = OrbitRendererBase.DrawIcons.ALL;
-                    if (!v.orbitRenderer.enabled)
-                    {
-                        rendererForceEnabled = true;
-                        v.orbitRenderer.enabled = true;
-                        ParsekLog.Verbose(Tag, string.Format(ic,
-                            "Force-enabled OrbitRenderer for ghost '{0}'", vesselName));
-                    }
-                }
-
-                // Force correct VesselType — KSP may override for single-part vessels
-                if (v.vesselType != vtype)
-                {
-                    ParsekLog.Verbose(Tag, string.Format(ic,
-                        "Ghost vessel type overridden by KSP: {0} → {1}, restoring to {2}",
-                        vtype, v.vesselType, vtype));
-                    v.vesselType = vtype;
-                }
+                Vessel v = load.Vessel;
+                VesselType vtype = load.VesselType;
+                string vesselName = load.VesselName;
+                string driverState = load.DriverState;
+                bool rendererForceEnabled = load.RendererForceEnabled;
 
                 string mapVisibilityState = BuildGhostProtoVesselVisibilityState(
                     v.mapObject != null,
@@ -1888,9 +1792,9 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                if (pv != null)
+                if (load.ProtoVessel != null)
                 {
-                    RemoveGhostProtoVessel(pv, nullSafeFlightState: true);
+                    GhostMapVessels.RemoveGhostProtoVessel(load.ProtoVessel, nullSafeFlightState: true);
                 }
                 ParsekLog.Error(Tag,
                     string.Format(ic,
@@ -1900,156 +1804,16 @@ namespace Parsek
             }
         }
 
-        private static ConfigNode BuildGhostProtoVesselNode(
-            IPlaybackTrajectory traj,
-            Orbit orbit,
-            out VesselType vtype,
-            out string vesselName)
-        {
-            // Single antenna-free part: the ghost's CommNet node is GhostCommNetManager's, not this marker's.
-            // Aero/thermal tolerances are hardened post-load in HardenGhostVesselPartPhysics:
-            // the partNode is loaded into a real Part with prefab maxTemp=1200, which
-            // would otherwise overheat and explode the marker vessel during low-altitude
-            // playback (see BuildAndLoadGhostProtoVesselCore).
-            ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);
-
-            // Discovery: fully visible, infinite lifetime
-            ConfigNode discovery = ProtoVessel.CreateDiscoveryNode(
-                DiscoveryLevels.Owned, UntrackedObjectClass.C,
-                double.PositiveInfinity, double.PositiveInfinity);
-
-            vtype = ResolveVesselType(traj.VesselSnapshot);
-            vesselName = GhostVesselNamePrefix + (traj.VesselName ?? "Unknown");
-
-            ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
-                vesselName, vtype, orbit, 0,
-                new ConfigNode[] { partNode }, discovery);
-
-            // Critical settings: prevent ground positioning and KSC cleanup
-            vesselNode.SetValue("vesselSpawning", "False", true);
-            vesselNode.SetValue("prst", "True", true);
-            vesselNode.SetValue("cln", "False", true);
-
-            EnsureDefensiveVesselNodes(vesselNode);
-
-            return vesselNode;
-        }
-
-        /// <summary>
-        /// Adds the sub-nodes that SpaceTracking.buildVesselsList and other KSP internals
-        /// assume exist on a VESSEL node. ProtoVessel.CreateVesselNode adds ACTIONGROUPS
-        /// but omits these three, and a missing node can NRE inside tracking-station code
-        /// paths. Idempotent: an already-present node is left alone. Split out of
-        /// the ghost ProtoVessel node builder so the insertion can be driven headlessly.
-        /// </summary>
-        internal static void EnsureDefensiveVesselNodes(ConfigNode vesselNode)
-        {
-            if (vesselNode == null) return;
-
-            if (vesselNode.GetNode("FLIGHTPLAN") == null)
-                vesselNode.AddNode("FLIGHTPLAN");
-            if (vesselNode.GetNode("CTRLSTATE") == null)
-                vesselNode.AddNode("CTRLSTATE");
-            if (vesselNode.GetNode("VESSELMODULES") == null)
-                vesselNode.AddNode("VESSELMODULES");
-        }
-
-        /// <summary>
-        /// Override aero/thermal/structural tolerances on every part of a freshly-loaded
-        /// ghost-owned ProtoVessel (map-presence marker, replay flag, future single-part
-        /// ghost vessels) so the vessel behaves as a render-only presence rather than a
-        /// physical body. Without this, KSP's FlightIntegrator runs aerothermal sim on
-        /// the vessel (single-part root parts are promoted to PhysicalSignificance.FULL
-        /// regardless of prefab settings) and the prefab maxTemp / crashTolerance values
-        /// trigger Part.explode() when something hot or fast happens nearby.
-        /// </summary>
+        /// <summary>Forwards to <see cref="GhostMapVessels.HardenGhostVesselPartPhysics"/>.</summary>
         internal static int HardenGhostVesselPartPhysics(Vessel v, string logContext)
-        {
-            if (v == null || v.parts == null) return 0;
-            int count = 0;
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-                p.maxTemp = double.PositiveInfinity;
-                p.skinMaxTemp = double.PositiveInfinity;
-                p.crashTolerance = float.PositiveInfinity;
-                p.gTolerance = double.PositiveInfinity;
-                p.breakingForce = float.PositiveInfinity;
-                p.breakingTorque = float.PositiveInfinity;
-                count++;
-            }
-            ParsekLog.Verbose(Tag, string.Format(ic,
-                "Ghost vessel parts hardened: vessel='{0}' parts={1} for {2}",
-                v.vesselName ?? "(null)", count, logContext));
-            return count;
-        }
+            => GhostMapVessels.HardenGhostVesselPartPhysics(v, logContext);
 
-        /// <summary>
-        /// Called when KSP loads a ghost map vessel's parts (<c>Vessel.Load</c> postfix):
-        /// hardens the now-real parts and disables every collider under them, so the
-        /// render-only marker can neither explode nor collide with a real vessel that
-        /// shares its position inside physics range.
-        /// </summary>
+        /// <summary>Forwards to <see cref="GhostMapVessels.MakeLoadedGhostVesselPhysicsInert"/>.</summary>
         internal static void MakeLoadedGhostVesselPhysicsInert(Vessel v, string logContext)
-        {
-            if (v == null) return;
-            int parts = HardenGhostVesselPartPhysics(v, logContext);
-            int colliders = 0;
-            if (v.parts != null)
-            {
-                for (int i = 0; i < v.parts.Count; i++)
-                {
-                    Part p = v.parts[i];
-                    if (p == null) continue;
-                    Collider[] cs = p.GetComponentsInChildren<Collider>(true);
-                    for (int c = 0; c < cs.Length; c++)
-                    {
-                        if (cs[c] == null || !cs[c].enabled) continue;
-                        cs[c].enabled = false;
-                        colliders++;
-                    }
-                }
-            }
-            LogGhostVesselMadeInert(v.persistentId, v.vesselName, parts, colliders, logContext);
-        }
+            => GhostMapVessels.MakeLoadedGhostVesselPhysicsInert(v, logContext);
 
-        internal static void LogGhostVesselMadeInert(
-            uint pid, string vesselName, int parts, int colliders, string logContext)
-        {
-            ParsekLog.Verbose(Tag, string.Format(ic,
-                "Ghost vessel made physics-inert on load: vessel='{0}' pid={1} parts={2} collidersDisabled={3} for {4}",
-                vesselName ?? "(null)", pid, parts, colliders, logContext));
-        }
-
-        private static void RemoveGhostProtoVessel(ProtoVessel pv, bool nullSafeFlightState)
-        {
-            ghostMapVesselPids.Remove(pv.persistentId);
-            if (nullSafeFlightState)
-                HighLogic.CurrentGame?.flightState?.protoVessels?.Remove(pv);
-            else
-                HighLogic.CurrentGame.flightState.protoVessels.Remove(pv);
-        }
-
-        /// <summary>
-        /// Read VesselType from vessel snapshot ConfigNode.
-        /// Falls back to VesselType.Ship if snapshot is null or type is missing.
-        /// </summary>
+        /// <summary>Forwards to <see cref="GhostMapVessels.ResolveVesselType"/>.</summary>
         internal static VesselType ResolveVesselType(ConfigNode vesselSnapshot)
-        {
-            if (vesselSnapshot == null) return VesselType.Ship;
-
-            string typeStr = vesselSnapshot.GetValue("type");
-            if (string.IsNullOrEmpty(typeStr)) return VesselType.Ship;
-
-            if (Enum.TryParse(typeStr, true, out VesselType vtype))
-                return vtype;
-
-            ParsekLog.Verbose(Tag,
-                string.Format(ic,
-                    "ResolveVesselType: unrecognized type '{0}' — defaulting to Ship",
-                    typeStr));
-            return VesselType.Ship;
-        }
+            => GhostMapVessels.ResolveVesselType(vesselSnapshot);
     }
 }

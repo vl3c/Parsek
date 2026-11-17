@@ -392,7 +392,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
   current save's first committed recording (fields and lists copied in the cell), asserts
   the fixed answers and that a second attach is refused.
 - **Size:** S. **Depends on:** P2c-01, P12-01. **PC:** yes (one run of the cell). Its own
-  pull request; the category `RaceRivalLane` first appears here (lane catalog regen).
+  pull request. The category `RaceRivalLane` already exists: R3W-17 created it (one FLIGHT cell,
+  lane catalog and inventory regenerated there), so this cell only adds a declaration.
 - **Risk:** low; a value type with no callers yet beyond its tests and R3W-03.
 
 ### R3W-03 Header loader from the tree file
@@ -802,7 +803,37 @@ cells and stay their own pull requests; the one member that waits for a later ta
 - **Registers:** `headless_pins.toml` if it moves a Ghost leak (it is live code).
 - **Size:** S. **Depends on:** P3-04, P3-05. **PC:** yes.
 - **Risk:** medium; a landed proto vessel near the active vessel is in physics range and
-  relies on the `GoOffRails` refusal (`GhostVesselLoadPatch.cs:414-424`).
+  relies on the `GoOffRails` refusal (`GhostVesselLoadPatch.cs:464-489`, the Prefix at `:467`).
+- **As built (2026-11-17):** stacked on P3-04. The signature carries the owner, a log context and
+  the result the way the orbit build does: `bool BuildLanded(CelestialBody body, double lat, double
+  lon, double alt, string vesselName, VesselType vtype, GhostMapVesselOwner owner, string logContext,
+  out GhostMapVesselLoad load)` (R3W-18 registers under a foreign owner, so the owner cannot be
+  left out). It sits at the end of `GhostMapVessels`, after `FindBodyByName`; P3-04's code is
+  untouched. Split: the pure input check `ClassifyLandedRefusal` (`no-body`, `no-name`,
+  `lat-invalid`, `lon-invalid`, `alt-invalid`; one Warn `BuildLanded refused:` line before any game
+  call), the live `BuildLandedCore` (`NoInlining`; `no-flight-state` / `body-index-unresolved`
+  refusals, then `CreatePartNode("sensorBarometer", 0)`, register before `Load`, harden,
+  driver normalization, the map icon as `DrawIcons.OBJ` with no forced orbit line mode, the type
+  restore, one Info `Created landed ghost map vessel:` line) and the pure node builder
+  `BuildLandedGhostVesselNode`, which writes stock `CreateVesselNode`'s key set by hand (stock's needs
+  an `Orbit` and reads the live clock): `sit` LANDED, `landed` True, `splashed` False, lat / lon /
+  alt in invariant "R", `rot` identity (`VESSEL.rot` loads as `srfRelRotation`; stock writes a
+  random one), the canonical surface ORBIT through `VesselSnapshotOps.WriteCanonicalSurfaceOrbitValues`
+  (body index through `LiveVesselSnapshot.TryResolveBodyIndex`), the orbit build's `vesselSpawning`
+  False / `prst` True / `cln` False, and `skipGroundPositioning` True. xUnit
+  `GhostMapVesselsLandedTests` (21). In-game cell `RaceRivalLane.LandedMapVesselIsInert` (class
+  `RaceRivalLane`, a partial class so the other R3W cells can add files): builds the marker 40 m
+  from a landed active vessel under a foreign owner, waits for KSP to load it, asserts it stayed
+  packed with the `Blocked GoOffRails` line and no enabled collider, saves to a scratch slot and
+  reads FLIGHTSTATE back, then removes the vessel (`BeginTeardown` / `Die` / `EndTeardown` /
+  `Unregister`) and the slot; it skips without a landed active vessel or under warp. New category,
+  no committed spec pins it: no tally moves; `flight-profiles.md` regenerated and the
+  `autotest-ingame-category-inventory.md` row added (bucket B). Pins unchanged: 374 unreached, no
+  headless, layer or lifetime re-pin. PC: the cell is owed on the owner's PC.
+  Review note for R3W-18: if anything after `Load` throws, `BuildLandedCore` unregisters the pid and
+  drops the ProtoVessel but leaves the live Vessel without `Die()` (P3-04's orbit builder behaves the
+  same; no post-load call can realistically throw today). The cell's cleanup deletes the scratch
+  slot through `QuickloadResumeHelpers.TryDeleteSaveSlot`, which also removes `<slot>.loadmeta`.
 
 ### R3W-18 `RivalMapPresence`
 

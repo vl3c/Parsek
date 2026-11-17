@@ -480,6 +480,8 @@ namespace Parsek
                 // The timeline builder filters these out (bookkeeping, not an event); mapped
                 // here only so a direct caller gets no unknown-type WARN.
                 case GameActionType.StockPoolAdjustment:  return TimelineEntryType.LegacyEvent;
+                case GameActionType.VesselRecovered:      return TimelineEntryType.LegacyEvent;
+                case GameActionType.VesselEnded:          return TimelineEntryType.LegacyEvent;
 
                 default:
                     ParsekLog.Warn("Timeline",

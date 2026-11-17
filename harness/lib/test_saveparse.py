@@ -6229,9 +6229,11 @@ class StockLoadabilityTests(unittest.TestCase):
         presence = _read(os.path.join(src_dir, "Ghost", "GhostMapPresence.cs"))
         self.assertIn('GhostVesselNamePrefix = "%s";'
                       % saveparse.GHOST_MAP_VESSEL_NAME_PREFIX, presence)
-        lifecycle = _read(os.path.join(src_dir, "Ghost", "GhostMapPresence.ProtoVesselLifecycle.cs"))
+        # The node build lives in the GhostMapVessels service; the name prefix stays in
+        # GhostMapPresence, which composes the name the service is handed.
+        service = _read(os.path.join(src_dir, "Ghost", "GhostMapVessels.cs"))
         self.assertIn('ProtoVessel.CreatePartNode("%s", 0)'
-                      % saveparse.GHOST_MAP_VESSEL_PART_NAME, lifecycle)
+                      % saveparse.GHOST_MAP_VESSEL_PART_NAME, service)
 
     def test_parsek_ships_no_part_or_vessel_module(self):
         """The module check keys on "parsek" in a module name. That covers every

@@ -492,7 +492,7 @@ namespace Parsek.Tests
             GhostMapPresence.seamComdRefreshCount = 0;
             GhostMapPresence.seamComdSteadyCount = 0;
             GhostMapPresence.seamComdMaxOffOrbitDegPostRefresh = 0.0;
-            GhostMapPresence.FindBodyByNameForTesting = name =>
+            GhostMapVessels.FindBodyByNameForTesting = name =>
                 string.Equals(name, "Kerbin", StringComparison.Ordinal) ? kerbin : deadBody;
             clock = 1000.0;
             c.Setup();

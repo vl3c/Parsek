@@ -816,7 +816,8 @@ namespace Parsek
                 // except the stock pool reference, which stays the rewind point's own because the
                 // file carries the rewind point's pools (see SpliceLiveParsekScenarioNode).
                 ConfigNode liveParsekNode = ParsekScenario.TryLoadCarryForwardSourceParsekNode(out string persistentPath);
-                ConfigNode targetParsekNode = FindParsekScenarioProtoNode(game);
+                ConfigNode targetParsekNode = ScenarioNodeLookup.FindInProtoList(
+                    game?.scenarios, ScenarioNodeLookup.ParsekScenarioName);
                 string spliceRefusal = SpliceLiveParsekScenarioNode(targetParsekNode, liveParsekNode);
                 if (spliceRefusal != null)
                 {
@@ -847,21 +848,6 @@ namespace Parsek
                     $"{ex.GetType().Name}: {ex.Message} - the scene will reload the session's last persistent.sfs");
                 return false;
             }
-        }
-
-        /// <summary>The stored ParsekScenario node of <paramref name="game"/>, or null.</summary>
-        internal static ConfigNode FindParsekScenarioProtoNode(Game game)
-        {
-            List<ProtoScenarioModule> protos = game?.scenarios;
-            if (protos == null)
-                return null;
-            for (int i = 0; i < protos.Count; i++)
-            {
-                ProtoScenarioModule proto = protos[i];
-                if (proto != null && string.Equals(proto.moduleName, nameof(ParsekScenario), StringComparison.Ordinal))
-                    return proto.GetData();
-            }
-            return null;
         }
 
         /// <summary>
