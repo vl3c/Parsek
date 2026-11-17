@@ -1089,7 +1089,7 @@ namespace Parsek
             }
 
             // Header probe accepts a .prec truncated past the header. Run
-            // a full-payload validation read into a throwaway Recording so
+            // a full-payload validation decode into a scratch payload so
             // a corrupt payload trips the save gate, forces the caller to
             // rewrite from the in-memory recording, and avoids certifying
             // a sidecar the next load would mark SidecarLoadFailed.

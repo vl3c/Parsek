@@ -159,11 +159,14 @@ namespace Parsek
 
         // Full-payload validation. The header probe (TryProbe) above stops
         // after reading magic+version+epoch+recordingId; a .prec truncated
-        // past the header still satisfies that. Run the full Read into a
-        // throwaway Recording and surface any reader throw as a structured
-        // failure reason. The binary trajectory codec has no payload
-        // checksum, so the only signal that the payload is corrupt is the
-        // reader throwing — and the reader has several throw sites beyond
+        // past the header still satisfies that. Run the full Decode into a
+        // scratch payload and surface any reader throw as a structured
+        // failure reason. No Recording is involved, so the only line this
+        // writes is the non-monotonic drop Warn, under the probe's id (the
+        // save gate matched it to the caller's recording before calling).
+        // The binary trajectory codec has no payload checksum, so the only
+        // signal that the payload is corrupt is the reader throwing, and
+        // the reader has several throw sites beyond
         // the obvious EndOfStream / Format / Argument / IO families: the
         // string-table indexers throw InvalidDataException for an
         // out-of-range index (this file, around the ReadIndexedString /
@@ -188,8 +191,9 @@ namespace Parsek
             }
             try
             {
-                Recording scratch = new Recording();
-                Read(path, scratch, probe);
+                var scratch = new RecordingTrajectoryPayload();
+                Decode(path, probe, scratch);
+                LogDroppedNonMonotonic(probe.RecordingId, scratch.Stats.DroppedNonMonotonicPoints);
                 return true;
             }
             catch (Exception ex)
@@ -342,12 +346,20 @@ namespace Parsek
                     $"defaultedScience={stats.DefaultedScience} defaultedRep={stats.DefaultedReputation}");
             }
 
-            if (stats.DroppedNonMonotonicPoints > 0)
-            {
-                ParsekLog.Warn("RecordingStore",
-                    $"ReadBinaryTrajectoryFile: recording={rec.RecordingId} dropped {stats.DroppedNonMonotonicPoints} " +
-                    "non-monotonic flat trajectory point(s) on load (#419-class)");
-            }
+            LogDroppedNonMonotonic(rec.RecordingId, stats.DroppedNonMonotonicPoints);
+        }
+
+        /// <summary>
+        /// The Warn for flat points a decode dropped as non-monotonic; nothing when none
+        /// were. Written whatever <see cref="RecordingStore.SuppressLogging"/> says.
+        /// </summary>
+        internal static void LogDroppedNonMonotonic(string recordingId, int droppedPoints)
+        {
+            if (droppedPoints <= 0)
+                return;
+            ParsekLog.Warn("RecordingStore",
+                $"ReadBinaryTrajectoryFile: recording={recordingId} dropped {droppedPoints} " +
+                "non-monotonic flat trajectory point(s) on load (#419-class)");
         }
 
         /// <summary>
