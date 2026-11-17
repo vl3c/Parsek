@@ -493,7 +493,7 @@ Release build of one compiler agree on those; two compilers do not quite
 methods at complexity 20 or more), which the complexity watch band absorbs.
 
 - `crossTypeStaticWrites`: the statics written by another production type
-  may not outnumber `bound` (55). A red names the new keys and their writers.
+  may not outnumber `bound` (54). A red names the new keys and their writers.
   A write is an `stsfld`, a call to a static auto-property setter, or a call
   to a static property setter of a type that keeps its save-scoped fields in
   a nested `ColdResetState` holder when that setter reads the holder static;
