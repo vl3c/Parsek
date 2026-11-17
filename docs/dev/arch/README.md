@@ -778,6 +778,17 @@ the declaration exists to show.
   `"From -> A | B"`, which `archview.expand_edge_specs` expands to one edge per
   element before either gate reads it; every element must name a module, and a
   malformed list (`"A -> B |"`, `"A | B -> C"`) reds as a malformed spec.
+- **Recording types only in the race loader** (multiplayer design 15.4):
+  `test_archview.RaceLoaderFilesTests` reds the DLL-free suite when a
+  `RaceWorld/` file names a type of the Recording module and is not listed in
+  `scripts/race-loader-files-allowlist.txt` (one repo-relative path and its
+  reason per line). It reads the text scan's type-to-module map, the Recording
+  type list being every type declared in that module's `modules.toml` folder,
+  so no list is typed by hand; a name declared in two modules is dropped, as in
+  the model. The folder does not exist until R3W-02, and a planted cell proves
+  the rule on the real map meanwhile. The other race rules of 15.4 are grep
+  gates in `GrepAuditTests.Race.cs` (no store in RaceCore, no writer of the own
+  model, the recorder ban).
 - **Compiler differences**: the edges come from the IL operands, locals and
   signatures of the Debug build CI makes. A Release build of the pinned tree
   reads the same 52 backward module pairs and 440 type pairs (only 3 lateral

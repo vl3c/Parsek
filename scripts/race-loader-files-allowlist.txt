@@ -1,0 +1,13 @@
+# Recording types only in the race loader (multiplayer design 15.4, plan R1-06 / OV-12).
+#
+# Inside the RaceWorld module a type of the Recording module (the sidecar codecs, the recording
+# data types) is named only in the loader files listed here. Read by RaceLoaderFilesTests in
+# scripts/arch/test_archview.py over the text scan's type-to-module map: the Recording type list
+# is every type declared in the folder scripts/arch/modules.toml gives the Recording module,
+# never typed by hand. The recorders, the recording store, the pending-tree slot and the tree
+# commit and discard services stay banned in every race file, loaders included
+# (scripts/grep-audit-race-no-recorder.ps1).
+#
+# One file per line: its repo-relative path (Source/Parsek/RaceWorld/<Name>.cs), a blank, then
+# the reason it reads recordings (required). A listed file must exist once RaceWorld does.
+# R3W-02 (RivalFlight.cs), R3W-03, R3W-04 and R3W-27 add their loader files here.

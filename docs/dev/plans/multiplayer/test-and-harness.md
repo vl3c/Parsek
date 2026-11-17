@@ -1877,7 +1877,7 @@ The ERS / ELS gate needs nothing (`RaceExportSource` reads through `EffectiveSta
 
 This plan adds no grep-audit gate. The race gates are R1-06's: `race-core-no-store` on the
 shared managed scanner `RaceSourceScan` in `GrepAuditTests.Race.cs` (OV-10), `race-no-writer`
-with the cell that the save-lifetime persistence writers are absent from its allowlist
+with the cell that every save-lifetime type is on its denylist
 (OV-11), `race-no-recorder`, and the loader arch cell, which reads
 `scripts/race-loader-files-allowlist.txt` (R3W-27 adds the loader entries, OV-12); and
 R3W-27's rival-store gate, its type names derived from the rival store's file (OV-13). New

@@ -555,6 +555,41 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   sees a race file). **PC:** no.
 - **Risk:** low; a vacuous gate is the danger, closed by the anti-vacuity and planted-red
   cells.
+- **As built (2026-11-17, branch `mp/r1-06-race-grep-audit-gates`, stacked on R1-03):**
+  - The shared scan LEXES each race file rather than grepping lines: comments and the contents
+    of string and char literals become blanks, interpolation holes stay code, line breaks are
+    kept; a raw string literal or an unterminated literal or comment fails closed.
+    `scripts/race-source-scan.ps1` is the same lexer in pwsh, dot-sourced by the three gate
+    scripts. Every gate refuses a `using X =` alias and a backslash in code (a unicode-escaped
+    identifier). A ban matches its identifier anywhere, so `Parsek.RecordingStore` counts; the
+    `GuiMockTypeRef` shape counts the references for the anti-vacuity floor (30 today, floor 24).
+  - The no-writer gate's denylist and allowlist are one data file,
+    `scripts/race-no-writer-allowlist.txt` (`deny type|member <Name>`, `allow <file> <entry>`, a
+    reason on every line; an allow line with no hit left reds). The stores are denied WHOLE: the
+    30 `save`-lifetime types of `lifetimes.toml` (a name gate cannot tell a read from a write; a
+    race file that reads one, RaceExport's names say, gets an allow line). Also denied:
+    `GamePersistence`, `ScenarioRunner`, `ProtoScenarioModule` and a `.OnSave` member call (a
+    scenario module's own `override void OnSave` has no dot, so R1-03's `ParsekRaceScenario`
+    passes), and the stock state of the two design writes (`KerbalRoster`, `.suit`, `PQSCity`,
+    `SpaceCenter`), so the allow lines the header reserves for R2-03 (`RaceSites.cs`) and R5-11
+    (`RaceLooks.cs`) carry weight. `Controllers/ParsekRace*.cs` is scanned by this gate too (the
+    plan's race files; design 15.4 says "the three race modules"): R1-10's `ParsekRaceSetup`,
+    which adds the race proto and saves the created game, adds its own allow lines with that
+    reason. T-15's cell reads the `[[type]]` blocks of `lifetimes.toml`.
+  - The log tag cell is managed only. It finds the `ParsekLog` members that take a tag by
+    reflection (a parameter named `subsystem`), and the tag must be a literal or a
+    `const string` of a race file (the same file, or `Type.Name` in the race file declaring
+    `Type`); `using static ParsekLog`, a method group and any other expression red. In-game test
+    files (`InGameTests/`) are tooling, not race files, so they are not scanned and R1-03's
+    `RaceModeInGame` tag is not on the list.
+  - The mirror cell has a static half that runs everywhere (folder list, controller glob,
+    recorder list, store pattern, the scripts' `MinTypeReferences` default) and a fixed input
+    whose managed result is pinned line for line; the scripts are compared on it where pwsh
+    exists (CI's runner). The cloud box that built this has no pwsh, so CI is the pwsh arm's
+    first run.
+  - `scripts/race-loader-files-allowlist.txt` is created empty (R3W-02 had not landed); the
+    loader cell is `test_archview.RaceLoaderFilesTests`. CLAUDE.md is untouched: its gate list
+    names the family by glob only.
 
 ### R1-07 Logs and test batches leave `Parsek/Race/` alone (A7, parts 1 and 2)
 
