@@ -89,6 +89,36 @@ class CollectLogsRaceFolderTests(unittest.TestCase):
         self.assertEqual(["GameState", "Recordings"],
                          cl.parsek_sidecar_dirs_to_copy(self.parsek, False))
 
+    def test_only_a_directory_spelled_race_is_left_out_and_listed(self):
+        # A "race" folder and a file named "Race" are ordinary content: copied, not
+        # listed. The copy selection and the listing agree on every host.
+        # The two cases run one after the other: on a case-insensitive file system a
+        # "race" folder and a "Race" file cannot coexist.
+        race_folder = os.path.join(self.parsek, "race")
+        _write(os.path.join(race_folder, "notes.txt"), "user")
+        self.assertIsNone(cl.resolve_race_dir(self.parsek))
+        self.assertEqual(["GameState", "Recordings", "race"],
+                         cl.parsek_sidecar_dirs_to_copy(self.parsek, False))
+        wrote, printed = self._quiet(cl.write_race_listing, self.parsek, self.out)
+        self.assertFalse(wrote)
+        self.assertEqual("", printed)
+        shutil.rmtree(race_folder)
+
+        _write(os.path.join(self.parsek, "Race"), "a file")
+        self.assertIsNone(cl.resolve_race_dir(self.parsek))
+        self.assertEqual(["GameState", "Recordings"],
+                         cl.parsek_sidecar_dirs_to_copy(self.parsek, False))
+        wrote, printed = self._quiet(cl.write_race_listing, self.parsek, self.out)
+        self.assertFalse(wrote)
+        self.assertEqual("", printed)
+        self.assertEqual([], os.listdir(self.out))
+
+    def test_the_resolved_folder_is_what_the_copy_leaves_out(self):
+        self._add_race()
+        race = cl.resolve_race_dir(self.parsek)
+        self.assertEqual(os.path.join(self.parsek, "Race"), str(race))
+        self.assertNotIn(race.name, cl.parsek_sidecar_dirs_to_copy(self.parsek, False))
+
     def test_the_folder_name_is_the_csharp_constant(self):
         with open(os.path.join(_REPO, "Source", "Parsek", "Recording", "RaceDirectoryKeep.cs"),
                   encoding="utf-8") as fh:

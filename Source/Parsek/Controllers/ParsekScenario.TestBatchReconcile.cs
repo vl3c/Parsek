@@ -247,12 +247,14 @@ namespace Parsek
         private static void CopyDirectoryRecursiveOnReconcile(string sourceDir, string destDir)
         {
             System.IO.Directory.CreateDirectory(destDir);
+            // The skip keys on the same resolved Parsek/Race/ folder the move-aside keeps.
+            bool skipRace = RaceDirectoryKeep.ResolveRaceDirectory(sourceDir) != null;
             foreach (string dir in System.IO.Directory.GetDirectories(
                 sourceDir, "*", System.IO.SearchOption.AllDirectories))
             {
                 string rel = dir.Substring(sourceDir.Length)
                     .TrimStart(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
-                if (RaceDirectoryKeep.IsInRaceDirectory(rel))
+                if (skipRace && RaceDirectoryKeep.IsInRaceDirectory(rel))
                     continue;
                 System.IO.Directory.CreateDirectory(System.IO.Path.Combine(destDir, rel));
             }
@@ -261,7 +263,7 @@ namespace Parsek
             {
                 string rel = file.Substring(sourceDir.Length)
                     .TrimStart(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
-                if (RaceDirectoryKeep.IsInRaceDirectory(rel))
+                if (skipRace && RaceDirectoryKeep.IsInRaceDirectory(rel))
                     continue;
                 string destFile = System.IO.Path.Combine(destDir, rel);
                 string destParent = System.IO.Path.GetDirectoryName(destFile);

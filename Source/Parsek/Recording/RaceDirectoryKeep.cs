@@ -11,6 +11,12 @@ namespace Parsek
     /// one subfolder out of every copy and move the live one aside before the swap and back
     /// after it. A single-player save has no such folder: every member here is then a no-op
     /// and writes no log line.
+    /// The race folder is the one DIRECTORY directly under <c>Parsek/</c> spelled exactly
+    /// <c>Race</c> (ordinal), resolved by <see cref="ResolveRaceDirectory"/>. The copy loops
+    /// skip it only when that resolves on their source, and the move-aside moves exactly that
+    /// entry, so what a copy leaves out is what the move-aside keeps, on a case-sensitive and
+    /// a case-insensitive file system alike. Anything else (a <c>race</c> folder, a file named
+    /// <c>Race</c>) is ordinary Parsek content, copied and restored like the rest.
     /// </summary>
     internal static class RaceDirectoryKeep
     {
@@ -22,8 +28,9 @@ namespace Parsek
         private const string AsideInfix = "-race-keep-";
 
         /// <summary>True when a path relative to the <c>Parsek/</c> folder lies in its
-        /// <c>Race/</c> subfolder (the folder itself included). Case-insensitive, because the
-        /// Windows file system is.</summary>
+        /// <c>Race/</c> subfolder (the folder itself included), matching the name ordinally.
+        /// A copy loop asks this only when <see cref="ResolveRaceDirectory"/> found the
+        /// folder on its source, so a file named <c>Race</c> never reaches it as a match.</summary>
         internal static bool IsInRaceDirectory(string relativePath)
         {
             if (string.IsNullOrEmpty(relativePath))
@@ -33,19 +40,36 @@ namespace Parsek
             int sep = trimmed.IndexOfAny(
                 new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar });
             string first = sep < 0 ? trimmed : trimmed.Substring(0, sep);
-            return string.Equals(first, DirectoryName, StringComparison.OrdinalIgnoreCase);
+            return string.Equals(first, DirectoryName, StringComparison.Ordinal);
         }
 
-        /// <summary>Moves <c>&lt;parsekDirectory&gt;/Race/</c> to a sibling of
-        /// <c>parsekDirectory</c> and returns that path, or null when there is no race folder.
-        /// Throws when the move fails, so a caller that has not yet deleted anything stops
-        /// with the live folder untouched.</summary>
-        internal static string MoveAside(string parsekDirectory)
+        /// <summary>The path of the race folder under <paramref name="parsekDirectory"/>, or
+        /// null when there is none. One existence check answers a save with no race folder;
+        /// only when it says yes are the directory's real child names read, because a
+        /// case-insensitive file system also says yes for <c>race</c>.</summary>
+        internal static string ResolveRaceDirectory(string parsekDirectory)
         {
             if (string.IsNullOrEmpty(parsekDirectory))
                 return null;
             string raceDirectory = Path.Combine(parsekDirectory, DirectoryName);
             if (!Directory.Exists(raceDirectory))
+                return null;
+            foreach (string directory in Directory.GetDirectories(parsekDirectory))
+            {
+                if (string.Equals(Path.GetFileName(directory), DirectoryName, StringComparison.Ordinal))
+                    return raceDirectory;
+            }
+            return null;
+        }
+
+        /// <summary>Moves the race folder <see cref="ResolveRaceDirectory"/> finds to a
+        /// sibling of <c>parsekDirectory</c> and returns that path, or null when there is no
+        /// race folder. Throws when the move fails, so a caller that has not yet deleted
+        /// anything stops with the live folder untouched.</summary>
+        internal static string MoveAside(string parsekDirectory)
+        {
+            string raceDirectory = ResolveRaceDirectory(parsekDirectory);
+            if (raceDirectory == null)
                 return null;
 
             string trimmed = parsekDirectory.TrimEnd(

@@ -50,6 +50,11 @@ namespace Parsek.Tests
             return Directory.GetDirectories(saveDir).Select(Path.GetFileName).OrderBy(n => n).ToArray();
         }
 
+        private string[] ParsekDirChildren()
+        {
+            return Directory.GetFileSystemEntries(parsekDir).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+        }
+
         private bool AnyRaceLogLine()
         {
             return logLines.Any(l => l.Contains("Parsek/Race/"));
@@ -58,9 +63,9 @@ namespace Parsek.Tests
         [Theory]
         [InlineData("Race", true)]
         [InlineData("Race/own/player.cfg", true)]
-        [InlineData("Race\\local.cfg", true)]
-        [InlineData("\\Race\\local.cfg", true)]
-        [InlineData("race/local.cfg", true)]
+        [InlineData("/Race/local.cfg", true)]
+        [InlineData("race/local.cfg", false)]
+        [InlineData("RACE", false)]
         [InlineData("Recordings", false)]
         [InlineData("Recordings/Race/x.prec", false)]
         [InlineData("Racecar/x", false)]
@@ -70,6 +75,54 @@ namespace Parsek.Tests
         public void IsInRaceDirectory_MatchesOnlyTheTopLevelRaceFolder(string relative, bool expected)
         {
             Assert.Equal(expected, RaceDirectoryKeep.IsInRaceDirectory(relative));
+        }
+
+        // The copy loops hand over paths built by the host's own GetFiles, so the host
+        // separator is the one that matters; a hard-coded backslash is not a separator on
+        // Linux / mono.
+        [Fact]
+        public void IsInRaceDirectory_RecognizesTheHostSeparator()
+        {
+            string sep = Path.DirectorySeparatorChar.ToString();
+            Assert.True(RaceDirectoryKeep.IsInRaceDirectory("Race" + sep + "local.cfg"));
+            Assert.True(RaceDirectoryKeep.IsInRaceDirectory(sep + "Race" + sep + "local.cfg"));
+            Assert.True(RaceDirectoryKeep.IsInRaceDirectory("Race" + sep + "own" + sep + "player.cfg"));
+            Assert.False(RaceDirectoryKeep.IsInRaceDirectory("Recordings" + sep + "Race" + sep + "x.prec"));
+            Assert.False(RaceDirectoryKeep.IsInRaceDirectory("Racecar" + sep + "x"));
+        }
+
+        [Fact]
+        public void ResolveRaceDirectory_FindsOnlyADirectorySpelledExactlyRace()
+        {
+            Directory.CreateDirectory(parsekDir);
+            Assert.Null(RaceDirectoryKeep.ResolveRaceDirectory(parsekDir));
+            Assert.Null(RaceDirectoryKeep.ResolveRaceDirectory(null));
+
+            Write(Path.Combine(parsekDir, "Race"), "a file");
+            Assert.Null(RaceDirectoryKeep.ResolveRaceDirectory(parsekDir));
+            File.Delete(Path.Combine(parsekDir, "Race"));
+
+            Directory.CreateDirectory(Path.Combine(parsekDir, "race"));
+            Assert.Null(RaceDirectoryKeep.ResolveRaceDirectory(parsekDir));
+            Directory.Delete(Path.Combine(parsekDir, "race"));
+
+            Directory.CreateDirectory(Path.Combine(parsekDir, "Race"));
+            Assert.Equal(Path.Combine(parsekDir, "Race"), RaceDirectoryKeep.ResolveRaceDirectory(parsekDir));
+            Assert.False(AnyRaceLogLine());
+        }
+
+        [Fact]
+        public void MoveAside_LowerCaseFolderOrFileNamedRace_MovesNothing()
+        {
+            Write(Path.Combine(parsekDir, "race", "notes.txt"), "user");
+            Assert.Null(RaceDirectoryKeep.MoveAside(parsekDir));
+            Directory.Delete(Path.Combine(parsekDir, "race"), recursive: true);
+            Write(Path.Combine(parsekDir, "Race"), "a file");
+            Assert.Null(RaceDirectoryKeep.MoveAside(parsekDir));
+
+            Assert.Equal(new[] { "Race" }, ParsekDirChildren());
+            Assert.Equal(new[] { "Parsek" }, SaveDirChildren());
+            Assert.False(AnyRaceLogLine());
         }
 
         [Fact]
@@ -199,6 +252,105 @@ namespace Parsek.Tests
 
             Assert.Equal("clean", File.ReadAllText(Path.Combine(parsekDir, "GameState", "events.pgse")));
             Assert.False(Directory.Exists(Path.Combine(parsekDir, "Race")));
+            Assert.Equal(new[] { "Parsek", "pt-slot-parsek" }, SaveDirChildren());
+            Assert.False(AnyRaceLogLine());
+        }
+
+        [Fact]
+        public void RunnerRestore_SwapFails_RollbackKeepsTheLiveRaceFolder()
+        {
+            Write(Path.Combine(parsekDir, "state.txt"), "baseline");
+            string snapshot = InGameTestRunner.CaptureBatchFlightParsekSaveSnapshot("pt-slot");
+            Write(Path.Combine(parsekDir, "state.txt"), "mutated");
+            Write(Path.Combine(parsekDir, "Race", "local.cfg"), "race-now");
+
+            var staged = InGameTestRunner.CreateBatchFlightParsekSaveSnapshotStaging(parsekDir, snapshot);
+            // Without its staging folder the swap throws after the live folder went to the
+            // backup path, so the rollback branch puts it back.
+            foreach (string d in Directory.GetDirectories(saveDir, "Parsek-restore-*"))
+                Directory.Delete(d, recursive: true);
+            Assert.ThrowsAny<Exception>(() => staged.Activate());
+            staged.Dispose();
+
+            Assert.Equal("mutated", File.ReadAllText(Path.Combine(parsekDir, "state.txt")));
+            Assert.Equal("race-now", File.ReadAllText(Path.Combine(parsekDir, "Race", "local.cfg")));
+            Assert.Equal(new[] { "Parsek", "pt-slot-parsek" }, SaveDirChildren());
+            Assert.Contains(logLines, l => l.Contains("[TestBatch]") && l.Contains("kept Parsek/Race/ (1 files)"));
+        }
+
+        // Only a directory spelled exactly "Race" is the race folder. A "race" folder in a
+        // single-player save is ordinary Parsek content: snapshotted and restored, under its
+        // own name. On Linux the head-of-branch code destroyed it; on Windows it moved it
+        // aside, kept the batch's change and renamed it "Race", which the name and content
+        // asserts catch on both hosts.
+        [Fact]
+        public void RunnerRestore_LowerCaseRaceFolder_IsRestoredLikeAnyOtherFolder()
+        {
+            Write(Path.Combine(parsekDir, "state.txt"), "baseline");
+            Write(Path.Combine(parsekDir, "race", "notes.txt"), "baseline");
+            string snapshot = InGameTestRunner.CaptureBatchFlightParsekSaveSnapshot("pt-slot");
+            Write(Path.Combine(parsekDir, "race", "notes.txt"), "mutated");
+
+            using (var staged = InGameTestRunner.CreateBatchFlightParsekSaveSnapshotStaging(parsekDir, snapshot))
+            {
+                staged.Activate();
+            }
+
+            Assert.Equal(new[] { "race", "state.txt" }, ParsekDirChildren());
+            Assert.Equal("baseline", File.ReadAllText(Path.Combine(parsekDir, "race", "notes.txt")));
+            Assert.Equal(new[] { "Parsek", "pt-slot-parsek" }, SaveDirChildren());
+            Assert.False(AnyRaceLogLine());
+        }
+
+        [Fact]
+        public void CrashReconcile_LowerCaseRaceFolder_IsRestoredLikeAnyOtherFolder()
+        {
+            string snapshot = Path.Combine(saveDir, "pt-slot-parsek");
+            Write(Path.Combine(snapshot, "GameState", "events.pgse"), "clean");
+            Write(Path.Combine(snapshot, "race", "notes.txt"), "clean");
+            Write(Path.Combine(parsekDir, "GameState", "events.pgse"), "mutated");
+            Write(Path.Combine(parsekDir, "race", "notes.txt"), "mutated");
+
+            Assert.True(ParsekScenario.RestoreParsekSidecarDirOnReconcile(snapshot));
+
+            Assert.Equal(new[] { "GameState", "race" }, ParsekDirChildren());
+            Assert.Equal("clean", File.ReadAllText(Path.Combine(parsekDir, "race", "notes.txt")));
+            Assert.Equal(new[] { "Parsek", "pt-slot-parsek" }, SaveDirChildren());
+            Assert.False(AnyRaceLogLine());
+        }
+
+        // A plain file named "Race" is not the race folder: it is copied and restored.
+        [Fact]
+        public void RunnerRestore_FileNamedRace_IsRestoredLikeAnyOtherFile()
+        {
+            Write(Path.Combine(parsekDir, "Race"), "baseline");
+            string snapshot = InGameTestRunner.CaptureBatchFlightParsekSaveSnapshot("pt-slot");
+            Write(Path.Combine(parsekDir, "Race"), "mutated");
+
+            using (var staged = InGameTestRunner.CreateBatchFlightParsekSaveSnapshotStaging(parsekDir, snapshot))
+            {
+                staged.Activate();
+            }
+
+            Assert.True(File.Exists(Path.Combine(parsekDir, "Race")));
+            Assert.Equal("baseline", File.ReadAllText(Path.Combine(parsekDir, "Race")));
+            Assert.Equal(new[] { "Parsek", "pt-slot-parsek" }, SaveDirChildren());
+            Assert.False(AnyRaceLogLine());
+        }
+
+        [Fact]
+        public void CrashReconcile_FileNamedRace_IsRestoredLikeAnyOtherFile()
+        {
+            string snapshot = Path.Combine(saveDir, "pt-slot-parsek");
+            Write(Path.Combine(snapshot, "GameState", "events.pgse"), "clean");
+            Write(Path.Combine(snapshot, "Race"), "clean");
+            Write(Path.Combine(parsekDir, "GameState", "events.pgse"), "mutated");
+            Write(Path.Combine(parsekDir, "Race"), "mutated");
+
+            Assert.True(ParsekScenario.RestoreParsekSidecarDirOnReconcile(snapshot));
+
+            Assert.True(File.Exists(Path.Combine(parsekDir, "Race")));
+            Assert.Equal("clean", File.ReadAllText(Path.Combine(parsekDir, "Race")));
             Assert.Equal(new[] { "Parsek", "pt-slot-parsek" }, SaveDirChildren());
             Assert.False(AnyRaceLogLine());
         }
