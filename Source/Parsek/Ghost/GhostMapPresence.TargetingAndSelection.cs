@@ -370,70 +370,15 @@ namespace Parsek
                 IsVesselRegistered(ghost));
         }
 
+        /// <summary>Forwards to <see cref="GhostMapVessels.NormalizeGhostOrbitDriverTargetIdentity"/>.</summary>
         internal static void NormalizeGhostOrbitDriverTargetIdentity(
             Vessel vessel,
             string context)
-        {
-            if (vessel == null || vessel.orbitDriver == null)
-                return;
+            => GhostMapVessels.NormalizeGhostOrbitDriverTargetIdentity(vessel, context);
 
-            OrbitDriver driver = vessel.orbitDriver;
-            bool changed = false;
-            string before = BuildGhostOrbitDriverIdentity(vessel);
-
-            if (!IsSameVessel(driver.vessel, vessel))
-            {
-                driver.vessel = vessel;
-                changed = true;
-            }
-
-            if (driver.celestialBody != null)
-            {
-                driver.celestialBody = null;
-                changed = true;
-            }
-
-            if (changed)
-            {
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
-                        "Normalized ghost target identity for {0}: before=[{1}] after=[{2}]",
-                        string.IsNullOrEmpty(context) ? "(none)" : context,
-                        before,
-                        BuildGhostOrbitDriverIdentity(vessel)));
-            }
-        }
-
+        /// <summary>Forwards to <see cref="GhostMapVessels.BuildGhostOrbitDriverIdentity"/>.</summary>
         internal static string BuildGhostOrbitDriverIdentity(Vessel vessel)
-        {
-            if (vessel == null)
-                return "driver=(ghost-null)";
-            OrbitDriver driver = vessel.orbitDriver;
-            if (driver == null)
-                return "driver=(null)";
-
-            string driverVessel = driver.vessel != null
-                ? string.Format(ic,
-                    "{0}/pid={1}",
-                    driver.vessel.vesselName ?? "(null)",
-                    driver.vessel.persistentId)
-                : "(null)";
-            string driverBody = driver.celestialBody != null
-                ? (driver.celestialBody.name ?? "(unnamed-body)")
-                : "(null)";
-            string referenceBody = driver.referenceBody != null
-                ? (driver.referenceBody.name ?? "(unnamed-body)")
-                : "(null)";
-
-            return string.Format(ic,
-                "driverVessel={0} driverCelestialBody={1} referenceBody={2} orbit={3} mapObj={4} orbitRenderer={5}",
-                driverVessel,
-                driverBody,
-                referenceBody,
-                driver.orbit != null,
-                vessel.mapObject != null,
-                vessel.orbitRenderer != null);
-        }
+            => GhostMapVessels.BuildGhostOrbitDriverIdentity(vessel);
 
         private static string DescribeTargetable(ITargetable target)
         {
@@ -519,35 +464,13 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>Forwards to <see cref="GhostMapVessels.IsVesselRegistered"/>.</summary>
         internal static bool IsVesselRegistered(Vessel vessel)
-        {
-            if (vessel == null || FlightGlobals.fetch == null)
-                return false;
+            => GhostMapVessels.IsVesselRegistered(vessel);
 
-            // O(1) persistent-id lookup against FlightGlobals.PersistentVesselIds
-            // (stock FlightGlobals.FindVessel is a thin wrapper around it).
-            if (vessel.persistentId != 0u)
-                return FlightGlobals.FindVessel(vessel.persistentId, out _);
-
-            // pid==0 vessels (unregistered / mid-construction) fall back to an
-            // identity scan so callers still get a meaningful answer.
-            if (FlightGlobals.Vessels == null)
-                return false;
-            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-            {
-                if (ReferenceEquals(FlightGlobals.Vessels[i], vessel))
-                    return true;
-            }
-            return false;
-        }
-
+        /// <summary>Forwards to <see cref="GhostMapVessels.IsSameVessel"/>.</summary>
         private static bool IsSameVessel(Vessel a, Vessel b)
-        {
-            if (a == null || b == null)
-                return false;
-            return ReferenceEquals(a, b)
-                || (a.persistentId != 0u && a.persistentId == b.persistentId);
-        }
+            => GhostMapVessels.IsSameVessel(a, b);
 
         private static bool IsSameBody(CelestialBody a, CelestialBody b)
         {

@@ -46,6 +46,37 @@ remain. Proof: three cells in
 `GhostMapPresenceTests` pinning the order through `ResolveBodyFixedPrimaryAnchorPid`. Owed on
 the PC: in-game `GhostMap`, lanes H44 and S1.6.
 
+## MP-P3-GHOST-MAP-VESSELS, P3-04 as built: the ghost ProtoVessel mechanics live in `GhostMapVessels` [DONE 2026-11-17, branch `mp/p3-04-proto-mechanics-to-service`; refactor, no product change; part of the P3 track of `docs/dev/plans/multiplayer/r0b-prep-map-watch-codec.md`]
+
+Moved verbatim from `GhostMapPresence.ProtoVesselLifecycle.cs` / `.TargetingAndSelection.cs` into
+`Source/Parsek/Ghost/GhostMapVessels.cs`: `BuildGhostProtoVesselNode` (now handed the finished
+name), `EnsureDefensiveVesselNodes`, `ResolveVesselType`, `HardenGhostVesselPartPhysics`,
+`MakeLoadedGhostVesselPhysicsInert`, `LogGhostVesselMadeInert`,
+`NormalizeGhostOrbitDriverTargetIdentity`, `BuildGhostOrbitDriverIdentity`, `IsVesselRegistered`,
+`RemoveGhostProtoVessel`, `StripFromSave`, `FindBodyByName`, plus `IsSameVessel` (Normalize calls
+it) and the `FindBodyByNameForTesting` seam (cleared by `GhostMapVessels.ResetForTesting`), so
+the service reads nothing of `GhostMapPresence`. `BuildAndLoadGhostProtoVesselCore` keeps its
+signature and callers: it names the vessel (`BuildGhostProtoVesselName`), calls
+`TryLoadGhostProtoVessel(..., GhostMapVesselOwner.OwnTimeline, ...)` (node build through the type
+restore, its own Error lines and cleanup) and keeps the "Created ghost vessel" line and the
+`GhostCreated` trace; an exception after a good load still removes the ProtoVessel with the same
+Error line, which is why `GhostMapVesselLoad` also carries `ProtoVessel`. Forwarders stay on
+`GhostMapPresence` for the members called from elsewhere (`StripFromSave`, `ResolveVesselType`,
+`FindBodyByName`, `HardenGhostVesselPartPhysics`, `MakeLoadedGhostVesselPhysicsInert`,
+`NormalizeGhostOrbitDriverTargetIdentity`, `BuildGhostOrbitDriverIdentity`, `IsVesselRegistered`,
+`IsSameVessel`). Proof: `scripts/refactor/il_compare.py` with `--fold
+Parsek.GhostMapPresence=Parsek.GhostMapVessels` against a build of 3df7e0dc6: eleven bodies equal;
+`StripFromSave` and its lambda differ only by reading `Pids` instead of the
+`ghostMapVesselPids` getter; `BuildGhostProtoVesselNode` only by the name parameter; the core is
+the split. `GhostMapVesselsTests` gains a source gate that `RemoveAllGhostVessels` tears down
+through `UnregisterAllOwnTimeline` (both `Pids.Clear()` mutants red it) and cells for the moved
+headless members. Pins unchanged (uncalled 374, cross-type static writes 55, no lifetime or layer
+change); `lifetimes.toml` notes for `Pids` / `foreignOwners` now say the own teardown keeps foreign
+pids. Owed on the PC: in-game `GhostMap`, `MapPresence`, `MapRender`, `MapView`, `GhostMapOrbits`
+in FLIGHT and TRACKSTATION; lanes H44, S1.6, GC-4, GUI-9, CN-5, RF-7M, RF-8, FAR-1, V14T, V21T,
+V23T. Plan note: P3-04 says the positioner calls `GhostMapPresence.FindBodyByName`; it has its own
+`FindBodyByName(List<CelestialBody>, string)`, and the forwarder stays for the presence partials.
+
 ## CS-LADDER-CHAIN-PINS: a campaign-chained replay of the scripted career cannot yet fly CS-0 to CS-7 unbroken [FILED 2026-11-16 by multiplayer T-49 (the campaign chain runner, branch `mp/t-49-campaign-chain-runner`), by reading the CS specs against the ladder `harness/campaigns/cs-career.toml`. OPEN; harness, no product change; low (the committed fixtures still fly every lane alone)]
 
 `tools/campaign_runner.py` stages each CS lane from the previous lane's fresh save instead of its

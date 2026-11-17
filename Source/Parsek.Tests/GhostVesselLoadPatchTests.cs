@@ -120,7 +120,7 @@ namespace Parsek.Tests
         [Fact]
         public void LogGhostVesselMadeInert_NamesVesselPidAndCounts()
         {
-            GhostMapPresence.LogGhostVesselMadeInert(
+            GhostMapVessels.LogGhostVesselMadeInert(
                 3236074800u, "Ghost: Single Point Holder", 1, 2, "Vessel.Load");
 
             Assert.Contains(logLines, l => l.Contains("[GhostMap]")
