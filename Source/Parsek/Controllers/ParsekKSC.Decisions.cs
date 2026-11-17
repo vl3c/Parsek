@@ -124,7 +124,7 @@ namespace Parsek
         /// Per-Update tally of <see cref="ClassifyKscStructuralRoute"/> over the recordings
         /// that reached the structural check (timeline-inactive ones never do).
         /// </summary>
-        internal struct KscStructuralPassCounts
+        internal struct KscStructuralPassCounts : IEquatable<KscStructuralPassCounts>
         {
             internal int Render;
             internal int SpawnOnly;
@@ -142,12 +142,20 @@ namespace Parsek
                 }
             }
 
-            internal string StateKey()
+            public bool Equals(KscStructuralPassCounts other)
             {
-                return Render.ToString(CultureInfo.InvariantCulture) + "|"
-                    + SpawnOnly.ToString(CultureInfo.InvariantCulture) + "|"
-                    + Skip.ToString(CultureInfo.InvariantCulture);
+                return Render == other.Render && SpawnOnly == other.SpawnOnly && Skip == other.Skip;
             }
+        }
+
+        /// <summary>
+        /// The structural pass summary is written only when the split changed since the last
+        /// line and some recording reached the check.
+        /// </summary>
+        internal static bool ShouldLogKscStructuralPass(
+            KscStructuralPassCounts current, KscStructuralPassCounts lastLogged)
+        {
+            return current.Total > 0 && !current.Equals(lastLogged);
         }
 
         internal static string FormatKscStructuralPassSummary(KscStructuralPassCounts counts)

@@ -214,7 +214,7 @@ id = "H59-surface-route-map-lines"
 # tick `RecordingState` dwell. Two things make the host non-vacuous for THIS subject and
 # both are byte facts rather than predictions:
 #
-#   * `ParsekKSC.IsKscStructurallyEligible` rejects outright on
+#   * `ParsekKSC.IsKscDrawEligible` rejects outright on
 #     `rec.Points[0].bodyName != "Kerbin"` (the FIRST point, terminal state not consulted).
 #     Every recording in `rover-route-recorded` is a KSC Runway subject, Kerbin-rooted and
 #     Kerbin-framed end to end, so the structural gate admits them - the same argument

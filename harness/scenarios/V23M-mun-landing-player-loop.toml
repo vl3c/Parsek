@@ -321,7 +321,7 @@ id = "V23M-mun-landing-player-loop"
 #
 # **THERE IS NO KSC HALF OF THIS PAIR, AND THAT IS A SCOPING FACT RATHER THAN A GAP -
 # BUT THE REASON IS NARROWER THAN "THE HOST IS VACUOUS", AND THE LOOSE VERSION IS
-# WRONG.** This recording LAUNCHES FROM KERBIN, so `IsKscStructurallyEligible`
+# WRONG.** This recording LAUNCHES FROM KERBIN, so `IsKscDrawEligible`
 # (`ParsekKSC.cs:1483`, which gates on `Points[0].bodyName == "Kerbin"` - the FIRST
 # point only, with terminal state not consulted at all) ADMITS it, and the KSC host
 # would happily render its Kerbin ascent leg. What it cannot render is the part this

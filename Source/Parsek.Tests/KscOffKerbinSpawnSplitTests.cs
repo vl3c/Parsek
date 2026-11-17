@@ -224,7 +224,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StructuralPassCounts_SummaryAndStateKey()
+        public void StructuralPassCounts_SummaryAndChangeGate()
         {
             var counts = new ParsekKSC.KscStructuralPassCounts();
             counts.Count(ParsekKSC.KscStructuralRoute.Render);
@@ -233,10 +233,115 @@ namespace Parsek.Tests
             counts.Count(ParsekKSC.KscStructuralRoute.Skip);
 
             Assert.Equal(4, counts.Total);
-            Assert.Equal("2|1|1", counts.StateKey());
             string summary = ParsekKSC.FormatKscStructuralPassSummary(counts);
             Assert.Contains("KSC structural pass: drawable=2 spawnOnly=1", summary);
             Assert.Contains("skipped=1", summary);
+
+            var empty = new ParsekKSC.KscStructuralPassCounts();
+            Assert.True(ParsekKSC.ShouldLogKscStructuralPass(counts, empty));
+            Assert.False(ParsekKSC.ShouldLogKscStructuralPass(counts, counts));
+            Assert.False(ParsekKSC.ShouldLogKscStructuralPass(empty, counts));
+            var changed = counts;
+            changed.Count(ParsekKSC.KscStructuralRoute.SpawnOnly);
+            Assert.True(ParsekKSC.ShouldLogKscStructuralPass(changed, counts));
+        }
+
+        // The Update loop's per-recording dispatch. A revert of the fix (an off-Kerbin
+        // recording skipped like a too-short one) reds the SpawnOnly rows.
+        [Theory]
+        // body, points, loopDriven, currentUT, historical, expected
+        [InlineData("Kerbin", 2, false, 2001.0, false, "Render")]
+        [InlineData("Kerbin", 2, true, 2001.0, false, "Render")]
+        [InlineData("Kerbin", 1, false, 2001.0, false, "Skip")]
+        [InlineData("Laythe", 1, false, 2001.0, false, "Skip")]
+        [InlineData("Laythe", 2, false, 2001.0, false, "SpawnOnlyPastEnd")]
+        [InlineData("Laythe", 2, false, 1500.0, false, "SpawnOnlyNone")]
+        [InlineData("Laythe", 2, false, 2001.0, true, "SpawnOnlyNone")]
+        [InlineData("Laythe", 2, true, 1500.0, false, "SpawnOnlyLoopFirstRun")]
+        [InlineData("Laythe", 2, true, 2001.0, false, "SpawnOnlyLoopFirstRun")]
+        public void DecideKscStructuralDispatch_RoutesEveryRecording(
+            string body, int points, bool loopDriven, double currentUT, bool historical, string expected)
+        {
+            var rec = MakeRecording(body, points: points);
+            var dispatch = ParsekKSC.DecideKscStructuralDispatch(
+                rec, loopDriven, currentUT, historical, out var route, out string reason);
+            Assert.Equal(expected, dispatch.ToString());
+            Assert.Equal(ParsekKSC.ClassifyKscStructuralRoute(rec, out string classifyReason), route);
+            Assert.Equal(classifyReason, reason);
+        }
+
+        [Fact]
+        public void DecideKscStructuralDispatch_OffKerbinPastEnd_IsNeverSkipped()
+        {
+            // The defect itself: the LAY-1 shape (a Laythe splashdown, past its end, in
+            // replay scope) must reach a spawn call.
+            var rec = MakeRecording("Laythe");
+            var dispatch = ParsekKSC.DecideKscStructuralDispatch(
+                rec, loopDriven: false, currentUT: rec.EndUT + 1, historicalNeverReplayed: false,
+                out _, out _);
+            Assert.Equal(ParsekKSC.KscStructuralDispatch.SpawnOnlyPastEnd, dispatch);
+            Assert.True(GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1).needsSpawn);
+        }
+
+        static Dictionary<uint, GhostChain> ChainClaiming(Recording rec)
+        {
+            return new Dictionary<uint, GhostChain>
+            {
+                [rec.VesselPersistentId] = new GhostChain
+                {
+                    OriginalVesselPid = rec.VesselPersistentId,
+                    SpawnUT = rec.EndUT + 10,
+                    TipRecordingId = "other-tip",
+                    IsTerminated = false
+                }
+            };
+        }
+
+        [Theory]
+        [InlineData("Laythe")]
+        [InlineData("Kerbin")]
+        public void ShouldSpawnAtKscEnd_PidClaimedByGhostChain_ReturnsFalse(string body)
+        {
+            // Mirrors TrackingStationSpawnTests.ShouldSpawnAtTrackingStationEnd_PidClaimedByGhostChain_ReturnsFalse:
+            // a vessel a later committed flight continues is held back; its chain tip spawns.
+            var rec = MakeRecording(body);
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(
+                rec, rec.EndUT + 1, ChainClaiming(rec));
+            Assert.False(needsSpawn);
+            Assert.Equal(GhostPlaybackLogic.KscSpawnSkipIntermediateGhostChainLink, reason);
+        }
+
+        [Theory]
+        [InlineData("Laythe")]
+        [InlineData("Kerbin")]
+        public void ShouldSpawnAtKscEnd_ChainTipOrUnclaimed_StillSpawns(string body)
+        {
+            var rec = MakeRecording(body);
+            var tipChains = new Dictionary<uint, GhostChain>
+            {
+                [rec.VesselPersistentId] = new GhostChain
+                {
+                    OriginalVesselPid = rec.VesselPersistentId,
+                    SpawnUT = rec.EndUT + 10,
+                    TipRecordingId = rec.RecordingId,
+                    IsTerminated = false
+                }
+            };
+            Assert.True(GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1, tipChains).needsSpawn);
+            Assert.True(GhostPlaybackLogic.ShouldSpawnAtKscEnd(
+                rec, rec.EndUT + 1, new Dictionary<uint, GhostChain>()).needsSpawn);
+            Assert.True(GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1, chains: null).needsSpawn);
+        }
+
+        [Fact]
+        public void ShouldSpawnAtKscEnd_ChainHoldBack_MatchesTheTrackingStation()
+        {
+            // Same input, same answer as the Tracking Station's predicate.
+            var rec = MakeRecording("Laythe");
+            var chains = ChainClaiming(rec);
+            Assert.Equal(
+                GhostMapPresence.ShouldSpawnAtTrackingStationEnd(rec, rec.EndUT + 1, chains).needsSpawn,
+                GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, rec.EndUT + 1, chains).needsSpawn);
         }
     }
 }

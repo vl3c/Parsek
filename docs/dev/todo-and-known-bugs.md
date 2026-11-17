@@ -76,28 +76,47 @@ predicate, now `IsKscDrawEligible`), `SpawnOnly` (two or more points, first poin
 the spawn half is every route but `Skip`) and `Skip` (null or fewer than two points: no ghost, no spawn, the #433
 premise kept for the case it fits). A `SpawnOnly` recording is never drawn (ghosts and overlap
 ghosts torn down, `ShouldShowInKSC` and the init `eligible` count unchanged) and goes through
-`RunKscSpawnOnlyPaths`, which makes the calls the render branches would make past the end
-(pure `DecideKscSpawnOnlyAction`): a loop-driven recording (its own LoopPlayback or a Mission
+`RunKscSpawnOnlyDispatch`, which makes the calls the render branches would make past the end;
+the per-recording choice is the pure `DecideKscStructuralDispatch` (route plus
+`DecideKscSpawnOnlyAction`) the Update loop calls: a loop-driven recording (its own LoopPlayback or a Mission
 loop-unit member) through `TryLoopFirstRunSpawnKsc`, any other once past its end unless
 historical (BUG-B) through `TrySpawnAtRecordingEnd`, the #433 detour's rule. No new spawn rule:
 every refusal (chain mid-segment, non-leaf, debris, branch > 0, superseded / retired (checked
 before the split), already spawned, Destroyed / Recovered terminals, the per-scene attempt
 latch) stays in `ShouldSpawnAtKscEnd` / `ShouldSpawnAtRecordingEnd`, which have no body rule,
-and the #171 Orbiting / Docked deferral keeps every far-body orbit to the flight scene. One
+and the #171 Orbiting / Docked deferral keeps every far-body orbit to the flight scene.
+The ghost-chain hold-back (review of b19930a2): the Tracking Station
+(`ShouldSpawnAtTrackingStationEnd` -> `ShouldSuppressSpawnForChain`) and flight
+(`ComposeFlightFinalNeedsSpawn`) hold back the spawn of an intermediate ghost chain link (a
+vessel a later committed tree docks to or boards: the chain tip continues it), but the Space
+Center never did, for Kerbin recordings either, so such a leaf spawned there with a fresh pid
+and the tip spawned again later (`ChainTipStaleVessel` probes only the claimed pids): a
+duplicate the split would have widened to off-Kerbin leaves. `ShouldSpawnAtKscEnd(rec, ut,
+chains)` now applies `ShouldSuppressSpawnForChain` after the spawn decision (reason
+`KscSpawnSkipIntermediateGhostChainLink`), for every route; `TrySpawnAtRecordingEnd` passes
+`GhostChainWalker.ComputeAllGhostChains(CommittedTrees, ut)`, built at most once per Update pass
+and only when a spawn decision runs (the attempt latch keeps it to once per recording per
+scene), and logs `Spawn held back for #i ...: intermediate ghost chain link` (Info) when it
+holds one back. One more
 gap closed on the way, because the split widens it to every far-body leaf: an UN-FINALIZED
 recording (no terminal state) whose snapshot is ORBITING passed the #171 check, which reads
 only the terminal; `ShouldSpawnAtKscEnd` now defers it too (`IsUnfinalizedOrbitalSnapshot`,
 the same situation mirror `ShouldSpawnAtRecordingEnd` already applies), so the Space Center
 never loads an orbiting ProtoVessel; the Tracking Station and flight still spawn it. Logging:
 one `[KSCSpawn] KSC structural pass: drawable=N spawnOnly=M ... skipped=K ...` Verbose line per
-change of the split (VerboseOnChange, never per frame), one `Spawn-only past-end: attempting
+change of the split (three ints compared against the last line, so a steady pass allocates
+nothing), one `Spawn-only past-end: attempting
 spawn for #i ... reason=off-kerbin firstBody=<body>` line per recording per scene, the ghost
 teardown line now names the reason, and the existing `Spawn not needed ...: <reason>` /
 `Loop first-run spawn:` / `Attempting spawn for` lines follow. xUnit:
 `KscOffKerbinSpawnSplitTests` (both halves both ways, too-few-points on either body, the spawn
 predicate for an off-Kerbin Splashed / Destroyed / Orbiting / null-terminal ORBITING /
 non-leaf / debris / ghost-only / spawned recording, the action table, the once-per-recording
-line, the pass summary); `PlaybackEnabledScopeTests` / `SyntheticRecordingTests` renamed to
+line, the pass summary and its change gate, the Update dispatch table for every route, the
+chain hold-back on Kerbin and off-Kerbin recordings mirroring
+`TrackingStationSpawnTests.ShouldSpawnAtTrackingStationEnd_PidClaimedByGhostChain_ReturnsFalse`,
+the chain tip and an unclaimed vessel still spawning, and the same answer as the Tracking
+Station's predicate); `PlaybackEnabledScopeTests` / `SyntheticRecordingTests` renamed to
 `IsKscDrawEligible`.
 
 Mirror check (every reader of the old combined predicate): `ShouldShowInKSC` (the init count
@@ -123,6 +142,12 @@ fixture leaf are Orbiting Ike, so DD1 is deferred, neither duplicated nor re-spa
 `0 eligible` and the breakdown hold), EVA-10 (its Mun members at the Space Center
 after `ExitToSpaceCenter` are historical, so none spawns there), and the moon continuation loop
 lanes that boot at the Space Center on off-Kerbin continuations: V31M-V39M and V31T-V33T.
+For the chain hold-back (a Space Center behavior change for Kerbin recordings too), the
+candidates are the lanes that sit at the Space Center past the end of a committed vessel a
+later tree docks to or boards, not individually verified: the `bdock-recorded` census and
+mission lanes (GUI-4, GUI-10, GUI-11, GUI-27, MS-1), CI-7, CI-10, EVA-14, H58 and MINE-4; the
+next full nightly / operator run covers them. Spec comments naming `IsKscStructurallyEligible`
+now name `IsKscDrawEligible` (comments only), and EVA-10's say why it still spawns in FLIGHT.
 
 Gate. LAY-1 keeps `LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]*
 bad=0 ... bodies=[...Laythe...]` and `BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* ...

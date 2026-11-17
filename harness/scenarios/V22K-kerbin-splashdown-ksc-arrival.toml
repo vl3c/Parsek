@@ -22,7 +22,7 @@ id = "V22K-kerbin-splashdown-ksc-arrival"
 # recording's `Points[0].bodyName` is Kerbin (`startBodyName = Kerbin`, launch site
 # Launch Pad) and all four of its ORBIT_SEGMENTs are Kerbin-framed with zero
 # body-change seams, so this subject is Kerbin-frame END TO END and clears both
-# `IsKscStructurallyEligible` and the per-frame pose gate. That is the fact section 0
+# `IsKscDrawEligible` and the per-frame pose gate. That is the fact section 0
 # argued from source; it is now read off the bytes rather than predicted.
 # =====================================================================================
 #
@@ -39,7 +39,7 @@ id = "V22K-kerbin-splashdown-ksc-arrival"
 # the first COMMITTED and flyable K lane, not the first reserved. **AND ON G2's OWN
 # CORRECTION (roadmap, 2026-08-21) THIS IS THE ONLY PROPOSED KSC SUBJECT THAT CAN
 # CLEAR THE STRUCTURAL GATE.** That correction establishes that
-# `IsKscStructurallyEligible` rejects a recording outright on
+# `IsKscDrawEligible` rejects a recording outright on
 # `Points[0].bodyName != "Kerbin"` and notes that BOTH G2 representatives are rooted
 # at a foreign body - B28's recording starts at Laythe, B29's would start at Duna -
 # so V20K may be excluded from the host WHOLE and G2's KSC payoff is UNPROVEN. A
@@ -53,7 +53,7 @@ id = "V22K-kerbin-splashdown-ksc-arrival"
 # BECAUSE THE LOOSE VERSION OF THIS CLAIM IS WRONG.** There are TWO Kerbin gates and
 # they are not the same gate:
 #
-#   `IsKscStructurallyEligible` (`ParsekKSC.cs:1483`) admits a recording on
+#   `IsKscDrawEligible` (`ParsekKSC.cs:1483`) admits a recording on
 #       `rec.Points[0].bodyName == "Kerbin"` - the FIRST point only, plus a >= 2 point
 #       floor. Terminal state is NOT consulted, so a Landed or Splashed terminal
 #       disqualifies nothing.

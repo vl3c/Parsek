@@ -14239,7 +14239,7 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     #     lane that will ever take a manifest on a
                                     #     recording whose ARRIVAL BODY is Kerbin while its
                                     #     FIRST POINT is not - the exact pair
-                                    #     `ParsekKSC.IsKscStructurallyEligible`
+                                    #     `ParsekKSC.IsKscDrawEligible`
                                     #     discriminates on, and the question V20K exists
                                     #     to settle. NEVER FLOWN, so it owes a first
                                     #     flight before it owes a window.

@@ -887,7 +887,8 @@ namespace Parsek
         /// is always false. Chain looping/disabled state is derived from RecordingStore.
         /// Returns (needsSpawn, reason) — same semantics as ShouldSpawnAtRecordingEnd.
         /// </summary>
-        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(Recording rec)
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(
+            Recording rec, Dictionary<uint, GhostChain> chains)
         {
             // During rewind, Planetarium UT is still the pre-rewind future value until
             // the deferred coroutine fires. Block all spawns to prevent future vessels
@@ -895,10 +896,23 @@ namespace Parsek
             if (RecordingStore.RewindUTAdjustmentPending)
                 return (false, "rewind UT adjustment pending — Planetarium UT not yet corrected");
 
-            return ShouldSpawnAtKscEnd(rec, Planetarium.GetUniversalTime());
+            return ShouldSpawnAtKscEnd(rec, Planetarium.GetUniversalTime(), chains);
         }
 
-        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(Recording rec, double currentUT)
+        /// <summary>
+        /// The reason <c>ShouldSpawnAtKscEnd</c>
+        /// gives when a later committed flight continues the vessel (an intermediate ghost chain
+        /// link, <see cref="ShouldSuppressSpawnForChain"/>): the chain tip spawns instead.
+        /// </summary>
+        internal const string KscSpawnSkipIntermediateGhostChainLink = "intermediate ghost chain link";
+
+        /// <param name="chains">
+        /// <c>GhostChainWalker.ComputeAllGhostChains</c> over the committed trees at
+        /// <paramref name="currentUT"/>, as the Tracking Station passes it; null or empty means
+        /// no chain claims a vessel.
+        /// </param>
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtKscEnd(
+            Recording rec, double currentUT, Dictionary<uint, GhostChain> chains = null)
         {
             // Don't spawn vessels whose recording hasn't finished yet at the current UT (#rewind-persistence)
             if (currentUT < rec.EndUT)
@@ -925,6 +939,12 @@ namespace Parsek
                 rec, false,
                 treeContext: null,
                 ResolveRewindSuppressionLiveLaunchPresence(rec));
+
+            // The ghost-chain hold-back the Tracking Station and flight apply: a vessel a
+            // later committed flight docks to or boards (an intermediate chain link) is
+            // continued by the chain tip, so spawning it here too would leave a duplicate.
+            if (result.needsSpawn && ShouldSuppressSpawnForChain(chains, rec).suppressed)
+                return (false, KscSpawnSkipIntermediateGhostChainLink);
 
             // The #171 deferral for an un-finalized recording: with no terminal state the
             // snapshot's own situation is what the finalize path would have decided (the

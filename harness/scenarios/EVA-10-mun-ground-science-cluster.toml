@@ -71,9 +71,12 @@ id = "EVA-10-mun-ground-science-cluster"
 # spawn was the Space Center's 15 m de-overlap) also keeps every part outside the lander's box.
 #
 # THE SPAWN HALF (re-cut after `2026-09-29_1937`). The first design spawned the cluster from
-# the Space Center; that flight reached UT 23430 with ZERO [KSCSpawn] lines, because
-# `ParsekKSC.IsKscStructurallyEligible` (ParsekKSC.cs:1555) admits only recordings whose first
-# point is on Kerbin. So the lane now spawns in FLIGHT, EVA-9's recipe: commit through the
+# the Space Center; that flight reached UT 23430 with ZERO [KSCSpawn] lines, because the
+# Space Center then skipped every spawn path for a recording whose first point is off Kerbin
+# (todo KSC-END-SPAWN-SKIPS-OFF-KERBIN, fixed 2026-11-17: the Space Center now runs the end
+# spawn for a recording it cannot draw, `ParsekKSC.ClassifyKscStructuralRoute` SpawnOnly).
+# The lane keeps the FLIGHT spawn, because the flight collision check is what it tests
+# (#1920, below), EVA-9's recipe: commit through the
 # scene exit, back into FLIGHT, Rewind-to-Launch, SaveGame + LoadGame straight back into FLIGHT
 # on the lander (a Space Center save focuses vessel 0, the lander once the asteroid is gone)
 # before any member ends, and 640 steps of 1x flight time cross every EndUT. Each member left
@@ -188,9 +191,11 @@ steps = [
   # EVA-6's preamble flake: a re-adopted recorder would refuse the rewind `recording-active`.
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
-  # The rewind's world holds no vessel, and the Space Center cannot spawn the members
-  # (ParsekKSC.IsKscStructurallyEligible admits only Kerbin-first recordings, `_1937`), so the
-  # lane launches the stock Kerbal X from the SPH (recording off) and waits in FLIGHT.
+  # The rewind's world holds no vessel. The members must spawn in FLIGHT, where the
+  # collision check and its sibling exemption run (#1920; the Space Center did not spawn
+  # off-Kerbin members at all when this lane was cut, `_1937`, todo
+  # KSC-END-SPAWN-SKIPS-OFF-KERBIN), so the lane launches the stock Kerbal X from the SPH
+  # (recording off) and waits in FLIGHT.
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",        expect = "OK" },
@@ -267,8 +272,8 @@ required = [
   # The committed store after the scene-exit commit holds exactly 17 rows (the fixture's
   # 11 after the boot's split plus this tree's 6; see `[expectations.recordings]`). The
   # members then spawn on the Mun in FLIGHT after the reload onto the lander, never from
-  # the Space Center (ParsekKSC.IsKscStructurallyEligible admits only Kerbin-first
-  # recordings): the reload / spawned read-backs and the FLIGHT sibling exemptions follow.
+  # the Space Center (the lane never waits there past a member's end): the reload /
+  # spawned read-backs and the FLIGHT sibling exemptions follow.
   "MISSIONMARK label=eva10-commit-count-18(?:\\s|$)",
   # Since 6a82ae064 the rewind keeps the cross-tree adopted lander in its save as
   # committed history (strip scope: nothing that replays after the rewind re-produces it)
