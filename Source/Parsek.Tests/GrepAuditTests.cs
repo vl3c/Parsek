@@ -41,7 +41,7 @@ namespace Parsek.Tests
     /// image without PowerShell. Mirrors the fallback shape of the other
     /// GrepAudit* gate files.</para>
     /// </summary>
-    public class GrepAuditTests
+    public partial class GrepAuditTests
     {
         [Fact]
         public void GrepAudit_AllRawAccessIsAllowlisted()

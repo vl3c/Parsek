@@ -1,0 +1,88 @@
+# race-no-writer gate (multiplayer design 15.4, "No writer of the own model"; plan R1-06).
+#
+# No race file names a store of the save or a persistence writer of the save. The race files
+# are every .cs file of the race modules (Source/Parsek/RaceCore/, RaceExport/, RaceWorld/,
+# each folder that exists) and Source/Parsek/Controllers/ParsekRace*.cs. Read by
+# scripts/grep-audit-race-no-writer.ps1 and by its managed mirror, RaceNoWriterViolations in
+# Source/Parsek.Tests/GrepAuditTests.Race.cs (the shared RaceSourceScan): comments stripped,
+# string and char literal contents masked, preprocessor lines blanked, interpolation holes kept
+# as code (their format clause is literal text), and a `using X =` alias, a backslash in code,
+# a preprocessor directive other than #region / #endregion / #pragma / #nullable, and any
+# character outside tab, CR, LF and printable ASCII (read on the raw text, before any masking)
+# refused outright.
+#
+# Data lines (fields separated by blanks; everything after the third field is the reason,
+# which is required):
+#   deny type <Name> <reason>          the identifier <Name> anywhere in code is a hit,
+#                                      qualified or not (Parsek.Ledger counts)
+#   deny member <Name> <reason>        a member access `.<Name>` (or `.@<Name>`) in code is a
+#                                      hit, through any receiver (a declaration has no dot, so a
+#                                      scenario module's own `override void OnSave` is not one)
+#   allow <file> <Name|.Name> <reason> that repo-relative file may name that denied entry; an
+#                                      allow line whose file has no such hit is stale and reds,
+#                                      and one naming no deny entry reds
+#
+# Why whole types for the stores: a name gate cannot tell a read of a store from a write, and a
+# denylist of mutators bans only the writers somebody thought of (the GUI gallery's first gate
+# let `Ledger.AddActions` through). A `save`-lifetime type IS the loaded save's own state
+# (scripts/arch/lifetimes.toml), so it is denied whole; a race file that must READ one (RaceExport
+# reading the vessel names, say) gets an allow line saying so. GrepAuditTests
+# .RaceNoWriter_EverySaveLifetimeTypeIsDenied reds while a save-lifetime type of lifetimes.toml
+# has no `deny type` line here.
+#
+# The two writes design 15.4 names, reserved for the tasks that write them. Each allow line
+# lands with its file (a line naming a file that does not exist yet would be stale):
+#   R2-03:  allow Source/Parsek/RaceWorld/RaceSites.cs PQSCity the stock space center objects moved to the race site (design 15.4)
+#           allow Source/Parsek/RaceWorld/RaceSites.cs SpaceCenter the same, the space center's cached position
+#   R5-11:  allow Source/Parsek/RaceWorld/RaceLooks.cs .suit the suit of the player's OWN kerbals, stock roster field, cosmetic (design 15.4)
+# Not a design 15.4 write but expected: R1-10's Controllers/ParsekRaceSetup.cs creates the race
+# save (adds the race scenario proto, saves persistent.sfs); it adds its own allow lines with
+# that reason.
+
+# --- persistence writers of the save (stock) ---
+deny type GamePersistence writes persistent.sfs, quicksaves and new games
+deny type ScenarioRunner hosts the scenario modules and saves every one into the game
+deny type ProtoScenarioModule a scenario module's saved node in game.scenarios
+deny member OnSave calling a scenario module's save (or any OnSave) writes into the save
+deny member scenarios the stock list of scenario protos in the game (game.scenarios), the save's scenario nodes
+deny member moduleRef the live scenario module behind a proto (ProtoScenarioModule.moduleRef), whose OnSave writes the save
+
+# --- the save's own stock state the race is known to touch (design 15.4's two writes) ---
+deny type KerbalRoster the save's crew roster (hire, add, remove)
+deny member suit a kerbal's suit, a stock roster field (RaceLooks's reserved write)
+deny type PQSCity the stock space center objects (RaceSites's reserved write)
+deny type SpaceCenter the stock space center and its cached position (RaceSites's reserved write)
+
+# --- the save-lifetime types of scripts/arch/lifetimes.toml (the stores of the save) ---
+deny type RecordingStore save lifetime (lifetimes.toml)
+deny type GameStateStore save lifetime (lifetimes.toml)
+deny type MilestoneStore save lifetime (lifetimes.toml)
+deny type GameStateRecorder save lifetime (lifetimes.toml)
+deny type LedgerOrchestrator save lifetime (lifetimes.toml)
+deny type KspStatePatcher save lifetime (lifetimes.toml)
+deny type ParsekScenario save lifetime (lifetimes.toml)
+deny type InertRecordingTrees save lifetime (lifetimes.toml)
+deny type RouteRunPrompt save lifetime (lifetimes.toml)
+deny type FacilityStatePatcher save lifetime (lifetimes.toml)
+deny type RecordingGroupStore save lifetime (lifetimes.toml)
+deny type RecordingSidecarStore save lifetime (lifetimes.toml)
+deny type RecordingFileJanitor save lifetime (lifetimes.toml)
+deny type SceneEntryVesselScope save lifetime (lifetimes.toml)
+deny type CommittedTreeRestoreAttempt save lifetime (lifetimes.toml)
+deny type PendingTreeSlot save lifetime (lifetimes.toml)
+deny type TreeDiscardService save lifetime (lifetimes.toml)
+deny type RewindLauncher save lifetime (lifetimes.toml)
+deny type VesselNameStore save lifetime (lifetimes.toml)
+deny type MissionStore save lifetime (lifetimes.toml)
+deny type RouteStore save lifetime (lifetimes.toml)
+deny type RouteEventLog save lifetime (lifetimes.toml)
+deny type GroupHierarchyStore save lifetime (lifetimes.toml)
+deny type CrewReservationManager save lifetime (lifetimes.toml)
+deny type PlaybackScopeTracker save lifetime (lifetimes.toml)
+deny type StockShadowTakeBack save lifetime (lifetimes.toml)
+deny type LedgerHeldWindow save lifetime (lifetimes.toml)
+deny type RewindVesselHold save lifetime (lifetimes.toml)
+deny type RemovedReplayFlags save lifetime (lifetimes.toml)
+deny type Ledger save lifetime (lifetimes.toml)
+
+# --- allowed: none yet ---

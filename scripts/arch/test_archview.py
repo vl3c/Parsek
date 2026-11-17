@@ -4321,7 +4321,8 @@ class RealTreeSmokeTests(unittest.TestCase):
 
     def test_production_module_count(self):
         production = [module for module in self.model["modules"] if not module["tooling"]]
-        self.assertEqual(len(production), 20)
+        # 21 since RaceCore registered with its first file (multiplayer R1-03).
+        self.assertEqual(len(production), 21)
 
     def test_first_cut_matches_the_documented_tree(self):
         # Re-derived 2026-11-06 on the refactor branch: Recording and GameAction
@@ -4519,7 +4520,7 @@ class RealTreeSmokeTests(unittest.TestCase):
     def test_module_pairs_are_symmetric_free(self):
         if not self.has_history:
             self.skipTest("no git history available in this checkout")
-        self.assertEqual(len(self.history["modulePairs"]), 190)
+        self.assertEqual(len(self.history["modulePairs"]), 210)
         self.assertTrue(self.history["filePairs"])
         seen = set()
         for row in self.history["modulePairs"]:
@@ -4621,6 +4622,173 @@ class RealTreeSmokeTests(unittest.TestCase):
             text = (REAL_SOURCE / rel).read_text(encoding="utf-8-sig", errors="replace")
             stripped = archview.strip_comments_and_strings(text)
             self.assertIsNone(pattern.search(stripped), "record declaration in %s" % rel.as_posix())
+
+
+RACE_LOADER_ALLOWLIST = REPO_ROOT / "scripts" / "race-loader-files-allowlist.txt"
+RACE_WORLD_FOLDER = "RaceWorld"
+RECORDING_MODULE = "Recording"
+
+
+def parse_race_loader_allowlist(text):
+    """Return ({repo-relative path: reason}, [problem]) for race-loader-files-allowlist.txt."""
+    entries = {}
+    problems = []
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        path = parts[0]
+        if len(parts) < 2 or not parts[1].strip():
+            problems.append("line %d: no reason given for %s" % (number, path))
+        elif not (path.startswith("Source/Parsek/%s/" % RACE_WORLD_FOLDER) and path.endswith(".cs")):
+            problems.append("line %d: not a RaceWorld source file: %s" % (number, path))
+        elif path in entries:
+            problems.append("line %d: listed twice: %s" % (number, path))
+        else:
+            entries[path] = parts[1].strip()
+    return entries, problems
+
+
+_RACE_STRIP_CACHE = {}
+
+
+def race_recording_names_outside_the_loader(source_root, rules, loader_files, extra=None):
+    """The design 15.4 loader rule over the text scan's type-to-module map.
+
+    Every type declared in the Recording module's folder (by the modules.toml
+    rules, so the list is never typed by hand) that a RaceWorld file names,
+    unless the file is a listed loader. `extra` maps a source-relative path to
+    text, added to the tree as if on disk (the planted-red cell). Returns
+    (violations, facts); a name declared in two modules is dropped from the map,
+    as in build_model.
+    """
+    from collections import defaultdict
+
+    source_root = pathlib.Path(source_root)
+    texts = {}
+    for rel in archview.iter_source_files(source_root):
+        texts[rel.as_posix()] = (source_root / rel).read_text(encoding="utf-8-sig", errors="replace")
+    texts.update(extra or {})
+    modules = {}
+    for rel in texts:
+        module = archview.assign_module(rel, rules)
+        if module is None and rel.split("/")[0] == RACE_WORLD_FOLDER:
+            module = RACE_WORLD_FOLDER  # before R3W-02 registers the module rule
+        modules[rel] = module
+    stripped = {}
+    for rel, text in texts.items():
+        key = (rel, text)
+        if key not in _RACE_STRIP_CACHE:
+            _RACE_STRIP_CACHE[key] = archview.strip_comments_and_strings(text)
+        stripped[rel] = _RACE_STRIP_CACHE[key]
+    declaring = defaultdict(set)
+    for rel, module in modules.items():
+        for name in archview.declared_types(stripped[rel]):
+            declaring[name].add(module)
+    type_modules = {name: next(iter(mods)) for name, mods in declaring.items() if len(mods) == 1}
+    recording_types = sorted(name for name, module in type_modules.items() if module == RECORDING_MODULE)
+    world_files = sorted(rel for rel in texts if rel.split("/")[0] == RACE_WORLD_FOLDER)
+    violations = []
+    named = {}
+    for rel in world_files:
+        names = sorted({
+            name
+            for name, target in archview.references(stripped[rel], type_modules, RACE_WORLD_FOLDER)
+            if target == RECORDING_MODULE
+        })
+        named[rel] = names
+        if names and ("Source/Parsek/" + rel) not in loader_files:
+            violations.append("Source/Parsek/%s names %s" % (rel, ", ".join(names)))
+    return violations, {"recordingTypes": recording_types, "worldFiles": world_files, "named": named}
+
+
+class RaceLoaderFilesTests(unittest.TestCase):
+    """Design 15.4, "Recording types only in the loader" (plan R1-06, OV-12).
+
+    RaceWorld may reference the Recording module (the sidecar codecs and the
+    recording data types), but only in the loader files of
+    scripts/race-loader-files-allowlist.txt. A grep cannot know which module a
+    type belongs to, so this cell reads the text scan's type-to-module map. The
+    other half of the rule, the recorder ban in every race file, is the grep
+    gate scripts/grep-audit-race-no-recorder.ps1. The RaceWorld folder does not
+    exist until R3W-02; the cell scans it the day it lands, and the planted cell
+    below proves the rule on the real map meanwhile.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rules, _tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
+        cls.loader, cls.problems = parse_race_loader_allowlist(
+            RACE_LOADER_ALLOWLIST.read_text(encoding="utf-8")
+        )
+        cls.violations, cls.facts = race_recording_names_outside_the_loader(
+            REAL_SOURCE, cls.rules, cls.loader
+        )
+
+    def test_recording_types_are_named_only_in_the_loader(self):
+        self.assertEqual(
+            self.violations,
+            [],
+            "a RaceWorld file names a Recording type and is not a listed loader "
+            "(scripts/race-loader-files-allowlist.txt, design 15.4)",
+        )
+
+    def test_the_loader_allowlist_parses_and_names_real_files(self):
+        self.assertTrue(RACE_LOADER_ALLOWLIST.exists())
+        self.assertEqual(self.problems, [])
+        world = REAL_SOURCE / RACE_WORLD_FOLDER
+        for path in self.loader:
+            self.assertTrue(world.is_dir(), "%s is listed but RaceWorld does not exist yet" % path)
+            self.assertTrue((REPO_ROOT / path).is_file(), "listed loader file is missing: %s" % path)
+
+    def test_the_scan_is_not_vacuous(self):
+        # The Recording type list comes from the modules.toml folder rule.
+        self.assertTrue(any(rule.get("name") == RECORDING_MODULE and rule.get("folder") for rule in self.rules))
+        types = set(self.facts["recordingTypes"])
+        self.assertGreaterEqual(len(types), 100, "the Recording module's type list is too short; the map broke")
+        for name in ("RecordingStore", "FlightRecorder", "PendingTreeSlot"):
+            self.assertIn(name, types)
+        # Every RaceWorld .cs file on disk is in the scan (none until R3W-02).
+        world = REAL_SOURCE / RACE_WORLD_FOLDER
+        on_disk = sorted(
+            p.relative_to(REAL_SOURCE).as_posix() for p in world.rglob("*.cs")
+        ) if world.is_dir() else []
+        self.assertEqual(self.facts["worldFiles"], on_disk)
+
+    def test_a_planted_recording_name_in_a_temp_raceworld_file_reds(self):
+        planted = {
+            "RaceWorld/RivalProbe.cs": (
+                "namespace Parsek\n{\n"
+                "    // RecordingTree in a comment is not a reference\n"
+                "    internal static class RivalProbe\n    {\n"
+                "        static string s = \"TrajectorySidecarBinary\";\n"
+                "        static object o = RecordingStore.CommittedRecordings;\n"
+                "    }\n}\n"
+            ),
+        }
+        violations, facts = race_recording_names_outside_the_loader(
+            REAL_SOURCE, self.rules, self.loader, planted
+        )
+        self.assertEqual(violations, ["Source/Parsek/RaceWorld/RivalProbe.cs names RecordingStore"])
+        self.assertEqual(facts["named"]["RaceWorld/RivalProbe.cs"], ["RecordingStore"])
+        listed = dict(self.loader)
+        listed["Source/Parsek/RaceWorld/RivalProbe.cs"] = "planted loader"
+        violations, _facts = race_recording_names_outside_the_loader(
+            REAL_SOURCE, self.rules, listed, planted
+        )
+        self.assertEqual(violations, [])
+
+    def test_the_allowlist_parser_refuses_bad_lines(self):
+        entries, problems = parse_race_loader_allowlist(
+            "# header\n"
+            "Source/Parsek/RaceWorld/A.cs reads rival sidecars\n"
+            "Source/Parsek/RaceWorld/B.cs\n"
+            "Source/Parsek/Ghost/C.cs not a race file\n"
+            "Source/Parsek/RaceWorld/A.cs twice\n"
+        )
+        self.assertEqual(entries, {"Source/Parsek/RaceWorld/A.cs": "reads rival sidecars"})
+        self.assertEqual(len(problems), 3)
 
 
 if __name__ == "__main__":

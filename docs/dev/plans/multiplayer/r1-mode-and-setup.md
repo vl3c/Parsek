@@ -398,6 +398,51 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   list changed; `RaceCore` should show no leak). Also: `lifetimes.toml` needs nothing (no
   static); `log_tags.json`; the lane catalog for the new `RaceMode` category
   (`python harness/tools/lane_catalog.py`).
+- **As built (2026-11-17, branch `mp/r1-03-race-link-and-scenario`):**
+  - `RaceFormat.Classify(int? stored, int current)` takes the current value as a second
+    argument: the mark (`LinkCurrent`) and the exchange (`Current`) are two formats with one
+    baseline, so each caller names its own current. `RaceFormatPinTests` checks it against
+    `SaveFormat.Classify(stored, Baseline, current)` on a table of pairs, and pins the five class
+    names and ordinals equal to `SaveFormatClass`'s.
+  - `RaceLink` holds readonly fields, not properties (no getter joins the uncalled-method
+    ratchet before R1-10 reads them); `RaceLinkCodec.Write` is not added. `TryRead` reads
+    `raceLinkFormat` first (a newer mark is refused `format-newer` even with no other key), then
+    the ten keys in design order; an empty value reads as `missing:<key>`, and `siteSlot` outside
+    0..3 is `bad-value:siteSlot`. Unknown keys survive by the module's verbatim path, so that cell
+    is in `RaceScenarioChildTests`, not the codec class.
+  - The child dispatch and the write-back are the static `RaceScenarioChildren` in
+    `RaceScenarioChild.cs`: values first (stock writes `name` and `scene` itself), then the
+    children in their loaded order, the first child of a handler's name written by that handler
+    in place, and a handler whose child the save lacks appending its own. When the mark is held
+    (inert, or it does not read) no handler runs and the whole node is written back.
+  - Log lines: `[Race] Mark loaded: raceId=.. playerId=.. slot=.. format=.. children=..
+    handled=..` (Info), `[Race] Mark held verbatim: reason=.. values=.. nodes=..` (Info) and a
+    Verbose `[Race] Mark saved: ..` per save.
+  - `ParsekGameModeGateTests.GatedEntryPointNames` lists `ParsekRaceScenario.OnLoad`, so the
+    IL check proves the scenario's load calls `ParsekGameModeGate.CheckInert`.
+  - `SaveRoundTripCoverageGateTests.Exempt` has a row for `IRaceScenarioChild`: the gate counts
+    any type with a `Save*` / `Load*` method over a ConfigNode, and the interface has no fields to
+    round-trip. Each implementer is its own row or covered test when it lands (R3E-15 first).
+    `RaceLinkCodec.TryRead` and `ParsekRaceScenario.OnLoad` / `OnSave` do not match the gate's
+    name prefixes, and `RaceLinkCodec.Write` (R1-10) will not either, so R1-10's field-level
+    round trip of `RaceLink` in `RaceLinkCodecTests` is required by this plan, not by the gate.
+  - The 29 forbidden edges are 13 single edges into RaceCore and one list edge out of it with
+    its 16 targets. `headless_pins.toml` gained only the RaceCore rows (measured: 13 methods,
+    754 instructions, no reach, no leak). `ilanalysis.coupling_report` now writes zero reach
+    counts for a module none of whose methods reach the game (RaceCore is the first; the
+    measured headless row read a missing key). `log_tags.json` gained the `Race` and
+    `RaceModeInGame` tags only. The uncalled count stays at its bound, 374.
+  - `harness/lib/test_raceparse.RaceMarkSourceSyncTests` pins `raceparse.RACE_MARK_SCENARIO`
+    and `RACE_MARK_PLAYER_KEY` to the C# constants; the category inventory has a `RaceMode`
+    row (NOT DRIVEN, bucket B).
+  - S6 PREDICTION, from the decompiled stock code (not a result): `Game(ConfigNode)` keeps every
+    `SCENARIO` child as a proto with no type or option check; a proto's scenes come from its saved
+    `scene` value; `GamePersistence.UpdateScenarioModules` adds or removes a proto only for the
+    `AddTo*` / `RemoveFrom*` options; `ScenarioRunner` instantiates a proto in its scenes by type
+    name with no option check; a proto with no live module is saved verbatim. So a `None` proto
+    should survive load, update and save and be instantiated. R1-10 must write the `scene` value
+    (or add the proto with `Game.AddProtoScenarioModule(Type, GameScenes[])`, which sets the
+    scenes). S6 and `MarkSurvivesSaveLoad` on the PC confirm or refute it; neither has run.
 - **Size:** M. **Depends on:** P12-01, S6. **PC:** yes, the in-game test.
 - **Risk:** medium; if S6 shows stock drops a proto of a `None` module, the module needs
   another creation option, which the in-game test would show at once.
@@ -516,6 +561,77 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   sees a race file). **PC:** no.
 - **Risk:** low; a vacuous gate is the danger, closed by the anti-vacuity and planted-red
   cells.
+- **As built (2026-11-17, branch `mp/r1-06-race-grep-audit-gates`, stacked on R1-03):**
+  - The shared scan LEXES each race file rather than grepping lines: comments and the contents
+    of string and char literals become blanks, interpolation holes stay code, line breaks are
+    kept; a raw string literal or an unterminated literal or comment fails closed.
+    A preprocessor line (`#` first on its line) is blanked like a comment, and the format clause
+    of a hole (from a `:` outside every bracket of the hole to its `}`) is literal text; a quote
+    or a line break in a format clause fails closed. `scripts/race-source-scan.ps1` is the same
+    lexer in pwsh, dot-sourced by the three gate scripts. The format clause starts at the FIRST
+    top-level `:`, even before a second one, as in the compiler (`{global::X}` does not compile,
+    `{x::/*}` does, with format text `:/*`). Before any lexing each file is read as UTF-8 (one
+    leading byte-order mark stripped) and every character outside tab, LF, CR and 0x20..0x7E
+    is refused on its raw line (`[control] U+XXXX` below 0x80, `[non-ascii] U+XXXX` above) and
+    read by the lexer as a blank: the compiler ends a line at U+0085, U+2028 and U+2029, takes
+    U+001A, form feed and vertical tab as blanks (before a directive too), and drops a format
+    character such as U+00AD from an identifier (`Recording<U+00AD>Store` is `RecordingStore`),
+    and none of those reach the lexer's model. This replaces the first follow-up's non-ASCII
+    check on the masked text, which a comment could hide. A preprocessor line is allowed only
+    for `#region`, `#endregion`, `#pragma` and `#nullable` (blanks after the `#` allowed);
+    every other directive word, the conditionals `#if` / `#elif` / `#else` / `#endif` first, is
+    a `[directive] #<word>` hit on its line: the compiler does not lex a disabled branch and the
+    lexer cannot know which branch is disabled, so a `/*` or `@"` inside `#if false` would hide
+    the active code after `#endif`. No race file uses one today (the vacuity cell checks). Every
+    gate also refuses a `using X =`
+    (or `using @X =`) alias and a backslash in code (a unicode-escaped identifier). A member
+    deny matches `.Name` and `.@Name`. These came from the R1-06 review and re-review, which
+    found each let a real store reference through (the `#region notes /*` comment opener, the
+    `{x:/*}` / `{x://}` / `{x::/*}` format clause, the format character, the verbatim member,
+    U+2028 / U+0085 ending a line comment, U+001A before a `#region`, a `/*` or `@"` in an
+    `#if false` branch); each is a lexer cell, a planted-red cell
+    (`RaceGates_ReviewBypasses_AreRedInEveryGate`) and a line of the mirror fixture
+    (`MirrorBypass.cs`, `MirrorDirective.cs`, `MirrorRaw.cs`, written as explicit UTF-8 bytes).
+    A ban matches its identifier anywhere, so `Parsek.RecordingStore` counts; the
+    `GuiMockTypeRef` shape counts the references for the anti-vacuity floor (30 today, floor 24).
+  - The no-writer gate's denylist and allowlist are one data file,
+    `scripts/race-no-writer-allowlist.txt` (`deny type|member <Name>`, `allow <file> <entry>`, a
+    reason on every line; an allow line with no hit left reds). The stores are denied WHOLE: the
+    30 `save`-lifetime types of `lifetimes.toml` (a name gate cannot tell a read from a write; a
+    race file that reads one, RaceExport's names say, gets an allow line). Also denied:
+    `GamePersistence`, `ScenarioRunner`, `ProtoScenarioModule` and a `.OnSave` member call (a
+    scenario module's own `override void OnSave` has no dot, so R1-03's `ParsekRaceScenario`
+    passes), and the stock state of the two design writes (`KerbalRoster`, `.suit`, `PQSCity`,
+    `SpaceCenter`), so the allow lines the header reserves for R2-03 (`RaceSites.cs`) and R5-11
+    (`RaceLooks.cs`) carry weight. `Controllers/ParsekRace*.cs` is scanned by this gate too (the
+    plan's race files; design 15.4 says "the three race modules"): R1-10's `ParsekRaceSetup`,
+    which adds the race proto and saves the created game, adds its own allow lines with that
+    reason. `deny member scenarios` (the stock list of scenario protos, `game.scenarios`) and
+    `deny member moduleRef` (the live module behind a proto) close the two routes to a module's
+    save that skip the denied type names; no race file has a hit. `.Save` is not denied (too
+    many unrelated members share the name). T-15's cell reads `lifetimes.toml` in its real
+    shape: a `[[type]]` block's `[type.fields]` table belongs to that type, so a type whose only
+    save state is a field counts (none today; the parse gives the 30 that `tomllib` gives), and
+    a line in a type it cannot read throws. Its reverse check reds a `deny type` line citing
+    `lifetimes.toml` for a type that file gives no save lifetime.
+  - What a name gate cannot see, and these gates do not claim: a `global using` alias, or a
+    `<Using Alias=...>` item in the csproj, declared in a NON-race file (the alias name is all a
+    race file shows), and a wrapper class outside the race folders that calls a store for the
+    race file (the race file names only the wrapper). Review catches those.
+  - The log tag cell is managed only. It finds the `ParsekLog` members that take a tag by
+    reflection (a parameter named `subsystem`), and the tag must be a literal or a
+    `const string` of a race file (the same file, or `Type.Name` in the race file declaring
+    `Type`); `using static ParsekLog`, a method group and any other expression red. In-game test
+    files (`InGameTests/`) are tooling, not race files, so they are not scanned and R1-03's
+    `RaceModeInGame` tag is not on the list.
+  - The mirror cell has a static half that runs everywhere (folder list, controller glob,
+    recorder list, store pattern, the scripts' `MinTypeReferences` default) and a fixed input
+    whose managed result is pinned line for line; the scripts are compared on it where pwsh
+    exists (CI's runner, Windows). The cloud box that built this has no pwsh, so the pwsh arm
+    runs only there.
+  - `scripts/race-loader-files-allowlist.txt` is created empty (R3W-02 had not landed); the
+    loader cell is `test_archview.RaceLoaderFilesTests`. CLAUDE.md is untouched: its gate list
+    names the family by glob only.
 
 ### R1-07 Logs and test batches leave `Parsek/Race/` alone (A7, parts 1 and 2)
 

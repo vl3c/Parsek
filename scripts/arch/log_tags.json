@@ -2038,6 +2038,25 @@
    },
    "sites": 7
   },
+  "Race": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Controllers": 3
+   },
+   "sites": 3
+  },
+  "RaceModeInGame": {
+   "levels": {
+    "INFO": 3
+   },
+   "modules": {
+    "InGameTests": 3
+   },
+   "sites": 3
+  },
   "ReFlySession": {
    "levels": {
     "ERROR": 3,
@@ -3238,7 +3257,7 @@
  "totals": {
   "forwarders": 46,
   "nonLiteralSites": 42,
-  "sites": 9207,
-  "tags": 285
+  "sites": 9213,
+  "tags": 287
  }
 }
