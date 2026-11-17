@@ -1,0 +1,220 @@
+schema = 1
+id = "SUB-1-submarine-dive-ksc-end-spawn"
+# =====================================================================================
+# SUB-1: A SUBMARINE DIVES, IS RECORDED, REWOUND, AND SPAWNS BACK AT ITS RECORDED DEPTH.
+# AUTHORED 2026-11-17, NEVER FLOWN. Todo SUBMARINE-TEST-KIT.
+#
+# WHY. No lane puts a vessel UNDER the water, so the recorded-depth end spawn
+# (`VesselSpawner.ResolveSplashedSpawnAltitude`, owner ruling 2026-11-17: a Splashed end
+# spawns at its RECORDED depth, never above sea level, never into the sea floor) and the
+# vertical half of LeafVesselPlacement (`LeafPlacement height:`, read against the
+# recorded depth for a Splashed leaf) have no live subject below sea level. BOAT-1's
+# Mallard floats, so its recorded depth is the surface.
+#
+# *** NOT FLYABLE YET. *** tier "pending-fixture", tag "awaiting-fixture". `saveTemplate`
+# names `fixtures/saves/psub-splashed`, which DOES NOT EXIST until FORGE-psub-pad flies,
+# its save is harvested (`harvest_bdock_station.py --target-name psub-pad
+# --expect-situation PRELAUNCH`) and `harness/tools/build_psub_splashed.py --write`
+# moves PSUB-1 into the sea. Until then this spec stays out of every cadence and the full
+# run, `test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES` exempts it from the
+# saveTemplate sweep, and that map's self-retiring cell reds the day the fixture lands.
+# The WarpToUT target is a CALIBRATION SEED: the forge base boots at UT 21.2 and the
+# forge flight adds about a minute, so the dive starts near UT 100; its worst case
+# (handoff, three drops with their settle and measure windows, the 60 s no-sink wait,
+# the 300 s sink budget and the hold) ends before about UT 600, so 1500 covers it.
+#
+# TO MAKE IT FLYABLE, in ONE commit after the harvest (todo SUBMARINE-TEST-KIT lists the
+# whole checklist): tier = "operator", swap the tag "awaiting-fixture" for nothing (keep
+# "pending-flight"), add "sandbox" back to D14 (the game-mode claim needs a fixture to
+# witness it), delete the PENDING_FIXTURE_LANES entry, re-seed the WarpToUT target off
+# the harvested save's UT (its FLIGHTSTATE `UT` + 600).
+#
+# HOST: `psub-splashed` (build_psub_splashed.py): the stock submarine PSUB-1
+# (build_psub_craft.py: an uncrewed Octo2 probe hull, three float pairs of EMPTY FL-T100s
+# staged first, three Ore ballast pairs staged last; 28 parts, 5.75 t) SPLASHED at the
+# surface at lat -0.0972 lon -74.15, about 4.3 km east of the pad, the active vessel; no
+# Parsek history, so the seam StartRecording opens a fresh tree on it.
+#
+# THE RUN (mission `psub_dive`, mlib.psub_decide): the handoff reads PSUB-1 SPLASHED with
+# the depth channel lit, turns SAS on; then it measures the vertical speed (sea-level
+# altitude, Flight.MeanAltitude) over 10 s after a 10 s settle, and drops the next float
+# pair (one stage click, confirmed by the part count) only while the sub is not sinking at
+# 0.2 m/s or more. Sinking, it goes down to 40 m under sea level (or within 5 m of the
+# sea floor, Flight.Elevation), holds 10 s of readings and ends. Every reading is logged
+# as a `psubReading` gate line. How many pairs it takes is the unmeasured buoyancy factor
+# k (build_psub_craft.py's table: one to three for k in about [0.75, 1.45]); afloat with
+# every float gone ends the mission by name ("k is too high"), and so does the crush
+# guard (150 m).
+#
+# WHAT IT GATES (recording half): the ACTIVE recorder closes a SurfaceMobile section with
+# frames (a submerged vessel reads SPLASHED, which EnvironmentDetector classifies like
+# LANDED); the commit names a Splashed terminal on Kerbin.
+# (playback half): Rewind-to-Launch back to the sub afloat (the rewind save captured
+# with PSUB-1 SPLASHED); the Space Center replays its KSC ghost through the dive to the
+# Splashed end; the real PSUB-1 spawns there SPLASHED at its RECORDED depth (the
+# endpoint's `keeps its recorded depth alt=-...` line, tied to the spawn by its index,
+# and no clamp line for PSUB-1 at all); LeafVesselPlacement reads the spawn within 100 m
+# of the recorded terminal place, AND its `LeafPlacement height:` line for PSUB-1 reads a
+# negative live altitude with `heightVerdict=ok` (within 10 m of the recorded depth and
+# not under the sea floor). The height line is report-only inside the in-game cell; this
+# lane is what gates it.
+# NOT CHECKED: the ghost DURING the dive (no in-game cell samples a KSC ghost mid-run);
+# SUB-2 reads the flight-scene ghost's lifecycle.
+#
+# ASSUMPTIONS THE FIRST FLIGHT READS (they are the kit's, build_psub_craft.py C1-C5): the
+# craft loads whole at the site (C1); each stage click drops one float pair (C2); k lets
+# the sub sink inside three float pairs (C4); the sea floor at the site is far below
+# 40 m (the handoff reading's `floor=`); the sub stays SPLASHED under water (a sea-floor
+# touch reads LANDED and ends the mission past 10 frames).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no lane dives; BOAT-1 floats. (2) every
+# wait is the mission's own condition or an explicit-UT WarpToUT. (3) no dwell keys.
+# (4) the run is at 1x by design (a buoyancy reading under warp is a different reading).
+# (5) no b5 coast. (6) a wrong handoff, a click that drops nothing, k out of range, the
+# crush guard and leaving the water each end the mission at once by name. (7) the count
+# window is open (each float pair can leave debris recordings); tighten it off the
+# reading run. (8) pending-fixture, then operator by the calibration discipline.
+# (9) flight_efficiency.py owed after the first green flight.
+# =====================================================================================
+tier = "pending-fixture"
+description = "AUTHORED 2026-11-17, NEVER FLOWN, NOT FLYABLE UNTIL FORGE-psub-pad IS HARVESTED AND build_psub_splashed.py HAS WRITTEN psub-splashed (todo SUBMARINE-TEST-KIT; the WarpToUT target is a calibration seed). The stock submarine PSUB-1, afloat east of KSC, drops float pairs until it sinks and dives to 40 m (psub_dive, every reading logged); committed, Rewound-to-Launch, its KSC ghost replayed to the Splashed end, the real PSUB-1 spawned at its RECORDED depth (no clamp) and read by LeafVesselPlacement, its height line gated: a negative altitude, heightVerdict=ok."
+instanceProfile = "stock-minimal"
+tags = ["SUB1", "SUB", "submarine", "water", "splashed", "underwater", "surface-mobile",
+        "ksc-ghost", "rewind-to-launch", "leaf-placement", "ingame-batch",
+        "awaiting-fixture", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/psub-splashed"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "psub_dive"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "StartRecording",                                                           expect = "OK", budget = 180 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 900 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "CommitTree",                                                               expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "sub1-committed" },                         expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "MissionMark", args = { label = "sub1-rewound" },                           expect = "OK" },
+  # CALIBRATION SEED (see the header): past the dive's end, at most 10x so the KSC ghost
+  # stays drawn.
+  { cmd = "WarpToUT",   args = { ut = "1500", maxRate = "10" },                        expect = "OK", budget = 400 },
+  { cmd = "MissionMark", args = { label = "sub1-past-end" },                          expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                  expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[driver.missionParams]
+expectedVesselName    = "PSUB-1"
+handoffDebounceFrames = 3
+handoffMaxFrames      = 60
+floatStages           = 3
+ballastStages         = 3
+settleSeconds         = 10.0
+measureSeconds        = 10.0
+sinkRateMps           = 0.2
+riseRateMps           = 0.2
+dropConfirmFrames     = 40
+noSinkTimeoutSeconds  = 60.0
+targetDepthMeters     = 40.0
+floorClearanceMeters  = 5.0
+maxDepthMeters        = 150.0
+sinkTimeoutSeconds    = 300.0
+holdSeconds           = 10.0
+logIntervalSeconds    = 5.0
+riseAfterTarget       = false
+offWaterFrames        = 10
+
+[dimensionsCovered]
+D1  = ["commit-revert-merge"]
+D4  = ["surface-mobile"]
+D6  = ["basic-playback"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "warp-1x", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# OPEN on purpose: the sub's own recording, plus whatever debris recordings the dropped
+# float pairs leave (up to two per pair). Tighten off the reading run.
+count = { min = 1, max = 15 }
+
+[expectations.logContracts]
+required = [
+  # ParsekTestCommandAddon.cs (LoadGame applier).
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  # ParsekTestCommandAddon.cs (StartRecording applier).
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # FlightRecorder.StartRecording.cs (CaptureRewindSave) + RewindLauncher.cs (the plain
+  # rewind's initiated line): the rewind goes back to the sub afloat.
+  "Captured rewind save at UT ([0-9.]+): vessel \"PSUB-1\" in SPLASHED \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  # FlightRecorder.EnvironmentAndTrackSections.cs (CloseTrackSection, [Recorder] tag = the
+  # ACTIVE recorder): a SurfaceMobile section with frames, recorded in the water.
+  "\\[Recorder\\] TrackSection closed: env=SurfaceMobile ref=\\w+ frames=[1-9][0-9]* ",
+  # ParsekFlight.MergeFlow.cs (FormatCommitTerminalLine): a Splashed terminal on Kerbin.
+  "CommitTreeFlight terminal: rec=[0-9a-f]+ terminalState=Splashed terminalOrbitBody=Kerbin",
+  # ParsekTestCommandAddon.cs (CommitTree applier).
+  "committree committed=true",
+  # ParsekTestCommandAddon.InvokeRewindToLaunch.cs.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # LoadReconcilePolicy.cs (FormatClassifiedLine).
+  "MISSIONMARK label=sub1-committed ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind ",
+  # ParsekKSC.cs (the KSC ghost's range lines, Verbose): the sub's ghost replays.
+  "MISSIONMARK label=sub1-rewound ut=[\\s\\S]*?\\[KSCGhost\\] Ghost #[0-9]+ \"PSUB-1\" entered range: targetUT=[0-9.]+ recUT=\\[[0-9.]+,[0-9.]+\\] cycle=[0-9]+ loop=False terminal=Splashed",
+  "\\[KSCGhost\\] Ghost #[0-9]+ \"PSUB-1\" exited range at UT ",
+  # VesselSpawner.EndOfRecording.cs (ResolveSplashedSpawnAltitude, VerboseRateLimited, the
+  # endpoint site ResolveSpawnPosition passes) + ParsekKSC.cs (the end spawn), tied by the
+  # recording index: the real PSUB-1 spawns SPLASHED at its recorded (negative) depth.
+  "Splashed spawn #([0-9]+) \\(PSUB-1\\) keeps its recorded depth alt=-[0-9.]+ \\(seaFloor=(-[0-9.]+|unknown), site=endpoint\\)[\\s\\S]*?\\[KSCSpawn\\] Vessel spawned for #\\1 \"PSUB-1\" pid=[0-9]+ sit=SPLASHED ",
+  # LeafVesselPlacement.cs (FormatSurfaceLine, FormatHeightLine, FormatHeightSummary,
+  # FormatSummary) + InGameTestRunner.cs (BATCH_COMPLETE).
+  "MISSIONMARK label=sub1-past-end ut=[\\s\\S]*?LeafPlacement: rec=[0-9a-f]+ vessel='PSUB-1' pid=[0-9]+ kind=surface body=Kerbin liveBody=Kerbin distM=[0-9.]+ verdict=ok",
+  "LeafPlacement height: rec=[0-9a-f]+ vessel='PSUB-1' pid=[0-9]+ terminal=Splashed body=Kerbin altM=-[0-9.]+ refM=-[0-9.]+ deltaM=-?[0-9.]+ floorM=-?[0-9.]+ heightVerdict=ok",
+  "LeafPlacement height summary: scene=SPACECENTER checked=[1-9][0-9]* ok=[1-9][0-9]* bad=0 unsupported=[0-9]+",
+  "LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  # VesselSpawner.EndOfRecording.cs (ResolveSplashedSpawnAltitude): any clamp of PSUB-1's
+  # spawn depth (above-sea-level, below-sea-floor or non-finite) is the finding.
+  "Clamped altitude for SPLASHED spawn #[0-9]+ \\(PSUB-1\\)",
+  # ParsekKSC.cs: one end spawn, not two.
+  "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"PSUB-1\"[\\s\\S]*\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"PSUB-1\"",
+  "Spawn FAILED for #[0-9]+ \"PSUB-1\"",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# 300 load + 180 start + 900 mission + 120 commit + 300 rewind + 400 warp + 300 tests +
+# 120 save + margin.
+budgetSeconds = 3000
+
+[retry]
+# One retry prices a kRPC flake; a wrong handoff, a dead stage click, k out of range or
+# leaving the water reproduces and names itself.
+policy = "once"
+
+[expectedFail]
+bugId = ""

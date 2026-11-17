@@ -1,0 +1,133 @@
+schema = 1
+id = "SUB-3-submarine-dive-and-rise-separations"
+# =====================================================================================
+# SUB-3: THE SUBMARINE DIVES AND RISES BACK, SHEDDING SIX PART PAIRS UNDER WATER, AND THE
+# RECORDER KEEPS ONE TREE. AUTHORED 2026-11-17, NEVER FLOWN. Todo SUBMARINE-TEST-KIT.
+#
+# The environment-and-separations half of the kit. SUB-1's dive to 40 m, then with
+# `riseAfterTarget` the mission drops the float pairs still aboard back to back (each
+# makes the sub heavier, so they go unmeasured) and then one Ore ballast pair per
+# measurement until the sub rises at 0.2 m/s or more, and runs until it is within 2 m of
+# sea level. So every separation of the craft (up to six radial pairs on TT-70
+# decouplers) happens in the water, most of them under it, and the recording spans
+# sinking, the turn at depth and the ascent. Then the tree is committed; no playback.
+#
+# *** NOT FLYABLE YET. *** tier "pending-fixture", tag "awaiting-fixture"; SUB-1's
+# fixture, exemption and hand-over (read its header). No WarpToUT, so nothing to re-seed.
+#
+# WHAT IT GATES (only what the dive cannot avoid producing): a fresh recording started
+# on the sub, an ACTIVE-recorder SurfaceMobile section with frames, a Splashed terminal on
+# Kerbin at the commit and the commit itself. The mission's own rows gate the physics:
+# it sank below 40 m and rose back to the surface, every drop confirmed by the part count.
+#
+# READ, NOT GATED (no flight has measured them; the reading run decides what to pin):
+#   - how each underwater decouple is recorded: the coalescer's `DECOUPLE emitted: ...
+#     controlledChildren=N debris=N` line (Rewind/CrashCoalescer.cs; expected
+#     controlledChildren=0, two debris per pair: an FL-T100 or an ore tank carries no
+#     command part) and the background recorder's `Child recording created (debris,
+#     TTL=...)` lines (Recording/BackgroundRecorder.SplitDetection.cs);
+#   - how many track sections the dive closes and their environments (SurfaceMobile
+#     while moving; whether the turn at depth reads SurfaceStationary for a moment);
+#   - whether the dropped floats, which bob back up, keep their debris recordings to the
+#     surface or end at the TTL;
+#   - the recording count (window open: the sub plus up to two debris per pair);
+#   - the Rewind Point count (expected 0: no controllable child separates).
+# =====================================================================================
+tier = "pending-fixture"
+description = "AUTHORED 2026-11-17, NEVER FLOWN, NOT FLYABLE UNTIL psub-splashed EXISTS (todo SUBMARINE-TEST-KIT). The stock submarine PSUB-1 drops float pairs until it sinks, dives to 40 m, then drops the floats left and one ballast pair per measurement until it rises back to the surface (psub_dive with riseAfterTarget, every reading logged): up to six radial separations in and under the water in one recording. Gates the active SurfaceMobile section, a Splashed terminal and the commit; the decouple and debris lines, the section count and the recording count are read, not gated, on the first flight."
+instanceProfile = "stock-minimal"
+tags = ["SUB3", "SUB", "submarine", "water", "splashed", "underwater", "surface-mobile",
+        "decouple", "debris", "awaiting-fixture", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/psub-splashed"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "psub_dive"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "StartRecording",                                                           expect = "OK", budget = 180 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 1500 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "CommitTree",                                                               expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[driver.missionParams]
+expectedVesselName    = "PSUB-1"
+handoffDebounceFrames = 3
+handoffMaxFrames      = 60
+floatStages           = 3
+ballastStages         = 3
+settleSeconds         = 10.0
+measureSeconds        = 10.0
+sinkRateMps           = 0.2
+riseRateMps           = 0.2
+dropConfirmFrames     = 40
+noSinkTimeoutSeconds  = 60.0
+targetDepthMeters     = 40.0
+floorClearanceMeters  = 5.0
+maxDepthMeters        = 150.0
+sinkTimeoutSeconds    = 300.0
+holdSeconds           = 10.0
+logIntervalSeconds    = 5.0
+riseAfterTarget       = true
+surfaceDepthMeters    = 2.0
+riseTimeoutSeconds    = 300.0
+# Breaching at the end of the ascent can read FLYING for a few frames.
+offWaterFrames        = 20
+
+[dimensionsCovered]
+D1  = ["commit-revert-merge"]
+D4  = ["surface-mobile"]
+D7  = ["decouple-stage-destroy"]
+D14 = ["kerbin", "warp-1x", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# OPEN on purpose: the sub plus up to two debris recordings per dropped pair (six
+# pairs). Tighten off the reading run.
+count = { min = 1, max = 20 }
+
+[expectations.logContracts]
+required = [
+  # ParsekTestCommandAddon.cs (LoadGame applier).
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  # ParsekTestCommandAddon.cs (StartRecording applier).
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # FlightRecorder.EnvironmentAndTrackSections.cs (CloseTrackSection, the ACTIVE recorder).
+  "\\[Recorder\\] TrackSection closed: env=SurfaceMobile ref=\\w+ frames=[1-9][0-9]* ",
+  # ParsekFlight.MergeFlow.cs (FormatCommitTerminalLine).
+  "CommitTreeFlight terminal: rec=[0-9a-f]+ terminalState=Splashed terminalOrbitBody=Kerbin",
+  # ParsekTestCommandAddon.cs (CommitTree applier).
+  "committree committed=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# 300 load + 180 start + 1500 mission + 120 commit + 120 save + margin.
+budgetSeconds = 2600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

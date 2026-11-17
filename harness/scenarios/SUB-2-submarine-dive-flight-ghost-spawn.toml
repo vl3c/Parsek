@@ -1,0 +1,180 @@
+schema = 1
+id = "SUB-2-submarine-dive-flight-ghost-spawn"
+# =====================================================================================
+# SUB-2: THE SUBMARINE'S GHOST PLAYS UNDER WATER IN FLIGHT AND HANDS OVER TO THE REAL
+# VESSEL AT ITS RECORDED DEPTH. AUTHORED 2026-11-17, NEVER FLOWN. Todo SUBMARINE-TEST-KIT.
+#
+# SUB-1's dive (same host, same mission, same params), then the playback half in the
+# FLIGHT scene instead of the Space Center: after the Rewind-to-Launch lands at the Space
+# Center, the seam walks into the VAB, loads the one-part library craft `Settings Probe`
+# (a Stayputnik; NOT a second PSUB-1, which would carry the same craft-baked
+# persistentId as the recorded sub) and launches it onto the pad, so the player watches
+# from the pad, about 4.3 km from the dive. Time runs at up to 10x past the dive's end:
+# the flight-scene ghost of PSUB-1 is built, plays the dive, is retired at its Splashed
+# end, and the end spawn creates the real PSUB-1 at its RECORDED depth (4.3 km is past
+# the 2.5 km load range of a splashed vessel, so the spawned sub stays packed and does
+# not sink further before LeafVesselPlacement reads it).
+#
+# *** NOT FLYABLE YET. *** tier "pending-fixture", tag "awaiting-fixture"; the same
+# fixture, exemption and hand-over as SUB-1 (read its header), plus one more step in the
+# hand-over commit: add `"psub-splashed" = ["Settings Probe"]` to
+# `harness/fixtures/shared-ships.toml` so the VAB can load the observer craft (the
+# manifest's own validator refuses a row naming a save that does not exist yet, so the row
+# cannot land before the fixture). The WarpToUT target is SUB-1's calibration seed.
+#
+# WHAT IT GATES (on top of SUB-1's recording half): the ghost-render tracer's mesh
+# lifecycle for PSUB-1 in FLIGHT (built `reason=ghost-created`, then destroyed), NO
+# terrain clamp of a ghost below sea level (the flight clamp reads the sea floor,
+# `TerrainAltitude(lat, lon, true)`, so a sub ghost 40 m down over a deep floor must not
+# be lifted), the flight end spawn of PSUB-1 SPLASHED with a negative snapshot altitude
+# after the endpoint's `keeps its recorded depth` line, no clamp of its spawn depth, one
+# spawn, and LeafVesselPlacement's surface verdict in FLIGHT. The height line is read
+# (report-only here; SUB-1 gates it at the Space Center).
+# NOT CHECKED: the ghost's depth frame by frame (no in-game cell samples a flight ghost
+# against its recording mid-run in this lane).
+# =====================================================================================
+tier = "pending-fixture"
+description = "AUTHORED 2026-11-17, NEVER FLOWN, NOT FLYABLE UNTIL psub-splashed EXISTS (todo SUBMARINE-TEST-KIT; WarpToUT target a calibration seed; the shared-ships row for Settings Probe lands with the fixture). SUB-1's dive of the stock submarine PSUB-1, committed and Rewound-to-Launch; the player then launches a one-part probe onto the pad and watches the flight-scene ghost of the sub play under water and hand over: mesh built and destroyed, no terrain clamp below sea level, the real PSUB-1 spawned SPLASHED at its recorded depth (no clamp, one spawn), LeafVesselPlacement read in FLIGHT."
+instanceProfile = "stock-minimal"
+tags = ["SUB2", "SUB", "submarine", "water", "splashed", "underwater", "flight-ghost",
+        "rewind-to-launch", "editor-launch", "leaf-placement", "ingame-batch",
+        "awaiting-fixture", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/psub-splashed"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "psub_dive"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },       expect = "OK" },
+  { cmd = "StartRecording",                                                           expect = "OK", budget = 180 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 900 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "CommitTree",                                                               expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "MissionMark", args = { label = "sub2-committed" },                         expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },       expect = "OK" },
+  { cmd = "MissionMark", args = { label = "sub2-rewound" },                           expect = "OK" },
+  # The observer: a one-part library probe on the pad (fixtures/shared-ships.toml).
+  { cmd = "GoToEditor", args = { facility = "VAB", craft = "Settings Probe" },        expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                         expect = "OK", budget = 180 },
+  { cmd = "MissionMark", args = { label = "sub2-observer-on-pad" },                   expect = "OK" },
+  # CALIBRATION SEED (SUB-1's header): past the dive's end, at most 10x.
+  { cmd = "WarpToUT",   args = { ut = "1500", maxRate = "10" },                        expect = "OK", budget = 400 },
+  { cmd = "MissionMark", args = { label = "sub2-past-end" },                          expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                  expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[driver.missionParams]
+expectedVesselName    = "PSUB-1"
+handoffDebounceFrames = 3
+handoffMaxFrames      = 60
+floatStages           = 3
+ballastStages         = 3
+settleSeconds         = 10.0
+measureSeconds        = 10.0
+sinkRateMps           = 0.2
+riseRateMps           = 0.2
+dropConfirmFrames     = 40
+noSinkTimeoutSeconds  = 60.0
+targetDepthMeters     = 40.0
+floorClearanceMeters  = 5.0
+maxDepthMeters        = 150.0
+sinkTimeoutSeconds    = 300.0
+holdSeconds           = 10.0
+logIntervalSeconds    = 5.0
+riseAfterTarget       = false
+offWaterFrames        = 10
+
+[dimensionsCovered]
+D1  = ["commit-revert-merge"]
+D4  = ["surface-mobile"]
+D6  = ["basic-playback"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "warp-1x", "scene-flight", "scene-ksc", "scene-editor"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# OPEN on purpose (SUB-1's reason); the observer probe is never recorded
+# (autoRecordOnLaunch=false and no StartRecording after the launch).
+count = { min = 1, max = 15 }
+
+[expectations.logContracts]
+required = [
+  # ParsekTestCommandAddon.cs (LoadGame applier).
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  # ParsekTestCommandAddon.cs (StartRecording applier).
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # FlightRecorder.StartRecording.cs (CaptureRewindSave) + RewindLauncher.cs.
+  "Captured rewind save at UT ([0-9.]+): vessel \"PSUB-1\" in SPLASHED \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  # FlightRecorder.EnvironmentAndTrackSections.cs (CloseTrackSection, the ACTIVE recorder).
+  "\\[Recorder\\] TrackSection closed: env=SurfaceMobile ref=\\w+ frames=[1-9][0-9]* ",
+  # ParsekFlight.MergeFlow.cs (FormatCommitTerminalLine).
+  "CommitTreeFlight terminal: rec=[0-9a-f]+ terminalState=Splashed terminalOrbitBody=Kerbin",
+  # ParsekTestCommandAddon.cs (CommitTree applier).
+  "committree committed=true",
+  # ParsekTestCommandAddon.InvokeRewindToLaunch.cs.
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # LoadReconcilePolicy.cs (FormatClassifiedLine).
+  "MISSIONMARK label=sub2-committed ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind ",
+  # TestCommands/TestCommandEditorRoute.cs (the LaunchFromEditor completion line).
+  "launchfromeditor complete scene=FLIGHT vessel=Settings Probe pid=[0-9]+ site=LaunchPad situation=PRELAUNCH",
+  # GhostPlaybackEngine.SpawnDestroy.cs + GhostPlaybackEngine.Diagnostics.cs
+  # (EmitMeshLifecycleTrace, gated by ghostRenderTracing): the flight ghost of PSUB-1 is
+  # built after the observer is on the pad, then destroyed.
+  "MISSIONMARK label=sub2-observer-on-pad ut=[\\s\\S]*?phase=MeshSpawned [^\\r\\n]*vessel=PSUB-1 reason=ghost-created",
+  "phase=MeshDestroyed [^\\r\\n]*vessel=PSUB-1 reason=",
+  # VesselSpawner.EndOfRecording.cs (ResolveSplashedSpawnAltitude at the endpoint, then
+  # the flight end spawn's line from the snapshot strings), tied by the index.
+  "Splashed spawn #([0-9]+) \\(PSUB-1\\) keeps its recorded depth alt=-[0-9.]+ \\(seaFloor=(-[0-9.]+|unknown), site=endpoint\\)[\\s\\S]*?Vessel spawn for #\\1 \\(PSUB-1\\) pid=[0-9]+ sit=SPLASHED lat=\\S+ lon=\\S+ alt=-[0-9]",
+  # LeafVesselPlacement.cs + InGameTestRunner.cs: the surface verdict in FLIGHT.
+  "MISSIONMARK label=sub2-past-end ut=[\\s\\S]*?LeafPlacement: rec=[0-9a-f]+ vessel='PSUB-1' pid=[0-9]+ kind=surface body=Kerbin liveBody=Kerbin distM=[0-9.]+ verdict=ok",
+  # Read, not judged (SUB-1 gates the verdict): the height line exists for PSUB-1.
+  "LeafPlacement height: rec=[0-9a-f]+ vessel='PSUB-1' pid=[0-9]+ terminal=Splashed body=Kerbin altM=",
+  "LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  # ParsekFlightPlaybackHost.cs (ClampGhostsToTerrain, VerboseRateLimited): a ghost below
+  # sea level lifted by the terrain clamp. PSUB-1's (and its debris') are the only ghosts.
+  "Ghost terrain clamp: alt=-",
+  # VesselSpawner.EndOfRecording.cs: any clamp of PSUB-1's spawn depth.
+  "Clamped altitude for SPLASHED spawn #[0-9]+ \\(PSUB-1\\)",
+  # One end spawn, not two.
+  "Vessel spawn for #[0-9]+ \\(PSUB-1\\)[\\s\\S]*Vessel spawn for #[0-9]+ \\(PSUB-1\\)",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# 300 load + 180 start + 900 mission + 120 commit + 300 rewind + 120 editor + 180 launch +
+# 400 warp + 300 tests + 120 save + margin.
+budgetSeconds = 3300
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

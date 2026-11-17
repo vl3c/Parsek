@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; AUTHORED, NEVER FLOWN (tag `pending-flight`); OPEN: the forge flight, the harvest, then the SUB lanes' reading runs]
+## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; AUTHORED, NEVER FLOWN: the forge (tag `pending-flight`) and three lanes (tier `pending-fixture`); OPEN: the forge flight, the harvest, the hand-over, then the SUB lanes' reading runs]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
 `LeafPlacement height:` depth check have no live subject below sea level: BOAT-1's Mallard floats.
@@ -41,6 +41,55 @@ The kit is a stock submarine and the pieces that turn it into a host and fly it:
   the next float pair only while the sub is not yet sinking, so it calibrates k itself; it sinks to
   a target depth or the floor, holds, and optionally rises by ballast drops. Every reading is
   logged. The "k too high" / "k too low" ends name a craft that cannot dive at all.
+
+The lanes (rows in `docs/dev/autotest-status.md`; all tier `pending-fixture`, listed in
+`test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES`; SUB-1 / SUB-2 also in `INTERIM_PIN_IDS`):
+- `SUB-1-submarine-dive-ksc-end-spawn`: the dive to 40 m, committed, Rewound-to-Launch, the KSC
+  ghost to its Splashed end, the real PSUB-1 spawned at its RECORDED depth (no clamp line, one
+  spawn), LeafVesselPlacement at the Space Center with the height line GATED (`heightVerdict=ok`).
+- `SUB-2-submarine-dive-flight-ghost-spawn`: the same dive replayed in FLIGHT from a one-part probe
+  on the pad: the ghost's mesh lifecycle, no terrain clamp below sea level, the flight end spawn at
+  depth, LeafVesselPlacement in FLIGHT (height line read, not judged).
+- `SUB-3-submarine-dive-and-rise-separations`: dive and rise, up to six radial separations in the
+  water; the decouple / debris lines, the section count and the recording count read, not gated.
+
+THE HAND-OVER, in order (PC; the forge is operator tier):
+1. `python harness/run.py --id FORGE-psub-pad`, then at once
+   `python harness/tools/harvest_bdock_station.py --save-dir harness/results/<runId>_save
+   --target-name psub-pad --expect-situation PRELAUNCH` (writes `fixtures/saves/psub-pad`).
+2. `python harness/tools/build_psub_splashed.py --write` (writes `fixtures/saves/psub-splashed`);
+   `--check` then reads OK.
+3. In ONE commit with both fixtures: delete the three PENDING_FIXTURE_LANES entries; set the SUB
+   lanes' tier to `operator`, drop the tag `awaiting-fixture`, add `sandbox` back to D14; re-seed
+   SUB-1 / SUB-2's `WarpToUT` target to the harvested FLIGHTSTATE `UT` + 600; add
+   `"psub-splashed" = ["Settings Probe"]` to `harness/fixtures/shared-ships.toml` (SUB-2's observer;
+   the manifest refuses a row for a save that does not exist, so it cannot land earlier); register
+   both fixture directories wherever `test_saveparse` lists the committed set
+   (`EXPECTED_SCENARIO_PRESENCE` and the fixture-set cell; `psub-pad` keeps its ParsekScenario
+   node, `psub-splashed` has the stripped one); move the status rows.
+4. Fly SUB-1, SUB-2, SUB-3 once each as reading runs; then tighten the count windows, pin the
+   `BATCH_COMPLETE` split whole (leaving `INTERIM_PIN_IDS`), and decide from SUB-3's reading which
+   decouple / debris / section facts to gate.
+
+What the first flights check (build_psub_craft.py C1-C5, and the host): the craft loads whole on
+the pad (C1); each stage click drops exactly one pair, floats first (C2); the sub sinks inside three
+float pairs and rises inside three ballast pairs (C4: k in about [0.75, 1.45]; the mission names
+"k is too high" / "k is too low" otherwise); KSP places the relocated SPLASHED vessel at its
+saved lat / lon / alt with the canonical surface ORBIT, the hull at sea level; the sea floor at the
+site is well below 40 m (the `handoff:` reading's `floor=`); a submerged vessel stays SPLASHED
+(the sea floor reads LANDED).
+
+Not built (SUB-4..7, ideas for after the reading runs):
+- SUB-4: a Re-Fly of a separation under water. Needs a controllable child: a craft variant whose
+  float pair carries a probe core, so the drop authors a Rewind Point; Re-Fly the child to the
+  surface while the hull's ghost dives.
+- SUB-5: a looped dive (the mission loop on a recording that ends under water): the loop
+  boundary's re-placement at depth and the end spawn suppressed per loop rules.
+- SUB-6: the Tracking Station end spawn at depth (TSS-1's road on the dive): the spawn depth
+  through the TS path and LeafVesselPlacement in TRACKSTATION.
+- SUB-7: a crush-depth destruction: a dive with no target depth, past ~400 m where stock parts
+  exceed their 4 MPa limit, so the recording ends Destroyed under water (the terminal-kind
+  classification and the ghost's explosion at depth). Needs a site deeper than the crush depth.
 
 Done when the SUB lanes have flown once as reading runs and are re-pinned, or their reds are filed.
 

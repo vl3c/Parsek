@@ -5009,7 +5009,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # flight (for the three existing lanes, the first flight after the step was added).
     # LAY-1-laythe-reentry-splashdown LEFT on run 2026-11-17_1740 (passed=1 failed=0 skipped=0,
     # pinned whole; its first flight 2026-11-17_1417 was red on KSC-END-SPAWN-SKIPS-OFF-KERBIN).
+    # SUB-1 / SUB-2 ENTERED on 2026-11-17 (todo SUBMARINE-TEST-KIT: the stock submarine's
+    # dive, rewound to launch, its end spawn at the recorded depth read by the
+    # LeafVesselPlacement category's one cell at the Space Center / in FLIGHT, `total=1`
+    # literal with the split regexed). Pending-fixture until psub-splashed is built; each
+    # leaves on its first flight.
     INTERIM_PIN_IDS: set = {
+        "SUB-1-submarine-dive-ksc-end-spawn",
+        "SUB-2-submarine-dive-flight-ghost-spawn",
         "FGV-1-fairing-ghost-visual",
         "SPW-1-laythe-orbit-end-spawn-flight",
         "SPW-2-duna-orbit-end-spawn-runway",
@@ -25679,10 +25686,17 @@ class SharedShipsManifestTests(unittest.TestCase):
     # AIR-2 retired 2026-11-16: AIR-1 flew green (`2026-11-16_2218`) and
     # `air-circuit-recorded` is committed.
     #
-    # RETIRED AGAIN 2026-11-16: the map is EMPTY, so the exemption is inert and the
-    # saveTemplate gate below is at full strength until a future two-stage program
-    # lists a lane here.
-    PENDING_FIXTURE_LANES = {}
+    # RETIRED AGAIN 2026-11-16: the map was EMPTY until the next two-stage program.
+    #
+    # RE-ARMED 2026-11-17 by the stock submarine kit (todo SUBMARINE-TEST-KIT): the
+    # forge FORGE-psub-pad is authored, not flown, and its harvest becomes
+    # `psub-splashed` only through build_psub_splashed.py. The three SUB lanes name that
+    # fixture; tier "pending-fixture", the hand-over in SUB-1's header.
+    PENDING_FIXTURE_LANES = {
+        "SUB-1-submarine-dive-ksc-end-spawn.toml": "psub-splashed",
+        "SUB-2-submarine-dive-flight-ghost-spawn.toml": "psub-splashed",
+        "SUB-3-submarine-dive-and-rise-separations.toml": "psub-splashed",
+    }
 
     def test_the_pending_fixture_exemption_retires_itself(self):
         """The exemption's own guard, in BOTH directions. If the awaited fixture
