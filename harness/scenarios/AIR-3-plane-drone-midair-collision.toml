@@ -1,0 +1,261 @@
+schema = 1
+id = "AIR-3-plane-drone-midair-collision"
+# =====================================================================================
+# AIR-3: TWO AIRCRAFT OF ONE TREE COLLIDE IN THE AIR. AUTHORED 2026-11-17, NEVER FLOWN.
+# Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3b (owner request 2026-11-16: two airplanes
+# flying into each other, for recording and ghost playback reliability).
+#
+# THE SIMPLER VARIANT, AND WHY IT KEEPS THE POINT. Both aircraft must be members of ONE
+# recording tree and both must be loaded when they meet. A switch to a vessel outside
+# the tree does not add it, so the second aircraft has to come out of the first one's
+# tree by a split IN THE AIR, and a powered second plane cannot be flown once it is not
+# the active vessel. So the second aircraft is a parachute drone: the craft
+# `AIR Drone Carrier` is the stock Mallard (AIR-1's plane) carrying an empty FL-T400, an
+# Octo2 probe core and a Mk16 on a radial decoupler under its right wing. The drone
+# holds a line on its own (under its canopy it sinks 4 - 5 m/s and, with no wind in KSP,
+# barely drifts), and the Mallard flies into it.
+#
+# THE CRAFT is a DERIVATIVE written BY CONSTRUCTION by
+# `harness/tools/build_air_drone_carrier.py` into this fixture's Ships/VAB (the Kerbal X
+# Sweep precedent): every Mallard part is kept byte for byte, every appended part's
+# tail is lifted from a committed craft KSP wrote, and the engines move to stage 1 so the
+# first click lights them and the second fires the decoupler and arms the Mk16 (whose
+# deployAltitude is raised to 1500 m). `test_air3_drone_intercept.CraftDriftTests` pins
+# the committed bytes to the derivation and checks the structure (42 parts, one root,
+# every link / attN / srfN resolving, the staging, an empty tank). VALIDATED ON FIRST
+# FLIGHT by: the rollout gate reading `AIR Drone Carrier` back as the active vessel (the
+# craft loaded), the take-off (the drone clears the runway), the
+# `ProcessBreakupEvent: controlled child created: ... name='AIR Drone Carrier Probe'`
+# token (the decoupler fired on the second click and KSP named the drone as assumed),
+# and the mission's `droneReleased` assertion (the sibling watch found it). The builder's
+# docstring lists the five assumptions (A1 - A5) a flight can falsify, in the order
+# they would bite.
+#
+# THE ROAD.
+#   1. MISSION `air3_drone_intercept` (kRPC, raw inputs, no AutoPilot; pure machine
+#      `mlib.ax_decide`). AIR-1's machine flies the rollout on the Runway, the first
+#      stage click with brakes on and throttle zero (the engines; Parsek's
+#      first-staging-on-the-pad auto-record trigger), the take-off and the climb-out,
+#      unchanged. At turnAltitude AIR-3 takes over: it climbs to releaseAltitude on a
+#      loiter leg between two points over the sea east of KSC, and once level (wings
+#      within 8 deg, |vs| <= 3 m/s, not mid-turn, east of releaseMinLongitude) it arms
+#      the sibling watch on the drone and clicks the second stage. It extends straight
+#      for extendSeconds, turns back and flies the Mallard into the drone: every poll the
+#      runner's opt-in `read_air_target` channel reads the drone's centre of mass in the
+#      Mallard's surface frame (up, north, east) and both vessels' part counts; the
+#      machine keeps the drone in a frame anchored at the release point, estimates its
+#      velocity, aims at its position led by that velocity times the time to go, banks
+#      toward the aim point and asks for the vertical speed that meets the drone's
+#      altitude (curvature corrected) at the intercept. A missed pass is counted and
+#      re-flown (maxAttempts). THE COLLISION is a part-count drop on either vessel, the
+#      drone gone, or the Mallard lost (no active vessel, or the active vessel is not
+#      the Mallard any more), with the last range read under collisionRange; anything
+#      farther is a named give-up. After it the throttle is cut and, while the Mallard
+#      is still the active vessel and flying, its nose is pushed down, and the mission
+#      waits until both vessels are down or gone (aftermathMinSeconds at least).
+#   2. SEAM: ExitToSpaceCenter commits the active or the pending tree (autoMerge on;
+#      KD-1's road), InvokeRewindToLaunch rewinds it into the Space Center, and
+#      WarpToUT at up to 10x replays it there: both ghosts enter range and the recorded
+#      part deaths hide parts on both.
+#
+# WHAT IT GATES (logContracts; every token is quoted from its ParsekLog call site):
+#   the recording (auto-record on the Runway), the split in the air (two controllable
+#   children, the drone's own recording), the collision on BOTH recorders (an active
+#   `[Recorder] Part event: Destroyed` and a background `Part death on background
+#   vessel` on the drone's pid, both between the two marks around the mission), the
+#   commit, BOTH leaf recordings finalized Destroyed or Splashed, the rewind, and the
+#   replay: the KSC ghosts of both aircraft entered range, and the destroyed-part
+#   visibility applied on EACH of the two ghosts (tied to each ghost's index by
+#   back-reference, so debris ghosts cannot stand in for either).
+#
+# NOT GATED: that the two GHOSTS meet at the impact point during the replay (no in-game
+# check samples a KSC ghost's transform yet; the same gap AIR-2 names), and which parts
+# broke (it depends on where the drone struck).
+#
+# FLIGHT RISKS, ranked (what a red or a flake most likely is):
+#   1. A MISS. The intercept is flown from 0.5 s polls on raw elevator / aileron loops;
+#      a hit needs the drone inside the Mallard's fuselage (about +/- 2.5 m) or wing. A
+#      point-mass model of the law meets the drone within 2 m on its first pass
+#      (test_air3_drone_intercept.PointMassPursuitTests), but real roll and pitch
+#      dynamics are slower and lumpier. Up to maxAttempts passes; the mission names
+#      every pass's closest sampled range in its give-up.
+#   2. The drone's fit under the wing (builder A1): an overlap could kick the drone at
+#      the release, a collision at the release is outside collisionRange only if it
+#      breaks nothing.
+#   3. The appended parts' old-format attach tokens (A3): a drone missing from the
+#      launched craft reads as `no vessel named ... appeared` after the second click.
+#   4. The drone's name (A5): KSP names a split-off probe "<ship> Probe" (GS-1 measured
+#      `GS1 Auto-Chute Booster Probe`); if not, the same named give-up.
+#   5. Roll trim from 0.44 t under one wing on the take-off and the climb (the bank
+#      loop holds it; AIR-1's aileron sign check is reused).
+#   6. The canopy at the release (it semi-deploys at once, opens fully at 1500 m).
+#   7. The crash point: the loiter keeps the release within about 8 km of the pad and
+#      the intercept within a few km of the release, inside the Space Center's 25 km
+#      ghost cull range; a longer chase could carry it out.
+#   8. The drone still under its canopy at the commit (the aftermath waits for it, up
+#      to aftermathTimeoutSeconds, else a named give-up).
+#   9. The Mallard destroyed whole: the active vessel may become a fragment or the
+#      drone; the machine reads that as the collision and stops flying.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-17, NEVER FLOWN. Two aircraft of one recording tree collide in the air: the stock Mallard carrying a parachute drone under its wing (derived craft `AIR Drone Carrier`) takes off from the Runway, releases the drone over the sea, turns back and flies into it, steering on the drone's live position every poll (mission air3_drone_intercept). Gates the active and the background part deaths at the collision, the drone's own recording, both leaves finalized Destroyed or Splashed and the commit, then Rewinds-to-Launch and replays both ghosts at the Space Center with the destroyed parts hidden on each."
+instanceProfile = "stock-minimal"
+tags = ["AIR3", "aircraft", "crash", "part-destroyed", "background-recording", "rewind-to-launch", "ksc-ghost", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "air3_drone_intercept"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },       expect = "OK" },
+  # The scene-exit commit needs autoMerge (ExitToSpaceCenter refuses `dialog-required`).
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" },                expect = "OK" },
+  # The two part-death lines, the finalize line, the KSC ghost lines and the apply
+  # lines are Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "MissionMark", args = { label = "air3-flight" },                            expect = "OK" },
+  # Worst-case phase sum: rollout 20 + take-off 60 + climb-out 240 + ASCEND 600 + four
+  # attempts x 240 + aftermath 480 = 2360 s of real time (no warp).
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 2400 },
+  { cmd = "MissionMark", args = { label = "air3-down" },                              expect = "OK" },
+  # THE COMMIT: the active tree, or the pending tree a destroyed active vessel stashed.
+  { cmd = "ExitToSpaceCenter",                                                        expect = "OK", budget = 120 },
+  { cmd = "MissionMark", args = { label = "air3-committed" },                         expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "MissionMark", args = { label = "air3-rewound" },                           expect = "OK" },
+  # THE REPLAY at the Space Center, past the whole flight (start UT ~25; a realistic
+  # flight ends by UT ~1300), at most 10x so the ghosts stay drawn (hidden above 50x).
+  { cmd = "WarpToUT",   args = { ut = "2000", maxRate = "10" },                        expect = "OK", budget = 480 },
+  { cmd = "MissionMark", args = { label = "air3-replayed" },                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[driver.missionParams]
+craftName          = "AIR Drone Carrier"
+expectedVesselName = "AIR Drone Carrier"
+targetVesselName   = "AIR Drone Carrier Probe"
+launchSite         = "Runway"
+# AIR-1's live-proven take-off and climb-out parameters (2026-11-16_2218).
+recordSettleFrames = 8
+rotateSpeed        = 45.0
+rotatePitch        = 8.0
+rotatePitchSign    = 1.0
+takeoffMaxDistance = 1500.0
+climbPitch         = 10.0
+turnAltitude       = 300.0
+cruiseSpeed        = 90.0
+captureRadius      = 800.0
+maxBank            = 25.0
+bankSign           = 1.0
+rollInputSign      = 1.0
+groundSteerGain    = 0.1
+groundSteerSign    = 1.0
+groundHeadingAbortDeg = 8.0
+# AIR-3's own.
+loiterPoints       = "-0.05,-73.85;-0.05,-74.30"
+releaseAltitude    = 1600.0
+releaseMinLongitude = -74.30
+extendSeconds      = 25.0
+pursueSpeed        = 75.0
+pursueBankGain     = 2.0
+approachGate       = 1500.0
+minClosingSpeed    = 25.0
+collisionRange     = 250.0
+maxAttempts        = 4
+minTargetAltitude  = 150.0
+maxRange           = 8000.0
+aftermathMinSeconds = 45.0
+aftermathTimeoutSeconds = 480.0
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: every value is backed by a REQUIRED token below.
+#   D1 auto-record-launch  <- "Auto-record started (first staging on pad"
+#   D1 commit-scene-exit, auto-merge <- the exit start line (autoMerge=true) and the
+#                             full-fidelity scene-exit auto-commit
+#   D5 controlled-decoupled-child <- "ProcessBreakupEvent: controlled child created"
+#   D5 bg-recording        <- "Part death on background vessel" on the drone's pid
+#   D7 decouple-stage-destroy <- the Destroyed / ParachuteDestroyed visibility applies
+#   D6 basic-playback      <- both KSC ghosts entered range
+#   D9 rewind-to-launch    <- "invokerewindtolaunch complete"
+D1  = ["auto-record-launch", "commit-scene-exit", "auto-merge"]
+D5  = ["controlled-decoupled-child", "bg-recording"]
+D6  = ["basic-playback"]
+D7  = ["decouple-stage-destroy"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "atmosphere", "sandbox", "scene-flight", "scene-ksc", "warp-1x"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Two is the floor (the Mallard, which continues through the split, and the drone's
+# controlled child); the collision and the crash into the sea can add debris
+# recordings, so no ceiling is pinned before a reading run.
+count = { min = 2 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until a reading run matches it; the first flight is that reading.
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2 }
+branchPoints   = { JointBreak = { min = 1 } }
+
+[expectations.logContracts]
+required = [
+  # --- 1. The recording and the split in the air ---
+  # ParsekFlight.RecorderSession.cs:412 (the first click on the Runway, AIR-1's road).
+  "Auto-record started \\(first staging on pad",
+  # SegmentBoundaryLogic.cs:494 (Info): the release split two controllable vessels.
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  # ParsekFlightSplitBrancher.cs:2083 (Info, tag Coalescer): the drone got its own recording, under
+  # the name the mission's sibling watch matched.
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+, name='AIR Drone Carrier Probe', recId=[0-9a-f]+",
+  # --- 2. THE COLLISION, on both recorders, during the mission ---
+  # FlightRecorder.PartEvents.cs:144 (Verbose): a part of the ACTIVE Mallard died.
+  "(?s)MISSIONMARK label=air3-flight (?:(?!MISSIONMARK label=).)*?\\[Recorder\\] Part event: Destroyed '[^'\\r\\n]+' pid=[0-9]+(?:(?!MISSIONMARK label=).)*?MISSIONMARK label=air3-down ",
+  # BackgroundRecorder.GameEventHandlers.cs:98 (Verbose): a part of the BACKGROUND
+  # drone died, on the drone's own vessel pid (back-reference to the child line).
+  "ProcessBreakupEvent: controlled child created: pid=([0-9]+), name='AIR Drone Carrier Probe'[\\s\\S]*?Part death on background vessel: (?:Destroyed|ParachuteDestroyed) '[^'\\r\\n]+' pid=[0-9]+ vesselPid=\\1(?![0-9])[\\s\\S]*?MISSIONMARK label=air3-down ",
+  # --- 3. THE COMMIT (ParsekTestCommandAddon.ExitToSpaceCenter.cs:76 and :165;
+  # ParsekScenario.AutoCommit.cs:352 Silent / :371 Limbo-preserving) ---
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=(?:false hasPendingTree=true|true hasPendingTree=false)",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true ",
+  "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='AIR Drone Carrier' recordings=(?:[2-9]|[1-9][0-9]+) ",
+  # Both aircraft's recordings end as leaves with a Destroyed or Splashed terminal
+  # (ParsekFlight.Finalization.cs:1021, Verbose).
+  "(?s)MISSIONMARK label=air3-flight .*?FinalizeTreeRecordings: rec='[0-9a-f]+' vessel='AIR Drone Carrier' points=[1-9][0-9]* orbitSegs=[0-9]+ terminal=(?:Destroyed|Splashed) [^\\r\\n]*leaf=True.*?MISSIONMARK label=air3-committed ",
+  "(?s)MISSIONMARK label=air3-flight .*?FinalizeTreeRecordings: rec='[0-9a-f]+' vessel='AIR Drone Carrier Probe' points=[1-9][0-9]* orbitSegs=[0-9]+ terminal=(?:Destroyed|Splashed) [^\\r\\n]*leaf=True.*?MISSIONMARK label=air3-committed ",
+  # --- 4. The rewind (ParsekTestCommandAddon.InvokeRewindToLaunch.cs:243) ---
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # --- 5. THE REPLAY at the Space Center (ParsekKSC.cs:799 entered range, Verbose;
+  # GhostPartEventApplyLog.cs:216 the apply line, flushed Verbose at :356; the
+  # Destroyed / ParachuteDestroyed surface is `visibility`,
+  # GhostPlaybackLogic.PartEvents.cs:126 / :161). Each ghost's destroyed parts
+  # are tied to that ghost's own index by back-reference. ---
+  "MISSIONMARK label=air3-rewound ut=[\\s\\S]*?\\[KSCGhost\\] Ghost #([0-9]+) \"AIR Drone Carrier\" entered range: [\\s\\S]*?apply family=Destroyed surface=visibility rec=\\1 pid=[0-9]+ applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=air3-replayed ",
+  "MISSIONMARK label=air3-rewound ut=[\\s\\S]*?\\[KSCGhost\\] Ghost #([0-9]+) \"AIR Drone Carrier Probe\" entered range: [\\s\\S]*?apply family=(?:Destroyed|ParachuteDestroyed) surface=visibility rec=\\1 pid=[0-9]+ applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=air3-replayed ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "Idle on pad at scene exit",
+]
+
+[runtime]
+# Boot ~300 + LoadGame 300 + mission 2400 + commit 120 + rewind 300 + replay 480 + quit.
+budgetSeconds = 4000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

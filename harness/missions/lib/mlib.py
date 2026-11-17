@@ -4035,6 +4035,18 @@ class TelemetrySnapshot:
     latitude: float = float("nan")
     longitude: float = float("nan")
     surface_speed: float = float("nan")
+    # AIR TARGET channel (read only by AIR-3, the ``read_air_target`` opt-in, on the
+    # vessel ACTION_SET_SIBLING_WATCH names): the watched vessel's centre of mass
+    # relative to the active vessel's, in the active vessel's SURFACE frame as
+    # (up, north, east) metres (kRPC's surface reference frame: x up, y north, z
+    # east), and the part counts of the watched vessel and of the active vessel.
+    # NaN triple / -1 when unread, and every AIR-3 gate fails CLOSED on them. On
+    # the vessel-lost path the watched vessel's part count (and its sibling
+    # situation / presence) is still read: the target outlives the chaser.
+    air_target_rel_position: Tuple[float, float, float] = (
+        float("nan"), float("nan"), float("nan"))
+    air_target_part_count: int = -1
+    own_part_count: int = -1
 
 
 # ---------------------------------------------------------------------------
@@ -38682,5 +38694,800 @@ def evaluate_boat_assertions(frames, params: BoatParams,
             st.rest_speed_read if st is not None else None,
             {"restSpeed": params.rest_speed,
              "restUT": st.rest_ut if st is not None else None,
+             "phasesReached": list(st.phases_reached) if st is not None else []}),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# AIR-3 drone intercept (mission air3_drone_intercept; todo
+# NEXT-TESTS-TO-BUILD-2026-11-11 item 3b). Pure.
+#
+# Two aircraft of ONE recording tree collide in the air, both loaded. The craft is
+# `AIR Drone Carrier` (harness/tools/build_air_drone_carrier.py): the stock Mallard
+# with a parachute drone under its right wing on a radial decoupler. The AIR-1
+# machine flies the rollout, the stage click (engines; Parsek's first-staging
+# auto-record trigger), the take-off and the climb-out unchanged; at its turn
+# altitude this machine takes over:
+#
+#   ASCEND     climb to releaseAltitude on a loiter leg between two points over the
+#              sea east of KSC (each a target for air_steer_toward, swapped on
+#              capture), so the climb stays inside the Space Center's ghost range.
+#   (release)  level, wings level, east of releaseMinLongitude: the sibling watch is
+#              armed on targetVesselName and the second stage click fires the
+#              decoupler and arms the Mk16. The drone is a loaded BACKGROUND member
+#              of the Mallard's tree from that frame on.
+#   EXTEND     fly straight on the heading held at the entry for extendSeconds,
+#              matching the drone's altitude, then turn back. Entered after the
+#              release and after every missed pass.
+#   PURSUE     the drone's position is read every poll (the runner's
+#              read_air_target channel: the watched vessel's centre of mass in the
+#              chaser's surface frame, up / north / east). The machine keeps the
+#              drone in a fixed local frame anchored at the release point, so its
+#              velocity is a finite difference smoothed by an EMA, and steers the
+#              Mallard at the drone's position led by that velocity times the time
+#              to go (range over the smoothed closing speed): a bank toward the
+#              bearing (pursueBankGain deg per deg, a latched turn direction past
+#              150 deg), and a vertical-speed target that arrives at the drone's
+#              altitude (corrected for the curvature of the surface) at the
+#              intercept, never faster than 1 / 0.4 s of time to go nor slower than
+#              1 / 10 s. A pass is an approach that came inside approachGate and
+#              then opened by AX_PASS_OPEN_MARGIN on two polls; an approach pointed
+#              at the drone that is not closing at minClosingSpeed inside
+#              approachGate for six polls is a pass too. A pass counts an attempt
+#              and goes back to EXTEND; maxAttempts passes give up.
+#   AFTERMATH  the collision is a PART-COUNT DROP on either vessel, the drone
+#              ABSENT after it was seen, the chaser LOST (no vessel, or the active
+#              vessel is no longer the Mallard), with the last range read under
+#              collisionRange, from AX_REF_SETTLE_FRAMES polls after the drone was
+#              first seen (the counts the references are taken from settle first).
+#              Throttle cut and the nose pushed down while the
+#              Mallard is still the active vessel (so a plane the hit only grazed
+#              still ends its flight in the sea, which is what the scenario's
+#              terminal gates read), then wait until both vessels are down or gone.
+#   DONE       a real terminal (verdict None).
+#
+# A part drop outside collisionRange is not the collision this lane is about and
+# is a named give-up, as is every bound below. Every give-up is a MISSION-FLAKE
+# (driver-INVALID, never a Parsek verdict); a chaser lost before the release is
+# AIR-1's MISSION-ASSERT-FAIL.
+# ---------------------------------------------------------------------------
+
+AX_AIR = "AIR"          # the AIR-1 machine is flying (rollout .. climb-out)
+AX_ASCEND = "ASCEND"
+AX_EXTEND = "EXTEND"
+AX_PURSUE = "PURSUE"
+AX_AFTERMATH = "AFTERMATH"
+AX_DONE = "DONE"
+AX_PHASES: Tuple[str, ...] = (AX_AIR, AX_ASCEND, AX_EXTEND, AX_PURSUE, AX_AFTERMATH,
+                              AX_DONE)
+
+AX_DEFAULT_LOITER = "-0.05,-73.85;-0.05,-74.30"
+AX_RELEASE_BAND = 30.0              # m under releaseAltitude that counts as there
+AX_RELEASE_MAX_ROLL = 8.0           # deg
+AX_RELEASE_MAX_VS = 3.0             # m/s
+AX_RELEASE_MAX_HEADING_ERR = 30.0   # deg off the loiter leg's bearing (not mid-turn)
+AX_RELEASE_FRAMES = 3
+AX_TARGET_CONFIRM_FRAMES = 20       # polls after the click before an unseen drone flakes
+AX_ASCEND_TIMEOUT_SECONDS = 600.0
+AX_ATTEMPT_TIMEOUT_SECONDS = 240.0  # one EXTEND + PURSUE cycle
+AX_VEL_ALPHA = 0.5                  # EMA weight of the newest drone-velocity sample
+AX_MAX_LEAD = 300.0                 # m, the largest lead offset
+AX_MIN_CLOSING = 20.0               # m/s, the floor of the closing speed in time-to-go
+AX_VS_GAIN_MIN = 0.1                # 1/s
+AX_VS_GAIN_MAX = 0.4                # 1/s
+AX_TURN_LATCH_DEG = 150.0
+AX_TURN_UNLATCH_DEG = 120.0
+AX_PASS_OPEN_FRAMES = 2
+AX_PASS_OPEN_MARGIN = 20.0          # m the range must open past the attempt's closest
+AX_POINTED_DEG = 45.0               # heading error under which an approach is pointed
+AX_CLOSING_ABORT_FRAMES = 6
+AX_REF_SETTLE_FRAMES = 4            # polls after the first sighting that set the refs
+AX_AFTERMATH_PITCH = -25.0          # deg, the nose-down target after the hit
+AX_SURFACE_SITUATIONS: Tuple[str, ...] = ("LANDED", "SPLASHED")
+
+
+@dataclass(frozen=True)
+class AxParams:
+    air: AirParams
+    target_vessel_name: str
+    loiter: Optional[Tuple[Tuple[float, float], ...]] = ()
+    release_altitude: float = 1600.0
+    release_min_longitude: float = -74.30
+    extend_seconds: float = 25.0
+    pursue_speed: float = 75.0
+    pursue_bank_gain: float = 2.0
+    approach_gate: float = 1500.0
+    min_closing_speed: float = 25.0
+    collision_range: float = 250.0
+    max_attempts: int = 4
+    min_target_altitude: float = 150.0
+    max_range: float = 8000.0
+    aftermath_min_seconds: float = 45.0
+    aftermath_timeout_seconds: float = 480.0
+
+
+def ax_params_from_dict(params: Dict) -> AxParams:
+    air = air_params_from_dict(params)
+    return AxParams(
+        air=air,
+        target_vessel_name=str(params.get("targetVesselName",
+                                          (air.expected_vessel_name + " Probe")
+                                          if air.expected_vessel_name else "")
+                               or ""),
+        loiter=air_parse_points(params.get("loiterPoints", AX_DEFAULT_LOITER)),
+        release_altitude=float(params.get("releaseAltitude", 1600.0)),
+        release_min_longitude=float(params.get("releaseMinLongitude", -74.30)),
+        extend_seconds=float(params.get("extendSeconds", 25.0)),
+        pursue_speed=float(params.get("pursueSpeed", 75.0)),
+        pursue_bank_gain=float(params.get("pursueBankGain", 2.0)),
+        approach_gate=float(params.get("approachGate", 1500.0)),
+        min_closing_speed=float(params.get("minClosingSpeed", 25.0)),
+        collision_range=float(params.get("collisionRange", 250.0)),
+        max_attempts=int(params.get("maxAttempts", 4)),
+        min_target_altitude=float(params.get("minTargetAltitude", 150.0)),
+        max_range=float(params.get("maxRange", 8000.0)),
+        aftermath_min_seconds=float(params.get("aftermathMinSeconds", 45.0)),
+        aftermath_timeout_seconds=float(params.get("aftermathTimeoutSeconds", 480.0)),
+    )
+
+
+def ax_params_problem(p: AxParams) -> Optional[str]:
+    """Why the params cannot fly, or None. Checked before anything is launched."""
+    problem = air_params_problem(p.air)
+    if problem is not None:
+        return problem
+    if not p.target_vessel_name:
+        return "missionParams.targetVesselName is empty"
+    if p.target_vessel_name == p.air.expected_vessel_name:
+        return "missionParams.targetVesselName must differ from expectedVesselName"
+    if not p.loiter or len(p.loiter) < 2:
+        return "missionParams.loiterPoints must name two points (\"lat,lon;lat,lon\")"
+    if p.release_altitude <= p.air.turn_altitude + AX_RELEASE_BAND:
+        return ("missionParams.releaseAltitude %r must be above turnAltitude + %.0f"
+                % (p.release_altitude, AX_RELEASE_BAND))
+    if not (0.0 < p.collision_range < p.approach_gate < p.max_range):
+        return ("missionParams need 0 < collisionRange < approachGate < maxRange (got "
+                "%r, %r, %r)" % (p.collision_range, p.approach_gate, p.max_range))
+    if p.max_attempts < 1:
+        return "missionParams.maxAttempts must be at least 1"
+    return None
+
+
+@dataclass(frozen=True)
+class AxState:
+    params: AxParams
+    air: AirState
+    phase: str = AX_AIR
+    phase_frames: int = 0
+    phase_entry_ut: Optional[float] = None
+    phases_reached: Tuple[str, ...] = (AX_AIR,)
+    loiter_index: int = 0
+    loiter_captures: int = 0
+    release_streak: int = 0
+    release_ut: Optional[float] = None
+    release_lat: Optional[float] = None
+    release_lon: Optional[float] = None
+    release_altitude: Optional[float] = None
+    extend_heading: Optional[float] = None
+    # The drone as seen from the chaser: presence latches, the part-count
+    # references a drop is measured against, the last range and the closest one.
+    target_seen: bool = False
+    target_seen_ut: Optional[float] = None
+    seen_frames: int = 0
+    target_parts_ref: int = -1
+    own_parts_ref: int = -1
+    last_range: Optional[float] = None
+    last_range_ut: Optional[float] = None
+    closest_range: Optional[float] = None
+    closing_speed: Optional[float] = None
+    # The drone in the local frame anchored at the release point (north / east
+    # metres, altitude above sea level) and its EMA velocity.
+    tgt_n: Optional[float] = None
+    tgt_e: Optional[float] = None
+    tgt_alt: Optional[float] = None
+    tgt_ut: Optional[float] = None
+    tgt_vn: float = 0.0
+    tgt_ve: float = 0.0
+    tgt_vu: float = 0.0
+    tgt_vel_known: bool = False
+    # One attempt (EXTEND + PURSUE): its start, its closest range, the pass latch.
+    attempts: int = 0
+    attempt_start_ut: Optional[float] = None
+    attempt_min_range: Optional[float] = None
+    open_streak: int = 0
+    closing_low_streak: int = 0
+    pass_ranges: Tuple[float, ...] = ()
+    turn_latch: float = 0.0
+    last_aim_lead: Optional[float] = None
+    last_tgo: Optional[float] = None
+    # The collision and what it read.
+    collision_ut: Optional[float] = None
+    collision_kind: Optional[str] = None
+    collision_range: Optional[float] = None
+    collision_own_parts: Optional[Tuple[int, int]] = None
+    collision_target_parts: Optional[Tuple[int, int]] = None
+    # The aftermath.
+    own_down_ut: Optional[float] = None
+    own_end: Optional[str] = None
+    target_down_ut: Optional[float] = None
+    target_end: Optional[str] = None
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+
+
+def ax_initial_state(params: AxParams) -> AxState:
+    return AxState(params=params, air=air_initial_state(params.air))
+
+
+def _ax_enter(state: AxState, phase: str, ut: Optional[float] = None,
+              **changes) -> AxState:
+    reached = state.phases_reached
+    if phase not in reached:
+        reached = reached + (phase,)
+    return replace(state, phase=phase, phase_frames=0, phases_reached=reached,
+                   phase_entry_ut=ut, **changes)
+
+
+def _ax_flake(state: AxState, reason: str) -> AxState:
+    return replace(state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason="phase %s: %s" % (state.phase, reason))
+
+
+def _ax_fmt(value) -> str:
+    return "%.1f" % value if value is not None and _is_finite(value) else "UNREAD"
+
+
+def ax_local_offset(lat0: float, lon0: float, lat: float,
+                    lon: float) -> Tuple[float, float]:
+    """(north, east) metres of (lat, lon) from (lat0, lon0) on the local tangent plane
+    (equirectangular; exact enough within the few km this lane flies)."""
+    n = math.radians(float(lat) - float(lat0)) * KERBIN_RADIUS_M
+    e = (math.radians(float(lon) - float(lon0)) * KERBIN_RADIUS_M
+         * math.cos(math.radians(float(lat0))))
+    return n, e
+
+
+def ax_local_point(lat0: float, lon0: float, n: float,
+                   e: float) -> Tuple[float, float]:
+    """The inverse of ``ax_local_offset``: (lat, lon) of a (north, east) offset."""
+    lat = float(lat0) + math.degrees(float(n) / KERBIN_RADIUS_M)
+    lon = float(lon0) + math.degrees(
+        float(e) / (KERBIN_RADIUS_M * math.cos(math.radians(float(lat0)))))
+    return lat, lon
+
+
+def ax_target_altitude(own_altitude: float, rel_up: float, horizontal: float,
+                       radius: float = KERBIN_RADIUS_M) -> float:
+    """The target's altitude from the chaser's altitude and the target's offset in the
+    chaser's surface frame: ``rel_up`` is measured along the chaser's local vertical,
+    and a point ``horizontal`` metres away on the chaser's tangent plane stands
+    ``horizontal^2 / 2R`` above the surface below it. NaN in, NaN out."""
+    if not all(_is_finite(v) for v in (own_altitude, rel_up, horizontal)):
+        return float("nan")
+    return float(own_altitude) + float(rel_up) + float(horizontal) ** 2 / (2.0 * radius)
+
+
+def ax_rel_ok(rel) -> bool:
+    return rel is not None and len(rel) == 3 and all(_is_finite(v) for v in rel)
+
+
+def ax_range(rel) -> float:
+    """3-D range of a (up, north, east) offset, NaN when unread."""
+    if not ax_rel_ok(rel):
+        return float("nan")
+    return math.sqrt(sum(float(v) * float(v) for v in rel))
+
+
+def ax_time_to_go(horizontal: float, closing: Optional[float]) -> float:
+    """Seconds to the intercept: horizontal range over the closing speed, the latter
+    floored at AX_MIN_CLOSING (a turn reads a negative closing speed)."""
+    c = closing if closing is not None and _is_finite(closing) else 0.0
+    return max(0.0, float(horizontal)) / max(AX_MIN_CLOSING, c)
+
+
+def ax_lead(vn: float, ve: float, tgo: float,
+            cap: float = AX_MAX_LEAD) -> Tuple[float, float]:
+    """The lead offset (north, east) = target velocity x time to go, scaled down to at
+    most ``cap`` metres."""
+    ln, le = float(vn) * float(tgo), float(ve) * float(tgo)
+    mag = math.hypot(ln, le)
+    if mag > cap > 0.0:
+        ln, le = ln * cap / mag, le * cap / mag
+    return ln, le
+
+
+def ax_intercept_vs(target_vs: float, alt_err: float, tgo: float) -> float:
+    """The vertical speed that arrives at the target's altitude at the intercept: the
+    target's own vertical speed plus the altitude error over the time to go, the gain
+    clamped to [AX_VS_GAIN_MIN, AX_VS_GAIN_MAX] per second, the whole clamped to the
+    AIR sink / climb limits. NaN inputs ask for the target's vertical speed (or 0)."""
+    base = float(target_vs) if _is_finite(target_vs) else 0.0
+    if not _is_finite(alt_err):
+        return _air_clamp(base, -AIR_MAX_SINK, AIR_MAX_CLIMB_RATE)
+    gain = _air_clamp(1.0 / tgo if tgo > 0.0 else AX_VS_GAIN_MAX,
+                      AX_VS_GAIN_MIN, AX_VS_GAIN_MAX)
+    return _air_clamp(base + gain * float(alt_err), -AIR_MAX_SINK, AIR_MAX_CLIMB_RATE)
+
+
+def ax_latched_error(err: float, latch: float) -> Tuple[float, float]:
+    """The heading error with the turn direction latched past AX_TURN_LATCH_DEG (a
+    target straight behind would otherwise flip the turn every poll) and released
+    under AX_TURN_UNLATCH_DEG. Returns (error, latch)."""
+    if not _is_finite(err):
+        return err, latch
+    if abs(err) <= AX_TURN_UNLATCH_DEG:
+        return err, 0.0
+    if abs(err) >= AX_TURN_LATCH_DEG:
+        if latch == 0.0:
+            latch = 1.0 if err >= 0.0 else -1.0
+        return latch * abs(err), latch
+    if latch != 0.0:
+        return latch * abs(err), latch
+    return err, latch
+
+
+def _ax_track(state: AxState, snapshot: TelemetrySnapshot) -> AxState:
+    """Fold this poll's air-target channel into the state: the presence latch, the
+    part-count references, the range, the closing speed and the drone's position and
+    velocity in the release-anchored frame."""
+    ut = snapshot.ut
+    if snapshot.sibling_present == 1 and not state.target_seen:
+        state = replace(state, target_seen=True, target_seen_ut=ut)
+    if state.target_seen and state.seen_frames < AX_REF_SETTLE_FRAMES:
+        # The references settle over the first polls after the sighting (a count read
+        # across the split frame may still include the other side): each poll's
+        # reading replaces the last.
+        state = replace(state, seen_frames=state.seen_frames + 1)
+        if snapshot.own_part_count >= 0 and not snapshot.vessel_lost:
+            state = replace(state, own_parts_ref=int(snapshot.own_part_count))
+        if snapshot.sibling_present == 1 and snapshot.air_target_part_count >= 0:
+            state = replace(state, target_parts_ref=int(snapshot.air_target_part_count))
+    rel = snapshot.air_target_rel_position
+    if snapshot.vessel_lost or snapshot.sibling_present != 1 or not ax_rel_ok(rel):
+        return state
+    rng = ax_range(rel)
+    closing = state.closing_speed
+    if (state.last_range is not None and state.last_range_ut is not None
+            and _is_finite(ut)):
+        dt = float(ut) - state.last_range_ut
+        if AIR_RATE_MIN_DT <= dt <= AIR_RATE_MAX_DT:
+            raw = (state.last_range - rng) / dt
+            closing = raw if closing is None else (AX_VEL_ALPHA * raw
+                                                   + (1.0 - AX_VEL_ALPHA) * closing)
+    closest = rng if state.closest_range is None else min(state.closest_range, rng)
+    attempt_min = (rng if state.attempt_min_range is None
+                   else min(state.attempt_min_range, rng))
+    state = replace(state, last_range=rng, last_range_ut=float(ut), closest_range=closest,
+                    attempt_min_range=attempt_min, closing_speed=closing)
+    if (state.release_lat is None or not _is_finite(snapshot.latitude)
+            or not _is_finite(snapshot.longitude)):
+        return state
+    up, north, east = (float(v) for v in rel)
+    own_n, own_e = ax_local_offset(state.release_lat, state.release_lon,
+                                   snapshot.latitude, snapshot.longitude)
+    tn, te = own_n + north, own_e + east
+    talt = ax_target_altitude(snapshot.altitude, up, math.hypot(north, east))
+    if not _is_finite(talt):
+        return state
+    vn, ve, vu, known = state.tgt_vn, state.tgt_ve, state.tgt_vu, state.tgt_vel_known
+    if state.tgt_ut is not None and state.tgt_n is not None and _is_finite(ut):
+        dt = float(ut) - state.tgt_ut
+        if AIR_RATE_MIN_DT <= dt <= AIR_RATE_MAX_DT:
+            rn = (tn - state.tgt_n) / dt
+            re_ = (te - state.tgt_e) / dt
+            ru = (talt - state.tgt_alt) / dt
+            if known:
+                a = AX_VEL_ALPHA
+                vn, ve, vu = (a * rn + (1 - a) * vn, a * re_ + (1 - a) * ve,
+                              a * ru + (1 - a) * vu)
+            else:
+                vn, ve, vu, known = rn, re_, ru, True
+    return replace(state, tgt_n=tn, tgt_e=te, tgt_alt=talt, tgt_ut=float(ut),
+                   tgt_vn=vn, tgt_ve=ve, tgt_vu=vu, tgt_vel_known=known)
+
+
+def ax_collision_signal(state: AxState, snapshot: TelemetrySnapshot) -> Optional[str]:
+    """What on this poll says the two met, or None. Read only after the drone was seen:
+    a part-count drop on either vessel, the drone absent, the chaser lost (no vessel,
+    or the active vessel is not the Mallard any more). Silent until the part-count
+    references settled (AX_REF_SETTLE_FRAMES polls after the sighting)."""
+    if not state.target_seen or state.seen_frames < AX_REF_SETTLE_FRAMES:
+        return None
+    p = state.params
+    kinds = []
+    name = snapshot.vessel_name
+    if snapshot.vessel_lost:
+        kinds.append("chaser-lost")
+    elif name and name != p.air.expected_vessel_name:
+        kinds.append("chaser-replaced(%s)" % name)
+    elif (state.own_parts_ref >= 0 and snapshot.own_part_count >= 0
+          and snapshot.own_part_count < state.own_parts_ref):
+        kinds.append("chaser-parts-%d->%d" % (state.own_parts_ref,
+                                              snapshot.own_part_count))
+    if snapshot.sibling_present == 0:
+        kinds.append("drone-absent")
+    elif (snapshot.sibling_present == 1 and state.target_parts_ref > 0
+          and 0 <= snapshot.air_target_part_count < state.target_parts_ref):
+        kinds.append("drone-parts-%d->%d" % (state.target_parts_ref,
+                                             snapshot.air_target_part_count))
+    return "+".join(kinds) if kinds else None
+
+
+def _ax_attitude(state: AxState, snapshot: TelemetrySnapshot, pitch: float, bank: float,
+                 throttle: Optional[float]) -> Tuple[AxState, List[Action]]:
+    air, actions = _air_attitude(state.air, snapshot, pitch, bank, throttle)
+    return replace(state, air=air), actions
+
+
+def _ax_turn_check(state: AxState, snapshot: TelemetrySnapshot, bearing: float,
+                   err: float, bank: float) -> AxState:
+    air, check_err = air_track_error(state.air, snapshot, bearing, err)
+    return replace(state, air=air_turn_check(air, check_err, bank))
+
+
+def _ax_level_hold(state: AxState, snapshot: TelemetrySnapshot, heading: float,
+                   altitude_target: float, vs_ff: float,
+                   speed: float) -> Tuple[AxState, List[Action]]:
+    """Straight flight on ``heading`` toward ``altitude_target``."""
+    p = state.params
+    err = (air_heading_error(snapshot.heading, heading)
+           if _is_finite(snapshot.heading) and heading is not None else float("nan"))
+    bank = air_bank_command(err, p.air.max_bank, state.air.bank_sign)
+    vs_t = air_vs_target(altitude_target, snapshot.altitude, vs_ff)
+    pitch = air_pitch_command(vs_t, snapshot.vertical_speed, snapshot.surface_speed)
+    if (_is_finite(snapshot.surface_speed)
+            and snapshot.surface_speed < AIR_STALL_GUARD_SPEED):
+        pitch = min(pitch, AIR_AOA_TRIM_DEG)
+    throttle = air_throttle_command(speed, snapshot.surface_speed,
+                                    AIR_CRUISE_MIN_THROTTLE)
+    return _ax_attitude(state, snapshot, pitch, bank, throttle)
+
+
+def ax_pursue_command(state: AxState,
+                      snapshot: TelemetrySnapshot) -> Tuple[float, float, float, float,
+                                                            float, float, float]:
+    """One poll of the pursuit law: (pitch target, bank limit, throttle, heading
+    error to the led aim point, its bearing, lead metres, time to go). Pure; reads
+    the tracked drone off the state. The caller latches the error and banks."""
+    p = state.params
+    rel = snapshot.air_target_rel_position
+    horizontal = math.hypot(float(rel[1]), float(rel[2]))
+    tgo = ax_time_to_go(horizontal, state.closing_speed)
+    ln, le = ax_lead(state.tgt_vn, state.tgt_ve, tgo) if state.tgt_vel_known else (0.0,
+                                                                                    0.0)
+    aim_lat, aim_lon = ax_local_point(state.release_lat, state.release_lon,
+                                      state.tgt_n + ln, state.tgt_e + le)
+    brg = air_bearing(snapshot.latitude, snapshot.longitude, aim_lat, aim_lon)
+    err = (air_heading_error(snapshot.heading, brg)
+           if _is_finite(brg) and _is_finite(snapshot.heading) else float("nan"))
+    limit = p.air.max_bank
+    if _is_finite(snapshot.altitude) and snapshot.altitude < AIR_LOW_ALTITUDE:
+        limit = min(limit, AIR_LOW_MAX_BANK)
+    vs_t = ax_intercept_vs(state.tgt_vu if state.tgt_vel_known else 0.0,
+                           state.tgt_alt - snapshot.altitude
+                           if _is_finite(snapshot.altitude) else float("nan"), tgo)
+    pitch = air_pitch_command(vs_t, snapshot.vertical_speed, snapshot.surface_speed)
+    if (_is_finite(snapshot.surface_speed)
+            and snapshot.surface_speed < AIR_STALL_GUARD_SPEED):
+        pitch = min(pitch, AIR_AOA_TRIM_DEG)
+    throttle = air_throttle_command(p.pursue_speed, snapshot.surface_speed,
+                                    AIR_CRUISE_MIN_THROTTLE)
+    return pitch, limit, throttle, err, brg, math.hypot(ln, le), tgo
+
+
+def _ax_collide(state: AxState, snapshot: TelemetrySnapshot,
+                signal: str) -> Tuple[AxState, List[Action]]:
+    ut = snapshot.ut
+    state = _ax_enter(state, AX_AFTERMATH, ut, collision_ut=ut, collision_kind=signal,
+                      collision_range=state.last_range,
+                      collision_own_parts=(state.own_parts_ref,
+                                           int(snapshot.own_part_count)),
+                      collision_target_parts=(state.target_parts_ref,
+                                              int(snapshot.air_target_part_count)))
+    return _ax_aftermath_controls(state, snapshot)
+
+
+def _ax_chaser_intact(state: AxState, snapshot: TelemetrySnapshot) -> bool:
+    return (not snapshot.vessel_lost
+            and snapshot.vessel_name == state.params.air.expected_vessel_name)
+
+
+def _ax_aftermath_controls(state: AxState,
+                           snapshot: TelemetrySnapshot) -> Tuple[AxState, List[Action]]:
+    """Throttle cut; nose down while the Mallard is still the active vessel and
+    flying, controls neutral otherwise (the active vessel may be a fragment or the
+    drone, and inputs would only tumble it)."""
+    air, power = _air_throttle(state.air, 0.0)
+    state = replace(state, air=air)
+    if (_ax_chaser_intact(state, snapshot) and snapshot.situation == "FLYING"):
+        state, cmd = _ax_attitude(state, snapshot, AX_AFTERMATH_PITCH, 0.0, None)
+        return state, power + cmd
+    if snapshot.vessel_lost:
+        return state, power
+    air, controls = _air_controls_release(state.air)
+    return replace(state, air=air), power + controls
+
+
+def ax_decide(state: AxState, snapshot: TelemetrySnapshot) -> Tuple[AxState, List[Action]]:
+    """Advance the AIR-3 machine one poll; return (new_state, actions)."""
+    if state.done:
+        return state, []
+    p = state.params
+    ut = snapshot.ut
+    state = replace(state, phase_frames=state.phase_frames + 1)
+
+    if state.phase == AX_AIR:
+        if not state.air.launch_commanded:
+            problem = ax_params_problem(p)
+            if problem is not None:
+                return _ax_flake(state, problem), []
+        air, actions = air_decide(state.air, snapshot)
+        state = replace(state, air=air)
+        if air.done:
+            return replace(state, done=True, verdict=air.verdict,
+                           flake_phase=air.flake_phase if air.flake_phase else None,
+                           flake_reason=air.flake_reason,
+                           loss_reason=air.loss_reason), actions
+        if air.phase in (AIR_CIRCUIT, AIR_FINAL):
+            # AIR-1's climb-out reached the turn altitude: the loiter climb takes over.
+            return _ax_enter(state, AX_ASCEND, ut, loiter_index=0), actions
+        return state, actions
+
+    if state.phase == AX_ASCEND:
+        if snapshot.vessel_lost:
+            return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                           loss_reason="vessel-lost in phase %s" % state.phase), []
+        if snapshot.situation in AX_SURFACE_SITUATIONS:
+            return _ax_flake(state, "touched the surface (%s) before the release"
+                             % snapshot.situation), []
+        if _air_elapsed(state.air, ut, state.phase_entry_ut) > AX_ASCEND_TIMEOUT_SECONDS:
+            return _ax_flake(state, "release altitude %.0f m not reached within %.0f s "
+                             "(alt %s m, longitude %s)"
+                             % (p.release_altitude, AX_ASCEND_TIMEOUT_SECONDS,
+                                _ax_fmt(snapshot.altitude),
+                                _ax_fmt(snapshot.longitude))), []
+        lat, lon = p.loiter[state.loiter_index]
+        steer = air_steer_toward(snapshot, lat, lon, p.release_altitude,
+                                 p.air.cruise_speed, p.air.max_bank, state.air.bank_sign)
+        if air_waypoint_captured(steer.distance, steer.heading_err,
+                                 p.air.capture_radius):
+            state = replace(state, loiter_index=(state.loiter_index + 1) % len(p.loiter),
+                            loiter_captures=state.loiter_captures + 1,
+                            air=replace(state.air, turn_check_frames=0,
+                                        turn_check_start_err=None))
+            lat, lon = p.loiter[state.loiter_index]
+            steer = air_steer_toward(snapshot, lat, lon, p.release_altitude,
+                                     p.air.cruise_speed, p.air.max_bank,
+                                     state.air.bank_sign)
+        sign = state.air.bank_sign
+        state = _ax_turn_check(state, snapshot, steer.bearing, steer.heading_err,
+                               steer.roll)
+        if state.air.bank_sign != sign:
+            steer = air_steer_toward(snapshot, lat, lon, p.release_altitude,
+                                     p.air.cruise_speed, p.air.max_bank,
+                                     state.air.bank_sign)
+        ready = (_is_finite(snapshot.altitude)
+                 and snapshot.altitude >= p.release_altitude - AX_RELEASE_BAND
+                 and _is_finite(snapshot.roll) and abs(snapshot.roll) <= AX_RELEASE_MAX_ROLL
+                 and _is_finite(snapshot.vertical_speed)
+                 and abs(snapshot.vertical_speed) <= AX_RELEASE_MAX_VS
+                 and _is_finite(snapshot.longitude)
+                 and snapshot.longitude >= p.release_min_longitude
+                 and _is_finite(steer.heading_err)
+                 and abs(steer.heading_err) <= AX_RELEASE_MAX_HEADING_ERR
+                 and snapshot.situation == "FLYING")
+        streak = state.release_streak + 1 if ready else 0
+        state = replace(state, release_streak=streak)
+        if streak >= AX_RELEASE_FRAMES:
+            # THE RELEASE: arm the sibling watch on the drone, then the second stage
+            # click (decoupler + Mk16). Wings level on the heading flown now.
+            state = _ax_enter(state, AX_EXTEND, ut, release_ut=ut,
+                              release_lat=float(snapshot.latitude),
+                              release_lon=float(snapshot.longitude),
+                              release_altitude=float(snapshot.altitude),
+                              extend_heading=air_wrap_heading(snapshot.heading),
+                              attempt_start_ut=ut)
+            state, cmd = _ax_level_hold(state, snapshot, state.extend_heading,
+                                        p.release_altitude, 0.0, p.air.cruise_speed)
+            return state, [Action(ACTION_SET_SIBLING_WATCH, text=p.target_vessel_name),
+                           Action(ACTION_ACTIVATE_STAGE)] + cmd
+        return _ax_attitude(state, snapshot, steer.pitch, steer.roll, steer.throttle)
+
+    # From the release on, every poll first folds the air-target channel in.
+    prev_range = state.last_range
+    state = _ax_track(state, snapshot)
+
+    if state.phase == AX_AFTERMATH:
+        return _ax_aftermath(state, snapshot)
+
+    # EXTEND / PURSUE: the collision check comes first.
+    signal = ax_collision_signal(state, snapshot)
+    if signal is not None:
+        rng = state.last_range
+        if rng is not None and rng <= p.collision_range:
+            return _ax_collide(state, snapshot, signal)
+        return _ax_flake(state, "%s at range %s m (collision range %.0f m): not the "
+                         "planned collision" % (signal, _ax_fmt(rng),
+                                                p.collision_range)), []
+    if snapshot.vessel_lost:
+        return _ax_flake(state, "the chaser was lost %s (last range %s m)" % (
+            "before the part counts settled after the release" if state.target_seen
+            else "with the drone never seen", _ax_fmt(state.last_range))), []
+    if not state.target_seen:
+        if state.phase_frames > AX_TARGET_CONFIRM_FRAMES:
+            return _ax_flake(
+                state, "no vessel named %r appeared within %d polls of the release "
+                "(sibling_present %d, own parts %d): the drone did not separate, or "
+                "KSP named it otherwise" % (p.target_vessel_name, AX_TARGET_CONFIRM_FRAMES,
+                                            snapshot.sibling_present,
+                                            snapshot.own_part_count)), []
+    if snapshot.situation in AX_SURFACE_SITUATIONS:
+        return _ax_flake(state, "the chaser touched the surface (%s) with no collision"
+                         % snapshot.situation), []
+    if (state.attempt_start_ut is not None
+            and _air_elapsed(state.air, ut, state.attempt_start_ut)
+            > AX_ATTEMPT_TIMEOUT_SECONDS):
+        return _ax_flake(state, "attempt %d ran %.0f s without a pass (closest %s m)"
+                         % (state.attempts + 1, AX_ATTEMPT_TIMEOUT_SECONDS,
+                            _ax_fmt(state.attempt_min_range))), []
+    if state.tgt_alt is not None and state.tgt_alt < p.min_target_altitude:
+        return _ax_flake(state, "the drone sank to %.0f m (floor %.0f m) after %d "
+                         "pass(es), closest ranges %s" % (
+                             state.tgt_alt, p.min_target_altitude, state.attempts,
+                             ["%.1f" % r for r in state.pass_ranges])), []
+    if state.last_range is not None and state.last_range > p.max_range:
+        return _ax_flake(state, "the drone is %.0f m away (limit %.0f m)"
+                         % (state.last_range, p.max_range)), []
+
+    if state.phase == AX_EXTEND:
+        alt_target = state.tgt_alt if state.tgt_alt is not None else p.release_altitude
+        state, cmd = _ax_level_hold(state, snapshot, state.extend_heading, alt_target,
+                                    state.tgt_vu if state.tgt_vel_known else 0.0,
+                                    p.pursue_speed)
+        if (state.target_seen and state.tgt_alt is not None
+                and _air_elapsed(state.air, ut, state.phase_entry_ut) >= p.extend_seconds):
+            state = _ax_enter(state, AX_PURSUE, ut, attempt_min_range=None, open_streak=0,
+                              closing_low_streak=0, turn_latch=0.0,
+                              air=replace(state.air, turn_check_frames=0,
+                                          turn_check_start_err=None))
+        return state, cmd
+
+    if state.phase == AX_PURSUE:
+        rel = snapshot.air_target_rel_position
+        if not ax_rel_ok(rel) or state.tgt_alt is None or state.release_lat is None:
+            # A blind poll: hold the last commands (kRPC keeps them) and wait.
+            return state, []
+        rng = state.last_range
+        pitch, limit, throttle, err, brg, lead, tgo = ax_pursue_command(state, snapshot)
+        closing = state.closing_speed
+        # The pass: the approach came inside approachGate, then the range grew, past
+        # its closest by AX_PASS_OPEN_MARGIN, on two polls in a row (raw ranges: the
+        # smoothed closing speed lags a pass by a poll or two).
+        least = state.attempt_min_range
+        opened = (least is not None and least <= p.approach_gate
+                  and rng > least + AX_PASS_OPEN_MARGIN
+                  and prev_range is not None and rng > prev_range)
+        open_streak = state.open_streak + 1 if opened else 0
+        # The stalled approach: pointed at the drone inside the gate, not closing.
+        stalled = (not opened and rng <= p.approach_gate and _is_finite(err)
+                   and abs(err) < AX_POINTED_DEG
+                   and (closing is None or closing < p.min_closing_speed))
+        closing_low = state.closing_low_streak + 1 if stalled else 0
+        state = replace(state, open_streak=open_streak, closing_low_streak=closing_low)
+        if open_streak >= AX_PASS_OPEN_FRAMES or closing_low >= AX_CLOSING_ABORT_FRAMES:
+            attempts = state.attempts + 1
+            closest = least if least is not None else rng
+            state = replace(state, attempts=attempts,
+                            pass_ranges=state.pass_ranges + (float(closest),))
+            if attempts >= p.max_attempts:
+                return _ax_flake(state, "no collision after %d pass(es), closest ranges "
+                                 "%s m" % (attempts, ["%.1f" % r for r in
+                                                      state.pass_ranges])), []
+            state = _ax_enter(state, AX_EXTEND, ut, extend_heading=air_wrap_heading(
+                snapshot.heading), attempt_start_ut=ut, attempt_min_range=None,
+                open_streak=0, closing_low_streak=0)
+            return _ax_level_hold(state, snapshot, state.extend_heading, state.tgt_alt,
+                                  state.tgt_vu if state.tgt_vel_known else 0.0,
+                                  p.pursue_speed)
+        err, latch = ax_latched_error(err, state.turn_latch)
+        bank = air_bank_command(err, limit, state.air.bank_sign, gain=p.pursue_bank_gain)
+        sign = state.air.bank_sign
+        state = _ax_turn_check(replace(state, turn_latch=latch, last_aim_lead=lead,
+                                       last_tgo=tgo), snapshot, brg, err, bank)
+        if state.air.bank_sign != sign:
+            bank = air_bank_command(err, limit, state.air.bank_sign,
+                                    gain=p.pursue_bank_gain)
+        return _ax_attitude(state, snapshot, pitch, bank, throttle)
+
+    return state, []
+
+
+def _ax_aftermath(state: AxState,
+                  snapshot: TelemetrySnapshot) -> Tuple[AxState, List[Action]]:
+    """After the hit: keep the throttle cut (and the nose down while the Mallard is
+    still the active vessel and flying), and finish once both vessels are down or
+    gone and aftermathMinSeconds have passed."""
+    p = state.params
+    ut = snapshot.ut
+    if state.own_down_ut is None:
+        own_end = None
+        if snapshot.vessel_lost:
+            own_end = "LOST"
+        elif snapshot.vessel_name and snapshot.vessel_name != p.air.expected_vessel_name:
+            own_end = "REPLACED(%s)" % snapshot.vessel_name
+        elif snapshot.situation in AX_SURFACE_SITUATIONS:
+            own_end = snapshot.situation
+        if own_end is not None:
+            state = replace(state, own_down_ut=ut, own_end=own_end)
+    if state.target_down_ut is None:
+        tgt_end = None
+        if snapshot.sibling_present == 0:
+            tgt_end = "ABSENT"
+        elif (snapshot.sibling_present == 1
+              and snapshot.sibling_situation in AX_SURFACE_SITUATIONS):
+            tgt_end = snapshot.sibling_situation
+        if tgt_end is not None:
+            state = replace(state, target_down_ut=ut, target_end=tgt_end)
+    elapsed = _air_elapsed(state.air, ut, state.collision_ut)
+    if (state.own_down_ut is not None and state.target_down_ut is not None
+            and elapsed >= p.aftermath_min_seconds):
+        air, power = _air_throttle(state.air, 0.0)
+        state = replace(state, air=air)
+        return replace(_ax_enter(state, AX_DONE, ut), done=True), power
+    if elapsed > p.aftermath_timeout_seconds:
+        return _ax_flake(state, "%.0f s after the collision the %s still up (chaser "
+                         "%s, drone %s)" % (
+                             p.aftermath_timeout_seconds,
+                             "chaser and the drone are" if (state.own_down_ut is None
+                                                            and state.target_down_ut is None)
+                             else ("chaser is" if state.own_down_ut is None
+                                   else "drone is"),
+                             state.own_end or (snapshot.situation or "UNREAD"),
+                             state.target_end or (snapshot.sibling_situation or "UNREAD"))), []
+    return _ax_aftermath_controls(state, snapshot)
+
+
+def evaluate_air3_assertions(frames, params: AxParams,
+                             state: Optional[AxState] = None) -> List[AssertionOutcome]:
+    """Machine-carried evidence only; the frames are not read. The take-off half is
+    AIR-1's own three assertions over the embedded AIR state."""
+    st = state
+    air_rows = evaluate_air_assertions(frames, params.air, st.air if st else None)[:3]
+    return air_rows + [
+        AssertionOutcome(
+            "droneReleased", bool(st is not None and st.target_seen),
+            st.target_seen_ut if st is not None else None,
+            {"targetVesselName": params.target_vessel_name,
+             "releaseUT": st.release_ut if st is not None else None,
+             "releaseAltitude": st.release_altitude if st is not None else None,
+             "releaseLat": st.release_lat if st is not None else None,
+             "releaseLon": st.release_lon if st is not None else None,
+             "loiterCaptures": st.loiter_captures if st is not None else None,
+             "ownPartsAfterRelease": st.own_parts_ref if st is not None else None,
+             "droneParts": st.target_parts_ref if st is not None else None}),
+        AssertionOutcome(
+            "midAirCollision", bool(st is not None and st.collision_ut is not None),
+            st.collision_kind if st is not None else None,
+            {"collisionUT": st.collision_ut if st is not None else None,
+             "rangeMeters": st.collision_range if st is not None else None,
+             "limitMeters": params.collision_range,
+             "ownParts": list(st.collision_own_parts)
+             if st is not None and st.collision_own_parts else None,
+             "droneParts": list(st.collision_target_parts)
+             if st is not None and st.collision_target_parts else None,
+             "passesBefore": st.attempts if st is not None else None,
+             "passRanges": list(st.pass_ranges) if st is not None else [],
+             "closestRange": st.closest_range if st is not None else None,
+             "bankSign": st.air.bank_sign if st is not None else None,
+             "bankSignFlipped": st.air.bank_sign_flipped if st is not None else None,
+             "rollInputSign": st.air.roll_input_sign if st is not None else None}),
+        AssertionOutcome(
+            "bothDown", bool(st is not None and st.phase == AX_DONE),
+            [st.own_end, st.target_end] if st is not None else None,
+            {"chaserDownUT": st.own_down_ut if st is not None else None,
+             "droneDownUT": st.target_down_ut if st is not None else None,
              "phasesReached": list(st.phases_reached) if st is not None else []}),
     ]

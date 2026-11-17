@@ -1183,6 +1183,7 @@ MISSION_MACHINES = {
     "bdock_second_dock": "sdock_decide", "cl1_pod_impact": "cl1_decide",
     "cl3_refly_crew_tombstone": "cl3_decide", "d5_redock": "rdock_decide",
     "air1_runway_circuit": "air_decide",
+    "air3_drone_intercept": "ax_decide",
     "ast_klaw_grab": "klaw_decide",
     "ci9_tip_dock": "tdock_decide",
     "ci11_krpc_recover": "krec_decide",
