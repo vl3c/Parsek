@@ -1,4 +1,4 @@
-# In-game test category inventory (all 142 categories)
+# In-game test category inventory (all 143 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
