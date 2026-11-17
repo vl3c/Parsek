@@ -271,10 +271,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SuppressionSetter_HasExactlyOneProductionCaller_TheSeamVerb()
+        public void SuppressionSetter_IsCalledOnlyByAutomation_TheSeamVerbAndTheBatchRestore()
         {
             // Player discard paths must not idle a committed vessel: re-adoption is the
-            // product rule there. Every caller lives in the seam verb.
+            // product rule there. The callers are the seam verb and the in-game batch's
+            // FLIGHT baseline restore, which carries that verb's suppression across its own
+            // reloads.
             string root = LocateRepoRoot();
             string sourceDir = Path.Combine(root, "Source", "Parsek");
             var callers = new List<string>();
@@ -285,7 +287,8 @@ namespace Parsek.Tests
                 if (text.Contains(".SuppressCommittedSpawnedRestoreForActiveVessel("))
                     callers.Add(Path.GetFileName(file));
             }
-            Assert.Equal(new[] { "ParsekTestCommandAddon.cs" }, callers.ToArray());
+            callers.Sort(StringComparer.Ordinal);
+            Assert.Equal(new[] { "InGameTestRunner.cs", "ParsekTestCommandAddon.cs" }, callers.ToArray());
         }
 
         private static string ReadStripped(params string[] relative)
