@@ -8,18 +8,18 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 | what | lanes |
 |---|---|
-| lanes | 601 |
+| lanes | 603 |
 | tier daily | 29 |
 | tier nightly | 289 |
-| tier operator | 278 |
+| tier operator | 280 |
 | tier longhaul | 5 |
-| profile stock-minimal | 557 |
+| profile stock-minimal | 559 |
 | profile stock-tree | 40 |
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 145 |
-| seam-only lanes | 456 |
+| seam-only lanes | 458 |
 | LIVE-PROVEN date in status row | 484 |
-| no LIVE-PROVEN date | 117 |
+| no LIVE-PROVEN date | 119 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -79,6 +79,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | OC | 1 | - | 1 | - | - | - | 1 |
 | PAD | 1 | - | 1 | - | - | - | 1 |
 | PADG | 1 | - | 1 | - | - | - | 1 |
+| PAIR | 2 | - | - | 2 | - | - | - |
 | PPB | 3 | - | - | 3 | - | - | 3 |
 | PWR | 3 | - | 3 | - | - | 3 | 3 |
 | QL | 21 | - | 21 | - | - | 10 | 21 |
@@ -126,7 +127,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 ## Lanes per host save
 
-The host is the leaf of `fixture.saveTemplate`. 138 hosts serve 601 lanes.
+The host is the leaf of `fixture.saveTemplate`. 138 hosts serve 603 lanes.
 
 | host save | lanes | families |
 |---|---|---|
@@ -137,9 +138,9 @@ The host is the leaf of `fixture.saveTemplate`. 138 hosts serve 601 lanes.
 | eva2-lko-crewed | 19 | S 5, CI 3, EVA 2, RSC 2, VN 2, EX 1, FGV 1, GC 1, QWS 1, SS 1 |
 | b2-lko-craft | 18 | B 10, PWR 3, H 2, R 1, RF 1, V 1 |
 | bdock-recorded | 18 | RF 5, GUI 4, CI 2, H 2, BDOCK 1, MS 1, RC 1, RH 1, ST 1 |
+| fresh-career | 17 | L 5, PAIR 2, AH 1, B 1, CS 1, GUI 1, H 1, HV 1, LAB 1, R 1, RACE 1 +1 |
 | rover-relay-c-recorded | 16 | RVR 10, GUI 3, IR 1, RCN 1, RS 1 |
 | career-pad-craft | 15 | QL 6, CL 2, L 2, CT 1, H 1, KD 1, R 1, STR 1 |
-| fresh-career | 15 | L 5, AH 1, B 1, CS 1, GUI 1, H 1, HV 1, LAB 1, R 1, RACE 1, SN 1 |
 | kerbin-splashdown-recorded | 12 | EVA 4, V 3, CX 2, RR 1, SE 1, W 1 |
 | bdock-forge-base | 9 | FORGE 8, LABX 1 |
 | gs2-orbital-stack | 9 | RF 3, GS 2, H 2, PAD 1, ST 1 |
@@ -305,7 +306,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 362 | 114 | 294 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +66 |
+| Kerbin | 364 | 114 | 294 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +67 |
 | Mun | 55 | 13 | 45 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +6 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -341,7 +342,7 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 | scene-change | 166 | V 30, RW 25, QL 14, RF 13, CS 11, LAB 8, CI 4, CX 4, IR 4, S 4 +36 |
 | vessel-switch | 17 | S 4, CI 2, EVA 2, MINE 2, AJ 1, FAR 1, GC 1, GS 1, KB 1, RF 1, SEAT 1 |
 | new-game | 3 | CS 2, SWS 1 |
-| (none) | 217 | H 70, B 36, GUI 22, L 16, V 13, GS 7, S 7, EVA 4, LT 4, MC 4 +19 |
+| (none) | 219 | H 70, B 36, GUI 22, L 16, V 13, GS 7, S 7, EVA 4, LT 4, MC 4 +20 |
 
 ## Body x timeline operation
 
@@ -349,7 +350,7 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 362 | 81 | 47 | 14 | 123 | 179 | 168 | 13 | 46 | 133 | 12 | - |
+| Kerbin | 364 | 81 | 47 | 14 | 123 | 179 | 168 | 13 | 46 | 133 | 12 | - |
 | Mun | 55 | 24 | 6 | 5 | 10 | 36 | 35 | - | 10 | 34 | - | 1 |
 | Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
@@ -420,6 +421,7 @@ Lanes per family (rows) per timeline operation (columns).
 | OC | 1 | - | - | - | - | - | 1 | - | - | - | - | - |
 | PAD | 1 | - | - | - | - | - | - | - | - | 1 | - | - |
 | PADG | 1 | 1 | - | - | - | - | 1 | - | - | 1 | - | - |
+| PAIR | 2 | - | - | - | - | - | - | - | - | - | - | - |
 | PPB | 3 | - | - | - | 1 | 1 | - | - | - | - | - | - |
 | PWR | 3 | - | - | - | - | - | 3 | 3 | - | - | - | - |
 | QL | 21 | 2 | 4 | 3 | 19 | 20 | 11 | 5 | 5 | 14 | - | - |
@@ -530,8 +532,8 @@ Lanes per family (rows) per timeline operation (columns).
 
 | verb | lanes | families |
 |---|---|---|
-| FlushAndQuit | 601 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +80 |
-| LoadGame | 601 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +80 |
+| FlushAndQuit | 603 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +81 |
+| LoadGame | 603 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +81 |
 | SetSetting | 592 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +79 |
 | StopRecording | 328 | V 65, RF 25, RW 24, RVR 19, LAB 17, EVA 16, H 15, B 14, MINE 14 +45 |
 | SaveGame | 243 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +43 |
@@ -741,8 +743,8 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 197 lan
 
 | block | lanes present |
 |---|---|
-| logContracts | 600 |
-| recordings | 587 |
+| logContracts | 602 |
+| recordings | 589 |
 | rewind | 144 |
 | renderComposition | 42 |
 | routes | 28 |
@@ -1357,6 +1359,13 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | PADG-1-pad-rocket-ghost-hidden | nightly | seat-rover-pad | seam | Kerbin | rewind-to-launch, warp, scene-change | - | LIVE-PROVEN 2026-10-25 |
+
+### PAIR (2)
+
+| lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
+|---|---|---|---|---|---|---|---|
+| PAIR-1a-shared-folder-handshake | operator | fresh-career | seam | Kerbin | - | - | AUTHORED 2026-11-17, NEVER FLOWN |
+| PAIR-1b-shared-folder-handshake | operator | fresh-career | seam | Kerbin | - | - | AUTHORED 2026-11-17, NEVER FLOWN |
 
 ### PPB (3)
 

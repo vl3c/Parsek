@@ -13,12 +13,14 @@ namespace Parsek.Tests
         public GhostVesselLoadPatchTests()
         {
             ParsekLog.ResetTestOverrides();
+            GhostMapVessels.ResetForTesting();
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 
         public void Dispose()
         {
+            GhostMapVessels.ResetForTesting();
             ParsekLog.ResetTestOverrides();
         }
 
@@ -125,6 +127,103 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l => l.Contains("[GhostMap]")
                 && l.Contains("Ghost vessel made physics-inert on load: vessel='Ghost: Single Point Holder' pid=3236074800 parts=1 collidersDisabled=2 for Vessel.Load"));
+        }
+
+        // ---- P3-05: the foreign-lane branch of the map icon click and the switch block ----
+
+        private int CountForeignLaneLines()
+        {
+            int n = 0;
+            foreach (var l in logLines)
+                if (l.Contains("foreign-lane ghost")) n++;
+            return n;
+        }
+
+        /// <summary>
+        /// A ghost a foreign lane owns is refused at the map icon click before the own
+        /// recording lookup: the decider says so and writes exactly one Verbose GhostMap line
+        /// naming the site, the pid, the lane and the recording.
+        /// </summary>
+        [Fact]
+        public void IconClick_ForeignLaneGhost_IsRefusedWithOneLine()
+        {
+            GhostMapVessels.RegisterForeignForTesting(4242u, "lane-B", "rec-B7");
+
+            Assert.True(GhostIconClickPatch.ShouldRefuseForeignLaneGhost(4242u));
+
+            Assert.Equal(1, CountForeignLaneLines());
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][GhostMap]")
+                && l.Contains("foreign-lane ghost icon-click pid=4242 lane=lane-B recording=rec-B7"));
+        }
+
+        /// <summary>An own-timeline ghost and a pid that is no ghost keep today's path, silently.</summary>
+        [Fact]
+        public void IconClick_OwnTimelineGhostAndNonGhost_AreNotRefused()
+        {
+            GhostMapVessels.Register(4243u, GhostMapVesselOwner.OwnTimeline);
+            GhostMapVessels.RegisterForeignForTesting(4242u, "lane-B", "rec-B7");
+
+            Assert.False(GhostIconClickPatch.ShouldRefuseForeignLaneGhost(4243u));
+            Assert.False(GhostIconClickPatch.ShouldRefuseForeignLaneGhost(9999u));
+            Assert.Equal(0, CountForeignLaneLines());
+        }
+
+        /// <summary>
+        /// The switch block refuses a foreign-lane ghost with one line naming its own site; a
+        /// foreign owner with no recording id prints the "(none)" placeholder.
+        /// </summary>
+        [Fact]
+        public void VesselSwitch_ForeignLaneGhost_IsRefusedWithOneLine()
+        {
+            GhostMapVessels.RegisterForeignForTesting(5150u, "lane-C", null);
+
+            Assert.True(GhostVesselSwitchPatch.ShouldRefuseForeignLaneGhost(5150u));
+
+            Assert.Equal(1, CountForeignLaneLines());
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][GhostMap]")
+                && l.Contains("foreign-lane ghost vessel-switch pid=5150 lane=lane-C recording=(none)"));
+        }
+
+        [Fact]
+        public void VesselSwitch_OwnTimelineGhostAndNonGhost_AreNotRefused()
+        {
+            GhostMapVessels.Register(5151u, GhostMapVesselOwner.OwnTimeline);
+            GhostMapVessels.RegisterForeignForTesting(5150u, "lane-C", "rec-C1");
+
+            Assert.False(GhostVesselSwitchPatch.ShouldRefuseForeignLaneGhost(5151u));
+            Assert.False(GhostVesselSwitchPatch.ShouldRefuseForeignLaneGhost(9999u));
+            Assert.Equal(0, CountForeignLaneLines());
+        }
+
+        /// <summary>
+        /// The answer follows the owner record: once the foreign pid is unregistered (or the
+        /// own-timeline teardown ran and kept it), the decision tracks the live record.
+        /// </summary>
+        [Fact]
+        public void ForeignLaneDecision_FollowsTheOwnerRecord()
+        {
+            GhostMapVessels.RegisterForeignForTesting(6000u, "lane-D", "rec-D2");
+            GhostMapVessels.UnregisterAllOwnTimeline();
+            Assert.True(GhostVesselSwitchPatch.ShouldRefuseForeignLaneGhost(6000u));
+
+            GhostMapVessels.Unregister(6000u);
+            Assert.False(GhostVesselSwitchPatch.ShouldRefuseForeignLaneGhost(6000u));
+            Assert.False(GhostIconClickPatch.ShouldRefuseForeignLaneGhost(6000u));
+        }
+
+        /// <summary>The query itself: the owner of a foreign pid, nothing for an own or unknown pid.</summary>
+        [Fact]
+        public void TryGetForeignOwner_AnswersOnlyForAForeignPid()
+        {
+            GhostMapVessels.Register(7001u, GhostMapVesselOwner.OwnTimeline);
+            GhostMapVessels.RegisterForeignForTesting(7002u, "lane-E", "rec-E3");
+
+            Assert.False(GhostMapVessels.TryGetForeignOwner(7001u, out _));
+            Assert.False(GhostMapVessels.TryGetForeignOwner(7003u, out _));
+            Assert.True(GhostMapVessels.TryGetForeignOwner(7002u, out GhostMapVesselOwner owner));
+            Assert.Equal("lane-E", owner.LaneId);
+            Assert.Equal("rec-E3", owner.RecordingId);
+            Assert.False(owner.IsOwnTimeline);
         }
     }
 }
