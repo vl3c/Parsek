@@ -568,14 +568,23 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     A preprocessor line (`#` first on its line) is blanked like a comment, and the format clause
     of a hole (from a `:` outside every bracket of the hole to its `}`) is literal text; a quote
     or a line break in a format clause fails closed. `scripts/race-source-scan.ps1` is the same
-    lexer in pwsh, dot-sourced by the three gate scripts. Every gate refuses a `using X =` (or
-    `using @X =`) alias, a backslash in code (a unicode-escaped identifier) and a non-ASCII
-    character in code (C# drops a format character such as U+00AD from an identifier, so
-    `Recording<U+00AD>Store` is `RecordingStore`). A member deny matches `.Name` and `.@Name`.
-    These five (the `#region notes /*` comment opener, the `{x:/*}` / `{x://}` format clause,
-    the format character, the verbatim member) came from the R1-06 review, which found each
-    let a real store reference through; each is a lexer cell, a planted-red cell
-    (`RaceGates_ReviewBypasses_AreRedInEveryGate`) and a line of the mirror fixture. A ban matches its identifier anywhere, so `Parsek.RecordingStore` counts; the
+    lexer in pwsh, dot-sourced by the three gate scripts. The format clause starts at the FIRST
+    top-level `:`, even before a second one, as in the compiler (`{global::X}` does not compile,
+    `{x::/*}` does, with format text `:/*`). Before any lexing each file is read as UTF-8 (one
+    leading byte-order mark stripped) and every character outside tab, LF, CR and 0x20..0x7E
+    is refused on its raw line (`[control] U+XXXX` below 0x80, `[non-ascii] U+XXXX` above) and
+    read by the lexer as a blank: the compiler ends a line at U+0085, U+2028 and U+2029, takes
+    U+001A, form feed and vertical tab as blanks (before a directive too), and drops a format
+    character such as U+00AD from an identifier (`Recording<U+00AD>Store` is `RecordingStore`),
+    and none of those reach the lexer's model. This replaces the first follow-up's non-ASCII
+    check on the masked text, which a comment could hide. Every gate also refuses a `using X =`
+    (or `using @X =`) alias and a backslash in code (a unicode-escaped identifier). A member
+    deny matches `.Name` and `.@Name`. These came from the R1-06 review and re-review, which
+    found each let a real store reference through (the `#region notes /*` comment opener, the
+    `{x:/*}` / `{x://}` / `{x::/*}` format clause, the format character, the verbatim member,
+    U+2028 / U+0085 ending a line comment, U+001A before a `#region`); each is a lexer cell, a
+    planted-red cell (`RaceGates_ReviewBypasses_AreRedInEveryGate`) and a line of the mirror
+    fixture (`MirrorBypass.cs`, `MirrorRaw.cs`, written as explicit UTF-8 bytes). A ban matches its identifier anywhere, so `Parsek.RecordingStore` counts; the
     `GuiMockTypeRef` shape counts the references for the anti-vacuity floor (30 today, floor 24).
   - The no-writer gate's denylist and allowlist are one data file,
     `scripts/race-no-writer-allowlist.txt` (`deny type|member <Name>`, `allow <file> <entry>`, a

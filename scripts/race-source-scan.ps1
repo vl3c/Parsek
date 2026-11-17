@@ -10,7 +10,9 @@
 # literals become blanks (quotes and interpolation holes stay, so `$"{RecordingStore.X}"` is
 # code), line breaks are kept so line numbers hold. A preprocessor line (a '#' first on its
 # line) is blanked like a comment, and the format clause of a hole (from a ':' outside every
-# bracket of the hole to its closing '}') is literal text. A shape the lexer does not model (a
+# bracket of the hole to its closing '}') is literal text. Before lexing, every character
+# outside tab, LF, CR and 0x20..0x7E is refused on the raw text (one leading byte-order mark
+# stripped) and read by the lexer as a blank. A shape the lexer does not model (a
 # raw string literal, an unterminated literal or comment, a quote or line break in a format
 # clause) throws, and the gate exits 2: it fails closed rather than reading half a file.
 #
@@ -126,13 +128,8 @@ function Invoke-RaceLexCode([bool]$InHole) {
                 $depth--
             }
             elseif ($c -ceq [char]':' -and $depth -eq 0) {
-                if ($n -ceq [char]':') {
-                    # `global::X` is code, not a format clause.
-                    Add-RaceBoth $c
-                    Add-RaceBoth $n
-                    $script:rlI = $script:rlI + 2
-                    continue
-                }
+                # Even `::`: the compiler starts the format clause at the first top-level ':'
+                # (`{global::X}` does not compile), so `{x::/*}` is a hole whose format text is `:/*`.
                 Invoke-RaceLexFormatClause
                 return
             }
@@ -238,10 +235,38 @@ function Invoke-RaceLexString {
     }
 }
 
-# Lexes one file: Masked (comments and literal contents blank), Kept (comments blank), and
-# Lines (Masked split on line breaks).
+# A race file's text: its bytes decoded as UTF-8 (an invalid sequence becomes U+FFFD, which
+# the raw check refuses), one leading U+FEFF byte-order mark stripped. Mirrors RaceReadText.
+function Get-RaceText([string]$Path) {
+    $text = [System.Text.UTF8Encoding]::new($false, $false).GetString([System.IO.File]::ReadAllBytes($Path))
+    if ($text.Length -gt 0 -and $text[0] -ceq [char]0xFEFF) { $text = $text.Substring(1) }
+    return $text
+}
+
+# A character a race file may NOT hold: anything but tab, LF, CR and 0x20..0x7E. The compiler
+# reads more characters than the lexer models as line ends (U+0085, U+2028, U+2029) and as
+# blanks (U+001A, form feed, vertical tab, the Unicode spaces), and drops format characters
+# (U+00AD) from identifiers; refusing every other character on the RAW text, before any
+# masking, covers all of them at once. Matched per UTF-16 code unit, as RaceAllowedChar is.
+$script:raceRefusedCharRe = [regex]::new('[^\t\n\r\x20-\x7E]')
+
+# The refusal of the first character of a raw line the race files may not hold
+# ('[control] U+XXXX' below 0x80, '[non-ascii] U+XXXX' above), or $null.
+function Get-RaceRawRefusal([string]$RawLine) {
+    $m = $script:raceRefusedCharRe.Match($RawLine)
+    if (-not $m.Success) { return $null }
+    $v = [int]$m.Value[0]
+    if ($v -lt 0x80) { $kind = '[control] U+' } else { $kind = '[non-ascii] U+' }
+    return $kind + $v.ToString('X4', [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+# Lexes one file: Masked (comments and literal contents blank), Kept (comments blank), Lines
+# (Masked split on line breaks) and Raw (the text split the same way). A refused character is a
+# blank to the lexer (it is reported on its raw line, so the gate is red whatever the lexer then
+# reads); line breaks and length are unchanged.
 function ConvertTo-RaceLexed([string]$Text, [string]$Rel) {
-    $script:rlT = $Text.Replace("`r`n", "`n").Replace("`r", "`n")
+    $raw = $Text.Replace("`r`n", "`n").Replace("`r", "`n")
+    $script:rlT = $script:raceRefusedCharRe.Replace($raw, ' ')
     $script:rlI = 0
     $script:rlRel = $Rel
     $script:rlM = [System.Text.StringBuilder]::new($script:rlT.Length)
@@ -252,6 +277,7 @@ function ConvertTo-RaceLexed([string]$Text, [string]$Rel) {
         Masked = $masked
         Kept   = $script:rlK.ToString()
         Lines  = $masked.Split([char]10)
+        Raw    = $raw.Split([char]10)
     }
 }
 
@@ -285,13 +311,14 @@ function Get-RaceScan([string]$RepoRoot) {
         if ($rel.StartsWith($rootFull + '/', [System.StringComparison]::Ordinal)) {
             $rel = $rel.Substring($rootFull.Length + 1)
         }
-        $lexed = ConvertTo-RaceLexed ([System.IO.File]::ReadAllText($e.Path)) $rel
+        $lexed = ConvertTo-RaceLexed (Get-RaceText $e.Path) $rel
         $files.Add([pscustomobject]@{
             Rel    = $rel
             Module = $e.Module
             Masked = $lexed.Masked
             Kept   = $lexed.Kept
             Lines  = $lexed.Lines
+            Raw    = $lexed.Raw
         })
         if ($e.Module -ceq 'Controllers') { $controllerFiles++ } else { $moduleFiles++ }
         foreach ($line in $lexed.Lines) { $typeRefs += $script:raceTypeRefRe.Matches($line).Count }
@@ -319,11 +346,15 @@ function Get-RaceScanVacuity($Scan, [string]$Gate, [int]$MinTypeReferences, [boo
     return $null
 }
 
-# The refusals every race gate shares, for one masked line: a `using X =` alias, a backslash
-# in code (a unicode-escaped identifier), or a non-ASCII character in code (C# drops format
-# characters such as U+00AD from identifiers, so `Recording<U+00AD>Store` is RecordingStore).
-# Adds the violation and returns $true when refused.
+# The refusals every race gate shares, for one line: a character the race files may not hold
+# (read on the raw line), a `using X =` alias or a backslash in code (a unicode-escaped
+# identifier; both read on the masked line). Adds the violation and returns $true when refused.
 function Test-RaceStructural($File, [int]$Index, $Violations) {
+    $refusal = Get-RaceRawRefusal $File.Raw[$Index]
+    if ($null -ne $refusal) {
+        $Violations.Add($File.Rel + ':' + ($Index + 1) + ': ' + $refusal)
+        return $true
+    }
     $line = $File.Lines[$Index]
     $m = $script:raceAliasRe.Match($line)
     if ($m.Success) {
@@ -333,12 +364,6 @@ function Test-RaceStructural($File, [int]$Index, $Violations) {
     if ($line.IndexOf([char]92) -ge 0) {
         $Violations.Add($File.Rel + ':' + ($Index + 1) + ': [escape] \')
         return $true
-    }
-    foreach ($ch in $line.ToCharArray()) {
-        if ([int]$ch -gt 0x7F) {
-            $Violations.Add($File.Rel + ':' + ($Index + 1) + ': [non-ascii] U+' + ([int]$ch).ToString('X4', [System.Globalization.CultureInfo]::InvariantCulture))
-            return $true
-        }
     }
     return $false
 }

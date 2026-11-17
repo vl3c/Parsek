@@ -83,6 +83,7 @@ namespace Parsek.Tests
             public string MaskedText;
             public string KeptText;
             public string[] Masked;
+            public string[] Raw;   // the file's text, line for line with Masked (BOM stripped, CR normalized)
         }
 
         internal sealed class RaceScanResult
@@ -125,7 +126,7 @@ namespace Parsek.Tests
                 string rel = entry.Key.Replace('\\', '/');
                 if (rel.StartsWith(rootNorm + "/", StringComparison.Ordinal))
                     rel = rel.Substring(rootNorm.Length + 1);
-                result.Files.Add(RaceLexFile(rel, entry.Value, File.ReadAllText(entry.Key)));
+                result.Files.Add(RaceLexFile(rel, entry.Value, RaceReadText(entry.Key)));
             }
             result.Files.Sort((a, b) => string.CompareOrdinal(a.Rel, b.Rel));
             foreach (RaceFile f in result.Files)
@@ -138,10 +139,47 @@ namespace Parsek.Tests
             return result;
         }
 
+        /// <summary>A race file's text: its bytes decoded as UTF-8 (an invalid sequence becomes
+        /// U+FFFD, which the raw check refuses), one leading U+FEFF byte-order mark stripped.
+        /// Mirrored by <c>Get-RaceText</c> in <c>scripts/race-source-scan.ps1</c>.</summary>
+        internal static string RaceReadText(string path)
+        {
+            string text = new UTF8Encoding(false, false).GetString(File.ReadAllBytes(path));
+            return text.Length > 0 && text[0] == '\uFEFF' ? text.Substring(1) : text;
+        }
+
+        /// <summary>True for a character a race file may hold: tab, LF, CR and 0x20..0x7E. The
+        /// compiler reads more characters than the lexer models as line ends (U+0085, U+2028,
+        /// U+2029) and as blanks (U+001A, form feed, vertical tab, the Unicode spaces), and drops
+        /// format characters (U+00AD) from identifiers; refusing every other character on the RAW
+        /// text, before any masking, covers all of them at once.</summary>
+        internal static bool RaceAllowedChar(char c)
+        {
+            return c == '\t' || c == '\n' || c == '\r' || (c >= ' ' && c <= '~');
+        }
+
+        /// <summary>The refusal of the first character of a raw line the race files may not hold
+        /// (<c>[control] U+XXXX</c> below 0x80, <c>[non-ascii] U+XXXX</c> above), or null.</summary>
+        internal static string RaceRawRefusal(string rawLine)
+        {
+            foreach (char ch in rawLine)
+            {
+                if (RaceAllowedChar(ch)) continue;
+                return (ch < 0x80 ? "[control] U+" : "[non-ascii] U+")
+                    + ((int)ch).ToString("X4", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            return null;
+        }
+
         internal static RaceFile RaceLexFile(string rel, string module, string text)
         {
+            string raw = text.Replace("\r\n", "\n").Replace('\r', '\n');
+            // A refused character is a blank to the lexer (it is reported on its raw line, so the
+            // gate is red whatever the lexer then reads); line breaks and length are unchanged.
+            var lexInput = new StringBuilder(raw.Length);
+            foreach (char ch in raw) lexInput.Append(RaceAllowedChar(ch) ? ch : ' ');
             string masked, kept;
-            RaceLex(text, out masked, out kept, rel);
+            RaceLex(lexInput.ToString(), out masked, out kept, rel);
             return new RaceFile
             {
                 Rel = rel,
@@ -149,6 +187,7 @@ namespace Parsek.Tests
                 MaskedText = masked,
                 KeptText = kept,
                 Masked = masked.Split('\n'),
+                Raw = raw.Split('\n'),
             };
         }
 
@@ -275,14 +314,9 @@ namespace Parsek.Tests
                         }
                         else if (c == ':' && depth == 0)
                         {
-                            if (n == ':')
-                            {
-                                // `global::X` is code, not a format clause.
-                                Both(c);
-                                Both(n);
-                                i += 2;
-                                continue;
-                            }
+                            // Even `::`: the compiler starts the format clause at the first
+                            // top-level ':' (`{global::X}` does not compile), so `{x::/*}` is a
+                            // hole whose format text is `:/*`.
                             FormatClause();
                             return;
                         }
@@ -370,10 +404,17 @@ namespace Parsek.Tests
 
         // ------------------------------------------------------------------ the gates (pure)
 
-        /// <summary>The structural refusals every race gate shares, for one masked line: an alias
-        /// or a backslash. Returns true (and adds the violation) when the line is refused.</summary>
+        /// <summary>The structural refusals every race gate shares, for one line: a character the
+        /// race files may not hold (read on the raw line), an alias or a backslash (read on the
+        /// masked line). Returns true (and adds the violation) when the line is refused.</summary>
         private static bool RaceStructuralViolation(RaceFile f, int index, List<string> violations)
         {
+            string refusal = RaceRawRefusal(f.Raw[index]);
+            if (refusal != null)
+            {
+                violations.Add(f.Rel + ":" + (index + 1) + ": " + refusal);
+                return true;
+            }
             string line = f.Masked[index];
             Match alias = RaceAliasUsing.Match(line);
             if (alias.Success)
@@ -385,17 +426,6 @@ namespace Parsek.Tests
             {
                 violations.Add(f.Rel + ":" + (index + 1) + ": [escape] \\");
                 return true;
-            }
-            // Comments and literal contents are blanks here, so a non-ASCII character is in code:
-            // C# drops format characters (U+00AD and the rest of category Cf) from identifiers,
-            // so `Recording<U+00AD>Store` compiles to RecordingStore and no pattern would see it.
-            foreach (char ch in line)
-            {
-                if (ch > 0x7F)
-                {
-                    violations.Add(f.Rel + ":" + (index + 1) + ": [non-ascii] U+" + ((int)ch).ToString("X4", System.Globalization.CultureInfo.InvariantCulture));
-                    return true;
-                }
             }
             return false;
         }
@@ -636,8 +666,12 @@ namespace Parsek.Tests
             foreach (RaceFile f in scan.Files)
             {
                 Assert.Equal(f.MaskedText.Length, f.KeptText.Length);
-                string raw = File.ReadAllText(Path.Combine(repoRoot, f.Rel)).Replace("\r\n", "\n");
+                string raw = RaceReadText(Path.Combine(repoRoot, f.Rel)).Replace("\r\n", "\n");
                 Assert.Equal(raw.Split('\n').Length, f.Masked.Length);
+                Assert.Equal(f.Raw.Length, f.Masked.Length);
+                // No race file holds a character outside tab, CR, LF and printable ASCII today.
+                for (int i = 0; i < f.Raw.Length; i++)
+                    Assert.True(RaceRawRefusal(f.Raw[i]) == null, f.Rel + ":" + (i + 1) + ": " + RaceRawRefusal(f.Raw[i]));
             }
         }
 
@@ -687,12 +721,17 @@ namespace Parsek.Tests
             Assert.DoesNotContain("D3", masked);
             Assert.DoesNotContain("MilestoneStore", masked);
             Assert.Contains("MilestoneStore", kept);
-            // A ':' inside brackets is the conditional operator, and `::` is the alias qualifier:
-            // both stay code.
-            RaceLex("s = $\"{(a ? RecordingStore.X : b)} {d[k ? 1 : 2]} {global::Parsek.MilestoneStore.Count}\";", out masked, out kept);
+            // A ':' inside brackets is the conditional operator: it stays code.
+            RaceLex("s = $\"{(a ? RecordingStore.X : b)} {d[k ? 1 : 2]}\";", out masked, out kept);
             Assert.Contains("(a ? RecordingStore.X : b)", masked);
             Assert.Contains("d[k ? 1 : 2]", masked);
-            Assert.Contains("global::Parsek.MilestoneStore.Count", masked);
+            // Even `::` at the top of a hole starts the format clause at its first ':' (the
+            // compiler does the same: `{global::X}` does not compile, `{x::/*}` does, with format
+            // text `:/*`), so the `/*` opens nothing (R1-06 re-review).
+            RaceLex("s = $\"{x::/*}\";\nobject p = typeof(RecordingStore);\n// */}\"\n", out masked, out kept);
+            Assert.Contains("object p = typeof(RecordingStore);", masked);
+            RaceLex("s = $\"{global::Parsek.MilestoneStore.Count}\";", out masked, out kept);
+            Assert.DoesNotContain("MilestoneStore", masked);
             Assert.Throws<InvalidDataException>(() => RaceLex("s = $@\"{x:a\nb}\";", out masked, out kept));
             Assert.Throws<InvalidDataException>(() => RaceLex("s = $\"{x:a\" + RecordingStore.X + \"}\";", out masked, out kept));
 
@@ -741,7 +780,7 @@ namespace Parsek.Tests
         {
             string path = Path.Combine(root, rel);
             Directory.CreateDirectory(Path.GetDirectoryName(path));
-            File.AppendAllText(path, "\n" + line + "\n");
+            File.AppendAllText(path, "\n" + line + "\n", new UTF8Encoding(false));
         }
 
         private static void RaceDeleteTemp(string temp)
@@ -877,6 +916,8 @@ namespace Parsek.Tests
                 ["preprocessor"] = "    #region notes /*\nstatic int o = RecordingStore.CommittedRecordings;\n    #endregion */",
                 ["format-block"] = "static string s = $\"{x:/*}\";\nstatic int o = RecordingStore.CommittedRecordings;\n// */}\"",
                 ["format-line"] = "static string s = $@\"{x://}\";\n}\nstatic class C2 {\nstatic int o = RecordingStore.CommittedRecordings;\nstatic char q = '\"'; // '",
+                // R1-06 re-review: the format clause starts at the first ':' even before a second.
+                ["format-double-colon"] = "static int x = 1;\nstatic string s = $\"{x::/*}\";\nstatic object p = typeof(RecordingStore);\n// */}\"",
             };
             var gates = new Dictionary<string, KeyValuePair<Func<string, int, List<string>>, string>>
             {
@@ -915,6 +956,57 @@ namespace Parsek.Tests
                 }
                 finally { RaceDeleteTemp(temp); }
             }
+
+            // Characters the compiler reads as line ends (U+2028, U+0085) or as a blank before a
+            // directive (U+001A) are refused on the raw text, before the lexer could misread them
+            // (R1-06 re-review). The U+001A case also keeps its real hit: the lexer reads the
+            // refused character as a blank, so the directive lines are directives.
+            var rawShapes = new[]
+            {
+                new KeyValuePair<string, string[]>("// note\u2028static object o = RecordingStore.CommittedRecordings;",
+                    new[] { "[non-ascii] U+2028" }),
+                new KeyValuePair<string, string[]>("// note\u0085static object o = RecordingStore.CommittedRecordings;",
+                    new[] { "[non-ascii] U+0085" }),
+                new KeyValuePair<string, string[]>("// note\u2029static object o = RecordingStore.CommittedRecordings;",
+                    new[] { "[non-ascii] U+2029" }),
+                new KeyValuePair<string, string[]>("\u001A#region notes /*\nstatic object o = RecordingStore.CommittedRecordings;\n\u001A#endregion */",
+                    new[] { "[control] U+001A", "[control] U+001A", null }),
+                new KeyValuePair<string, string[]>("static object o =\fRecordingStore.CommittedRecordings;", new[] { "[control] U+000C" }),
+                new KeyValuePair<string, string[]>("static object o =\vRecordingStore.CommittedRecordings;", new[] { "[control] U+000B" }),
+            };
+            foreach (var shape in rawShapes)
+            {
+                foreach (var gate in gates)
+                {
+                    string temp = RaceTempCopy();
+                    try
+                    {
+                        RacePlant(temp, link, shape.Key);
+                        List<string> red = gate.Value.Key(temp, RaceMinTypeReferences);
+                        var want = shape.Value.Select(w => w ?? gate.Value.Value).OrderBy(w => w, StringComparer.Ordinal).ToList();
+                        var got = red.Select(v => v.Substring(v.IndexOf(": ", StringComparison.Ordinal) + 2))
+                            .OrderBy(w => w, StringComparer.Ordinal).ToList();
+                        Assert.True(red.All(v => v.StartsWith(link + ":", StringComparison.Ordinal)) && want.SequenceEqual(got),
+                            "raw shape U+" + ((int)shape.Key.First(c => !RaceAllowedChar(c))).ToString("X4", System.Globalization.CultureInfo.InvariantCulture)
+                            + " in the " + gate.Key + " gate gave: " + string.Join(" | ", red));
+                    }
+                    finally { RaceDeleteTemp(temp); }
+                }
+            }
+
+            // One leading byte-order mark is stripped; a second is a character like any other.
+            string tb = RaceTempCopy();
+            try
+            {
+                string path = Path.Combine(tb, link);
+                byte[] body = File.ReadAllBytes(path);
+                File.WriteAllBytes(path, new byte[] { 0xEF, 0xBB, 0xBF }.Concat(body).ToArray());
+                foreach (var gate in gates) Assert.Empty(gate.Value.Key(tb, RaceMinTypeReferences));
+                File.WriteAllBytes(path, new byte[] { 0xEF, 0xBB, 0xBF, 0xEF, 0xBB, 0xBF }.Concat(body).ToArray());
+                foreach (var gate in gates)
+                    Assert.Equal(new[] { link + ":1: [non-ascii] U+FEFF" }, gate.Value.Key(tb, RaceMinTypeReferences).ToArray());
+            }
+            finally { RaceDeleteTemp(tb); }
 
             // A verbatim identifier past the member deny: `.@OnSave` is `.OnSave`.
             string t2 = RaceTempCopy();
@@ -991,6 +1083,7 @@ namespace Parsek.Tests
             const string ctl = "Source/Parsek/Controllers/ParsekRaceMirror.cs";
             const string world = "Source/Parsek/RaceWorld/MirrorWorld.cs";
             const string bypass = "Source/Parsek/RaceCore/MirrorBypass.cs";
+            const string raw = "Source/Parsek/RaceCore/MirrorRaw.cs";
             const string list = "scripts/" + RaceNoWriterAllowlist;
             var expected = new Dictionary<string, string[]>
             {
@@ -999,7 +1092,13 @@ namespace Parsek.Tests
                     bypass + ":11: [store] GroupHierarchyStore",
                     bypass + ":15: [non-ascii] U+00AD",
                     bypass + ":20: [alias] RV",
+                    bypass + ":22: [store] GroupHierarchyStore",
                     bypass + ":6: [store] MilestoneStore",
+                    raw + ":5: [non-ascii] U+2028",
+                    raw + ":6: [non-ascii] U+0085",
+                    raw + ":7: [control] U+001A",
+                    raw + ":8: [store] GroupHierarchyStore",
+                    raw + ":9: [control] U+001A",
                     core + ":10: [store] MilestoneStore",
                     core + ":11: [store] GroupHierarchyStore",
                     core + ":12: [escape] \\",
@@ -1011,8 +1110,13 @@ namespace Parsek.Tests
                     ctl + ":6: [recorder] TreeCommitService",
                     bypass + ":14: [recorder] TreeDiscardService",
                     bypass + ":15: [non-ascii] U+00AD",
-                    bypass + ":17: [recorder] PendingTreeSlot",
                     bypass + ":20: [alias] RV",
+                    bypass + ":22: [recorder] FlightRecorder",
+                    raw + ":5: [non-ascii] U+2028",
+                    raw + ":6: [non-ascii] U+0085",
+                    raw + ":7: [control] U+001A",
+                    raw + ":8: [recorder] TreeCommitService",
+                    raw + ":9: [control] U+001A",
                     core + ":12: [escape] \\",
                     core + ":13: [recorder] PendingTreeSlot",
                     core + ":2: [alias] RS",
@@ -1026,6 +1130,12 @@ namespace Parsek.Tests
                     bypass + ":16: [writer] .OnSave",
                     bypass + ":16: [writer] .OnSave",
                     bypass + ":20: [alias] RV",
+                    bypass + ":22: [writer] GroupHierarchyStore",
+                    raw + ":5: [non-ascii] U+2028",
+                    raw + ":6: [non-ascii] U+0085",
+                    raw + ":7: [control] U+001A",
+                    raw + ":8: [writer] GroupHierarchyStore",
+                    raw + ":9: [control] U+001A",
                     core + ":11: [writer] .OnSave",
                     core + ":11: [writer] GroupHierarchyStore",
                     core + ":12: [escape] \\",
@@ -1063,7 +1173,9 @@ namespace Parsek.Tests
             {
                 string p = Path.Combine(root, rel);
                 Directory.CreateDirectory(Path.GetDirectoryName(p));
-                File.WriteAllText(p, text.Replace("\r\n", "\n"));
+                // Explicit bytes, so both arms read the same thing: UTF-8, no byte-order mark
+                // unless the text itself starts with U+FEFF.
+                File.WriteAllBytes(p, new UTF8Encoding(false).GetBytes(text.Replace("\r\n", "\n")));
             };
             write("Source/Parsek/RaceCore/MirrorRules.cs",
                 "using System;\n"
@@ -1097,7 +1209,25 @@ namespace Parsek.Tests
                 + "        static void G(ScenarioModule m, ConfigNode n) { m.@OnSave(n); base.@OnSave(n); }\n"
                 + "        static string h = $\"{(x > 0 ? \"a\" : \"b\")} {global::Parsek.PendingTreeSlot.Current} {x,5:D3} {x:MissionStore}\";\n"
                 + "    }\n}\n"
-                + "using @RV = Parsek.RecordingStore;\n");
+                + "using @RV = Parsek.RecordingStore;\n"
+                // The format clause starts at the FIRST top-level ':' (R1-06 re-review), so line
+                // 17's `{global::...}` is format text and line 22 is code.
+                + "static class MirrorColon { static int x = 1; static string s = $\"{x::/*}\";\n"
+                + "    static object p = typeof(FlightRecorder); static object q = GroupHierarchyStore.Count;\n"
+                + "    // */}\"\n"
+                + "}\n");
+            // Characters refused on the raw text (R1-06 re-review): U+2028 and U+0085 end a line
+            // for the compiler, U+001A is a blank before a directive. A leading byte-order mark
+            // is stripped, not refused.
+            write("Source/Parsek/RaceCore/MirrorRaw.cs",
+                "\uFEFFnamespace Parsek\n{\n"
+                + "    static class MirrorRaw\n    {\n"
+                + "        // note\u2028static object a = typeof(RecordingStore);\n"
+                + "        // note\u0085static object b = typeof(RecordingStore);\n"
+                + "\u001A#region notes /*\n"
+                + "        static object c = GroupHierarchyStore.Groups; static object d = typeof(TreeCommitService);\n"
+                + "\u001A#endregion */\n"
+                + "    }\n}\n");
             write("Source/Parsek/Controllers/ParsekRaceMirror.cs",
                 "namespace Parsek\n{\n    public sealed class ParsekRaceMirror : ScenarioModule\n    {\n"
                 + "        public override void OnSave(ConfigNode node) { GamePersistence.SaveGame(\"a\", \"b\", SaveMode.OVERWRITE); }\n"

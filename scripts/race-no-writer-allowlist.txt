@@ -7,7 +7,8 @@
 # Source/Parsek.Tests/GrepAuditTests.Race.cs (the shared RaceSourceScan): comments stripped,
 # string and char literal contents masked, preprocessor lines blanked, interpolation holes kept
 # as code (their format clause is literal text), and a `using X =` alias, a backslash in code
-# and a non-ASCII character in code refused outright.
+# and any character outside tab, CR, LF and printable ASCII (read on the raw text, before any
+# masking) refused outright.
 #
 # Data lines (fields separated by blanks; everything after the third field is the reason,
 # which is required):
