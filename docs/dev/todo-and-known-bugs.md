@@ -33,7 +33,7 @@ fake-catalog cells in `ProductionAnchorWorldFrameResolverTests` (a tree only the
 resolves; a tree only the store holds fails `focus-tree-missing`). Owed on the PC: in-game
 `MapRender` and `GhostMap`, lanes S1.6, S1.7 and H44.
 
-## MP-P2A-PLAYBACK-CATALOG: playback looks recordings up by id through one port, so a second playback lane can answer from its own data [FILED 2026-11-16 for the multiplayer prerefactor P2a (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, P2a-01 to P2a-07). IN PROGRESS: P2a-05 done (branch `mp/p2a-05-anchor-resolver-catalog`), P2a-03 done (branch `mp/p2a-03-positioner-catalog`), P2a-06 done (branch `mp/p2a-06-anchor-world-frame-catalog`), P2a-07 done (branch `mp/p2a-07-map-state-vectors-catalog`); P2a-02, P2a-04 open; refactor, no product change]
+## MP-P2A-PLAYBACK-CATALOG: playback looks recordings up by id through one port, so a second playback lane can answer from its own data [FILED 2026-11-16 for the multiplayer prerefactor P2a (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, P2a-01 to P2a-07). IN PROGRESS: P2a-05 done (branch `mp/p2a-05-anchor-resolver-catalog`), P2a-03 done (branch `mp/p2a-03-positioner-catalog`), P2a-04 done (branch `mp/p2a-04-tail-lift-catalog`), P2a-06 done (branch `mp/p2a-06-anchor-world-frame-catalog`), P2a-07 done (branch `mp/p2a-07-map-state-vectors-catalog`); P2a-02 open; refactor, no product change]
 
 `IPlaybackCatalog` and its own-timeline `RecordingPlaybackCatalog.Own` (both in
 `Source/Parsek/Recording/`) carry each lookup family as a named variant that keeps its search
@@ -50,9 +50,17 @@ through them: a `catalog` field from a trailing optional constructor parameter (
 the relative-anchor focus tree, the Trace-Sep parent lookup, and the pending tree of
 `BuildFlightRelativeAnchorResolverContext` (now a catalog parameter). Proof: truth-table rows and
 sweeps against verbatim copies of the replaced lookups, a fake-catalog positioner cell. Owed on
-the PC: in-game `Pipeline-Anchor` and `PlaybackFidelity`, lanes H11, LT-1 and H36. Each later
-P2a task adds its variant's rows; the entry closes when
-P2a-07 and the last of P2a-02 to P2a-04 land.
+the PC: in-game `Pipeline-Anchor` and `PlaybackFidelity`, lanes H11, LT-1 and H36. P2a-04
+routed the tail-lift recording lookup (`ParsekFlightGhostPositioner.ResolveRecordingById`)
+through `CommittedListOnly` inside its try/catch; `ResolveTailLiftPlan` and
+`ParsekFlight.ResolveEffectiveAltitudeWithTailLift` take a trailing optional catalog (null reads
+`Own`) and the positioner's three tail-lift calls pass its own. The preview fallback and the
+plan caches (keyed by recording id, shared by every catalog) are unchanged, and the tail-lift
+file left the ERS allowlist (its last raw read moved into the catalog). Proof: a sweep of the
+production lookup against a verbatim copy of the removed walk over 16 fixtures, fake-catalog
+plan cells and a source gate on the three calls in `FlightRecorderTerrainTests`. Owed on the PC:
+in-game `GhostPlayback`, lane S1.4. Each later P2a task adds its variant's rows; the entry
+closes when P2a-07 and the last of P2a-02 to P2a-04 land.
 
 ## MP-P2A-PLAYBACK-CATALOG, P2a-07 as built: the map's body-fixed anchor pid lookup reads the catalog [DONE 2026-11-16, branch `mp/p2a-07-map-state-vectors-catalog`; refactor, no product change; part of MP-P2A-PLAYBACK-CATALOG above]
 

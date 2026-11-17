@@ -29,7 +29,8 @@ namespace Parsek
         internal static double ResolveEffectiveAltitudeWithTailLift(
             CelestialBody body, double latitude, double longitude,
             double recordedAltitude, double recordedGroundClearance,
-            ReferenceFrame referenceFrame, double pointUT, string recordingId)
+            ReferenceFrame referenceFrame, double pointUT, string recordingId,
+            IPlaybackCatalog catalog = null)
         {
             double phase7 = ResolvePhase7EffectiveAltitude(
                 body, latitude, longitude, recordedAltitude,
@@ -44,7 +45,7 @@ namespace Parsek
             if (string.IsNullOrEmpty(recordingId))
                 return phase7;
 
-            TerrainCorrector.TailLiftPlan plan = ParsekFlightGhostPositioner.ResolveTailLiftPlan(recordingId, body);
+            TerrainCorrector.TailLiftPlan plan = ParsekFlightGhostPositioner.ResolveTailLiftPlan(recordingId, body, catalog);
             return phase7 + TerrainCorrector.EvaluateTailLift(pointUT, in plan);
         }
 
