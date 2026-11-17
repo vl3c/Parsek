@@ -290,6 +290,8 @@ namespace Parsek
 
             if (rec.Points.Count == 0 || FlightGlobals.Vessels == null)
             {
+                if (TryAbandonEndOfRecordingSpawnForDeadCrew(rec, index))
+                    return;
                 LogSpawnContext(rec, double.MaxValue);
                 rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
                     rec,
@@ -324,6 +326,8 @@ namespace Parsek
                     : $"bodyName='{spawnBodyName}' not found";
                 ParsekLog.Warn("Spawner", $"Spawn #{index} ({rec.VesselName}): {reason} — " +
                     $"falling back to validated snapshot respawn");
+                if (TryAbandonEndOfRecordingSpawnForDeadCrew(rec, index))
+                    return;
                 LogSpawnContext(rec, double.MaxValue);
                 rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
                     rec,
@@ -412,21 +416,8 @@ namespace Parsek
                 // Spawning a crewless command pod is worse than not spawning at all. (#170)
                 // Individual dead crew are already removed by RespawnVessel.RemoveDeadCrewFromSnapshot;
                 // this catches the case where the entire crew complement is dead.
-                if (!isEva && rec.VesselSnapshot != null)
-                {
-                    if (ShouldBlockSpawnForDeadCrewInSnapshot(rec.VesselSnapshot, out List<string> snapshotCrew))
-                    {
-                        rec.VesselSpawned = true;
-                        rec.SpawnAbandoned = true;
-                        SpawnWarpOutcomeWatch.NoteAbandonReason(
-                            rec, SpawnWarpOutcomeWatch.ReasonNoLivingCrew);
-                        var classified = ClassifySnapshotCrew(snapshotCrew);
-                        ParsekLog.Warn("Spawner",
-                            $"Spawn ABANDONED for #{index} ({rec.VesselName}): no spawnable crew — " +
-                            FormatSpawnableClassificationSummary(classified));
-                        return;
-                    }
-                }
+                if (TryAbandonEndOfRecordingSpawnForDeadCrew(rec, index))
+                    return;
 
                 // Find nearest vessel for spawn context logging
                 double closestDist = FindNearestVesselDistance(spawnPos, body);
@@ -1044,6 +1035,31 @@ namespace Parsek
                     alt = ClampAltitudeForLanded(alt, pqsTerrain, index, rec.VesselName);
                 }
             }
+        }
+
+        /// <summary>
+        /// The end-of-recording dead-crew guard (#170): when every kerbal in the recording's
+        /// snapshot is dead, the spawn is settled as abandoned (VesselSpawned + SpawnAbandoned,
+        /// abandon reason no-living-crew) instead of creating an empty crewed pod. An EVA
+        /// recording is exempt. Runs on the resolved-position path and on both snapshot
+        /// respawn fallbacks (no trajectory, unresolved endpoint body). Returns true when the
+        /// spawn was abandoned.
+        /// </summary>
+        internal static bool TryAbandonEndOfRecordingSpawnForDeadCrew(Recording rec, int index)
+        {
+            if (rec == null || rec.VesselSnapshot == null || !string.IsNullOrEmpty(rec.EvaCrewName))
+                return false;
+            if (!ShouldBlockSpawnForDeadCrewInSnapshot(rec.VesselSnapshot, out List<string> snapshotCrew))
+                return false;
+            rec.VesselSpawned = true;
+            rec.SpawnAbandoned = true;
+            SpawnWarpOutcomeWatch.NoteAbandonReason(
+                rec, SpawnWarpOutcomeWatch.ReasonNoLivingCrew);
+            var classified = ClassifySnapshotCrew(snapshotCrew);
+            ParsekLog.Warn("Spawner",
+                $"Spawn ABANDONED for #{index} ({rec.VesselName}): no spawnable crew — " +
+                FormatSpawnableClassificationSummary(classified));
+            return true;
         }
 
         /// <summary>

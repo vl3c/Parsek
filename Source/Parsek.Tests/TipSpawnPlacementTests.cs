@@ -194,6 +194,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Walkback_ResolvedSummary_IsRateLimitedPerRecording()
+        {
+            var (points, sections) = LanderNearBase(withShadow: false);
+
+            for (int i = 0; i < 5; i++)
+                SpawnCollisionDetector.ResolveWalkbackPointsOnBody(points, sections, "Kerbin", "rec-a");
+            SpawnCollisionDetector.ResolveWalkbackPointsOnBody(points, sections, "Kerbin", "rec-b");
+
+            Assert.Single(logLines.FindAll(l => l.Contains("Walkback points resolved for rec-a")));
+            Assert.Single(logLines.FindAll(l => l.Contains("Walkback points resolved for rec-b")));
+        }
+
+        [Fact]
         public void Wiring_BothWalkbacks_ReadOnlyTheResolvedPoints()
         {
             string eor = StripLineComments(File.ReadAllText(ParsekSource("Controllers", "VesselSpawner.EndOfRecording.cs")));
@@ -241,6 +254,30 @@ namespace Parsek.Tests
             Assert.Contains("ClampSplashedSpawnAltitude(walkAlt,", walk);
             Assert.DoesNotContain("walkAlt > 0", walk);
             Assert.Contains("ClampSplashedSpawnAltitude(alt,", endpoint);
+        }
+
+        [Fact]
+        public void ChainTipSplashedAltitude_SurfaceSpawnIsFlooredToSeaLevel()
+        {
+            var splashed = new Recording { RecordingId = "tip-sub", VesselName = "Sub", TerminalStateValue = TerminalState.Splashed };
+            var landed = new Recording { RecordingId = "tip-rover", VesselName = "Rover", TerminalStateValue = TerminalState.Landed };
+
+            Assert.Equal(0.0, VesselGhoster.ResolveChainTipSurfaceSpawnAltitude(splashed, false, -3.5, "walkback chain tip"));
+            Assert.Equal(-3.5, VesselGhoster.ResolveChainTipSurfaceSpawnAltitude(splashed, true, -3.5, "ctx"));
+            Assert.Equal(-3.5, VesselGhoster.ResolveChainTipSurfaceSpawnAltitude(landed, false, -3.5, "ctx"));
+            Assert.Contains(logLines, l => l.Contains("Clamped altitude for SPLASHED spawn #-1 (Sub)")
+                && l.Contains("site=walkback chain tip"));
+        }
+
+        [Fact]
+        public void Wiring_ChainTipSpawn_FloorsASplashedTipBeforeWritingTheSnapshot()
+        {
+            string ghoster = StripLineComments(File.ReadAllText(ParsekSource("Ghost", "VesselGhoster.cs")));
+            string body = ExtractMethodBody(ghoster, "private uint SpawnChainTipWithResolvedState(");
+            int clamp = body.IndexOf("spawnAlt = ResolveChainTipSurfaceSpawnAltitude(", StringComparison.Ordinal);
+            int write = body.IndexOf("VesselSpawner.ApplyResolvedSpawnStateToSnapshot(", StringComparison.Ordinal);
+            Assert.True(clamp >= 0 && clamp < write,
+                "SpawnChainTipWithResolvedState must floor a Splashed tip before it writes the spawn position");
         }
 
         // ---- S2: a sea spawn is seen as over water and written SPLASHED ----
@@ -307,7 +344,7 @@ namespace Parsek.Tests
             Assert.Equal(SpawnWarpOutcomeWatch.ReasonNoLivingCrew,
                 SpawnWarpOutcomeWatch.GetAbandonNote("tip-dead-crew"));
             Assert.Contains(logLines, l => l.Contains("[WARN][Spawner]")
-                && l.Contains("Chain tip spawn ABANDONED")
+                && l.Contains("Spawn ABANDONED for chain tip")
                 && l.Contains("no spawnable crew - total=1 strictlyDead=1"));
         }
 
@@ -336,6 +373,64 @@ namespace Parsek.Tests
             Assert.True(guard >= 0, "SpawnChainTipWithResolvedState does not run the dead-crew guard");
             Assert.True(guard < spawnAtPosition && guard < respawn,
                 "the dead-crew guard must run before either spawn call");
+        }
+
+        [Fact]
+        public void ChainTipSettledWithoutVessel_OnlyForADeliberateSettle()
+        {
+            Assert.False(VesselGhoster.IsChainTipSettledWithoutVessel(null));
+            Assert.False(VesselGhoster.IsChainTipSettledWithoutVessel(new Recording()));
+            Assert.True(VesselGhoster.IsChainTipSettledWithoutVessel(
+                new Recording { VesselSpawned = true, SpawnAbandoned = true }));
+            Assert.False(VesselGhoster.IsChainTipSettledWithoutVessel(
+                new Recording { VesselSpawned = true, SpawnAbandoned = true, SpawnedVesselPersistentId = 77u }));
+            Assert.False(VesselGhoster.IsChainTipSettledWithoutVessel(
+                new Recording { VesselSpawned = true }));
+        }
+
+        [Fact]
+        public void EndOfRecordingDeadCrew_EvaOrNoSnapshot_IsNeverAbandoned()
+        {
+            var eva = new Recording { RecordingId = "eor-eva", EvaCrewName = "Jebediah Kerman", VesselSnapshot = new ConfigNode("VESSEL") };
+            var noSnapshot = new Recording { RecordingId = "eor-none" };
+
+            Assert.False(VesselSpawner.TryAbandonEndOfRecordingSpawnForDeadCrew(eva, 1));
+            Assert.False(VesselSpawner.TryAbandonEndOfRecordingSpawnForDeadCrew(noSnapshot, 2));
+            Assert.False(eva.SpawnAbandoned);
+            Assert.False(noSnapshot.SpawnAbandoned);
+        }
+
+        [Fact]
+        public void Wiring_EveryRespawnFallback_RunsTheDeadCrewGuardFirst()
+        {
+            string eor = StripLineComments(File.ReadAllText(ParsekSource("Controllers", "VesselSpawner.EndOfRecording.cs")));
+            string spawn = ExtractMethodBody(eor.Replace("\r", ""),
+                "public static void SpawnOrRecoverIfTooClose(\n            Recording rec,");
+            AssertGuardBeforeEachCall(spawn, "TryAbandonEndOfRecordingSpawnForDeadCrew(rec, index)",
+                "RespawnValidatedRecording(", "SpawnOrRecoverIfTooClose");
+
+            string ghoster = StripLineComments(File.ReadAllText(ParsekSource("Ghost", "VesselGhoster.cs")));
+            foreach (string sig in new[] { "internal uint SpawnAtChainTip(", "internal uint TrySpawnBlockedChain(" })
+            {
+                AssertGuardBeforeEachCall(ExtractMethodBody(ghoster, sig),
+                    "VesselSpawner.TryAbandonChainTipForDeadCrew(", "VesselSpawner.RespawnValidatedRecording(", sig);
+            }
+        }
+
+        private static void AssertGuardBeforeEachCall(string body, string guard, string call, string where)
+        {
+            int count = 0;
+            int windowStart = 0;
+            int at = body.IndexOf(call, StringComparison.Ordinal);
+            while (at >= 0)
+            {
+                count++;
+                int g = body.IndexOf(guard, windowStart, at - windowStart, StringComparison.Ordinal);
+                Assert.True(g >= 0, where + ": respawn call #" + count + " is not preceded by the dead-crew guard");
+                windowStart = at + call.Length;
+                at = body.IndexOf(call, windowStart, StringComparison.Ordinal);
+            }
+            Assert.True(count > 0, where + " has no " + call);
         }
 
         [Fact]

@@ -158,7 +158,9 @@ flight), then re-fly the four changed lanes. Each is a reading run: pin what it 
 - **S1, walkback kept a negative depth for a Splashed end.** The walkback clamp only lowered a
   positive altitude to 0, contradicting #313 (every Splashed spawn at sea level). Fix: one
   helper, `VesselSpawner.ClampSplashedSpawnAltitude`, used by both `ResolveSpawnPosition` and the
-  walkback.
+  walkback. The chain tip applies the same floor to every non-orbital spawn
+  (`VesselGhoster.ResolveChainTipSurfaceSpawnAltitude`, in `SpawnChainTipWithResolvedState`), so a
+  walked-back or propagated Splashed tip cannot spawn under water either.
 - **S2, a sea spawn was written LANDED.** `SpawnAtPosition` read `body.TerrainAltitude(lat, lon)`,
   whose stock default `allowNegative = false` clamps a sea floor to 0 (decompiled IL), so
   `overWater` was always false and `DetermineSituation` wrote `sit=LANDED` for a Splashed EVA,
@@ -168,7 +170,11 @@ flight), then re-fly the four changed lanes. Each is a reading run: pin what it 
   `SpawnChainTipWithResolvedState` now runs `VesselSpawner.TryAbandonChainTipForDeadCrew` before
   spawning, settling the tip VesselSpawned + SpawnAbandoned with the no-living-crew note (EVA tip
   exempt), the same outcome as an invalid-materialization abandon on this path: the chain stays
-  ghost-only. (2) An orbital tip was collision-checked at its snapshot position while it spawns
+  ghost-only. The same guard runs on the chain tip's snapshot-respawn fallbacks (no tip point,
+  unresolved position or body) and, through `VesselSpawner.TryAbandonEndOfRecordingSpawnForDeadCrew`,
+  on the end-of-recording fallbacks (no trajectory, unresolved endpoint body), which also lacked
+  it. A deliberate settle (`VesselGhoster.IsChainTipSettledWithoutVessel`) now logs as an Info
+  abandon instead of the `spawn failed` Error / Warn lines. (2) An orbital tip was collision-checked at its snapshot position while it spawns
   at its terminal orbit propagated to the spawn UT: `SpawnAtChainTip` now resolves that state
   first and checks there. The other three H claims (per-kerbal crew, the attempts cap, the EVA
   exempt pid) were refuted.

@@ -218,7 +218,7 @@ namespace Parsek
             SpawnWarpOutcomeWatch.NoteAbandonReason(
                 tipRecording, SpawnWarpOutcomeWatch.ReasonNoLivingCrew);
             ParsekLog.Warn("Spawner",
-                $"Chain tip spawn ABANDONED ({logContext ?? "(none)"}) rec={tipRecording.RecordingId ?? "(unknown)"} " +
+                $"Spawn ABANDONED for chain tip ({logContext ?? "(none)"}) rec={tipRecording.RecordingId ?? "(unknown)"} " +
                 $"vessel={tipRecording.VesselName ?? "(unknown)"}: no spawnable crew - " +
                 (crewSummary ?? "(no crew summary)"));
             return true;

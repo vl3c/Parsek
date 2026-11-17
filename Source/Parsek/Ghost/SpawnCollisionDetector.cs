@@ -848,7 +848,11 @@ namespace Parsek
 
             if (stopReason != null || substituted > 0)
             {
-                ParsekLog.Verbose(Tag,
+                // A blocked spawn retries about once a second: one line per recording and
+                // outcome, so a changed stop still prints at once.
+                ParsekLog.VerboseRateLimited(Tag,
+                    "walkback-points|" + (logContext ?? "(none)") + "|" + (stopReason ?? "none")
+                        + "|" + resolved.Count.ToString(IC),
                     string.Format(IC,
                         "Walkback points resolved for {0} on body={1}: kept={2}/{3} relativeShadowsUsed={4} " +
                         "stop={5} stopIndex={6} stopUT={7}",

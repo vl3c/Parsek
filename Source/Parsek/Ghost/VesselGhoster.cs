@@ -387,6 +387,11 @@ namespace Parsek
                     spawnBody,
                     orbitOverride);
             }
+            else if (VesselSpawner.TryAbandonChainTipForDeadCrew(
+                tipRecording, vesselSnapshot, string.Format(ic, "chain tip '{0}'", tipId)))
+            {
+                spawnedPid = 0;
+            }
             else
             {
                 spawnedPid = VesselSpawner.RespawnValidatedRecording(
@@ -398,6 +403,14 @@ namespace Parsek
 
             if (spawnedPid == 0)
             {
+                if (IsChainTipSettledWithoutVessel(tipRecording))
+                {
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "SpawnAtChainTip: tip '{0}' settled as abandoned - no vessel created",
+                            tipId));
+                    return 0;
+                }
                 ParsekLog.Error(Tag,
                     string.Format(ic,
                         "SpawnAtChainTip: spawn path returned pid=0 for tip '{0}' — spawn failed",
@@ -633,12 +646,15 @@ namespace Parsek
                         string.Format(ic,
                             "blocked chain tip '{0}': propagated position and endpoint spawn state unavailable — falling back to validated snapshot respawn",
                             tipId));
-                    spawnedPid = VesselSpawner.RespawnValidatedRecording(
-                        tipRecording,
-                        string.Format(ic, "blocked chain tip '{0}'", tipId),
-                        preserveIdentity: true,
-                        currentUT: currentUT,
-                        allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+                    spawnedPid = VesselSpawner.TryAbandonChainTipForDeadCrew(
+                            tipRecording, vesselSnapshot, string.Format(ic, "blocked chain tip '{0}'", tipId))
+                        ? 0u
+                        : VesselSpawner.RespawnValidatedRecording(
+                            tipRecording,
+                            string.Format(ic, "blocked chain tip '{0}'", tipId),
+                            preserveIdentity: true,
+                            currentUT: currentUT,
+                            allowExistingSourceDuplicate: allowExistingSourceDuplicate);
                 }
             }
             else
@@ -647,20 +663,33 @@ namespace Parsek
                     string.Format(ic,
                         "blocked chain tip '{0}': could not resolve spawn body for propagated state — falling back to validated snapshot respawn",
                         tipId));
-                spawnedPid = VesselSpawner.RespawnValidatedRecording(
-                    tipRecording,
-                    string.Format(ic, "blocked chain tip '{0}'", tipId),
-                    preserveIdentity: true,
-                    currentUT: currentUT,
-                    allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+                spawnedPid = VesselSpawner.TryAbandonChainTipForDeadCrew(
+                        tipRecording, vesselSnapshot, string.Format(ic, "blocked chain tip '{0}'", tipId))
+                    ? 0u
+                    : VesselSpawner.RespawnValidatedRecording(
+                        tipRecording,
+                        string.Format(ic, "blocked chain tip '{0}'", tipId),
+                        preserveIdentity: true,
+                        currentUT: currentUT,
+                        allowExistingSourceDuplicate: allowExistingSourceDuplicate);
             }
 
             if (spawnedPid == 0)
             {
-                ParsekLog.Error(Tag,
-                    string.Format(ic,
-                        "TrySpawnBlockedChain: spawn path returned pid=0 for tip '{0}' — spawn failed",
-                        tipId));
+                if (IsChainTipSettledWithoutVessel(tipRecording))
+                {
+                    ParsekLog.Info(Tag,
+                        string.Format(ic,
+                            "TrySpawnBlockedChain: tip '{0}' settled as abandoned - no vessel created",
+                            tipId));
+                }
+                else
+                {
+                    ParsekLog.Error(Tag,
+                        string.Format(ic,
+                            "TrySpawnBlockedChain: spawn path returned pid=0 for tip '{0}' — spawn failed",
+                            tipId));
+                }
                 EndCollisionBlockForNonCollisionFailure(chain, "spawn-failed-at-clear-position");
                 return 0;
             }
@@ -843,6 +872,35 @@ namespace Parsek
             return adoptedPid;
         }
 
+        /// <summary>
+        /// The #313 sea-level rule on every chain-tip spawn that is not placed by an orbit:
+        /// a Splashed tip spawns at altitude 0 whether its resolved altitude came from the
+        /// endpoint, a propagated surface hold or a walkback sub-step (which can carry a
+        /// recorded depth below the waterline).
+        /// </summary>
+        internal static double ResolveChainTipSurfaceSpawnAltitude(
+            Recording tipRecording, bool placedByOrbit, double spawnAlt, string logContext)
+        {
+            if (tipRecording == null || placedByOrbit
+                || tipRecording.TerminalStateValue != TerminalState.Splashed)
+                return spawnAlt;
+            return VesselSpawner.ClampSplashedSpawnAltitude(
+                spawnAlt, -1, tipRecording.VesselName, logContext ?? "chain-tip");
+        }
+
+        /// <summary>
+        /// True when the tip recording was settled with no vessel by a deliberate decision
+        /// (dead crew, invalid snapshot, KSC retirement): VesselSpawned + SpawnAbandoned with
+        /// no spawned pid. A pid-0 return in that state is not a spawn failure.
+        /// </summary>
+        internal static bool IsChainTipSettledWithoutVessel(Recording tipRecording)
+        {
+            return tipRecording != null
+                && tipRecording.VesselSpawned
+                && tipRecording.SpawnAbandoned
+                && tipRecording.SpawnedVesselPersistentId == 0;
+        }
+
         private uint SpawnChainTipWithResolvedState(
             Recording tipRecording,
             ConfigNode vesselSnapshot,
@@ -858,6 +916,9 @@ namespace Parsek
         {
             if (tipRecording == null || vesselSnapshot == null)
                 return 0;
+
+            spawnAlt = ResolveChainTipSurfaceSpawnAltitude(
+                tipRecording, orbitOverride != null, spawnAlt, logContext);
 
             ConfigNode spawnSnapshot = vesselSnapshot.CreateCopy();
             ChainTipRouteCargo.ApplyToSpawnCopy(spawnSnapshot, tipRecording, logContext);

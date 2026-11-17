@@ -615,6 +615,13 @@ namespace Parsek
                     {
                         RetireChainAtKsc(chain, rec, index);
                     }
+                    else if (VesselGhoster.IsChainTipSettledWithoutVessel(rec))
+                    {
+                        // A deliberate abandon (dead crew, invalid snapshot), not a failure:
+                        // the chain stays ghost-only.
+                        ParsekLog.Info("Flight",
+                            $"Chain tip spawn abandoned: #{index} \"{rec.VesselName}\" - no vessel created, chain stays ghost-only");
+                    }
                     else if (chain.SpawnBlocked)
                     {
                         // SpawnAtChainTip detected overlap — chain stays active, not removed

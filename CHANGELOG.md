@@ -30,9 +30,9 @@ Not released yet.
   moved this way now stays on the water surface, never under it. (TIP-SPAWN-PLACEMENT)
 - **A vessel or kerbal that ends at sea is created floating.** It was written as landed on the
   water, which KSP can treat oddly until the first physics frame. (TIP-SPAWN-PLACEMENT)
-- **The last vessel of a chain follows the normal end rules.** If its whole crew died, it is no
-  longer created as an empty capsule, and an orbital one is checked for room where it will
-  actually appear on its orbit, not where it was recorded. (TIP-SPAWN-PLACEMENT)
+- **A vessel whose whole crew died is never created as an empty capsule.** This now holds for the
+  last vessel of a chain and on every fallback path too. An orbital chain end is also checked for
+  room where it will actually appear on its orbit, not where it was recorded. (TIP-SPAWN-PLACEMENT)
 - **A vessel that ends away from Kerbin appears when you wait at the Space Center.** A landing
   or splashdown on another body, recorded from there, now appears when you time-warp past its
   end at the Space Center, not only on the next Tracking Station or flight visit. Like those
