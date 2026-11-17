@@ -1,0 +1,150 @@
+schema = 1
+id = "SPW-6-map-view-end-spawn-max-warp"
+# =====================================================================================
+# SPW-6: AN END CROSSED UNDER UNCAPPED WARP WITH THE MAP VIEW OPEN, IN FLIGHT.
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
+# tag `pending-flight`.)
+#
+# WHY. In flight view the engine suppresses ghost completion above 50x, so an end crossed
+# at high warp is only delivered on the downshift (SPW-4). With the MAP VIEW open that gate
+# does not apply (the #171 map exemption: orbital ghosts keep playing while the player
+# watches the map), so the completion is delivered WHILE the warp runs at its top rung and
+# the policy must queue it (`Deferred spawn during warp`) and hold the ghost; the held-ghost
+# retry or the 1x flush then makes the vessel. No committed lane crosses an end with the
+# map open.
+#
+# THE HOST AND ROAD: EVA-15's (`eva2-lko-crewed`, index-0 asteroid removed at staging)
+# without the EVA: record Kerbal X 424 -> 470 at 1x, commit, Rewind-to-Launch, SaveGame +
+# LoadGame at once into FLIGHT on the first pad debris (landed: the rails ceiling is
+# lifted). Then EnterMapView, WarpToUT ut=1000000 uncapped (100000x), ExitMapView, read.
+#
+# WHAT IS GATED: count 1; the strip; the reload before the end; the map open across the
+# warp (`entermapview ok` ... `exitmapview ok` around `warptout complete`); `Deferred spawn
+# during warp: #N "Kerbal X"` and then exactly one Orbital spawn of #N; read back spawned
+# with that pid; LeafVesselPlacement ok on Kerbin, no duplicate.
+#
+# PRE-REGISTERED READINGS:
+#   - the spawn lands from `Held ghost spawn succeeded on retry` (during the warp) or
+#     `Deferred spawn executing` (the 1x flush); either is accepted, the road is read.
+#   - a spawn made mid-warp at 100000x and then propagated by stock on rails may read
+#     `verdict=phase` if the spawn UT and the orbit epoch disagree: a finding.
+#   - stock's eased upshift may cross ~470 below the top rung; still a warp, still queued.
+#
+# FAST-LANE CHECKLIST: (1) EVA-15's host and road. (2) explicit-UT waits. (3)/(4)/(5) none.
+# (6) retry once. (7) count exact 1. (8) operator until measured. (9) flight_efficiency.py.
+# =====================================================================================
+tier = "operator"
+description = "Map view under max warp: on eva2-lko-crewed (asteroid removed) ~46 s of Kerbal X's low Kerbin orbit is recorded and committed, Rewound-to-Launch and reloaded into FLIGHT on a landed pad debris; with the map view open an uncapped WarpToUT (100000x) crosses the end. Pins that the completion is queued during the warp and the vessel is then made exactly once on its recorded orbit."
+instanceProfile = "stock-minimal"
+tags = ["SPW-6", "spawn", "end-spawn", "deferred-spawn", "terminal-orbit", "warp", "max-warp",
+        "map-view", "rewind-to-launch", "kerbin", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+# Ast. VPA-167, FLIGHTSTATE index 0 (EVA-15's recipe).
+[[fixture.liveState]]
+pid    = 1490391000
+remove = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw6-boot" },                     expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "424", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",   args = { ut = "470", maxRate = "1" },                 expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw6-commit-count-${c0.count}" }, expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "spw6-rewound" },                    expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "spw6-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw6-reloaded-count-${c1.count}-a-${c1.rec0}-${c1.rec0spawned}-${c1.rec0spawnedPid}-end" }, expect = "OK" },
+  # THE SUBJECT: the map open across an uncapped warp (header).
+  { cmd = "EnterMapView",                                                    expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",   args = { ut = "1000000" },                           expect = "OK", budget = 300 },
+  { cmd = "ExitMapView",                                                     expect = "OK", budget = 120 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw6-spawned-count-${c2.count}-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-end" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },         expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1, max = 1 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "Kerbal X" = 1, "Kerbal X Probe" = 1, "Kerbal X Debris" = 4 }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "committree committed=true",
+  "MISSIONMARK label=spw6-commit-count-1 ",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "MISSIONMARK label=spw6-reloaded-count-1-a-[0-9a-f-]+-false-0-end ",
+  # The map stays open across the whole warp.
+  "entermapview ok mapOpen=true(?:(?!exitmapview )[\\s\\S])*warptout complete reachedUT=[0-9.]+ ut=1000000 [^\\r\\n]*ladder=auto [\\s\\S]*?exitmapview ok mapOpen=false",
+  # Queued during the warp, then made once on the recorded orbit.
+  "entermapview ok mapOpen=true[\\s\\S]*?\\[Policy\\] Deferred spawn during warp: #([0-9]+) \"Kerbal X\"[\\s\\S]*\\[Spawner\\] Orbital vessel spawn for #\\1 \\(Kerbal X\\) pid=[0-9]+ [^\\r\\n]*terminal=Orbiting",
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw6-spawned-count-1-a-[0-9a-f-]+-true-\\1-end ",
+  "LeafPlacement: rec=[0-9a-f]+ vessel='Kerbal X' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
+  "MISSIONMARK label=spw6-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "entermapview (?:REJECTED|ERROR|threw) ",
+  "timejump ",
+  "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(Kerbal X\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\(Kerbal X\\)",
+  "Vessel spawn for #[0-9]+ \\(Kerbal X\\)",
+  "Spawn ABANDONED",
+  "Spawn RETIRED",
+  "Vessel spawn failed",
+  "SpawnAtPosition returned 0",
+  "Spawn-death detected",
+  "Deferred spawn cannot execute safely",
+  "Held ghost timed out: #[0-9]+ \"Kerbal X\"",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

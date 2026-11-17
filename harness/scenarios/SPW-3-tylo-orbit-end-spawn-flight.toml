@@ -1,0 +1,155 @@
+schema = 1
+id = "SPW-3-tylo-orbit-end-spawn-flight"
+# =====================================================================================
+# SPW-3: A TRUE END SPAWN AT TYLO (A JOOL MOON), IN FLIGHT, WITH THE PLAYER IN KERBIN ORBIT.
+# (End-spawn program, 2026-11-17, todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
+# tag `pending-flight`.) SPW-1's flight verbatim on a second Jool moon, so a body-specific
+# fault (Tylo's frame, a moon of a moon's SOI chain from the Kerbin-side active vessel) and
+# a Laythe-only accident read apart.
+#
+# THE HOST. `tylo-park-nerv` (B27's Tylo park, Parsek-stripped): the crewed Duna Rocket
+# (pid 807470910) ORBITING Tylo (SMA 738,486 m, ~138 km up, period ~2,370 s), nobody's
+# committed leaf; two `Duna Rocket Debris` in Kerbin orbit and the asteroid Ast. VPA-167 at
+# FLIGHTSTATE index 0 (removed at staging, so the post-rewind Space Center save focuses the
+# first debris).
+#
+# THE FLIGHT (SPW-1's, see its header for the reasoning of every step):
+#   boot    LoadGame (FLIGHT on the Duna Rocket, Tylo orbit, UT 29,017,600.0), hygiene.
+#   R       StartRecording, WarpToUT 29017905 (rails, ~300 s), stop, CommitTree, stop.
+#   rewind  InvokeRewindToLaunch tree=latest (the owner strip removes the Duna Rocket).
+#   reload  SaveGame + LoadGame: FLIGHT on the first debris in Kerbin orbit, before R's end.
+#   cross   WarpToUT 29018200 (rails).
+#   read    ListHandles before / after, LeafVesselPlacement in FLIGHT, SaveGame, quit.
+#
+# PRE-REGISTERED READINGS: SPW-1's, with Tylo for Laythe. One more: Tylo has no
+# atmosphere, so `TerminalOrbitSpawnSafety` reads the periapsis against the surface
+# clearance only; `Terminal orbit spawn deferred` here would be a finding.
+#
+# FAST-LANE CHECKLIST: SPW-1's (reuse its road, explicit-UT warps, no mission, retry
+# `once`, count pinned 1, operator until measured, flight_efficiency.py after the first
+# green flight).
+# =====================================================================================
+tier = "operator"
+description = "Far-body end spawn in FLIGHT (Tylo, a Jool moon): on tylo-park-nerv (asteroid removed) ~300 s of the Duna Rocket's Tylo orbit is recorded and committed, Rewound-to-Launch (the strip removes the Duna Rocket), reloaded into FLIGHT on a debris in Kerbin orbit, and a rails warp past the end must create the Duna Rocket once at Tylo through the recorded-terminal-orbit path, read back spawned with that pid and on its recorded orbit and phase (LeafVesselPlacement in FLIGHT)."
+instanceProfile = "stock-minimal"
+tags = ["SPW-3", "end-spawn", "far-body", "tylo", "jool", "orbital", "rewind-to-launch",
+        "leaf-placement", "ingame-batch", "warp", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/tylo-park-nerv"
+injectedRecordings = "none"
+craft              = []
+
+# Ast. VPA-167, FLIGHTSTATE index 0: removed so a Space Center save's `activeVessel = 0`
+# names a debris instead of a heliocentric asteroid (EVA-15's recipe).
+[[fixture.liveState]]
+pid    = 1490391000
+remove = true
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw3-boot" },                              expect = "OK" },
+  # R: a segment of the Tylo orbit.
+  { cmd = "StartRecording",                                                           expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",   args = { ut = "29017905" },                                   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "CommitTree",                                                               expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",                 expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw3-commit-count-${c0.count}" },          expect = "OK" },
+  # The rewind, then at once back into FLIGHT on the Kerbin-orbit debris.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "spw3-rewound" },                             expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "spw3-rewound" },        expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",                 expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw3-reloaded-count-${c1.count}-a-${c1.rec0}-${c1.rec0spawned}-${c1.rec0spawnedPid}-end" }, expect = "OK" },
+  # THE SUBJECT: past the end, with the player in Kerbin orbit.
+  { cmd = "WarpToUT",   args = { ut = "29018200" },                                   expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",                 expect = "OK" },
+  { cmd = "MissionMark", args = { label = "spw3-spawned-count-${c2.count}-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-end" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                  expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["tylo", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+# REPORT-ONLY until a reading run: one tree, one Orbiting recording, one spawned vessel,
+# the Duna Rocket once in the produced save beside its two debris.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1, max = 1 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "Duna Rocket" = 1, "Duna Rocket Debris" = 2 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Captured rewind save at UT ([0-9.]+): vessel \"Duna Rocket\" in ORBITING \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  "CommitTreeFlight terminal: rec=[0-9a-f]+ terminalState=Orbiting terminalOrbitBody=Tylo",
+  "committree committed=true",
+  "MISSIONMARK label=spw3-commit-count-1 ",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # The reload lands before the end: unspawned, no pid.
+  "MISSIONMARK label=spw3-reloaded-count-1-a-[0-9a-f-]+-false-0-end ",
+  # THE SPAWN: once, at Tylo, from the recorded terminal orbit.
+  "Spawn #[0-9]+ \\(Duna Rocket\\): using recorded terminal orbit propagated to current UT \\(ut=[0-9.]+, body=Tylo,",
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Duna Rocket\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw3-spawned-count-1-a-[0-9a-f-]+-true-\\1-end ",
+  # Placement: on Tylo, on its recorded orbit and phase, no pid on two vessels.
+  "LeafPlacement: rec=[0-9a-f]+ vessel='Duna Rocket' pid=[0-9]+ kind=orbit body=Tylo liveBody=Tylo [^\\r\\n]*verdict=ok",
+  "MISSIONMARK label=spw3-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Tylo\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "timejump ",
+  # Exactly one spawn, and never the snapshot fallback for an Orbiting end.
+  "(?:Orbital|EVA|Breakup) vessel spawn for #[0-9]+ \\(Duna Rocket\\)[\\s\\S]*(?:(?:Orbital|EVA|Breakup) vessel|Vessel) spawn for #[0-9]+ \\(Duna Rocket\\)",
+  "Vessel spawn for #[0-9]+ \\(Duna Rocket\\)",
+  "Spawn ABANDONED for #[0-9]+ \\(Duna Rocket\\)",
+  "Spawn RETIRED for #[0-9]+ \\(Duna Rocket\\)",
+  "Vessel spawn failed[^\\r\\n]*\\(Duna Rocket\\)",
+  "SpawnAtPosition returned 0",
+  "Spawn-death detected",
+  "Cannot spawn terminal orbit safely",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+# 3 x 300 LoadGame + 180 StartRecording + 2 x 300 warps + 120 CommitTree + 300 rewind +
+# 2 x 120 SaveGame + 300 RunTests = 2640, plus the inert steps.
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

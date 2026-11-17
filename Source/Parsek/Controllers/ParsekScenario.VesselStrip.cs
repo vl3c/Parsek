@@ -259,10 +259,7 @@ namespace Parsek
                 if (ShouldResetSpawnState(recordings[i], survivors))
                 {
                     uint oldPid = recordings[i].SpawnedVesselPersistentId;
-                    recordings[i].SpawnedVesselPersistentId = 0;
-                    recordings[i].VesselSpawned = false;
-                    recordings[i].SpawnAttempts = 0;
-                    recordings[i].SpawnDeathCount = 0;
+                    recordings[i].ClearTransientSpawnState();
                     TerminalOrbitSpawnSafety.Clear(recordings[i]);
                     ParsekLog.Info("Scenario",
                         $"Reconciled spawn state for recording #{i} \"{recordings[i].VesselName}\": " +
@@ -318,6 +315,24 @@ namespace Parsek
                 list.Add((pv.persistentId, g));
             }
             return list;
+        }
+
+        /// <summary>
+        /// Puts back the persisted spawn-death count (<c>spawnDeathCount</c>) the in-session
+        /// tree-mutable-state reset zeroed, the same way the cold-load codec reads it, so
+        /// <see cref="VesselSpawner.MaxSpawnDeathCycles"/> binds across scene changes: a vessel
+        /// that keeps dying on arrival is abandoned after its cap instead of being respawned on
+        /// every scene load. An absent key (older saves, no death) reads 0.
+        /// </summary>
+        internal static void RestorePersistedSpawnDeathCount(Recording rec, ConfigNode savedTreeRecNode)
+        {
+            if (rec == null || savedTreeRecNode == null)
+                return;
+            int savedDeaths = 0;
+            string deathStr = savedTreeRecNode.GetValue("spawnDeathCount");
+            if (deathStr != null)
+                int.TryParse(deathStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedDeaths);
+            rec.SpawnDeathCount = savedDeaths > 0 ? savedDeaths : 0;
         }
 
         /// <summary>

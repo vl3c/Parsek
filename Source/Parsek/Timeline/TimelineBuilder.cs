@@ -1212,11 +1212,12 @@ namespace Parsek
 
         /// <summary>
         /// Ledger rows that exist only as spawn evidence and get no timeline entry:
-        /// <see cref="GameActionType.VesselRecovered"/>.
+        /// <see cref="GameActionType.VesselRecovered"/> and <see cref="GameActionType.VesselTerminated"/>.
         /// </summary>
         internal static bool IsSpawnEvidenceOnlyActionType(GameActionType type)
         {
-            return type == GameActionType.VesselRecovered;
+            return type == GameActionType.VesselRecovered
+                || type == GameActionType.VesselTerminated;
         }
 
         private static bool IsInitialResourceSeed(GameActionType type)

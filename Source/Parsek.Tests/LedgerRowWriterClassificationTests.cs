@@ -56,6 +56,9 @@ namespace Parsek.Tests
                 // A real vessel's crew recovery and the vessel recovery's funds: stock paid them.
                 ["GameActions/LedgerOrchestrator.Recovery.cs::OnRealVesselCrewRecovered"] = new[] { Stock },
                 ["GameActions/LedgerOrchestrator.Recovery.cs::OnRealVesselRecovered"] = new[] { Stock },
+                // A player termination: the row moves no pool; it records an action stock already
+                // carried out (the vessel is gone), like the recovery row beside it.
+                ["GameActions/LedgerOrchestrator.Recovery.cs::OnRealVesselTerminated"] = new[] { Stock },
                 // A retired Re-Fly provisional's awards: "the walk would patch the career below
                 // what KSP already paid".
                 ["GameActions/LedgerOrchestrator.Commit.cs::FileRetiredReFlyProvisionalRows"] = new[] { Stock },

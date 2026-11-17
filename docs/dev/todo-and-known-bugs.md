@@ -127,6 +127,317 @@ fresh fork id, and the load sweep drops self rows), so it needs hand-edited rows
 `SupersedeCycleThroughAnOutsideRecording_ReadsWhatTheSlotWalkReads`. A fix belongs in the walk
 or the row loader, for every consumer at once.
 
+## ~~COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN~~: loading a save into FLIGHT after a recording's end, before its vessel spawned, drops the vessel for good [FILED 2026-11-17 by code reading during the end-spawn lane program (todo END-SPAWN-LANES-2026-11-17); no flight yet; SPW-8 and SPW-9 are pre-registered to red on it; high (a vessel the player was owed never appears, silently apart from one log line); FIXED 2026-11-17 under the id COLD-LOAD-DROPS-OWED-SPAWN (the same defect, found twice the same day); SPW-8 and SPW-9 should now read green]
+
+What happens. Every Cold load (a save-file load: the Load menu, and stock F9, which classifies Cold
+`coldReason=save-file` in `LoadReconcilePolicy`) runs the phase `crew-auto-unreserve`
+(`ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT`). Outside the Space Center it takes every
+non-loop recording whose EndUT is already past and whose vessel never spawned, unreserves its crew,
+NULLS its vessel snapshot and marks it spawned (`Auto-unreserved crew for recording #N (<name>) -
+EndUT passed without spawn`). Nothing spawns it afterwards: the flight scene sees a spawned recording
+with no snapshot.
+
+Two ordinary ways to get there:
+- a spawn still owed when the player quicksaves: a terminal-orbit spawn held until its next safe UT
+  (SS-1's Low Perigee Probe), a collision-held spawn, a spawn deferred by warp; F9 then drops it
+  (lane SPW-8);
+- a save written at the Space Center after an Orbiting or Docked end: the KSC never spawns those
+  (#171, `GhostPlaybackLogic.ShouldSpawnAtKscEnd` defers them to the flight scene), so the save holds
+  the recording unspawned past its end, and loading it into FLIGHT drops it (lane SPW-9).
+
+The phase predates the deferral paths: it was written when a past-end unspawned recording meant a
+spawn that could no longer happen. The comment above the call names only the Space Center exemption
+(bug #99), and it ignores `PlaybackScopeTracker` and every deferral state.
+
+Fix: not designed. The shape the lanes gate: a Cold load into FLIGHT (or the Tracking Station)
+leaves a past-end unspawned recording owed, and the scene's own end-spawn path makes it once
+(recorded terminal orbit for Orbiting ends). Whether the crew unreserve should still run for a
+recording that will spawn is part of the design question.
+
+## END-SPAWN-LANES-2026-11-17: harness lanes for end spawns at far bodies, under high warp and with a busy player [FILED 2026-11-17, branch `wip/spawnlanes2`, harness only; eleven lanes AUTHORED, NEVER FLOWN (tag `pending-flight`); OPEN: the flights, and two seam proposals]
+
+The lanes (each `tier = "operator"` until measured; rows in `docs/dev/autotest-status.md`):
+- `SPW-1` / `SPW-3` / `SPW-10`: a segment of a parked orbit at Laythe / Tylo / the Mun is recorded,
+  Rewound-to-Launch (the owner strip removes the vessel, so the end spawn has to CREATE it) and
+  reloaded into FLIGHT elsewhere; one Orbital spawn, read by LeafVesselPlacement in FLIGHT.
+  `SPW-2` does the same at Duna with the player sitting on the runway.
+- `SPW-4`: two EVA-split leaves crossed inside one uncapped rails warp (100000x).
+- `SPW-5`: an end crossed under 4x physics warp inside the bubble, ~30 m from the active probe.
+- `SPW-6`: an end crossed under uncapped warp with the map view open.
+- `SPW-7`: an end spawn while the player records another vessel (the recorder stays on its tree).
+- `SPW-8` / `SPW-9`: a quickload during a held spawn, and a Cold load past an unspawned end; both
+  pre-registered to red on COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN.
+- `SPW-11`: Real Spawn Control's row Warp pressed from orbit on EX-2's blocked target, its warp spawn
+  watch outcome, and the press refused once the target's end has passed.
+
+Not built, because no seam verb exists (proposals, not implemented):
+- "Warp to Next Spawn": `UiAction op=warpnext window=spawncontrol`, pressing the bottom-bar button
+  through its own click body (`SpawnControlUI` -> `ParsekFlight.WarpToNextCraftSpawn`), REJECTED with
+  the button's disabled reason when no candidate qualifies. A Mun target for Real Spawn Control
+  (a Mun-landed host with a short EVA walk recorded beside the lander) waits on it.
+- A merge dialog left standing in FLIGHT while an end passes: `AnswerMergeDialog` raises and presses
+  in one pass and `UiAction op=raise` covers four other popups, so no seam holds a tree merge dialog
+  open. Proposal: a raise-only mode (`AnswerMergeDialog hold=true`, answered by a later step).
+
+Done when each lane has flown once as a reading run and is re-pinned (count windows, the interim
+`BATCH_COMPLETE` split) or its red is filed.
+## ~~SPAWN-TS-STACK-NO-DE-OVERLAP~~: two landed deliveries that end on one spot while the player is in the Tracking Station are spawned inside each other [FILED 2026-11-17 by the end-of-recording spawn audit (END-SPAWN-SCENE-LANES-2026-11-17), by code reading; lane `TSS-3-two-deliveries-same-spot-ts` authored to red on it, NEVER FLOWN. ~~done~~ 2026-11-17, branch `wip/spawnfix3`; NOT YET FLOWN (TSS-3 is its regression lane)]
+
+What the code does. The Space Center end spawn nudges a Landed / Splashed spawn clear of every
+existing same-body landed vessel, proto vessels included (`ParsekKSC.cs`, the `#duplicate-stack`
+block: `VesselSpawner.GatherExistingLandedVesselPositions` ->
+`SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn`, 15 m minimum, logged `De-overlap for #N`).
+That block is the only caller of `ComputeDeOverlappedLandedSpawn`. The Tracking Station handoff
+(`GhostMapPresence.TryRunTrackingStationSpawnHandoffs`) spawns through `VesselSpawner`'s
+end-of-recording path, whose collision check (`SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels`,
+a `Physics.OverlapBox`) sees only LOADED vessels, and the Tracking Station has none. The comment on
+`GatherExistingLandedVesselPositions` names exactly this case ("At KSC / Tracking Station nothing is
+loaded"), but only the Space Center calls it.
+
+What the player sees (derived, not measured). Two flights of the same craft to the same base, both
+ending while the player sits in the Tracking Station (or warps there across both ends), are
+created at the same spot; loading that spot into physics puts two vessels inside each other
+(they push apart or explode). The same holds for a delivery landing on a vessel already standing
+there.
+
+Lane. `TSS-3-two-deliveries-same-spot-ts` (injected preset `spawn-stack`: two committed Landed
+probes ending 20 s apart on one KSC grass point) crosses both ends at 100,000x in the Tracking
+Station and pins `Spawning vessel: ... nearest vessel=<D>m` with D >= 10 for both, then loads FLIGHT
+on the spot and forbids `Spawn-death detected`. Red today on the second probe's nearest-vessel
+distance (~0 m expected). The same gap held for an end spawn far from the player in flight
+(defect F of the 2026-11-17 placement audit): the vessels there are unloaded too.
+
+Fix (2026-11-17). The shared end-of-recording spawn (`VesselSpawner.SpawnOrRecoverIfTooClose`,
+called by the Tracking Station handoff and by every flight end spawn) now runs the Space Center's
+de-overlap before its collision check (`ApplyEndOfRecordingLandedDeOverlap`, gated by the pure
+`ShouldDeOverlapEndOfRecordingSpawn`: non-EVA, Landed or Splashed, not on the recorded terminal
+orbit). It gathers with `GatherExistingLandedVesselPositions(..., includeLoadedVessels: false)`:
+loaded vessels stay with the bounding-box check and the trajectory walkback as before, so a spawn
+next to the player behaves as it did, and the unloaded rest (every vessel in the Tracking Station,
+the far ones in flight, including a delivery spawned earlier in the same handoff pass) is kept
+15 m clear. The tree-sibling and earlier-tree exemptions are the gather's, so a placed-part
+cluster is not pulled apart. A nudged spawn re-runs its floor at the new spot
+(`ReFloorNudgedSurfaceSpawnAltitude`: Landed `ClampAltitudeForLanded`, Splashed the recorded-depth
+rule); the Space Center de-overlap now does the same.
+Logged `[Spawner] De-overlap for #N "<name>": nudged <M>m (site=end-of-recording, ...)` (Verbose
+`clear` otherwise), worded like the Space Center line so the EVA-6 / EVA-9 / EVA-10 forbidden
+nudge patterns cover both sites. TSS-3 re-pinned: no longer an expected red, its `nearest vessel`
+pins kept, plus the de-overlap line. Tests: `TipSpawnPlacementTests` (`EndOfRecordingDeOverlap_*`,
+`Wiring_EndOfRecordingSpawn_DeOverlapsAgainstUnloadedLandedVesselsBeforeTheCollisionCheck`).
+
+## END-SPAWN-SCENE-LANES-2026-11-17: lanes for end-of-recording spawns in the Tracking Station and at the Space Center, and a placement check on the existing end-spawn lanes [FILED 2026-11-17 (the end-of-recording spawn audit). AUTHORED 2026-11-17, branch `wip/spawnlanes1`, harness and test-generator code only; NEVER FLOWN; OPEN for the first flights]
+
+Five new lanes, all `tier = "operator"`, tag `pending-flight`, one `RunTests LeafVesselPlacement`
+step each (loose interim batch pin, `INTERIM_PIN_IDS`):
+
+- `TSS-1-rover-delivery-ts-max-warp` (scope 1a, `pad-runway-pair`): a live 30 s rover drive
+  committed and Rewound-to-Launch, its Landed end crossed by an uncapped Tracking Station warp
+  (completion line pins `maxRate=100000`): one handoff spawn, placement checked in the Tracking
+  Station, and the same pid (no second rover) after a FLIGHT load focused on it.
+- `TSS-2-mun-orbit-end-ts` (scope 1b, `mun-park-kerbalx`): a 65 s Mun-orbit coast committed and
+  rewound, its Orbiting end paid by the Tracking Station on the recorded terminal orbit.
+- `TSS-3-two-deliveries-same-spot-ts` (scope 1c, `gloops-airshow` + the new preset `spawn-stack`):
+  authored EXPECTED RED on SPAWN-TS-STACK-NO-DE-OVERLAP (above), now its regression lane (fixed).
+- `KSS-1-mun-lander-ksc-end-spawn` (scope 2a, B13's flight on `b2-lko-craft`): a Kerbin-launched
+  Mun landing, rewound, its Landed-on-the-Mun end spawned at the Space Center (the live proof of
+  KSC-END-SPAWN-SKIPS-OFF-KERBIN's fix).
+- `KSS-2-orbit-deferred-ksc-then-ts` (scope 2b, `eva2-lko-crewed`): an LKO coast end deferred at
+  the Space Center (nothing spawned) and paid on the next Tracking Station visit.
+
+Scope 3: `EVA-15` and `SS-1` gained a final `RunTests LeafVesselPlacement` step, `SEAT-2` one right
+after its spawn (before the switch, whose committed-tree restore clears the recording's spawn
+pid); loose interim batch pins until re-flown. Each pin was checked against what the lane's last
+green flight proves (EVA-15: both Orbital spawns in its required tokens; SS-1: both vessels in its
+armed census, the synthetic Situation Hopper carrying no `TerminalPosition`, so unsupported;
+SEAT-2: the one recording's spawn pid in its `seat2-spawned` mark). WITHDRAWN from `EVA-10`: in its
+re-flight `2026-11-17_1735` the rewind KEEPS the fixture recording `06f15e8c...` as committed history
+with spawn pid 2708531065, and the stock Kerbal X the lane launches from the SPH takes that same
+craft-baked pid on Kerbin (`launchfromeditor complete ... pid=2708531065`); whether a later
+reconcile clears that stamp is not readable from the log, and if it does not, the cell (which
+matches by bare pid) compares a Mun terminal position against a Kerbin runway vessel and FAILS a
+lane green today. Proposal (C#, not built): guid-gate the cell's pid match through
+`VesselLaunchIdentity` the way spawn adoption is. Not changed, and why: LAB-7 and MINE-2 / MINE-9 (their spawns
+come through `TimeJump`, a different path), RSC-1 (its synthetic leaves carry no
+`TerminalPosition`, so the cell reads them unsupported), RSC-3, the AST lanes (walkback spawns
+are moved on purpose), the stationary MINE rovers (the vessel never left its spot).
+
+Test-generator support: `RecordingBuilder.WithTerminalPosition` and `ScenarioWriter` writing it, the
+preset `spawn-stack` (`SyntheticRecordingTests.InjectSpawnStack`, wired in `hlib.INJECTED_RECORDINGS`,
+`run.py` and `scripts/inject-recordings.ps1`).
+
+~~Proposal: a vertical verdict in `LeafVesselPlacement`~~ (built 2026-11-17, branch
+`wip/spawnfix3`, REPORT-ONLY). The cell checked a Landed / Splashed leaf by surface distance only,
+so a vessel buried or floating a few metres read ok. Each Landed / Splashed leaf now also logs
+`LeafPlacement height: rec=... terminal=... body=... altM=... refM=... deltaM=... floorM=...
+heightVerdict=ok|below-surface|above-surface|below-sea-floor|off-recorded-depth|unsupported` (pure
+`LeafVesselPlacement.CompareHeight`: Landed against `body.TerrainAltitude(lat, lon, true)`, bad
+1 m under or 10 m over it; Splashed against its RECORDED depth per the owner ruling of 2026-11-17
+(TIP-SPAWN-PLACEMENT S1), bad 1 m under the sea floor or 10 m off that depth), and one
+`LeafPlacement height summary: scene=... checked= ok= bad= unsupported=` line. Its own prefix and
+token: the pinned `LeafPlacement summary:` line, the `LeafPlacement: ... verdict=` rows and the
+cell's pass / fail are unchanged (no new `[InGameTest]`), and none of the 25 committed specs that
+run the cell has a pattern matching the new lines (checked by script). Caveats: the live altitude
+is the vessel's reference point, not its lowest part, and the terrain is PQS only (a vessel on the
+pad or a building reads high). To gate a lane on it, pin
+`LeafPlacement height: [^\r\n]*heightVerdict=(?!ok)` as forbidden after a reading run.
+
+First flights owed, in this order: TSS-1, TSS-2, KSS-2, TSS-3 (no longer an expected red:
+SPAWN-TS-STACK-NO-DE-OVERLAP is fixed), KSS-1 (a full B13 flight), then re-fly the four changed
+lanes. Each is a reading run: pin what it measures, the new height lines included.
+
+---
+
+## ~~TIP-SPAWN-PLACEMENT~~: where an end-of-recording vessel is placed: four confirmed defects in the walkback, the splashed clamp, the over-water test and the chain tip [FILED 2026-11-17 from the tip-spawn verification pass (items G, H, S1, S2; headless proofs on scratch branch `scratch/spawnverify` 39102b11, never pushed), by code reading and failing xUnit cells. FIXED 2026-11-17, branch `wip/spawnfix2`; xUnit (`TipSpawnPlacementTests`); no lane flies any of the four paths; medium (a vessel placed far off its path, under water, or as an empty capsule)]
+
+- **G, walkback read Relative offsets as lat/lon.** `TryWalkbackForEndOfRecordingSpawn` handed the
+  flat `rec.Points` list to `WalkbackAlongTrajectorySubdivided` with no frame dispatch and no
+  body check, so a lander that approached a base inside a RELATIVE section walked into
+  anchor-local metres read as degrees (proof: a candidate 885 m off the path). Fix:
+  `SpawnCollisionDetector.ResolveWalkbackPointsOnBody` keeps only the contiguous run ending at
+  the last point that places on the spawn body, substituting a Relative point's body-fixed
+  shadow (`FlatPointFrameDispatch`) and stopping at a Relative point with no shadow or at a point
+  on another body. The end-of-recording collision path walks that run (fewer than two points
+  falls to the existing single-point retry path), and the chain-tip walkback
+  (`VesselGhoster.TryWalkbackSpawn`) uses the same run. The Orbiting-end variant (walkback
+  coordinates mixed with a propagated orbit) was only plausible and is not addressed.
+- **S1, the Splashed spawn altitude differed by path.** The walkback clamp only lowered a
+  positive altitude to 0 while the endpoint floored every Splashed spawn to sea level (#313).
+  First fix (`wip/spawnfix2`): one helper used by both, flooring to 0. **Owner ruling 2026-11-17
+  reverses #313:** a Splashed end spawns at its RECORDED depth (a submarine that ended 50 m down
+  appears 50 m down, where its ghost held it, instead of popping to the surface with a ~50 m jump
+  at the ghost-to-vessel handoff). #313 floored an EVA kerbal recorded at -0.2 m so he would not
+  appear under water; he now spawns where he was recorded and swims up. The one real hazard kept
+  solved: a spot shallower than the recorded depth (a walkback sub-step, a de-overlap nudge, a
+  terrain change). Fix (`wip/spawnfix3`): `VesselSpawner.ResolveSplashedSpawnAltitude(alt,
+  seaFloor, ...)` keeps a depth <= 0, sends a positive altitude to 0, and raises a depth below
+  `TerrainAltitude(lat, lon, true) + UndergroundSafetyFloorMeters` (2 m) to that floor, never above
+  0 (unknown floor, e.g. headless: no floor). Used by `ResolveSpawnPosition` (so the Space Center
+  end spawn too; sea floor read headless-safe by `TryReadSeaFloorAltitude`), the collision
+  walkback, both de-overlaps (`ReFloorNudgedSurfaceSpawnAltitude`, which the Space Center
+  de-overlap now also runs, Landed included) and every non-orbital chain-tip spawn
+  (`VesselGhoster.ResolveChainTipSurfaceSpawnAltitude`, sea floor under the tip). The chain tip's
+  underground terrain correction no longer runs for Splashed (`TerrainCorrector.ShouldCorrectTerrain`
+  returns false for it, its only caller being that site): it reads `TerrainAltitude(lat, lon)`, which
+  clamps a sea floor to 0, so it rewrote a resolved -50 m tip to +2 m before `RespawnVessel`. Logged
+  `Clamped altitude for SPLASHED spawn #N (...): X -> Y (above-sea-level|below-sea-floor, ...)` or
+  `Splashed spawn #N (...) keeps its recorded depth alt=...` (rate-limited). Not flown: no lane has
+  a submerged end; a submarine lane (scratch `submarine.md` design) would pin the depth line and
+  the `LeafPlacement height:` reading.
+- **S2, a sea spawn was written LANDED.** `SpawnAtPosition` read `body.TerrainAltitude(lat, lon)`,
+  whose stock default `allowNegative = false` clamps a sea floor to 0 (decompiled IL), so
+  `overWater` was always false and `DetermineSituation` wrote `sit=LANDED` for a Splashed EVA,
+  breakup or position-routed spawn at alt <= 0. Fix: `VesselSpawner.IsSpawnOverWater` reads
+  `TerrainAltitude(lat, lon, true)`.
+- **H, chain tip skipped two end-of-recording rules.** (1) No all-crew-dead abandon (#170):
+  `SpawnChainTipWithResolvedState` now runs `VesselSpawner.TryAbandonChainTipForDeadCrew` before
+  spawning, settling the tip VesselSpawned + SpawnAbandoned with the no-living-crew note (EVA tip
+  exempt), the same outcome as an invalid-materialization abandon on this path: the chain stays
+  ghost-only. The same guard runs on the chain tip's snapshot-respawn fallbacks (no tip point,
+  unresolved position or body) and, through `VesselSpawner.TryAbandonEndOfRecordingSpawnForDeadCrew`,
+  on the end-of-recording fallbacks (no trajectory, unresolved endpoint body), which also lacked
+  it. A deliberate settle (`VesselGhoster.IsChainTipSettledWithoutVessel`) now logs as an Info
+  abandon instead of the `spawn failed` Error / Warn lines. (2) An orbital tip was collision-checked at its snapshot position while it spawns
+  at its terminal orbit propagated to the spawn UT: `SpawnAtChainTip` now resolves that state
+  first and checks there. The other three H claims (per-kerbal crew, the attempts cap, the EVA
+  exempt pid) were refuted.
+
+---
+
+## ~~SPAWNED-VESSEL-TERMINATED-RESPAWNS~~: an end vessel the player terminates or deletes in the Tracking Station is spawned again [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; medium (a vessel the player threw away comes back)]
+
+Cause. `ParsekScenario.OnVesselTerminated` (fired by stock only from
+`SpaceTracking.OnVesselDeleteConfirm`, i.e. TS Terminate / Delete) stamped only the pending tree.
+The committed recording kept `VesselSpawned` and its pid, so the next flight's
+`RunSpawnDeathChecks` found the pid missing, counted a spawn death and reset the recording for a
+respawn. The 3-cycle cap did not bound it: `SpawnDeathCount` was not saved and every in-session
+load zeroed it.
+
+Fix. A termination writes a `VesselTerminated` ledger row (new `GameActionType` 42, additive, same
+keys as `VesselRecovered`; `LedgerOrchestrator.OnRealVesselTerminated`), mirroring the owner-ruled
+recovery row: same owner selection, skipped under crew-event suppression, pid 0 or an active
+Re-Fly, deduplicated, retired by a Re-Fly supersede, no impact on any resource. It is not recovery
+evidence. `RunSpawnDeathChecks` clears the spawn claim with no respawn when the row exists
+(`TryClearTerminatedSpawnClaim`), and `TryRejectSpawnForTerminalAndSituation` rejects the spawn.
+`SpawnDeathCount` is now saved (`spawnDeathCount`, written when above 0, restored on in-session
+loads by `RestorePersistedSpawnDeathCount`), and a recording that already reached the cap stays
+abandoned with no further increment. A genuine spawn death (not the player) still retries within
+the cap. The row also ends the crew holds of the terminated vessel: `KerbalsModule`'s walk adds
+a closure at the row's UT for each kerbal its owner recording still carries (Aboard / Unknown),
+scoped like a recovery (`CollectTerminationClosures`, `RecoveryClosesHold`), and the crew
+reservation walk now reads the row. It is never a recovery (no `KerbalRecovered` row, no reward);
+stock's own Missing -> respawn handling takes the kerbal from there, a rewind before the row holds
+him again, and a supersede that tombstones the row reopens the hold. Without it the vessel, which
+no longer respawned for a later recovery, left its crew reserved forever. Tests:
+`VesselTerminatedRowTests`; in `KerbalRecoveryReservationCloseTests`
+`TerminatedCrewedVessel_EndsTheOpenEndedHold_WithoutARecovery`,
+`TerminationClosure_RewindReReserves_AndATombstonedRowReopensTheHold`,
+`CollectTerminationClosures_OnlyTheOwnersAboardCrew_NeverARecovery`; the in-session restore of
+the count is gated by `LoadReconcileWiringGateTests.InSessionLoadRestoresTheSpawnDeathCountAfterTheReset`.
+
+## ~~SPAWN-FAILED-NO-GHOST-NEVER-RETRIED~~: a completion with no ghost whose end spawn fails is not retried in that scene [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; low (the vessel appears late, on the next scene change)]
+
+Cause. `ParsekPlaybackPolicy.HandlePlaybackCompleted` held a failed spawn for retry only when a
+ghost was active (`heldGhosts`); `FlushDeferredSpawns` logged "flushed without materializing" and
+dropped it, and the engine's completion is one-shot. Real trigger: an Orbiting end deferred from
+the Space Center to flight, entered past its end, held by `TerminalOrbitSpawnSafety` or pending
+placement.
+
+Fix. A separate id-keyed retry set `ghostlessSpawnRetries` (kept out of `heldGhosts` so the
+engine's `IsGhostHeld` and ghost release are untouched) is armed from both places and driven by
+`RetryGhostlessSpawns` at the start of `RetryHeldGhostSpawns`, with the held-ghost timeout and
+decision (`DecideHeldGhostAction`); under warp it hands the spawn to the deferred queue. Logs
+"Spawn retry armed with no ghost" / "succeeded" / "gave up". Tests in `DeferredSpawnTests`
+(`NoGhostCompletion_*`, `WarpFlush_FailedSpawnWithNoHeldGhost_ArmsTheRetry`).
+
+## ~~SPAWN-ABANDON-SURVIVES-LOAD~~: an in-session load or a Re-Fly strip keeps the spawn abandon state while clearing the spawn claim [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; low]
+
+Cause. `ResetTreeRecordingMutableStateForLoad` and `ReconcileSpawnStateAfterStrip` cleared
+`VesselSpawned`, the pid, `SpawnAttempts` and `SpawnDeathCount` but left `SpawnAbandoned`,
+`WalkbackExhausted`, `CollisionBlockCount` and `DuplicateBlockerRecovered`; only
+`RewindLauncher.ClearSpawnState` cleared them. The recording was eligible again with a stale
+abandon: a failed retry was marked spawned with pid 0 and no failure log, and a successful one was
+never death-checked.
+
+Fix. One `Recording.ClearTransientSpawnState` clears the whole family and all three resets call
+it (the load reset also clears `TerminalOrbitSpawnSafety`), so an in-session load starts the
+recording like a cold load. The persisted terminal-orbit abandon and the persisted spawn-death
+count are put back after the reset as before. Tests in `SpawnStateReconciliationTests`
+(`InSessionLoadReset_ClearsTheAbandonFamily_LikeAColdLoad`,
+`ReFlyStripReconcile_ClearsTheAbandonFamily`).
+
+## ~~COLD-LOAD-DROPS-OWED-SPAWN~~: a cold load into flight marks in-scope recordings that still owe their end spawn as spawned [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; low (the vessel appears on the next scene change, its crew free meanwhile)]
+
+Cause. `ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT` unreserves the crew, drops the
+snapshot and stamps `VesselSpawned` for every non-loop recording past its end outside the Space
+Center, without consulting `PlaybackScopeTracker`, so warp-deferred, held and KSC-deferred orbit
+spawns were dropped too.
+
+Fix. A recording in replay scope (`PlaybackScopeTracker.IsInReplayScope`, installed from the save
+before this step) is skipped, with a Verbose line per recording and one Info summary. The plain
+historical case is unchanged. Test:
+`ParsekScenarioOnLoadPhaseTests.AutoUnreserve_ColdLoadIntoFlight_KeepsInScopeRecordingThatOwesItsSpawn`.
+
+## ~~REFLY-LIFTS-HISTORICAL-GATE-FOR-ALL~~: an active Re-Fly lifts the historical-never-replayed gate for every recording, not only the session's tree [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; low]
+
+Cause. Flight, Tracking Station, Space Center and the TS map lifecycle passed "Re-Fly active" into
+`GhostPlaybackLogic.ResolveHistoricalNeverReplayed`, which then answered false for every
+recording, so an unrelated historical recording with pid 0 could spawn during a Re-Fly.
+
+Fix. The exemption is scoped to the session's tree: `IsInReFlySessionTree(marker, rec)` (marker
+tree id equal to the recording's; a marker with no tree id keeps the old whole-world answer).
+Tests in `LoopFirstRunSpawnTests` (`ReFlyActive_UnrelatedTreeRecording_KeepsHistoricalGate`,
+`IsInReFlySessionTree_NoMarker_StandaloneRecording_AndTreelessMarker`).
+
+## ~~TIMEJUMP-CROSSED-CHAIN-TIPS-DEAD~~: `TimeJumpManager.SpawnCrossedChainTips` was unreachable and bypassed the end-spawn gate [FILED 2026-11-17 from the tip-spawn defect verification (headless probes, branch `spawnverify`, scratch cells in 39102b11), by code reading. FIXED 2026-11-17, branch `wip/spawnfix1`; xUnit; no lane gates it yet; cleanup]
+
+Every `ExecuteJump` caller passed no chains, so the step never ran; wired up, it would have
+spawned past `ShouldSpawnAtRecordingEnd`. Deleted with `FindCrossedChainTips`,
+`VesselGhoster.IsChainTipSettledAsKscRetirement` and their tests; `ExecuteJump(targetUT)` takes the
+target only, and end spawns after a jump come from the playback loop. The
+`facts_pins.toml` uncalled pin is gone with it.
+
+---
+
 ## ~~RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK~~: a resumed recording whose end is a predicted terminal ahead of the clock gives its restore attempt a history cutoff in the future, so everything the resumed flight earns reads as committed history [FILED 2026-11-16 from the v1.0.2 release check, lane RF-11-both-slots-in-sequence, run `2026-11-16_2341` (release build) failing against the pass `2026-11-11_0134` (pre-#2622). FIXED 2026-11-17, branch `item30-restore-cutoff`, PR #2687; xUnit + mutation; LIVE-PROVEN 2026-11-17: RF-11 `2026-11-17_1712` and `2026-11-17_1730` PASS attempt 1, SE-1 `2026-11-17_1714` and `_1729` PASS, RC-7 `2026-11-17_1728` PASS; high (a Re-Fly slot the player kept open seals itself at the next load, and value from a discarded flight stays in the ledger). OPEN: residue (d) and the killed run note below]
 
 What the player sees: re-fly a slot, merge with "Commit, don't seal" while the vessel still
@@ -234,7 +545,7 @@ and Release: 35812 total, 35627 passed, 0 failed, 185 skipped. The same `item30-
 AST-3 red (`2026-11-17_1636`, `firstReason=member-not-slot-tip`) is not evidence either way; it
 is todo SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL.
 
-## ~~KSC-END-SPAWN-SKIPS-OFF-KERBIN~~: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. FIXED 2026-11-17, branch `kscspawn`; xUnit; re-flights owed (LAY-1 goes green, the lanes below confirm nothing new spawns); medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
+## ~~KSC-END-SPAWN-SKIPS-OFF-KERBIN~~: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. FIXED 2026-11-17, branch `kscspawn`; xUnit; LIVE-PROVEN 2026-11-17: LAY-1 `2026-11-17_1740` PASS attempt 1 and the nine confirmation lanes below green in the same run (`spawn-reflight-2026-11-17`, Debug DLL from main e9353aa5); medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
 
 What happened. LAY-1 landed the crewed Duna Rocket's pod on Laythe and committed it
 (`CommitTreeFlight terminal: rec=ba455ab6a039477ab19b9b362b1d4240 terminalState=Splashed
@@ -363,10 +674,28 @@ mission lanes (GUI-4, GUI-10, GUI-11, GUI-27, MS-1), CI-7, CI-10, EVA-14, H58 an
 next full nightly / operator run covers them. Spec comments naming `IsKscStructurallyEligible`
 now name `IsKscDrawEligible` (comments only), and EVA-10's say why it still spawns in FLIGHT.
 
-Gate. LAY-1 keeps `LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]*
+Gate. LAY-1 kept `LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]*
 bad=0 ... bodies=[...Laythe...]` and `BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* ...
 category=LeafVesselPlacement scene=SPACECENTER` unchanged; it is the lane that reds on this
 defect and goes green with the fix.
+
+Live proof (2026-11-17, runner run `spawn-reflight-2026-11-17` on V's PC, Debug DLL from main
+e9353aa5, sha256 prefix 966424bf; diagnostics on branch `forge-logs-2026-11-17-spawn`, folder
+`logs-carrier/spawn-reflight-2026-11-17/<runId>/`; every lane PASS attempt 1). LAY-1
+`2026-11-17_1740`: `KSC structural pass: drawable=0 spawnOnly=7`, `Spawn-only past-end: attempting
+spawn for #1 "Duna Rocket" ... reason=off-kerbin firstBody=Laythe`, `Attempting spawn for #1`,
+`Vessel spawned for #1 "Duna Rocket" pid=1661887435 sit=SPLASHED`, `LeafPlacement: ... kind=surface
+body=Laythe liveBody=Laythe distM=0.0 verdict=ok`, `LeafPlacement summary: scene=SPACECENTER
+compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=[Laythe]`, `BATCH_COMPLETE v1
+total=1 passed=1 failed=0 skipped=0`; both now pinned whole. Confirmations, unchanged as
+predicted: FAR-1 `_1737` (DD1 `Spawn-only past-end ... firstBody=Ike` then `Spawn not needed ...:
+orbital vessel deferred to flight scene (terminal=Orbiting)`, `compared=1 ok=1 ... duplicate=0 ...
+bodies=[Ike]`), FAR-2 `_1746` (`compared=3 ok=3 ... duplicate=0 ... bodies=[Duna,Kerbin]`), V20K
+`_1749` (`1 committed recordings, 0 eligible`, `spawnOnly=1`, no spawn), EVA-10 `_1735` (no KSC
+spawn line), V31M `_1751` and V33T `_1750` (`spawnOnly=1`, no spawn), and of the chain hold-back
+candidates H58 `_1748`, MINE-4 `_1735` (its three Kerbin spawns as before) and MS-1 `_1752`. No
+`Spawn held back` line in any of the twelve logs, so the chain hold-back itself is still proven by
+xUnit only.
 
 ## V22T-TS-ADOPTION-BRANCH-UNFLOWN: no committed lane flies the Tracking Station's adoption of an already-live vessel [FILED 2026-11-16 from V22T's red on the 1.0.2 release flight; V22T RE-PINNED AND RE-FLOWN GREEN, branch `item29-v22t-repin`. OPEN: the coverage gap]
 
@@ -2575,8 +2904,9 @@ in parallel in the cloud):
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the
    end spawn through `LeafVesselPlacement`); it needs a new Space Center category that samples each
    live KSC ghost's world position against the recording's interpolated lat / lon / alt.
-3a. [ ] (AUTHORED 2026-11-16 as `RVC-1-two-rover-head-on-crash`; branch `crash-lanes`. Flown three
-   times 2026-11-17, never green, re-shaped twice; re-flight owed.)
+3a. [x] ~~(AUTHORED 2026-11-16 as `RVC-1-two-rover-head-on-crash`; branch `crash-lanes`. Flown three
+   times 2026-11-17, never green, re-shaped twice.)~~ Done 2026-11-17: LIVE-PROVEN on its fourth
+   flight, `2026-11-17_1740` PASS attempt 1 (358 s, below).
    Two rovers driving into each other (owner request 2026-11-16): two recorded rovers collide
    on the ground; checks both recordings end at the impact (Destroyed or a stopped Landed terminal)
    and both ghosts replay the collision at the same place and time.
@@ -2621,10 +2951,17 @@ in parallel in the cloud):
    contact), then after the 1x wait to UT 170 `PartAction button=explode` on the miner's radiator
    4129919072 and the depot's 2576286852; the depot's impact transition stays the gate that the
    impact happened, and the replay pins both radiators' visibility by part pid. `untilCrash` has
-   no flier after this. Next: fly it again (harness only).
+   no flier after this.
+   Flight 4 (2026-11-17, `2026-11-17_1740`, runner run `spawn-reflight-2026-11-17`, Debug DLL
+   from main e9353aa5): PASS attempt 1, 358 s. The depot pushed again (`Environment transition:
+   pid=1093449218 -> SurfaceMobile at UT=130.08`), both radiators' part deaths on both recorders,
+   commit `recordings=4`, both leaves Landed, the replay hid `pid=4129919072` on rec=2 and
+   `pid=2576286852` on rec=3; ghost lifecycle 4 / 4 balanced (report-only). Recordings 4 now pinned
+   exactly (count, commit line, mark); tag `flown`.
 3b. [ ] (AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
    re-tuned on branch `air3tune`; RE-FLOWN TWICE 2026-11-17 INVALID (no release), the release
-   fixed on branch `air3tune`, not yet re-flown.)
+   fixed on branch `air3tune`; FLOWN A FIFTH TIME 2026-11-17, the collision flown, PARSEK-FAIL on
+   one spec error, re-pinned on branch `wip/air3read`, re-flight owed.)
    Two airplanes flying into each other (owner request 2026-11-16): two recorded aircraft collide
    in the air; checks both recordings end at the impact and both ghosts replay it.
    Shape: the craft `AIR Drone Carrier` (`harness/tools/build_air_drone_carrier.py`, in
@@ -2671,7 +3008,31 @@ in parallel in the cloud):
    `loiterCaptures` gate lines, and the ring carries roll / hdg / vspd / lon for aircraft.
    `CalibratedLoiterTests` fits a loiter model to the re-flight's eastward leg (capture point
    within 0.01 deg, roll 9 - 10 deg), reproduces the stall without the roll-out, and releases
-   15 - 28 s into the first leg with it. Next: re-fly (no new DLL).
+   15 - 28 s into the first leg with it.
+   Flight 5 (2026-11-17, `2026-11-17_1741`, runner run `spawn-reflight-2026-11-17`, Debug DLL from
+   main e9353aa5; diagnostics on branch `forge-logs-2026-11-17-spawn`): MISSION-OK, then
+   PARSEK-FAIL(expectation) attempt 1, 763 s (recorded here per the rule; not re-run away). The
+   roll-out released the drone at UT 328.78 / 2,502.6 m; the Mallard hit it at UT 466.62 on the
+   first pass. The drone died whole (`fuelTank Exploded!!`, `Part death on background vessel:
+   Destroyed 'fuelTank' pid=1731918054 vesselPid=2276105202`, root `radialDecoupler1-2 Exploded!!`,
+   `Background vessel destroyed: pid=2276105202`, finalized `terminal=Destroyed`), the carrier lost
+   its nose cone (38 -> 37) and later its wings and splashed. The one unmatched pin: an `apply
+   family=Destroyed surface=visibility` on the drone ghost's own index between `air3-rewound` and
+   `air3-replayed`. SPEC ERROR, not a defect. Recorder side: the drone recording HAS its collision
+   part events (`CommitTree: merged recording '517d7f67...' in-place (sections=1 events=5)`: the
+   two chute events plus Decoupled probe core, Destroyed fuel tank, Decoupled fuel tank, all UT
+   466.62), 0.02 s before its Destroyed end (terminal UT 466.64). Playback side: a non-loop ghost
+   past its EndUT leaves the in-range branch (`ParsekKSC.UpdateSingleGhostKsc`, `inRange =
+   currentUT <= rec.EndUT`; flight: `GhostPlaybackEngine.Completion`), and both hosts fire the
+   whole-ghost explosion and destroy it without catching up tail part events (only flag events
+   are caught up, `ApplyFlagEventsAtTimelineEnd`). At 10x one frame stepped past both UTs, so ghost
+   #2 (`entered range: targetUT=328.9 recUT=[328.8,466.6] ... terminal=Destroyed`) applied only its
+   two chute events and logged `Explosion for ghost #2 "AIR Drone Carrier Probe"
+   vesselLength=17.7m` and `exited range at UT 466.7`; the carrier's ghost #0 applied its nose cone
+   `Destroyed` in that frame. A part hidden 0.02 s before the whole ghost explodes is not visible,
+   so the dropped tail events change nothing on screen. Re-pinned: the drone ghost's
+   `terminal=Destroyed` entry and `Explosion for ghost #<same index> "AIR Drone Carrier Probe"`;
+   tag still `pending-flight`. Next: re-fly (no new DLL).
 4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
    B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M green
    `2026-11-14_2320` on 2d8c25442.)
@@ -2741,8 +3102,9 @@ in parallel in the cloud):
    a Minmus or orbital miner, a boat, and the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT formation
    flight through an SOI edge with a background wingman. THREE LANES AUTHORED 2026-11-17
    (harness only, no C# change, tier operator). BOAT-1 (`2026-11-17_1419`, 207 s) and SOI-2
-   (`_1422`, 291 s) LIVE-PROVEN on their first flights, PASS attempt 1; LAY-1 is not yet green
-   (its 2026-11-17 flight is read separately):
+   (`_1422`, 291 s) LIVE-PROVEN on their first flights, PASS attempt 1; LAY-1 LIVE-PROVEN on its
+   second flight (`2026-11-17_1740`, 724 s), the first on the KSC-END-SPAWN-SKIPS-OFF-KERBIN fix.
+   All three lanes are done; the item stays open for the unbuilt Minmus miner only:
    - `LAY-1-laythe-reentry-splashdown`: the crewed Duna Rocket parked in Laythe orbit
      (`laythe-park-nerv`) deorbits on its NERV, drops its radial tanks and core stack, reenters
      on the heat shield and comes down under its chutes on Laythe. `b4_reentry` gained an
@@ -2753,7 +3115,10 @@ in parallel in the cloud):
      terminal on Laythe, then Rewind-to-Launch, a Tracking Station visit (its map ghost read on flight 1, not gated) and the end
      spawn (LeafVesselPlacement). Not checked: the ghost mid-descent. FIRST FLIGHT
      `2026-11-17_1417`: everything through the commit, rewind and Tracking Station held; red on
-     the end spawn only, a Parsek defect (KSC-END-SPAWN-SKIPS-OFF-KERBIN); re-flight after its fix. Eve was not used: its only
+     the end spawn only, a Parsek defect (KSC-END-SPAWN-SKIPS-OFF-KERBIN). SECOND FLIGHT
+     `2026-11-17_1740` on the fix: PASS attempt 1, the pod spawned Splashed on Laythe at the Space
+     Center (`compared=1 ok=1 ... bodies=[Laythe]`, `distM=0.0`), batch and summary pinned whole,
+     recordings 7 exactly. Eve was not used: its only
      park (`eve-park-kerbalx`) is ~5,000 km high and its Mk1 pod has no heat shield.
    - `BOAT-1-mallard-water-taxi`: the stock Mallard afloat east of KSC drives 400 m on the water
      on its jets and comes to rest (new mission `boat1_water_taxi`, `mlib.boat_decide`), on the
@@ -3198,7 +3563,7 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
 - [ ] B9: no lane flies an aircraft, a boat, a live atmospheric landing off Kerbin or a Minmus /
   orbital miner (the claw has only the synthetic H41 / H42 cells). Aircraft: AIR-1 green
   2026-11-16. Orbital miner: AST-3 green 2026-11-15. Boat: BOAT-1 green 2026-11-17. Laythe
-  landing: LAY-1 authored 2026-11-17, not yet green. Minmus miner: open
+  landing: LAY-1 green 2026-11-17 (`2026-11-17_1740`). Minmus miner: open
   (NEXT-TESTS-TO-BUILD-2026-11-11 item 9).
 - [ ] Fixes proven by xUnit only, never seen in game: ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER,
   RESCUE-PLACED-MARKER-SESSION-ONLY,

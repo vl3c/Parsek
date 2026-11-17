@@ -192,54 +192,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: determine which chain tips are crossed during a jump from t0 to targetUT.
-        /// A chain tip is crossed when t0 &lt; chain.SpawnUT &lt;= targetUT and the chain
-        /// is not terminated.
-        /// Returns list of chains sorted by SpawnUT (chronological order).
-        /// </summary>
-        internal static List<GhostChain> FindCrossedChainTips(
-            Dictionary<uint, GhostChain> chains,
-            double t0, double targetUT)
-        {
-            var result = new List<GhostChain>();
-
-            if (chains == null || chains.Count == 0)
-            {
-                ParsekLog.Verbose(Tag, "FindCrossedChainTips: empty/null chains, returning empty");
-                return result;
-            }
-
-            foreach (var kvp in chains)
-            {
-                GhostChain chain = kvp.Value;
-
-                if (chain.IsTerminated)
-                {
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
-                            "FindCrossedChainTips: skipping terminated chain vessel={0}",
-                            chain.OriginalVesselPid));
-                    continue;
-                }
-
-                if (chain.SpawnUT > t0 && chain.SpawnUT <= targetUT)
-                {
-                    result.Add(chain);
-                }
-            }
-
-            // Sort chronologically by SpawnUT
-            result.Sort((a, b) => a.SpawnUT.CompareTo(b.SpawnUT));
-
-            ParsekLog.Verbose(Tag,
-                string.Format(ic,
-                    "FindCrossedChainTips: t0={0:F1} target={1:F1} crossed={2}",
-                    t0, targetUT, result.Count));
-
-            return result;
-        }
-
-        /// <summary>
         /// Pure: validate that a time jump is valid (targetUT strictly greater than currentUT).
         /// </summary>
         internal static bool IsValidJump(double currentUT, double targetUT)
@@ -291,13 +243,13 @@ namespace Parsek
         /// 1. Set Planetarium UT
         /// 2. Epoch-shift all vessel orbits (keep position/velocity, update epoch)
         /// 3. Shift converter timestamps (<see cref="ConverterJumpPolicy"/>)
-        /// 4. Process spawn queue (chain tips crossed during jump)
-        /// 5. Trigger game actions recalculation at the post-jump UT
+        /// 4. Trigger game actions recalculation at the post-jump UT
+        /// The jump spawns nothing itself: every end-of-recording vessel the jump crosses
+        /// spawns from the playback loop on the following frames, through the same
+        /// <see cref="GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(Recording, bool, RecordingTree, bool)"/>
+        /// gate as any other completion.
         /// </summary>
-        internal static void ExecuteJump(
-            double targetUT,
-            Dictionary<uint, GhostChain> chains,
-            VesselGhoster ghoster)
+        internal static void ExecuteJump(double targetUT)
         {
             // Stop time warp before jumping — SetUniversalTime during warp can cause desync
             if (TimeWarp.CurrentRateIndex > 0)
@@ -348,39 +300,25 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     string.Format(ic, "UT set to {0:F1}", targetUT));
 
-                // Step 2b: the same converter policy as the forward jump (TA-6), before any
-                // chain tip spawns: the live pass never sees a tip, and the tip's own snapshot
-                // clock is shifted by the spawn (ConverterJumpPolicy.ApplyToSpawnSnapshot).
+                // Step 2b: the same converter policy as the forward jump (TA-6), before the
+                // epoch shift: the live pass never sees an end vessel spawned after the jump,
+                // whose own snapshot clock is shifted by the spawn
+                // (ConverterJumpPolicy.ApplyToSpawnSnapshot).
                 ConverterJumpPolicy.Apply(t0, targetUT, "epoch-shift");
 
                 // Step 3: Epoch-shift all captured vessel orbits.
                 // Recompute orbital elements at the new epoch from the pre-jump state vectors.
                 ApplyEpochShifts(capturedStates, targetUT);
 
-                // Step 4: Process crossed chain tips — spawn real vessels (a tip whose
-                // flight ended in the KSC exclusion zone is retired and its chain closed)
-                var spawnedChainKeys = SpawnCrossedChainTips(
-                    chains, ghoster, t0, targetUT, out int retiredChainCount);
-
-                // Remove spawned chains from caller's dict (#79 — SpawnCrossedChainTips
-                // returns chain keys and no longer mutates the dict directly)
-                if (chains != null)
-                {
-                    for (int i = 0; i < spawnedChainKeys.Count; i++)
-                        chains.Remove(spawnedChainKeys[i]);
-                }
-
-                // Step 5: Game actions recalculation. After UT has changed, replay the
+                // Step 4: Game actions recalculation. After UT has changed, replay the
                 // committed ledger through the target UT and patch KSP state so
                 // funds/science/reputation/contracts/facilities match the new time.
                 RecalculateLedgerAfterTimeJump("epoch-shift", targetUT);
 
-                int remainingGhosts = chains != null ? chains.Count : 0;
-
                 ParsekLog.Info(Tag,
                     string.Format(ic,
-                        "Time jump complete: {0} vessels spawned, {1} chain tip(s) retired at KSC, {2} ghosts remaining",
-                        spawnedChainKeys.Count - retiredChainCount, retiredChainCount, remainingGhosts));
+                        "Time jump complete: UT={0:F1} (end-of-recording spawns follow from the playback loop)",
+                        targetUT));
             }
             finally
             {
@@ -614,85 +552,6 @@ namespace Parsek
                             v.persistentId, Recording.ResolveLocalizedName(v.vesselName), ex.Message));
                 }
             }
-        }
-
-        /// <summary>
-        /// Spawns real vessels for all chain tips crossed during a time jump.
-        /// Returns the original-vessel PID keys for settled chains: successfully spawned
-        /// ones, and ones whose tip was retired at KSC (operator ruling 2026-09-23; the
-        /// tip's flight ended parked in the KSC exclusion zone, so there is no vessel and
-        /// the chain's map ghost is removed here). The caller is responsible for removing
-        /// them from the chains dictionary. Does NOT mutate the input chains dict (#79).
-        /// </summary>
-        internal static List<uint> SpawnCrossedChainTips(
-            Dictionary<uint, GhostChain> chains,
-            VesselGhoster ghoster,
-            double t0, double targetUT)
-        {
-            return SpawnCrossedChainTips(chains, ghoster, t0, targetUT, out _);
-        }
-
-        /// <summary>
-        /// <see cref="SpawnCrossedChainTips(Dictionary{uint, GhostChain}, VesselGhoster, double, double)"/>
-        /// that also reports how many of the returned keys are KSC retirements rather
-        /// than spawns.
-        /// </summary>
-        internal static List<uint> SpawnCrossedChainTips(
-            Dictionary<uint, GhostChain> chains,
-            VesselGhoster ghoster,
-            double t0, double targetUT,
-            out int retiredCount)
-        {
-            retiredCount = 0;
-            var crossed = FindCrossedChainTips(chains, t0, targetUT);
-            var spawnedChainKeys = new List<uint>();
-
-            foreach (GhostChain chain in crossed)
-            {
-                if (ghoster == null)
-                {
-                    ParsekLog.Warn(Tag,
-                        string.Format(ic,
-                            "Spawn skipped (no ghoster): vessel={0}",
-                            chain.OriginalVesselPid));
-                    continue;
-                }
-
-                try
-                {
-                    uint spawnedPid = ghoster.SpawnAtChainTip(chain);
-                    if (spawnedPid != 0)
-                    {
-                        spawnedChainKeys.Add(chain.OriginalVesselPid);
-                        ParsekLog.Info(Tag,
-                            string.Format(ic,
-                                "Chain tip spawned during jump: vessel={0} spawnedPid={1}",
-                                chain.OriginalVesselPid, spawnedPid));
-                    }
-                    else if (VesselGhoster.IsChainTipSettledAsKscRetirement(chain))
-                    {
-                        spawnedChainKeys.Add(chain.OriginalVesselPid);
-                        retiredCount++;
-                        VesselGhoster.ReleaseChainRetiredAtKsc(chain, "time-jump");
-                    }
-                    else if (chain.SpawnBlocked)
-                    {
-                        ParsekLog.Warn(Tag,
-                            string.Format(ic,
-                                "Chain tip spawn blocked during jump: vessel={0} — ghost continues",
-                                chain.OriginalVesselPid));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Error(Tag,
-                        string.Format(ic,
-                            "Chain tip spawn failed during jump: vessel={0} error={1}",
-                            chain.OriginalVesselPid, ex.Message));
-                }
-            }
-
-            return spawnedChainKeys;
         }
 
         /// <summary>

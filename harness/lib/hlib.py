@@ -448,7 +448,17 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # injector refuses a target save at
                                         # another UT. No RP. Consumer:
                                         # RSC-3-ready-spawn-room.
-                                        "spawn-room")
+                                        "spawn-room",
+                                        # spawn-stack: TWO committed
+                                        # single-recording trees, "Stack Probe
+                                        # A" and "Stack Probe B", Landed on the
+                                        # SAME KSC grass point with a
+                                        # TerminalPosition, ending ~30,000 s
+                                        # after the save's clock, B 20 s after
+                                        # A. `--filter InjectSpawnStack`. No
+                                        # RP. Consumer:
+                                        # TSS-3-two-deliveries-same-spot-ts.
+                                        "spawn-stack")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -7900,6 +7910,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     # `[[fixture.partInventory]]` - a FLIGHTSTATE container part's stored parts, in
     # the same compact CSV form (the ground-science cluster lanes, 2026-09-28).
     errors.extend(savepatch.validate_part_inventory(fixture))
+    # `trackingStationIntroDone = true` - sets stock's `tsComplete` so the Tracking
+    # Station's first-visit intro lock (intro_TS, which holds TIMEWARP) is never set.
+    errors.extend(savepatch.validate_ts_intro_done(fixture))
 
     driver = spec.get("driver", {}) or {}
     kind = driver.get("kind")

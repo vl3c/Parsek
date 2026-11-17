@@ -306,7 +306,7 @@ namespace Parsek.Tests
                 "RouteDispatched", "RouteCargoDebited", "RouteCargoDelivered", "RoutePaused",
                 "RouteEndpointLost", "RouteRecoveryCredited", "RouteCargoPickedUp", "RouteResumed",
                 "KerbalExperience", "StrategyScienceDebit", "StrategyScienceCredit",
-                "KerbalRecovered", "VesselRecovered", "RouteHeld", "ResourceScanUnlocked",
+                "KerbalRecovered", "VesselRecovered", "VesselTerminated", "RouteHeld", "ResourceScanUnlocked",
                 "ScienceLabEarning", "StockPoolAdjustment", "ContractParameterComplete",
                 "KerbalDismissal",
             };

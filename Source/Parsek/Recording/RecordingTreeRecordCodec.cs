@@ -309,6 +309,12 @@ namespace Parsek
             // Mutable playback state (parallels ParsekScenario.OnSave standalone fields)
             if (rec.SpawnedVesselPersistentId != 0)
                 recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
+            // Spawn-then-die cycles of the spawned end vessel. Persisted (additive, sparse) so
+            // VesselSpawner.MaxSpawnDeathCycles binds across scene changes and loads: a
+            // transient count restarted at 0 on every load, so a vessel that kept dying on
+            // arrival was respawned forever.
+            if (rec.SpawnDeathCount > 0)
+                recNode.AddValue("spawnDeathCount", rec.SpawnDeathCount.ToString(ic));
             if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
                 recNode.AddValue("terminalSpawnSupersededBy", rec.TerminalSpawnSupersededByRecordingId);
             // BUG-C (2026-06-07 career playtest): persist the terminal-orbit
@@ -874,6 +880,7 @@ namespace Parsek
                     rec.VesselSpawned = spawnedPid != 0;
                 }
             }
+            rec.SpawnDeathCount = Math.Max(0, ParseIntOr(recNode, "spawnDeathCount", rec.SpawnDeathCount));
             rec.VesselDestroyed = ParseBoolOr(recNode, "vesselDestroyed", rec.VesselDestroyed);
             rec.VesselSituation = recNode.GetValue("vesselSituation");
             rec.TerminalSpawnSupersededByRecordingId = recNode.GetValue("terminalSpawnSupersededBy");

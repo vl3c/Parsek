@@ -298,5 +298,70 @@ namespace Parsek.Tests
         {
             Assert.EndsWith("bodies=[]", LeafVesselPlacement.FormatSummary("FLIGHT", 0, 0, 0, 0, 0, 0, null));
         }
+        // ---------------------------------------------------------------
+        //  CompareHeight (report-only vertical reading)
+        // ---------------------------------------------------------------
+
+        [Theory]
+        [InlineData(TerminalState.Landed, 66.5, 65.0, 66.0, true, "ok")]
+        [InlineData(TerminalState.Landed, 64.2, 65.0, 66.0, true, "ok")]          // 0.8 m down: settling, not buried
+        [InlineData(TerminalState.Landed, 63.5, 65.0, 66.0, false, "below-surface")]
+        [InlineData(TerminalState.Landed, 75.5, 65.0, 66.0, false, "above-surface")]
+        [InlineData(TerminalState.Landed, 74.5, 65.0, 66.0, true, "ok")]
+        [InlineData(TerminalState.Landed, -40.0, -41.0, -40.0, true, "ok")]      // on a sea floor: terrain is negative
+        // Splashed: read against the recorded depth (owner ruling 2026-11-17), not sea level.
+        [InlineData(TerminalState.Splashed, -0.4, -300.0, -0.3, true, "ok")]
+        [InlineData(TerminalState.Splashed, -48.0, -300.0, -50.0, true, "ok")]   // a submarine at its depth
+        [InlineData(TerminalState.Splashed, 0.2, -300.0, 1.5, true, "ok")]       // recorded above water: sea level
+        [InlineData(TerminalState.Splashed, 0.0, -300.0, -50.0, false, "off-recorded-depth")]  // surfaced
+        [InlineData(TerminalState.Splashed, -65.0, -300.0, -50.0, false, "off-recorded-depth")]
+        [InlineData(TerminalState.Splashed, -32.0, -30.0, -29.5, false, "below-sea-floor")]
+        [InlineData(TerminalState.Splashed, -30.5, -30.0, -29.5, true, "ok")]    // within 1 m of the floor
+        public void CompareHeight_LandedAgainstTerrain_SplashedAgainstRecordedDepth(
+            TerminalState terminal, double alt, double floor, double recorded, bool ok, string reason)
+        {
+            var v = LeafVesselPlacement.CompareHeight(terminal, alt, floor, recorded);
+            Assert.Equal(ok, v.Ok);
+            Assert.Equal(reason, v.Reason);
+        }
+
+        [Fact]
+        public void CompareHeight_OrbitingOrNaN_IsUnsupported_UnknownSplashedDepthIsSeaLevel()
+        {
+            Assert.Equal("unsupported", LeafVesselPlacement.CompareHeight(TerminalState.Orbiting, 80000.0, 0.0, 80000.0).Reason);
+            var nan = LeafVesselPlacement.CompareHeight(TerminalState.Landed, double.NaN, 65.0, 66.0);
+            Assert.False(nan.Ok);
+            Assert.Equal("unsupported", nan.Reason);
+            var unknownDepth = LeafVesselPlacement.CompareHeight(TerminalState.Splashed, -0.5, -300.0, double.NaN);
+            Assert.True(unknownDepth.Ok);
+            Assert.Equal(0.0, unknownDepth.ReferenceMeters);
+        }
+
+        [Fact]
+        public void HeightLines_AreInvariantAndNeverMatchThePinnedPatterns()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                var buried = LeafVesselPlacement.CompareHeight(TerminalState.Landed, 60.2, 65.0, 66.0);
+                string line = LeafVesselPlacement.FormatHeightLine("abc", "Stack Probe A", 42u, "Kerbin",
+                    TerminalState.Landed, 60.2, buried);
+                Assert.Equal("LeafPlacement height: rec=abc vessel='Stack Probe A' pid=42 terminal=Landed body=Kerbin "
+                    + "altM=60.2 refM=65.0 deltaM=-4.8 floorM=65.0 heightVerdict=below-surface", line);
+                // 21 committed lanes forbid `LeafPlacement: [^\r\n]*verdict=(?!ok)` and 25 pin the
+                // summary: a bad height must not trip either.
+                Assert.DoesNotMatch(@"LeafPlacement: [^\r\n]*verdict=(?!ok)", line);
+
+                string summary = LeafVesselPlacement.FormatHeightSummary("FLIGHT", 2, 1, 1, 0);
+                Assert.Equal("LeafPlacement height summary: scene=FLIGHT checked=2 ok=1 bad=1 unsupported=0", summary);
+                Assert.DoesNotContain("LeafPlacement summary:", summary);
+                Assert.DoesNotMatch(@"LeafPlacement: [^\r\n]*verdict=(?!ok)", summary);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
     }
 }

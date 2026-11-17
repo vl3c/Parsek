@@ -260,7 +260,33 @@ namespace Parsek
         /// a Re-Fly (no recording owns it). Explicitly numbered and append-only; an older build
         /// reads it as an unknown type (Warn) and loses only the roster change there.
         /// </summary>
-        KerbalDismissal = 41
+        KerbalDismissal = 41,
+
+        /// <summary>
+        /// The player terminated (the Tracking Station's Terminate / Delete) a REAL vessel
+        /// that is the live continuation of a committed recording (the same launch by
+        /// positive guid match, or the vessel Parsek spawned from it). Carries
+        /// <see cref="GameAction.RecordingId"/> (the owning committed recording, one row per
+        /// owning tree), <see cref="GameAction.RecoveredVesselName"/> and
+        /// <see cref="GameAction.RecoveredVesselPid"/> (the same <c>vesselName</c> /
+        /// <c>vesselPid</c> payload as <see cref="VesselRecovered"/>); the row's
+        /// <see cref="GameAction.UT"/> is the termination instant.
+        ///
+        /// <para>The termination twin of <see cref="VesselRecovered"/>: spawn evidence only,
+        /// non-economic, written in every game mode. A committed recording is never re-stamped
+        /// by a terminal event, so without this row the next flight scene read the vanished
+        /// vessel as a spawn death and spawned it again. Read by
+        /// <see cref="RecoveredRecordingEvidence.IsVesselTerminatedRow"/>: the end spawn is
+        /// refused and the spawn-death check clears the claim without counting a death. A
+        /// vessel destroyed any other way (a crash, an arrival explosion) writes nothing and
+        /// stays a spawn death, retried within <c>VesselSpawner.MaxSpawnDeathCycles</c>.</para>
+        ///
+        /// <para>Player terminations only: refused during a Re-Fly session and while crew
+        /// events are suppressed. Not resource-impacting, not a strict-block for a supersede,
+        /// retired with its owner by a Re-Fly supersede. Explicitly numbered and append-only;
+        /// an older build reads it as an unknown type (Warn) and loses only the evidence there.</para>
+        /// </summary>
+        VesselTerminated = 42
     }
 
     /// <summary>
@@ -1059,17 +1085,19 @@ namespace Parsek
         /// </summary>
         public string KerbalCareerEntries;
 
-        // ---- Vessel recovery fields (VesselRecovered) ----
+        // ---- Vessel recovery fields (VesselRecovered, VesselTerminated) ----
 
         /// <summary>
         /// Display name of the recovered vessel on a <see cref="GameActionType.VesselRecovered"/>
+        /// row, or of the terminated vessel on a <see cref="GameActionType.VesselTerminated"/>
         /// row. Null on every other action type.
         /// </summary>
         public string RecoveredVesselName;
 
         /// <summary>
         /// Persistent id of the recovered live vessel on a
-        /// <see cref="GameActionType.VesselRecovered"/> row (a Parsek spawn pid or the
+        /// <see cref="GameActionType.VesselRecovered"/> row, or of the terminated vessel on a
+        /// <see cref="GameActionType.VesselTerminated"/> row (a Parsek spawn pid or the
         /// recorded launch's pid). Diagnostic only: identity was decided at write time.
         /// 0 on every other action type.
         /// </summary>
@@ -1373,6 +1401,7 @@ namespace Parsek
                     SerializeKerbalRecovered(node);
                     break;
                 case GameActionType.VesselRecovered:
+                case GameActionType.VesselTerminated:
                     SerializeVesselRecovered(node);
                     break;
                 case GameActionType.ResourceScanUnlocked:
@@ -1557,6 +1586,7 @@ namespace Parsek
                     DeserializeKerbalRecovered(node, a);
                     break;
                 case GameActionType.VesselRecovered:
+                case GameActionType.VesselTerminated:
                     DeserializeVesselRecovered(node, a);
                     break;
                 case GameActionType.ResourceScanUnlocked:

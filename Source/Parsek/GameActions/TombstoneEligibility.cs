@@ -112,8 +112,10 @@ namespace Parsek
                 // VesselRecovered: the recovery ended the owner recording's vessel. A re-fly
                 // that supersedes the owner deletes that flight, so its recovery evidence
                 // must go with it; the default would PRESERVE it and keep refusing the
-                // spawn of a flight that no longer exists.
+                // spawn of a flight that no longer exists. VesselTerminated is the same
+                // evidence for a terminated vessel.
                 case GameActionType.VesselRecovered:
+                case GameActionType.VesselTerminated:
                 // ResourceScanUnlocked: a scan a superseded flight made. The Re-Fly's
                 // quicksave predates it, so the scan exists again only if the new attempt
                 // makes it; the default would PRESERVE the row and the patcher would

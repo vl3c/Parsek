@@ -300,13 +300,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TerrainCorrection_SplashedAlsoApplies()
+        public void TerrainCorrection_SkippedForSplashed()
         {
-            // Splashed is a surface state -> should correct.
+            // A Splashed end keeps its recorded depth (owner ruling 2026-11-17): the
+            // underground correction never lifts it.
             bool shouldCorrect = TerrainCorrector.ShouldCorrectTerrain(
                 TerminalState.Splashed, 0.0);
 
-            Assert.True(shouldCorrect);
+            Assert.False(shouldCorrect);
         }
 
         #endregion

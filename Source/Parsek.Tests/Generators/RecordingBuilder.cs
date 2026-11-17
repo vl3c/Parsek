@@ -49,6 +49,7 @@ namespace Parsek.Tests.Generators
         private MergeState? mergeState;
         private double terrainHeightAtEnd = double.NaN;
         private OrbitSegment? terminalOrbit;
+        private SurfacePosition? terminalPosition;
         private Dictionary<string, ResourceAmount> startResources;
         private Dictionary<string, ResourceAmount> endResources;
         private RouteRunCargoManifest routeRunManifest;
@@ -453,6 +454,28 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder WithTerrainHeightAtEnd(double height)
         {
             terrainHeightAtEnd = height;
+            return this;
+        }
+
+        /// <summary>
+        /// Stamps the recorded terminal surface position (<c>Recording.TerminalPosition</c>,
+        /// the <c>TERMINAL_POSITION</c> node a live Landed / Splashed commit writes), which the
+        /// <c>LeafVesselPlacement</c> in-game cell compares a spawned vessel against. Carried by
+        /// the tree path only (<c>ScenarioWriter.BuildRecording</c>). The rotation is left
+        /// unrecorded (<c>rotationRecorded = False</c>).
+        /// </summary>
+        public RecordingBuilder WithTerminalPosition(string body, double lat, double lon,
+            double alt, bool splashed = false)
+        {
+            terminalPosition = new SurfacePosition
+            {
+                body = body,
+                latitude = lat,
+                longitude = lon,
+                altitude = alt,
+                rotationRecorded = false,
+                situation = splashed ? SurfaceSituation.Splashed : SurfaceSituation.Landed,
+            };
             return this;
         }
 
@@ -1287,6 +1310,9 @@ namespace Parsek.Tests.Generators
 
         /// <summary>Returns the recorded terminal orbit (null if not set).</summary>
         public OrbitSegment? GetTerminalOrbit() => terminalOrbit;
+
+        /// <summary>Returns the recorded terminal surface position (null if not set).</summary>
+        public SurfacePosition? GetTerminalPosition() => terminalPosition;
 
         /// <summary>Returns the recording groups list.</summary>
         public List<string> GetRecordingGroups() => recordingGroups;

@@ -1071,7 +1071,7 @@ namespace Parsek.Tests
 
             Assert.Equal(0u, pid);
             Assert.True(tip.VesselSpawned);
-            Assert.True(VesselGhoster.IsChainTipSettledAsKscRetirement(chain));
+            Assert.True(VesselSpawner.IsSettledAsKscRetirement(tip));
             Assert.Contains(logLines, l => l.Contains("Spawn RETIRED for #-1 (Pad Rig)"));
         }
 
@@ -1082,40 +1082,6 @@ namespace Parsek.Tests
             VesselGhoster.ReleaseChainRetiredAtKsc(chain, "unit");
             Assert.Contains(logLines, l => l.Contains("[Ghoster]")
                 && l.Contains("Chain tip retired at KSC (unit): originalPid=901 tip=rec-released mapGhostRemoved=False"));
-        }
-
-        [Fact]
-        public void TimeJump_CrossedPadChainTip_IsRetiredAndItsChainSettled()
-        {
-            var tip = MakeOnPad("rec-jump-tip-pad");
-            RecordingStore.AddRecordingWithTreeForTesting(tip);
-            var chains = new Dictionary<uint, GhostChain> { { 902u, PadChain(902u, tip.RecordingId) } };
-
-            var keys = TimeJumpManager.SpawnCrossedChainTips(
-                chains, new VesselGhoster(), 100.0, 300.0, out int retired);
-
-            Assert.Equal(new List<uint> { 902u }, keys);
-            Assert.Equal(1, retired);
-            Assert.Single(chains); // not mutated (#79): the caller removes the key
-            Assert.True(tip.VesselSpawned);
-            Assert.Contains(logLines, l => l.Contains("Chain tip retired at KSC (time-jump): originalPid=902"));
-            Assert.DoesNotContain(logLines, l => l.Contains("Chain tip spawned during jump"));
-        }
-
-        [Fact]
-        public void TimeJump_CrossedMidRunwayChainTip_IsNotCountedAsRetired()
-        {
-            var tip = MakeParked("rec-jump-tip-runway", MidRunwayLat, MidRunwayLon);
-            tip.VesselSnapshot = null; // the ghoster stops at "no VesselSnapshot": no spawn, no retirement
-            RecordingStore.AddRecordingWithTreeForTesting(tip);
-            var chains = new Dictionary<uint, GhostChain> { { 903u, PadChain(903u, tip.RecordingId) } };
-
-            var keys = TimeJumpManager.SpawnCrossedChainTips(
-                chains, new VesselGhoster(), 100.0, 300.0, out int retired);
-
-            Assert.Empty(keys);
-            Assert.Equal(0, retired);
-            Assert.DoesNotContain(logLines, l => l.Contains("Chain tip retired at KSC"));
         }
 
         [Fact]

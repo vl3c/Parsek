@@ -175,6 +175,8 @@ steps = [
   { cmd = "WarpToUT",   args = { ut = "1400", maxRate = "100" },              expect = "OK", budget = 300 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",        expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva15-spawned-count-${c2.count}-a-${c2.rec0}-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1}-${c2.rec1spawned}-${c2.rec1spawnedPid}-c-${c2.rec2}-${c2.rec2spawned}-${c2.rec2spawnedPid}-end" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva15-placement" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                    expect = "OK", budget = 300 },
   { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
@@ -238,6 +240,11 @@ required = [
   "\\[Policy\\] Deferred spawn during warp: #([0-9]+) \"Kerbal X\"[\\s\\S]*\\[Spawner\\] Orbital vessel spawn for #\\1 \\(Kerbal X\\) pid=[0-9]+ lat=-?[0-9.]+ lon=-?[0-9.]+ alt=[0-9.]+ terminal=Orbiting",
   # The committed store reads her back spawned with the pid the spawn line printed.
   "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Valentina Kerman\\) pid=([0-9]+) [\\s\\S]*MISSIONMARK label=eva15-spawned-count-3-[^\\r\\n]*-true-\\1-",
+  # Added 2026-11-17 (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 3; NOT YET RE-FLOWN):
+  # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs. Both deferred spawns sit on
+  # their recorded terminal orbits (SMA, mean longitude), one live vessel per pid.
+  "MISSIONMARK label=eva15-placement [\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=2 ok=2 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -264,7 +271,7 @@ forbidden = [
 # 2400 >= the explicit step budgets (300 LoadGame + 120 + 180 StartRecording + 120 EvaExit
 # + 120 + 120 CommitTree + 300 InvokeRewindToLaunch + 120 SaveGame + 300 LoadGame + 300
 # WarpToUT + 120 SaveGame = 2100) + 300 for the 18 default-budget steps and the boot.
-budgetSeconds = 2400
+budgetSeconds = 2700
 
 [retry]
 policy = "once"

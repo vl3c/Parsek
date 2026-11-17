@@ -27,11 +27,17 @@ namespace Parsek
         /// ground part, a vessel of an earlier committed tree already standing there when it was
         /// recorded (<see cref="CoexistingTreeSiblingSpawn"/>). Only same-body surface
         /// vessels are returned — orbital/flying vessels do not constrain a ground footprint.
+        ///
+        /// <paramref name="includeLoadedVessels"/> false leaves out vessels loaded into
+        /// physics: the end-of-recording spawn keeps those with its bounding-box check and
+        /// trajectory walkback, and de-overlaps only against the unloaded rest (the Tracking
+        /// Station, and flight spawns far from the player).
         /// </summary>
         internal static List<(double lat, double lon)> GatherExistingLandedVesselPositions(
             CelestialBody body, uint excludePid, Recording spawningRecording = null,
             double spawnLat = double.NaN, double spawnLon = double.NaN,
-            double exemptionRangeMeters = double.NaN)
+            double exemptionRangeMeters = double.NaN,
+            bool includeLoadedVessels = true)
         {
             var result = new List<(double lat, double lon)>();
             if (body == null)
@@ -42,6 +48,7 @@ namespace Parsek
             int siblingCount = 0;
             int otherTreeCount = 0;
             int unresolvedFarCount = 0;
+            int skippedLoadedCount = 0;
             try
             {
                 var vessels = FlightGlobals.Vessels;
@@ -52,6 +59,7 @@ namespace Parsek
                         Vessel v = vessels[i];
                         if (v == null) continue;
                         if (v.persistentId == excludePid) continue;
+                        if (!includeLoadedVessels && v.loaded) { skippedLoadedCount++; continue; }
                         if (v.mainBody != body) continue;
                         if (!(v.Landed || v.Splashed)) continue;
                         if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
@@ -110,7 +118,9 @@ namespace Parsek
             ParsekLog.Verbose("Spawner",
                 $"GatherExistingLandedVesselPositions: body={body.name} excludePid={excludePid} " +
                 $"loaded={loadedCount} proto={protoCount} coexistingTreeSiblings={siblingCount} otherTreeStanding={otherTreeCount} " +
-                $"beyondExemptionRange={unresolvedFarCount} total={result.Count}");
+                $"beyondExemptionRange={unresolvedFarCount} " +
+                (includeLoadedVessels ? "" : $"skippedLoaded={skippedLoadedCount} ") +
+                $"total={result.Count}");
             return result;
         }
 
@@ -290,6 +300,8 @@ namespace Parsek
 
             if (rec.Points.Count == 0 || FlightGlobals.Vessels == null)
             {
+                if (TryAbandonEndOfRecordingSpawnForDeadCrew(rec, index))
+                    return;
                 LogSpawnContext(rec, double.MaxValue);
                 rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
                     rec,
@@ -324,6 +336,8 @@ namespace Parsek
                     : $"bodyName='{spawnBodyName}' not found";
                 ParsekLog.Warn("Spawner", $"Spawn #{index} ({rec.VesselName}): {reason} — " +
                     $"falling back to validated snapshot respawn");
+                if (TryAbandonEndOfRecordingSpawnForDeadCrew(rec, index))
+                    return;
                 LogSpawnContext(rec, double.MaxValue);
                 rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
                     rec,
@@ -380,6 +394,14 @@ namespace Parsek
                 }
             }
 
+            // Landed de-overlap against UNLOADED same-body landed vessels (todo
+            // SPAWN-TS-STACK-NO-DE-OVERLAP): the bounding-box check below sees loaded vessels
+            // only, so in the Tracking Station and far from the player in flight two
+            // deliveries ending on one spot were placed inside each other. The Space Center
+            // spawn's de-overlap, with loaded vessels left to the check and walkback below.
+            if (ShouldDeOverlapEndOfRecordingSpawn(isEva, useRecordedTerminalOrbit, rec.TerminalStateValue))
+                ApplyEndOfRecordingLandedDeOverlap(rec, index, body, ref spawnLat, ref spawnLon, ref spawnAlt);
+
             Vector3d spawnPos = body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt);
 
             // T57: resolve parent vessel PID for EVA collision exemption.
@@ -412,21 +434,8 @@ namespace Parsek
                 // Spawning a crewless command pod is worse than not spawning at all. (#170)
                 // Individual dead crew are already removed by RespawnVessel.RemoveDeadCrewFromSnapshot;
                 // this catches the case where the entire crew complement is dead.
-                if (!isEva && rec.VesselSnapshot != null)
-                {
-                    if (ShouldBlockSpawnForDeadCrewInSnapshot(rec.VesselSnapshot, out List<string> snapshotCrew))
-                    {
-                        rec.VesselSpawned = true;
-                        rec.SpawnAbandoned = true;
-                        SpawnWarpOutcomeWatch.NoteAbandonReason(
-                            rec, SpawnWarpOutcomeWatch.ReasonNoLivingCrew);
-                        var classified = ClassifySnapshotCrew(snapshotCrew);
-                        ParsekLog.Warn("Spawner",
-                            $"Spawn ABANDONED for #{index} ({rec.VesselName}): no spawnable crew — " +
-                            FormatSpawnableClassificationSummary(classified));
-                        return;
-                    }
-                }
+                if (TryAbandonEndOfRecordingSpawnForDeadCrew(rec, index))
+                    return;
 
                 // Find nearest vessel for spawn context logging
                 double closestDist = FindNearestVesselDistance(spawnPos, body);
@@ -613,6 +622,115 @@ namespace Parsek
                 // transient spawn copies are stripped separately before ProtoVessel load.
                 StripDeliberatePositionOverrideStampFromRecording(rec, logContext);
             }
+        }
+
+        /// <summary>
+        /// Whether an end-of-recording spawn runs the landed de-overlap: a non-EVA spawn that
+        /// ends Landed or Splashed at its recorded endpoint. EVA kerbals stand beside their
+        /// vessel by design, and a recorded-terminal-orbit spawn is not a ground footprint.
+        /// The same rule as the Space Center end spawn.
+        /// </summary>
+        internal static bool ShouldDeOverlapEndOfRecordingSpawn(
+            bool isEva, bool useRecordedTerminalOrbit, TerminalState? terminalState)
+        {
+            return !isEva && !useRecordedTerminalOrbit && IsSurfaceTerminal(terminalState);
+        }
+
+        /// <summary>
+        /// Nudges a landed or splashed end-of-recording spawn clear of every unloaded
+        /// same-body landed vessel (<see cref="SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn"/>,
+        /// <see cref="SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters"/>), the Space
+        /// Center's de-overlap with loaded vessels left out (they stay with
+        /// <see cref="CheckSpawnCollisions"/>). Exemptions are the gather's: the recording's own
+        /// tree siblings that stood beside it, and the earlier-tree vessel an EVA kerbal or
+        /// placed part was recorded next to. A nudged spawn re-runs its floor at the new spot
+        /// (<see cref="ReFloorNudgedSurfaceSpawnAltitude"/>) so a slope or a shallower sea floor
+        /// cannot bury it.
+        /// </summary>
+        private static void ApplyEndOfRecordingLandedDeOverlap(
+            Recording rec, int index, CelestialBody body,
+            ref double spawnLat, ref double spawnLon, ref double spawnAlt)
+        {
+            // excludePid 0: the craft-baked VesselPersistentId is shared by every delivery of
+            // the same craft, so excluding it would drop the very vessels to de-overlap from.
+            var existingLanded = GatherExistingLandedVesselPositions(
+                body, 0u, rec, spawnLat, spawnLon,
+                SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters,
+                includeLoadedVessels: false);
+            var deOverlap = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
+                spawnLat,
+                spawnLon,
+                existingLanded,
+                SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters,
+                body.Radius);
+            // Rate-limited per recording: a spawn the bounding-box check holds re-runs this
+            // every frame until it clears or gives up.
+            string rateKey = "eor-de-overlap|" + index.ToString(CultureInfo.InvariantCulture)
+                + "|" + (rec.RecordingId ?? rec.VesselName);
+            if (!deOverlap.Nudged)
+            {
+                ParsekLog.VerboseRateLimited("Spawner", rateKey,
+                    FormatEndOfRecordingDeOverlapLine(index, rec.VesselName, deOverlap,
+                        existingLanded.Count, spawnLat, spawnLon, spawnAlt, spawnAlt));
+                return;
+            }
+
+            double nudgedAlt = ReFloorNudgedSurfaceSpawnAltitude(rec, index, body,
+                deOverlap.Latitude, deOverlap.Longitude, spawnAlt, "end-of-recording-de-overlap");
+            ParsekLog.InfoRateLimited("Spawner", rateKey,
+                FormatEndOfRecordingDeOverlapLine(index, rec.VesselName, deOverlap,
+                    existingLanded.Count, spawnLat, spawnLon, spawnAlt, nudgedAlt));
+            spawnLat = deOverlap.Latitude;
+            spawnLon = deOverlap.Longitude;
+            spawnAlt = nudgedAlt;
+        }
+
+        /// <summary>
+        /// The altitude of a landed or splashed spawn after a de-overlap nudge moved it: a Landed
+        /// one keeps its altitude unless the new spot's PQS terrain is above it
+        /// (<see cref="ClampAltitudeForLanded"/>), a Splashed one keeps its recorded depth
+        /// unless the new spot's sea floor is above it (<see cref="ResolveSplashedSpawnAltitude"/>).
+        /// Shared by the end-of-recording and the Space Center de-overlap.
+        /// </summary>
+        internal static double ReFloorNudgedSurfaceSpawnAltitude(
+            Recording rec, int index, CelestialBody body, double lat, double lon, double alt,
+            string site)
+        {
+            if (rec == null || body == null)
+                return alt;
+            if (rec.TerminalStateValue == TerminalState.Landed)
+                return ClampAltitudeForLanded(alt, body.TerrainAltitude(lat, lon), index, rec.VesselName);
+            if (rec.TerminalStateValue == TerminalState.Splashed)
+                return ResolveSplashedSpawnAltitude(alt, body.TerrainAltitude(lat, lon, true),
+                    index, rec.VesselName, site);
+            return alt;
+        }
+
+        /// <summary>
+        /// The end-of-recording de-overlap line, worded like the Space Center's
+        /// (<c>De-overlap for #N "name": nudged ...</c>) so the lanes that forbid a nudge of a
+        /// cluster member cover both spawn sites.
+        /// </summary>
+        internal static string FormatEndOfRecordingDeOverlapLine(
+            int index, string vesselName, SpawnCollisionDetector.DeOverlapResult deOverlap,
+            int existingCount, double fromLat, double fromLon, double fromAlt, double toAlt)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string min = SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters.ToString("F0", ic);
+            if (!deOverlap.Nudged)
+            {
+                return $"De-overlap for #{index} \"{vesselName}\": clear " +
+                    $"(site=end-of-recording, existing unloaded landed={existingCount}, " +
+                    $"nearest={deOverlap.NearestBlockerMeters.ToString("F1", ic)}m >= min={min}m)";
+            }
+            return $"De-overlap for #{index} \"{vesselName}\": " +
+                $"nudged {deOverlap.NudgeMeters.ToString("F1", ic)}m " +
+                $"(site=end-of-recording, existing unloaded landed={existingCount}, " +
+                $"nearest now={deOverlap.NearestBlockerMeters.ToString("F1", ic)}m, min={min}m" +
+                (deOverlap.Exhausted ? ", spiral-exhausted" : "") + ") " +
+                $"lat {fromLat.ToString("F6", ic)}->{deOverlap.Latitude.ToString("F6", ic)} " +
+                $"lon {fromLon.ToString("F6", ic)}->{deOverlap.Longitude.ToString("F6", ic)} " +
+                $"alt {fromAlt.ToString("F1", ic)}->{toAlt.ToString("F1", ic)}";
         }
 
         private static void ApplyResolvedSpawnStateOverrides(
@@ -809,14 +927,21 @@ namespace Parsek
                     // Fall through to the walkback branch
                 }
 
-                // Walkback: if the recording has enough trajectory points, step backward with
-                // 1.5 m linear sub-steps until we find a clear position. (#264)
-                if (rec.Points != null && rec.Points.Count > 1)
+                // Walkback: if the recording has enough trajectory points that place on the
+                // spawn body, step backward with 1.5 m linear sub-steps until we find a clear
+                // position (#264). Relative-section anchor offsets and other-body points are
+                // never read as lat/lon here.
+                List<TrajectoryPoint> walkPoints = rec.Points != null && rec.Points.Count > 1
+                    ? SpawnCollisionDetector.ResolveWalkbackPointsOnBody(
+                        rec.Points, rec.TrackSections, body.name,
+                        $"end-of-recording #{index} ({rec.VesselName})")
+                    : null;
+                if (walkPoints != null && walkPoints.Count > 1)
                 {
                     double walkLat, walkLon, walkAlt;
                     bool walked = TryWalkbackForEndOfRecordingSpawn(
                         rec, index, spawnBounds, body, out walkLat, out walkLon, out walkAlt,
-                        exemptVesselPid);
+                        exemptVesselPid, walkPoints);
                     if (walked)
                     {
                         Vector3d walkPos = body.GetWorldSurfacePosition(walkLat, walkLon, walkAlt);
@@ -831,7 +956,8 @@ namespace Parsek
                     return (true, spawnLat, spawnLon, spawnAlt, spawnPos);
                 }
 
-                // Fallback for 1-point / empty trajectories (synthetic recordings):
+                // Fallback for 1-point / empty trajectories (synthetic recordings), or a
+                // trajectory whose walkable run on the spawn body is a single point:
                 // use the existing CollisionBlockCount / MaxCollisionBlocks retry path.
                 rec.CollisionBlockCount++;
                 if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
@@ -873,7 +999,8 @@ namespace Parsek
         internal static bool TryWalkbackForEndOfRecordingSpawn(
             Recording rec, int index, Bounds spawnBounds, CelestialBody body,
             out double walkLat, out double walkLon, out double walkAlt,
-            uint exemptVesselPid = 0)
+            uint exemptVesselPid = 0,
+            List<TrajectoryPoint> walkPoints = null)
         {
             walkLat = 0;
             walkLon = 0;
@@ -886,10 +1013,15 @@ namespace Parsek
                 return false;
             }
 
+            if (walkPoints == null)
+                walkPoints = SpawnCollisionDetector.ResolveWalkbackPointsOnBody(
+                    rec.Points, rec.TrackSections, body.name,
+                    $"end-of-recording #{index} ({rec.VesselName})");
+
             // Every candidate is checked against the active vessel too (todo
             // GC9-SPAWN-IGNORES-ACTIVE-VESSEL), the same rule as the endpoint check.
             var walkResult = SpawnCollisionDetector.WalkbackAlongTrajectorySubdivided(
-                rec.Points,
+                walkPoints,
                 body.Radius,
                 SpawnCollisionDetector.DefaultWalkbackStepMeters,
                 (lat, lon, alt) => body.GetWorldSurfacePosition(lat, lon, alt),
@@ -953,9 +1085,10 @@ namespace Parsek
                         walkAlt = ClampAltitudeForLanded(walkAlt, pqsTerrain, index, rec.VesselName);
                     }
                 }
-                else if (rec.TerminalStateValue == TerminalState.Splashed && walkAlt > 0)
+                else if (rec.TerminalStateValue == TerminalState.Splashed)
                 {
-                    walkAlt = 0;
+                    walkAlt = ResolveSplashedSpawnAltitude(walkAlt,
+                        body.TerrainAltitude(walkLat, walkLon, true), index, rec.VesselName, "walkback");
                 }
 
                 ParsekLog.Info("Spawner",
@@ -1006,7 +1139,8 @@ namespace Parsek
             }
 
             // Safety net: clamp altitude for surface terminal states.
-            // SPLASHED: clamp to sea level.
+            // SPLASHED: the recorded depth, never above sea level and never into the sea floor
+            // (owner ruling 2026-11-17, ResolveSplashedSpawnAltitude).
             // LANDED: trust the recorded altitude (it's where the vessel came to rest — the
             // terminal state proves it had settled). Only push UP if the recorded altitude is
             // below the current PQS terrain (indicates the surface has shifted UP since
@@ -1018,12 +1152,8 @@ namespace Parsek
             // colliders (including buildings), handling any residual clipping properly.
             if (rec.TerminalStateValue == TerminalState.Splashed)
             {
-                if (alt != 0.0)
-                {
-                    ParsekLog.Verbose("Spawner",
-                        $"Clamped altitude for SPLASHED spawn #{index} ({rec.VesselName}): {alt:F1} -> 0");
-                    alt = 0;
-                }
+                double seaFloor = TryReadSeaFloorAltitude(endpointBodyName, lat, lon);
+                alt = ResolveSplashedSpawnAltitude(alt, seaFloor, index, rec.VesselName, "endpoint");
             }
             else if (rec.TerminalStateValue == TerminalState.Landed)
             {
@@ -1035,6 +1165,123 @@ namespace Parsek
                     alt = ClampAltitudeForLanded(alt, pqsTerrain, index, rec.VesselName);
                 }
             }
+        }
+
+        /// <summary>
+        /// The end-of-recording dead-crew guard (#170): when every kerbal in the recording's
+        /// snapshot is dead, the spawn is settled as abandoned (VesselSpawned + SpawnAbandoned,
+        /// abandon reason no-living-crew) instead of creating an empty crewed pod. An EVA
+        /// recording is exempt. Runs on the resolved-position path and on both snapshot
+        /// respawn fallbacks (no trajectory, unresolved endpoint body). Returns true when the
+        /// spawn was abandoned.
+        /// </summary>
+        internal static bool TryAbandonEndOfRecordingSpawnForDeadCrew(Recording rec, int index)
+        {
+            if (rec == null || rec.VesselSnapshot == null || !string.IsNullOrEmpty(rec.EvaCrewName))
+                return false;
+            if (!ShouldBlockSpawnForDeadCrewInSnapshot(rec.VesselSnapshot, out List<string> snapshotCrew))
+                return false;
+            rec.VesselSpawned = true;
+            rec.SpawnAbandoned = true;
+            SpawnWarpOutcomeWatch.NoteAbandonReason(
+                rec, SpawnWarpOutcomeWatch.ReasonNoLivingCrew);
+            var classified = ClassifySnapshotCrew(snapshotCrew);
+            ParsekLog.Warn("Spawner",
+                $"Spawn ABANDONED for #{index} ({rec.VesselName}): no spawnable crew — " +
+                FormatSpawnableClassificationSummary(classified));
+            return true;
+        }
+
+        /// <summary>
+        /// The sea floor (or terrain) under (lat, lon) on the named body,
+        /// <c>TerrainAltitude(lat, lon, true)</c>; NaN when the body is unknown or KSP is not
+        /// running (headless tests), so the Splashed rule then applies no floor.
+        /// </summary>
+        internal static double TryReadSeaFloorAltitude(string bodyName, double lat, double lon)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+                return double.NaN;
+            try
+            {
+                return ReadSeaFloorAltitudeCore(bodyName, lat, lon);
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessKspAccessFailure(ex))
+                    throw;
+                return double.NaN;
+            }
+        }
+
+        // FlightGlobals stays in its own non-inlined method: its static initializer throws
+        // outside KSP, and the caller must be able to catch that.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadSeaFloorAltitudeCore(string bodyName, double lat, double lon)
+        {
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            return body != null ? body.TerrainAltitude(lat, lon, true) : double.NaN;
+        }
+
+        /// <summary>
+        /// The SPLASHED spawn altitude rule (owner ruling 2026-11-17, replacing #313's
+        /// sea-level floor): a Splashed end spawns at its RECORDED depth, as its ghost replays
+        /// it, so a submarine that ended 50 m down appears 50 m down and ghost and vessel agree.
+        /// Two bounds: a positive altitude (a hull recorded above the waterline) goes to sea
+        /// level 0, and a depth into the sea floor (<paramref name="seaFloorAltitude"/>,
+        /// <c>TerrainAltitude(lat, lon, true)</c> at the spawn spot; NaN when unknown, no floor)
+        /// is raised to the floor plus <see cref="UndergroundSafetyFloorMeters"/>, never above
+        /// 0. #313 floored every Splashed spawn to 0 so an EVA kerbal recorded at -0.2 m did not
+        /// appear under water; a kerbal there now swims up from where he was recorded, which is
+        /// what the ghost showed, and the floor keeps the case that can hurt (a spot shallower
+        /// than the recorded depth after a walkback, a de-overlap nudge or a terrain change).
+        /// Shared by the endpoint, the collision walkback, the de-overlap and the chain tip.
+        /// </summary>
+        internal static double ResolveSplashedSpawnAltitude(
+            double alt, double seaFloorAltitude, int index, string vesselName, string site)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            if (double.IsNaN(alt) || double.IsInfinity(alt))
+            {
+                ParsekLog.Verbose("Spawner", string.Format(ic,
+                    "Clamped altitude for SPLASHED spawn #{0} ({1}): {2} -> 0 (non-finite, site={3})",
+                    index, vesselName, alt, site ?? "(none)"));
+                return 0.0;
+            }
+            if (alt > 0.0)
+            {
+                ParsekLog.Verbose("Spawner", string.Format(ic,
+                    "Clamped altitude for SPLASHED spawn #{0} ({1}): {2:F1} -> 0 (above-sea-level, site={3})",
+                    index, vesselName, alt, site ?? "(none)"));
+                return 0.0;
+            }
+            bool floorKnown = !double.IsNaN(seaFloorAltitude) && !double.IsInfinity(seaFloorAltitude);
+            if (floorKnown)
+            {
+                double floor = seaFloorAltitude + UndergroundSafetyFloorMeters;
+                if (alt < floor)
+                {
+                    double raised = Math.Min(floor, 0.0);
+                    ParsekLog.Verbose("Spawner", string.Format(ic,
+                        "Clamped altitude for SPLASHED spawn #{0} ({1}): {2:F1} -> {3:F1} " +
+                        "(below-sea-floor, seaFloor={4:F1}, site={5})",
+                        index, vesselName, alt, raised, seaFloorAltitude, site ?? "(none)"));
+                    return raised;
+                }
+            }
+            if (alt < 0.0)
+            {
+                // Walkback calls this once per sub-step: one line per spawn and site.
+                ParsekLog.VerboseRateLimited("Spawner",
+                    "splashed-depth|" + (site ?? "(none)") + "|" + index.ToString(ic),
+                    string.Format(ic,
+                        "Splashed spawn #{0} ({1}) keeps its recorded depth alt={2:F1} " +
+                        "(seaFloor={3}, site={4})",
+                        index, vesselName, alt,
+                        floorKnown ? seaFloorAltitude.ToString("F1", ic) : "unknown",
+                        site ?? "(none)"));
+            }
+            return alt;
         }
 
         /// <summary>Which source <see cref="SelectSpawnCoordinates"/> took the spawn position from.</summary>

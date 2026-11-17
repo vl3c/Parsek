@@ -85,30 +85,66 @@ namespace Parsek.Tests
         {
             // The loop's RENDER ignores the replay-scope gate (explicit live opt-in) ...
             Assert.False(GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
-                loopingLike: true, reFlyActive: false, scopeHistorical: true, forSpawn: false));
+                loopingLike: true, inReFlySessionTree: false, scopeHistorical: true, forSpawn: false));
             // ... but its first-run SPAWN takes the same gate as any recording.
             Assert.True(GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
-                loopingLike: true, reFlyActive: false, scopeHistorical: true, forSpawn: true));
+                loopingLike: true, inReFlySessionTree: false, scopeHistorical: true, forSpawn: true));
         }
 
         [Fact]
         public void ResolveHistoricalNeverReplayed_NonLoop_SameForRenderAndSpawn()
         {
             Assert.True(GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
-                loopingLike: false, reFlyActive: false, scopeHistorical: true, forSpawn: false));
+                loopingLike: false, inReFlySessionTree: false, scopeHistorical: true, forSpawn: false));
             Assert.True(GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
-                loopingLike: false, reFlyActive: false, scopeHistorical: true, forSpawn: true));
+                loopingLike: false, inReFlySessionTree: false, scopeHistorical: true, forSpawn: true));
             Assert.False(GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
-                loopingLike: false, reFlyActive: false, scopeHistorical: false, forSpawn: true));
+                loopingLike: false, inReFlySessionTree: false, scopeHistorical: false, forSpawn: true));
         }
 
         [Fact]
-        public void ResolveHistoricalNeverReplayed_ReFlyActive_ExemptFromBoth()
+        public void ResolveHistoricalNeverReplayed_ReFlySessionTree_ExemptFromBoth()
         {
             Assert.False(GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
-                loopingLike: true, reFlyActive: true, scopeHistorical: true, forSpawn: true));
+                loopingLike: true, inReFlySessionTree: true, scopeHistorical: true, forSpawn: true));
             Assert.False(GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
-                loopingLike: false, reFlyActive: true, scopeHistorical: true, forSpawn: false));
+                loopingLike: false, inReFlySessionTree: true, scopeHistorical: true, forSpawn: false));
+        }
+
+        // A Re-Fly lifts the never-replayed gate for its own tree only: an unrelated,
+        // never-replayed recording stays gated while the session is active, as after a plain
+        // rewind, so a long-gone vessel of another flight does not spawn again.
+        [Fact]
+        public void ReFlyActive_UnrelatedTreeRecording_KeepsHistoricalGate()
+        {
+            var marker = new ReFlySessionMarker { SessionId = "sess-1", TreeId = "tree-refly" };
+            var unrelated = new Recording { RecordingId = "rec-other", TreeId = "tree-other" };
+            var sibling = new Recording { RecordingId = "rec-sibling", TreeId = "tree-refly" };
+
+            Assert.False(GhostPlaybackLogic.IsInReFlySessionTree(marker, unrelated));
+            Assert.True(GhostPlaybackLogic.IsInReFlySessionTree(marker, sibling));
+
+            Assert.True(GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
+                loopingLike: false,
+                inReFlySessionTree: GhostPlaybackLogic.IsInReFlySessionTree(marker, unrelated),
+                scopeHistorical: true, forSpawn: true));
+            Assert.False(GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
+                loopingLike: false,
+                inReFlySessionTree: GhostPlaybackLogic.IsInReFlySessionTree(marker, sibling),
+                scopeHistorical: true, forSpawn: true));
+        }
+
+        [Fact]
+        public void IsInReFlySessionTree_NoMarker_StandaloneRecording_AndTreelessMarker()
+        {
+            var rec = new Recording { RecordingId = "rec-a", TreeId = "tree-a" };
+            Assert.False(GhostPlaybackLogic.IsInReFlySessionTree(null, rec));
+            Assert.False(GhostPlaybackLogic.IsInReFlySessionTree(
+                new ReFlySessionMarker { TreeId = "tree-a" },
+                new Recording { RecordingId = "standalone", TreeId = null }));
+            // A marker without a tree id keeps the old whole-world exemption.
+            Assert.True(GhostPlaybackLogic.IsInReFlySessionTree(
+                new ReFlySessionMarker { TreeId = null }, rec));
         }
 
         #endregion
@@ -242,7 +278,7 @@ namespace Parsek.Tests
                     latch.Remove(rec.RecordingId);
 
                 bool spawnHistorical = GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
-                    loopDriven, reFlyActive: false,
+                    loopDriven, inReFlySessionTree: false,
                     scopeHistorical: PlaybackScopeTracker.IsHistoricalNeverReplayed(
                         rec.RecordingId, ut, activationStartUT),
                     forSpawn: true);

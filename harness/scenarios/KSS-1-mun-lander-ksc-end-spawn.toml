@@ -1,0 +1,185 @@
+schema = 1
+id = "KSS-1-mun-lander-ksc-end-spawn"
+tier = "operator"
+# =============================================================================
+# KSS-1: A KERBIN-LAUNCHED MUN LANDER WHOSE RECORDING ENDS WHILE THE PLAYER SITS AT THE
+# SPACE CENTER SPAWNS ON THE MUN, WHERE IT LANDED.
+#
+# Authored 2026-11-17 for the end-of-recording spawn audit (todo
+# END-SPAWN-SCENE-LANES-2026-11-17, scope 2a). NEVER FLOWN: its first flight is a READING
+# run (tag `pending-flight`). It is the Kerbin-launch twin of LAY-1's Space Center half and
+# the live re-flight the KSC-END-SPAWN-SKIPS-OFF-KERBIN fix (b598d418 / b5cca1f5, in this
+# base) owes on a tree that STARTS on Kerbin: the optimizer splits B13's flight at its body
+# and environment boundaries into a chain, so the Landed leaf's first point is on the Mun and
+# the Space Center routes it through the new SpawnOnly branch of
+# `ClassifyKscStructuralRoute` (no KSC ghost, the end spawn decided as in any scene), while
+# the Kerbin-start members still render as KSC ghosts.
+#
+# HOST AND FLIGHT: B13's, byte for byte (`b2-lko-craft`, mission `b13_mun_landing`, the
+# same missionParams; LIVE-PROVEN 2026-07-25, wall 2,747.9 s): Kerbal X launches with
+# auto-record on, transfers to the Mun, parks, lands, dwells 120 s and commits through the
+# seam's mid-mission CommitTree (`CommitTreeFlight terminal: ... terminalState=Landed
+# terminalOrbitBody=Mun`). Then, every step a player's: stop the auto-resumed recorder,
+# Rewind-to-Launch the tree (`tree=latest`; the owner strip removes the landed Kerbal X, UT
+# goes back to 15 s before the launch, the rewind lands at the Space Center), and an
+# UNCAPPED WarpToUT to 100,000 AT THE SPACE CENTER (past B13's measured commit UT of about
+# 23,200 with wide margin for a re-planned transfer). Space Center ghosts are suppressed
+# above 50x, and the end spawn runs once the warp is back at 1x (LAY-1 / AIR-2's measured
+# shape). Then LeafVesselPlacement at the Space Center: the spawned Kerbal X sits within
+# 100 m of its recorded terminal surface position on the Mun.
+#
+# FIRST-FLIGHT RISKS: the whole B13 mission (its own retry budget); the commit UT (the warp
+# target leaves 4x margin); the SpawnOnly reason token (regexed); the recording count
+# (B13 pins 11; the post-commit recorder is dropped by the rewind, EVA-15 / EX-1's shape,
+# so the window is 11-12 until read).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: B13's flight verbatim, extended
+# after MISSION-OK, rather than a new flight; a fixture harvest of B13's committed tree
+# would drop ~2,700 s but needs the rewind save the harvest does not carry (AIR-2's
+# finding), so none is taken. (2) mission waits are B13's own; the post-mission wait is
+# one explicit-UT WarpToUT. (3) no new dwell keys (B13's 120 s landed dwell IS the
+# recorded surface coverage). (4) burns are B13's at 1x. (5) b5 coasts do not apply. (6)
+# B13 fails fast on every named phase timeout. (7) count window 11-12 until read. (8) tier
+# operator: B13 alone is the most expensive lane in the suite. (9) flight_efficiency.py
+# owed after the first green flight.
+# =============================================================================
+description = "NEVER FLOWN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 2a): B13's flight verbatim (b2-lko-craft, Kerbal X launched from Kerbin, landed on the Mun and committed there), then Rewind-to-Launch and an uncapped warp at the Space Center past the landing. Gates the Space Center's SpawnOnly route for the Mun leaf (first point off Kerbin, the KSC-END-SPAWN-SKIPS-OFF-KERBIN fix), its `[KSCSpawn] Vessel spawned ... sit=LANDED` line and LeafVesselPlacement at the Space Center placing the spawned Kerbal X at its terminal surface position on the Mun."
+instanceProfile = "stock-minimal"
+tags = ["KSS-1", "spawn", "end-spawn", "space-center", "ksc-spawn", "spawn-only", "mun",
+        "landing", "mechjeb", "cross-soi", "rewind-to-launch", "leaf-placement",
+        "ingame-batch", "crewed", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b13_mun_landing"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },                   expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },                expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 5000 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (EVA-15 / EX-1).
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",                          expect = "OK" },
+  { cmd = "MissionMark", args = { label = "kss1-committed-${c0.count}" },                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },                    expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                                  expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },               expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },                    expect = "OK" },
+  { cmd = "MissionMark", args = { label = "kss1-rewound" },                                    expect = "OK" },
+  # THE SUBJECT: the end crossed at the Space Center.
+  { cmd = "WarpToUT",   args = { ut = "100000" },                                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark", args = { label = "kss1-past-end" },                                   expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                           expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                          expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 420
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Mun"
+homeBodyName               = "Kerbin"
+transferMinApoapsisMeters  = 10000000
+courseCorrectPeriapsisMeters = 250000
+maxCorrectionDvMps         = 300
+correctionTriggerAltsMeters = [0, 6000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 4000
+coastTimeoutSeconds        = 400000
+flybyTimeoutSeconds        = 300000
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 10000
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 15000
+parkMaxApoapsisMeters      = 2000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+landingEnabled             = true
+descentTimeoutSeconds      = 2200
+landingTouchdownSpeedMps   = 0.5
+landingDeployGears         = true
+landingDeployChutes        = false
+landingRcsAdjustment       = false
+landingProgressWindowSeconds = 900
+landingProgressMinDropMeters = 5000
+landedSituations           = ["LANDED", "SPLASHED"]
+landedMaxVerticalSpeedMps  = 1.0
+landedMaxHorizontalSpeedMps = 0.5
+landedDwellSeconds         = 120
+landedDebounceFrames       = 3
+landedTimeoutSeconds       = 600
+landedSurfaceClassMark     = true
+
+[dimensionsCovered]
+D1  = ["auto-record-launch", "commit-in-foreign-soi", "commit-landed-foreign-body"]
+D4  = ["exo-ballistic", "cohesive-cross-body-coast"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "mun", "warp-rails", "warp-high", "scene-flight", "scene-ksc", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# B13 pins 11; open to 12 until the reading run (header).
+count = { min = 11, max = 12 }
+
+[expectations.logContracts]
+required = [
+  # B13's own recording pins (ParsekFlight.MergeFlow.cs and the seam's CommitTree).
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Landed terminalOrbitBody=Mun",
+  "committree committed=true",
+  # ParsekTestCommandAddon.InvokeRewindToLaunch.cs + the strip line.
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save ",
+  # THE SUBJECT, after the rewind mark: ParsekKSC.Decisions.cs (the SpawnOnly route for a
+  # leaf whose first point is on the Mun) and ParsekKSC.cs (the spawn), tied by #N.
+  "MISSIONMARK label=kss1-rewound [\\s\\S]*?Spawn-only past-end: attempting spawn for #([0-9]+) \"Kerbal X\" id=[0-9a-f]+ reason=\\S+ firstBody=Mun [\\s\\S]*?\\[KSCSpawn\\] Vessel spawned for #\\1 \"Kerbal X\" pid=[0-9]+ sit=LANDED ",
+  # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs.
+  "MISSIONMARK label=kss1-past-end [\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=[0-9]+ bodies=\\[Mun\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Spawn FAILED for #[0-9]+ \"Kerbal X\"",
+  "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"Kerbal X\"[\\s\\S]*\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"Kerbal X\"",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "timejump ",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+# B13's 5,600 (240 load + 5,000 mission + margin) + 300 rewind + 300 warp + 300 tests +
+# 120 save + margin for the default-budget steps.
+budgetSeconds = 6800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
