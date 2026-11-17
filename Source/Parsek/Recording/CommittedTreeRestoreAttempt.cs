@@ -8,7 +8,8 @@ namespace Parsek
     /// The committed-tree restore attempt (RecordingStore services plan, service H): the
     /// one-shot context armed when a committed spawned vessel is resumed through a
     /// copy-on-write clone of its committed tree. While it is armed, the clone's same-id
-    /// game-state events past each recording's committed end stay off disk
+    /// game-state events past each recording's cutoff (its committed end, or the resume
+    /// instant for the resumed recording whose end lies ahead of the clock) stay off disk
     /// (<see cref="ShouldSuppressCommittedTreeRestoreAttemptEventPersistence"/>), and a
     /// discard purges them (<see cref="DiscardCommittedTreeRestoreAttempt"/>). The state is
     /// save-scoped: a cold load forgets it (<see cref="ResetForLoad"/>).
@@ -29,6 +30,10 @@ namespace Parsek
             internal string Reason;
             internal HashSet<string> RecordingIds;
             internal Dictionary<string, double> EventCutoffs;
+            // Each recording's committed end at arm time, before the resumed recording's clamp.
+            internal Dictionary<string, double> EndUTs;
+            internal string ResumedRecordingId;
+            internal double ResumeUT = double.NaN;
         }
 
         private static ColdResetState state = new ColdResetState();
@@ -57,6 +62,24 @@ namespace Parsek
             set => state.EventCutoffs = value;
         }
 
+        private static Dictionary<string, double> committedTreeRestoreAttemptEndUTs
+        {
+            get => state.EndUTs;
+            set => state.EndUTs = value;
+        }
+
+        private static string committedTreeRestoreAttemptResumedRecordingId
+        {
+            get => state.ResumedRecordingId;
+            set => state.ResumedRecordingId = value;
+        }
+
+        private static double committedTreeRestoreAttemptResumeUT
+        {
+            get => state.ResumeUT;
+            set => state.ResumeUT = value;
+        }
+
         internal static bool HasCommittedTreeRestoreAttempt =>
             committedTreeRestoreAttemptTreeId != null;
         internal static bool HasCommittedTreeRestoreAttemptForTesting =>
@@ -83,7 +106,17 @@ namespace Parsek
             state = new ColdResetState();
         }
 
-        internal static void ArmCommittedTreeRestoreAttempt(RecordingTree tree, string reason)
+        /// <summary>
+        /// Arms the attempt for <paramref name="tree"/> (the committed copy). Every recording's
+        /// event cutoff is its committed end UT, except the recording the attempt resumes
+        /// (<paramref name="resumedRecordingId"/>): when its end lies ahead of the resume
+        /// instant <paramref name="resumeUT"/> (a predicted terminal past the live clock), the
+        /// flight from that instant on is the attempt's, so its cutoff is the resume instant
+        /// (<see cref="ComputeResumedRecordingEventCutoff"/>). A null id or a non-finite UT keeps
+        /// every cutoff at its end.
+        /// </summary>
+        internal static void ArmCommittedTreeRestoreAttempt(RecordingTree tree, string reason,
+            string resumedRecordingId = null, double resumeUT = double.NaN)
         {
             if (tree == null || string.IsNullOrEmpty(tree.Id))
             {
@@ -105,14 +138,190 @@ namespace Parsek
             committedTreeRestoreAttemptReason = reason ?? "<unspecified>";
             committedTreeRestoreAttemptRecordingIds =
                 BuildCommittedTreeRestoreRecordingIds(tree);
-            committedTreeRestoreAttemptEventCutoffs =
+            committedTreeRestoreAttemptEndUTs =
                 BuildCommittedTreeRestoreEventCutoffs(tree);
+            committedTreeRestoreAttemptEventCutoffs = new Dictionary<string, double>(
+                committedTreeRestoreAttemptEndUTs, StringComparer.Ordinal);
+            committedTreeRestoreAttemptResumedRecordingId = resumedRecordingId;
+            committedTreeRestoreAttemptResumeUT = resumeUT;
+            string resumeSummary = ApplyResumedRecordingCutoff();
             ParsekLog.Info("RecordingStore",
                 $"Armed committed-tree restore attempt for '{tree.TreeName ?? "<unnamed>"}' " +
                 $"(id={tree.Id}, recordings={tree.Recordings?.Count ?? 0}, " +
                 $"cutoffs={committedTreeRestoreAttemptEventCutoffs.Count}, " +
+                $"{resumeSummary}, " +
                 $"reason={committedTreeRestoreAttemptReason})");
         }
+
+        /// <summary>The recording the live attempt resumed, or null (none named at arm).</summary>
+        internal static string CommittedTreeRestoreAttemptResumedRecordingId =>
+            HasCommittedTreeRestoreAttempt ? committedTreeRestoreAttemptResumedRecordingId : null;
+
+        /// <summary>The live UT the attempt resumed at, or NaN (none named at arm).</summary>
+        internal static double CommittedTreeRestoreAttemptResumeUT =>
+            HasCommittedTreeRestoreAttempt ? committedTreeRestoreAttemptResumeUT : double.NaN;
+
+        /// <summary>
+        /// Moves the armed attempt's resume instant back to <paramref name="savedResumeUT"/>,
+        /// the instant a save made inside the same attempt recorded, when the flight re-arms
+        /// the same tree on the same recording later than that (an attempt resumed in place:
+        /// the save holds no active tree, so the flight arms afresh at the load's clock). The
+        /// attempt's held-back events lie between the two instants and are its own. Any other
+        /// case leaves the attempt as armed. Returns true when the cutoff moved.
+        /// </summary>
+        internal static bool AdoptSavedResumeInstant(
+            string savedResumedRecordingId, double savedResumeUT, string reason)
+        {
+            if (!HasCommittedTreeRestoreAttempt
+                || string.IsNullOrEmpty(savedResumedRecordingId)
+                || double.IsNaN(savedResumeUT) || double.IsInfinity(savedResumeUT))
+            {
+                return false;
+            }
+
+            string armedId = committedTreeRestoreAttemptResumedRecordingId;
+            double armedUT = committedTreeRestoreAttemptResumeUT;
+            bool sameRecording = string.Equals(armedId, savedResumedRecordingId, StringComparison.Ordinal);
+            bool earlier = double.IsNaN(armedUT) || savedResumeUT < armedUT;
+            if (!sameRecording || !earlier)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"AdoptSavedResumeInstant ({reason ?? "<none>"}): kept the armed resume instant " +
+                    $"rec={armedId ?? "<none>"} resumeUT={FormatUT(armedUT)} " +
+                    $"(saved rec={savedResumedRecordingId} resumeUT={FormatUT(savedResumeUT)} " +
+                    $"sameRecording={sameRecording} earlier={earlier})");
+                return false;
+            }
+
+            committedTreeRestoreAttemptResumeUT = savedResumeUT;
+            string summary = ApplyResumedRecordingCutoff();
+            ParsekLog.Info("RecordingStore",
+                $"AdoptSavedResumeInstant ({reason ?? "<none>"}): tree={committedTreeRestoreAttemptTreeId} " +
+                $"resume instant moved back {FormatUT(armedUT)} -> {FormatUT(savedResumeUT)} " +
+                $"from the save made inside the attempt ({summary})");
+            return true;
+        }
+
+        /// <summary>
+        /// Pure: the event cutoff of the recording a restore attempt resumes. Its committed end
+        /// <paramref name="committedEndUT"/> stays the cutoff when the resume instant
+        /// <paramref name="resumeUT"/> is not finite or the end is not after it (the end is in
+        /// the past: everything up to it is history). When the end lies AFTER the resume instant
+        /// (a predicted terminal ahead of the live clock), the vessel's flight from the resume
+        /// instant on is the attempt's: the cutoff is the largest UT below
+        /// <paramref name="resumeUT"/>, so an award stamped in the resume frame itself is the
+        /// attempt's own. <paramref name="latestStoredEventUTAfterResume"/> is the latest stored
+        /// event of the recording strictly after the resume instant and not after its end (NaN
+        /// when none): such an event is history the store already holds, so the cutoff never
+        /// drops below it and no stored event becomes the attempt's.
+        /// </summary>
+        internal static double ComputeResumedRecordingEventCutoff(
+            double committedEndUT, double resumeUT, double latestStoredEventUTAfterResume)
+        {
+            if (double.IsNaN(resumeUT) || double.IsInfinity(resumeUT))
+                return committedEndUT;
+            if (double.IsNaN(committedEndUT) || !(committedEndUT > resumeUT))
+                return committedEndUT;
+
+            double cutoff = LargestDoubleBelow(resumeUT);
+            if (!double.IsNaN(latestStoredEventUTAfterResume)
+                && latestStoredEventUTAfterResume > cutoff)
+            {
+                cutoff = latestStoredEventUTAfterResume;
+            }
+            return Math.Min(committedEndUT, cutoff);
+        }
+
+        /// <summary>Pure: the largest double strictly below a finite <paramref name="value"/>.</summary>
+        internal static double LargestDoubleBelow(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return value;
+            if (value == 0.0)
+                return -double.Epsilon;
+            long bits = BitConverter.DoubleToInt64Bits(value);
+            bits += value > 0.0 ? -1 : 1;
+            return BitConverter.Int64BitsToDouble(bits);
+        }
+
+        /// <summary>
+        /// Pure: the latest UT among <paramref name="events"/> of <paramref name="recordingId"/>
+        /// strictly after <paramref name="afterUT"/> and not after <paramref name="upToUT"/>, and
+        /// how many lie exactly at <paramref name="afterUT"/>. NaN when none.
+        /// </summary>
+        internal static double LatestRecordingEventUTInWindow(
+            IEnumerable<GameStateEvent> events, string recordingId, double afterUT, double upToUT,
+            ref int atAfterUT)
+        {
+            double latest = double.NaN;
+            if (events == null || string.IsNullOrEmpty(recordingId))
+                return latest;
+            foreach (GameStateEvent e in events)
+            {
+                if (!string.Equals(e.recordingId, recordingId, StringComparison.Ordinal))
+                    continue;
+                if (e.ut == afterUT)
+                {
+                    atAfterUT++;
+                    continue;
+                }
+                if (!(e.ut > afterUT) || e.ut > upToUT)
+                    continue;
+                if (double.IsNaN(latest) || e.ut > latest)
+                    latest = e.ut;
+            }
+            return latest;
+        }
+
+        // Recomputes the resumed recording's cutoff from the end the arm built and the resume
+        // instant, over the events the stores hold now (the attempt's history). Returns the
+        // summary the arm and the adopt lines print.
+        private static string ApplyResumedRecordingCutoff()
+        {
+            string recId = committedTreeRestoreAttemptResumedRecordingId;
+            double resumeUT = committedTreeRestoreAttemptResumeUT;
+            if (string.IsNullOrEmpty(recId))
+                return "resumed=<none>";
+
+            if (committedTreeRestoreAttemptEndUTs == null
+                || !committedTreeRestoreAttemptEndUTs.TryGetValue(recId, out double endUT))
+            {
+                return $"resumed={recId} resumeUT={FormatUT(resumeUT)} resumedCutoff=<none> (no committed end)";
+            }
+
+            int atResume = 0;
+            double latestAfter = double.NaN;
+            if (!double.IsNaN(resumeUT) && !double.IsInfinity(resumeUT))
+            {
+                latestAfter = LatestRecordingEventUTInWindow(
+                    GameStateStore.Events, recId, resumeUT, endUT, ref atResume);
+                IReadOnlyList<Milestone> milestones = MilestoneStore.Milestones;
+                for (int i = 0; i < milestones.Count; i++)
+                {
+                    double m = LatestRecordingEventUTInWindow(
+                        milestones[i].Events, recId, resumeUT, endUT, ref atResume);
+                    if (!double.IsNaN(m) && (double.IsNaN(latestAfter) || m > latestAfter))
+                        latestAfter = m;
+                }
+            }
+
+            double cutoff = ComputeResumedRecordingEventCutoff(endUT, resumeUT, latestAfter);
+            committedTreeRestoreAttemptEventCutoffs[recId] = cutoff;
+            string rule;
+            if (double.IsNaN(resumeUT) || double.IsInfinity(resumeUT))
+                rule = "end (no live clock)";
+            else if (!(endUT > resumeUT))
+                rule = "end (not ahead of the clock)";
+            else if (!double.IsNaN(latestAfter) && cutoff == latestAfter)
+                rule = "latest stored event after the resume instant";
+            else
+                rule = "resume instant (end ahead of the clock)";
+            return $"resumed={recId} resumeUT={FormatUT(resumeUT)} endUT={FormatUT(endUT)} " +
+                $"resumedCutoff={FormatUT(cutoff)} rule={rule} " +
+                $"storedEventsAtResume={atResume.ToString(CultureInfo.InvariantCulture)}";
+        }
+
+        private static string FormatUT(double ut) => ut.ToString("R", CultureInfo.InvariantCulture);
 
         internal static void ClearCommittedTreeRestoreAttempt(string reason)
         {
@@ -128,6 +337,9 @@ namespace Parsek
             committedTreeRestoreAttemptReason = null;
             committedTreeRestoreAttemptRecordingIds = null;
             committedTreeRestoreAttemptEventCutoffs = null;
+            committedTreeRestoreAttemptEndUTs = null;
+            committedTreeRestoreAttemptResumedRecordingId = null;
+            committedTreeRestoreAttemptResumeUT = double.NaN;
         }
 
         /// <summary>
@@ -238,7 +450,9 @@ namespace Parsek
 
         /// <summary>
         /// The armed attempt's event cutoff for <paramref name="recordingId"/> (the recording's
-        /// committed end UT at arm time): an event of that recording at or before it is
+        /// committed end UT at arm time, or just below the resume instant for the resumed
+        /// recording whose end lies ahead of it, see
+        /// <see cref="ComputeResumedRecordingEventCutoff"/>): an event of that recording at or before it is
         /// committed history, one after it is the clone's own. False when no attempt is armed
         /// or the recording has no cutoff.
         /// </summary>

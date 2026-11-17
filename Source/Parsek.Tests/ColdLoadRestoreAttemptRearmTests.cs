@@ -398,6 +398,94 @@ namespace Parsek.Tests
             Assert.True(drop < apply);
         }
 
+        // ---- the resume instant (RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK) ----
+
+        private const double ResumeInstantUT = 180.0;
+        private const double ResumedEarnUT = 190.0;
+
+        // catches: the resume-instant cutoff lost across an F5 / cold F9 inside the attempt:
+        // the re-arm rebuilt the resumed recording's cutoff at its end, so an event the
+        // attempt earned between the resume and that end would be written to the file as
+        // history and survive a discard.
+        [Fact]
+        public void ColdLoad_SaveInsideAttempt_RearmKeepsTheResumeInstantCutoff()
+        {
+            ConfigNode save = WriteSaveInsideAttempt(withHeldEvent: true, resumeUT: ResumeInstantUT);
+            ConfigNode attemptNode = save.GetNode(ParsekScenario.GameStateNodeName)
+                .GetNode(GameStateStore.AttemptEventsNodeName);
+            Assert.Equal(RootId, attemptNode.GetValue(GameStateStore.AttemptResumedRecordingIdKey));
+            Assert.Equal("180", attemptNode.GetValue(GameStateStore.AttemptResumeUTKey));
+            // The event between the resume and the committed end was held back, not saved.
+            Assert.Contains(attemptNode.GetNodes("GAME_STATE_EVENT"), n => n.GetValue("key") == "earned-before-end");
+            SimulateColdLoad(save);
+            Assert.DoesNotContain(GameStateStore.Events, e => e.key == "earned-before-end");
+
+            logLines.Clear();
+            Assert.True(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.Cold, loadedSceneIsFlight: true));
+            Assert.True(CommittedTreeRestoreAttempt.TryGetEventCutoff(RootId, out double cutoff));
+            Assert.Equal(CommittedTreeRestoreAttempt.LargestDoubleBelow(ResumeInstantUT), cutoff);
+            Assert.True(CommittedTreeRestoreAttempt.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
+                new GameStateEvent { ut = ResumedEarnUT, recordingId = RootId }));
+            Assert.Contains(logLines, l => l.Contains("Armed committed-tree restore attempt")
+                && l.Contains("resumed=" + RootId) && l.Contains("resumeUT=180 "));
+
+            Assert.Equal(2, ParsekScenario.ApplySaveAttemptEventsAfterActiveTreeRestore());
+            var next = GameStateStore.BuildEventsNode(
+                RecordingStore.CommittedTreeRestoreAttemptTreeId,
+                RecordingStore.CommittedTreeRestoreAttemptReason);
+            Assert.DoesNotContain(next.Root.GetNodes("GAME_STATE_EVENT"), n => n.GetValue("key") == "earned-before-end");
+            Assert.Equal("180", next.AttemptEvents.GetValue(GameStateStore.AttemptResumeUTKey));
+        }
+
+        // catches: the in-place shape (no active tree in the save; the flight re-arms at the
+        // load's clock, later than the first resume) dropping the attempt's held events that
+        // lie between the two instants.
+        [Fact]
+        public void ColdLoad_InPlaceAttempt_FlightRearmAdoptsTheSavedResumeInstant()
+        {
+            ConfigNode save = WriteSaveInsideAttempt(withHeldEvent: true, resumeUT: ResumeInstantUT);
+            save.RemoveNode(save.GetNodes("RECORDING_TREE").Single(n => ParsekScenario.IsActiveTreeNode(n)));
+            SimulateColdLoad(save);
+
+            Assert.False(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.Cold, loadedSceneIsFlight: true));
+            Assert.Equal(0, ParsekScenario.ApplySaveAttemptEventsAfterActiveTreeRestore());
+            Assert.True(ParsekScenario.HasHeldSaveAttemptEventsForTesting);
+
+            logLines.Clear();
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(
+                RecordingStore.CommittedTrees.Single(t => t.Id == TreeId), OriginalArmReason, RootId, 195.0);
+            Assert.Equal(2, ParsekScenario.ResolveHeldSaveAttemptEventsOnArm(TreeId));
+            Assert.Single(GameStateStore.Events.Where(e => e.key == "earned-before-end"));
+            Assert.True(CommittedTreeRestoreAttempt.TryGetEventCutoff(RootId, out double cutoff));
+            Assert.Equal(CommittedTreeRestoreAttempt.LargestDoubleBelow(ResumeInstantUT), cutoff);
+            Assert.Contains(logLines, l => l.Contains("AdoptSavedResumeInstant (held ATTEMPT_EVENTS on the flight's re-arm)")
+                && l.Contains("moved back 195 -> 180"));
+        }
+
+        // catches: the held-path adopt skipped silently when the save names no resume instant
+        // (a save from a build without the keys): the flight's own arm instant stands, logged.
+        [Fact]
+        public void ColdLoad_InPlaceAttempt_SaveWithoutResumeFacts_LogsTheSkippedAdopt()
+        {
+            ConfigNode save = WriteSaveInsideAttempt(withHeldEvent: true);
+            save.RemoveNode(save.GetNodes("RECORDING_TREE").Single(n => ParsekScenario.IsActiveTreeNode(n)));
+            SimulateColdLoad(save);
+            Assert.False(ParsekScenario.TryRestoreActiveTreeNode(save, EarlyLoadKind.Cold, loadedSceneIsFlight: true));
+            Assert.Equal(0, ParsekScenario.ApplySaveAttemptEventsAfterActiveTreeRestore());
+
+            logLines.Clear();
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(
+                RecordingStore.CommittedTrees.Single(t => t.Id == TreeId), OriginalArmReason, RootId, 195.0);
+            Assert.Equal(1, ParsekScenario.ResolveHeldSaveAttemptEventsOnArm(TreeId));
+
+            Assert.True(CommittedTreeRestoreAttempt.TryGetEventCutoff(RootId, out double cutoff));
+            Assert.Equal(CommittedTreeRestoreAttempt.LargestDoubleBelow(195.0), cutoff);
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][Scenario]")
+                && l.Contains("Held ATTEMPT_EVENTS name no resume instant: attemptTreeId=" + TreeId)
+                && l.Contains("reason=no-resumed-recording-id"));
+            Assert.DoesNotContain(logLines, l => l.Contains("AdoptSavedResumeInstant"));
+        }
+
         // ---- wiring ----
 
         // catches: the re-arm moved after the splice or the detach (the cutoffs would then come
@@ -463,14 +551,26 @@ namespace Parsek.Tests
         // Live attempt (committed copy committed, clone active, attempt armed from the committed
         // copy), an event earned at 230 on the committed id, then an OnSave of the Parsek node:
         // committed trees first, then the active node, then GAME_STATE.
-        private ConfigNode WriteSaveInsideAttempt(bool withHeldEvent)
+        // With a finite resumeUT the attempt is armed as resumed on RootId at that instant
+        // (before the committed end), and earns one more event between the two.
+        private ConfigNode WriteSaveInsideAttempt(bool withHeldEvent, double resumeUT = double.NaN)
         {
             RecordingTree committed = MakeCommittedTree();
             RecordingTree clone = MakeAttemptClone(committed);
             WriteSidecars(committed.Recordings[RootId]);
             WriteSidecars(clone.Recordings[SegmentId]);
 
-            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committed, OriginalArmReason);
+            CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(committed, OriginalArmReason,
+                double.IsNaN(resumeUT) ? null : RootId, resumeUT);
+            if (!double.IsNaN(resumeUT))
+            {
+                var beforeEnd = new GameStateEvent
+                {
+                    ut = ResumedEarnUT, eventType = GameStateEventType.ContractCompleted, key = "earned-before-end",
+                    detail = "fundsReward=100", recordingId = RootId,
+                };
+                GameStateStore.AddEvent(ref beforeEnd);
+            }
             if (withHeldEvent)
             {
                 var earned = new GameStateEvent
