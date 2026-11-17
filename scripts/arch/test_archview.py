@@ -4179,13 +4179,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # Multiplayer P2a-05 adds the playback catalog port and its own-timeline class:
         # RecordingPlaybackCatalog reads RecordingStore and PendingTreeSlot, IPlaybackCatalog
         # names Recording and RecordingTree, and the recorded-anchor pose resolver (a knot
-        # member) calls both: 437.
+        # member) calls both: 437. The shared table-window chrome (TableWindowChrome, lifted
+        # out of StructureListWindowUI) calls ParsekUI's window helpers and the log-table
+        # window holds one, so it joins: 438.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [437, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [438, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4369,10 +4371,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # 381 -> 363).
         # P2a-05's two catalog types (see the knot sizes above) stay on the uncut side through
         # the first three cuts, so each lands two higher again (437 -> 405, 405 -> 383,
-        # 383 -> 365).
+        # 383 -> 365). TableWindowChrome (in the knot, see above) is reached from the window
+        # set the flight controller builds, so the first cut starts one higher and drops it
+        # too (438 -> 405).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 437)
+        self.assertEqual(first["sizeBefore"], 438)
         self.assertEqual(first["sizeAfter"], 405)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",

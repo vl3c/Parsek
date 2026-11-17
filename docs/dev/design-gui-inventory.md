@@ -175,7 +175,7 @@ structure:
 
 | grep over `Source/Parsek` | result |
 |---|---|
-| `ClickThruBlocker.GUILayoutWindow(` / `GUILayout.Window(` / `GUI.Window(` | 14 sites since the Gloops removal (2026-10-05): 13 player-facing hosts drawing **13 distinct windows** (the main window has two hosts, and `StructureListWindowUI`'s one site draws both the Log and the Route History), 1 test-only probe at `InGameTests/GuiTreeDumpImguiTest.cs:484`. 16 sites and 14 windows at `4eb427e9e` |
+| `ClickThruBlocker.GUILayoutWindow(` / `GUILayout.Window(` / `GUI.Window(` | 14 sites since the Gloops removal (2026-10-05): 13 player-facing hosts drawing **13 distinct windows** (the main window has two hosts, and the log-table window's one site, in `UI/TableWindowChrome.cs`, draws both the Log and the Route History), 1 test-only probe at `InGameTests/GuiTreeDumpImguiTest.cs:484`. 16 sites and 14 windows at `4eb427e9e` |
 | `PopupDialog.SpawnPopupDialog(` excluding `InGameTests/` + `TestCommands/` | **19** modal dialogs (21 at `4eb427e9e`; the two Settings wipe confirmations were removed 2026-09-26) |
 | `void OnGUI()` in production | **5** hosts: `ParsekFlight.cs:2087`, `ParsekKSC.cs:227`, `ParsekTrackingStation.cs:350`, `CurrencyReservationOverlay.cs:87`, `InGameTests/TestRunnerShortcut.cs:177` (`OverlayBadge.cs` was the sixth until 2026-09-25, when the stock-UI badges moved to stock mechanisms and the file was deleted) |
 | IMGUI draw calls outside `UI/` | 6 files: `CurrencyReservationOverlay.cs`, `MapMarkerRenderer.cs`, `ParsekFlight.cs`, `ParsekKSC.cs`, `ParsekUI.cs`, `WatchModeController.cs` (`OverlayBadge.cs` deleted 2026-09-25) |
@@ -1144,7 +1144,11 @@ the two can be open at once. Neither persists its rect across scenes; the Route 
 opens 40 px right of and below where the Mission Log first opens (`DefaultWindowRect`), so the
 two never open stacked. Both are read-only, have
 no complexity gate, are drawn by `ParsekUI.DrawStructureWindowIfOpen` and release their locks in
-`ParsekUI.Cleanup`.
+`ParsekUI.Cleanup`. The frame both instances draw in is `UI/TableWindowChrome.cs`, one per
+instance: first-open placement, the resize clamp, the opaque UI-scaled window keyed by the window
+id key, the position log, the camera input lock while the pointer is over the window, and the
+footer (hover strip, full-width `Close`, resize handle, drag). The window keeps its open state,
+its body (the table) and its strip height (it builds the `TooltipEchoBox` it hands the chrome).
 
 | instance | title | opened by | rows | Time cell | empty state | seam token |
 |---|---|---|---|---|---|---|
