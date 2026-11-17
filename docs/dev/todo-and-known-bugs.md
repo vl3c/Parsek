@@ -109,8 +109,9 @@ loaded vessels stay with the bounding-box check and the trajectory walkback as b
 next to the player behaves as it did, and the unloaded rest (every vessel in the Tracking Station,
 the far ones in flight, including a delivery spawned earlier in the same handoff pass) is kept
 15 m clear. The tree-sibling and earlier-tree exemptions are the gather's, so a placed-part
-cluster is not pulled apart. A nudged Landed spawn re-runs the underground floor at its new spot
-(`ClampAltitudeForLanded`); the Space Center block does not, and still keeps its own altitude.
+cluster is not pulled apart. A nudged spawn re-runs its floor at the new spot
+(`ReFloorNudgedSurfaceSpawnAltitude`: Landed `ClampAltitudeForLanded`, Splashed the recorded-depth
+rule); the Space Center de-overlap now does the same.
 Logged `[Spawner] De-overlap for #N "<name>": nudged <M>m (site=end-of-recording, ...)` (Verbose
 `clear` otherwise), worded like the Space Center line so the EVA-6 / EVA-9 / EVA-10 forbidden
 nudge patterns cover both sites. TSS-3 re-pinned: no longer an expected red, its `nearest vessel`
@@ -160,10 +161,11 @@ preset `spawn-stack` (`SyntheticRecordingTests.InjectSpawnStack`, wired in `hlib
 ~~Proposal: a vertical verdict in `LeafVesselPlacement`~~ (built 2026-11-17, branch
 `wip/spawnfix3`, REPORT-ONLY). The cell checked a Landed / Splashed leaf by surface distance only,
 so a vessel buried or floating a few metres read ok. Each Landed / Splashed leaf now also logs
-`LeafPlacement height: rec=... terminal=... body=... altM=... surfaceM=... aboveM=...
-heightVerdict=ok|below-surface|above-surface|unsupported` (pure
-`LeafVesselPlacement.CompareHeight`: Landed against `body.TerrainAltitude(lat, lon, true)`,
-Splashed against sea level 0; bad below 1 m under or above 10 m over that surface), and one
+`LeafPlacement height: rec=... terminal=... body=... altM=... refM=... deltaM=... floorM=...
+heightVerdict=ok|below-surface|above-surface|below-sea-floor|off-recorded-depth|unsupported` (pure
+`LeafVesselPlacement.CompareHeight`: Landed against `body.TerrainAltitude(lat, lon, true)`, bad
+1 m under or 10 m over it; Splashed against its RECORDED depth per the owner ruling of 2026-11-17
+(TIP-SPAWN-PLACEMENT S1), bad 1 m under the sea floor or 10 m off that depth), and one
 `LeafPlacement height summary: scene=... checked= ok= bad= unsupported=` line. Its own prefix and
 token: the pinned `LeafPlacement summary:` line, the `LeafPlacement: ... verdict=` rows and the
 cell's pass / fail are unchanged (no new `[InGameTest]`), and none of the 25 committed specs that
@@ -191,12 +193,26 @@ lanes. Each is a reading run: pin what it measures, the new height lines include
   falls to the existing single-point retry path), and the chain-tip walkback
   (`VesselGhoster.TryWalkbackSpawn`) uses the same run. The Orbiting-end variant (walkback
   coordinates mixed with a propagated orbit) was only plausible and is not addressed.
-- **S1, walkback kept a negative depth for a Splashed end.** The walkback clamp only lowered a
-  positive altitude to 0, contradicting #313 (every Splashed spawn at sea level). Fix: one
-  helper, `VesselSpawner.ClampSplashedSpawnAltitude`, used by both `ResolveSpawnPosition` and the
-  walkback. The chain tip applies the same floor to every non-orbital spawn
-  (`VesselGhoster.ResolveChainTipSurfaceSpawnAltitude`, in `SpawnChainTipWithResolvedState`), so a
-  walked-back or propagated Splashed tip cannot spawn under water either.
+- **S1, the Splashed spawn altitude differed by path.** The walkback clamp only lowered a
+  positive altitude to 0 while the endpoint floored every Splashed spawn to sea level (#313).
+  First fix (`wip/spawnfix2`): one helper used by both, flooring to 0. **Owner ruling 2026-11-17
+  reverses #313:** a Splashed end spawns at its RECORDED depth (a submarine that ended 50 m down
+  appears 50 m down, where its ghost held it, instead of popping to the surface with a ~50 m jump
+  at the ghost-to-vessel handoff). #313 floored an EVA kerbal recorded at -0.2 m so he would not
+  appear under water; he now spawns where he was recorded and swims up. The one real hazard kept
+  solved: a spot shallower than the recorded depth (a walkback sub-step, a de-overlap nudge, a
+  terrain change). Fix (`wip/spawnfix3`): `VesselSpawner.ResolveSplashedSpawnAltitude(alt,
+  seaFloor, ...)` keeps a depth <= 0, sends a positive altitude to 0, and raises a depth below
+  `TerrainAltitude(lat, lon, true) + UndergroundSafetyFloorMeters` (2 m) to that floor, never above
+  0 (unknown floor, e.g. headless: no floor). Used by `ResolveSpawnPosition` (so the Space Center
+  end spawn too; sea floor read headless-safe by `TryReadSeaFloorAltitude`), the collision
+  walkback, both de-overlaps (`ReFloorNudgedSurfaceSpawnAltitude`, which the Space Center
+  de-overlap now also runs, Landed included) and every non-orbital chain-tip spawn
+  (`VesselGhoster.ResolveChainTipSurfaceSpawnAltitude`, sea floor under the tip). Logged
+  `Clamped altitude for SPLASHED spawn #N (...): X -> Y (above-sea-level|below-sea-floor, ...)` or
+  `Splashed spawn #N (...) keeps its recorded depth alt=...` (rate-limited). Not flown: no lane has
+  a submerged end; a submarine lane (scratch `submarine.md` design) would pin the depth line and
+  the `LeafPlacement height:` reading.
 - **S2, a sea spawn was written LANDED.** `SpawnAtPosition` read `body.TerrainAltitude(lat, lon)`,
   whose stock default `allowNegative = false` clamps a sea floor to 0 (decompiled IL), so
   `overWater` was always false and `DetermineSituation` wrote `sit=LANDED` for a Splashed EVA,

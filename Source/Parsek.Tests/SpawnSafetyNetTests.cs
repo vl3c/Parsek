@@ -2079,11 +2079,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveSpawnPosition_BreakupContinuousSplashed_NegativeAlt_FloorsToZero()
+        public void ResolveSpawnPosition_BreakupContinuousSplashed_NegativeAlt_KeepsRecordedDepth()
         {
-            // Bug #313 follow-up: breakup-continuous splashed endpoints use the same
-            // sea-surface floor as EVA/non-breakup spawns. Slightly negative altitudes
-            // are numerical noise and must be corrected back to 0 before spawn.
+            // Owner ruling 2026-11-17 (reverses #313's sea-level floor): a Splashed end
+            // spawns at its recorded depth, breakup-continuous endpoints included. With no
+            // body resolved (headless) there is no sea floor to raise it to.
             var rec = new Recording
             {
                 VesselSnapshot = new ConfigNode("VESSEL"),
@@ -2095,8 +2095,10 @@ namespace Parsek.Tests
             var lastPt = new TrajectoryPoint { latitude = -0.12, longitude = -73.72, altitude = -1.5 };
             VesselSpawner.ResolveSpawnPosition(rec, 13, lastPt, out double lat, out double lon, out double alt);
 
-            Assert.Equal(0.0, alt);
-            Assert.Contains(logLines, l => l.Contains("Clamped altitude") && l.Contains("SPLASHED"));
+            Assert.Equal(-1.5, alt);
+            Assert.DoesNotContain(logLines, l => l.Contains("Clamped altitude") && l.Contains("SPLASHED"));
+            Assert.Contains(logLines, l => l.Contains("Splashed spawn #13")
+                && l.Contains("keeps its recorded depth alt=-1.5 (seaFloor=unknown, site=endpoint)"));
         }
 
         [Fact]
@@ -2126,10 +2128,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveSpawnPosition_NonBreakupSplashed_NegativeSnapshotAltitude_FloorsToSeaLevel()
+        public void ResolveSpawnPosition_NonBreakupSplashed_NegativeSnapshotAltitude_KeepsRecordedDepth()
         {
-            // The splashed safety net must also floor slightly negative snapshot altitudes,
-            // not just positive ones, for non-breakup snapshot-based spawns.
+            // Owner ruling 2026-11-17: a snapshot-based Splashed spawn below the waterline
+            // keeps its depth (a submerged hull spawns submerged, where its ghost was).
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("lat", "-0.12");
             snapshot.AddValue("lon", "-73.72");
@@ -2149,10 +2151,9 @@ namespace Parsek.Tests
 
             Assert.Equal(-0.12, lat);
             Assert.Equal(-73.72, lon);
-            Assert.Equal(0.0, alt);
+            Assert.Equal(-0.25, alt);
             Assert.Contains(logLines, l =>
-                l.Contains("Clamped altitude for SPLASHED spawn #6")
-                && l.Contains("Snapshot Floater"));
+                l.Contains("Splashed spawn #6 (Snapshot Floater) keeps its recorded depth"));
         }
 
         [Fact]
@@ -2177,11 +2178,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveSpawnPosition_EvaSplashed_NegativeEndpointAltitude_FloorsToSeaLevel()
+        public void ResolveSpawnPosition_EvaSplashed_NegativeEndpointAltitude_KeepsRecordedDepth()
         {
-            // Bug #313: splashed EVA endpoints can land slightly below sea level due to
-            // the recorded final trajectory sample. The spawn safety net must floor those
-            // negative values back to the water surface before snapshot override/spawn.
+            // Bug #313 floored a splashed EVA kerbal recorded at -0.2 m to the water surface.
+            // Owner ruling 2026-11-17 reverses that: he spawns where he was recorded (and where
+            // his ghost was), and swims up from there.
             var rec = new Recording
             {
                 VesselSnapshot = new ConfigNode("VESSEL"),
@@ -2202,10 +2203,9 @@ namespace Parsek.Tests
 
             Assert.Equal(1.25, lat);
             Assert.Equal(-74.5, lon);
-            Assert.Equal(0.0, alt);
+            Assert.Equal(-0.213434, alt);
             Assert.Contains(logLines, l =>
-                l.Contains("Clamped altitude for SPLASHED spawn #25")
-                && l.Contains("Raydred Kerman"));
+                l.Contains("Splashed spawn #25 (Raydred Kerman) keeps its recorded depth alt=-0.2"));
         }
 
         // ── ClampAltitudeForLanded (pure, testable without CelestialBody) ──

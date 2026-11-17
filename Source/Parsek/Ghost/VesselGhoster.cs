@@ -860,19 +860,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The #313 sea-level rule on every chain-tip spawn that is not placed by an orbit:
-        /// a Splashed tip spawns at altitude 0 whether its resolved altitude came from the
-        /// endpoint, a propagated surface hold or a walkback sub-step (which can carry a
-        /// recorded depth below the waterline).
+        /// The Splashed spawn altitude rule (owner ruling 2026-11-17,
+        /// <see cref="VesselSpawner.ResolveSplashedSpawnAltitude"/>) on every chain-tip spawn
+        /// that is not placed by an orbit: a Splashed tip spawns at its recorded depth, never
+        /// above sea level and never into the sea floor (<paramref name="seaFloorAltitude"/>,
+        /// NaN when unknown), whether its altitude came from the endpoint, a propagated surface
+        /// hold or a walkback sub-step.
         /// </summary>
         internal static double ResolveChainTipSurfaceSpawnAltitude(
-            Recording tipRecording, bool placedByOrbit, double spawnAlt, string logContext)
+            Recording tipRecording, bool placedByOrbit, double spawnAlt, double seaFloorAltitude,
+            string logContext)
         {
             if (tipRecording == null || placedByOrbit
                 || tipRecording.TerminalStateValue != TerminalState.Splashed)
                 return spawnAlt;
-            return VesselSpawner.ClampSplashedSpawnAltitude(
-                spawnAlt, -1, tipRecording.VesselName, logContext ?? "chain-tip");
+            return VesselSpawner.ResolveSplashedSpawnAltitude(
+                spawnAlt, seaFloorAltitude, -1, tipRecording.VesselName, logContext ?? "chain-tip");
         }
 
         /// <summary>
@@ -904,8 +907,12 @@ namespace Parsek
             if (tipRecording == null || vesselSnapshot == null)
                 return 0;
 
+            double seaFloor = body != null && orbitOverride == null
+                && tipRecording.TerminalStateValue == TerminalState.Splashed
+                ? body.TerrainAltitude(spawnLat, spawnLon, true)
+                : double.NaN;
             spawnAlt = ResolveChainTipSurfaceSpawnAltitude(
-                tipRecording, orbitOverride != null, spawnAlt, logContext);
+                tipRecording, orbitOverride != null, spawnAlt, seaFloor, logContext);
 
             ConfigNode spawnSnapshot = vesselSnapshot.CreateCopy();
             ChainTipRouteCargo.ApplyToSpawnCopy(spawnSnapshot, tipRecording, logContext);

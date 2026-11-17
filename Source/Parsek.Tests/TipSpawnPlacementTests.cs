@@ -10,7 +10,8 @@ namespace Parsek.Tests
     /// <summary>
     /// Where an end-of-recording ("tip") vessel is placed: the collision walkback reads only
     /// points that place on the spawn body (never a Relative-section anchor offset as
-    /// lat/lon), a Splashed spawn is floored to sea level on every path, a sea spawn is
+    /// lat/lon), a Splashed spawn keeps its recorded depth on every path (never into the sea
+    /// floor; owner ruling 2026-11-17), a sea spawn is
     /// seen as over water, and a chain tip follows the end-of-recording rules for dead
     /// crew and for where an orbital tip is collision-checked.
     /// </summary>
@@ -223,49 +224,79 @@ namespace Parsek.Tests
             Assert.Contains("walkPt = walkPoints[validIdx];", chainWalk);
         }
 
-        // ---- S1: every Splashed spawn is floored to sea level, the walkback included ----
+        // ---- Splashed spawns keep their recorded depth (owner ruling 2026-11-17), on every path ----
+
+        [Fact]
+        public void SplashedDepth_RecordedDepthAboveTheSeaFloor_IsKept()
+        {
+            double alt = VesselSpawner.ResolveSplashedSpawnAltitude(-50.0, -400.0, 7, "Sub", "walkback");
+
+            Assert.Equal(-50.0, alt);
+            Assert.DoesNotContain(logLines, l => l.Contains("Clamped altitude for SPLASHED"));
+            Assert.Contains(logLines, l => l.Contains("[Spawner]")
+                && l.Contains("Splashed spawn #7 (Sub) keeps its recorded depth alt=-50.0 (seaFloor=-400.0, site=walkback)"));
+        }
+
+        [Fact]
+        public void SplashedDepth_AboveSeaLevel_GoesToZero()
+        {
+            Assert.Equal(0.0, VesselSpawner.ResolveSplashedSpawnAltitude(2.0, -400.0, 7, "Boat", "endpoint"));
+            Assert.Contains(logLines, l => l.Contains("Clamped altitude for SPLASHED spawn #7 (Boat): 2.0 -> 0 (above-sea-level, site=endpoint)"));
+        }
 
         [Theory]
-        [InlineData(-4.5)]
-        [InlineData(2.0)]
-        public void SplashedClamp_FloorsAnyNonZeroAltitudeToSeaLevel(double recordedAlt)
+        [InlineData(-50.0, -30.0, -28.0)]   // a shallower spot: raised to the floor plus 2 m
+        [InlineData(-50.0, -1.0, 0.0)]      // a floor within 2 m of the surface: never above sea level
+        [InlineData(-3.0, 5.0, 0.0)]        // dry land under the spot: sea level
+        public void SplashedDepth_IntoTheSeaFloor_IsRaisedAboveIt(double alt, double seaFloor, double expected)
         {
-            double alt = VesselSpawner.ClampSplashedSpawnAltitude(recordedAlt, 7, "Sub", "walkback");
-
-            Assert.Equal(0.0, alt);
-            Assert.Contains(logLines, l => l.Contains("[Spawner]")
-                && l.Contains("Clamped altitude for SPLASHED spawn #7 (Sub)")
-                && l.Contains("site=walkback"));
+            Assert.Equal(expected, VesselSpawner.ResolveSplashedSpawnAltitude(alt, seaFloor, 8, "Sub", "de-overlap"), 6);
+            Assert.Contains(logLines, l => l.Contains("Clamped altitude for SPLASHED spawn #8 (Sub)")
+                && l.Contains("below-sea-floor"));
         }
 
         [Fact]
-        public void SplashedClamp_SeaLevelIsUnchangedAndSilent()
+        public void SplashedDepth_SeaLevelOrUnknownFloor_IsUnchanged()
         {
-            Assert.Equal(0.0, VesselSpawner.ClampSplashedSpawnAltitude(0.0, 7, "Boat", "endpoint"));
-            Assert.DoesNotContain(logLines, l => l.Contains("Clamped altitude for SPLASHED"));
+            Assert.Equal(0.0, VesselSpawner.ResolveSplashedSpawnAltitude(0.0, -400.0, 7, "Boat", "endpoint"));
+            Assert.Equal(-12.0, VesselSpawner.ResolveSplashedSpawnAltitude(-12.0, double.NaN, 7, "Sub", "endpoint"));
+            Assert.Equal(0.0, VesselSpawner.ResolveSplashedSpawnAltitude(double.NaN, -400.0, 7, "Sub", "endpoint"));
+            Assert.DoesNotContain(logLines, l => l.Contains("below-sea-floor"));
         }
 
         [Fact]
-        public void Wiring_WalkbackAndEndpoint_ShareTheSplashedClamp()
+        public void Wiring_EverySplashedSpawnPath_SharesTheDepthRuleWithTheSeaFloorUnderIt()
         {
             string eor = StripLineComments(File.ReadAllText(ParsekSource("Controllers", "VesselSpawner.EndOfRecording.cs")));
             string walk = ExtractMethodBody(eor, "internal static bool TryWalkbackForEndOfRecordingSpawn(");
             string endpoint = ExtractMethodBody(eor, "internal static void ResolveSpawnPosition(");
-            Assert.Contains("ClampSplashedSpawnAltitude(walkAlt,", walk);
+            string refloor = ExtractMethodBody(eor, "internal static double ReFloorNudgedSurfaceSpawnAltitude(");
+            Assert.Contains("ResolveSplashedSpawnAltitude(walkAlt,\n                        body.TerrainAltitude(walkLat, walkLon, true)",
+                walk.Replace("\r", ""));
             Assert.DoesNotContain("walkAlt > 0", walk);
-            Assert.Contains("ClampSplashedSpawnAltitude(alt,", endpoint);
+            Assert.Contains("TryReadSeaFloorAltitude(endpointBodyName, lat, lon)", endpoint);
+            Assert.Contains("ResolveSplashedSpawnAltitude(alt, seaFloor,", endpoint);
+            Assert.Contains("ResolveSplashedSpawnAltitude(alt, body.TerrainAltitude(lat, lon, true),", refloor);
+            Assert.DoesNotContain("ClampSplashedSpawnAltitude", eor);
+
+            string helper = ExtractMethodBody(eor, "private static void ApplyEndOfRecordingLandedDeOverlap(");
+            Assert.Contains("ReFloorNudgedSurfaceSpawnAltitude(", helper);
+            string ksc = StripLineComments(File.ReadAllText(ParsekSource("Controllers", "ParsekKSC.cs")));
+            Assert.Contains("VesselSpawner.ReFloorNudgedSurfaceSpawnAltitude(", ksc);
         }
 
         [Fact]
-        public void ChainTipSplashedAltitude_SurfaceSpawnIsFlooredToSeaLevel()
+        public void ChainTipSplashedAltitude_SurfaceSpawnKeepsItsRecordedDepth()
         {
             var splashed = new Recording { RecordingId = "tip-sub", VesselName = "Sub", TerminalStateValue = TerminalState.Splashed };
             var landed = new Recording { RecordingId = "tip-rover", VesselName = "Rover", TerminalStateValue = TerminalState.Landed };
 
-            Assert.Equal(0.0, VesselGhoster.ResolveChainTipSurfaceSpawnAltitude(splashed, false, -3.5, "walkback chain tip"));
-            Assert.Equal(-3.5, VesselGhoster.ResolveChainTipSurfaceSpawnAltitude(splashed, true, -3.5, "ctx"));
-            Assert.Equal(-3.5, VesselGhoster.ResolveChainTipSurfaceSpawnAltitude(landed, false, -3.5, "ctx"));
-            Assert.Contains(logLines, l => l.Contains("Clamped altitude for SPLASHED spawn #-1 (Sub)")
+            Assert.Equal(-3.5, VesselGhoster.ResolveChainTipSurfaceSpawnAltitude(splashed, false, -3.5, -40.0, "walkback chain tip"));
+            Assert.Equal(-18.0, VesselGhoster.ResolveChainTipSurfaceSpawnAltitude(splashed, false, -45.0, -20.0, "walkback chain tip"));
+            Assert.Equal(0.0, VesselGhoster.ResolveChainTipSurfaceSpawnAltitude(splashed, false, 1.5, -40.0, "ctx"));
+            Assert.Equal(-60.0, VesselGhoster.ResolveChainTipSurfaceSpawnAltitude(splashed, true, -60.0, -20.0, "ctx"));
+            Assert.Equal(-3.5, VesselGhoster.ResolveChainTipSurfaceSpawnAltitude(landed, false, -3.5, -40.0, "ctx"));
+            Assert.Contains(logLines, l => l.Contains("Clamped altitude for SPLASHED spawn #-1 (Sub): -45.0 -> -18.0")
                 && l.Contains("site=walkback chain tip"));
         }
 
@@ -274,10 +305,11 @@ namespace Parsek.Tests
         {
             string ghoster = StripLineComments(File.ReadAllText(ParsekSource("Ghost", "VesselGhoster.cs")));
             string body = ExtractMethodBody(ghoster, "private uint SpawnChainTipWithResolvedState(");
+            int floor = body.IndexOf("body.TerrainAltitude(spawnLat, spawnLon, true)", StringComparison.Ordinal);
             int clamp = body.IndexOf("spawnAlt = ResolveChainTipSurfaceSpawnAltitude(", StringComparison.Ordinal);
             int write = body.IndexOf("VesselSpawner.ApplyResolvedSpawnStateToSnapshot(", StringComparison.Ordinal);
-            Assert.True(clamp >= 0 && clamp < write,
-                "SpawnChainTipWithResolvedState must floor a Splashed tip before it writes the spawn position");
+            Assert.True(floor >= 0 && floor < clamp && clamp < write,
+                "SpawnChainTipWithResolvedState must apply the Splashed depth rule, with the sea floor under the tip, before it writes the spawn position");
         }
 
         // ---- S2: a sea spawn is seen as over water and written SPLASHED ----
@@ -537,7 +569,7 @@ namespace Parsek.Tests
             Assert.Contains("GatherExistingLandedVesselPositions(", helper);
             Assert.Contains("includeLoadedVessels: false", helper);
             Assert.Contains("SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(", helper);
-            Assert.Contains("ClampAltitudeForLanded(", helper);
+            Assert.Contains("ReFloorNudgedSurfaceSpawnAltitude(rec, index, body,", helper);
 
             string gather = ExtractMethodBody(eor,
                 "internal static List<(double lat, double lon)> GatherExistingLandedVesselPositions(");

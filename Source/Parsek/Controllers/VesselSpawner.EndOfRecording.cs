@@ -643,8 +643,9 @@ namespace Parsek
         /// Center's de-overlap with loaded vessels left out (they stay with
         /// <see cref="CheckSpawnCollisions"/>). Exemptions are the gather's: the recording's own
         /// tree siblings that stood beside it, and the earlier-tree vessel an EVA kerbal or
-        /// placed part was recorded next to. A nudged Landed spawn re-runs the underground
-        /// floor at its new spot so a slope cannot bury it; Splashed stays at sea level.
+        /// placed part was recorded next to. A nudged spawn re-runs its floor at the new spot
+        /// (<see cref="ReFloorNudgedSurfaceSpawnAltitude"/>) so a slope or a shallower sea floor
+        /// cannot bury it.
         /// </summary>
         private static void ApplyEndOfRecordingLandedDeOverlap(
             Recording rec, int index, CelestialBody body,
@@ -674,17 +675,35 @@ namespace Parsek
                 return;
             }
 
-            double nudgedAlt = spawnAlt;
-            if (rec.TerminalStateValue == TerminalState.Landed)
-                nudgedAlt = ClampAltitudeForLanded(spawnAlt,
-                    body.TerrainAltitude(deOverlap.Latitude, deOverlap.Longitude),
-                    index, rec.VesselName);
+            double nudgedAlt = ReFloorNudgedSurfaceSpawnAltitude(rec, index, body,
+                deOverlap.Latitude, deOverlap.Longitude, spawnAlt, "end-of-recording-de-overlap");
             ParsekLog.InfoRateLimited("Spawner", rateKey,
                 FormatEndOfRecordingDeOverlapLine(index, rec.VesselName, deOverlap,
                     existingLanded.Count, spawnLat, spawnLon, spawnAlt, nudgedAlt));
             spawnLat = deOverlap.Latitude;
             spawnLon = deOverlap.Longitude;
             spawnAlt = nudgedAlt;
+        }
+
+        /// <summary>
+        /// The altitude of a landed or splashed spawn after a de-overlap nudge moved it: a Landed
+        /// one keeps its altitude unless the new spot's PQS terrain is above it
+        /// (<see cref="ClampAltitudeForLanded"/>), a Splashed one keeps its recorded depth
+        /// unless the new spot's sea floor is above it (<see cref="ResolveSplashedSpawnAltitude"/>).
+        /// Shared by the end-of-recording and the Space Center de-overlap.
+        /// </summary>
+        internal static double ReFloorNudgedSurfaceSpawnAltitude(
+            Recording rec, int index, CelestialBody body, double lat, double lon, double alt,
+            string site)
+        {
+            if (rec == null || body == null)
+                return alt;
+            if (rec.TerminalStateValue == TerminalState.Landed)
+                return ClampAltitudeForLanded(alt, body.TerrainAltitude(lat, lon), index, rec.VesselName);
+            if (rec.TerminalStateValue == TerminalState.Splashed)
+                return ResolveSplashedSpawnAltitude(alt, body.TerrainAltitude(lat, lon, true),
+                    index, rec.VesselName, site);
+            return alt;
         }
 
         /// <summary>
@@ -1068,7 +1087,8 @@ namespace Parsek
                 }
                 else if (rec.TerminalStateValue == TerminalState.Splashed)
                 {
-                    walkAlt = ClampSplashedSpawnAltitude(walkAlt, index, rec.VesselName, "walkback");
+                    walkAlt = ResolveSplashedSpawnAltitude(walkAlt,
+                        body.TerrainAltitude(walkLat, walkLon, true), index, rec.VesselName, "walkback");
                 }
 
                 ParsekLog.Info("Spawner",
@@ -1119,7 +1139,8 @@ namespace Parsek
             }
 
             // Safety net: clamp altitude for surface terminal states.
-            // SPLASHED: clamp to sea level.
+            // SPLASHED: the recorded depth, never above sea level and never into the sea floor
+            // (owner ruling 2026-11-17, ResolveSplashedSpawnAltitude).
             // LANDED: trust the recorded altitude (it's where the vessel came to rest — the
             // terminal state proves it had settled). Only push UP if the recorded altitude is
             // below the current PQS terrain (indicates the surface has shifted UP since
@@ -1131,7 +1152,8 @@ namespace Parsek
             // colliders (including buildings), handling any residual clipping properly.
             if (rec.TerminalStateValue == TerminalState.Splashed)
             {
-                alt = ClampSplashedSpawnAltitude(alt, index, rec.VesselName, "endpoint");
+                double seaFloor = TryReadSeaFloorAltitude(endpointBodyName, lat, lon);
+                alt = ResolveSplashedSpawnAltitude(alt, seaFloor, index, rec.VesselName, "endpoint");
             }
             else if (rec.TerminalStateValue == TerminalState.Landed)
             {
@@ -1171,21 +1193,95 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The SPLASHED spawn altitude rule (#313): every Splashed end spawns at sea level,
-        /// whether the recorded altitude is above it or below it (a submerged hull or a
-        /// recorded CoM under the waterline), so a vessel never appears under water. Shared by
-        /// the endpoint (<see cref="ResolveSpawnPosition"/>) and the collision walkback, so the
-        /// two cannot disagree. Logs the clamp when it moves the altitude.
+        /// The sea floor (or terrain) under (lat, lon) on the named body,
+        /// <c>TerrainAltitude(lat, lon, true)</c>; NaN when the body is unknown or KSP is not
+        /// running (headless tests), so the Splashed rule then applies no floor.
         /// </summary>
-        internal static double ClampSplashedSpawnAltitude(
-            double alt, int index, string vesselName, string site)
+        internal static double TryReadSeaFloorAltitude(string bodyName, double lat, double lon)
         {
-            if (alt == 0.0)
-                return alt;
-            ParsekLog.Verbose("Spawner", string.Format(CultureInfo.InvariantCulture,
-                "Clamped altitude for SPLASHED spawn #{0} ({1}): {2:F1} -> 0 (site={3})",
-                index, vesselName, alt, site ?? "(none)"));
-            return 0.0;
+            if (string.IsNullOrEmpty(bodyName))
+                return double.NaN;
+            try
+            {
+                return ReadSeaFloorAltitudeCore(bodyName, lat, lon);
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessKspAccessFailure(ex))
+                    throw;
+                return double.NaN;
+            }
+        }
+
+        // FlightGlobals stays in its own non-inlined method: its static initializer throws
+        // outside KSP, and the caller must be able to catch that.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadSeaFloorAltitudeCore(string bodyName, double lat, double lon)
+        {
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            return body != null ? body.TerrainAltitude(lat, lon, true) : double.NaN;
+        }
+
+        /// <summary>
+        /// The SPLASHED spawn altitude rule (owner ruling 2026-11-17, replacing #313's
+        /// sea-level floor): a Splashed end spawns at its RECORDED depth, as its ghost replays
+        /// it, so a submarine that ended 50 m down appears 50 m down and ghost and vessel agree.
+        /// Two bounds: a positive altitude (a hull recorded above the waterline) goes to sea
+        /// level 0, and a depth into the sea floor (<paramref name="seaFloorAltitude"/>,
+        /// <c>TerrainAltitude(lat, lon, true)</c> at the spawn spot; NaN when unknown, no floor)
+        /// is raised to the floor plus <see cref="UndergroundSafetyFloorMeters"/>, never above
+        /// 0. #313 floored every Splashed spawn to 0 so an EVA kerbal recorded at -0.2 m did not
+        /// appear under water; a kerbal there now swims up from where he was recorded, which is
+        /// what the ghost showed, and the floor keeps the case that can hurt (a spot shallower
+        /// than the recorded depth after a walkback, a de-overlap nudge or a terrain change).
+        /// Shared by the endpoint, the collision walkback, the de-overlap and the chain tip.
+        /// </summary>
+        internal static double ResolveSplashedSpawnAltitude(
+            double alt, double seaFloorAltitude, int index, string vesselName, string site)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            if (double.IsNaN(alt) || double.IsInfinity(alt))
+            {
+                ParsekLog.Verbose("Spawner", string.Format(ic,
+                    "Clamped altitude for SPLASHED spawn #{0} ({1}): {2} -> 0 (non-finite, site={3})",
+                    index, vesselName, alt, site ?? "(none)"));
+                return 0.0;
+            }
+            if (alt > 0.0)
+            {
+                ParsekLog.Verbose("Spawner", string.Format(ic,
+                    "Clamped altitude for SPLASHED spawn #{0} ({1}): {2:F1} -> 0 (above-sea-level, site={3})",
+                    index, vesselName, alt, site ?? "(none)"));
+                return 0.0;
+            }
+            bool floorKnown = !double.IsNaN(seaFloorAltitude) && !double.IsInfinity(seaFloorAltitude);
+            if (floorKnown)
+            {
+                double floor = seaFloorAltitude + UndergroundSafetyFloorMeters;
+                if (alt < floor)
+                {
+                    double raised = Math.Min(floor, 0.0);
+                    ParsekLog.Verbose("Spawner", string.Format(ic,
+                        "Clamped altitude for SPLASHED spawn #{0} ({1}): {2:F1} -> {3:F1} " +
+                        "(below-sea-floor, seaFloor={4:F1}, site={5})",
+                        index, vesselName, alt, raised, seaFloorAltitude, site ?? "(none)"));
+                    return raised;
+                }
+            }
+            if (alt < 0.0)
+            {
+                // Walkback calls this once per sub-step: one line per spawn and site.
+                ParsekLog.VerboseRateLimited("Spawner",
+                    "splashed-depth|" + (site ?? "(none)") + "|" + index.ToString(ic),
+                    string.Format(ic,
+                        "Splashed spawn #{0} ({1}) keeps its recorded depth alt={2:F1} " +
+                        "(seaFloor={3}, site={4})",
+                        index, vesselName, alt,
+                        floorKnown ? seaFloorAltitude.ToString("F1", ic) : "unknown",
+                        site ?? "(none)"));
+            }
+            return alt;
         }
 
         /// <summary>Which source <see cref="SelectSpawnCoordinates"/> took the spawn position from.</summary>

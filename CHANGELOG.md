@@ -15,8 +15,8 @@ Not released yet.
   a comet grab.
 
 - **Dev: the leaf placement check also reads height.** For a vessel that ended landed or at sea
-  it now reports whether the vessel sits buried, on the ground or water, or hanging in the air,
-  on a line of its own that does not change the check's result yet.
+  it now reports whether the vessel sits buried, hanging in the air, or away from its recorded
+  depth, on a line of its own that does not change the check's result yet.
 
 ### Changed
 
@@ -30,10 +30,12 @@ Not released yet.
 
 - **A vessel whose landing spot is taken is placed back along its own path.** When another
   vessel blocks the end spot, Parsek steps back along the recorded path; a lander that flew in
-  near a base could be put down far away in a random direction instead. A boat or splashed pod
-  moved this way now stays on the water surface, never under it. (TIP-SPAWN-PLACEMENT)
-- **A vessel or kerbal that ends at sea is created floating.** It was written as landed on the
-  water, which KSP can treat oddly until the first physics frame. (TIP-SPAWN-PLACEMENT)
+  near a base could be put down far away in a random direction instead. (TIP-SPAWN-PLACEMENT)
+- **A vessel that ends under water appears at its depth.** A submarine or sunken pod now appears
+  where it ended, as its replay showed it, instead of jumping up to the surface. It is never put
+  inside the sea floor, and a boat recorded above the water still sits on it. (TIP-SPAWN-PLACEMENT)
+- **A vessel or kerbal that ends at sea is created in the water.** It was written as landed on
+  the water, which KSP can treat oddly until the first physics frame. (TIP-SPAWN-PLACEMENT)
 - **A vessel whose whole crew died is never created as an empty capsule.** This now holds for the
   last vessel of a chain and on every fallback path too. An orbital chain end is also checked for
   room where it will actually appear on its orbit, not where it was recorded. (TIP-SPAWN-PLACEMENT)

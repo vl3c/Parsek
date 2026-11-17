@@ -2372,6 +2372,12 @@ namespace Parsek
                         body.Radius);
                     if (deOverlap.Nudged)
                     {
+                        // The new spot's terrain or sea floor may sit above the recorded
+                        // altitude: re-run the floor there (Landed: PQS terrain; Splashed: the
+                        // recorded depth, never into the sea floor).
+                        double nudgedAlt = VesselSpawner.ReFloorNudgedSurfaceSpawnAltitude(
+                            rec, recIdx, body, deOverlap.Latitude, deOverlap.Longitude, spawnAlt,
+                            "ksc-de-overlap");
                         ParsekLog.Info("KSCSpawn",
                             $"De-overlap for #{recIdx} \"{rec.VesselName}\": " +
                             $"nudged {deOverlap.NudgeMeters.ToString("F1", CultureInfo.InvariantCulture)}m " +
@@ -2380,9 +2386,11 @@ namespace Parsek
                             $"min={SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters.ToString("F0", CultureInfo.InvariantCulture)}m" +
                             (deOverlap.Exhausted ? ", spiral-exhausted" : "") + ") " +
                             $"lat {spawnLat.ToString("F6", CultureInfo.InvariantCulture)}->{deOverlap.Latitude.ToString("F6", CultureInfo.InvariantCulture)} " +
-                            $"lon {spawnLon.ToString("F6", CultureInfo.InvariantCulture)}->{deOverlap.Longitude.ToString("F6", CultureInfo.InvariantCulture)}");
+                            $"lon {spawnLon.ToString("F6", CultureInfo.InvariantCulture)}->{deOverlap.Longitude.ToString("F6", CultureInfo.InvariantCulture)} " +
+                            $"alt {spawnAlt.ToString("F1", CultureInfo.InvariantCulture)}->{nudgedAlt.ToString("F1", CultureInfo.InvariantCulture)}");
                         spawnLat = deOverlap.Latitude;
                         spawnLon = deOverlap.Longitude;
+                        spawnAlt = nudgedAlt;
                     }
                     else
                     {

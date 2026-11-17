@@ -168,7 +168,8 @@ namespace Parsek.InGameTests
 
                     // Report-only vertical check: its own line and summary, never the pass/fail.
                     LeafVesselPlacement.HeightVerdict height = LeafVesselPlacement.CompareHeight(
-                        ts, live.altitude, body.TerrainAltitude(live.latitude, live.longitude, true));
+                        ts, live.altitude, body.TerrainAltitude(live.latitude, live.longitude, true),
+                        sp.altitude);
                     heightLine = LeafVesselPlacement.FormatHeightLine(rec.RecordingId, rec.VesselName,
                         pid, body.name, ts, live.altitude, height);
                     if (height.Reason == "unsupported") heightUnsupported++;
