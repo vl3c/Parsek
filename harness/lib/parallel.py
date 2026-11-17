@@ -412,7 +412,11 @@ def complete_pairs(selected: Sequence[Dict], specs: Sequence[Dict]) -> Tuple[Lis
             groups.append(ident[0])
     if not groups:
         return out, []
-    members = [s for s in specs if (hlib.spec_pair_identity(s) or (None,))[0] in groups]
+    # Matched ignoring case, so a group that differs only in case from a selected
+    # one is checked with it (pair_problems refuses the two: one folder on Windows).
+    folded = {g.casefold() for g in groups}
+    members = [s for s in specs
+               if ((hlib.spec_pair_identity(s) or ("",))[0]).casefold() in folded]
     problems = hlib.pair_problems(members)
     for spec in members:
         reason = exclusive_reason(spec)
@@ -471,6 +475,22 @@ def pair_guard(own: "LaneOutcome", partner: Optional["LaneOutcome"],
     return LaneOutcome(own.ended_iso, hlib.VERDICT_INVALID, own.lane_id, 1, own.wall_seconds,
                        own.slot, own.run_ids,
                        "%s: partner %s left %s" % (hlib.PARTNER_LOST_SUBKIND, partner_id, seen))
+
+
+# The note on the line a pair's dispatch writes for each half before either child
+# starts (``pair_dispatch_outcome``).
+PAIR_DISPATCHED_NOTE = "pair-dispatched: no verdict yet"
+
+
+def pair_dispatch_outcome(lane_id: str, slot: str, ended_iso: str) -> "LaneOutcome":
+    """The summary line written for EACH half of a pair, durably, before either
+    child is spawned: NOT-RUN (unsettled) until that half's own verdict line
+    follows it. A half's latest line is therefore never a verdict from an earlier
+    flight of the pair once a new flight started, so a runner that dies between the
+    two halves' reports leaves the unreported half pending (the totals do not read
+    it green, and ``resume`` flies the pair again), never a stale PASS."""
+    return LaneOutcome(ended_iso, VERDICT_NOT_RUN, lane_id, 1, 0, slot, (),
+                       PAIR_DISPATCHED_NOTE)
 
 
 def partition_exclusive(lanes: Sequence[Lane], include_exclusive: bool

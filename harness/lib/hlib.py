@@ -67,7 +67,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 SCHEMA_VERSION = 1
 
@@ -9458,6 +9458,9 @@ BARRIER_TIMEOUT_MAX_SECONDS = 3600
 BARRIER_POLL_SECONDS = 0.5
 BARRIER_ARRIVED_SUFFIX = ".arrived"
 PAIR_ENDED_SUFFIX = ".ended"
+# Written by a half that gave a barrier up (timeout or partner ended): its arrival
+# file stays behind, and a late partner must not read that as a meeting.
+BARRIER_GAVE_UP_SUFFIX = ".gaveup"
 BARRIER_MET = "met"
 BARRIER_WAIT = "wait"
 BARRIER_LOST = "lost"
@@ -9529,9 +9532,11 @@ def barrier_args_problems(where: str, args: Any, pair_declared: bool, budget_sec
         errors.append("%s.args.%s: %r must be a plain name (letter or digit first, then "
                       "letters, digits, dash, underscore; at most 32)"
                       % (where, BARRIER_NAME_KEY, name))
-    elif name in earlier_names:
-        errors.append("%s.args.%s: %r is already an earlier barrier of this spec; a "
-                      "barrier name is passed once" % (where, BARRIER_NAME_KEY, name))
+    elif name.casefold() in {n.casefold() for n in earlier_names if isinstance(n, str)}:
+        # Case-insensitive: on Windows `Sync` and `sync` are one marker file.
+        errors.append("%s.args.%s: %r is already an earlier barrier of this spec (names are "
+                      "compared ignoring case: they are file names on Windows); a barrier "
+                      "name is passed once" % (where, BARRIER_NAME_KEY, name))
     timeout = args.get(BARRIER_TIMEOUT_KEY)
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0 \
             or timeout > BARRIER_TIMEOUT_MAX_SECONDS:
@@ -9597,6 +9602,12 @@ def pair_problems(specs: Sequence[Dict]) -> List[str]:
         if ident is not None:
             groups.setdefault(ident[0], []).append((ident[1], spec))
     problems: List[str] = []
+    folded: Dict[str, List[str]] = {}
+    for group in sorted(groups):
+        folded.setdefault(group.casefold(), []).append(group)
+    for variants in sorted(v for v in folded.values() if len(v) > 1):
+        problems.append("pair groups %s differ only in case; on Windows they would share one "
+                        "folder (rename one)" % " and ".join(variants))
     for group in sorted(groups):
         members = groups[group]
         ids = ", ".join(str(s.get("id")) for _, s in members)
@@ -9631,11 +9642,21 @@ def pair_ended_file(role: str) -> str:
     return "%s%s" % (role, PAIR_ENDED_SUFFIX)
 
 
+def barrier_gave_up_file(name: str, role: str) -> str:
+    return "%s.%s%s" % (name, role, BARRIER_GAVE_UP_SUFFIX)
+
+
 def barrier_decision(partner_arrived: bool, partner_ended: bool, elapsed: float,
-                     timeout: float, name: str = "?", partner: str = "?") -> Tuple[str, str]:
+                     timeout: float, name: str = "?", partner: str = "?",
+                     partner_gave_up: bool = False) -> Tuple[str, str]:
     """``(BARRIER_MET | BARRIER_WAIT | BARRIER_LOST, reason)`` for one poll of a
-    barrier. The partner's arrival wins over its ended marker (a partner that
-    passed this barrier and then finished is not lost)."""
+    barrier. A partner that gave THIS barrier up (``<name>.<role>.gaveup``) is lost
+    even though its arrival file is still there: the two never met. Otherwise the
+    partner's arrival wins over its ended marker (a partner that passed this
+    barrier and then finished is not lost)."""
+    if partner_gave_up:
+        return BARRIER_LOST, ("partner %s gave barrier %s up before this half arrived"
+                              % (partner, name))
     if partner_arrived:
         return BARRIER_MET, "partner %s arrived at %s" % (partner, name)
     if partner_ended:
@@ -9652,11 +9673,16 @@ def _norm_parts(path: str) -> List[str]:
 
 
 def pair_child_refusal(slot_mode: bool, selected: Sequence[Dict], pair_dir: str,
-                       shared_dir: str, parallel_root: str, rs_root: str) -> Optional[str]:
+                       shared_dir: str, parallel_root: str, rs_root: str,
+                       fold: Optional[Callable[[str], str]] = None) -> Optional[str]:
     """Why ``run.py --pair-dir / --pair-shared`` is refused, or None. The paths
     are real, normalised paths: the barrier folder must be
     ``<parallel_root>/<run>/pairs/<group>`` and the shared folder
-    ``<rs_root>/<run>/<group>`` for the one selected lane's own group."""
+    ``<rs_root>/<run>/<group>`` for the one selected lane's own group. ``fold`` is
+    the normalisation the caller applied to the paths (``os.path.normcase`` on
+    Windows lower-cases them); the spec's group id and the ``pairs`` folder name
+    go through it too, so like is compared with like on every host."""
+    fold = fold or (lambda text: text)
     if not slot_mode:
         return "--pair-dir is accepted only with --slot (a parallel runner's pair child)"
     if len(selected) != 1:
@@ -9665,6 +9691,8 @@ def pair_child_refusal(slot_mode: bool, selected: Sequence[Dict], pair_dir: str,
     if ident is None:
         return "lane %s declares no valid [%s] block" % (selected[0].get("id"), PAIR_TABLE)
     group = ident[0]
+    group_part = fold(group)
+    pairs_part = fold(PAIRS_DIRNAME)
 
     def under(path: str, root: str) -> Optional[List[str]]:
         p, r = _norm_parts(path), _norm_parts(root)
@@ -9673,11 +9701,11 @@ def pair_child_refusal(slot_mode: bool, selected: Sequence[Dict], pair_dir: str,
         return p[len(r):]
 
     bar = under(pair_dir, parallel_root)
-    if bar is None or len(bar) != 3 or bar[1] != PAIRS_DIRNAME or bar[2] != group:
+    if bar is None or len(bar) != 3 or bar[1] != pairs_part or bar[2] != group_part:
         return ("--pair-dir %s is not <results>/parallel/<run>/%s/%s"
                 % (pair_dir, PAIRS_DIRNAME, group))
     shared = under(shared_dir, rs_root)
-    if shared is None or shared != [bar[0], group]:
+    if shared is None or shared != [bar[0], group_part]:
         return ("--pair-shared %s is not <automation>/%s/%s/%s"
                 % (shared_dir, RACE_SHARED_ROOT, bar[0], group))
     return None

@@ -2208,11 +2208,20 @@ def wait_at_barrier(barrier_dir: str, name: str, role: str, timeout: float,
                   "%s pid=%d\n" % (utcnow_iso(), os.getpid()))
     arrived = os.path.join(barrier_dir, hlib.barrier_arrival_file(name, partner))
     ended = os.path.join(barrier_dir, hlib.pair_ended_file(partner))
+    gave_up = os.path.join(barrier_dir, hlib.barrier_gave_up_file(name, partner))
     start = now_fn()
     while True:
         elapsed = now_fn() - start
         decision, reason = hlib.barrier_decision(os.path.exists(arrived), os.path.exists(ended),
-                                                 elapsed, float(timeout), name, partner)
+                                                 elapsed, float(timeout), name, partner,
+                                                 os.path.exists(gave_up))
+        if decision == hlib.BARRIER_LOST:
+            # Our arrival file stays; this marker tells a late partner we left.
+            try:
+                _write_marker(os.path.join(barrier_dir, hlib.barrier_gave_up_file(name, role)),
+                              "%s pid=%d %s\n" % (utcnow_iso(), os.getpid(), reason))
+            except OSError:
+                pass
         if decision != hlib.BARRIER_WAIT:
             return decision == hlib.BARRIER_MET, reason, elapsed
         sleep_fn(poll_seconds)
@@ -7117,6 +7126,11 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
         is_autopilot = driver.get("kind") == "autopilot"
         print("  [SELECT ] %s tier=%s profile=%s kind=%s"
               % (sid, spec.get("tier"), profile, driver.get("kind")))
+        pair_ident = hlib.spec_pair_identity(spec)
+        if pair_ident is not None:
+            print("  [PAIR   ] group=%s role=%s: flies only beside its partner under "
+                  "tools/parallel_runner.py; a run without --pair-dir refuses it pre-boot "
+                  "INVALID(%s)" % (pair_ident[0], pair_ident[1], hlib.PARTNER_LOST_SUBKIND))
         print("  [ADMIT  ] read %s/GameData/Parsek/provision-manifest.json" % inst)
         # M-B1: an autopilot spec ALSO admits the mission venv at pre-launch ADMIT
         # (terminal INVALID(tooling-venv) with no KSP boot); surface it in the plan.
@@ -7547,13 +7561,19 @@ def _pair_args_refusal(pair_dir: str, pair_shared: str, selected: Sequence[Dict]
         if not os.path.isdir(path):
             return "%s %s is not a folder" % (flag, path)
 
+    def fold(text: str) -> str:
+        # The one normalisation: every path AND every spec name compared with a
+        # path part goes through it (Windows lower-cases in normcase).
+        return os.path.normcase(text).replace(os.sep, "/")
+
     def norm(p: str) -> str:
-        return os.path.normcase(os.path.realpath(p)).replace(os.sep, "/")
+        return fold(os.path.realpath(p))
 
     return hlib.pair_child_refusal(
         _CTX.slot_mode, list(selected), norm(pair_dir), norm(pair_shared),
         norm(os.path.join(RESULTS_DIR, "parallel")),
-        norm(os.path.join(umbrella_root, slots.AUTOMATION_DIR, hlib.RACE_SHARED_ROOT)))
+        norm(os.path.join(umbrella_root, slots.AUTOMATION_DIR, hlib.RACE_SHARED_ROOT)),
+        fold=fold)
 
 
 def _stage_from_refusal(stage_from: str, selected_ids: Sequence[str],

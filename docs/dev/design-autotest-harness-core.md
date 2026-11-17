@@ -1328,15 +1328,18 @@ folder (a race lane's publisher and reader). Each half carries `[pair] group =
 - **Spec rules** (`hlib.validate_pair_block`, `hlib.pair_problems`). Each half
   has at least one `barrier` step, `[retry] policy = "none"` (a retry would fly
   one half alone), no `exclusive = true`, unique barrier names and timeouts in
-  1..3600 s under `runtime.budgetSeconds`. A group has exactly one A and one B,
+  1..3600 s under `runtime.budgetSeconds` (names compared ignoring case: they
+  are file names on Windows). A group has exactly one A and one B,
   on the same profile and tier, with the same barrier names in the same order,
-  and both or neither on `sharedFolder = "pair"`. A broken pair refuses the
-  whole runner selection.
+  and both or neither on `sharedFolder = "pair"`; two group ids that differ only
+  in case are refused (one folder on Windows). A broken pair refuses the whole
+  runner selection.
 - **Selection and dispatch.** Selecting a half adds its partner. The pair is
   one unit in the order (its longer half's p50, A then B) and starts whole or
   not at all: two free slots of the profile inside `slots`, and the memory
   guard charging both copies (`memory_holds(new_copies=2)`; with nothing
-  running the first half is the free first lane). While it waits, no later lane
+  running the first half is the free first lane and the second is charged, so
+  the runner reads memory before a pair starts from idle too). While it waits, no later lane
   starts. A profile with fewer than two provisioned copies refuses the run
   (exit 2); with `slots` below 2 the pair never starts and the run ends red with
   lanes left unflown.
@@ -1345,14 +1348,18 @@ folder (a race lane's publisher and reader). Each half carries `[pair] group =
   folder `results/parallel/<run>/pairs/<group>/` (never through a link) and
   passes both to the two children (`run.py --slot <s> --pair-shared <dir>
   --pair-dir <dir>`). The child refuses any other path or a link on the way
-  (`hlib.pair_child_refusal`) and never wipes the shared folder. Barrier files
+  (`hlib.pair_child_refusal`, which folds the spec's group id with the same
+  `os.path.normcase` the paths went through, so Windows' lower-cased paths match
+  an upper-case group) and never wipes the shared folder. Barrier files
   never live in the shared folder. No new lock: the machine lock covers the
   wipe, and each child holds only its slot lock.
 - **Barrier.** The child writes `<name>.<role>.arrived` and polls for its
   partner's (`run.wait_at_barrier`, `hlib.barrier_decision`): met when the
-  partner arrived (an arrival wins over an ended marker), lost when the partner
-  wrote `<role>.ended` (its drive is over, it skipped a barrier, or the runner
-  wrote it when the child exited) or the timeout passed.
+  partner arrived (an arrival wins over an ended marker) and has not given this
+  barrier up, lost when the partner wrote `<name>.<role>.gaveup` (it gave the
+  barrier up; its arrival file stays behind), wrote `<role>.ended` (its drive is
+  over, it skipped a barrier, or the runner wrote it when the child exited) or
+  the timeout passed. A half that loses a barrier writes its own `.gaveup`.
 - **Verdict.** A lost partner is the terminal `INVALID(partner-lost)`, not
   retried and flake-exempt (`hlib.PAIR_INVALID_SUBKINDS`, kept apart from the
   machine refusals in `PARALLEL_RUN_INVALID_SUBKINDS`). A paired lane flown
@@ -1360,7 +1367,11 @@ folder (a race lane's publisher and reader). Each half carries `[pair] group =
   subkind. The runner's backstop `parallel.pair_guard` rewrites a green half to
   `INVALID` when its partner left no verdict (no report, NOT-RUN, or no line),
   so no pair reads PASS unless both halves flew. `resume` re-flies both halves
-  when either is unsettled, unless one already settled red.
+  when either is unsettled, unless one already settled red. Before spawning a
+  pair the runner writes a NOT-RUN `pair-dispatched` line for both halves to
+  `summary.txt`, so after a runner death between the two reports the
+  unreported half reads pending (and red in the totals), never an earlier
+  flight's PASS.
 
 ### Fixture staging
 

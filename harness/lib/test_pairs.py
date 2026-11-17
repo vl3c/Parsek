@@ -20,8 +20,10 @@ No KSP, no network::
 import contextlib
 import io
 import json
+import ntpath
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -86,6 +88,22 @@ def harness_errors(spec):
 
 
 class PairSpecTests(unittest.TestCase):
+
+    def test_barrier_names_that_differ_only_in_case_are_refused(self):
+        # One marker file on Windows.
+        errs = harness_errors(pair_spec("S", barriers=("Sync", "sync")))
+        self.assertTrue(any("already an earlier barrier" in e and "ignoring case" in e
+                            for e in errs), errs)
+
+    def test_groups_that_differ_only_in_case_are_refused(self):
+        specs = [pair_spec("a1", group="g1", role="A"), pair_spec("b1", group="g1", role="B"),
+                 pair_spec("a2", group="G1", role="A"), pair_spec("b2", group="G1", role="B")]
+        problems = hlib.pair_problems(specs)
+        self.assertTrue(any("G1 and g1 differ only in case" in p for p in problems), problems)
+        # Selecting one of them alone still meets the other in the check.
+        with self.assertRaises(P.SelectionError) as cm:
+            P.complete_pairs([specs[0]], specs)
+        self.assertIn("differ only in case", str(cm.exception))
 
     def test_a_well_formed_pair_half_is_clean(self):
         spec = pair_spec("PA")
@@ -190,6 +208,26 @@ class PairSpecTests(unittest.TestCase):
 
 class BarrierDecisionTests(unittest.TestCase):
 
+    def test_a_partner_that_gave_the_barrier_up_is_lost_despite_its_arrival(self):
+        decision, reason = hlib.barrier_decision(True, False, 0.0, 60, "x", "A", True)
+        self.assertEqual(hlib.BARRIER_LOST, decision)
+        self.assertIn("partner A gave barrier x up", reason)
+        self.assertEqual("x.A.gaveup", hlib.barrier_gave_up_file("x", "A"))
+
+    def test_a_late_partner_never_meets_a_half_that_timed_out(self):
+        folder = tempfile.mkdtemp(prefix="parsek-barrier-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        met, reason, _ = run.wait_at_barrier(folder, "x", "A", 0.2, poll_seconds=0.02)
+        self.assertFalse(met)
+        self.assertIn("did not reach barrier x", reason)
+        self.assertTrue(os.path.isfile(os.path.join(folder, "x.A.arrived")))
+        self.assertTrue(os.path.isfile(os.path.join(folder, "x.A.gaveup")))
+        # B boots late: A's arrival file is still there, but A left.
+        met, reason, waited = run.wait_at_barrier(folder, "x", "B", 5, poll_seconds=0.02)
+        self.assertFalse(met)
+        self.assertIn("partner A gave barrier x up", reason)
+        self.assertLess(waited, 1.0)
+
     def test_arrival_wins_over_an_ended_marker(self):
         # A partner that passed this barrier and then finished is not lost.
         self.assertEqual(hlib.BARRIER_MET, hlib.barrier_decision(True, True, 99, 10)[0])
@@ -231,6 +269,27 @@ class PairChildRefusalTests(unittest.TestCase):
         self.assertIn("--pair-dir", self.refusal(pair_dir="/elsewhere/r1/pairs/G1"))
         self.assertIn("--pair-shared", self.refusal(shared=self.RS + "/r2/G1"))
         self.assertIn("--pair-shared", self.refusal(shared=self.RS + "/r1/G1/x"))
+
+    def test_windows_folded_paths_match_an_upper_case_group_and_run(self):
+        # The shape run.py hands over on Windows: ntpath.normcase lower-cases every
+        # path, so the group id must be folded by the same function (the bug a PC
+        # run found: "pair-1" != "PAIR-1" refused every real pair child).
+        def fold(text):
+            return ntpath.normcase(text).replace("\\", "/")
+        par = fold(r"C:\U\wt\harness\results\parallel")
+        rs = fold(r"C:\U\automation\rs")
+        spec = pair_spec("PA", group="PAIR-1")
+
+        def refusal(pair_dir, shared, with_fold=True):
+            return hlib.pair_child_refusal(True, [spec], fold(pair_dir), fold(shared), par, rs,
+                                           fold=fold if with_fold else None)
+        good_dir = r"C:\U\wt\harness\results\parallel\Run-UP\pairs\PAIR-1"
+        good_shared = r"C:\U\automation\rs\Run-UP\PAIR-1"
+        self.assertIsNone(refusal(good_dir, good_shared))
+        self.assertIn("--pair-dir", refusal(good_dir, good_shared, with_fold=False))
+        self.assertIn("--pair-dir", refusal(good_dir.replace("PAIR-1", "PAIR-2"), good_shared))
+        self.assertIn("--pair-shared", refusal(good_dir, good_shared.replace("Run-UP", "Run-2")))
+        self.assertIn("--pair-shared", refusal(good_dir, good_shared.replace("PAIR-1", "PAIR-2")))
 
 
 class PartnerLostVerdictTests(unittest.TestCase):
@@ -453,6 +512,23 @@ class PairResumeTests(unittest.TestCase):
     def test_a_green_pair_is_settled(self):
         self.assertEqual(["S"], self.remaining(oline("PA", "PASS"), oline("PB", "PASS")))
 
+    def test_a_dispatch_marker_keeps_a_stale_pass_from_settling_the_pair(self):
+        # Flight 1: A INVALID at attempt 1, B PASS. The resume dispatches the pair
+        # (one NOT-RUN marker per half, written before either child starts), A
+        # reports PASS, and the runner dies before B reports. B's latest line is its
+        # marker, not flight 1's PASS: the pair is not green and flies again.
+        def marker(sid):
+            return P.format_summary_line(P.pair_dispatch_outcome(sid, "s", "2026-11-17T10:00:00Z"))
+        lines = [oline("PA", "INVALID"), oline("PB", "PASS"), oline("S", "PASS"),
+                 marker("PA"), marker("PB"), oline("PA", "PASS")]
+        self.assertEqual(["PA", "PB"], self.remaining(*lines))
+        outcome, code, detail = P.selection_outcome(self.PLAN, lines, False)
+        self.assertEqual((P.OUTCOME_RED, P.EXIT_RED), (outcome, code))
+        self.assertIn("PASS=2 NOT-RUN=1 pending=1 of 3", detail)
+        self.assertEqual("# totals PASS=2 NOT-RUN=1 pending=1 of 3",
+                         P.format_totals_line(self.PLAN, lines))
+        self.assertIn("note=pair-dispatched", marker("PA"))
+
     def test_without_partners_the_rule_is_per_lane(self):
         lines = [oline("PA", "PASS"), oline("PB", "INVALID")]
         self.assertEqual(["PB", "S"], P.remaining_lane_ids(self.PLAN, lines))
@@ -617,6 +693,33 @@ class PairChildSmokeTests(trs._SlotBox):
                     self.assertRaises(SystemExit):
                 run.run(argv)
 
+    def test_pair_args_refusal_folds_the_spec_names_like_the_paths(self):
+        # Windows folds every path through os.path.normcase (lower case, back
+        # slashes) before the parts are compared; the group id and the pairs folder
+        # name must be folded the same way, or every group with an upper-case
+        # letter is refused on the PC. Simulated here so a Linux host reds too.
+        run_name, group = "PR1-Upper", "PAIR-1"
+        pair_dir = os.path.join(run.RESULTS_DIR, "parallel", run_name, "pairs", group)
+        shared = os.path.join(self.box, "automation", "rs", run_name, group)
+        other_dir = os.path.join(run.RESULTS_DIR, "parallel", run_name, "pairs", "PAIR-2")
+        other_shared = os.path.join(self.box, "automation", "rs", "PR2-Upper", group)
+        for path in (pair_dir, shared, other_dir, other_shared):
+            os.makedirs(path)
+        spec = self.spec("A")
+        spec["pair"]["group"] = group
+
+        def windows_normcase(s):
+            return s.replace("/", "\\").lower()
+
+        with trs._context(slot=trs.SLOT, umbrella_root=self.box), \
+                mock.patch.object(run.os.path, "normcase", windows_normcase), \
+                mock.patch.object(run.os, "sep", "\\"):
+            self.assertIsNone(run._pair_args_refusal(pair_dir, shared, [spec], self.box))
+            self.assertIn("--pair-dir", run._pair_args_refusal(other_dir, shared, [spec],
+                                                               self.box))
+            self.assertIn("--pair-shared", run._pair_args_refusal(pair_dir, other_shared,
+                                                                  [spec], self.box))
+
     @unittest.skipIf(os.name == "nt", "symlink creation needs privileges on Windows")
     def test_a_linked_shared_folder_is_refused_at_staging(self):
         target = os.path.join(self.box, "elsewhere")
@@ -630,6 +733,26 @@ class PairChildSmokeTests(trs._SlotBox):
         self.assertEqual("staging", self.results()["PAIR-A"][0]["subkind"])
         self.assertEqual(0, rt.launch_count)
 
+
+    @unittest.skipUnless(os.name == "nt", "a junction is a Windows folder link")
+    def test_a_junction_shared_folder_is_refused_at_staging(self):
+        # The Windows twin of the symlink cell: a junction needs no privilege.
+        target = os.path.join(self.box, "elsewhere")
+        os.makedirs(target)
+        shutil.rmtree(self.shared)
+        subprocess.run(["cmd", "/c", "mklink", "/J", self.shared, target], check=True,
+                       capture_output=True)
+        self.arrive("B")
+        rt = trs._PrebuiltRuntime("pass")
+        try:
+            code = self.fly([self.spec("A")], rt)
+        finally:
+            # rmdir drops the junction itself, before tearDown's rmtree of the box.
+            os.rmdir(self.shared)
+        self.assertEqual(1, code)
+        self.assertEqual("staging", self.results()["PAIR-A"][0]["subkind"])
+        self.assertEqual(0, rt.launch_count)
+        self.assertEqual([], os.listdir(target), "nothing written through the junction")
 
 # ---------------------------------------------------------------------------
 # The runner shell end to end: the real runner, the fake child, real barriers
@@ -749,6 +872,59 @@ class PairRunnerSmokeTests(unittest.TestCase):
         self.assertEqual(0, code, "\n".join(self.console))
         self.assertEqual((2, 2), (len(self.records("PA")), len(self.records("PB"))))
         self.assertEqual("# totals PASS=2 pending=0 of 2", self.summary("p2")[-1])
+
+    def test_the_memory_guard_charges_the_second_copy_of_a_pair_from_idle(self):
+        readings = [P.MemoryReading(5.0, 12.0)] * 2
+        calls = []
+
+        def memory_fn():
+            calls.append(1)
+            return readings.pop(0) if readings else P.MemoryReading(32.0, 12.0)
+        ctx = self.ctx()
+        ctx.memory_fn = memory_fn
+        with mock.patch.object(pr, "MEMORY_CACHE_SECONDS", 0.0):
+            code = pr.main(["run", "--name", "p10", "--ids", "PA", "--slots", "2"], ctx=ctx)
+        self.assertEqual(0, code, "\n".join(self.console))
+        self.assertGreaterEqual(len(calls), 3, "memory is read with nothing running")
+        log = self.log("p10")
+        self.assertIn("memory: ", log)
+        self.assertIn("pair G1, two copies", log)
+        self.assertEqual("# totals PASS=2 pending=0 of 2", self.summary("p10")[-1])
+
+    def test_an_interrupted_re_flight_never_reads_green_from_a_stale_pass(self):
+        # Flight 1: A INVALID (after meeting both barriers), B PASS.
+        os.environ["FAKE_CHILD_VERDICTS"] = json.dumps({"PA": "INVALID"})
+        self.assertEqual(1, self.main("run", "--name", "p9", "--ids", "PA", "--slots", "2"))
+        # Flight 2 (resume re-flies both): the runner dies right after A's new PASS
+        # line, while B (slowed) is still flying; B is killed with the runner.
+        os.environ["FAKE_CHILD_VERDICTS"] = json.dumps({})
+        os.environ["FAKE_CHILD_SLEEPS"] = json.dumps({"PB": 3})
+        real = pr.RunFolder.write_summary
+        armed = {"on": True}
+
+        def write_summary(folder, lines, *a, **k):
+            real(folder, lines, *a, **k)
+            latest = P.latest_outcomes(lines)
+            if armed["on"] and "PA" in latest and latest["PA"].verdict == "PASS":
+                armed["on"] = False
+                raise KeyboardInterrupt()
+        with mock.patch.object(pr.RunFolder, "write_summary", write_summary):
+            try:
+                code = self.main("resume", "--name", "p9")
+            except KeyboardInterrupt:
+                code = None
+        self.assertNotEqual(0, code)
+        lines = self.summary("p9")
+        self.assertEqual("NOT-RUN", P.latest_outcomes(lines)["PB"].verdict, lines)
+        self.assertEqual("# totals PASS=1 NOT-RUN=1 pending=1 of 2", lines[-1])
+        # Flight 3: the pair is not settled, so both halves fly again.
+        os.environ.pop("FAKE_CHILD_SLEEPS")
+        before = (len(self.records("PA")), len(self.records("PB")))
+        code = self.main("resume", "--name", "p9")
+        self.assertEqual(0, code, "\n".join(self.console))
+        self.assertEqual((before[0] + 1, before[1] + 1),
+                         (len(self.records("PA")), len(self.records("PB"))))
+        self.assertEqual("# totals PASS=2 pending=0 of 2", self.summary("p9")[-1])
 
     def test_a_green_half_whose_partner_never_ran_is_not_reported_pass(self):
         # Backstop: a half whose (fake) script meets no barrier reports PASS by

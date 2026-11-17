@@ -996,7 +996,9 @@ def _dispatch(ctx: Context, folder: RunFolder, plan: Dict, lanes: List[parallel.
         halt = result.stopped or result.lock_lost
 
         memory = None
-        if running and pending and not halt:
+        # A pair is read from idle too: its second copy is charged even when nothing
+        # runs (the first lane from idle is free; a pair's second half is not).
+        if pending and not halt and (running or any(l.paired for l in pending)):
             now = time.time()
             if now - mem_cache[0] >= MEMORY_CACHE_SECONDS or mem_cache[1] is None:
                 mem_cache = (now, ctx.memory_fn())
@@ -1017,6 +1019,13 @@ def _dispatch(ctx: Context, folder: RunFolder, plan: Dict, lanes: List[parallel.
             pair_dir, shared = _prepare_pair_dirs(ctx, folder, str(plan.get("name")),
                                                   half_a.pair_group, log)
             pair_finished.pop(half_a.pair_group, None)
+            # Both halves pending on disk BEFORE either starts: an earlier flight's
+            # verdict can never settle a half of this flight (a runner death between
+            # the two reports leaves the other half NOT-RUN, not a stale PASS).
+            for lane, slot in ((half_a, decision.slot), (half_b, decision.partner_slot)):
+                lane_lines.append(parallel.format_summary_line(
+                    parallel.pair_dispatch_outcome(lane.lane_id, slot, utcnow_iso())))
+            folder.write_summary(lane_lines, plan_ids, not_flown)
             extra = ["--pair-shared", shared, "--pair-dir", pair_dir]
             for lane, slot in ((half_a, decision.slot), (half_b, decision.partner_slot)):
                 pending.remove(lane)

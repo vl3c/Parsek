@@ -2165,13 +2165,16 @@ cd harness && python tools/parallel_runner.py run --name pair-1 --ids PAIR-1a-sh
 - **Selection.** Selecting either half adds the other (one `added <id>: the
   partner of a selected paired lane` line). A half with no partner, two halves of
   one role, halves on different profiles or tiers, different barrier names or
-  order, one half on the pair folder and the other not, or an exclusive half
-  refuses the whole selection (exit 2). A profile with fewer than two provisioned
+  order, one half on the pair folder and the other not, an exclusive half, or two
+  group ids that differ only in case (one folder on Windows) refuses the whole
+  selection (exit 2). A profile with fewer than two provisioned
   copies refuses the run (exit 2, naming `provision.py --copy 2`).
 - **Dispatch.** A pair is one unit in the order (ranked by its longer half, A
   then B) and starts whole or not at all: both halves need a free slot of the
   profile at once, inside `slots`, and the memory guard charges both copies (with
-  nothing running, the first half is the free first lane). While the pair waits,
+  nothing running, the first half is the free first lane, as for any lane, and
+  the second is charged: the runner reads memory before a pair starts from idle
+  too). While the pair waits,
   no later lane starts, so single lanes cannot starve it. With `slots` 1 the pair
   never starts and the run ends red with `lanes left unflown`: `set-slots 2`,
   then `resume`.
@@ -2189,8 +2192,11 @@ cd harness && python tools/parallel_runner.py run --name pair-1 --ids PAIR-1a-sh
   folder and waits for its partner's arrival file. When its drive ends (or it
   skips a barrier after an unmet step) it writes `<role>.ended`; the runner
   writes the same file when a child exits, as a backstop. A partner's arrival
-  wins over its ended file. `timeout` is 1..3600 s and under
-  `runtime.budgetSeconds`; names are unique per spec; every paired spec has at
+  wins over its ended file, but not over `<name>.<role>.gaveup`, which a half
+  writes when it gives a barrier up (timeout or partner ended): its arrival file
+  stays behind, and a late partner reads that barrier lost, never met.
+  `timeout` is 1..3600 s and under `runtime.budgetSeconds`; names are unique per
+  spec, ignoring case (they are file names on Windows); every paired spec has at
   least one barrier and `[retry] policy = "none"` (a retry would fly one half
   alone). The result JSON's `driver.harnessSteps` row reads `met`, `reason` and
   `waited`.
@@ -2204,6 +2210,13 @@ cd harness && python tools/parallel_runner.py run --name pair-1 --ids PAIR-1a-sh
   pre-boot `INVALID(partner-lost)`.
 - **Resume** treats the pair as one unit: both halves fly again when either is
   unsettled, unless one already ended red (a finding is never re-flown away).
+  At each dispatch the runner writes a `NOT-RUN ... note=pair-dispatched:_no_verdict_yet`
+  line for BOTH halves to `summary.txt` before either child starts, so a half's
+  latest line is never a verdict from an earlier flight of the pair: a runner
+  that dies between the two reports leaves the other half `NOT-RUN` (counted red
+  and pending in the totals) and the next `resume` flies the pair again.
+- **Serial runs.** `run.py --dry-run` prints a `[PAIR   ]` line for a paired
+  lane; flown by `run.py` itself (no `--pair-dir`) it is refused pre-boot.
 - **Status.** `status` shows `pair=<group>/<role>` on a running half; the plan
   line reads `PAIR <group> role <role> (both halves start together)`. Decisions:
   `lib/parallel.py` (`complete_pairs`, `_pair_decision`, `pair_guard`) and

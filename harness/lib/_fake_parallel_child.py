@@ -5,7 +5,8 @@ machine lock, records what it saw under ``$FAKE_CHILD_STATE`` and writes the
 ``--report-json`` file run.py writes. ``$FAKE_CHILD_VERDICTS`` maps a lane to its
 verdict (default PASS); ``-`` writes no report and exits 3; ``STOP`` prints
 run.py's stop-honoured line and reports the lane NOT-RUN.
-``$FAKE_CHILD_STOP_AFTER`` names a lane that, once it finished, drops the
+``$FAKE_CHILD_SLEEPS`` (``{lane: seconds}``) overrides ``$FAKE_CHILD_SLEEP`` (the
+time a child lingers before it reports) per lane. ``$FAKE_CHILD_STOP_AFTER`` names a lane that, once it finished, drops the
 runner's stop-request file (``$FAKE_CHILD_STOP_REQUEST``), as an operator's
 ``--stop`` mid-run would.
 
@@ -56,7 +57,8 @@ def main() -> int:
         pair = _fly_pair_half(lane, args, verdict)
         if pair.get("lost"):
             verdict = "INVALID"
-    time.sleep(float(os.environ.get("FAKE_CHILD_SLEEP", "0.2")))
+    sleeps = json.loads(os.environ.get("FAKE_CHILD_SLEEPS") or "{}")
+    time.sleep(float(sleeps.get(lane, os.environ.get("FAKE_CHILD_SLEEP", "0.2"))))
     concurrent = max(concurrent, len([f for f in os.listdir(state) if f.startswith("running-")]))
     os.remove(marker)
     record = {"lane": lane, "slot": args.slot, "argv": sys.argv[1:], "start": start,

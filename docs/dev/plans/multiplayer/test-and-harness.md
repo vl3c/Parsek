@@ -1383,6 +1383,18 @@ paired spec).
     folder really is shared), with barriers `placed` and `edited`. Never flown yet.
   - Tests: `harness/lib/test_pairs.py` (pure cells, run.py barrier steps over real folders,
     full no-game runner runs through `_fake_parallel_child.py`).
+  - Follow-up (2026-11-17, the PC run and the review): the child folds the spec's group id
+    with the same `os.path.normcase` as the paths (Windows lower-cased them and refused
+    every upper-case group, PAIR-1 included); at each pair dispatch the runner writes a
+    NOT-RUN `pair-dispatched` line for both halves before either starts, so a runner death
+    between the two reports can never leave an earlier flight's PASS settling the pair; a
+    half that gives a barrier up writes `<name>.<role>.gaveup`, which a late partner reads
+    as lost even though the arrival file is still there; barrier names and group ids are
+    refused when they differ only in case; the memory guard reads memory before a pair
+    starts from idle, so its second copy is charged; `run.py --dry-run` prints a `[PAIR   ]`
+    line. The linked-shared-folder refusal is tested with a symlink on Linux only; its
+    Windows twin (a junction made with `mklink /J`, `test_a_junction_shared_folder_is_refused_at_staging`)
+    is committed but has not yet been run (it skips off Windows).
 
 ### T-55 Race integration variants (lanes RCI-1 to RCI-9)
 
