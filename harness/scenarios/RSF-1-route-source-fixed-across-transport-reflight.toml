@@ -10,7 +10,7 @@
 #     new tree for C), which proved the owner rule but not the re-commit of the route's tree.
 #   * RESHAPED BACK 2026-11-17 (branch `coldload-fix`) with that todo fixed: the restore
 #     re-opens tree 88c012a6 for C again, so the merge re-commits the route's own tree.
-#     NOT YET FLOWN in this shape.
+#     `2026-11-17_1805` PASS attempt 1 on 1c677cd059 in this shape (run coldload-fix3).
 # Todo ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE: the fix's own path, live
 # (`RouteSourceEpochMetadataRewriteTests` in xUnit).
 #
@@ -119,7 +119,7 @@
 schema = 1
 id = "RSF-1-route-source-fixed-across-transport-reflight"
 tier = "nightly"
-description = "RSF-1, RESHAPED 2026-11-17, NOT YET FLOWN IN THIS SHAPE: on rover-relay-c-recorded create and activate the two-stop relay route, F5 and F9 so the committed-tree restore resumes the real transport C in the route's own tree through its unstamped leaf (todo COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH), drive C for 5 s, merge that later flight (CommitTree re-commits tree 88c012a6), F5 and F9 again, then let the cycle run. The route must stay Active, the merge must keep all 3 route sources unchanged (examined=3 keptUnchanged=3), and the ListHandles route read-back's source ids and captured/live sidecar epochs after the merge, after the F9 and after the cycle must equal the ones taken at creation with sourceDrift=none; no SourceChanged flip. Live proof of the ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE fix and the owner rule that a route is fixed to the recordings it was created from."
+description = "RSF-1, RESHAPED 2026-11-17 (first flown PASS 2026-11-17_1805): on rover-relay-c-recorded create and activate the two-stop relay route, F5 and F9 so the committed-tree restore resumes the real transport C in the route's own tree through its unstamped leaf (todo COLD-LOAD-UNSTAMPED-LEAF-RESTORE-SILENT-NO-MATCH), drive C for 5 s, merge that later flight (CommitTree re-commits tree 88c012a6), F5 and F9 again, then let the cycle run. The route must stay Active, the merge must keep all 3 route sources unchanged (examined=3 keptUnchanged=3), and the ListHandles route read-back's source ids and captured/live sidecar epochs after the merge, after the F9 and after the cycle must equal the ones taken at creation with sourceDrift=none; no SourceChanged flip. Live proof of the ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE fix and the owner rule that a route is fixed to the recordings it was created from."
 instanceProfile = "stock-minimal"
 tags = ["RSF-1", "logistics", "route", "route-source", "quickload", "commit",
         "committed-tree-restore", "drive", "recorded-fixture"]

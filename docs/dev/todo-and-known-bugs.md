@@ -2016,7 +2016,26 @@ clean (not dirty, no deferred advance) and `RouteStore.RecordingMatchesCapturedS
 committed or dormant route whose captured ref equals, field for field, the ref the revalidation
 would build from it now. The summary line gains `keptAtRouteCapture=N`. Tests: four cells in
 `RouteSourceEpochMetadataRewriteTests` (the predicate tables, the H59 shape staying Active, and
-an edited source on that path still flipping SourceChanged). Owed: H59 and RSF-1 re-flown.
+an edited source on that path still flipping SourceChanged).
+
+**Second flights (run `coldload-fix3`, 1c677cd059, 2 slots): 6 PASS of 9.** H59
+(`2026-11-17_1805`, 6 `KSC SURFACE playback resolved` lines, `keptAtRouteCapture=2`), V27M
+(same guard line), RSF-1, RVR-1, RVR-3 and RVR-21 PASS; no `->SourceChanged` in any lane. H56,
+H57 and H69 (all on `rover-route-recorded`) red: the lane's `StopRecording` / `DiscardTree`
+suppresses the committed-tree restore for rover B only until the scene ends, and the isolated
+batch's FLIGHT baseline prime and post-test restores are fresh scenes, so each one re-adopted B's
+tree through the new match and started recording (`matched unstamped spawned leaf '4370a799'`
+12 / 14 / 8 times). The AutoRecord tests then skipped as "recording already active" and the dock
+capture's undock never bound its origin proof. On main the crew pass's silent no-match had kept
+B idle for them. Test-runner fix: a FLIGHT baseline captures the restore suppression the active
+vessel carried (`FlightBatchBaselineState.CommittedRestoreSuppressedPid`), and
+`ReapplyBaselineCommittedRestoreSuppression` runs after every FLIGHT baseline restore lands:
+when it names the restored active vessel, it stops the recorder and discards a re-adopted clone
+in memory, suppresses again and logs `re-applied the captured committed-tree restore
+suppression for pid=N discardedReadoptedTree=<bool>`. Pure helpers in `InGameTestRunnerTests`; the
+setter's caller gate (`CommittedSpawnedRestoreSuppressionTests`) now names the seam verb and this
+automation-only restore.
+Owed: H56, H57 and H69 re-flown.
 
 ## ~~ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE~~: a content-neutral rewrite of a route's source recording may pause the route as SourceChanged for good [SUSPECTED 2026-11-16 by code read. CONFIRMED by code trace and FIXED 2026-11-16, branch fix-route-source-epoch; xUnit; low]
 

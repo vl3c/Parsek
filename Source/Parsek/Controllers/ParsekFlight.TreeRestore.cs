@@ -1880,8 +1880,10 @@ namespace Parsek
         /// <summary>
         /// Asks the committed-spawned restore (the 1 Hz Update retry and every other
         /// <see cref="TryRestoreCommittedTreeForSpawnedActiveVessel"/> entry point) to
-        /// leave the CURRENT active vessel idle. Called only by the M-A2
-        /// <c>DiscardTree</c> test-command verb: without it, discarding the tree a
+        /// leave the CURRENT active vessel idle. Called only by automation: the M-A2
+        /// <c>DiscardTree</c> test-command verb, and the in-game batch's FLIGHT baseline
+        /// restore, which carries that verb's suppression across its own reloads
+        /// (<c>InGameTestRunner.ReapplyBaselineCommittedRestoreSuppression</c>). Without it, discarding the tree a
         /// recorded-fixture boot restored for its spawned vessel is undone within a second
         /// (the committed original is still in committed storage, so the retry re-clones
         /// it), and a lane's later <c>StartRecording</c> is refused. Player discard paths
