@@ -179,16 +179,19 @@ wrong.
    two ends exist (design-corrections DC-135 to DC-138).
 
 10. **One long-lived branch** (owner, 2026-11-15). All work of this plan lands on the branch
-    `multiplayer`, cut from main when the owner gives the go. A task works on a sub-branch cut
-    from `multiplayer` and opens its pull request against `multiplayer`. Nothing of this plan
-    reaches main until one final pull request merges `multiplayer` into main. That holds for
-    the prerefactors, the harness and tooling tasks and the spike tooling as well as the race
-    code. Where a plan file says a task lands "on main", read "on `multiplayer`". What follows:
+    `multiplayer`, cut from main 2d96af7a on 2026-11-16 at 20:45Z, after the owner answered
+    the decision card "Yes, cut it and merge into it" at 20:41Z (the card's option: cut the
+    branch, and merge reviewed, green task pull requests into it). A task works on a
+    sub-branch cut from `multiplayer` and opens its pull request against `multiplayer`.
+    Nothing of this plan reaches main until one final pull request merges `multiplayer` into
+    main. That holds for the prerefactors, the harness and tooling tasks and the spike tooling
+    as well as the race code. Where a plan file says a task lands "on main", read "on
+    `multiplayer`". What follows:
     - **Checks.** `tests` already runs for a pull request against any branch
       (`.github/workflows/tests.yml`, `pull_request:` with no branch filter). T-45, a wave 0
       task taken first on the branch, adds `multiplayer` to the workflow's `push:` branches,
-      so every merge is checked as a whole too. The metrics job stays main only. The owner gives
-      `multiplayer` the branch protection main has (required `tests`).
+      so every merge is checked as a whole too. The metrics job stays main only. `multiplayer` is
+      protected since its creation (required check `tests`, pull request required).
     - **Keeping up with main.** Main keeps receiving fixes and releases. Main is merged into
       `multiplayer` after every release from main and at least once a week, as its own pull
       request against `multiplayer` with green tests: a merge commit, never a rebase, because
@@ -225,7 +228,8 @@ wrong.
     - **The plan itself.** From the cut on, this folder is edited on `multiplayer` only (task
       status, re-measured line numbers, answers). Main keeps the plan as it stood at the cut.
     - **The PC.** A lane or an in-game batch for a task flies from a worktree of its
-      sub-branch. The spike branch (question Q-02) is cut from `multiplayer`.
+      sub-branch. The spike branch `spike/mp-r0` is cut from `multiplayer`, pushed to GitHub
+      and kept there, never merged (question Q-02, answered 2026-11-16).
     - **The final merge.** Main is merged into the branch one last time, every lane is flown
       on that tip (the full run of question Q-05), and one pull request merges `multiplayer`
       into main as a merge commit, not squashed, on the owner's go.
@@ -450,8 +454,9 @@ The spikes and the harness lanes need the same machine. `task-index.md` section 
 task that needs the PC, by wave. In short:
 
 - **Spikes:** about 25 hours over four days (`r0-spikes.md`, day plan), then about 3 hours for
-  S8 (sync program speed) at the very end. They need a test copy of the game and a copy
-  without the expansions (question Q-01).
+  S8 (sync program speed) at the very end. They run on their own game copies, a test copy and
+  a copy without the expansions, not on the dev game and not on the harness copies (question
+  Q-01, answered 2026-11-16).
 - **The ghost positioner change (P2b):** ten pull requests proven at the end by a short
   representative set of 18 lanes plus the daily tier (question Q-05, answered 2026-11-14);
   the full run of every lane happens once, at release time.
@@ -483,16 +488,10 @@ S11), which need an otherwise idle PC.
 `design-corrections.md` part 2 lists 26 questions (Q-01 to Q-26), each with options and a
 recommendation. Part 2 orders them by when the answer is needed; the groups below order them
 by what the owner has to do, so Q-06 sits under "assumed" here. Twelve were answered on
-2026-11-15; 10 remain open.
-
-**Needed before work starts (2).** Q-01 a separate game copy for the spikes; Q-02 keep the
-spike branch on GitHub.
+2026-11-15 and three on 2026-11-16; 7 remain open.
 
 **Assumed as recommended, the plans already follow them (3).** Q-06 P6 in parallel; Q-23 no
 atmosphere marker for rivals in R3; Q-25 two copies racing on one PC as an optional lane.
-
-**Asked when its phase comes (1).** Q-13 how the two saves of the "rivals change nothing" test
-are compared. Until answered, the plan follows its recommendation.
 
 **Asked after a spike (3).** Q-18 the copy worker (S8); Q-19 and Q-20 the replacement suits
 (S3).
@@ -506,7 +505,7 @@ numbered questions. One point of them is still assumed: the part sets ticked by 
 (none; stated 2026-11-15, design 13.C). Trees other than stock, with the creator's tree as
 everyone's reference, are later.
 
-**Answered (16).** Q-04 (2026-11-14): fix both, in a separate work item outside this plan (the
+**Answered (19).** Q-04 (2026-11-14): fix both, in a separate work item outside this plan (the
 launch pad fixes work); P1-04 is dropped and P1-02 is behavior-neutral. Q-05 (2026-11-14): no
 run of every lane for P2b; a representative set of lanes rechecks the ghost system, and the full
 run happens at release. Q-07 (2026-11-14): the Watch camera on rival flights comes later, not
@@ -518,7 +517,11 @@ so; Q-14 messages only when a rival is involved; Q-15 any real, clean rival flig
 blocks you; Q-16 after the end only final results; Q-17 the full stock difficulty panel, with
 the presets as the fallback; Q-21 one small plaque popup, only if S7 fails; Q-22 rival ghosts
 show their owner's name and color; Q-24, overturned: a game the test tools create is a labelled
-test game that scores despite the test-tools mark (section 4).
+test game that scores despite the test-tools mark (section 4). On 2026-11-16 the owner
+answered: Q-01 the spikes run on their own separate game copies, not on the dev game and not on
+the harness copies; Q-02 the spike branch `spike/mp-r0`, cut from `multiplayer`, is pushed to
+GitHub and kept there, never merged; Q-13 the two saves of the "rivals change nothing" test
+are compared as identical except for a fixed, listed set of clock values (option (a)).
 
 ## 8. The design after this plan
 

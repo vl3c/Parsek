@@ -234,10 +234,25 @@ namespace Parsek
             bool allowRelativeSections = false)
         {
             return rec != null
-                && rec.TrackSections != null
-                && rec.TrackSections.Count > 0
-                && HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections)
-                && FlatTrajectoryExactlyMatchesTrackSectionPayload(rec);
+                && HasTrackSectionPayloadMatchingFlatTrajectory(
+                    rec.TrackSections, rec.Points, rec.OrbitSegments, rec.RecordingId, allowRelativeSections);
+        }
+
+        /// <summary>
+        /// List-level core of <see cref="HasTrackSectionPayloadMatchingFlatTrajectory(Recording, bool)"/>.
+        /// <paramref name="recordingId"/> only keys and labels the slow-check Warn.
+        /// </summary>
+        internal static bool HasTrackSectionPayloadMatchingFlatTrajectory(
+            List<TrackSection> tracks,
+            List<TrajectoryPoint> points,
+            List<OrbitSegment> orbitSegments,
+            string recordingId,
+            bool allowRelativeSections = false)
+        {
+            return tracks != null
+                && tracks.Count > 0
+                && HasCompleteTrackSectionPayloadForFlatSync(tracks, allowRelativeSections)
+                && FlatTrajectoryExactlyMatchesTrackSectionPayload(tracks, points, orbitSegments, recordingId);
         }
 
         internal static bool FlatTrajectoryExtendsTrackSectionPayload(
@@ -603,25 +618,66 @@ namespace Parsek
             bool allowRelativeSections = false,
             bool markDirty = true)
         {
-            if (rec == null
-                || !HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections))
+            if (rec == null)
+                return false;
+
+            List<TrajectoryPoint> points = rec.Points;
+            List<OrbitSegment> orbitSegments = rec.OrbitSegments;
+            if (!TryHealMalformedFlatFallbackListsFromTrackSections(
+                    rec.TrackSections, ref points, ref orbitSegments, allowRelativeSections))
             {
                 return false;
             }
 
-            bool healedPoints = TryBuildBodyFixedPrimaryFlatPointsForRelativeSections(
-                    rec,
-                    out List<TrajectoryPoint> safeRelativePoints)
-                && !TrajectoryPointListsEqual(safeRelativePoints, rec.Points);
-            if (healedPoints)
-                rec.Points = safeRelativePoints;
-            else
-                healedPoints = TryHealMalformedFlatFallbackPointsFromTrackSections(rec);
+            rec.Points = points;
+            rec.OrbitSegments = orbitSegments;
+            ApplyFlatFallbackHealSideEffects(rec, markDirty, rec.Points.Count);
+            return true;
+        }
 
-            bool healedOrbitSegments = TryHealMalformedFlatFallbackOrbitSegmentsFromTrackSections(rec);
-            if (!healedPoints && !healedOrbitSegments)
+        /// <summary>
+        /// List-level core of
+        /// <see cref="TryHealMalformedFlatFallbackTrajectoryFromTrackSections"/>: returns
+        /// whether it healed. A healed list is handed back as a NEW list through
+        /// <paramref name="points"/> / <paramref name="orbitSegments"/>; a list that did
+        /// not heal is left as passed (same instance), and no list passed in is mutated.
+        /// It touches no recording state and logs nothing.
+        /// </summary>
+        internal static bool TryHealMalformedFlatFallbackListsFromTrackSections(
+            List<TrackSection> tracks,
+            ref List<TrajectoryPoint> points,
+            ref List<OrbitSegment> orbitSegments,
+            bool allowRelativeSections = false)
+        {
+            if (!HasCompleteTrackSectionPayloadForFlatSync(tracks, allowRelativeSections))
                 return false;
 
+            bool healedPoints = TryBuildBodyFixedPrimaryFlatPointsForRelativeSections(
+                    tracks,
+                    points,
+                    out List<TrajectoryPoint> safeRelativePoints)
+                && !TrajectoryPointListsEqual(safeRelativePoints, points);
+            if (healedPoints)
+                points = safeRelativePoints;
+            else
+                healedPoints = TryHealMalformedFlatFallbackPointsFromTrackSections(tracks, ref points);
+
+            bool healedOrbitSegments = TryHealMalformedFlatFallbackOrbitSegmentsFromTrackSections(
+                tracks, ref orbitSegments);
+            return healedPoints || healedOrbitSegments;
+        }
+
+        /// <summary>
+        /// The <see cref="Recording"/> side of a flat-fallback heal, run after the healed
+        /// lists are assigned: the stats cache reset, then either
+        /// <see cref="Recording.MarkFilesDirty"/> or (read path) the label-cache
+        /// invalidation plus the "healed in memory only" Verbose line.
+        /// <paramref name="healedPointCount"/> is the point count that line reports: the
+        /// healed list's count, which the binary read path passes explicitly because its
+        /// decode has already dropped non-monotonic points from the list by then.
+        /// </summary>
+        internal static void ApplyFlatFallbackHealSideEffects(Recording rec, bool markDirty, int healedPointCount)
+        {
             rec.CachedStats = null;
             rec.CachedStatsPointCount = 0;
             if (markDirty)
@@ -640,11 +696,10 @@ namespace Parsek
                         $"TryHealMalformedFlatFallbackTrajectory: recording={rec.RecordingId} " +
                         "healed in memory only, sidecar left byte-identical " +
                         "(loadTimeHealKeepsSidecarEpoch) points=" +
-                        $"{rec.Points.Count} orbitSegments={rec.OrbitSegments.Count} " +
+                        $"{healedPointCount} orbitSegments={rec.OrbitSegments.Count} " +
                         $"sidecarEpoch={rec.SidecarEpoch}");
                 }
             }
-            return true;
         }
 
         internal static List<TrajectoryPoint> GetFlatFallbackPointsForWrite(Recording rec)
@@ -659,14 +714,29 @@ namespace Parsek
             Recording rec,
             out List<TrajectoryPoint> points)
         {
+            return TryBuildBodyFixedPrimaryFlatPointsForRelativeSections(
+                rec?.TrackSections, rec?.Points, out points);
+        }
+
+        /// <summary>
+        /// List-level core of
+        /// <see cref="TryBuildBodyFixedPrimaryFlatPointsForRelativeSections(Recording, out List{TrajectoryPoint})"/>:
+        /// <paramref name="flatPoints"/> is the flat POINT list whose samples outside the
+        /// frame sections form the tail; it is read, never changed.
+        /// </summary>
+        internal static bool TryBuildBodyFixedPrimaryFlatPointsForRelativeSections(
+            List<TrackSection> tracks,
+            List<TrajectoryPoint> flatPoints,
+            out List<TrajectoryPoint> points)
+        {
             points = new List<TrajectoryPoint>();
-            if (rec?.TrackSections == null || rec.TrackSections.Count == 0)
+            if (tracks == null || tracks.Count == 0)
                 return false;
 
             bool sawRelativeSection = false;
-            for (int t = 0; t < rec.TrackSections.Count; t++)
+            for (int t = 0; t < tracks.Count; t++)
             {
-                TrackSection section = rec.TrackSections[t];
+                TrackSection section = tracks[t];
 
                 // A payload-free section is "no payload HERE", not "this recording's
                 // payload is incomplete": skip it. Bailing on one made the safe
@@ -708,23 +778,24 @@ namespace Parsek
             if (!sawRelativeSection || points.Count == 0)
                 return false;
 
-            if (!AppendSafeFlatFallbackTailOutsideFrameSections(rec, points))
+            if (!AppendSafeFlatFallbackTailOutsideFrameSections(tracks, flatPoints, points))
                 return false;
 
             return TrajectoryPointListIsMonotonicNonDecreasing(points);
         }
 
         private static bool AppendSafeFlatFallbackTailOutsideFrameSections(
-            Recording rec,
+            List<TrackSection> tracks,
+            List<TrajectoryPoint> flatPoints,
             List<TrajectoryPoint> points)
         {
-            if (rec?.Points == null || rec.Points.Count == 0 || points == null || points.Count == 0)
+            if (flatPoints == null || flatPoints.Count == 0 || points == null || points.Count == 0)
                 return true;
 
-            for (int i = 0; i < rec.Points.Count; i++)
+            for (int i = 0; i < flatPoints.Count; i++)
             {
-                TrajectoryPoint point = rec.Points[i];
-                if (FrameTrackSectionCoversUT(rec.TrackSections, point.ut))
+                TrajectoryPoint point = flatPoints[i];
+                if (FrameTrackSectionCoversUT(tracks, point.ut))
                     continue;
 
                 if (points.Count > 0)
@@ -778,92 +849,99 @@ namespace Parsek
         // 5ms is conservative given the check runs once per recording per save.
         private const double FlatTrajectoryExactMatchWarnMs = 5.0;
 
-        private static bool FlatTrajectoryExactlyMatchesTrackSectionPayload(Recording rec)
+        private static bool FlatTrajectoryExactlyMatchesTrackSectionPayload(
+            List<TrackSection> tracks,
+            List<TrajectoryPoint> points,
+            List<OrbitSegment> orbitSegments,
+            string recordingId)
         {
-            if (rec == null)
-                return false;
-
             var sw = Stopwatch.StartNew();
             var rebuiltPoints = new List<TrajectoryPoint>();
-            RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
-            bool pointsEqual = TrajectoryPointListsEqual(rebuiltPoints, rec.Points);
+            RebuildPointsFromTrackSections(tracks, rebuiltPoints);
+            bool pointsEqual = TrajectoryPointListsEqual(rebuiltPoints, points);
 
             bool orbitSegmentsEqual = false;
             List<OrbitSegment> rebuiltOrbitSegments = null;
             if (pointsEqual)
             {
                 rebuiltOrbitSegments = new List<OrbitSegment>();
-                RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rebuiltOrbitSegments);
-                orbitSegmentsEqual = OrbitSegmentListsEqual(rebuiltOrbitSegments, rec.OrbitSegments);
+                RebuildOrbitSegmentsFromTrackSections(tracks, rebuiltOrbitSegments);
+                orbitSegmentsEqual = OrbitSegmentListsEqual(rebuiltOrbitSegments, orbitSegments);
             }
 
             sw.Stop();
             double elapsedMs = sw.Elapsed.TotalMilliseconds;
             if (elapsedMs >= FlatTrajectoryExactMatchWarnMs && !RecordingStore.SuppressLogging)
             {
-                int pointCount = rec.Points != null ? rec.Points.Count : 0;
-                int orbitCount = rec.OrbitSegments != null ? rec.OrbitSegments.Count : 0;
-                int sectionCount = rec.TrackSections != null ? rec.TrackSections.Count : 0;
+                int pointCount = points != null ? points.Count : 0;
+                int orbitCount = orbitSegments != null ? orbitSegments.Count : 0;
+                int sectionCount = tracks != null ? tracks.Count : 0;
                 ParsekLog.WarnRateLimited(
                     "RecordingStore",
-                    "flat-section-exact-match-slow:" + rec.RecordingId,
+                    "flat-section-exact-match-slow:" + recordingId,
                     $"FlatTrajectoryExactlyMatchesTrackSectionPayload slow: " +
-                    $"recId={rec.RecordingId} points={pointCount} orbits={orbitCount} " +
+                    $"recId={recordingId} points={pointCount} orbits={orbitCount} " +
                     $"sections={sectionCount} elapsedMs={elapsedMs.ToString("F2", CultureInfo.InvariantCulture)}");
             }
 
             return pointsEqual && orbitSegmentsEqual;
         }
 
-        private static bool TryHealMalformedFlatFallbackPointsFromTrackSections(Recording rec)
+        // Replaces `points` with a new list only when it heals; otherwise leaves it as passed.
+        private static bool TryHealMalformedFlatFallbackPointsFromTrackSections(
+            List<TrackSection> tracks,
+            ref List<TrajectoryPoint> points)
         {
-            if (rec.Points == null || rec.Points.Count == 0)
+            if (points == null || points.Count == 0)
                 return false;
 
             var rebuiltPoints = new List<TrajectoryPoint>();
-            RebuildPointsFromTrackSections(rec.TrackSections, rebuiltPoints);
-            if (rebuiltPoints.Count == 0 || rec.Points.Count < rebuiltPoints.Count)
+            RebuildPointsFromTrackSections(tracks, rebuiltPoints);
+            if (rebuiltPoints.Count == 0 || points.Count < rebuiltPoints.Count)
                 return false;
 
             for (int i = 0; i < rebuiltPoints.Count; i++)
             {
-                if (!TrajectoryPointEquals(rebuiltPoints[i], rec.Points[i]))
+                if (!TrajectoryPointEquals(rebuiltPoints[i], points[i]))
                     return false;
             }
 
-            int suffixStart = FindSafeTrajectoryPointSuffixStart(rec.Points, rebuiltPoints);
+            int suffixStart = FindSafeTrajectoryPointSuffixStart(points, rebuiltPoints);
             if (suffixStart < 0)
                 return false;
 
             var healedPoints = new List<TrajectoryPoint>(rebuiltPoints);
-            AppendTrajectoryPointSuffix(healedPoints, rec.Points, suffixStart);
+            AppendTrajectoryPointSuffix(healedPoints, points, suffixStart);
             if (!TrajectoryPointListIsMonotonicNonDecreasing(healedPoints)
-                || TrajectoryPointListsEqual(healedPoints, rec.Points))
+                || TrajectoryPointListsEqual(healedPoints, points))
             {
                 return false;
             }
 
-            rec.Points = healedPoints;
+            points = healedPoints;
             return true;
         }
 
-        private static bool TryHealMalformedFlatFallbackOrbitSegmentsFromTrackSections(Recording rec)
+        // Replaces `orbitSegments` with a new list only when it heals; otherwise leaves it as passed.
+        private static bool TryHealMalformedFlatFallbackOrbitSegmentsFromTrackSections(
+            List<TrackSection> tracks,
+            ref List<OrbitSegment> orbitSegments)
         {
-            if (rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+            if (orbitSegments == null || orbitSegments.Count == 0)
                 return false;
 
             var rebuiltOrbitSegments = new List<OrbitSegment>();
-            RebuildOrbitSegmentsFromTrackSections(rec.TrackSections, rebuiltOrbitSegments);
-            if (rebuiltOrbitSegments.Count == 0 || rec.OrbitSegments.Count < rebuiltOrbitSegments.Count)
+            RebuildOrbitSegmentsFromTrackSections(tracks, rebuiltOrbitSegments);
+            if (rebuiltOrbitSegments.Count == 0 || orbitSegments.Count < rebuiltOrbitSegments.Count)
                 return false;
 
             int flatIndex = 0;
             for (int i = 0; i < rebuiltOrbitSegments.Count; i++)
             {
                 int matchIndex = -1;
-                while (flatIndex < rec.OrbitSegments.Count)
+                while (flatIndex < orbitSegments.Count)
                 {
-                    OrbitSegment flat = rec.OrbitSegments[flatIndex];
+                    OrbitSegment flat = orbitSegments[flatIndex];
                     OrbitSegment rebuilt = rebuiltOrbitSegments[i];
                     if (OrbitSegmentEquals(flat, rebuilt))
                     {
@@ -886,18 +964,18 @@ namespace Parsek
                 flatIndex = matchIndex + 1;
             }
 
-            if (!OrbitSegmentSuffixIsMonotonicNonDecreasing(rec.OrbitSegments, flatIndex))
+            if (!OrbitSegmentSuffixIsMonotonicNonDecreasing(orbitSegments, flatIndex))
                 return false;
 
             var healedOrbitSegments = new List<OrbitSegment>(rebuiltOrbitSegments);
-            AppendOrbitSegmentSuffix(healedOrbitSegments, rec.OrbitSegments, flatIndex);
+            AppendOrbitSegmentSuffix(healedOrbitSegments, orbitSegments, flatIndex);
             if (!OrbitSegmentListIsMonotonicNonDecreasing(healedOrbitSegments)
-                || OrbitSegmentListsEqual(healedOrbitSegments, rec.OrbitSegments))
+                || OrbitSegmentListsEqual(healedOrbitSegments, orbitSegments))
             {
                 return false;
             }
 
-            rec.OrbitSegments = healedOrbitSegments;
+            orbitSegments = healedOrbitSegments;
             return true;
         }
 

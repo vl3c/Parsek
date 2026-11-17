@@ -9,6 +9,11 @@ registry and the clock, and hands plain values in.
 - Exclusive lanes: a lane that moves the OS cursor or takes the foreground
   (``[runtime] exclusive = true``, or a step this module recognises as a pointer
   or focus step) never shares the machine with another lane.
+- Paired lanes (``[pair]``, multiplayer T-54): a selected half pulls in its
+  partner, a pair is one unit of the order, both halves start in one decision
+  on two free slots of their profile (A first) or neither starts, a resume
+  re-flies a pair whole, and a green half whose partner left no verdict is
+  reported INVALID(partner-lost).
 - Duration estimates (p50) and the longest-first order.
 - The dispatch decision: which lane starts next on which slot, or why nothing
   starts now (slot cap, a free slot of the profile, the memory guard that
@@ -20,10 +25,12 @@ registry and the clock, and hands plain values in.
   ``run.py`` selection rule).
 - The ``status`` report an agent reads.
 
-Stdlib only. Nothing here reads a file, a clock or an environment variable.
+Stdlib only. Nothing here reads a file, a clock or an environment variable
+(``os`` is used for path joins only).
 """
 
 import json
+import os
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -78,6 +85,19 @@ BOOT_WINDOW_SECONDS = 60.0
 # the runner starts does not sit waiting on that stamp; memory pressure from a
 # copy still booting is the guard's job, not this gap's.
 DISPATCH_GAP_SECONDS = slots.DEFAULT_LAUNCH_SPACING_SECONDS
+
+# The idle settle. With nothing running, a pair the memory guard holds is passed
+# over (later lanes start) and, when nothing else can start, the run ends with
+# the pair pending: nothing running would ever free the memory it waits for.
+# That idle judgement is made only on a reading taken while nothing ran, and at
+# least IDLE_SETTLE_SECONDS after the last lane of this invocation ended: a
+# reading taken earlier may still count the ended lane's copy (a cached reading
+# from while it ran, or a game process whose memory the OS has not handed back
+# yet). Until such a reading exists the pair keeps the dispatch (a wait, so no
+# later lane starts ahead of it at the idle moment). The wait is bounded: the
+# runner takes a fresh reading once the settle has passed, and that reading
+# decides (start the pair, pass it over, or end the run).
+IDLE_SETTLE_SECONDS = 10.0
 
 DEFAULT_SLOTS = 2
 MIN_SLOTS = 1
@@ -158,12 +178,16 @@ def split_ids_arg(value: Optional[str]) -> List[str]:
 
 
 def resolve_selection(specs: Sequence[Dict], ids: Sequence[str],
-                      tiers: Sequence[str]) -> List[Dict]:
+                      tiers: Sequence[str], tags: Sequence[str] = ()) -> List[Dict]:
     """The selected specs: the named ids first, in the order given, then every
-    spec of each ``tiers`` entry in spec file order; a lane selected twice runs
-    once. Raises SelectionError naming every unknown id and tier, so nothing
+    spec of each ``tiers`` entry, then every spec of each ``tags`` entry, both in
+    spec file order; a lane selected twice runs once. A tag matches exactly as
+    ``run.py --tag`` does (``hlib.select_scenarios``). Raises SelectionError
+    naming every unknown id and tier and every tag no spec carries, so nothing
     flies on a typo."""
     bad_tiers = [t for t in tiers if t not in hlib.TIERS]
+    by_tag = [(tag, hlib.select_scenarios(specs, "--tag %s" % tag)) for tag in tags]
+    bad_tags = [tag for tag, matched in by_tag if not matched]
     selected, unknown = hlib.select_scenarios_by_ids(specs, list(ids))
     problems = []
     if unknown:
@@ -171,13 +195,17 @@ def resolve_selection(specs: Sequence[Dict], ids: Sequence[str],
     if bad_tiers:
         problems.append("unknown tier(s): %s (known: %s)"
                         % (", ".join(bad_tiers), ", ".join(hlib.TIERS)))
+    if bad_tags:
+        problems.append("no spec carries tag(s): %s" % ", ".join(bad_tags))
     if problems:
         raise SelectionError("; ".join(problems))
     seen = {s.get("id") for s in selected}
-    for tier in tiers:
-        for spec in specs:
+    groups = [[s for s in specs if s.get("tier") == tier] for tier in tiers]
+    groups.extend(matched for _tag, matched in by_tag)
+    for group in groups:
+        for spec in group:
             sid = spec.get("id")
-            if spec.get("tier") == tier and isinstance(sid, str) and sid not in seen:
+            if isinstance(sid, str) and sid not in seen:
                 seen.add(sid)
                 selected.append(spec)
     return selected
@@ -276,22 +304,34 @@ class Lane:
     p50: float
     p50_source: str
     exclusive_reason: Optional[str] = None
+    pair_group: Optional[str] = None
+    pair_role: Optional[str] = None
 
     @property
     def exclusive(self) -> bool:
         return self.exclusive_reason is not None
 
+    @property
+    def paired(self) -> bool:
+        return self.pair_group is not None
+
     def to_json(self) -> Dict[str, Any]:
-        return {"id": self.lane_id, "profile": self.profile, "tier": self.tier,
-                "p50": self.p50, "p50Source": self.p50_source,
-                "exclusive": self.exclusive, "exclusiveReason": self.exclusive_reason}
+        out = {"id": self.lane_id, "profile": self.profile, "tier": self.tier,
+               "p50": self.p50, "p50Source": self.p50_source,
+               "exclusive": self.exclusive, "exclusiveReason": self.exclusive_reason}
+        if self.paired:
+            out["pairGroup"], out["pairRole"] = self.pair_group, self.pair_role
+        return out
 
     @staticmethod
     def from_json(obj: Dict[str, Any]) -> "Lane":
+        group, role = obj.get("pairGroup"), obj.get("pairRole")
+        paired = hlib.is_pair_name(group) and role in hlib.PAIR_ROLES
         return Lane(str(obj.get("id")), str(obj.get("profile")), str(obj.get("tier")),
                     float(obj.get("p50") or DEFAULT_P50_SECONDS),
                     str(obj.get("p50Source") or P50_SOURCE_DEFAULT),
-                    obj.get("exclusiveReason") if obj.get("exclusive") else None)
+                    obj.get("exclusiveReason") if obj.get("exclusive") else None,
+                    group if paired else None, role if paired else None)
 
 
 def build_lanes(selected: Sequence[Dict], durations: Dict[str, Dict],
@@ -311,18 +351,168 @@ def build_lanes(selected: Sequence[Dict], durations: Dict[str, Dict],
                             % (hlib.local_fixture_hint(template) or template)))
             continue
         p50, source = lane_p50(sid, durations, index_medians)
+        ident = hlib.spec_pair_identity(spec)
         lanes.append(Lane(sid, str(spec.get("instanceProfile")), str(spec.get("tier")),
-                          p50, source, exclusive_reason(spec)))
+                          p50, source, exclusive_reason(spec),
+                          ident[0] if ident else None, ident[1] if ident else None))
+    # A pair flies whole or not at all: a half that cannot fly here takes its
+    # partner out with it.
+    groups = {l.pair_group for l in lanes if l.paired}
+    gone = {g for g in groups if sorted(l.pair_role for l in lanes if l.pair_group == g)
+            != sorted(hlib.PAIR_ROLES)}
+    if gone:
+        for lane in [l for l in lanes if l.pair_group in gone]:
+            skipped.append((lane.lane_id, "its pair %s cannot fly here (the partner is not "
+                                          "flown)" % lane.pair_group))
+        lanes = [l for l in lanes if l.pair_group not in gone]
     return lanes, skipped
 
 
 def order_lanes(lanes: Sequence[Lane]) -> List[Lane]:
     """Longest p50 first (greedy packing keeps the tail short); ties keep the
-    selection order. Exclusive lanes go last, in the same order."""
+    selection order. Exclusive lanes go last, in the same order. A pair is one
+    unit, ranked by its longer half at its first half's position, A then B."""
     indexed = list(enumerate(lanes))
-    normal = sorted((t for t in indexed if not t[1].exclusive), key=lambda t: (-t[1].p50, t[0]))
-    exclusive = sorted((t for t in indexed if t[1].exclusive), key=lambda t: (-t[1].p50, t[0]))
-    return [lane for _, lane in normal + exclusive]
+    units: List[Tuple[float, int, bool, List[Lane]]] = []
+    seen_groups = set()
+    for i, lane in indexed:
+        if not lane.paired:
+            units.append((lane.p50, i, lane.exclusive, [lane]))
+            continue
+        if lane.pair_group in seen_groups:
+            continue
+        seen_groups.add(lane.pair_group)
+        halves = sorted((l for l in lanes if l.pair_group == lane.pair_group),
+                        key=lambda l: hlib.PAIR_ROLES.index(l.pair_role)
+                        if l.pair_role in hlib.PAIR_ROLES else len(hlib.PAIR_ROLES))
+        units.append((max(h.p50 for h in halves), i, any(h.exclusive for h in halves), halves))
+    normal = sorted((u for u in units if not u[2]), key=lambda u: (-u[0], u[1]))
+    exclusive = sorted((u for u in units if u[2]), key=lambda u: (-u[0], u[1]))
+    return [lane for u in normal + exclusive for lane in u[3]]
+
+
+# ---------------------------------------------------------------------------
+# Paired lanes (multiplayer T-54; hlib "Paired lanes")
+# ---------------------------------------------------------------------------
+
+# Where a pair's files live: its barrier folder under the run folder
+# (results/parallel/<run>/pairs/<group>/), never in the shared folder, and its
+# shared folder under the umbrella's automation/ (automation/rs/<run>/<group>/).
+PAIRS_DIRNAME = hlib.PAIRS_DIRNAME
+PAIR_SHARED_ROOT = hlib.RACE_SHARED_ROOT
+
+
+def pair_barrier_dir(run_dir: str, group: str) -> str:
+    return os.path.join(run_dir, PAIRS_DIRNAME, group)
+
+
+def pair_shared_dir(automation_dir: str, run_name: str, group: str) -> str:
+    return os.path.join(automation_dir, PAIR_SHARED_ROOT, run_name, group)
+
+
+def complete_pairs(selected: Sequence[Dict], specs: Sequence[Dict]) -> Tuple[List[Dict], List[str]]:
+    """(the selection with every selected half's partner added right after it, the
+    partner ids added). Raises SelectionError naming every pair problem of the
+    pairs involved (``hlib.pair_problems``: a half with no partner, two of one role,
+    a profile, tier, barrier or shared-folder mismatch) and every paired half that
+    is exclusive, so a pair can never fly as one lone half."""
+    out = list(selected)
+    chosen = {s.get("id") for s in out}
+    groups = []
+    for spec in selected:
+        ident = hlib.spec_pair_identity(spec)
+        if ident is not None and ident[0] not in groups:
+            groups.append(ident[0])
+    if not groups:
+        return out, []
+    # Matched ignoring case, so a group that differs only in case from a selected
+    # one is checked with it (pair_problems refuses the two: one folder on Windows).
+    folded = {g.casefold() for g in groups}
+    members = [s for s in specs
+               if ((hlib.spec_pair_identity(s) or ("",))[0]).casefold() in folded]
+    problems = hlib.pair_problems(members)
+    for spec in members:
+        reason = exclusive_reason(spec)
+        if reason:
+            problems.append("pair %s: %s is exclusive (%s); a pair flies two copies at once"
+                            % (hlib.spec_pair_identity(spec)[0], spec.get("id"), reason))
+    if problems:
+        raise SelectionError("; ".join(problems))
+    added: List[str] = []
+    for spec in list(selected):
+        ident = hlib.spec_pair_identity(spec)
+        if ident is None:
+            continue
+        partner = next(s for s in members
+                       if hlib.spec_pair_identity(s) == (ident[0], hlib.pair_partner_role(ident[1])))
+        if partner.get("id") not in chosen:
+            chosen.add(partner.get("id"))
+            out.insert(out.index(spec) + 1, partner)
+            added.append(str(partner.get("id")))
+    return out, added
+
+
+def pair_slot_shortfall(lanes: Sequence[Lane], by_profile: Dict[str, List[str]]) -> List[str]:
+    """Profiles a pair needs two slots of that have fewer provisioned, sorted."""
+    return sorted({l.profile for l in lanes if l.paired
+                   and len(by_profile.get(l.profile, [])) < 2})
+
+
+def pair_partners(lanes: Sequence[Lane]) -> Dict[str, str]:
+    """lane id -> its partner's lane id, for every pair whose two halves are listed."""
+    by_group: Dict[str, List[Lane]] = {}
+    for lane in lanes:
+        if lane.paired:
+            by_group.setdefault(lane.pair_group, []).append(lane)
+    out: Dict[str, str] = {}
+    for halves in by_group.values():
+        if len(halves) == 2:
+            out[halves[0].lane_id] = halves[1].lane_id
+            out[halves[1].lane_id] = halves[0].lane_id
+    return out
+
+
+def pair_guard(own: "LaneOutcome", partner: Optional["LaneOutcome"],
+               partner_id: str) -> Optional["LaneOutcome"]:
+    """The rewrite of a GREEN half's outcome when its partner left no verdict (no
+    report, NOT-RUN, or a stop honoured before it flew: ``partner`` None), else
+    None. Such a half is INVALID(partner-lost) at attempt 1, so a resume re-flies
+    the pair: a pair never reads PASS for a half whose partner did not run. The
+    barrier makes this unreachable for a spec that passes validation; this is the
+    runner's own backstop."""
+    if own.verdict not in GREEN_VERDICTS:
+        return None
+    if partner is not None and partner.verdict not in UNSETTLED_VERDICTS:
+        return None
+    seen = "no verdict" if partner is None else partner.verdict
+    return LaneOutcome(own.ended_iso, hlib.VERDICT_INVALID, own.lane_id, 1, own.wall_seconds,
+                       own.slot, own.run_ids,
+                       "%s: partner %s left %s" % (hlib.PARTNER_LOST_SUBKIND, partner_id, seen))
+
+
+# The note on the line a pair's dispatch writes for each half before either child
+# starts (``pair_dispatch_outcome``). It is written with ``_`` for the spaces, so a
+# parsed line is recognised by its first word (``is_pair_dispatch_marker``).
+PAIR_DISPATCHED_NOTE = "pair-dispatched: no verdict yet"
+PAIR_DISPATCHED_KEY = "pair-dispatched"
+
+
+def is_pair_dispatch_marker(o: Optional["LaneOutcome"]) -> bool:
+    """True for a pair-dispatch line: pending, but neither a verdict nor red (the
+    half is flying, or its run ended before it reported; a resume flies it)."""
+    return (o is not None and o.verdict == VERDICT_NOT_RUN
+            and (o.note or "").startswith(PAIR_DISPATCHED_KEY))
+
+
+def pair_dispatch_outcome(lane_id: str, slot: str, ended_iso: str) -> "LaneOutcome":
+    """The summary line written for EACH half of a pair, durably, before either
+    child is spawned: NOT-RUN (unsettled) until that half's own verdict line
+    follows it. A half's latest line is therefore never a verdict from an earlier
+    flight of the pair once a new flight started, so a runner that dies between the
+    two halves' reports leaves the unreported half pending (the totals do not read
+    it green, and ``resume`` flies the pair again), never a stale PASS."""
+    return LaneOutcome(ended_iso, VERDICT_NOT_RUN, lane_id, 1, 0, slot, (),
+                       PAIR_DISPATCHED_NOTE)
 
 
 def partition_exclusive(lanes: Sequence[Lane], include_exclusive: bool
@@ -402,6 +592,9 @@ WAIT_MEMORY = "memory"
 WAIT_GAP = "dispatch-gap"
 WAIT_EXCLUSIVE = "exclusive"
 WAIT_DRAIN = "drain"
+WAIT_PAIR = "pair"
+# Both halves of a pair start in one decision (lane_id/slot is A, partner_* is B).
+ACTION_START_PAIR = "start-pair"
 
 
 @dataclass(frozen=True)
@@ -413,6 +606,8 @@ class DispatchDecision:
     wait_kind: Optional[str] = None
     reason: str = ""
     log_key: str = ""                 # set for a memory wait (memory_wait_log_key)
+    partner_lane_id: Optional[str] = None   # set for ACTION_START_PAIR (role B)
+    partner_slot: Optional[str] = None
 
 
 def boot_remaining_share(started_epoch: float, now_epoch: float,
@@ -444,15 +639,18 @@ def memory_holds(reading: Optional[MemoryReading], running_count: int,
                  min_free_ram_gb: float = MIN_FREE_RAM_GB,
                  min_free_vram_gb: float = MIN_FREE_VRAM_GB,
                  footprint_ram_gb: float = COPY_FOOTPRINT_RAM_GB,
-                 footprint_vram_gb: float = COPY_FOOTPRINT_VRAM_GB) -> List[Tuple[str, str]]:
+                 footprint_vram_gb: float = COPY_FOOTPRINT_VRAM_GB,
+                 new_copies: int = 1) -> List[Tuple[str, str]]:
     """The readings that hold the next lane back, as ``(label, arithmetic)``
     pairs (label ``RAM`` / ``VRAM``); empty when nothing holds. Never holds the
     FIRST lane (one lane always runs), and an unavailable reading never holds.
     ``booting_copies`` is the remaining footprint of the copies still booting,
     in copies (``booting_share``). Each reading is projected to after those
     copies and the new one have fully loaded, and holds when the projection is
-    under its floor."""
-    if running_count < 1 or reading is None:
+    under its floor. ``new_copies`` is 2 for a pair: with nothing running its
+    first half is the free first lane and the second is charged."""
+    charged = new_copies if running_count >= 1 else new_copies - 1
+    if charged < 1 or reading is None:
         return []
     booting_copies = max(0.0, float(booting_copies))
     holds = []
@@ -462,12 +660,13 @@ def memory_holds(reading: Optional[MemoryReading], running_count: int,
         if free is None:
             continue
         booting = booting_copies * footprint
-        projected = free - booting - footprint
+        projected = free - booting - footprint * charged
         if projected < floor:
             parts = ["free %s %.1f GB" % (label, free)]
             if booting > 0:
                 parts.append("booting %.1f GB" % booting)
-            parts.append("new copy %.1f GB" % footprint)
+            parts.append(("new copy %.1f GB" % footprint) if charged == 1 else
+                         ("new copies %d x %.1f GB" % (charged, footprint)))
             holds.append((label, "%s = %.1f GB < %.1f GB"
                           % (" - ".join(parts), projected, floor)))
     return holds
@@ -526,11 +725,16 @@ def decide_next(pending: Sequence[Lane], running: Sequence[Running],
                 memory: Optional[MemoryReading], now_epoch: float,
                 last_start_epoch: Optional[float],
                 gap_seconds: float = DISPATCH_GAP_SECONDS,
-                boot_window_seconds: float = BOOT_WINDOW_SECONDS) -> DispatchDecision:
+                boot_window_seconds: float = BOOT_WINDOW_SECONDS,
+                memory_epoch: Optional[float] = None,
+                last_reap_epoch: Optional[float] = None,
+                idle_settle_seconds: float = IDLE_SETTLE_SECONDS) -> DispatchDecision:
     """What the runner does next. ``pending`` is in dispatch order (ordered by
     ``order_lanes``); ``max_running`` is control.json's ``slots``, re-read
     before every call (a lower value never stops a running lane, it only holds
-    the next start)."""
+    the next start). ``memory_epoch`` is when ``memory`` was read and
+    ``last_reap_epoch`` when the last lane of this invocation ended (None: none
+    ended yet); see ``IDLE_SETTLE_SECONDS`` and ``reading_predates_start``."""
     if stop:
         if running:
             return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_STOP,
@@ -557,6 +761,11 @@ def decide_next(pending: Sequence[Lane], running: Sequence[Running],
             return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_GAP,
                                     reason="the last start was %.0f s ago (< %.0f s dispatch gap)"
                                     % (now_epoch - last_start_epoch, gap_seconds))
+        if running and reading_predates_start(memory, memory_epoch, last_start_epoch):
+            return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_MEMORY,
+                                    reason="memory guard: the reading predates the last start; "
+                                           "waiting for a fresh one",
+                                    log_key="stale-start")
         share = booting_share(running, now_epoch, boot_window_seconds)
         holds = memory_holds(memory, len(running), share)
         if holds:
@@ -566,11 +775,44 @@ def decide_next(pending: Sequence[Lane], running: Sequence[Running],
                                     % ("; ".join(t for _, t in holds), len(running), booting),
                                     log_key=memory_wait_log_key(
                                         memory, [l for l, _ in holds], len(running), booting))
+        unstartable: List[str] = []
+        idle_memory_held: List[str] = []
         for lane in normal:
+            if lane.paired:
+                pair = _pair_decision(lane, pending, running, busy, by_profile, cap, memory,
+                                      share, now_epoch, boot_window_seconds)
+                if pair is None:
+                    unstartable.append(lane.lane_id)
+                    continue
+                if pair.wait_kind == WAIT_MEMORY and not running:
+                    if not idle_reading_settled(memory_epoch, last_start_epoch,
+                                                last_reap_epoch, idle_settle_seconds):
+                        # The reading may still count the copy that just ended: the
+                        # pair keeps the dispatch until a settled reading decides.
+                        return _settle_wait(pair, lane, memory_epoch, last_reap_epoch,
+                                            idle_settle_seconds)
+                    # Nothing runs, so nothing will free memory: the pair does not
+                    # reserve the dispatch, later lanes get their turn, and if none
+                    # can start the run ends with the pair pending (below).
+                    unstartable.append(lane.lane_id)
+                    idle_memory_held.append(pair.reason)
+                    continue
+                return pair
             for slot in by_profile.get(lane.profile, []):
                 if slot not in busy:
                     return DispatchDecision(ACTION_START, lane_id=lane.lane_id, slot=slot,
                                             reason="p50=%.0fs" % lane.p50)
+        if not running and len(unstartable) == len(normal):
+            # Nothing runs and nothing pending can ever start: end the run with them
+            # pending (RED, lanes left unflown, resumable) rather than wait forever.
+            if idle_memory_held:
+                return DispatchDecision(ACTION_DONE, reason=(
+                    "paired lane(s) %s cannot start: nothing runs to free memory and %s "
+                    "(free memory, then resume)"
+                    % (", ".join(unstartable), "; ".join(idle_memory_held))))
+            return DispatchDecision(ACTION_DONE, reason=(
+                "paired lane(s) %s cannot start: a pair needs two slots at once, slots=%d "
+                "(set-slots 2, then resume)" % (", ".join(unstartable), cap)))
         return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_SLOT_BUSY,
                                 reason="every slot of the pending lanes' profiles is busy")
     # Only exclusive lanes remain: each flies alone once the others drained.
@@ -586,6 +828,90 @@ def decide_next(pending: Sequence[Lane], running: Sequence[Running],
     return DispatchDecision(ACTION_START, lane_id=lane.lane_id, slot=choices[0],
                             window=WINDOW_NORMAL,
                             reason="exclusive (%s), alone" % lane.exclusive_reason)
+
+
+def idle_reading_settled(memory_epoch: Optional[float], last_start_epoch: Optional[float],
+                         last_reap_epoch: Optional[float],
+                         idle_settle_seconds: float = IDLE_SETTLE_SECONDS) -> bool:
+    """Whether a reading may make the idle judgement (pass a memory-held pair
+    over, or end the run because nothing runs to free memory); the caller has
+    checked that nothing runs now. With no lane ended in this invocation any
+    reading taken with nothing running qualifies (a reading of unknown time is
+    trusted only then). Once a lane ended, the reading must be stamped at least
+    ``idle_settle_seconds`` after that end, and after the last start: running
+    only grows at a start and shrinks at a reap, so such a reading was taken
+    with nothing running."""
+    if last_reap_epoch is None:
+        return memory_epoch is None or last_start_epoch is None or \
+            memory_epoch >= last_start_epoch
+    if memory_epoch is None:
+        return False
+    if last_start_epoch is not None and memory_epoch < last_start_epoch:
+        return False
+    return memory_epoch - last_reap_epoch >= max(0.0, idle_settle_seconds)
+
+
+def reading_predates_start(memory: Optional[MemoryReading], memory_epoch: Optional[float],
+                           last_start_epoch: Optional[float]) -> bool:
+    """Whether a reading was taken before the last start, so it holds none of
+    that copy's memory and the booting ramp under-charges it. Such a reading
+    never admits a further start (the runner reads afresh after every start)."""
+    return memory is not None and memory_epoch is not None and \
+        last_start_epoch is not None and memory_epoch < last_start_epoch
+
+
+def _settle_wait(pair: "DispatchDecision", lane: Lane, memory_epoch: Optional[float],
+                 last_reap_epoch: Optional[float],
+                 idle_settle_seconds: float) -> "DispatchDecision":
+    if memory_epoch is None or last_reap_epoch is None or memory_epoch < last_reap_epoch:
+        age = "a reading taken before the last lane ended"
+    else:
+        age = "a reading taken %.0f s after the last lane ended" % (memory_epoch - last_reap_epoch)
+    return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_MEMORY, reason=(
+        "pair %s waits for a settled idle memory reading (%s, settle %.0f s): %s"
+        % (lane.pair_group, age, idle_settle_seconds, pair.reason)),
+        log_key="settle|" + (pair.log_key or ""))
+
+
+def _pair_decision(lane: Lane, pending: Sequence[Lane], running: Sequence[Running],
+                   busy: set, by_profile: Dict[str, List[str]], cap: int,
+                   memory: Optional[MemoryReading], share: float, now_epoch: float,
+                   boot_window_seconds: float) -> Optional[DispatchDecision]:
+    """The decision for a pending paired half met in dispatch order, or None to
+    look further down the order. Only role A decides (B starts with it); a half
+    whose partner is not pending, or a pair that cannot fit at this cap, is passed
+    over. Otherwise the pair RESERVES the dispatch: until two slots of its
+    profile are free and memory holds two copies, nothing after it starts, so a
+    stream of single lanes can never starve it. The one exception is a memory
+    hold with nothing running on a settled reading (``decide_next`` passes over
+    such a pair: nothing would ever free the memory it waits for;
+    ``IDLE_SETTLE_SECONDS``)."""
+    if lane.pair_role != hlib.PAIR_ROLE_A:
+        return None
+    partner = next((l for l in pending if l.pair_group == lane.pair_group
+                    and l.pair_role == hlib.PAIR_ROLE_B), None)
+    if partner is None or cap < 2 or len(by_profile.get(lane.profile, [])) < 2:
+        return None
+    free = [s for s in by_profile.get(lane.profile, []) if s not in busy]
+    if cap - len(running) < 2 or len(free) < 2:
+        return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_PAIR, reason=(
+            "pair %s (%s + %s) waits for two free %s slots (%d running, slots=%d, %d free)"
+            % (lane.pair_group, lane.lane_id, partner.lane_id, lane.profile, len(running),
+               cap, len(free))))
+    holds = memory_holds(memory, len(running), share, new_copies=2)
+    if holds:
+        booting = booting_count(running, now_epoch, boot_window_seconds)
+        return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_MEMORY,
+                                reason="memory guard (pair %s, two copies): %s; %d running, "
+                                       "%d booting" % (lane.pair_group,
+                                                       "; ".join(t for _, t in holds),
+                                                       len(running), booting),
+                                log_key="pair|" + memory_wait_log_key(
+                                    memory, [l for l, _ in holds], len(running), booting))
+    return DispatchDecision(ACTION_START_PAIR, lane_id=lane.lane_id, slot=free[0],
+                            partner_lane_id=partner.lane_id, partner_slot=free[1],
+                            reason="pair %s p50=%.0fs" % (lane.pair_group,
+                                                         max(lane.p50, partner.p50)))
 
 
 # ---------------------------------------------------------------------------
@@ -648,13 +974,16 @@ def resolve_window_mode(requested: str, desktop_ids: Sequence[str],
 
 
 def child_argv(python: str, run_py: str, slot: str, ids_file: str, report_json: str,
-               window: str, desktop_id: Optional[str]) -> List[str]:
-    """One lane's ``run.py`` command line (run from the harness dir)."""
+               window: str, desktop_id: Optional[str],
+               extra: Sequence[str] = ()) -> List[str]:
+    """One lane's ``run.py`` command line (run from the harness dir). ``extra``
+    is appended as given (the campaign runner's ``--stage-from <dir>``)."""
     argv = [python, run_py, "--slot", slot, "--ids-file", ids_file, "--tests-prebuilt",
             "--no-coverage", "--keep-stop-request", "--report-json", report_json,
             "--window", window]
     if window == WINDOW_DESKTOP and desktop_id:
         argv += ["--desktop-id", desktop_id]
+    argv += list(extra)
     return argv
 
 
@@ -728,8 +1057,11 @@ class LaneOutcome:
 
 def format_summary_line(o: LaneOutcome) -> str:
     """``<endedIso> <VERDICT> <id> attempts=N wall=Ns slot=S runIds=a,b``: the
-    first three fields are run.py's summary.txt order, so
-    ``tier_runner.tally_verdicts`` reads this file too."""
+    first three fields are run.py's summary.txt order, so the lines parse with
+    ``tier_runner.tally_verdicts`` (a test pins the format). No production caller
+    tallies this file with it: it counts every line, a lane's earlier lines, guard
+    rewrites and pair-dispatch markers included; ``tally`` reads each lane's
+    latest line."""
     line = "%s %s %s attempts=%d wall=%ds slot=%s runIds=%s" % (
         o.ended_iso, o.verdict, o.lane_id, o.attempts, int(o.wall_seconds), o.slot,
         ",".join(o.run_ids) or "-")
@@ -783,10 +1115,30 @@ def lane_settled(verdict: str, attempts: int) -> bool:
     return not (verdict == hlib.VERDICT_INVALID and attempts < 2)
 
 
-def remaining_lane_ids(plan_ids: Sequence[str], lines: Sequence[str]) -> List[str]:
+def remaining_lane_ids(plan_ids: Sequence[str], lines: Sequence[str],
+                       partners: Optional[Dict[str, str]] = None) -> List[str]:
+    """The plan's lanes a resume flies. ``partners`` (lane -> partner,
+    ``pair_partners``) makes a pair one unit: it re-flies WHOLE when either half
+    is unsettled, unless a half already settled red, which keeps both (a finding
+    is never flown away, and its partner's loss is that finding's consequence)."""
     latest = latest_outcomes(lines)
-    return [sid for sid in plan_ids
-            if sid not in latest or not lane_settled(latest[sid].verdict, latest[sid].attempts)]
+
+    def unsettled(sid: str) -> bool:
+        return sid not in latest or not lane_settled(latest[sid].verdict, latest[sid].attempts)
+
+    def settled_red(sid: str) -> bool:
+        return not unsettled(sid) and latest[sid].verdict in RED_VERDICTS
+
+    partners = partners or {}
+    out = []
+    for sid in plan_ids:
+        mate = partners.get(sid)
+        if mate is None:
+            if unsettled(sid):
+                out.append(sid)
+        elif not (settled_red(sid) or settled_red(mate)) and (unsettled(sid) or unsettled(mate)):
+            out.append(sid)
+    return out
 
 
 def tally(plan_ids: Sequence[str], lines: Sequence[str]) -> Tuple[Dict[str, int], int]:
@@ -798,7 +1150,7 @@ def tally(plan_ids: Sequence[str], lines: Sequence[str]) -> Tuple[Dict[str, int]
         o = latest.get(sid)
         if o is None or not lane_settled(o.verdict, o.attempts):
             pending += 1
-            if o is not None and o.verdict in RED_VERDICTS:
+            if o is not None and o.verdict in RED_VERDICTS and not is_pair_dispatch_marker(o):
                 counts[o.verdict] = counts.get(o.verdict, 0) + 1
             continue
         counts[o.verdict] = counts.get(o.verdict, 0) + 1
@@ -824,7 +1176,8 @@ def selection_outcome(plan_ids: Sequence[str], lines: Sequence[str],
         return OUTCOME_NO_SELECTION, EXIT_USAGE, "nothing selected"
     latest = latest_outcomes(lines)
     counts, pending = tally(plan_ids, lines)
-    red = [sid for sid in plan_ids if sid in latest and latest[sid].verdict in RED_VERDICTS]
+    red = [sid for sid in plan_ids if sid in latest and latest[sid].verdict in RED_VERDICTS
+           and not is_pair_dispatch_marker(latest[sid])]
     detail = "%s pending=%d of %d" % (format_counts(counts), pending, len(plan_ids))
     if red:
         return OUTCOME_RED, EXIT_RED, detail
@@ -944,9 +1297,10 @@ def format_status(plan: Dict[str, Any], slots_value: int, stop: bool,
            % (plan.get("name"), runner_state, slots_value, " STOP REQUESTED" if stop else "",
               plan.get("windowMode") or "?")]
     for ev in sorted(running, key=lambda e: e.get("epoch") or 0):
-        out.append("running slot=%s lane=%s elapsed=%s"
+        out.append("running slot=%s lane=%s elapsed=%s%s"
                    % (ev.get("slot"), ev.get("lane"),
-                      _fmt_secs(now_epoch - float(ev.get("epoch") or now_epoch))))
+                      _fmt_secs(now_epoch - float(ev.get("epoch") or now_epoch)),
+                      (" pair=%s" % ev.get("pair")) if ev.get("pair") else ""))
     out.append("queued=%d running=%d done: %s" % (queued, len(running), format_counts(counts)))
     skipped = plan.get("notFlown") or []
     if skipped:

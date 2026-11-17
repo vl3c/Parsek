@@ -1541,6 +1541,61 @@ class CheckerHelperTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             archview.parse_edge_spec(5)
 
+    def test_parse_edge_spec_rejects_an_unexpanded_list(self):
+        # Never a module named "B | C".
+        for spec in ("A -> B | C", "A | B -> C", "A -> B |"):
+            with self.subTest(spec=spec), self.assertRaises(ValueError):
+                archview.parse_edge_spec(spec)
+
+    def test_expand_keeps_a_plain_spec_unchanged(self):
+        self.assertEqual(archview.expand_edge_specs(["Missions -> Logistics"]), ["Missions -> Logistics"])
+        self.assertEqual(archview.expand_edge_specs(["A->B"]), ["A->B"])
+        self.assertEqual(archview.expand_edge_specs([]), [])
+        self.assertEqual(archview.expand_edge_specs(None), [])
+
+    def test_expand_splits_a_list_in_order(self):
+        self.assertEqual(
+            archview.expand_edge_specs(["Ghost -> GameActions | Missions | Core", "Missions -> Logistics"]),
+            ["Ghost -> GameActions", "Ghost -> Missions", "Ghost -> Core", "Missions -> Logistics"],
+        )
+        # Each element parses to its own edge.
+        self.assertEqual(
+            [archview.parse_edge_spec(spec) for spec in archview.expand_edge_specs(["A -> C | B"])],
+            [("A", "C"), ("A", "B")],
+        )
+
+    def test_expand_ignores_whitespace(self):
+        self.assertEqual(archview.expand_edge_specs(["  A->B|C  |\tD "]), ["A -> B", "A -> C", "A -> D"])
+
+    def test_expand_drops_exact_duplicates(self):
+        self.assertEqual(
+            archview.expand_edge_specs(["A -> B | C | B", "A -> C", "A -> D", "A -> D"]),
+            ["A -> B", "A -> C", "A -> D"],
+        )
+
+    def test_expand_passes_malformed_specs_through(self):
+        malformed = ["A -> B |", "A | B -> C", "A -> B -> C", "A -> | B", " -> B | C", "A -> B || C", None, 5]
+        self.assertEqual(archview.expand_edge_specs(malformed), malformed)
+        for spec in malformed:
+            with self.subTest(spec=spec), self.assertRaises(ValueError):
+                archview.parse_edge_spec(spec)
+
+    def test_expand_is_idempotent(self):
+        once = archview.expand_edge_specs(["A -> B | C", "A -> B |", "D -> E"])
+        self.assertEqual(archview.expand_edge_specs(once), once)
+
+    def test_load_rules_expands_a_forbidden_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "modules.toml"
+            path.write_text(
+                '[forbidden]\nedges = ["Ghost -> GameActions | Missions", "Missions -> Logistics"]\n'
+                '[allowed]\nedges = ["A -> B"]\n',
+                encoding="utf-8",
+            )
+            _rules, _tooling, forbidden, allowed = archview.load_rules(path)
+        self.assertEqual(forbidden, ["Ghost -> GameActions", "Ghost -> Missions", "Missions -> Logistics"])
+        self.assertEqual(allowed, ["A -> B"])
+
 
 class InterpolatedStringTests(unittest.TestCase):
     def test_nested_string_literal_in_hole_does_not_leak(self):
@@ -4118,7 +4173,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # sinks (FlightRecorder's and BackgroundRecorder's), each reaching its owner and
         # reached from it: 438. The dead-method removal (item 25) deleted
         # RouteOriginCargoCheck.RequiresInventoryDebit, the type's only reference into the
-        # knot, so RouteOriginCargoCheck leaves it: 437.
+        # knot, so RouteOriginCargoCheck leaves it: 437. R1-02's shared scenario-node lookup
+        # (LogIO's ScenarioNodeLookup.ParsekScenarioName in place of nameof(ParsekScenario))
+        # removes the only knot reference of LedgerHeldWindow and PlaybackScopeTracker: 435.
+        # Multiplayer P2a-05 adds the playback catalog port and its own-timeline class:
+        # RecordingPlaybackCatalog reads RecordingStore and PendingTreeSlot, IPlaybackCatalog
+        # names Recording and RecordingTree, and the recorded-anchor pose resolver (a knot
+        # member) calls both: 437.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
@@ -4135,7 +4196,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # VesselSnapshotOps.cs joined them in the 2026-09-14 VesselSpawner
         # split, which named it in the Core rule; file-placement PR 9 moved
         # VesselSpawner.cs itself to Controllers, so the kernel is 8 files.
-        self.assertEqual(self.by_name["Core"]["files"], 8)
+        # SafeFileId.cs (the id check under every sidecar path) made it 9.
+        self.assertEqual(self.by_name["Core"]["files"], 9)
 
     def test_kernel_files_resolve_to_core(self):
         kernel = [
@@ -4147,6 +4209,7 @@ class RealTreeSmokeTests(unittest.TestCase):
             "Core/GroupHierarchyStore.cs",
             "Core/InventoryManifest.cs",
             "Core/PlaybackTrajectoryBoundsResolver.cs",
+            "Core/SafeFileId.cs",
         ]
         for name in kernel:
             self.assertEqual(self.model["fileModules"][name], "Core")
@@ -4299,7 +4362,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (438 -> 406, 406 -> 384, 384 -> 365). Item 25's RouteOriginCargoCheck (out of the
         # knot, see above) sat on the uncut side until the route cut, so the first two land one
         # lower and the route cut starts one lower and lands where it did (437 -> 405,
-        # 405 -> 383, 383 -> 365).
+        # 405 -> 383, 383 -> 365). R1-02's two types leaving the knot (see above) sat on the
+        # uncut side of all three cuts, so each lands two lower (435 -> 403, 403 -> 381,
+        # 381 -> 363).
+        # P2a-05's two catalog types (see the knot sizes above) stay on the uncut side through
+        # the first three cuts, so each lands two higher again (437 -> 405, 405 -> 383,
+        # 383 -> 365).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
         self.assertEqual(first["sizeBefore"], 437)
@@ -4332,7 +4400,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (436 -> 419). Wave 2 W1a made launch identity a sink (installed rules), so it is
         # no longer a cut; the third cut was the scenario module (419 -> 404 then, 410 -> 395
         # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b;
-        # 383 -> 364 after W6's window set; 383 -> 365 after item 25).
+        # 383 -> 364 after W6's window set; 383 -> 365 after item 25; 381 -> 363 after R1-02;
+        # 383 -> 365 after multiplayer P2a-05's catalog types).
         self.assertEqual(third["sink"], "Route")
         self.assertEqual(third["sizeBefore"], 383)
         self.assertEqual(third["sizeAfter"], 365)

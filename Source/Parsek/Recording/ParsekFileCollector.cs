@@ -264,18 +264,7 @@ namespace Parsek
                 string parsekDir = Path.GetDirectoryName(Path.GetFullPath(recordingsOverride));
                 return string.IsNullOrEmpty(parsekDir) ? null : Path.GetDirectoryName(parsekDir);
             }
-            try
-            {
-                string root = KSPUtil.ApplicationRootPath ?? "";
-                string folder = HighLogic.SaveFolder ?? "";
-                if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(folder))
-                    return null;
-                return Path.GetFullPath(Path.Combine(root, "saves", folder));
-            }
-            catch
-            {
-                return null;
-            }
+            return RecordingPaths.ResolveSaveRoot();
         }
 
         // ---------------------------------------------------------------- referrers

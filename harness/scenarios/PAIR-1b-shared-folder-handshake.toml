@@ -1,0 +1,75 @@
+schema = 1
+id = "PAIR-1b-shared-folder-handshake"
+tier = "operator"
+# THE FIRST PAIRED LANE (multiplayer T-54, "Paired lanes in the parallel runner").
+# Authored 2026-11-17, NEVER FLOWN. PAIR-1a and PAIR-1b are the two halves of group
+# "PAIR-1": the parallel runner starts them together on two copies of stock-minimal
+# (`tools/parallel_runner.py run --name <run> --ids PAIR-1a-shared-folder-handshake
+# --slots 2`; selecting either half brings in the other), wipes the pair's shared
+# folder `<umbrella>/automation/rs/<run>/PAIR-1/` first, and hands both children that
+# folder (`--pair-shared`) and the barrier folder `results/parallel/<run>/pairs/PAIR-1/`
+# (`--pair-dir`).
+#
+# WHAT IT PROVES, with no Parsek feature involved: both halves see ONE folder and meet
+# at both barriers. A copies the committed `fixtures/race/pair-handshake` token into the
+# shared folder; at barrier `placed` the two meet; B then appends to the token, which
+# refuses `INVALID(harness-step)` unless A's copy is in B's folder; at barrier `edited`
+# they meet again and quit. A partner that crashes, fails or never reaches a barrier
+# gives the survivor `INVALID(partner-lost)`, never PASS.
+#
+# Fast-lane checklist: one LoadGame, no idle waits, no flight; the barrier timeouts
+# (240 s) cover the boot skew of two copies started back to back and stay under the
+# 900 s budget. `[retry] policy = "none"` is required of a paired lane (a retry would
+# fly one half alone). The recordings window is pinned at zero (nothing flies). Tier
+# `operator` because it needs two install copies (`provision.py --profile
+# stock-minimal --copy 2`), which no scheduled tier assumes; after its first green
+# pair, `python tools/flight_efficiency.py --scenario <id>` is owed.
+instanceProfile = "stock-minimal"
+description = "Paired lane, role B of PAIR-1: after its partner placed the handshake token, edits that token in the shared folder (refused unless the folder really is shared), then meets its partner again; proves the parallel runner's paired-lane wiring."
+tags = ["pair", "PAIR-1", "scene-ksc"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[fixture.race]
+sharedFolder = "pair"
+
+[pair]
+group = "PAIR-1"
+role = "B"
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { harness = "barrier", args = { name = "placed", timeout = 240 } },
+  { harness = "raceFolder", args = { op = "edit", path = "handshake/token.cfg" } },
+  { harness = "barrier", args = { name = "edited", timeout = 240 } },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = []
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

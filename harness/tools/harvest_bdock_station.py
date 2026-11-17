@@ -70,6 +70,28 @@ Usage:
     python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
         --run-save bdock-forge-base --target-name eva2-lko-crewed \
         --expect-situation ORBITING
+    # a RACE lane (multiplayer T-59): the save AND the race shared folder the run
+    # snapshotted, the folder into harness/fixtures/race/<race-name>/:
+    python harness/tools/harvest_bdock_station.py \
+        --save-dir harness/results/<runId>_save --target-name <save-fixture> \
+        --keep-parsek --race-folder harness/results/<runId>_race --race-name <n>
+
+THE RACE HARVEST (`--race-folder` + `--race-name`, multiplayer plan T-59). A race
+lane leaves two things: the produced save and the race shared folder run.py copied
+to `results/<runId>_race/` (with its listing `results/<runId>_race.listing.txt`).
+The flag copies that folder to `harness/fixtures/race/<race-name>/`, the folder a
+later lane stages with `[fixture.race] sharedFolder = "fixtures/race/<race-name>"`;
+a flown player folder is design 15.10's recorded opponent. Before anything is
+written it refuses a folder that is not a `*_race` folder inside `harness/results/`
+(symlinks resolved, `..` refused, an absolute path elsewhere refused, no link
+inside the folder) and a name `[fixture.race]` could not stage, and it checks the
+folder against its listing and against the shared-folder grammar `raceparse`
+reads (`race_folder_problems`; the chain facets wait for T-21, see
+`race_chain_facets`). The save half is the ordinary harvest above, with one prune
+added for every race save: the rebuildable rival cache `Parsek/Race/rivals/`
+(design 4.4: a cache, never part of the save) is never copied, so no rival
+`.prec.txt` lands where `OptimizerTransferCohesionTests` globs `fixtures/saves/`.
+The rest of `Parsek/Race/` (`local.cfg`, `race.cfg`, `own/`) is kept.
 
 Stdlib only; ASCII only; no em dashes.
 """
@@ -82,10 +104,30 @@ import os
 import re
 import shutil
 import sys
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _HARNESS_ROOT = os.path.dirname(_HERE)                       # harness/
+_HARNESS_LIB = os.path.join(_HARNESS_ROOT, "lib")
+if _HARNESS_LIB not in sys.path:
+    sys.path.insert(0, _HARNESS_LIB)
+
+import hlib  # noqa: E402
+import raceparse  # noqa: E402
+
 _FIXTURES_SAVES = os.path.join(_HARNESS_ROOT, "fixtures", "saves")
+# The race harvest: where a run's race folder snapshot may come from, and where the
+# committed race shared-folder fixtures live (`run.RACE_FIXTURES_DIR`).
+_RESULTS_DIR = os.path.join(_HARNESS_ROOT, "results")
+_FIXTURES_RACE = os.path.join(_HARNESS_ROOT, "fixtures", "race")
+# The rebuildable rival cache inside a race save, `<save>/Parsek/Race/rivals/`
+# (design 4.1 / 4.4). Matched at exactly this place under the save root, so a
+# directory of the same name anywhere else in the save is kept.
+_RIVAL_CACHE_PARTS = ("Parsek", "Race", "rivals")
+# The top level of a race shared folder (design 4.1): the race file and players/.
+_RACE_FOLDER_RACE_FILE = "race.cfg"
+_RACE_FOLDER_PLAYER_FILE = "player.cfg"
+_RACE_FOLDER_STANDINGS_DIR = "standings"
 # The shared craft library. A produced save's Ships/VAB carries whatever craft the
 # forge launched, which is usually a craft the library ALREADY holds -- harvesting
 # it verbatim is how the fixture tree accumulated 27 duplicate copies in the first
@@ -239,6 +281,60 @@ def scrub_env_launch_args(text: str):
             continue
         out.append(line)
     return "\n".join(out), scrubbed
+
+
+# A race save keeps `Parsek/Race/local.cfg` beside it (design 6.1 `RaceLocal`), and
+# its `sharedFolderPath` is the absolute path of the shared folder on the machine
+# that flew the lane - the operator's install path, and this repository is public.
+# Every --keep-parsek harvest resets it to the harness's own shared-folder token, the
+# same treatment as the envInfo launch arguments above. The game reads a folder it
+# cannot use as "ask for the folder again" (design 15.7), and a staging overlay can
+# substitute the token with the staged folder.
+RACE_LOCAL_PARTS = ("Parsek", "Race", "local.cfg")
+RACE_FOLDER_PATH_KEY = "sharedFolderPath"
+RACE_FOLDER_PATH_PLACEHOLDER = hlib.RACE_SHARED_TOKEN
+_RACE_FOLDER_PATH_RE = re.compile(r"^(\s*%s\s*=\s*)(.*?)\s*$" % RACE_FOLDER_PATH_KEY)
+_ABSOLUTE_PATH_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/]|~)")
+_CFG_VALUE_RE = re.compile(r"^\s*([^=]+?)\s*=\s*(.*?)\s*$")
+
+
+def looks_like_absolute_path(value: str) -> bool:
+    """True for a drive-letter, rooted (slash or backslash, UNC included) or
+    home-relative (`~`) path: a value that names a place on one machine."""
+    return bool(_ABSOLUTE_PATH_RE.match((value or "").strip()))
+
+
+def blank_race_folder_path(text: str):
+    """Reset every `sharedFolderPath = <value>` line to the placeholder; returns
+    (text, blanked). Only that key's value changes: every other byte, the line
+    endings included, stays."""
+    out, blanked = [], 0
+    for line in text.split("\n"):
+        body, cr = (line[:-1], "\r") if line.endswith("\r") else (line, "")
+        m = _RACE_FOLDER_PATH_RE.match(body)
+        if m and m.group(2) != RACE_FOLDER_PATH_PLACEHOLDER:
+            out.append(m.group(1) + RACE_FOLDER_PATH_PLACEHOLDER + cr)
+            blanked += 1
+            continue
+        out.append(line)
+    return "\n".join(out), blanked
+
+
+def race_local_absolute_paths(text: str):
+    """`key = value` lines of a local.cfg whose value still looks like an absolute
+    path (after `blank_race_folder_path`): a machine path under a key the harvest
+    does not know. The caller refuses to commit those rather than guess."""
+    found = []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        m = _CFG_VALUE_RE.match(line.rstrip("\r"))
+        if m and looks_like_absolute_path(m.group(2)):
+            found.append("%d: %s" % (lineno, line.strip()))
+    return found
+
+
+def _read_latin1(path: str) -> str:
+    with open(path, "rb") as fh:
+        return fh.read().decode("latin-1")
 
 
 def rewind_point_quicksaves(save_dir: str):
@@ -450,7 +546,16 @@ def check_game_mode(sfs_text: str, expected_mode: str):
 
 def harvest(save_dir: str, target_name: str, title: str, force: bool,
             expected_situations=(), keep_parsek: bool = False,
-            allow_no_vessel: bool = False, expected_mode: str = "") -> int:
+            allow_no_vessel: bool = False, expected_mode: str = "",
+            target_root: str = "", race_folder: str = "", race_name: str = "") -> int:
+    """``target_root`` (default ``harness/fixtures/saves``) is where the
+    ``<target_name>`` directory is written; ``tools/campaign_runner.py`` passes
+    a stage folder under ``results/campaign/`` so a chained stage stages exactly
+    what a promoted fixture would hold. ``race_folder`` + ``race_name`` (both or
+    neither) also harvest a run's race shared-folder snapshot into
+    ``harness/fixtures/race/<race_name>/`` (see the module docstring)."""
+    if bool(race_folder) != bool(race_name):
+        raise SystemExit("harvest: --race-folder and --race-name go together")
     if not os.path.isdir(save_dir):
         raise SystemExit("harvest: produced save dir not found: %s" % save_dir)
     src_sfs = os.path.join(save_dir, "persistent.sfs")
@@ -538,7 +643,26 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
             raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
         log("warning: " + msg + " (writing anyway, --force)")
 
-    target = os.path.join(_FIXTURES_SAVES, target_name)
+    # Sanity 4b (--keep-parsek, race saves only), BEFORE the destructive write:
+    # after the folder path is blanked, no value in Parsek/Race/local.cfg may still
+    # name a place on the machine that flew the lane.
+    src_local = os.path.join(save_dir, *RACE_LOCAL_PARTS)
+    if keep_parsek and os.path.isfile(src_local):
+        left = race_local_absolute_paths(blank_race_folder_path(_read_latin1(src_local))[0])
+        if left:
+            msg = ("%s still names a machine path after %s is blanked: %s"
+                   % ("/".join(RACE_LOCAL_PARTS), RACE_FOLDER_PATH_KEY, "; ".join(left)))
+            if not force:
+                raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
+            log("warning: " + msg + " (writing anyway, --force)")
+
+    # Sanity 5 (--race-folder only), BEFORE the destructive write: the race
+    # folder must be a run's snapshot, read whole, and match its listing.
+    race_check = None
+    if race_folder:
+        race_check = check_race_folder(race_folder, race_name, force)
+
+    target = os.path.join(target_root or _FIXTURES_SAVES, target_name)
     if os.path.isdir(target):
         # The refusal belongs AT the destructive site: a default-mode
         # (Parsek-clean) harvest aimed at an existing RECORDED-state fixture
@@ -588,7 +712,12 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
     # 3) kept directories (Ships/VAB craft + AddOns; plus the save's Parsek/
     # recording sidecars in --keep-parsek mode), pruning per the mode.
     keep_dirs = _KEEP_DIRS + (("Parsek",) if keep_parsek else ())
-    ignore = _ignore_pruned_keep_parsek if keep_parsek else _ignore_pruned
+    ignore = _keep_parsek_ignore(save_dir) if keep_parsek else _ignore_pruned
+    if keep_parsek:
+        rival_files = count_rival_cache_files(save_dir)
+        if rival_files is not None:
+            log("pruned the rebuildable rival cache %s (%d file(s); design 4.4)"
+                % ("/".join(_RIVAL_CACHE_PARTS), rival_files))
     for dname in keep_dirs:
         src = os.path.join(save_dir, dname)
         if os.path.isdir(src):
@@ -599,6 +728,18 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
     # save still names (see _PRUNE_RECORDINGS_SUBDIRS).
     if keep_parsek:
         _restore_named_versions(save_dir, target, normalized)
+
+    # 3c) --keep-parsek, race saves only: the shared-folder path in local.cfg is
+    # the flying machine's path; reset it (see RACE_FOLDER_PATH_KEY).
+    local_cfg = os.path.join(target, *RACE_LOCAL_PARTS)
+    if keep_parsek and os.path.isfile(local_cfg):
+        new_text, blanked = blank_race_folder_path(_read_latin1(local_cfg))
+        if blanked:
+            with open(local_cfg, "wb") as fh:
+                fh.write(new_text.encode("latin-1"))
+            log("reset %s in %s to %s (%d line(s); the flying machine's folder path)"
+                % (RACE_FOLDER_PATH_KEY, "/".join(RACE_LOCAL_PARTS),
+                   RACE_FOLDER_PATH_PLACEHOLDER, blanked))
 
     # 4) belt-and-braces prune of any Parsek/backup dir that slipped in (e.g. at
     # the save root, not under a kept dir). In --keep-parsek mode only the
@@ -651,6 +792,8 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
             "(harmless for a fixture whose scenario never launches anything)")
 
     log("harvested -> %s" % target)
+    if race_check is not None:
+        write_race_folder(race_check)
     return 0
 
 
@@ -761,6 +904,274 @@ def _ignore_pruned_keep_parsek(directory, names):
     return pruned
 
 
+def _keep_parsek_ignore(save_dir: str):
+    """The --keep-parsek copytree filter for one save: `_ignore_pruned_keep_parsek`
+    plus the rival cache `<save_dir>/Parsek/Race/rivals` (design 4.4: rebuilt at the
+    next sync, never part of the save). Matched on the full path under the save
+    root, so only that one directory goes: `Parsek/Race/local.cfg`, `race.cfg`,
+    `own/` and a `rivals` directory anywhere else are copied."""
+    race_dir = os.path.normcase(os.path.abspath(
+        os.path.join(save_dir, *_RIVAL_CACHE_PARTS[:-1])))
+    cache = _RIVAL_CACHE_PARTS[-1]
+
+    def ignore(directory, names):
+        pruned = set(_ignore_pruned_keep_parsek(directory, names))
+        if cache in names and os.path.normcase(os.path.abspath(directory)) == race_dir:
+            pruned.add(cache)
+        return pruned
+    return ignore
+
+
+def count_rival_cache_files(save_dir: str) -> Optional[int]:
+    """Files under ``<save_dir>/Parsek/Race/rivals``, or None when there is no
+    rival cache (every single-player save)."""
+    root = os.path.join(save_dir, *_RIVAL_CACHE_PARTS)
+    if not os.path.isdir(root):
+        return None
+    return sum(len(files) for _d, _s, files in os.walk(root))
+
+
+# ---------------------------------------------------------------------------
+# The race harvest (--race-folder / --race-name, multiplayer T-59).
+# ---------------------------------------------------------------------------
+
+
+class RaceFolderCheck(NamedTuple):
+    """What `check_race_folder` decided: the copy `write_race_folder` makes."""
+
+    source: str                          # real path of the run's race snapshot
+    name: str                            # the fixture folder name
+    rows: Dict[str, Tuple[int, str]]     # copied files: path -> (bytes, sha256)
+    skipped: Tuple[str, ...]             # safe-write leftovers, not copied
+    summary: str
+
+
+def _strictly_inside(path: str, parent: str) -> bool:
+    """True when the (already resolved) ``path`` is below ``parent`` and not it."""
+    a = os.path.normcase(os.path.abspath(path))
+    b = os.path.normcase(os.path.abspath(parent))
+    try:
+        return a != b and os.path.commonpath([a, b]) == b
+    except ValueError:  # different drives on Windows
+        return False
+
+
+def race_name_problem(name: str) -> str:
+    """Empty when ``name`` is a folder `[fixture.race] sharedFolder =
+    "fixtures/race/<name>"` can stage (`hlib.is_race_fixture_path`), else why not."""
+    if hlib.is_race_fixture_path(hlib.RACE_FIXTURE_PREFIX + (name or "")):
+        return ""
+    return ("--race-name %r is not a plain folder name (letters, digits, '-', '_'; "
+            "no dots or separators), so [fixture.race] could not stage it" % name)
+
+
+def race_folder_path_problem(raw: str, results_dir: str) -> str:
+    """Empty when ``raw`` names a run's race snapshot inside ``results_dir``, else why
+    not. A ``..`` component is refused however it resolves; the path (absolute,
+    or relative to the working directory) is resolved through every symlink and
+    must land strictly inside the resolved ``results_dir`` on a ``*_race`` folder."""
+    if not raw:
+        return "no race folder given"
+    if ".." in re.split(r"[\\/]+", raw):
+        return "%r contains a '..' component" % raw
+    real = os.path.realpath(os.path.abspath(raw))
+    root = os.path.realpath(results_dir)
+    if not _strictly_inside(real, root):
+        return "%r resolves to %s, which is not inside %s" % (raw, real, root)
+    leaf = os.path.basename(real)
+    suffix = hlib.RACE_SNAPSHOT_DIR_SUFFIX
+    if not leaf.endswith(suffix) or leaf == suffix:
+        return "%s is not a run's race snapshot (results/<runId>%s)" % (real, suffix)
+    if not os.path.isdir(real):
+        return "%s is not a directory" % real
+    return ""
+
+
+def race_folder_links(root: str) -> List[str]:
+    """Every symlink (file or directory) under ``root``, relative. A run's snapshot
+    holds none (run.py copies the files themselves), and a copy through one could
+    carry content from outside results/ into the fixture."""
+    links = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in sorted(dirnames + filenames):
+            full = os.path.join(dirpath, name)
+            if os.path.islink(full):
+                links.append(os.path.relpath(full, root).replace(os.sep, "/"))
+    return sorted(links)
+
+
+def parse_race_listing(text: str) -> Tuple[Dict[str, Tuple[int, str]], List[str]]:
+    """``(rows, problems)`` of a ``results/<runId>_race.listing.txt``
+    (`hlib.format_race_listing`): ``path -> (bytes, sha256)``. The first line must
+    be `hlib.RACE_LISTING_HEADER`; other ``#`` lines are comments."""
+    rows: Dict[str, Tuple[int, str]] = {}
+    problems: List[str] = []
+    lines = (text or "").splitlines()
+    if not lines or lines[0].strip() != hlib.RACE_LISTING_HEADER:
+        problems.append("listing does not start with %r" % hlib.RACE_LISTING_HEADER)
+    for n, line in enumerate(lines[1:], 2):
+        if not line.strip() or line.startswith("#"):
+            continue
+        parts = line.split(" ", 2)
+        if len(parts) != 3 or not parts[1].isdigit() or not parts[2]:
+            problems.append("listing line %d is not '<sha256> <bytes> <path>': %r" % (n, line))
+            continue
+        rows[parts[2]] = (int(parts[1]), parts[0])
+    return rows, problems
+
+
+def race_listing_problems(listed: Dict[str, Tuple[int, str]],
+                          actual: Dict[str, Tuple[int, str]]) -> List[str]:
+    """Every difference between the run's listing and the folder on disk: a file
+    the listing names that is gone, one it does not name, one whose size or
+    sha256 changed since the run copied it."""
+    problems = []
+    for path in sorted(set(listed) | set(actual)):
+        if path not in actual:
+            problems.append("%s: in the listing, not in the folder" % path)
+        elif path not in listed:
+            problems.append("%s: in the folder, not in the listing" % path)
+        elif listed[path] != actual[path]:
+            problems.append("%s: changed since the run (listing %d bytes %s, folder %d "
+                            "bytes %s)" % (path, listed[path][0], listed[path][1][:12],
+                                           actual[path][0], actual[path][1][:12]))
+    return problems
+
+
+def race_chain_facets(listing: Sequence[str]) -> Tuple[str, str]:
+    """``(status, detail)`` of the per-player standing chain of a race folder.
+
+    The plug point for T-21's structure facets (chain intact, latest complete seq,
+    seq gaps, payload completeness): `raceparse` reads the folder grammar today but
+    no standing, so this answers "unchecked" and the harvest logs it. When T-21
+    lands, this calls its facets over the folder and a broken chain becomes a
+    problem `check_race_folder` refuses."""
+    return ("unchecked", "raceparse has no chain facets yet (multiplayer T-21); "
+                         "%d file(s) not chain-checked" % len(listing))
+
+
+def race_folder_problems(listing: Sequence[str]) -> Tuple[List[str], Tuple[str, ...], str]:
+    """``(problems, skipped, summary)`` of a race folder's file listing against the
+    shared-folder grammar of design 4.1, as `raceparse.collect_rival_ids` reads it
+    (every player counted, none is "own" in a harvest). A problem: a file that is
+    neither ``race.cfg`` nor under ``players/<id>/``, a path under a player that
+    fits no part of the grammar, a player with no ``player.cfg``, no player at
+    all. ``skipped`` are the safe-write leftovers the grammar ignores (not copied).
+    Standing counts and ``race.cfg`` presence are reported, not required: a lane
+    may harvest a folder before any export."""
+    ids = raceparse.collect_rival_ids(listing, None)
+    problems: List[str] = []
+    has_race_file = False
+    standings: Dict[str, int] = {}
+    players_dir = raceparse.PLAYERS_DIR
+    for path in listing:
+        parts = path.split("/")
+        if parts == [_RACE_FOLDER_RACE_FILE]:
+            has_race_file = True
+        elif len(parts) < 3 or parts[0] != players_dir:
+            problems.append("%s: not part of the shared-folder layout (%s, %s/<id>/...)"
+                            % (path, _RACE_FOLDER_RACE_FILE, players_dir))
+        elif len(parts) == 4 and parts[2] == _RACE_FOLDER_STANDINGS_DIR \
+                and path not in ids.ignored:
+            standings[parts[1]] = standings.get(parts[1], 0) + 1
+    problems.extend("%s: fits no part of the player folder grammar" % p
+                    for p in ids.unrecognised)
+    if not ids.player_ids:
+        problems.append("no player folder (%s/<id>/) in the race folder" % players_dir)
+    listed = set(listing)
+    for player in ids.player_ids:
+        cfg = "%s/%s/%s" % (players_dir, player, _RACE_FOLDER_PLAYER_FILE)
+        if cfg not in listed:
+            problems.append("%s: missing (a player folder without its identity file)" % cfg)
+    summary = ("players=%d recordings=%d trees=%d standings=%s %s=%s skipped=%d"
+               % (len(ids.player_ids), len(ids.recording_ids), len(ids.tree_ids),
+                  ",".join("%s:%d" % (p, standings.get(p, 0)) for p in ids.player_ids)
+                  or "-", _RACE_FOLDER_RACE_FILE, "yes" if has_race_file else "no",
+                  len(ids.ignored)))
+    return problems, tuple(ids.ignored), summary
+
+
+def _race_rows(root: str, rels: Sequence[str]) -> Dict[str, Tuple[int, str]]:
+    rows = {}
+    for rel in rels:
+        full = os.path.join(root, *rel.split("/"))
+        rows[rel] = (os.path.getsize(full), _digest(full))
+    return rows
+
+
+def check_race_folder(folder: str, name: str, force: bool) -> RaceFolderCheck:
+    """The --race-folder gate, run BEFORE anything is written. The name, the
+    path containment, a link inside the folder and a folder that cannot be listed
+    whole are refused even with --force; a listing mismatch or a grammar problem
+    is refused unless --force (diagnostics only, like every gate of this tool)."""
+    problem = race_name_problem(name) or race_folder_path_problem(folder, _RESULTS_DIR)
+    if problem:
+        raise SystemExit("harvest: race folder refused: " + problem)
+    real = os.path.realpath(os.path.abspath(folder))
+    links = race_folder_links(real)
+    if links:
+        raise SystemExit("harvest: race folder refused: %s holds link(s): %s"
+                         % (real, ", ".join(links)))
+    listing, walk_problems = raceparse.walk_folder(real)
+    if walk_problems:
+        raise SystemExit("harvest: race folder refused: cannot be read whole: %s"
+                         % "; ".join(walk_problems))
+    actual = _race_rows(real, listing)
+    problems: List[str] = []
+    suffix = hlib.RACE_SNAPSHOT_DIR_SUFFIX
+    listing_path = real[:-len(suffix)] + hlib.RACE_LISTING_SUFFIX
+    if os.path.isfile(listing_path):
+        with open(listing_path, "r", encoding="utf-8", errors="replace") as fh:
+            listed, parse_problems = parse_race_listing(fh.read())
+        problems.extend(parse_problems)
+        problems.extend(race_listing_problems(listed, actual))
+    else:
+        problems.append("no listing %s beside the folder (run.py writes one with every "
+                        "race snapshot)" % listing_path)
+    grammar, skipped, summary = race_folder_problems(listing)
+    problems.extend(grammar)
+    chain_status, chain_detail = race_chain_facets(listing)
+    log("race folder %s: files=%d %s" % (real, len(actual), summary))
+    log("race folder chain: %s (%s)" % (chain_status, chain_detail))
+    for rel in skipped:
+        log("race folder: skipping safe-write leftover %s" % rel)
+    if problems:
+        msg = "race folder check failed: %s" % "; ".join(problems)
+        if not force:
+            raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
+        log("warning: " + msg + " (writing anyway, --force)")
+    skip = set(skipped)
+    rows = {rel: actual[rel] for rel in actual if rel not in skip}
+    return RaceFolderCheck(source=real, name=name, rows=rows, skipped=skipped,
+                           summary=summary)
+
+
+def write_race_folder(check: RaceFolderCheck) -> str:
+    """Write ``harness/fixtures/race/<name>/``: exactly the checked files, byte for
+    byte, replacing an earlier harvest of the same name. Returns the target."""
+    root = _FIXTURES_RACE
+    target = os.path.join(root, check.name)
+    if os.path.lexists(target):
+        if os.path.islink(target) or not _strictly_inside(os.path.realpath(target),
+                                                          os.path.realpath(root)):
+            raise SystemExit("harvest: race fixture %s is a link or resolves outside %s; "
+                             "not replacing it" % (target, root))
+        log("removing existing race fixture %s" % target)
+        shutil.rmtree(target)
+    os.makedirs(target)
+    for rel in sorted(check.rows):
+        dst = os.path.join(target, *rel.split("/"))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(os.path.join(check.source, *rel.split("/")), dst)
+    written, _problems = raceparse.walk_folder(target)
+    if _race_rows(target, written) != check.rows:
+        raise SystemExit("harvest: the race fixture %s differs from the checked folder "
+                         "after the copy" % target)
+    log("race folder harvested -> %s (%d file(s), %s)"
+        % (target, len(check.rows), check.summary))
+    return target
+
+
 def _prune_state(root: str, keep_parsek: bool = False):
     pruned = []
     for dirpath, dirnames, _files in os.walk(root):
@@ -816,6 +1227,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--expect-mode", default=None,
                    help="the GAME Mode the produced save must carry "
                         "(SANDBOX / SCIENCE_SANDBOX / CAREER). Omitted = gate off")
+    p.add_argument("--race-folder", default=None,
+                   help="a race lane's shared-folder snapshot, "
+                        "harness/results/<runId>_race (refused anywhere else); "
+                        "copied to harness/fixtures/race/<race-name>. Needs "
+                        "--race-name")
+    p.add_argument("--race-name", default=None,
+                   help="the race fixture folder name under harness/fixtures/race "
+                        "(letters, digits, '-', '_'), the name a spec stages with "
+                        "[fixture.race] sharedFolder = \"fixtures/race/<name>\"")
     p.add_argument("--force", action="store_true",
                    help="write the fixture even if the produced save is not "
                         "focusable or fails the situation gate (diagnostics only)")
@@ -830,7 +1250,9 @@ def main(argv=None) -> int:
                    parse_expected_situations(args.expect_situation),
                    keep_parsek=args.keep_parsek,
                    allow_no_vessel=args.allow_no_vessel,
-                   expected_mode=args.expect_mode or "")
+                   expected_mode=args.expect_mode or "",
+                   race_folder=args.race_folder or "",
+                   race_name=args.race_name or "")
 
 
 if __name__ == "__main__":
