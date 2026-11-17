@@ -2358,8 +2358,8 @@ in parallel in the cloud):
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the
    end spawn through `LeafVesselPlacement`); it needs a new Space Center category that samples each
    live KSC ghost's world position against the recording's interpolated lat / lon / alt.
-3a. [ ] (AUTHORED 2026-11-16 as `RVC-1-two-rover-head-on-crash`; branch `crash-lanes`. Flown once
-   2026-11-17, red on the spec, re-shaped.)
+3a. [ ] (AUTHORED 2026-11-16 as `RVC-1-two-rover-head-on-crash`; branch `crash-lanes`. Flown three
+   times 2026-11-17, never green, re-shaped twice; re-flight owed.)
    Two rovers driving into each other (owner request 2026-11-16): two recorded rovers collide
    on the ground; checks both recordings end at the impact (Destroyed or a stopped Landed terminal)
    and both ghosts replay the collision at the same place and time.
@@ -2367,14 +2367,17 @@ in parallel in the cloud):
    add it, so the second rover joins by a dock and an undock (MINE-5b's live-proven pair on the new
    fixture `rover-crash-watched`: V's miner, the ore depot rover 1.5 m ahead, a watcher rover 120 m
    north). The depot is then a loaded background member; the miner backs away 10 s at full reverse
-   and drives head-on into it in the new `DriveVessel untilCrash=true` mode (automation-only C#:
-   drive until the first stock part death on any vessel, then cut the wheels). Gated: both
-   recorders' part-death lines, the split check, both leaves' Landed / Destroyed terminals, the
+   and drives head-on into it at full throttle for 20 s (as authored, in the new `DriveVessel
+   untilCrash=true` mode, automation-only C#: drive until the first stock part death on any
+   vessel; dropped after flights 2 and 3, below), then one radiator on each rover is destroyed
+   by `PartAction button=explode`. Gated: the impact reaching the depot (its background
+   SurfaceMobile transition), both recorders' part-death lines, both leaves' Landed / Destroyed
+   terminals, the
    Space Center commit, and after Rewind-to-Launch, from the watcher, both ghost meshes and the
    destroyed-part visibility applied on two ghosts. Report-only: ghost lifecycle balance, structure.
    Not checked: that the two ghosts meet at the same place (no in-game check samples two live
-   ghosts' positions). Flight risks: a lateral miss or too soft an impact (driver INVALID
-   `drivevessel-did-not-crash`), part loss on one side only.
+   ghosts' positions). Flight risks: a lateral miss (the impact token reds), the impact or a
+   slide after it breaking an exploded radiator (that explode answers ERROR, driver INVALID).
    Flight 1 (2026-11-17, `2026-11-17_1411`, DLL from main 65ac33ee8): PARSEK-FAIL(expectation),
    red only on the background part death and the two-distinct-recordings replay token, both a
    spec mistake, not a defect: the miner hit the depot at about 15 m/s and pushed it about 70 m
@@ -2385,7 +2388,23 @@ in parallel in the cloud):
    committed Landed with no part lost, so its recorder had nothing to record. Re-shaped: after the
    crash the lane explodes one depot radiator (`PartAction button=explode`, pid 2576286852) for a
    deterministic background part death, and gates that the impact reached the depot (its
-   background SurfaceMobile transition before the explode). Next: fly it again (harness only).
+   background SurfaceMobile transition before the explode).
+   Flights 2 and 3 (2026-11-17, `2026-11-17_1531` and `_1534_a2`, runner run `refly-2026-11-17`,
+   the same DLL): driver INVALID both, steps 0001-0020 OK, then the crash drive answered ERROR
+   `drivevessel-did-not-crash` after 30 s (`maxSrfSpeed=20.02 pathMeters=365.4
+   displacementMeters=365.1 ownPartsLost=0 otherPartsLost=0`; `_a2` 20.01 / 367.8 / 357.9). Not a
+   miss: all three flights retraced one line to the metre (reverse 88.8-88.9 m in 10.02 s, settle
+   7.70-7.72 s, depot `dist=` 147-148 m at the crash start, 107-109 m at UT ~120.3, 30-34 m at
+   ~125.4), and on all three the miner hit and pushed the depot (`Environment transition:
+   pid=<bgChild> -> SurfaceMobile at UT=130.14` / `130.06` / `130.12`, contact ~127.1). Flights 2
+   and 3 slid past it after ~8 s and drove on unbroken, with no `Exploded!!` line at all; flight
+   1's only part death was its later terrain wreck at UT 140.08. A ~15 m/s head-on rover impact
+   breaks no part, and `DriveVessel` steers nothing (the line needs no steering). Re-shaped (the
+   RW-7 way): a plain timed `DriveVessel wheelThrottle=1 seconds=20` (to UT ~133.5, past the
+   contact), then after the 1x wait to UT 170 `PartAction button=explode` on the miner's radiator
+   4129919072 and the depot's 2576286852; the depot's impact transition stays the gate that the
+   impact happened, and the replay pins both radiators' visibility by part pid. `untilCrash` has
+   no flier after this. Next: fly it again (harness only).
 3b. [ ] (AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
    re-tuned on branch `air3tune`, not yet re-flown.)
    Two airplanes flying into each other (owner request 2026-11-16): two recorded aircraft collide
@@ -2453,13 +2472,15 @@ in parallel in the cloud):
    the Tracking Station, returns to flight and F5 / F9s while watching: each scene change ends
    the watch, each scene and the Cold reload rebuild the unit with the arm-time phase, and the
    ledger oracle reads the template pools unchanged.
-7. [ ] (AUTHORED 2026-11-16: FLIGHT in-game category `GhostFxIntegrity` and lane
+7. [x] ~~(AUTHORED 2026-11-16: FLIGHT in-game category `GhostFxIntegrity` and lane
    `FXR-1-ghost-engine-fx-across-refly-and-retry`, plus three cycle-2 FX tokens on GS-9. GS-9's
    half flown green 2026-11-17 (`2026-11-17_1402`, PASS attempt 1, 516 s: the three FX tokens
    matched). FXR-1's first flight `2026-11-17_1415` red on two spec errors only (the WarpToUT
    reached-UT pins, and a third session at UT 240 where the ghost is 30 km out and draws no FX
    by design); re-pinned 2026-11-17 to `ut=<target>` pins and a third session at UT 133 inside
-   the first burn. Re-flight of FXR-1 owed.)
+   the first burn. FXR-1 LIVE-PROVEN on its second flight, `2026-11-17_1531` PASS attempt 1
+   (95 s): each batch `total=3 passed=3 failed=0 skipped=0`, pinned whole, recordings 12.)~~
+   Done 2026-11-17.
    Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
    T48, has never been re-run). FXR-1 re-flies the open Probe slot of `refly-split-crewed-merged`
    with the committed Kerbal X re-fly as the live ghost, Retries from the Rewind Point (the stock
@@ -2917,9 +2938,10 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   V18T / V26T do not.
 - [x] ~~B7: loops never meet a Re-Fly, a career save or a scene change in watch mode~~ Done
   2026-11-17: LX-1 / LX-2 LIVE-PROVEN on their first flights (NEXT-TESTS-TO-BUILD-2026-11-11 item 6).
-- [ ] B8: ghost FX across a Re-Fly or a revert has no lane. Authored 2026-11-16:
-  `FXR-1-ghost-engine-fx-across-refly-and-retry` with the `GhostFxIntegrity` category (not yet
-  green), and three FX tokens on GS-9's second Rewind-to-Launch cycle (green 2026-11-17, item 7).
+- [x] ~~B8: ghost FX across a Re-Fly or a revert has no lane.~~ Done 2026-11-17:
+  `FXR-1-ghost-engine-fx-across-refly-and-retry` with the `GhostFxIntegrity` category (LIVE-PROVEN
+  2026-11-17, `2026-11-17_1531`), and three FX tokens on GS-9's second Rewind-to-Launch cycle
+  (green 2026-11-17), item 7.
 - [ ] B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost,
   GhostReapplyFrame, GuiMock, JointBreakCheckCoroutine and TreeRestoreCoroutine: no committed spec
   names any of them). Wired 2026-11-16 (no new lane) except GuiMock: the five FLIGHT categories

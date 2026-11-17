@@ -5046,6 +5046,11 @@ firstPart= firstPartVesselPid= ownPartsLost= otherPartsLost= activePid= activeNa
 time with no part death is ERROR `drivevessel-did-not-crash`, so a drive that misses its target
 reads a fast driver INVALID. The hook is removed and the Brakes restored on every exit, except
 on a driven vessel the crash destroyed or unloaded.
+Flown on RVC-1 2026-11-17 (`_1411`, `_1531`, `_1534_a2`): a rover driven at full throttle into
+another rover hits it at about 15 m/s and pushes it without breaking a part on either, so the
+mode ended OK only once, on a later terrain wreck, and ERROR `drivevessel-did-not-crash` twice.
+RVC-1 now drives a plain timed run and destroys its parts with `PartAction button=explode`; no
+lane flies the crash mode.
 
 #### ReadVesselResources (additive; the tank read, roadmap TC-1)
 
