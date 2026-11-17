@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK~~: a resumed recording whose end is a predicted terminal ahead of the clock gives its restore attempt a history cutoff in the future, so everything the resumed flight earns reads as committed history [FILED 2026-11-16 from the v1.0.2 release check, lane RF-11-both-slots-in-sequence, run `2026-11-16_2341` (release build) failing against the pass `2026-11-11_0134` (pre-#2622). FIXED 2026-11-17, branch `item30-restore-cutoff`; xUnit + mutation; RF-11 re-flight owed; high (a Re-Fly slot the player kept open seals itself at the next load, and value from a discarded flight stays in the ledger). OPEN: the killed run note below]
+## ~~RESTORE-ATTEMPT-CUTOFF-AHEAD-OF-CLOCK~~: a resumed recording whose end is a predicted terminal ahead of the clock gives its restore attempt a history cutoff in the future, so everything the resumed flight earns reads as committed history [FILED 2026-11-16 from the v1.0.2 release check, lane RF-11-both-slots-in-sequence, run `2026-11-16_2341` (release build) failing against the pass `2026-11-11_0134` (pre-#2622). FIXED 2026-11-17, branch `item30-restore-cutoff`, PR #2687; xUnit + mutation; LIVE-PROVEN 2026-11-17: RF-11 `2026-11-17_1712` and `2026-11-17_1730` PASS attempt 1, SE-1 `2026-11-17_1714` and `_1729` PASS, RC-7 `2026-11-17_1728` PASS; high (a Re-Fly slot the player kept open seals itself at the next load, and value from a discarded flight stays in the ledger). OPEN: residue (d) and the killed run note below]
 
 What the player sees: re-fly a slot, merge with "Commit, don't seal" while the vessel still
 flies (its tip ends in a predicted crash), then load the save. The vessel is resumed, stock
@@ -111,6 +111,21 @@ terminal such as Orbiting. Same take path either way (`ResumeActiveRecording` vs
 `Held ATTEMPT_EVENTS name no resume instant: ... reason=...` and keeps the flight's own instant.
 The arm line's new resume fields broke RC-7's exact arm-line pin (`2026-11-17_1707`
 PARSEK-FAIL(expectation)), so RC-7 is re-pinned to them with `rule=end (not ahead of the clock)`.
+
+Live proof, on V's PC with the parallel runner. Run `item30-proof` (automation DLL sha256
+c4b9d2d4..., built from faa900183): RF-11 `2026-11-17_1712` PASS (78 s), SE-1 `2026-11-17_1714`
+PASS. Run `item30-proof2` (sha256 00f09f15..., from 82da7beb6): RC-7 `2026-11-17_1728` PASS
+(143 s, `rule=end (not ahead of the clock)`, endUT = resumedCutoff = 367.15...,
+`storedEventsAtResume=0`), SE-1 `2026-11-17_1729` PASS, RF-11 `2026-11-17_1730` PASS. RF-11 on
+both fix runs: both arm lines `rule=resume instant (end ahead of the clock)`, resumedCutoff 131.9
+against endUT 429.43; 3 standalone world-record events in each of the LoadGame 0008 and 0014
+windows (5 before the fix); `refly-start: ... purged 3 same-id game-state event tail(s)`; the
+RetireSet gate reads slot 0 `sealingRows=0` on all three lines; no `Value-sealed slot concluded`
+line; both `sealslot complete` lines `alreadySealed=False`. SE-1 ledger rows: 13 at load, 13
+before the discard, 15 after it, still 15 at every later save. Windows xUnit at 82da7beb6, Debug
+and Release: 35812 total, 35627 passed, 0 failed, 185 skipped. The same `item30-proof` run's
+AST-3 red (`2026-11-17_1636`, `firstReason=member-not-slot-tip`) is not evidence either way; it
+is todo SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL.
 
 ## ~~KSC-END-SPAWN-SKIPS-OFF-KERBIN~~: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. FIXED 2026-11-17, branch `kscspawn`; xUnit; re-flights owed (LAY-1 goes green, the lanes below confirm nothing new spawns); medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
 
