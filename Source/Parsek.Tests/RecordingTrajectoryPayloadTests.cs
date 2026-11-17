@@ -586,12 +586,12 @@ namespace Parsek.Tests
 
         // A full structural dump: every instance field of every element, nulls and default
         // values included (unlike the manifest's dump), doubles and floats as bit patterns.
-        private static string DumpLists(RecordingTrajectoryPayload p)
+        internal static string DumpLists(RecordingTrajectoryPayload p)
         {
             return DumpLists(p.Points, p.OrbitSegments, p.PartEvents, p.FlagEvents, p.SegmentEvents, p.TrackSections);
         }
 
-        private static string DumpLists(Recording r)
+        internal static string DumpLists(Recording r)
         {
             return DumpLists(r.Points, r.OrbitSegments, r.PartEvents, r.FlagEvents, r.SegmentEvents, r.TrackSections);
         }

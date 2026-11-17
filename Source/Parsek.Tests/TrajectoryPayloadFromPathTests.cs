@@ -12,6 +12,8 @@ namespace Parsek.Tests
     /// overwrite. These cells pin every Parsek line that read writes, line for line, for each
     /// sidecar shape it can meet (clean, non-monotonic, healed, section-authoritative,
     /// unsupported version, foreign magic, truncated payload) and the warning it builds.
+    /// The summary reads through <see cref="RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath"/>,
+    /// whose own refusals, decode and lines are pinned by the "Entry_" cells.
     /// </summary>
     [Collection("Sequential")]
     public class TrajectoryPayloadFromPathTests : IDisposable
@@ -228,6 +230,160 @@ namespace Parsek.Tests
                 },
                 lines.Take(shrinkIndex + 1).ToArray());
             Assert.Equal(1, lines.Count(l => l.Contains("near-empty section-authoritative trajectory")));
+        }
+
+        // ------------------------------------------------------------------ the entry
+
+        [Fact]
+        public void Entry_MissingFile_RefusesWithNoPayload_AndWritesNoLine()
+        {
+            logLines.Clear();
+            foreach (string path in new[] { Path.Combine(tempDir, "absent.prec"), "", null })
+            {
+                Assert.False(RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(
+                    path, quietProbe: false, out RecordingTrajectoryPayload payload, out TrajectorySidecarProbe probe));
+                Assert.Null(payload);
+                Assert.False(probe.Success);
+            }
+            AssertLines();
+        }
+
+        // A file with the magic but too short for the header: the probe fails, silently.
+        [Fact]
+        public void Entry_TruncatedHeader_RefusesWithNoPayload()
+        {
+            string path = Path.Combine(tempDir, "short.prec");
+            File.WriteAllBytes(path, new byte[] { (byte)'P', (byte)'S', (byte)'K', (byte)'0', 1, 0, 0, 0 });
+
+            logLines.Clear();
+            Assert.False(RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(
+                path, quietProbe: false, out RecordingTrajectoryPayload payload, out TrajectorySidecarProbe probe));
+            Assert.Null(payload);
+            Assert.False(probe.Success);
+            Assert.Equal("binary header truncated", probe.FailureReason);
+            AssertLines();
+        }
+
+        [Fact]
+        public void Entry_ForeignMagic_RefusesWithNoPayload_AndTheProbeWarns()
+        {
+            string path = Path.Combine(tempDir, "text.prec");
+            File.WriteAllText(path, "RECORDING\n{\n}\n");
+
+            logLines.Clear();
+            Assert.False(RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(
+                path, quietProbe: true, out RecordingTrajectoryPayload payload, out TrajectorySidecarProbe probe));
+            Assert.Null(payload);
+            Assert.True(probe.Success);
+            Assert.False(probe.Supported);
+            Assert.Equal("magic-mismatch", probe.FailureReason);
+            AssertLines(
+                "[Parsek][WARN][RecordingStore] TryProbeTrajectorySidecar: unsupported trajectory sidecar " +
+                "reason=magic-mismatch path='" + path + "'");
+        }
+
+        // An unsupported version is refused before any decode; quietProbe drops only the
+        // routine Verbose probe line, never the Warn.
+        [Fact]
+        public void Entry_UnsupportedVersion_RefusesWithNoPayload_BeforeDecoding()
+        {
+            string path = WriteUnsupportedVersion("entry-unsupported");
+            string gen = RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture);
+            string warn =
+                "[Parsek][WARN][RecordingStore] TryProbeTrajectorySidecar: unsupported binary trajectory " +
+                "reason=format-version-mismatch version=99 generation=" + gen +
+                " magic=PSK0 for recording=entry-unsupported";
+
+            logLines.Clear();
+            Assert.False(RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(
+                path, quietProbe: true, out RecordingTrajectoryPayload payload, out TrajectorySidecarProbe probe));
+            Assert.Null(payload);
+            Assert.True(probe.Success);
+            Assert.False(probe.Supported);
+            Assert.Equal(TrajectorySidecarEncoding.UnknownBinary, probe.Encoding);
+            Assert.Equal(99, probe.FormatVersion);
+            AssertLines(warn);
+
+            logLines.Clear();
+            Assert.False(RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(
+                path, quietProbe: false, out payload, out probe));
+            Assert.Null(payload);
+            AssertLines(
+                "[Parsek][VERBOSE][RecordingStore] TryProbeTrajectorySidecar: encoding=UnknownBinary magic=PSK0 " +
+                "version=99 generation=" + gen + " recording=entry-unsupported sidecarEpoch=1",
+                warn);
+        }
+
+        // Every FormatGolden sidecar loads to exactly what the cold load puts into a
+        // Recording, with the header facts of the probe; quietProbe silences the one
+        // routine line, and the entry writes nothing else.
+        [Fact]
+        public void Entry_EveryFormatGoldenPrec_EqualsWhatTheColdLoadReads()
+        {
+            string[] files = Directory.GetFiles(FormatGolden.VersionDir(1), "*.prec", SearchOption.AllDirectories);
+            Array.Sort(files, StringComparer.Ordinal);
+            Assert.Equal(7, files.Length);
+
+            foreach (string path in files)
+            {
+                logLines.Clear();
+                Assert.True(RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(
+                    path, quietProbe: true, out RecordingTrajectoryPayload payload, out TrajectorySidecarProbe probe));
+                AssertLines();
+
+                Assert.NotNull(payload);
+                Assert.True(probe.Supported);
+                Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
+                Assert.Equal(probe.FormatVersion, payload.FormatVersion);
+                Assert.Equal(probe.SchemaGeneration, payload.SchemaGeneration);
+                Assert.Equal(probe.SidecarEpoch, payload.SidecarEpoch);
+                Assert.Equal(probe.RecordingId, payload.ProbeRecordingId);
+
+                var rec = new Recording { RecordingId = Path.GetFileNameWithoutExtension(path) };
+                RecordingStore.SuppressLogging = true;
+                try { Assert.True(RecordingSidecarStore.LoadTrajectorySidecarForTesting(path, rec)); }
+                finally { RecordingStore.SuppressLogging = false; }
+                Assert.Equal(RecordingTrajectoryPayloadTests.DumpLists(rec), RecordingTrajectoryPayloadTests.DumpLists(payload));
+                Assert.Equal(rec.RecordingFormatVersion, payload.FormatVersion);
+                Assert.Equal(rec.RecordingSchemaGeneration, payload.SchemaGeneration);
+
+                logLines.Clear();
+                Assert.True(RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(
+                    path, quietProbe: false, out payload, out probe));
+                var lines = ParsekLines();
+                Assert.True(lines.Count == 1, "got:\n" + string.Join("\n", lines));
+                Assert.StartsWith("[Parsek][VERBOSE][RecordingStore] TryProbeTrajectorySidecar: encoding=BinaryV0 ", lines[0]);
+            }
+        }
+
+        // The decode drops the point; the Warn is the caller's to write, with its own id.
+        [Fact]
+        public void Entry_DroppingSidecar_ReportsTheDropInStats_AndWritesNoWarn()
+        {
+            string path = WriteFlat("entry-drop", epoch: 2, goodPoints: 4, badPoints: 1);
+
+            logLines.Clear();
+            Assert.True(RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(
+                path, quietProbe: true, out RecordingTrajectoryPayload payload, out _));
+            AssertLines();
+            Assert.Equal(4, payload.Points.Count);
+            Assert.Equal(1, payload.Stats.DroppedNonMonotonicPoints);
+            Assert.False(payload.SectionAuthoritative);
+        }
+
+        [Fact]
+        public void Entry_TruncatedPayload_ThrowsTheReadersException()
+        {
+            string path = WriteTruncated("entry-truncated");
+
+            logLines.Clear();
+            RecordingTrajectoryPayload payload = null;
+            TrajectorySidecarProbe probe = default(TrajectorySidecarProbe);
+            Exception ex = Record.Exception(() => RecordingSidecarStore.TryLoadTrajectoryPayloadFromPath(
+                path, quietProbe: true, out payload, out probe));
+            Assert.IsType<EndOfStreamException>(ex);
+            Assert.Null(payload);
+            AssertLines();
         }
 
         // ------------------------------------------------------------------ helpers
