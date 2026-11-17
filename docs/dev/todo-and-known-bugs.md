@@ -93,7 +93,7 @@ Proof. `CollapseSealMergeStateRegressionTests.SealOfOptimizerSplitSlot_LeavesTre
 drives the real `CommitTree` -> `RunOptimizationPass` -> `TrySeal` and asserts the tree reads
 sealed and the create gate moves past `TreeNotSealed` (red on the old reader at its final
 assertion); `TestCommandLogisticsVerbSeamTests.CreateGate_SealedSplitChain_ReadsSealed` pins the
-gate and its open mirror. Mutation: reverting `IsTreeFullySealed`, `CountReflyableRecordings`,
+gate and its open mirror. Mutation: reverting `IsTreeFullySealed`, `CountReflyableFlights`,
 `IsMemberSealed`, the NotCommitted guard or the committed-store tip lookup each reds at least one
 named test. The applier's re-read is Unity-only and has no xUnit cell. Review follow-up
 (PR #2714): the two 1 Hz Logistics derivations read the loaded scenario's rows, pinned by

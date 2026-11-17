@@ -250,6 +250,8 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(MergeState.NotCommitted, EffectiveState.ResolveMemberSealState(
                 tree.Recordings["head"], "head", tree, NoRows));
             Assert.False(Sealed(tree, NoRows));
+            // One flight: the head resolves to the NotCommitted tip, which counts as itself.
+            Assert.Equal(1, Flights(tree, NoRows));
         }
 
         [Fact]
