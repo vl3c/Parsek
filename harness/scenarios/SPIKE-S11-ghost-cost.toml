@@ -1,0 +1,108 @@
+schema = 1
+id = "SPIKE-S11-ghost-cost"
+# =====================================================================================
+# SPIKE BRANCH ONLY (spike/mp-r0, never merged). Plan: docs/dev/plans/multiplayer/
+# r0-spikes.md, task S11. What do N ghosts cost per frame, in flight and in map view, and
+# how long does the first open of one trajectory sidecar take on the main thread?
+#
+# HOW IT READS: the DLL under test is the spike DLL with PARSEK_SPIKE=S11 set in the
+# environment run.py is started from (run.py passes its environment to KSP), flown only
+# against the spike instance automation/spike-r0 (the owner's own graphics settings):
+#   python run.py --id SPIKE-S11-ghost-cost --instance-dir <umbrella>/automation/spike-r0
+# PARSEK_SPIKE_S11_PASS picks the pass: unset or `asis` measures with the owner's vsync
+# and frame cap; `uncapped` sets vSyncCount 0 and targetFrameRate -1 for the sweep and
+# restores both after. The run sheet flies the lane once per pass.
+#
+# THE HOST: pad-runway-pair (sandbox, the Logi Cargo Rig focused on the pad) with the
+# spike-s11-ghosts injection: 64 committed ghost-only recordings of a small rocket with a
+# lit LV-T30, circling the pad 40 to 110 m out and 30 to 100 m above it, plus a copied
+# real sidecar pair (the largest committed one, a Jool tour flight) in <save>/SpikeS11/.
+#
+# THE STEP: one in-game test, SpikeS11.GhostCostSweep, AllowBatchExecution = false with
+# RestoreBatchFlightBaselineAfterExecution = true, so the RunTests verb runs it only with
+# isolated = "true" (PrepareBatchExecutionIncludingFlightRestore). It first times the
+# sidecar first-open (attempt 1, then five warm repeats), then for N = 0, 8, 16, 32, 64
+# enables the first N recordings, waits until the engine has built exactly those N
+# ghosts, settles 120 frames and measures 600 frames in flight view (camera 300 m out,
+# pitched down 0.35 rad, every ghost inside the view) and 600 in map view. Each window
+# writes one `step ... valid=<true|false>` line and CSV rows under
+# <instance>/parsek-spike/S11/; the test fails when any window does not count.
+#
+# BUDGET: 540 s is the RunTests cap (hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS). The sweep is
+# ten windows of 600 frames plus settles and spawn waits: about 150 s at 60 fps, 300 s at
+# 30 fps; under 15 fps it would not fit and the run sheet lowers PARSEK_SPIKE_S11_FRAMES.
+# =====================================================================================
+tier = "operator"
+description = "Spike S11 (spike branch only): with PARSEK_SPIKE=S11 armed on the spike instance, 64 injected lit-rocket ghosts circle the pad; the isolated in-game sweep measures frame time and engine time with 0, 8, 16, 32 and 64 ghosts in flight and map view (600 frames each) and the first open of one real trajectory sidecar."
+instanceProfile = "stock-minimal"
+tags = ["SPIKE-S11", "spike", "ghost-cost", "frame-time", "map-view", "synthetic", "isolated"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/pad-runway-pair"
+injectedRecordings = "spike-s11-ghosts"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "DiscardTree",                                                         expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The player defaults, pinned because these settings are install-wide and an
+  # earlier lane on the same instance may have left a tracer on.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ghostRenderTracing", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "mapRenderTracing", value = "false" },   expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RunTests",       args = { category = "SpikeS11", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The 64 injected trees, all re-enabled by the test's finally block.
+count = { min = 64, max = 64 }
+
+[expectations.logContracts]
+# total=1 skipped=0: GhostCostSweep is the category's only test, admitted only by the
+# isolated filter (kept in sync by CommittedBatchTallySourceSyncTests). failed=0 means
+# every one of the ten windows counted (built == N, none left over, no spawn-wait
+# timeout, 600 frames measured, every flight-view ghost inside the camera view).
+required = [
+  "\\[Spike\\] armed: [^\\r\\n]*S11",
+  "runtests start category=SpikeS11 isolated=true",
+  "Using batch baseline slot .* for 1 restore-after-run test\\(s\\)",
+  "\\[Spike\\.S11\\] sweep start run=[a-z]+-[0-9]{8}T[0-9]{6}Z pass=[a-z]+ frames=[0-9]+ counts=0,8,16,32,64 spikeRecordings=64 ",
+  "\\[Spike\\.S11\\] settings run=",
+  "\\[Spike\\.S11\\] firstopen attempt=1 kind=trajectory file=e8a83295907444c4871b584e0f458f8d\\.prec bytes=250106 [^\\r\\n]* ok=true",
+  "\\[Spike\\.S11\\] firstopen attempt=1 kind=snapshot file=e8a83295907444c4871b584e0f458f8d_ghost\\.craft [^\\r\\n]* ok=true",
+  "\\[Spike\\.S11\\] step run=[^\\r\\n]* view=flight n=0 built=0 [^\\r\\n]* valid=true",
+  "\\[Spike\\.S11\\] step run=[^\\r\\n]* view=flight n=64 built=64 active=64 leftover=0 onScreen=64 [^\\r\\n]* valid=true",
+  "\\[Spike\\.S11\\] step run=[^\\r\\n]* view=map n=64 built=64 [^\\r\\n]* valid=true",
+  "\\[Spike\\.S11\\] fit run=[^\\r\\n]* view=flight metric=meanMs points=5 slopePerGhost=-?[0-9]",
+  "\\[Spike\\.S11\\] fit run=[^\\r\\n]* view=map metric=meanMs points=5 slopePerGhost=-?[0-9]",
+  "\\[Spike\\.S11\\] sweep done run=[^\\r\\n]* steps=10 invalid=0 ",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=SpikeS11 scene=FLIGHT",
+]
+forbidden = [
+  "\\[Spike\\.S11\\] step [^\\r\\n]*valid=false",
+  "\\[Spike\\.S11\\] [^\\r\\n]*csv write failed",
+  "\\[Spike\\.S11\\] firstopen [^\\r\\n]*ok=false",
+]
+
+[runtime]
+# LoadGame and RunTests are deferred verbs: run.py waits up to 660 s for each, so the
+# worst case is 1320 s plus the boot and the quick steps.
+budgetSeconds = 1800
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

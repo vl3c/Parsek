@@ -74,11 +74,12 @@ spike's author picks one and adds its `SpikeRegistry` line.
 | S9 | `InGameTests/Spikes/S9/SpikeS9Cheats.cs` | hand-applied postfixes, 1 Hz poll | plan names no id (`S9` is the natural one) | `spike-r0` |
 | S10a | `Source/Parsek.Tests/Spikes/RelativeCopyCensusTests.cs` (manual xUnit; pure part in `RelativeCopyCensus.cs`), `spikes/r0/S10/summarize_census.py`, PC run sheet `spikes/r0/S10/PC-RUN.md` | xUnit `Manual_RelativeCopyCensus_WritesCsv` | `PARSEK_SPIKE_S10_SAVE` (one copy or several, `;`), `PARSEK_SPIKE_OUT` | none (cloud or PC) |
 | S10b | `InGameTests/Spikes/S10/SpikeS10Flatten.cs` | `SpikeS10` | `S10b` | `spike-r0` |
-| S11 | `InGameTests/Spikes/S11/SpikeS11Cost.cs` | `SpikeS11`: `GhostCostSweep` | none named | `spike-r0` |
+| S11 | `InGameTests/Spikes/S11/` (`SpikeS11Cost.cs` the in-game sweep, pure `SpikeS11Plan.cs` / `SpikeS11FirstOpen.cs`); injection preset `spike-s11-ghosts` (`Source/Parsek.Tests/Spikes/SpikeS11Fixture.cs`, fact `SyntheticRecordingTests.InjectSpikeS11Ghosts`); `harness/scenarios/SPIKE-S11-ghost-cost.toml`; `spikes/r0/S11/summarize_cost.py`; runbook [`S11/PC-RUN.md`](S11/PC-RUN.md) | `SpikeS11`: `GhostCostSweep` (isolated), flown by lane `SPIKE-S11-ghost-cost` | `S11` (plan names none); `PARSEK_SPIKE_S11_PASS=asis\|uncapped`, `_FRAMES` (default 600), `_SHOTS=0` turns screenshots off | `spike-r0` (re-provisioned: the lane reads its manifest) |
 | S12 | `InGameTests/Spikes/S12/SpikeS12Crypto.cs` | `SpikeS12`: `CryptoProbe` | none named | `spike-r0` |
 
 Every in-game spike test is `AllowBatchExecution = false` and runs alone through
-Ctrl+Shift+T or the `RunTests` seam verb (plan 6.2). A frame-cost session (S5's frame
+Ctrl+Shift+T or the `RunTests` seam verb (plan 6.2); the verb runs it only with
+`isolated = "true"` and the test's `RestoreBatchFlightBaselineAfterExecution = true`. A frame-cost session (S5's frame
 cost, S8b, S10b, S11) runs with nothing else open.
 
 ## Rules that still hold on this branch

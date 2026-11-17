@@ -951,8 +951,19 @@ Common to every spike task below:
   synthetic recordings injected into a copy save (`InjectAllRecordings` pattern, into the
   spike instance's save only), measures mean and p99 frame time with 0, 8, 16, 32 and 64
   ghosts visible near the camera and in map view, plus the first-open time of one
-  trajectory sidecar (the lazy open of 7.6) on the main thread.
-- **Procedure:** owner's normal graphics; 600 frames per step; nothing else running.
+  trajectory sidecar (the lazy open of 7.6) on the main thread. As built (2026-11-17): the
+  recordings come from a new injection preset `spike-s11-ghosts` (64 ghost-only lit rockets
+  circling the `pad-runway-pair` pad 40 to 110 m out, `Source/Parsek.Tests/Spikes/SpikeS11Fixture.cs`),
+  and the sweep runs as the isolated lane `harness/scenarios/SPIKE-S11-ghost-cost.toml` on
+  `spike-r0` (it turns recordings on through the playback toggle, so it is
+  `AllowBatchExecution = false` with the flight-baseline restore). The sidecar timed is a copy of
+  the largest committed real one (a Jool tour flight) that the injector puts in
+  `<save>/SpikeS11/`, a folder no load reads. A window counts only when the engine built exactly
+  the N ghosts and, in flight view, all N are inside the camera's view; the test fails otherwise.
+- **Procedure:** owner's normal graphics; 600 frames per step; nothing else running. As built:
+  the lane is flown twice, `PARSEK_SPIKE_S11_PASS` unset (the owner's vsync and frame cap) and
+  `uncapped` (vsync off, no frame cap, restored after), because a frame-capped run shows the cap,
+  not the cost, until the cost passes it (`spikes/r0/S11/PC-RUN.md`).
 - **Pass:** a measuring spike: the report gives ms per ghost (slope) and the first-open
   time; the cap itself is set in R3W-14 from these numbers.
 - **Fallback:** none.
@@ -1064,7 +1075,9 @@ last step needs.
 ### 6.1 Unit tests
 
 None on `multiplayer`. The spike branch carries one manual xUnit test (S10a) that skips unless
-its env var is set, and the S1b tooling PR extends the scan tool's `--selftest`.
+its env var is set, and the S1b tooling PR extends the scan tool's `--selftest`. As built, the
+spikes' pure parts (parsers, statistics, formatting) also carry ordinary xUnit tests under
+`Source/Parsek.Tests/Spikes/` on the spike branch (S0, S6, S11).
 
 ### 6.2 In-game tests
 
@@ -1073,13 +1086,21 @@ Categories `SpikeS2`, `SpikeS3`, `SpikeS4`, `SpikeS5`, `SpikeS7`, `SpikeS8`, `Sp
 through Ctrl+Shift+T or the `RunTests` seam verb; results land in
 `parsek-test-results.txt`, copied to the spike's raw folder. They exist only on the spike
 branch, so no committed batch tally moves (the hlib tally gate reads the committed specs of
-`multiplayer`).
+`multiplayer`). Correction (2026-11-17, S11): the `RunTests` verb runs an
+`AllowBatchExecution = false` test only with `isolated = "true"` AND the test's
+`RestoreBatchFlightBaselineAfterExecution = true` (the runner's
+`PrepareBatchExecutionIncludingFlightRestore`); without both it counts the test as skipped. Ctrl+Shift+T
+runs one test alone either way. A spike lane that pins a spike category's tally adds that category's
+row to `docs/dev/autotest-ingame-category-inventory.md` and its spec to the isolated group in
+`harness/lib/test_hlib.py`, on the spike branch only.
 
 ### 6.3 Harness
 
-One spike lane, `SPIKE-S6-mark-survives`, on the spike branch only, run with
-`run.py --id SPIKE-S6-mark-survives` against the spike instance by the owner. S1b uses the
-existing scan tool. Nothing lands in `harness/scenarios/` on `multiplayer`.
+Two spike lanes on the spike branch only, run by the owner against a spike instance:
+`SPIKE-S6-mark-survives` (`run.py --id SPIKE-S6-mark-survives --instance-dir <spike-r0-content>`)
+and, added 2026-11-17, `SPIKE-S11-ghost-cost` (`run.py --id SPIKE-S11-ghost-cost --instance-dir
+<spike-r0>`, with its injection preset `spike-s11-ghosts`). S1b uses the existing scan tool.
+Nothing lands in `harness/scenarios/` on `multiplayer`.
 
 What needs the owner's PC: every spike except S10a over committed fixtures and the S1b
 tooling PR. S8a (run last) needs the PC and its sync clients but no KSP.
