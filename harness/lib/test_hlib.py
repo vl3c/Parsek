@@ -10805,6 +10805,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE FIRST PAIRED LANES (multiplayer T-54), 2026-11-17.
+        "PAIR-1a-shared-folder-handshake.toml": "tier=operator by MECHANISM, NOT debt: half A of the pair PAIR-1, which needs two stock-minimal install copies started together by the parallel runner (`provision.py --profile stock-minimal --copy 2`), which no scheduled tier assumes. AUTHORED 2026-11-17, NEVER FLOWN; owed: its first paired flight (with PAIR-1b), then the ordinary promotion call",
+        "PAIR-1b-shared-folder-handshake.toml": "tier=operator by MECHANISM, NOT debt: half B of the pair PAIR-1 (see PAIR-1a). AUTHORED 2026-11-17, NEVER FLOWN; owed: its first paired flight (with PAIR-1a), then the ordinary promotion call",
         # THE SCRIPTED CAMPAIGN FIXTURE BUILDERS, 2026-10-25.
         "CS-0-new-science-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: it creates a genuine stock New Game (Science, Normal) through the NewGame seam verb on the stock-tree instance, and its produced save is harvested once as `cs-science-new`, the host of CS-1. Its value is the harvested fixture, not a regression floor. FLOWN PASS `2026-10-25_1743` and harvested; owed: nothing but the ordinary promotion call",
         "CS-1-science-first-hop.toml": "tier=operator by MECHANISM, NOT debt: scripted campaign stage 1 on the harvested `cs-science-new` new game, LIVE-PROVEN 2026-10-26 on the three-Goo cut (`2026-10-25_2243`, 4/4 aboard, science 0 -> 21.5); it stays operator because its instance profile, stock-tree, is not in the nightly instance set",
@@ -10813,7 +10816,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "CT-1-contracts-discard-economy.toml": "tier=operator by the calibration discipline, NOT debt: the first lane to run the in-game `Contracts` category (two DiscardEconomyPreservation cells on L2's career pad host). Written 2026-10-26; owed: the reading run, then the ordinary promotion call",
         "SCI-1-science-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: science re-earned after a Rewind-to-Launch in the stock Science game cs-science-new (CS-1's VAB hop with one pad Goo committed, rewound, a fresh CS Flea's three Goo units re-read unrecorded on the pad, then the LedgerGroundTruth batch); authored 2026-10-25 on career-science-pad, whose first flight was INVALID (ProbesBeforeCrew locked the Flea's parts in the VAB), re-cut 2026-10-26; its reading run red the pre-ruling pins as predicted, and it was RE-PINNED 2026-10-27 to the owner ruling (earliest recovery wins: the re-run paid in full, the committed flight capped, nothing taken back; todo SCIENCE-REEARN-AFTER-REWIND-TAKES-FULL-CREDIT closed by design). LIVE-PROVEN 2026-10-27 (`2026-10-27_1710`) after one premise-pin re-cut; owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CTW-1-contract-goal-twin-withdrawn.toml": "tier=operator by MECHANISM, NOT debt: its host `career-new-goal-twin` derives from `cs-career-new`, which needs the stock-tree instance (not in the nightly instance set). Seam-only: a committed pad launch, the original 'reach space' offer accepted at the Space Center, Rewind-to-Launch, the Offered copy withdrawn by its goal key and its Accept refused (todo CONTRACT-TWIN-GUID-SEEDED-TYPES). AUTHORED 2026-11-06, NEVER FLOWN; owed: its first flight",
-        "RACE-0-stock-sites-baseline.toml": "tier=operator by MECHANISM, NOT debt: a race lane (multiplayer plan test-and-harness section 4: every race lane is operator-tier and flies with `--tag race`), seam-only on `fresh-career`: `ListHandles kind=sites` reads the stock site baseline SITES-2 compares against (T-07). AUTHORED 2026-11-16; LIVE-PROVEN 2026-11-17 (`2026-11-17_0035`, first flight, PASS attempt 1, 46 s) and its measured values re-pinned from that flight's KSP.log; owed: one confirming flight of the re-pinned spec and its flight_efficiency.py reading",
+        "RACE-0-stock-sites-baseline.toml": "tier=operator by MECHANISM, NOT debt: a race lane (multiplayer plan test-and-harness section 4: every race lane is operator-tier and flies with `--tag race`), seam-only on `fresh-career`: `ListHandles kind=sites` reads the stock site baseline SITES-2 compares against (T-07). AUTHORED 2026-11-16; LIVE-PROVEN 2026-11-17 (`2026-11-17_0035`, first flight, PASS attempt 1, 46 s) and its measured values re-pinned from that flight's KSP.log; the confirming flight `2026-11-17_0317` red on a one-flight altitude pin, the windows were re-sized from both flights and `2026-11-17_0340` read PASS attempt 1 (52 s; flight_efficiency.py total 45 s)",
         "WR-1-world-record-reearned-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: WF-1's twin for the repeatable world-record nodes (todo RECORD-BAND-REEARNED-AFTER-REWIND-PAID-AGAIN, owner ruling 2026-10-26 pay once per career, earliest crossing wins) on `cs-career-new`: a committed Jumping Flea hop crosses the altitude and speed thresholds, a Rewind-to-Launch, a relaunch held on the pad past the committed crossings under a live recorder, the same hop again (both hops inside the one mission `record_climb_rewind`), then LedgerGroundTruth. AUTHORED 2026-10-27; LIVE-PROVEN on its second flight `2026-10-27_1723` (the first stalled on a mission bug, fixed); owed: the ordinary promotion call (stock-tree is not in the nightly set)",
         "CS-3b-career-hire-upgrade.toml": "operator by the calibration discipline, NOT debt: scripted campaign stage 3's KSC half on `cs-career-contracts` (CS-3's produced save plus one seeded applicant): three contract accepts, the career's first hire, the Mission Control upgrade and basicRocketry research, each ledgered, then a same-craft relaunch whose rollout must be ledgered, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-26 (`2026-10-26_0426`); owed: the ordinary promotion call",
         "CS-4b-career-tracking-station.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 4's KSC half on `cs-career-orbit` (CS-4's produced save, stock-tree, not in the nightly instance set): the Tracking Station and the Launch Pad upgraded to level 1, generalRocketry and stability researched, each ledgered, then a same-craft Flea relaunch inside the duplicate-rollout window whose rollout must be ledgered as a new launch, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-27 (`2026-10-27_1957`, after a first flight red on a spec cost error); owed: the ordinary promotion call",
@@ -28486,7 +28489,12 @@ class RaceSharedFolderSpecTests(unittest.TestCase):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
                 raw = fh.read()
             with self.subTest(spec=name):
-                self.assertIsNone(hlib.spec_race_fixture(tomllib.loads(raw.decode("utf-8"))))
+                spec = tomllib.loads(raw.decode("utf-8"))
+                if name in RaceFolderHarnessStepSpecTests.HARNESS_STEP_SPECS:
+                    # The paired-lane proof pair (multiplayer T-54): the pair folder only.
+                    self.assertTrue(hlib.spec_uses_pair_folder(spec))
+                else:
+                    self.assertIsNone(hlib.spec_race_fixture(spec))
                 self.assertNotIn(hlib.RACE_SHARED_TOKEN.encode("ascii"), raw)
 
     def test_the_folder_path_is_short_and_inside_the_instance(self):
@@ -28841,7 +28849,7 @@ class RaceFolderHarnessStepSpecTests(unittest.TestCase):
                 step = dict(self._step(op="delete", path="a"), **extra)
                 errs = self._new_errors(self._spec([step]))
                 self.assertTrue(any(needle in e for e in errs), errs)
-        errs = self._new_errors(self._spec([{"harness": "barrier", "args": {}}]))
+        errs = self._new_errors(self._spec([{"harness": "sleep", "args": {}}]))
         self.assertTrue(any("not a harness step kind" in e for e in errs), errs)
 
     def test_a_later_step_cannot_reference_a_harness_step(self):
@@ -28891,13 +28899,20 @@ class RaceFolderHarnessStepSpecTests(unittest.TestCase):
         self.assertEqual((), lanecatalog.ingame_categories(spec))
         self.assertIsNone(parallel.exclusive_reason(spec))
 
+    # The committed specs that carry a harness step: the paired-lane proof pair
+    # (multiplayer T-54), whose raceFolder and barrier steps are its subject.
+    HARNESS_STEP_SPECS = {"PAIR-1a-shared-folder-handshake.toml",
+                          "PAIR-1b-shared-folder-handshake.toml"}
+
     def test_no_committed_spec_uses_a_harness_step(self):
+        users = set()
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
                 spec = tomllib.loads(fh.read().decode("utf-8"))
             steps = (spec.get("driver") or {}).get("steps") or []
-            with self.subTest(spec=name):
-                self.assertFalse(any(hlib.is_harness_step(s) for s in steps))
+            if any(hlib.is_harness_step(s) for s in steps):
+                users.add(name)
+        self.assertEqual(self.HARNESS_STEP_SPECS, users)
 
 
 class RaceParseRowSpecTests(unittest.TestCase):
@@ -29035,11 +29050,15 @@ class RaceParseRowSpecTests(unittest.TestCase):
                          "citing its first armed flight")
 
     def test_no_committed_spec_runs_the_row_today(self):
-        # The row runs only for a spec with [fixture.race]; none is committed, so no
-        # committed lane's verdict or result JSON can move with this row.
+        # The row runs only for a spec with [fixture.race]. The only committed ones are
+        # the paired-lane proof pair (multiplayer T-54, new lanes, on the pair folder),
+        # where it runs report-only; no other lane's verdict or result JSON can move.
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
             with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
                 spec = tomllib.load(fh)
             with self.subTest(spec=name):
-                self.assertIsNone(hlib.spec_race_fixture(spec))
+                if name in RaceFolderHarnessStepSpecTests.HARNESS_STEP_SPECS:
+                    self.assertTrue(hlib.spec_uses_pair_folder(spec))
+                else:
+                    self.assertIsNone(hlib.spec_race_fixture(spec))
                 self.assertFalse(raceparse.race_block_declared(spec.get("expectations")))

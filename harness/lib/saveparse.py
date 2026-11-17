@@ -664,10 +664,12 @@ def _count_ghost_chain_nodes(scenario: SfsNode) -> int:
 # the check reads everything EXCEPT that subtree and reports:
 #
 #   - ``ghost-map-vessel``: a FLIGHTSTATE VESSEL that is a Parsek ghost map
-#     ProtoVessel. ``GhostMapPresence.BuildGhostProtoVesselNode`` names it
-#     ``GhostVesselNamePrefix + name`` ("Ghost: ") with exactly ONE part,
-#     ``sensorBarometer``; ``ParsekScenario.OnSave`` strips every one through
-#     ``GhostMapPresence.StripFromSave`` (fail-closed), so one in a save means
+#     ProtoVessel. ``GhostMapVessels.BuildGhostProtoVesselNode`` builds it with
+#     the name ``GhostMapPresence`` composes (``GhostVesselNamePrefix + name``,
+#     "Ghost: ") and exactly ONE part, ``sensorBarometer``;
+#     ``ParsekScenario.OnSave`` strips every one through
+#     ``GhostMapPresence.StripFromSave`` -> ``GhostMapVessels.StripFromSave``
+#     (fail-closed), so one in a save means
 #     the strip was skipped. The signature is the prefix AND the lone barometer
 #     part, never the prefix alone: a player craft may be named "Ghost: ...".
 #   - ``parsek-module``: a MODULE node (a PartModule, or a VESSELMODULES child)
@@ -698,7 +700,7 @@ STOCK_LOAD_KINDS: Tuple[str, ...] = (
     STOCK_LOAD_PARSEK_NODE, STOCK_LOAD_PARSEK_KEY)
 
 # GhostMapPresence.GhostVesselNamePrefix and the one part
-# GhostMapPresence.BuildGhostProtoVesselNode creates.
+# GhostMapVessels.BuildGhostProtoVesselNode creates.
 GHOST_MAP_VESSEL_NAME_PREFIX = "Ghost: "
 GHOST_MAP_VESSEL_PART_NAME = "sensorBarometer"
 

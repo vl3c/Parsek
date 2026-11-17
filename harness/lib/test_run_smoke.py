@@ -181,7 +181,7 @@ class FakeRuntime(run.Runtime):
         for rel, text in self.launch_files.items():
             path = os.path.join(cwd, *rel.split("/"))
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(text)
         if self.render_manifest_text is not None:
             with open(os.path.join(cwd, run.RENDER_MANIFEST_FILENAME),
@@ -8552,7 +8552,7 @@ class RaceSharedFolderStagingSmokeTests(unittest.TestCase):
         for rel, text in self.FIXTURE_FILES.items():
             path = os.path.join(src, *rel.split("/"))
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(text)
         self._orig = (run.RESULTS_DIR, run.RACE_FIXTURES_DIR)
         run.RESULTS_DIR = os.path.join(self.tmp, "results")
@@ -8616,7 +8616,7 @@ class RaceSharedFolderStagingSmokeTests(unittest.TestCase):
     def _plant(self, rel, text="stale\n"):
         path = os.path.join(self.instance, *rel.split("/"))
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
         return path
 
@@ -8715,10 +8715,19 @@ class RaceSharedFolderStagingSmokeTests(unittest.TestCase):
         self.assertGreater(len(specs), 500)
         for spec in specs:
             with self.subTest(spec=spec.get("id")):
-                self.assertIsNone(hlib.spec_race_fixture(spec))
-                self.assertTrue(run.stage_race_shared(spec, self.instance, self.logger))
-                self.assertIsNone(run._snapshot_race_shared("r", spec, self.instance,
-                                                            self.logger))
+                if hlib.spec_pair(spec) is not None:
+                    # A paired lane (multiplayer T-54) on the pair folder: outside the
+                    # parallel runner it has no folder, so staging refuses and touches
+                    # nothing, and there is nothing to snapshot.
+                    self.assertTrue(hlib.spec_uses_pair_folder(spec))
+                    self.assertFalse(run.stage_race_shared(spec, self.instance, self.logger))
+                    snap = run._snapshot_race_shared("r", spec, self.instance, self.logger)
+                    self.assertEqual((False, "no-shared-folder"), (snap["ran"], snap["reason"]))
+                else:
+                    self.assertIsNone(hlib.spec_race_fixture(spec))
+                    self.assertTrue(run.stage_race_shared(spec, self.instance, self.logger))
+                    self.assertIsNone(run._snapshot_race_shared("r", spec, self.instance,
+                                                                self.logger))
         self.assertEqual(before, self._tree(self.instance))
         self.assertTrue(os.path.isfile(sentinel))
 
@@ -8934,7 +8943,7 @@ class RaceFolderHarnessStepSmokeTests(unittest.TestCase):
             for rel, text in files.items():
                 path = os.path.join(self.fixtures, name, *rel.split("/"))
                 os.makedirs(os.path.dirname(path), exist_ok=True)
-                with open(path, "w", encoding="utf-8") as fh:
+                with open(path, "w", encoding="utf-8", newline="\n") as fh:
                     fh.write(text)
         # Files a step must never touch: beside the shared folder, in the instance,
         # and outside the instance.
@@ -8955,7 +8964,7 @@ class RaceFolderHarnessStepSmokeTests(unittest.TestCase):
     def _plant_outside(self):
         for path, text in self.outside.items():
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(text)
 
     def _assert_outside_untouched(self):
@@ -9308,7 +9317,7 @@ class RaceParseRowSmokeTests(unittest.TestCase):
         }.items():
             path = os.path.join(self.fixtures, self.FIXTURE, *rel.split("/"))
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(text)
         self._orig = (run.RESULTS_DIR, run.RACE_FIXTURES_DIR)
         run.RESULTS_DIR = os.path.join(self.tmp, "results")

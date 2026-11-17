@@ -20,6 +20,38 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RACE-0-ALT-PIN-FROM-ONE-FLIGHT~~: RACE-0's confirming flight read PARSEK-FAIL on a launch-site altitude window sized from one flight [FILED 2026-11-17 from run `2026-11-17_0317` (PC, scratch build ca454c963, PARSEK-FAIL(expectation)). FIXED 2026-11-17, branch `mp/t-07c-race-0-widen-alt-windows`; harness spec only, not a Parsek defect; third flight `2026-11-17_0340` PASS; low]
+
+The one failing row was `listhandles sites launchSite index=4 name='Crater_Launch_Site' ...
+alt=169\.(7[8-9]|8[0-7])[0-9]`: the flight read `alt=169.751`, the first flight `2026-11-17_0035`
+read 169.834. Every other row matched. Cause: the RACE-0 windows were pinned from that one first
+flight with about +-0.05 m on the altitude, and the stock values of the two flights differ by a
+few centimetres. Stock fills each spawn point's cache (`src=cache`) in `LaunchSite.SpawnPoint.SetSpawnPointLatLonAlt`,
+called from `PQSCity.Orientate` / `PQSCity2.Orientate`, as `body.GetLatLonAlt` of the spawn
+point's float32 `Transform.position`; Orientate writes the site's `localPosition` as a float32
+vector about 600 km long (step 0.0625 m) under the rotating body, so each value carries a few
+float32 roundings whose sum depends on the body's rotation at that instant (up to about 0.15 m).
+Measured between the two flights: altitude up to 0.083 m (Crater), ground position up to 0.10 m
+(the space center's longitude). The terrain heights (PQS height in double at fixed lat / lon)
+were byte-identical.
+
+Fix: every `alt=` window (spaceCenter and the eleven spawn points) is now the midpoint of the two
+flights +-0.30 m, snapped outward to the centimetre; the GlacierLake and MahiMahi longitude
+windows (1e-4 deg there is only 0.30 m / 0.68 m on the ground) are the midpoint +-0.5 m on the
+ground. Every other lat / lon window kept its pin (margin to both flights at least 3.8 times their
+spread and 0.33 m on the ground); the terrain rows are unchanged. Checked offline through
+`hlib.evaluate_expectations` with both flights' lines: both PASS (the old spec reproduced the PC's
+one red row on 0317); every altitude row moved 1 m either way, both widened longitudes moved 1 m on
+the ground, a renamed site and two sites trading places all red, 60 of 60 mutations.
+
+Third flight (PC, same install and build as 0317): `2026-11-17_0340` PASS attempt 1, 52 s
+(`flight_efficiency.py` total 45 s: boot 24.4 s, seam steps 6.1 s, post-quit tail 9.3 s). It read
+every site value byte-identical to 0317. So two boots of one provisioned install did NOT move the
+values; only 0035 (an earlier provisioning, another build) differs from them. The float32 chain
+above explains the size of the difference, but "moves between boots" is not what was observed, and
+what changed between 0035 and the later pair is not established. Open question, no action owed: if
+a later flight on a new provisioning reads a third set of values, record it here.
+
 ## MP-P2A-PLAYBACK-CATALOG, P2a-06 as built: the production anchor world-frame resolver reads the catalog [DONE 2026-11-16, branch `mp/p2a-06-anchor-world-frame-catalog`; refactor, no product change; part of MP-P2A-PLAYBACK-CATALOG below]
 
 `ProductionAnchorWorldFrameResolver` (`Source/Parsek/Rendering/`) holds an `IPlaybackCatalog`
@@ -74,6 +106,37 @@ of `CommittedTrees`, the pending tree and `CommittedRecordings`, which the plan 
 remain. Proof: three cells in
 `GhostMapPresenceTests` pinning the order through `ResolveBodyFixedPrimaryAnchorPid`. Owed on
 the PC: in-game `GhostMap`, lanes H44 and S1.6.
+
+## MP-P3-GHOST-MAP-VESSELS, P3-04 as built: the ghost ProtoVessel mechanics live in `GhostMapVessels` [DONE 2026-11-17, branch `mp/p3-04-proto-mechanics-to-service`; refactor, no product change; part of the P3 track of `docs/dev/plans/multiplayer/r0b-prep-map-watch-codec.md`]
+
+Moved verbatim from `GhostMapPresence.ProtoVesselLifecycle.cs` / `.TargetingAndSelection.cs` into
+`Source/Parsek/Ghost/GhostMapVessels.cs`: `BuildGhostProtoVesselNode` (now handed the finished
+name), `EnsureDefensiveVesselNodes`, `ResolveVesselType`, `HardenGhostVesselPartPhysics`,
+`MakeLoadedGhostVesselPhysicsInert`, `LogGhostVesselMadeInert`,
+`NormalizeGhostOrbitDriverTargetIdentity`, `BuildGhostOrbitDriverIdentity`, `IsVesselRegistered`,
+`RemoveGhostProtoVessel`, `StripFromSave`, `FindBodyByName`, plus `IsSameVessel` (Normalize calls
+it) and the `FindBodyByNameForTesting` seam (cleared by `GhostMapVessels.ResetForTesting`), so
+the service reads nothing of `GhostMapPresence`. `BuildAndLoadGhostProtoVesselCore` keeps its
+signature and callers: it names the vessel (`BuildGhostProtoVesselName`), calls
+`TryLoadGhostProtoVessel(..., GhostMapVesselOwner.OwnTimeline, ...)` (node build through the type
+restore, its own Error lines and cleanup) and keeps the "Created ghost vessel" line and the
+`GhostCreated` trace; an exception after a good load still removes the ProtoVessel with the same
+Error line, which is why `GhostMapVesselLoad` also carries `ProtoVessel`. Forwarders stay on
+`GhostMapPresence` for the members called from elsewhere (`StripFromSave`, `ResolveVesselType`,
+`FindBodyByName`, `HardenGhostVesselPartPhysics`, `MakeLoadedGhostVesselPhysicsInert`,
+`NormalizeGhostOrbitDriverTargetIdentity`, `BuildGhostOrbitDriverIdentity`, `IsVesselRegistered`,
+`IsSameVessel`). Proof: `scripts/refactor/il_compare.py` with `--fold
+Parsek.GhostMapPresence=Parsek.GhostMapVessels` against a build of 3df7e0dc6: eleven bodies equal;
+`StripFromSave` and its lambda differ only by reading `Pids` instead of the
+`ghostMapVesselPids` getter; `BuildGhostProtoVesselNode` only by the name parameter; the core is
+the split. `GhostMapVesselsTests` gains a source gate that `RemoveAllGhostVessels` tears down
+through `UnregisterAllOwnTimeline` (both `Pids.Clear()` mutants red it) and cells for the moved
+headless members. Pins unchanged (uncalled 374, cross-type static writes 55, no lifetime or layer
+change); `lifetimes.toml` notes for `Pids` / `foreignOwners` now say the own teardown keeps foreign
+pids. Owed on the PC: in-game `GhostMap`, `MapPresence`, `MapRender`, `MapView`, `GhostMapOrbits`
+in FLIGHT and TRACKSTATION; lanes H44, S1.6, GC-4, GUI-9, CN-5, RF-7M, RF-8, FAR-1, V14T, V21T,
+V23T. Plan note: P3-04 says the positioner calls `GhostMapPresence.FindBodyByName`; it has its own
+`FindBodyByName(List<CelestialBody>, string)`, and the forwarder stays for the presence partials.
 
 ## CS-LADDER-CHAIN-PINS: a campaign-chained replay of the scripted career cannot yet fly CS-0 to CS-7 unbroken [FILED 2026-11-16 by multiplayer T-49 (the campaign chain runner, branch `mp/t-49-campaign-chain-runner`), by reading the CS specs against the ladder `harness/campaigns/cs-career.toml`. OPEN; harness, no product change; low (the committed fixtures still fly every lane alone)]
 

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Parsek.Tests
@@ -267,6 +269,90 @@ namespace Parsek.Tests
             Assert.True(inProgress);
             Assert.Equal(1, count);
             Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void RemoveAllGhostVessels_TearsDownThroughUnregisterAllOwnTimeline()
+        {
+            // The scene teardown must drop only the own timeline's pids, so a foreign lane's
+            // ghost keeps its guard. A whole clear of the set (Pids.Clear(), or the presence
+            // forwarder's ghostMapVesselPids.Clear()) would unregister it. The method needs live
+            // vessels to reach its teardown, so this is a source gate over its comment-stripped
+            // body.
+            string body = ExtractMethodBody(
+                SourceScanText.StripCommentsAndMaskLiterals(
+                    ReadParsekSource("Ghost/GhostMapPresence.ProtoVesselLifecycle.cs")),
+                "internal static void RemoveAllGhostVessels(");
+
+            Assert.Contains("GhostMapVessels.UnregisterAllOwnTimeline();", body);
+            Assert.DoesNotContain("ghostMapVesselPids", body);
+            // A bare `Pids` token (the service's set); other sets such as
+            // ghostOrbitLoopShiftedPids end in "Pids" and are cleared here on purpose.
+            Assert.False(Regex.IsMatch(body, @"(?<![A-Za-z0-9_])Pids\s*\."),
+                "RemoveAllGhostVessels touches GhostMapVessels.Pids directly");
+        }
+
+        [Fact]
+        public void FindBodyByName_AnswersFromTheSeam_AndResetClearsIt()
+        {
+            CelestialBody kerbin = TestBodyRegistry.CreateBody("Kerbin", 600000.0, 3.5316e12);
+            GhostMapVessels.FindBodyByNameForTesting = name => name == "Kerbin" ? kerbin : null;
+
+            Assert.Same(kerbin, GhostMapVessels.FindBodyByName("Kerbin"));
+
+            GhostMapPresence.ResetForTesting();
+            Assert.Null(GhostMapVessels.FindBodyByNameForTesting);
+        }
+
+        [Fact]
+        public void IsSameVessel_NullsAreNeverTheSame()
+        {
+            Assert.False(GhostMapVessels.IsSameVessel(null, null));
+        }
+
+        [Fact]
+        public void ResolveVesselType_ReadsTheSnapshotType()
+        {
+            var node = new ConfigNode("VESSEL");
+            node.AddValue("type", "Probe");
+            Assert.Equal(VesselType.Probe, GhostMapVessels.ResolveVesselType(node));
+            Assert.Equal(VesselType.Ship, GhostMapVessels.ResolveVesselType(null));
+        }
+
+        [Fact]
+        public void BuildGhostOrbitDriverIdentity_NullVessel()
+        {
+            Assert.Equal("driver=(ghost-null)", GhostMapVessels.BuildGhostOrbitDriverIdentity(null));
+        }
+
+        [Fact]
+        public void StripFromSave_NullFlightStateOrEmptySet_StripsNothing()
+        {
+            Assert.Equal(0, GhostMapVessels.StripFromSave(null));
+            GhostMapVessels.RegisterForeignForTesting(30, "lane-b", "rec-b");
+            Assert.Equal(0, GhostMapVessels.StripFromSave(null));
+            Assert.Empty(logLines);
+        }
+
+        // ---- source-gate helpers ----
+
+        private static string ReadParsekSource(string relPath)
+        {
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(
+                root, "Source", "Parsek", relPath.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(path), "Source file not found at " + path);
+            return File.ReadAllText(path);
+        }
+
+        private static string ExtractMethodBody(string prepared, string signature)
+        {
+            int at = prepared.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(at >= 0, "Method not found: " + signature);
+            Assert.True(prepared.IndexOf(signature, at + 1, StringComparison.Ordinal) < 0,
+                "Method declared twice: " + signature);
+            return SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', at));
         }
     }
 }
