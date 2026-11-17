@@ -2406,7 +2406,8 @@ in parallel in the cloud):
    impact happened, and the replay pins both radiators' visibility by part pid. `untilCrash` has
    no flier after this. Next: fly it again (harness only).
 3b. [ ] (AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
-   re-tuned on branch `air3tune`, not yet re-flown.)
+   re-tuned on branch `air3tune`; RE-FLOWN TWICE 2026-11-17 INVALID (no release), the release
+   fixed on branch `air3tune`, not yet re-flown.)
    Two airplanes flying into each other (owner request 2026-11-16): two recorded aircraft collide
    in the air; checks both recordings end at the impact and both ghosts replay it.
    Shape: the craft `AIR Drone Carrier` (`harness/tools/build_air_drone_carrier.py`, in
@@ -2435,7 +2436,25 @@ in parallel in the cloud):
    vertical gain floored at 1/5 s, a pass counted only after an approach pointed at the drone,
    the release at 2,500 m under a Mk16 deploying at 2,400 m (three passes before the floor).
    `CalibratedPursuitTests` reproduces the first flight's miss with the old law and meets the
-   drone within 1 m vertically on every pass with the new one. Next: re-fly (no new DLL).
+   drone within 1 m vertically on every pass with the new one.
+   Re-flights (`refly-2026-11-17`: `2026-11-17_1533`, retry `_1545_a2`): both MISSION-FLAKE in
+   ASCEND, "release altitude 2500 m not reached within 600 s (alt 2507.1 m, longitude -73.9)";
+   the drone was never released. The plane held 2506 - 2508 m, |vs| < 0.6 m/s, east of the
+   longitude gate for five minutes. Replayed through the gates: 127 of 364 polls at altitude had
+   every gate but the roll holding, and the roll ALONE held 126 of them. The 4.7 km loiter legs
+   against a ~1.9 km turn radius end each turn ~2.5 km off the line, so the plane flew a pursuit
+   curve at the point on its proportional bank: heading error parked at ~10.5 deg, roll 8.0 -
+   10.3 deg, until the 800 m capture swung it round (seven captures; the 30 deg heading gate
+   passed on every leg). The old give-up named only altitude and longitude, both passing.
+   Fix (release roll-out): once every release gate but the roll holds and the leg's heading
+   error is within 20 deg (`AX_RELEASE_ROLLOUT_ERR`), the machine commands wings level, latched
+   while the other gates hold; the 8 deg roll and 30 deg heading gates are unchanged. The
+   give-up names every gate's reading, limit and per-gate (and sole) hold counts; the runner logs
+   a `release hold=...` kv line on the telemetry cadence, `releaseHold` / `releaseRollout` /
+   `loiterCaptures` gate lines, and the ring carries roll / hdg / vspd / lon for aircraft.
+   `CalibratedLoiterTests` fits a loiter model to the re-flight's eastward leg (capture point
+   within 0.01 deg, roll 9 - 10 deg), reproduces the stall without the roll-out, and releases
+   15 - 28 s into the first leg with it. Next: re-fly (no new DLL).
 4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
    B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M green
    `2026-11-14_2320` on 2d8c25442.)

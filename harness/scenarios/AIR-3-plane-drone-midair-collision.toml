@@ -3,7 +3,9 @@ id = "AIR-3-plane-drone-midair-collision"
 # =====================================================================================
 # AIR-3: TWO AIRCRAFT OF ONE TREE COLLIDE IN THE AIR. AUTHORED 2026-11-17; FLOWN TWICE
 # 2026-11-17 (INVALID autopilot-flake both attempts: a vertical miss, then the floor),
-# RE-TUNED 2026-11-17 off those flights' own numbers, not yet re-flown.
+# RE-TUNED 2026-11-17 off those flights' own numbers; RE-FLOWN TWICE 2026-11-17 (INVALID
+# autopilot-flake both attempts: the release never fired), the release fixed, not yet
+# re-flown.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3b (owner request 2026-11-16: two airplanes
 # flying into each other, for recording and ghost playback reliability).
 #
@@ -40,6 +42,33 @@ id = "AIR-3-plane-drone-midair-collision"
 # vertically and 5 m sideways for angles of attack 0.8 - 3 deg, and every one of the
 # three passes is inside the hit window.
 #
+# THE RE-FLIGHTS (runner run `refly-2026-11-17`: `2026-11-17_1533` and its retry
+# `_1545_a2`, on the re-tune). Both flaked in ASCEND with "release altitude 2500 m not
+# reached within 600 s (alt 2507.1 m, longitude -73.9)": the drone was never released.
+# The Mallard was at 2506 - 2508 m from UT ~320, |vs| under 0.6 m/s, east of
+# releaseMinLongitude, for five minutes. Replaying the mission's own telemetry through
+# the release gates: of the 364 polls at altitude, 127 had every gate but the roll
+# holding, and on 126 of them the ROLL ALONE held. The loiter legs (~4.7 km between the
+# two points) are short against the Mallard's ~1.9 km turn radius at 25 deg of bank,
+# so each 180 deg turn ended ~2.5 km off the line and the plane flew a pursuit curve
+# at the next point on its proportional bank (1 deg per deg of heading error): the
+# heading error parked at ~10.5 deg, the roll at 8.0 - 10.3 deg (eastward leg: UT 496.9
+# hdg 43 roll -12.5, UT 506.2 hdg 34 roll -9.8), until the capture at 800 m swung it
+# round again (UT 509.3 at -0.118, -73.875). Seven captures, never three wings-level
+# polls; the heading gate (30 deg) passed all along each leg. The flake reason named
+# only the altitude and longitude, both of which passed.
+# THE FIX (mlib.ax_decide, test_air3_drone_intercept.CalibratedLoiterTests, a loiter
+# model fitted to that leg which reproduces it and the stall with the old release):
+# once every release gate but the roll holds and the leg's heading error is inside
+# AX_RELEASE_ROLLOUT_ERR (20 deg), the machine commands wings level, latched while the
+# other gates hold, so the roll gate (still 8 deg) reads a plane actually flying
+# straight; the heading gate (still 30 deg) keeps the release off a turn. In the model
+# it releases 15 - 28 s into the first leg flown at altitude, either direction, 85 -
+# 100 m/s. The give-up now names every gate with its reading and limit, the polls each
+# held (and held alone) and the loiter captures; a `release hold=... roll=...` line
+# rides the telemetry cadence, `releaseHold` / `releaseRollout` / `loiterCaptures`
+# gate lines log each change, and the event-window ring carries roll / hdg / vspd / lon.
+#
 # THE SIMPLER VARIANT, AND WHY IT KEEPS THE POINT. Both aircraft must be members of ONE
 # recording tree and both must be loaded when they meet. A switch to a vessel outside
 # the tree does not add it, so the second aircraft has to come out of the first one's
@@ -72,9 +101,10 @@ id = "AIR-3-plane-drone-midair-collision"
 #      stage click with brakes on and throttle zero (the engines; Parsek's
 #      first-staging-on-the-pad auto-record trigger), the take-off and the climb-out,
 #      unchanged. At turnAltitude AIR-3 takes over: it climbs to releaseAltitude on a
-#      loiter leg between two points over the sea east of KSC, and once level (wings
-#      within 8 deg, |vs| <= 3 m/s, not mid-turn, east of releaseMinLongitude) it arms
-#      the sibling watch on the drone and clicks the second stage. It extends straight
+#      loiter leg between two points over the sea east of KSC, rolls the wings level once
+#      every other release gate holds on a leg, and once level (wings within 8 deg,
+#      |vs| <= 3 m/s, not mid-turn, east of releaseMinLongitude) it arms the sibling
+#      watch on the drone and clicks the second stage. It extends straight
 #      for extendSeconds, turns back and flies the Mallard into the drone: every poll the
 #      runner's opt-in `read_air_target` channel reads the drone's centre of mass in the
 #      Mallard's surface frame (up, north, east) and both vessels' part counts; the
@@ -133,11 +163,14 @@ id = "AIR-3-plane-drone-midair-collision"
 #      to aftermathTimeoutSeconds, else a named give-up).
 #   9. The Mallard destroyed whole: the active vessel may become a fragment or the
 #      drone; the machine reads that as the collision and stops flying.
-#  10. The longer climb to 2500 m (~120 s more than the 1600 m the first flights
-#      climbed in 158 s, inside the 600 s ASCEND bound).
+#  10. The longer climb to 2500 m: MEASURED by the re-flights, 2470 m at ~223 s into
+#      ASCEND, 2500 m at ~240 s, well inside the 600 s bound.
+#  11. The release roll-out (new, unflown): the plane flying the leg wings level
+#      drifts off the point's bearing; the latch drops past the 30 deg heading gate and
+#      the leg banks again (the model releases with 10+ s of the leg left).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-17; flown twice 2026-11-17 INVALID (5.5 m vertical misses, then the drone reached the floor), re-tuned (a learned pitch trim, a 2500 m release), not yet re-flown. Two aircraft of one recording tree collide in the air: the stock Mallard carrying a parachute drone under its wing (derived craft `AIR Drone Carrier`) takes off from the Runway, releases the drone over the sea, turns back and flies into it, steering on the drone's live position every poll (mission air3_drone_intercept). Gates the active and the background part deaths at the collision, the drone's own recording, both leaves finalized Destroyed or Splashed and the commit, then Rewinds-to-Launch and replays both ghosts at the Space Center with the destroyed parts hidden on each."
+description = "AUTHORED 2026-11-17; flown twice 2026-11-17 INVALID (5.5 m vertical misses, then the drone reached the floor), re-tuned (a learned pitch trim, a 2500 m release), re-flown twice INVALID (the loiter's steady 9 - 10 deg bank held the 8 deg roll gate, no release in 600 s), the release now rolls the wings level first, not yet re-flown. Two aircraft of one recording tree collide in the air: the stock Mallard carrying a parachute drone under its wing (derived craft `AIR Drone Carrier`) takes off from the Runway, releases the drone over the sea, turns back and flies into it, steering on the drone's live position every poll (mission air3_drone_intercept). Gates the active and the background part deaths at the collision, the drone's own recording, both leaves finalized Destroyed or Splashed and the commit, then Rewinds-to-Launch and replays both ghosts at the Space Center with the destroyed parts hidden on each."
 instanceProfile = "stock-minimal"
 tags = ["AIR3", "aircraft", "crash", "part-destroyed", "background-recording", "rewind-to-launch", "ksc-ghost", "pending-flight"]
 
