@@ -1,4 +1,4 @@
-# In-game test category inventory (all 142 categories)
+# In-game test category inventory (all 143 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -48,7 +48,7 @@ re-derive and gate. When the two disagree, read the table and fix the heading.
   | Flags | Count | Batch-reachable? |
   |---|---|---|
   | `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true` | 70 | Yes, on an ISOLATED batch (R5) |
-  | `AllowBatchExecution = false`, no restore flag | 3 (all `Periodicity`) | No - genuinely manual-only |
+  | `AllowBatchExecution = false`, no restore flag | 4 (3 `Periodicity`; 1 `SpikeS12`, spike branch only) | No - genuinely manual-only |
   | `RestoreBatchFlightBaselineAfterExecution = true` with `AllowBatchExecution` left true | 5 (`Contracts` 2, `TestCommands` 1, `LedgerGroundTruth` 2) | Yes, on EITHER path - not counted in this column |
 
   Those last 5 are worth knowing about because they look like they should
@@ -206,6 +206,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |
 | `SpawnTerminalOrbit` | 4 | 4 | 0 | 0 | 0 | 4 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips; the fourth cell, the surface-relative low-orbit tail seed of 2026-10-18, is pinned 4/4 and not yet flown) | A |
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue wants autostrut parts in range) | B |
+| `SpikeS12` | 1 | 0 | 0 | 0 | 1 | 1 | NOT DRIVEN (SPIKE BRANCH ONLY: `spike/mp-r0`, never merged; plan `docs/dev/plans/multiplayer/r0-spikes.md` task S12; authored 2026-11-17). The R0 crypto probe `CryptoProbe`: SHA-256 of 1 MB and 10 MB, RSA 2048 and ECDsa P-256 sign / verify / export / import and a named key container written, reopened and deleted, timed inside KSP's own Mono. One AnyScene cell, `AllowBatchExecution = false` with NO restore flag, so no batch path admits it: the owner runs it by hand from Ctrl+Shift+T on `automation/spike-r0` with `PARSEK_SPIKE=S12` (`spikes/r0/S12/PC-RUN.md`). Self-skips when S12 is not armed. On the spike branch only; it never reaches `main` | C |
 | `StandaloneLoopMap` | 1 | 1 | 1 | 1 | 0 | 1 | SLM-1-standalone-loop-map-position, SLM-2-standalone-loop-map-pause and SLM-1T-standalone-loop-ts-position (authored 2026-10-31 with the fix for RECORDINGS-TAB-LOOP-NEVER-REPLAYS-ON-MAP, all three LIVE-PROVEN 2026-11-01 after a first flight red on a fixture defect, each pinned whole `passed=1 failed=0 skipped=0`). One AnyScene cell, so every scene column counts 1: over the `standalone-loop-map` preset (a 1500 s orbital run on its own Recordings-tab loop, period 4000 s) it derives the loop clock's sample UT from the recording's own fields and reads the map ghost's position against the RECORDED orbit at that UT in FLIGHT and TRACKSTATION, or requires no map ghost in the pause between runs. Self-skips outside FLIGHT / TRACKSTATION, without the preset, and in the first run. Its own category so no pinned `BATCH_COMPLETE` tally moves | A |
 | `StartupNotices` | 3 | 3 | 3 | 3 | 0 | 1 | SN-1-startup-notices-clean-install (authored 2026-10-03, LIVE-PROVEN 2026-10-04: verdict run `2026-10-04_1830` PASS attempt 1, re-flown PASS on the final head `2026-10-04_1845`, `total=3 passed=3 failed=0 skipped=0` as predicted, pinned WHOLE). The live half of the startup notices (`StartupNotices.cs`, `ParsekHarmony.cs`) on the provisioned `fresh-career` host, a correct install: the install-location check over KSP's real `AssemblyLoader` paths answers null, this session's Harmony sweep applied every patch class, and stock `ScreenMessages` accepts a post in a settled scene; the spec forbids every startup-notice warn / post line. Three AnyScene cells, so every scene column counts 3. Its OWN category for the standing reason. The self-skip column is 1: the post cell skips when `ScreenMessages` has no instance | A |
 | `StockUiOverlay` | 12 | 0 | 12 | 0 | 0 | 12 | H45 (2026-09-25, stock-UI overlays PR 7: a twelfth cell, the KSC facility menu (`FacilityMenuUpgradeDisabledWithReasonAndRestored`: a committed future upgrade greys Upgrade with the reason in a stock tooltip through a stock refresh, another facility's menu stays stock, and Upgrade comes back when the row goes; it opens the menu with a no-op dismiss callback so nothing in the career changes), pin `total=12`, still interim. PR 4: an eleventh cell, the contract-slot block on Accept (`MissionControlSlotNeededByCommittedAcceptGreysAcceptWithReason`: committed-accept fixture rows fill the free slots, Accept greys with the slot reason and the backstop decision refuses; no stock contract state is changed), pin `total=11`, still interim. PR 3: a tenth cell, the Active-row label and Cancel block (`MissionControlActiveRowLabelAndCancelBlockedWithReason`), which needs an Active contract and skips on `career-earned-ksc` (nine Offered, zero Active); pin `total=10`, still interim. PR 2a: the four R&D / Astronaut Complex badge cells were replaced by six stock-mechanism cells - tinted node icon, stock tooltip and description text, disabled Research button, row labels, locked hire / dismiss buttons, no Parsek object on the stock screen. PR 2b: the two Mission Control badge cells rewritten for the stock mechanisms and a third added. Together 9 declarations, pin `total=9` with the split regexed and the id back in `INTERIM_PIN_IDS` until the new cells fly. EARLIER: RE-HOSTED to `career-earned-ksc` 2026-09-08 and now executes 6 of 6 - the whole category at SPACECENTER with zero skips, run `2026-09-08_1039`. PRIOR: flown 2026-08-28 on `career-contract-pad` at 4 of 6, with the 2 Mission Control cells skipping `rows=0, contractRows=0`, re-measured 2026-09-07 (census CEN-2, run `2026-09-07_2017`) on `career-earned-ksc` at the same 4 of 6 with `rows=9, contractRows=0`. THE SECOND READING - "the rows populate only with the Mission Control BUILDING UI open" - WAS WRONG, and the `rows=9` half was the refutation nobody followed through: nine rows were walked, so the building UI WAS open, and what failed was the row-to-contract lookup. Stock (`MissionControl.AddItem`, KSP 1.12.5) stores a `MissionControl.MissionSelection` wrapper in `UIListItem.Data`; Parsek's overlay and the test both cast it `as Contract`, got null, and disabled themselves, so the Mission Control contract overlays had never decorated a row on any install. `StockUiOverlayController.ExtractMissionControlRowContract` now unwraps the wrapper (a bare `Contract` payload still accepted) and the cells read rows through the same helper. Census CEN-11 (scratch, run `2026-09-08_1034`) on the fixed DLL: 6 of 6, with the production overlay logging `MissionControl decorated contractCount=1`. `career-contract-pad` stays L5's host; its one contract is Active, so it puts no Offered row in front of the screen and could not have shown this either way) | A |
@@ -236,12 +237,13 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **142 categories / 698 declarations**. Buckets **A 103 categories
-(393 declarations)**, **B 37 categories (300 declarations)**, **C 2 categories (5
+Totals, re-derived: **143 categories / 699 declarations**. Buckets **A 103 categories
+(393 declarations)**, **B 37 categories (300 declarations)**, **C 3 categories (6
 declarations)** - the C rows are `GuiMock`, opened 2026-09-22 by P1 of the GUI state
-gallery, which ships no lane by design (P2 owns the two gallery lanes), and
+gallery, which ships no lane by design (P2 owns the two gallery lanes),
 `MoonArrivalHold`, opened 2026-11-07 by the lone-moon arrival hold, which waits for the
-moon flight-test program.
+moon flight-test program, and, on the spike branch only (`spike/mp-r0`, never merged),
+`SpikeS12`, the R0 crypto probe, a manual-only cell the owner runs by hand.
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
 the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it; both flew green the
 same day and it stays **B** (each lane is a scene slice, 4 of 9).
@@ -1774,9 +1776,9 @@ time verbatim and was taken WHOLE, `GUI-1-census-ksc` left
 `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, and the row moved to bucket **A** - which
 empties this sub-reason.
 
-### Bucket C - not batch-runnable (2 categories, 5 declarations)
+### Bucket C - not batch-runnable (3 categories, 6 declarations)
 
-The rows here are not batch-UNRUNNABLE; they are the categories with no lane yet, which the triage line counts as C: `GuiMock` (4, P1 of the GUI state gallery) and `MoonArrivalHold` (1, the lone-moon arrival hold, 2026-11-07). `GhostCommNet` sat here from its opening on 2026-09-26 until CN-1 / CN-1T drove it the same day (now B7). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
+The rows here are not batch-UNRUNNABLE; they are the categories with no lane yet, which the triage line counts as C: `GuiMock` (4, P1 of the GUI state gallery), `MoonArrivalHold` (1, the lone-moon arrival hold, 2026-11-07) and, on the spike branch only, `SpikeS12` (1, the R0 crypto probe, manual-only by design: no restore flag, run by hand from Ctrl+Shift+T). `GhostCommNet` sat here from its opening on 2026-09-26 until CN-1 / CN-1T drove it the same day (now B7). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
 
 The sub-reasons below were EMPTY since R12 closed C2 on 2026-07-30 - the header said
 "1 category, 10 declarations" until 2026-09-06 because it was never re-derived after
@@ -1814,7 +1816,7 @@ Where they went: `SceneExitMerge` to bucket A2 (wired as `H21`). `AutoRecord`,
 B6-ISO below - they need a spec and a fixture whose craft can actually fly, not a
 capability. The one genuinely-manual population that survives the correction is
 smaller and elsewhere: 3 `Periodicity` declarations carry
-`AllowBatchExecution = false` with NO restore flag, and no batch path admits those.
+`AllowBatchExecution = false` with NO restore flag, and no batch path admits those. (On the spike branch only, `SpikeS12.CryptoProbe` is a fourth, by design.)
 
 The lesson generalizes past this table: a capability that is implemented, public and
 called only from an interactive surface reads exactly like a capability that does

@@ -75,7 +75,7 @@ spike's author picks one and adds its `SpikeRegistry` line.
 | S10a | `Source/Parsek.Tests/Spikes/RelativeCopyCensusTests.cs` (manual xUnit; pure part in `RelativeCopyCensus.cs`), `spikes/r0/S10/summarize_census.py`, PC run sheet `spikes/r0/S10/PC-RUN.md` | xUnit `Manual_RelativeCopyCensus_WritesCsv` | `PARSEK_SPIKE_S10_SAVE` (one copy or several, `;`), `PARSEK_SPIKE_OUT` | none (cloud or PC) |
 | S10b | `InGameTests/Spikes/S10/SpikeS10Flatten.cs` | `SpikeS10` | `S10b` | `spike-r0` |
 | S11 | `InGameTests/Spikes/S11/SpikeS11Cost.cs` | `SpikeS11`: `GhostCostSweep` | none named | `spike-r0` |
-| S12 | `InGameTests/Spikes/S12/SpikeS12Crypto.cs` | `SpikeS12`: `CryptoProbe` | none named | `spike-r0` |
+| S12 | `InGameTests/Spikes/S12/SpikeS12Crypto.cs` (probes + test), pure `SpikeS12Plan.cs`; xUnit `Source/Parsek.Tests/Spikes/SpikeS12Tests.cs` (pure parts + a host-runtime smoke, NOT the KSP answer); runbook [`S12/PC-RUN.md`](S12/PC-RUN.md) | `SpikeS12`: `CryptoProbe` (AnyScene, HAND from Ctrl+Shift+T; no lane: no restore flag, so no batch path admits it) | `S12` | `spike-r0` |
 
 Every in-game spike test is `AllowBatchExecution = false` and runs alone through
 Ctrl+Shift+T or the `RunTests` seam verb (plan 6.2). A frame-cost session (S5's frame
