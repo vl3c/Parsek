@@ -20,7 +20,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## MP-P2A-PLAYBACK-CATALOG: playback looks recordings up by id through one port, so a second playback lane can answer from its own data [FILED 2026-11-16 for the multiplayer prerefactor P2a (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, P2a-01 to P2a-07). IN PROGRESS: P2a-05 done (branch `mp/p2a-05-anchor-resolver-catalog`), P2a-03 done (branch `mp/p2a-03-positioner-catalog`); P2a-02, P2a-04, P2a-06, P2a-07 open; refactor, no product change]
+## MP-P2A-PLAYBACK-CATALOG, P2a-06 as built: the production anchor world-frame resolver reads the catalog [DONE 2026-11-16, branch `mp/p2a-06-anchor-world-frame-catalog`; refactor, no product change; part of MP-P2A-PLAYBACK-CATALOG below]
+
+`ProductionAnchorWorldFrameResolver` (`Source/Parsek/Rendering/`) holds an `IPlaybackCatalog`
+from a trailing optional parameter of its one modelled-world constructor (null reads
+`RecordingPlaybackCatalog.Own`; the parameterless constructor and both construction sites,
+`AnchorPropagator` and `RenderSessionState`, pass nothing). The relative-boundary context
+builder takes the focus tree from `catalog.TryFindFocusTree(rec.RecordingId, rec.TreeId, ...)`
+(the L4 order: committed trees, then pending, id-or-containment) and the pending tree from
+`catalog.PendingTree`; the private `TryFindFocusTree(Recording)` copy is deleted. Proof: two
+fake-catalog cells in `ProductionAnchorWorldFrameResolverTests` (a tree only the catalog holds
+resolves; a tree only the store holds fails `focus-tree-missing`). Owed on the PC: in-game
+`MapRender` and `GhostMap`, lanes S1.6, S1.7 and H44.
+
+## MP-P2A-PLAYBACK-CATALOG: playback looks recordings up by id through one port, so a second playback lane can answer from its own data [FILED 2026-11-16 for the multiplayer prerefactor P2a (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, P2a-01 to P2a-07). IN PROGRESS: P2a-05 done (branch `mp/p2a-05-anchor-resolver-catalog`), P2a-03 done (branch `mp/p2a-03-positioner-catalog`), P2a-06 done (branch `mp/p2a-06-anchor-world-frame-catalog`), P2a-07 done (branch `mp/p2a-07-map-state-vectors-catalog`); P2a-02, P2a-04 open; refactor, no product change]
 
 `IPlaybackCatalog` and its own-timeline `RecordingPlaybackCatalog.Own` (both in
 `Source/Parsek/Recording/`) carry each lookup family as a named variant that keeps its search

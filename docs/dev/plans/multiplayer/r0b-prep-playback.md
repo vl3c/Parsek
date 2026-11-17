@@ -550,6 +550,11 @@ The port as specified:
 - **Registers:** layer pins: Rendering -> Recording is forward; none move.
 - **Size:** S. **Depends on:** P2a-05. **PC:** in-game, lanes S1.6, S1.7, H44.
 - **Risk:** low.
+- **As built (2026-11-16):** the resolver already had two constructors (a public parameterless
+  one for the two production sites and an internal modelled-world one that tests use); the
+  catalog is the trailing optional parameter of the internal one, which the parameterless one
+  chains to, so there is still one constructor that takes a catalog and no overload was added.
+  The context builder's own null-or-empty id guard stays in front of the lookup.
 
 **P2a-07 Map state vectors through the catalog (L6)**
 
