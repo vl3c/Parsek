@@ -99,6 +99,10 @@ namespace Parsek
         /// replay plants them again (todo LOOP-REPLAY-REPLANTS-REMOVED-FLAG), saved in the PARSEK
         /// node.</summary>
         RemovedReplayFlags,
+        /// <summary><c>RaceLink</c>: the race mark (design 6.1, 15.7), read by
+        /// <c>ParsekRaceScenario.OnLoad</c> from the race scenario module's own node in the loaded
+        /// save, never from the PARSEK node. Absent from every single-player save.</summary>
+        RaceLink,
     }
 
     /// <summary>What a load does with one category today.</summary>
@@ -455,7 +459,8 @@ namespace Parsek
 
         /// <summary>
         /// The categories OnLoad consumes in its prologue (<c>LoadCrewAndGroupState</c>,
-        /// <c>LoadRewindStagingState</c> and the rewind carries), before the revert detector runs.
+        /// <c>LoadRewindStagingState</c> and the rewind carries), before the revert detector runs,
+        /// and the race mark, which another scenario module's OnLoad reads without any load kind.
         /// </summary>
         internal static bool IsConsumedEarly(LoadStateCategory category)
         {
@@ -478,6 +483,7 @@ namespace Parsek
                 case LoadStateCategory.LedgerHeldWindow:
                 case LoadStateCategory.PlaybackReplayScope:
                 case LoadStateCategory.RemovedReplayFlags:
+                case LoadStateCategory.RaceLink:
                     return true;
                 case LoadStateCategory.UntaggedLedgerRowsAfterCutoff:
                 case LoadStateCategory.PendingScience:
@@ -545,6 +551,7 @@ namespace Parsek
                 case LoadStateCategory.LedgerHeldWindow: return DecideLedgerHeldWindow(kind);
                 case LoadStateCategory.PlaybackReplayScope: return DecidePlaybackReplayScope(kind);
                 case LoadStateCategory.RemovedReplayFlags: return DecideRemovedReplayFlags(kind);
+                case LoadStateCategory.RaceLink: return DecideRaceLink(kind);
             }
             throw new ArgumentOutOfRangeException(nameof(category), category, "unknown LoadStateCategory");
         }
@@ -1211,6 +1218,30 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.ReconcileAtCutoff, RemovedReplayFlagsReconcile);
+            }
+            throw UnknownKind(kind);
+        }
+
+        internal const string RaceLinkFromSave =
+            "ParsekRaceScenario.OnLoad reads the mark from the loaded save's race scenario node "
+            + "(RaceLinkCodec.TryRead): identity that never changes after creation; every load takes "
+            + "the loaded save's copy (design 15.7)";
+
+        // Design 15.7: the mark holds only the race's identity and choices, fixed when the save
+        // is created, so no load kind needs memory's copy, a carry or a reconcile. The race
+        // scenario module's OnLoad sees no load kind at all: one cell for every kind.
+        private static LoadReconcileDecision DecideRaceLink(LoadKind kind)
+        {
+            switch (kind)
+            {
+                case LoadKind.Cold:
+                case LoadKind.PlainRewind:
+                case LoadKind.ReFlyStart:
+                case LoadKind.DiscardReFly:
+                case LoadKind.StockRevert:
+                case LoadKind.QuickloadFlight:
+                case LoadKind.InSessionOther:
+                    return Today(LoadReconcileAction.Save, RaceLinkFromSave);
             }
             throw UnknownKind(kind);
         }

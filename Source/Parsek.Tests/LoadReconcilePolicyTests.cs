@@ -453,6 +453,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RaceLinkCells_TakeTheLoadedSavesCopyOnEveryKind()
+        {
+            // Design 15.7: the race mark is identity fixed at creation, so every load kind takes
+            // the loaded save's copy, one cell with one reason, and no cell is a known gap.
+            foreach (LoadKind kind in AllKinds())
+            {
+                var d = LoadReconcilePolicy.Decide(kind, LoadStateCategory.RaceLink);
+                Assert.Equal(LoadReconcileAction.Save, d.Action);
+                Assert.False(d.IsKnownGap, kind + " x RaceLink");
+                Assert.Equal(LoadReconcilePolicy.RaceLinkFromSave, d.Reason);
+            }
+            Assert.Contains("identity that never changes after creation; every load takes the loaded save's copy",
+                LoadReconcilePolicy.RaceLinkFromSave);
+            // The reason names the reader; a rename of either reds here.
+            Assert.Contains(nameof(ParsekRaceScenario) + "." + nameof(ParsekRaceScenario.OnLoad),
+                LoadReconcilePolicy.RaceLinkFromSave);
+            Assert.Contains(nameof(RaceLinkCodec) + "." + nameof(RaceLinkCodec.TryRead),
+                LoadReconcilePolicy.RaceLinkFromSave);
+            // The race scenario's OnLoad sees no load kind, so the early decision is the same Save
+            // for every early kind, InSession included.
+            Assert.True(LoadReconcilePolicy.IsConsumedEarly(LoadStateCategory.RaceLink));
+            foreach (EarlyLoadKind early in Enum.GetValues(typeof(EarlyLoadKind)).Cast<EarlyLoadKind>())
+            {
+                Assert.Equal(LoadReconcileAction.Save,
+                    LoadReconcilePolicy.DecideEarly(early, LoadStateCategory.RaceLink).Action);
+            }
+            // The mark lives in its own scenario node, never among the PARSEK staging nodes.
+            Assert.DoesNotContain(LoadStateCategory.RaceLink, LoadReconcilePolicy.StagingNodeCategories.Values);
+        }
+
+        [Fact]
         public void QuickloadFlightColumn_IsDocumentedAsUnreachedByStockF9()
         {
             // Plan Phase 2 step 6: stock F9 is a save-file load and classifies Cold, so every

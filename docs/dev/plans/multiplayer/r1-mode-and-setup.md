@@ -491,12 +491,35 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
 
 ### R1-05 The race mark's row in `LoadReconcilePolicy`
 
-- **Change:** `LoadReconcilePolicy.cs`: new `LoadStateCategory.RaceLink` (`:59-103`);
-  `Decide` returns `LoadReconcileAction.Save` for every load kind, with the reason "identity
-  that never changes after creation; every load takes the loaded save's copy" (design 15.7).
+- **Change:** `LoadReconcilePolicy.cs`: new `LoadStateCategory.RaceLink` (`:59-103`, measured
+  before the row; `:59-106` with it); `Decide` returns `LoadReconcileAction.Save` for every load
+  kind, with the reason "identity that never changes after creation; every load takes the loaded
+  save's copy" (design 15.7).
 - **Proof:** `LoadReconcilePolicyTests` (table shape covers the new category; `DecideEarly`
   consistency).
 - **Registers:** none beyond the test.
+- **As built (2026-11-17, branch `mp/r1-05-race-link-policy-row`):**
+  - `LoadStateCategory.RaceLink` is the last member (`:59-106`); `Decide` dispatches it to
+    `DecideRaceLink`, one `Save` cell per load kind with the reason `RaceLinkFromSave`, which
+    names the reader (`ParsekRaceScenario.OnLoad`, `RaceLinkCodec.TryRead`) and carries the
+    spec's wording. An unknown kind throws like every other row.
+  - `IsConsumedEarly(RaceLink)` is true: the race scenario module's OnLoad reads the mark with
+    no load kind at all, so the three refined in-session kinds share the cell and
+    `DecideEarly(InSession, RaceLink)` answers `Save`. The method's comment says so. Marking it
+    late would have needed the QuickloadFlight / InSessionOther suffix notes on two cells that
+    differ from the rest, against the spec's one reason for every kind.
+  - `LoadReconcilePolicyTests.RaceLinkCells_TakeTheLoadedSavesCopyOnEveryKind` pins the seven
+    cells, the reason (the reader's names through `nameof`, so a rename reds), the early
+    decision for every early kind, and that the mark is not a PARSEK staging node. The table
+    shape cells (`EveryKindHasADecisionForEveryCategory`, `EarlyDecisionsAreIdentical...`,
+    `DecideEarly_NonInSessionKind_IsDecideOfThatKind`, `DecideThrowsForUnknownMember`) cover
+    the new member by enumeration. No wiring gate enumerates categories against staging nodes:
+    the mark lives in its own scenario node, so `StagingNodeCategories` and
+    `LoadReconcileWiringGateTests` are unchanged. No harness mirror or doc table lists the
+    categories.
+  - Additive enum member of a pure table: no save-format bump (nothing persisted changes) and
+    no CHANGELOG entry. The new private method is reached through `Decide`; the unreached count
+    stays 374.
 - **Size:** S. **Depends on:** R1-03. **PC:** no.
 - **Risk:** low; a table row with no behavior of its own.
 
