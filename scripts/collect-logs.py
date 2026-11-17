@@ -178,6 +178,20 @@ def copy_render_manifest_if_current(ksp_dir, save_name, out_dir):
     return copy_file(manifest, out_dir)
 
 
+def resolve_race_dir(parsek_dir):
+    """The race folder under parsek_dir, or None: the one directory spelled exactly
+    RACE_DIR_NAME (RaceDirectoryKeep.ResolveRaceDirectory in C#). A case-insensitive
+    file system also answers is_dir() for "race", so the real child names decide.
+    The copy selection and the listing both key on this, so what one leaves out the
+    other lists; a "race" folder or a file named Race is copied like any other."""
+    race_dir = Path(parsek_dir) / RACE_DIR_NAME
+    if not race_dir.is_dir():
+        return None
+    if any(p.name == RACE_DIR_NAME and p.is_dir() for p in Path(parsek_dir).iterdir()):
+        return race_dir
+    return None
+
+
 def parsek_sidecar_dirs_to_copy(parsek_dir, skip_recordings):
     """Names of the save's Parsek/<dir> subdirectories to copy, sorted.
 
@@ -188,8 +202,9 @@ def parsek_sidecar_dirs_to_copy(parsek_dir, skip_recordings):
     parsek_dir = Path(parsek_dir)
     if not parsek_dir.is_dir():
         return []
+    race_dir = resolve_race_dir(parsek_dir)
     names = sorted(p.name for p in parsek_dir.iterdir()
-                   if p.is_dir() and p.name.lower() != RACE_DIR_NAME.lower())
+                   if p.is_dir() and not (race_dir is not None and p.name == race_dir.name))
     if skip_recordings:
         names = [n for n in names if n != "Recordings"]
     return names
@@ -231,8 +246,8 @@ def race_listing_lines(race_dir):
 def write_race_listing(parsek_dir, out_dir):
     """Write race-listing.txt for Parsek/Race/ into out_dir. A save with no race
     folder (every single-player save) writes nothing and prints nothing."""
-    race_dir = Path(parsek_dir) / RACE_DIR_NAME
-    if not race_dir.is_dir():
+    race_dir = resolve_race_dir(parsek_dir)
+    if race_dir is None:
         return False
     lines = race_listing_lines(race_dir)
     header = ["# Parsek/Race/ of the collected save: path, size (bytes), modified (UTC).",

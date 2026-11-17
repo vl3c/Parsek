@@ -3282,11 +3282,13 @@ namespace Parsek.InGameTests
             Directory.CreateDirectory(destinationDirectory);
 
             // Both copies (live -> snapshot, snapshot -> restore staging) are rooted at a
-            // Parsek/ folder, and neither carries Parsek/Race/ (see RaceDirectoryKeep).
+            // Parsek/ folder, and neither carries Parsek/Race/ (see RaceDirectoryKeep): the
+            // skip keys on the same resolved folder the restore's move-aside keeps.
+            bool skipRace = RaceDirectoryKeep.ResolveRaceDirectory(sourceDirectory) != null;
             foreach (string directory in Directory.GetDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
             {
                 string relative = directory.Substring(sourceDirectory.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (RaceDirectoryKeep.IsInRaceDirectory(relative))
+                if (skipRace && RaceDirectoryKeep.IsInRaceDirectory(relative))
                     continue;
                 Directory.CreateDirectory(Path.Combine(destinationDirectory, relative));
             }
@@ -3294,7 +3296,7 @@ namespace Parsek.InGameTests
             foreach (string file in Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories))
             {
                 string relative = file.Substring(sourceDirectory.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (RaceDirectoryKeep.IsInRaceDirectory(relative))
+                if (skipRace && RaceDirectoryKeep.IsInRaceDirectory(relative))
                     continue;
                 string destinationFile = Path.Combine(destinationDirectory, relative);
                 string destinationParent = Path.GetDirectoryName(destinationFile);

@@ -530,7 +530,14 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   `Recording/RaceDirectoryKeep.cs` (`DirectoryName = "Race"`, `IsInRaceDirectory`,
   `MoveAside`, `MoveBack`; the move-aside goes to a sibling of `Parsek/` and never
   overwrites). Both copy loops of the runner and the reconcile skip `Race/`, so an older
-  snapshot that holds one never restores it. `collect-logs.py` writes
+  snapshot that holds one never restores it. The race folder is the one directory directly
+  under `Parsek/` spelled exactly `Race` (ordinal), resolved once by
+  `RaceDirectoryKeep.ResolveRaceDirectory`; the copy loops skip it only when it resolves on
+  their source and the move-aside moves exactly that entry, so what a copy leaves out is
+  what the move-aside keeps on a case-sensitive and a case-insensitive file system alike. A
+  `race` folder or a file named `Race` is ordinary content, snapshotted and restored.
+  `collect-logs.py` keys its copy selection and its listing on one `resolve_race_dir`
+  with the same rule. `collect-logs.py` writes
   `race-listing.txt` at the bundle root (`RACE_DIR_NAME` there; the harness cell
   `test_collect_logs_race.py` keeps it equal to the C# constant). R1-08's `RaceFolder`
   can reuse `RaceDirectoryKeep.DirectoryName` for its root.
