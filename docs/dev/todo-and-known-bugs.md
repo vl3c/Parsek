@@ -109,6 +109,8 @@ Boarded terminal only for a non-active (background) member, so a background tip 
 terminal such as Orbiting. Same take path either way (`ResumeActiveRecording` vs
 `PromoteFromBackground`); both shapes are cells. A held save without the resume facts logs
 `Held ATTEMPT_EVENTS name no resume instant: ... reason=...` and keeps the flight's own instant.
+The arm line's new resume fields broke RC-7's exact arm-line pin (`2026-11-17_1707`
+PARSEK-FAIL(expectation)), so RC-7 is re-pinned to them with `rule=end (not ahead of the clock)`.
 
 ## V22T-TS-ADOPTION-BRANCH-UNFLOWN: no committed lane flies the Tracking Station's adoption of an already-live vessel [FILED 2026-11-16 from V22T's red on the 1.0.2 release flight; V22T RE-PINNED AND RE-FLOWN GREEN, branch `item29-v22t-repin`. OPEN: the coverage gap]
 
