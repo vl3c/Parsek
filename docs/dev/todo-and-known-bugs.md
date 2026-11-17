@@ -74,6 +74,71 @@ Not built, because no seam verb exists (proposals, not implemented):
 
 Done when each lane has flown once as a reading run and is re-pinned (count windows, the interim
 `BATCH_COMPLETE` split) or its red is filed.
+## SPAWN-TS-STACK-NO-DE-OVERLAP: two landed deliveries that end on one spot while the player is in the Tracking Station are spawned inside each other [FILED 2026-11-17 by the end-of-recording spawn audit (END-SPAWN-SCENE-LANES-2026-11-17), by code reading; lane `TSS-3-two-deliveries-same-spot-ts` authored to red on it, NEVER FLOWN. OPEN; medium (two vessels' colliders in one place on the first flight load of that spot)]
+
+What the code does. The Space Center end spawn nudges a Landed / Splashed spawn clear of every
+existing same-body landed vessel, proto vessels included (`ParsekKSC.cs`, the `#duplicate-stack`
+block: `VesselSpawner.GatherExistingLandedVesselPositions` ->
+`SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn`, 15 m minimum, logged `De-overlap for #N`).
+That block is the only caller of `ComputeDeOverlappedLandedSpawn`. The Tracking Station handoff
+(`GhostMapPresence.TryRunTrackingStationSpawnHandoffs`) spawns through `VesselSpawner`'s
+end-of-recording path, whose collision check (`SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels`,
+a `Physics.OverlapBox`) sees only LOADED vessels, and the Tracking Station has none. The comment on
+`GatherExistingLandedVesselPositions` names exactly this case ("At KSC / Tracking Station nothing is
+loaded"), but only the Space Center calls it.
+
+What the player sees (derived, not measured). Two flights of the same craft to the same base, both
+ending while the player sits in the Tracking Station (or warps there across both ends), are
+created at the same spot; loading that spot into physics puts two vessels inside each other
+(they push apart or explode). The same holds for a delivery landing on a vessel already standing
+there.
+
+Lane. `TSS-3-two-deliveries-same-spot-ts` (injected preset `spawn-stack`: two committed Landed
+probes ending 20 s apart on one KSC grass point) crosses both ends at 100,000x in the Tracking
+Station and pins `Spawning vessel: ... nearest vessel=<D>m` with D >= 10 for both, then loads FLIGHT
+on the spot and forbids `Spawn-death detected`. Red today on the second probe's nearest-vessel
+distance (~0 m expected). Fix: call the same gather + de-overlap from the Tracking Station handoff
+(or from the shared end-of-recording spawn path, so far flight loads get it too), logged like the
+Space Center's line; re-pin TSS-3 to the new line in the same commit.
+
+## END-SPAWN-SCENE-LANES-2026-11-17: lanes for end-of-recording spawns in the Tracking Station and at the Space Center, and a placement check on the existing end-spawn lanes [FILED 2026-11-17 (the end-of-recording spawn audit). AUTHORED 2026-11-17, branch `wip/spawnlanes1`, harness and test-generator code only; NEVER FLOWN; OPEN for the first flights]
+
+Five new lanes, all `tier = "operator"`, tag `pending-flight`, one `RunTests LeafVesselPlacement`
+step each (loose interim batch pin, `INTERIM_PIN_IDS`):
+
+- `TSS-1-rover-delivery-ts-max-warp` (scope 1a, `pad-runway-pair`): a live 30 s rover drive
+  committed and Rewound-to-Launch, its Landed end crossed by an uncapped Tracking Station warp
+  (completion line pins `maxRate=100000`): one handoff spawn, placement checked in the Tracking
+  Station, and the same pid (no second rover) after a FLIGHT load focused on it.
+- `TSS-2-mun-orbit-end-ts` (scope 1b, `mun-park-kerbalx`): a 65 s Mun-orbit coast committed and
+  rewound, its Orbiting end paid by the Tracking Station on the recorded terminal orbit.
+- `TSS-3-two-deliveries-same-spot-ts` (scope 1c, `gloops-airshow` + the new preset `spawn-stack`):
+  EXPECTED RED on SPAWN-TS-STACK-NO-DE-OVERLAP (above).
+- `KSS-1-mun-lander-ksc-end-spawn` (scope 2a, B13's flight on `b2-lko-craft`): a Kerbin-launched
+  Mun landing, rewound, its Landed-on-the-Mun end spawned at the Space Center (the live proof of
+  KSC-END-SPAWN-SKIPS-OFF-KERBIN's fix).
+- `KSS-2-orbit-deferred-ksc-then-ts` (scope 2b, `eva2-lko-crewed`): an LKO coast end deferred at
+  the Space Center (nothing spawned) and paid on the next Tracking Station visit.
+
+Scope 3: `EVA-10`, `EVA-15`, `SEAT-2` and `SS-1` gained a final `RunTests LeafVesselPlacement` step
+(loose interim pins until re-flown). Not changed, and why: LAB-7 and MINE-2 / MINE-9 (their spawns
+come through `TimeJump`, a different path), RSC-1 (its synthetic leaves carry no
+`TerminalPosition`, so the cell reads them unsupported), RSC-3, the AST lanes (walkback spawns
+are moved on purpose), the stationary MINE rovers (the vessel never left its spot).
+
+Test-generator support: `RecordingBuilder.WithTerminalPosition` and `ScenarioWriter` writing it, the
+preset `spawn-stack` (`SyntheticRecordingTests.InjectSpawnStack`, wired in `hlib.INJECTED_RECORDINGS`,
+`run.py` and `scripts/inject-recordings.ps1`).
+
+Proposal, not built (needs C#): `LeafVesselPlacement` checks a Landed / Splashed leaf by surface
+distance only (lat / lon, `MaxSurfaceDistanceMeters` 100), never its height above the ground, so a
+vessel buried or floating a few metres reads ok. Add a vertical
+verdict for a Landed / Splashed leaf: live altitude against `body.TerrainAltitude(lat, lon, true)`
+(PQS), bad when more than ~1 m below the terrain or more than ~5-10 m above it (Splashed: altitude
+near 0), counted in the summary as its own token so the existing pins stay valid.
+
+First flights owed, in this order: TSS-1, TSS-2, KSS-2, TSS-3 (expected red), KSS-1 (a full B13
+flight), then re-fly the four changed lanes. Each is a reading run: pin what it measures.
 
 ## ~~KSC-END-SPAWN-SKIPS-OFF-KERBIN~~: the Space Center never spawns the end vessel of a recording that starts off Kerbin, and logs nothing [FILED 2026-11-17 from LAY-1's first flight, run `2026-11-17_1417_LAY-1-laythe-reentry-splashdown` (Debug DLL from main 65ac33ee8; diagnostics on branch `forge-logs-2026-11-17-next-tests`, folder `logs-carrier/next-tests-2026-11-17/<runId>/`), by log and code reading. FIXED 2026-11-17, branch `kscspawn`; xUnit; re-flights owed (LAY-1 goes green, the lanes below confirm nothing new spawns); medium (the vessel appears late, on the next Tracking Station or flight visit, not never)]
 

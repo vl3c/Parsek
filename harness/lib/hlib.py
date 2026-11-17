@@ -448,7 +448,17 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # injector refuses a target save at
                                         # another UT. No RP. Consumer:
                                         # RSC-3-ready-spawn-room.
-                                        "spawn-room")
+                                        "spawn-room",
+                                        # spawn-stack: TWO committed
+                                        # single-recording trees, "Stack Probe
+                                        # A" and "Stack Probe B", Landed on the
+                                        # SAME KSC grass point with a
+                                        # TerminalPosition, ending ~30,000 s
+                                        # after the save's clock, B 20 s after
+                                        # A. `--filter InjectSpawnStack`. No
+                                        # RP. Consumer:
+                                        # TSS-3-two-deliveries-same-spot-ts.
+                                        "spawn-stack")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")

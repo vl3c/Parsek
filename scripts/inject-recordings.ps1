@@ -41,6 +41,7 @@ $injectFilterByPreset = @{
     "rescan-substitute"     = "InjectRescanSubstitute"
     "leaves-departure"      = "InjectLeavesDeparture"
     "spawn-room"            = "InjectSpawnRoom"
+    "spawn-stack"           = "InjectSpawnStack"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -74,6 +75,7 @@ $defaultSaveByPreset = @{
     "rescan-substitute"     = "rescan-substitute-fixture"
     "leaves-departure"      = "leaves-departure-fixture"
     "spawn-room"            = "spawn-room-fixture"
+    "spawn-stack"           = "spawn-stack-fixture"
 }
 
 $ErrorActionPreference = "Stop"

@@ -1413,6 +1413,10 @@ namespace Parsek.Tests.Generators
             if (!double.IsNaN(terrainH))
                 rec.TerrainHeightAtEnd = terrainH;
 
+            SurfacePosition? terminalPosition = builder.GetTerminalPosition();
+            if (terminalPosition.HasValue)
+                rec.TerminalPosition = terminalPosition.Value;
+
             OrbitSegment? terminalOrbit = builder.GetTerminalOrbit();
             if (terminalOrbit.HasValue)
             {

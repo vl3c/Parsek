@@ -1,0 +1,178 @@
+schema = 1
+id = "KSS-2-orbit-deferred-ksc-then-ts"
+tier = "operator"
+# =============================================================================
+# KSS-2: AN ORBITING END THE SPACE CENTER DEFERS APPEARS ON THE NEXT TRACKING STATION
+# VISIT, ON ITS RECORDED ORBIT.
+#
+# Authored 2026-11-17 for the end-of-recording spawn audit (todo
+# END-SPAWN-SCENE-LANES-2026-11-17, scope 2b). NEVER FLOWN: its first flight is a READING
+# run (tag `pending-flight`). Every regex below matches a literal found in C# source (file
+# cited).
+#
+# THE RULE UNDER TEST: the Space Center never spawns an Orbiting end
+# (`GhostPlaybackLogic.ShouldSpawnAtKscEnd`: "orbital vessel deferred to flight scene", #171,
+# because pv.Load() in the Space Center scene crashes an orbiting vessel through terrain), so
+# the vessel is OWED to the next scene that can place it. This lane gates that the owed
+# spawn is not lost: the Tracking Station, entered after the Space Center crossed the end,
+# spawns it on its recorded terminal orbit (no lane gated the hand-over across the two
+# scenes before: EVA-15 / CN-3 cross the end in FLIGHT, LAY-1 / AIR-2 spawn a surface end
+# at the Space Center).
+#
+# HOST: `eva2-lko-crewed` (EVA-15 / SS-1's): Kerbal X (pid 3620499050, Valentina and Bob
+# aboard) in a ~100 km circular Kerbin orbit, the spent "Kerbal X Probe" ~16 m away on a
+# near-identical orbit, four landed "Kerbal X Debris" at the pad and an asteroid. No
+# committed trees. Clock 421.19.
+#
+# THE FLIGHT, every step a player's:
+#   (a) a 1x wait to UT 424 (CI-1's LoadGame-race wait), recording starts on Kerbal X, a
+#       1x coast to UT 470, stop and commit in flight. The leaf ends Orbiting with a
+#       recorded terminal orbit; the commit's optimizer trims the all-ExoBallistic coast to
+#       10 s past its second point (RecordingOptimizer.TailTrim.cs), so EndUT is ~435.
+#   (b) Rewind-to-Launch (`tree=latest`): the owner strip removes Kerbal X, UT goes back to
+#       ~409, the rewind lands at the Space Center, whose playhead (before the start)
+#       latches the recording into replay scope (PLAYBACK_REPLAY_SCOPE, saved).
+#   (c) AT THE SPACE CENTER: an uncapped WarpToUT to 2,000 crosses the end. ParsekKSC logs
+#       the deferral (Verbose `Spawn not needed ... orbital vessel deferred to flight
+#       scene (terminal=Orbiting)`) and spawns nothing (ListHandles reads it unspawned with
+#       pid 0; one RunTests per spec, so the placement cell runs once, in (d)).
+#   (d) SaveGame + LoadGame scene=trackstation (an in-session load, a building click's road),
+#       a 10x wait for the 0.25 s handoff ticks, and the Tracking Station handoff spawns
+#       Kerbal X through the recorded-terminal-orbit route; LeafVesselPlacement in the
+#       Tracking Station matches the live orbit to the recorded one.
+#
+# FIRST-FLIGHT RISKS: the trim (an untrimmed end at ~470 is still crossed at the Space
+# Center, nothing changes); the Tracking Station opening UT (the 10x wait's target leaves ~4 min of
+# Space Center time for the batch and the save).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: EVA-15's host and record / commit /
+# rewind chain without the EVA. (2) explicit-UT WarpToUT waits only. (3) no dwell keys. (4)
+# no burns. (5) b5 coasts do not apply. (6) every verb refuses in one frame. (7) count
+# window 1-2 until the reading run. (8) tier operator by the calibration discipline until
+# flown. (9) flight_efficiency.py owed after the first green flight.
+# =============================================================================
+description = "NEVER FLOWN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 2b): on eva2-lko-crewed Kerbal X coasts in LKO, recorded and committed; Rewind-to-Launch, then an uncapped warp past its end at the Space Center, which defers the Orbiting spawn (Verbose deferral line, nothing spawned), then the Tracking Station, whose handoff must spawn the owed Kerbal X on its recorded terminal orbit (Orbital route) where LeafVesselPlacement matches it."
+instanceProfile = "stock-minimal"
+tags = ["KSS-2", "spawn", "end-spawn", "space-center", "ksc-deferral", "tracking-station",
+        "ts-handoff", "orbital", "terminal-orbit", "warp", "rewind-to-launch",
+        "leaf-placement", "ingame-batch", "crewed", "kerbin", "sandbox", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },                   expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },               expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" },               expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },                expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "424", maxRate = "1" },                                  expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                    expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",   args = { ut = "470", maxRate = "1" },                                  expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "CommitTree",                                                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",                          expect = "OK" },
+  { cmd = "MissionMark", args = { label = "kss2-committed-${c0.count}" },                      expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                                  expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },               expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },                expect = "OK" },
+  { cmd = "MissionMark", args = { label = "kss2-rewound" },                                    expect = "OK" },
+  # (c) the end crossed at the Space Center: deferred, nothing spawned.
+  { cmd = "WarpToUT",   args = { ut = "2000" },                                                expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",                          expect = "OK" },
+  { cmd = "MissionMark", args = { label = "kss2-ksc-past-end-${c1.rec0spawned}-${c1.rec0spawnedPid}" }, expect = "OK" },
+  # (d) the next Tracking Station visit owes the spawn.
+  { cmd = "SaveGame",   args = { name = "persistent" },                                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark", args = { label = "kss2-ts" },                                         expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "2500", maxRate = "10" },                                expect = "OK", budget = 180 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",                          expect = "OK" },
+  { cmd = "MissionMark", args = { label = "kss2-ts-spawned-${c2.rec0spawned}-${c2.rec0spawnedPid}-end" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                           expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                          expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+D4  = ["exo-ballistic", "tail-trim"]
+D9  = ["rewind-to-launch"]
+D13 = ["terminal-orbit-safety"]
+D14 = ["kerbin", "warp-1x", "warp-rails", "scene-flight", "scene-ksc", "scene-ts", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 2 }
+
+# REPORT-ONLY until a reading run: one committed tree, the leaf Orbiting, Kerbal X spawned
+# once beside the probe, the four pad debris untouched.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1, max = 2 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "Kerbal X" = 1, "Kerbal X Probe" = 1, "Kerbal X Debris" = 4 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # ParsekFlight.MergeFlow.cs (FormatCommitTerminalLine).
+  "CommitTreeFlight terminal: rec=[0-9a-f]+ terminalState=Orbiting terminalOrbitBody=Kerbin",
+  "committree committed=true",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save ",
+  # (c) ParsekKSC.cs (Verbose deferral, GhostPlaybackLogic.SpawnDecision.cs reason), then
+  # nothing spawned (ListHandles).
+  "MISSIONMARK label=kss2-rewound [\\s\\S]*?\\[KSCSpawn\\] Spawn not needed for #([0-9]+) \"Kerbal X\": orbital vessel deferred to flight scene \\(terminal=Orbiting\\)",
+  "MISSIONMARK label=kss2-ksc-past-end-false-0 ",
+  # (d) the Tracking Station pays the owed spawn: VesselSpawner.EndOfRecording.cs (the
+  # Orbital route) and GhostMapPresence.TrackingStationLifecycle.cs (the handoff), tied by
+  # #N, then the committed store reads it back spawned with that pid.
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "MISSIONMARK label=kss2-ts [\\s\\S]*?\\[Spawner\\] Spawn #([0-9]+) \\(Kerbal X\\): using recorded terminal orbit propagated to current UT \\(ut=[0-9.]+, body=Kerbin, [\\s\\S]*?\\[Spawner\\] Orbital vessel spawn for #\\1 \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*?Tracking-station handoff spawned #\\1 \"Kerbal X\" pid=\\2 [\\s\\S]*?MISSIONMARK label=kss2-ts-spawned-true-\\2-end ",
+  # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs.
+  "MISSIONMARK label=kss2-ts-spawned-[\\s\\S]*?LeafPlacement summary: scene=TRACKSTATION compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=TRACKSTATION",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The Space Center must not spawn an Orbiting end (#171) or lose it as historical.
+  "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"Kerbal X\"",
+  "spawn handoff skipped #[0-9]+ \"Kerbal X\": historical",
+  "Tracking-station handoff skipped duplicate spawn for #[0-9]+ \"Kerbal X\"",
+  "Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\)[\\s\\S]*Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\)",
+  "terminal orbit cannot spawn safely",
+  "Spawn ABANDONED",
+  "Spawn RETIRED",
+  "Spawn refused for #[0-9]+ \\(Kerbal X\\)",
+  "Vessel spawn failed",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "timejump ",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# 300 load + 120 + 180 start + 120 coast + 120 commit + 300 rewind + 300 warp +
+# 120 save + 300 load + 180 wait + 300 tests + 120 save + margin for the default-budget steps.
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

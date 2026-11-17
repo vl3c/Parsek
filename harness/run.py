@@ -193,6 +193,8 @@ RP_SIDECAR_BY_PRESET = {
     "leaves-departure": None,
     # RSC-3's spawn-room recording: one committed single-recording tree, no RP.
     "spawn-room": None,
+    # TSS-3's two landed deliveries on one spot: two committed single-recording trees, no RP.
+    "spawn-stack": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

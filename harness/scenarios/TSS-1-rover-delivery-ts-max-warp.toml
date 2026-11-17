@@ -1,0 +1,205 @@
+schema = 1
+id = "TSS-1-rover-delivery-ts-max-warp"
+tier = "operator"
+# =============================================================================
+# TSS-1: A LANDED KERBIN DELIVERY ENDS WHILE THE PLAYER WARPS TO MAX IN THE TRACKING
+# STATION; IT SPAWNS ONCE, WHERE IT ENDED, AND STAYS ONE VESSEL IN FLIGHT.
+#
+# Authored 2026-11-17 for the end-of-recording spawn audit (todo
+# END-SPAWN-SCENE-LANES-2026-11-17, scope 1a). NEVER FLOWN: its first flight is a READING
+# run (tag `pending-flight`). Every regex below matches a literal found in C# source (file
+# cited); the windows that depend on stock physics (how far the rover drives, which way it
+# faces) are left open.
+#
+# HOST: `pad-runway-pair` (LF-1's): the 16-part probe rover "rover fuel 0" (pid 95298807,
+# FLIGHTSTATE index 0) PRELAUNCH at the runway's west end (-0.048685, -74.724506), about
+# 60 m east of the runway-threshold exclusion point, and "Logi Cargo Rig" on the pad (the
+# save's active vessel). No committed trees. `LoadGame focusPid=95298807` flies the rover.
+#
+# THE FLIGHT, every step a player's:
+#   (a) the rover settles after the load (DriveVessel settle mode, RVR-21's), recording
+#       starts, the rover drives at full throttle for 30 s (RVC-1 measured 365 m in 30 s at
+#       20 m/s on KSC ground) and brakes to a stop (settle, ~8 s measured). It ends 300+ m
+#       from where it started, outside both 50 m KSC exclusion circles whichever way it
+#       faces (east down the runway, or west onto the grass past the threshold).
+#   (b) commit in flight; the commit's optimizer trims the stationary tail to 10 s after
+#       the last movement (RecordingOptimizer.TailTrim.cs), so EndUT is ~start + 50.
+#   (c) Rewind-to-Launch the tree just committed: the owner strip removes the rover from the
+#       rewind save, UT goes back 15 s before the recording's start, the rewind lands at the
+#       Space Center. SaveGame + LoadGame scene=trackstation at once (FAR-1 / LAY-1's road):
+#       the Tracking Station starts at the saved UT, still before the recording's start, so
+#       its playhead sweep latches the recording into replay scope (no historical skip).
+#   (d) THE SUBJECT: an UNCAPPED WarpToUT to UT 600,000 in the Tracking Station. The ladder
+#       climbs to 100,000x (the rung needs >= 250,000 s remaining). The recording's end is
+#       crossed during the climb, so the handoff
+#       (GhostMapPresence.TrackingStationLifecycle.cs, every 0.25 real s at any rate) spawns
+#       the rover mid-warp, and the warp then runs at max for hundreds of thousands of game
+#       seconds while every later handoff tick must NOT spawn it again.
+#   (e) LeafVesselPlacement in the Tracking Station (the rover within 100 m of its recorded
+#       terminal surface position, one live vessel holding its pid), then SaveGame + LoadGame
+#       FLIGHT focused on the spawned rover (its pid off ListHandles): the committed store
+#       still names the same pid and no second rover spawns (one RunTests per spec, the
+#       batch vacuity gate, so the FLIGHT half reads ListHandles and the spawn lines).
+# WHAT "AT MAX" MEANS HERE, stated: the end is ~65 game seconds after the Tracking Station
+# opens, so it is crossed while the warp is still easing up (expected 10x-1000x), not at
+# 100,000x itself; a live recording cannot end 250,000 s after its rewind point (the tail
+# trim). The 100,000x crossing of a LANDED end is TSS-3's (synthetic ends 30,000 s out).
+# What this lane gates is the TS handoff firing mid-warp and staying single for the rest of
+# a max-rate warp, with `maxRate=100000` pinned on the warp's completion line.
+#
+# FIRST-FLIGHT RISKS (re-pin from the bytes): the rover's heading and the drive length
+# (open: only the exclusion forbid and the placement cell read where it ended); whether the
+# end is crossed before the Tracking Station opens (then the Space Center spawns it: the
+# `[KSCSpawn] Vessel spawned` forbid reds and names it; the fix is a longer drive); the
+# optimizer's recording count (window 1-2).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: no committed lane ends a live landed
+# recording inside a Tracking Station warp (V22T forbids the handoff; LAY-1 crosses at the
+# Space Center). (2) every game-time wait is an explicit-UT WarpToUT or a DriveVessel
+# bound. (3) no dwell keys. (4) no burns. (5) b5 coasts do not apply. (6) every verb
+# refuses in one frame; the drive fails fast on drivevessel-did-not-move. (7) count window
+# 1-2 until the reading run. (8) tier operator by the calibration discipline until flown.
+# (9) flight_efficiency.py owed after the first green flight.
+# =============================================================================
+description = "NEVER FLOWN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1a): on pad-runway-pair the probe rover drives 30 s off the runway end, recorded and committed; Rewind-to-Launch, then the Tracking Station from before the recording's start and an uncapped warp to 100,000x. Gates the Tracking Station handoff spawning the rover once mid-warp (before the warp completes, max rate 100,000x reached), LeafVesselPlacement in the Tracking Station, and that a FLIGHT load focused on the spawned rover keeps its pid and spawns no second rover."
+instanceProfile = "stock-minimal"
+tags = ["TSS-1", "spawn", "end-spawn", "tracking-station", "ts-handoff", "warp", "max-warp",
+        "rover", "rewind-to-launch", "leaf-placement", "ingame-batch", "kerbin", "sandbox",
+        "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/pad-runway-pair"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", focusPid = "95298807" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },               expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },                    expect = "OK" },
+  { cmd = "DriveVessel", args = { settleBelow = "0.05", seconds = "20" },                       expect = "OK" },
+  { cmd = "StartRecording",                                                                    expect = "OK", budget = 180 },
+  { cmd = "DriveVessel", args = { wheelThrottle = "1", seconds = "30" },                        expect = "OK" },
+  { cmd = "DriveVessel", args = { settleBelow = "0.05", seconds = "30" },                       expect = "OK" },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "CommitTree",                                                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",                          expect = "OK" },
+  { cmd = "MissionMark", args = { label = "tss1-committed-${c0.count}" },                      expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                                  expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },               expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },                    expect = "OK" },
+  { cmd = "SaveGame",   args = { name = "persistent" },                                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",                          expect = "OK" },
+  { cmd = "MissionMark", args = { label = "tss1-ts-${c1.rec0spawned}-${c1.rec0spawnedPid}" },  expect = "OK" },
+  # THE SUBJECT: uncapped, so the ladder climbs to 100,000x (header (d)).
+  { cmd = "WarpToUT",   args = { ut = "600000" },                                              expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",                          expect = "OK" },
+  { cmd = "MissionMark", args = { label = "tss1-spawned-${c2.count}-${c2.rec0spawned}-${c2.rec0spawnedPid}-end" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                           expect = "OK", budget = 300 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", focusPid = "${c2.rec0spawnedPid}" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c3",                          expect = "OK" },
+  { cmd = "MissionMark", args = { label = "tss1-flight-${c3.count}-${c3.rec0spawned}-${c3.rec0spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",                                                                          expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+D4  = ["surface-mobile"]
+D6  = ["spawn-at-end-pid-dedup"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "warp-rails", "warp-high", "scene-flight", "scene-ts", "scene-ksc", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The rover's one recording; open to 2 until the reading run in case the optimizer splits
+# the surface run (the launch-site departure rule should keep it whole).
+count = { min = 1, max = 2 }
+
+# REPORT-ONLY until a reading run. Expected in the final save: one committed tree, the rover
+# Landed, spawned once, the cargo rig untouched.
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+terminalStates = { Landed = { min = 1, max = 2 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "rover fuel 0" = 1 }
+
+[expectations.logContracts]
+required = [
+  # ParsekTestCommandAddon.cs (LoadGame applier) + StartRecording applier.
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # TestCommandDriveVessel.cs (FormatEndLine): the recorded drive moved.
+  "drivevessel end: outcome=moved ",
+  # ParsekFlight.MergeFlow.cs (FormatCommitTerminalLine): a Landed terminal on Kerbin.
+  "CommitTreeFlight terminal: rec=[0-9a-f]+ terminalState=Landed terminalOrbitBody=Kerbin",
+  "committree committed=true",
+  # ParsekTestCommandAddon.InvokeRewindToLaunch.cs + RewindLauncher.cs strip line.
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save ",
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  # The Tracking Station opens BEFORE the end: nothing spawned yet.
+  "MISSIONMARK label=tss1-ts-false-0 ",
+  # THE SUBJECT. VesselSpawner.EndOfRecording.cs (LogSpawnContext) and
+  # GhostMapPresence.TrackingStationLifecycle.cs (the handoff line), both after the
+  # Tracking Station mark and before the warp's completion line
+  # (ParsekTestCommandAddon.WarpToUT.cs), which must report the 100,000x rung reached.
+  "MISSIONMARK label=tss1-ts-[\\s\\S]*?\\[Spawner\\] Spawning vessel: \"rover fuel 0\" sit=[A-Z_]+, nearest vessel=[0-9]+m[\\s\\S]*?Tracking-station handoff spawned #[0-9]+ \"rover fuel 0\" pid=([0-9]+) preserveIdentity=\\w+[\\s\\S]*?warptout complete reachedUT=[0-9.]+ ut=600000 rate=[0-9.]+ maxRate=100000 [\\s\\S]*?MISSIONMARK label=tss1-spawned-[0-9]+-true-\\1-end ",
+  # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs (BATCH_COMPLETE), in the
+  # Tracking Station and then in FLIGHT on the spawned rover.
+  "MISSIONMARK label=tss1-spawned-[\\s\\S]*?LeafPlacement summary: scene=TRACKSTATION compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=TRACKSTATION",
+  # FLIGHT on the spawned rover: the committed store still names the SAME pid (no
+  # respawn on the scene change; the duplicate forbids below catch a second rover).
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight[\\s\\S]*?MISSIONMARK label=tss1-flight-",
+  "MISSIONMARK label=tss1-spawned-[0-9]+-true-([0-9]+)-end [\\s\\S]*?MISSIONMARK label=tss1-flight-[0-9]+-true-\\1-end ",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # A second rover, from any scene's spawn path.
+  "Spawning vessel: \"rover fuel 0\"[\\s\\S]*Spawning vessel: \"rover fuel 0\"",
+  "Tracking-station handoff spawned #[0-9]+ \"rover fuel 0\"[\\s\\S]*Tracking-station handoff spawned #[0-9]+ \"rover fuel 0\"",
+  # The end crossed at the Space Center instead (ParsekKSC.cs), a historical skip
+  # (GhostMapPresence.TrackingStationLifecycle.cs) or a refused / retired spawn.
+  "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"rover fuel 0\"",
+  "spawn handoff skipped #[0-9]+ \"rover fuel 0\": historical",
+  "Tracking-station handoff skipped duplicate spawn for #[0-9]+ \"rover fuel 0\"",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn refused for #[0-9]+ \\(rover fuel 0\\)",
+  "Vessel spawn failed",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "timejump ",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# 300 load + 20 settle + 180 start + 30 drive + 30 settle + 120 commit + 300 rewind + 120
+# save + 300 load + 300 warp + 300 tests + 120 save + 300 load + 120 save +
+# margin for the default-budget steps.
+budgetSeconds = 3000
+
+[retry]
+# One retry prices a physics flake on the drive; a spawn defect reproduces.
+policy = "once"
+
+[expectedFail]
+bugId = ""

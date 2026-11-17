@@ -209,6 +209,8 @@ steps = [
   { cmd = "WarpToUT", args = { ut = "23430", maxRate = "1" }, expect = "OK", budget = 300 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c2",        expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva10-spawned-count-${c2.count}-a-${c2.rec11}-${c2.rec11spawned}-${c2.rec11spawnedPid}-b-${c2.rec12}-${c2.rec12spawned}-${c2.rec12spawnedPid}-c-${c2.rec13}-${c2.rec13spawned}-${c2.rec13spawnedPid}-d-${c2.rec14}-${c2.rec14spawned}-${c2.rec14spawnedPid}-e-${c2.rec15}-${c2.rec15spawned}-${c2.rec15spawnedPid}-f-${c2.rec16}-${c2.rec16spawned}-${c2.rec16spawnedPid}-g-${c2.rec17}-${c2.rec17spawned}-${c2.rec17spawnedPid}-end" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva10-placement" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                    expect = "OK", budget = 300 },
   { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
@@ -293,6 +295,12 @@ required = [
   # And Jeb.
   "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-spawned-count-18-[^\\r\\n]*-\\1-true-[1-9][0-9]*-",
   # No sibling-exemption token: nothing is loaded at the Mun site when the members spawn.
+  # Added 2026-11-17 (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 3; NOT YET RE-FLOWN):
+  # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs. Every spawned Landed leaf
+  # on the Mun (the cluster spawned far from the player's runway Kerbal X) sits within 100 m
+  # of its recorded terminal surface position; compared == ok, one live vessel per pid.
+  "MISSIONMARK label=eva10-placement [\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=([1-9][0-9]*) ok=\\1 bad=0 absent=0 duplicate=0 unsupported=[0-9]+ bodies=\\[(?:[A-Za-z]+,)*Mun(?:,[A-Za-z]+)*\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -333,7 +341,7 @@ forbidden = [
 # The act budget of EVA-8 + 9 steps + 40 s idle + 120 ExitToSpaceCenter + 120 SaveGame +
 # 300 LoadGame + 300 rewind + 120 GoToEditor + 180 LaunchFromEditor + ~160 s flight wait +
 # 120 SaveGame + margin.
-budgetSeconds = 3000
+budgetSeconds = 3300
 
 [retry]
 policy = "once"
