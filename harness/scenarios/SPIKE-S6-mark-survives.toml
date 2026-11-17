@@ -1,0 +1,141 @@
+schema = 1
+id = "SPIKE-S6-mark-survives"
+# =====================================================================================
+# SPIKE BRANCH ONLY (spike/mp-r0, never merged). Plan: docs/dev/plans/multiplayer/
+# r0-spikes.md, task S6 (b). Does a scenario node whose module type is NOT installed (the
+# race mark `SCENARIO { name = ParsekRaceSpikeMark ... }`, the "older build" case of design
+# 6.2) survive every way a save is rewritten, stock and Parsek?
+#
+# HOW IT READS: the DLL under test is the spike DLL with PARSEK_SPIKE=S6 set in the
+# environment run.py is started from (run.py passes its environment to KSP). Armed, S6's
+# save watch re-reads every .sfs under the save folder when it changes and logs one
+# `[Spike.S6] savewatch ... game=<0|1> marks=<n> hash=<h>` line per write; the mark's
+# canonical hash is 33f1d41c85676b3f (spikes/r0/S6/check_mark.py computes the same). The
+# log contracts below make the lane red on any GAME save written without the mark, with
+# two marks, or with a changed mark; spikes/r0/S6/check_mark.py then diffs the snapshots
+# and the produced save tree offline.
+#
+# THE WRITE PATHS IT DRIVES, in order: the stock load + persistent save at the Space
+# Center; an editor launch; quicksave and a player quickload (a Cold save-file load);
+# a recorded flight committed and recovered (Parsek sidecars + persistent); Parsek's
+# Rewind-to-Launch (its save copy and LoadGame); a decoupled two-vessel flight committed
+# (a rewind point quicksave under Parsek/RewindPoints/); a Re-Fly (the rewind point's
+# quicksave copied to the save root and loaded); Discard Re-fly (RevertInterceptor writes
+# persistent.sfs from the rewind point's Game); a stock Revert to Launch (the GameBackup
+# path); the final persistent save and FlushAndQuit.
+#
+# HOST: the operator-local fixture `fixtures/local-saves/spike-s6-mark`, built from the
+# committed cs-career-mun4 plus the mark by spikes/r0/S6/make_template.py and staged with
+# harness/tools/stage_local_fixture.py (spikes/r0/S6/PC-RUN.md). Flown by the owner only,
+# against the spike instance:
+#   python run.py --id SPIKE-S6-mark-survives --instance-dir <umbrella>/automation/spike-r0-content
+# The step and literal shapes are RW-5's and FAR-3's, which are flown green.
+# =====================================================================================
+tier = "operator"
+description = "Spike S6 (spike branch only): on a staged copy of cs-career-mun4 carrying an unknown-type SCENARIO node (the race mark), drive every stock and Parsek save path (load + save, quicksave + player quickload, commit + recover, Rewind-to-Launch, rewind point, Re-Fly, Discard Re-fly, stock Revert to Launch, final save) with PARSEK_SPIKE=S6 armed; every GAME save the spike's save watch reads must hold exactly one mark with the canonical hash."
+instanceProfile = "stock-tree"
+tags = ["SPIKE-S6", "spike", "race-mark", "save-format", "career", "rewind", "rewind-to-launch",
+        "refly", "discard-refly", "revert", "quickload", "editor", "recover"]
+
+[fixture]
+saveTemplate = "fixtures/local-saves/spike-s6-mark"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "s6-loaded" },                                expect = "OK" },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "s6-quicksave" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "quicksave" },                                 expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "s6-quickloaded" },                           expect = "OK" },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185830" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "${h.pid}" },                                   expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "s6-rtl" },                                   expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler" }, label = "dec", expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185797", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",           expect = "OK" },
+  { cmd = "StashSlot",      args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK" },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "s6-refly" },                                 expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK", budget = 300 },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "s6-discard" },                               expect = "OK" },
+  { cmd = "ReFlyRevert",    args = { choice = "discard", target = "launch" },              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "s6-discarded" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "rv",            expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "s6-revert" },                                expect = "OK" },
+  { cmd = "RevertToLaunch",                                                                expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "s6-reverted" },                              expect = "OK" },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-launch", "rewind-to-separation"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+required = [
+  # ---- the spike is armed and every patch point bound ----
+  "\\[Spike\\] armed: [^\\r\\n]*S6",
+  "\\[Spike\\.S6\\] patch summary applied=6 missing=0",
+  # ---- the staged template holds the mark before anything writes ----
+  "\\[Spike\\.S6\\] savewatch seq=[0-9]+ trigger=initial file=[^\\r\\n]*/persistent\\.sfs bytes=[0-9]+ game=1 marks=1 hash=33f1d41c85676b3f ",
+  # ---- the earliest hook a load makes the mark readable from HighLogic.CurrentGame ----
+  "\\[Spike\\.S6\\] earliest cycle=[0-9]+ source=LoadGameCfg hook=",
+  # ---- each write path wrote a save the watch read with the mark ----
+  "MISSIONMARK label=s6-quicksave ut=[\\s\\S]*?\\[Spike\\.S6\\] savewatch [^\\r\\n]*file=[^\\r\\n]*/quicksave\\.sfs [^\\r\\n]*game=1 marks=1 hash=33f1d41c85676b3f ",
+  "MISSIONMARK label=s6-rtl ut=[\\s\\S]*?invokerewindtolaunch invoking tree=[0-9a-f]{32} ",
+  "MISSIONMARK label=s6-rtl ut=[\\s\\S]*?\\[Spike\\.S6\\] savewatch [^\\r\\n]*game=1 marks=1 hash=33f1d41c85676b3f [\\s\\S]*?MISSIONMARK label=s6-refly ut=",
+  "\\[Spike\\.S6\\] savewatch [^\\r\\n]*file=[^\\r\\n]*/Parsek/RewindPoints/rp_[0-9a-f]{32}\\.sfs [^\\r\\n]*game=1 marks=1 hash=33f1d41c85676b3f ",
+  "MISSIONMARK label=s6-discard ut=[\\s\\S]*?DiscardReFly: rewind point game written to persistent\\.sfs rp=rp_[0-9a-f]{32} ",
+  "MISSIONMARK label=s6-discard ut=[\\s\\S]*?\\[Spike\\.S6\\] savewatch [^\\r\\n]*file=[^\\r\\n]*/persistent\\.sfs [^\\r\\n]*game=1 marks=1 hash=33f1d41c85676b3f [\\s\\S]*?MISSIONMARK label=s6-discarded ut=",
+  "MISSIONMARK label=s6-revert ut=[\\s\\S]*?reverttolaunch complete pid=[0-9]+ name='Jumping Flea' situation=PRELAUNCH ",
+  "MISSIONMARK label=s6-reverted ut=[\\s\\S]*?\\[Spike\\.S6\\] savewatch [^\\r\\n]*file=[^\\r\\n]*/persistent\\.sfs [^\\r\\n]*game=1 marks=1 hash=33f1d41c85676b3f ",
+]
+forbidden = [
+  # A GAME save written without the mark, with two marks, or with a changed mark.
+  "\\[Spike\\.S6\\] savewatch [^\\r\\n]*game=1 marks=0 ",
+  "\\[Spike\\.S6\\] savewatch [^\\r\\n]*game=1 marks=[2-9]",
+  "\\[Spike\\.S6\\] savewatch [^\\r\\n]*game=1 marks=1 hash=(?!33f1d41c85676b3f )",
+  "\\[Spike\\.S6\\] patch target missing",
+]
+
+[runtime]
+budgetSeconds = 3600
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

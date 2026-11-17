@@ -110,6 +110,7 @@ namespace Parsek.InGameTests.Spikes
         {
             // S0: the arming proof itself; no patches.
             new SpikeRegistration("S0", null),
+            new SpikeRegistration("S6", S6.SpikeS6.Apply),
             // Each spike adds one line here, for example:
             // new SpikeRegistration("S4a", SpikeS4EventOrder.Apply),
         };

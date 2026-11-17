@@ -10803,6 +10803,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # SPIKE BRANCH ONLY (spike/mp-r0, never merged; r0-spikes.md S6).
+        "SPIKE-S6-mark-survives.toml": "tier=operator by MECHANISM, NOT debt: an R0 spike lane on the spike branch only, flown by the owner against the spike instance automation/spike-r0-content with PARSEK_SPIKE=S6 and an operator-local fixture (spikes/r0/S6/PC-RUN.md); its outcome goes into the spike report, never into a tier",
         # THE SCRIPTED CAMPAIGN FIXTURE BUILDERS, 2026-10-25.
         "CS-0-new-science-game.toml": "tier=operator as a FIXTURE BUILDER, NOT debt: it creates a genuine stock New Game (Science, Normal) through the NewGame seam verb on the stock-tree instance, and its produced save is harvested once as `cs-science-new`, the host of CS-1. Its value is the harvested fixture, not a regression floor. FLOWN PASS `2026-10-25_1743` and harvested; owed: nothing but the ordinary promotion call",
         "CS-1-science-first-hop.toml": "tier=operator by MECHANISM, NOT debt: scripted campaign stage 1 on the harvested `cs-science-new` new game, LIVE-PROVEN 2026-10-26 on the three-Goo cut (`2026-10-25_2243`, 4/4 aboard, science 0 -> 21.5); it stays operator because its instance profile, stock-tree, is not in the nightly instance set",

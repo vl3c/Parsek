@@ -1075,6 +1075,11 @@ def _reference_dll_drift(profile: Optional[str], instance_dir: str, umbrella_roo
     the reference instance's DEPLOYED Parsek.dll. One Info line either way.
     Keyed on the instance DIR: only the reference dir itself is skipped, so a
     copy of stock-minimal (``automation/stock-minimal-2``) is compared too."""
+    if hlib.is_spike_instance_dir(instance_dir):
+        # Spike branch only (r0-spikes.md S6): a spike instance carries the spike DLL by design.
+        logger.info("Admit", "admit parsek-dll vs %s: skipped (R0 spike instance %s, spike branch only)"
+                    % (hlib.REFERENCE_DLL_PROFILE, instance_dir))
+        return None
     ref_dir = resolve_instance_dir(hlib.REFERENCE_DLL_PROFILE, umbrella_root, None)
     same = ref_dir is not None and slots.same_instance_dir(ref_dir, instance_dir)
     mine = _sha256_file(os.path.join(instance_dir, PARSEK_DLL_REL))
