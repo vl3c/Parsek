@@ -1,0 +1,192 @@
+schema = 1
+id = "SOI-2-mun-exit-formation-wingman"
+tier = "operator"
+# =====================================================================================
+# SOI-2: A FORMATION FLIGHT THROUGH THE MUN SOI EXIT. A LOADED BACKGROUND WINGMAN'S
+# PHYSICS SOI CHANGE MUST SPLIT ITS OWN OPEN TRACKSECTION. NEVER FLOWN.
+# =====================================================================================
+#
+# WHAT IT PROVES. The residue of RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT (done/todo v11):
+# SOI-1 proved the ACTIVE vessel's off-rails SOI change splits its section; the
+# BACKGROUND half (`BackgroundRecorder.PhysicsSoi.cs`: a second vessel, loaded and in
+# physics, flying with the active one through the boundary) shipped with the same fix
+# and has no lane. Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9 names it: "a formation
+# flight through an SOI edge with a background wingman".
+#
+# THE FLIGHT. SOI-1's mission `soi1_mun_exit_burn` on SOI-1's host, with the new
+# FORMATION opt-in (`formationStageLeadSeconds = 25`, `mlib.soi1_decide` phase
+# SOI1-FORMATION-COAST): the crewed Kerbal X upper stage parked in a ~139.6 km Mun orbit
+# burns prograde to an escape hyperbola, rails-warps the coast to 150 s before the Mun
+# SOI exit, drops to 1x and, instead of SOI-1's straddle burn, STAGES 25 s before the
+# exit: the TR-38-D decoupler (stage 1, the only part on it) drops the whole lander stack
+# under the pod (Rockomax tank, Poodle, legs, panels, batteries, dish; 15 parts, several
+# tonnes), which becomes `Kerbal X Debris`, recorded by Parsek as a debris child for
+# 60 s (`BackgroundRecorder.DebrisTTLSeconds`). The pod and the stack then coast through
+# the boundary together at 1x, tens of metres apart (a decoupler's separation is a few
+# m/s), well inside the 350 m orbital pack distance, so the stack is LOADED AND IN
+# PHYSICS when it changes SOI. The run ends 30 s into Kerbin's SOI. The wingman is debris
+# rather than a second crewed ship because debris is what the fixture can make without a
+# new host, and the background loaded SOI path does not distinguish the two.
+#
+# WHY THE DISCRIMINATORS DISCRIMINATE.
+#   (1) `SOI changed off rails for background vessel: pid=P rec=R Mun -> Kerbin at
+#       UT=...: section split deferred to the first sample on the new body` is printed
+#       ONLY by `BackgroundRecorder.ArmBackgroundPhysicsSoiSample`
+#       (BackgroundRecorder.PhysicsSoi.cs), reached from `OnBackgroundVesselSOIChanged`
+#       (BackgroundRecorder.cs) only on the LOADED route. An on-rails wingman prints
+#       `SOI change for background vessel:` instead.
+#   (2) `Reference frame transition: F -> F at SOI boundary UT=... onRails=0 source=S
+#       from=Mun to=Kerbin closingSample=C pid=P rec=R` with the SAME pid and rec as (1)
+#       is printed ONLY by `TrySplitBackgroundSectionAtPhysicsBodyChange`, i.e. only
+#       when the background sampler actually split the wingman's section. The frame is
+#       left open (F backreferenced on both sides: the split keeps the frame by
+#       construction): a parent-anchored debris piece this close to its parent records
+#       Relative (CLAUDE.md "Parent-anchored contract"), and a Relative split commits no
+#       closing sample (`IsCommittableSoiClosingPoint` is Absolute only), so C is open
+#       too. The reading run pins both.
+#   (3) SOI-1's two ACTIVE lines stay required: the pod crosses in physics too, with the
+#       frame left open for the same reason (a wingman inside the relative-frame range
+#       may anchor the pod).
+#   (4) FORBIDDEN `at SOI boundary UT=... onRails=1`, SOI-1's proof that no crossing ran
+#       on rails.
+#
+# PRE-REGISTERED OUTCOMES, read off the run's own KSP.log before any edit:
+#   (A) EXPECTED. (1) and (2) for the same pid / rec, the active lines, no onRails=1.
+#       PASS. Then pin the frame and closingSample of (2) and tighten `count`.
+#   (B) (1) present, (2) absent: the wingman's SOI event was armed but no background
+#       sample split its section (the debris TTL expired first, or the decision read
+#       SameBody). A PARSEK FINDING if the stage age at the crossing (the mission's
+#       crossedInFormationAt1x detail `stageAgeAtCrossing`) was inside 60 s.
+#   (C) Neither (1) nor (2), and `SOI change for background vessel: pid=` present: the
+#       wingman was PACKED (beyond the pack distance) when it crossed. A physics
+#       outcome, not a Parsek one: re-shape the lead / separation, do not file it.
+#   (D) Neither, and no background SOI line at all: the stack was not recorded as a
+#       background vessel (debris below `ShouldRecordDebris`'s 3 parts / 0.5 t cannot
+#       be it: 15 parts). Report from the bytes.
+#   (E) The mission ends INVALID by name (SOI-1's set, plus a crossing before the stage
+#       and the formation-coast bound): a mission that did not fly is never PARSEK-FAIL.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane").
+#   1 Reuse a flight: SOI-1's whole flight up to the approach, unchanged; only the last
+#     70 s differ (a stage instead of a burn). It is a second lane rather than a change
+#     to SOI-1 because SOI-1's live-proven claim is a POWERED crossing.
+#   2 No idle waits: the coast is SOI-1's native WarpToUT to an explicit UT.
+#   3 Minimal dwells: 150 - 25 = 125 game s at 1x before the stage (SOI-1's re-point
+#     sizing), 25 s to the exit, 30 s trail.
+#   4 Burns at 1x: the escape burn as SOI-1; no burn near the boundary.
+#   5 b5 coasts: not applicable (not a b5 machine).
+#   6 Fail fast: SOI-1's named ends plus the formation ones.
+#   7 Tight windows: the count window is derived, tighten after flight 1.
+#   8 Tier by measured cost: never flown, so "operator"; SOI-1 flew in 291 s.
+#   9 Measure: run tools/flight_efficiency.py on the first green flight.
+# =====================================================================================
+description = "NEVER FLOWN (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9; the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT residue): SOI-1's Mun escape from mun-park-kerbalx, but 25 s before the Mun SOI exit the pod drops its lander stack and the two coast through the boundary together at 1x, so a LOADED background vessel (the recorded debris wingman) changes SOI in physics. Gates the background off-rails SOI line and the background section-split line for the same pid and recording, SOI-1's two active lines, and forbids any on-rails SOI crossing."
+instanceProfile = "stock-minimal"
+tags = ["SOI2", "mun", "kerbin", "cross-soi", "physics-soi", "track-section", "recorder",
+        "background-recorder", "formation", "orbit-start", "crewed", "R3", "pending-flight"]
+
+# `mun-park-kerbalx`, SOI-1's host (see SOI-1-mun-exit-physics-burn.toml [fixture]).
+# Nothing is launched, so no `fixtures/shared-ships.toml` row.
+[fixture]
+saveTemplate       = "fixtures/saves/mun-park-kerbalx"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "soi1_mun_exit_burn"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 1200 },
+  { cmd = "CommitTree",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+# SOI-1's values verbatim (live-proven 2026-11-04) ...
+homeBodyName                = "Mun"
+parentBodyName              = "Kerbin"
+minCrew                     = 1
+startMaxEccentricity        = 0.05
+startMinPeriapsisMeters     = 100000
+alignMaxErrorDeg            = 10
+alignDebounceFrames         = 3
+alignTimeoutSeconds         = 900
+alignPhysicsWarpIndex       = 1
+escapeThrottle              = 0.5
+escapeEccentricity          = 1.2
+escapeMinPeriapsisMeters    = 100000
+escapeBurnTimeoutSeconds    = 120
+igniteFrames                = 20
+warpLeadSeconds             = 150
+warpArrivalToleranceSeconds = 15
+maxWarpIssues               = 3
+coastTimeoutSeconds         = 20000
+approachTimeoutSeconds      = 400
+burnLeadSeconds             = 40
+burnTrailSeconds            = 30
+straddleThrottle            = 0.1
+straddleTimeoutSeconds      = 240
+minObservedBurnLeadSeconds  = 10
+# ... plus the FORMATION opt-in: stage 25 s before the exit (after the 1x drop at ~135 s,
+# inside the 60 s debris window with room for the coalescer and the first sample on
+# Kerbin), and accept a stage up to 50 s old at the crossing.
+formationStageLeadSeconds   = 25
+formationMaxStageAgeSeconds = 50
+
+[dimensionsCovered]
+D4  = ["exo-ballistic"]
+D5  = ["staging-debris-ttl", "bg-recording"]
+D14 = ["mun", "kerbin", "warp-1x", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Derived, open: the pre-stage root, the pod's continuation and the debris child (3),
+# plus any commit-time optimizer split; an exo-ballistic coast across a body change on
+# both sides is kept cohesive (`IsSplittableEnvOrBodyBoundary` step 3), so likely none.
+count = { min = 2, max = 8 }
+
+[expectations.logContracts]
+required  = [
+  # FlightRecorder.cs (the recorder's start line), as SOI-1.
+  "Recording started",
+  # FlightRecorder.PhysicsSoi.cs (ArmPhysicsSoiSample + FormatPhysicsSoiSplitTransition):
+  # the ACTIVE pod crosses in physics and splits its section.
+  "SOI changed off rails Mun -> Kerbin at UT=[0-9]+\\.[0-9]{2}: section split deferred to the first sample on the new body",
+  "Reference frame transition: (\\w+) -> \\1 at SOI boundary UT=[0-9]+\\.[0-9]{2} onRails=0 source=Active from=Mun to=Kerbin closingSample=[01]",
+  # BackgroundRecorder.PhysicsSoi.cs (ArmBackgroundPhysicsSoiSample, then
+  # TrySplitBackgroundSectionAtPhysicsBodyChange appending ` pid= rec=` to
+  # FlightRecorder.FormatPhysicsSoiSplitTransition): the LOADED wingman's SOI change is
+  # seen and ITS section is split, same pid and recording on both lines.
+  "SOI changed off rails for background vessel: pid=([0-9]+) rec=([0-9a-f]+) Mun -> Kerbin at UT=[0-9]+\\.[0-9]{2}: section split deferred to the first sample on the new body[\\s\\S]*?Reference frame transition: (\\w+) -> \\3 at SOI boundary UT=[0-9]+\\.[0-9]{2} onRails=0 source=\\w+ from=Mun to=Kerbin closingSample=[01] pid=\\1 rec=\\2",
+  # ParsekFlight.RecorderSession.cs (the tree-mode consumer of SoiChangePending), as SOI-1.
+  "SOI change boundary suppressed in tree mode: Mun to Kerbin",
+  # ParsekTestCommandAddon.cs (CommitTree applier).
+  "committree committed=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # SOI-1's (3): no crossing ran on rails.
+  "at SOI boundary UT=[0-9]+\\.[0-9]{2} onRails=1",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

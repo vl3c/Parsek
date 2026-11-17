@@ -1,0 +1,106 @@
+# Declared param schema for mission boat1_water_taxi (the BOAT-1 lane: the stock Mallard,
+# handed over afloat in the sea east of the Space Center with both jets lit, drives a
+# straight surface run on the water and comes to rest).
+#
+# Consumed exactly like every sibling schema: run.py parses it into the
+# { mission -> schema } registry and hlib's pure _validate_mission_params reads the
+# `params` table and nothing else. min/max are consulted only on numeric types.
+# Every default lives in `mlib.boat_params_from_dict`, which also refuses an
+# inconsistent set (cruise not below max, rest not below cruise).
+
+# What the ACTIVE VESSEL must read back at the handoff.
+[params.expectedVesselName]
+required = true
+type = "string"
+
+# Consecutive in-gate handoff frames (the vessel, SPLASHED, position read) before the run.
+[params.handoffDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+
+# Frames the handoff gate may judge before a refused handoff is a named
+# MISSION-ASSERT-FAIL.
+[params.handoffMaxFrames]
+required = false
+type = "int"
+min = 1
+max = 1000
+
+# Straight-line distance (m) from the handoff point that ends the run.
+[params.targetDistanceMeters]
+required = true
+type = "number"
+min = 10.0
+max = 20000.0
+
+# The speed governor's target (m/s).
+[params.cruiseSpeedMps]
+required = false
+type = "number"
+min = 1.0
+max = 40.0
+
+# A surface speed over this is a takeoff run, not a taxi: throttle cut and
+# MISSION-ASSERT-FAIL.
+[params.maxSpeedMps]
+required = false
+type = "number"
+min = 2.0
+max = 80.0
+
+# The governor: throttle = throttleBase + throttleGainPerMps * (cruise - speed), clamped
+# to [0, throttleMax].
+[params.throttleBase]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+[params.throttleGainPerMps]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+[params.throttleMax]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+# Consecutive frames off the water (any situation but SPLASHED) tolerated before the run
+# ends as MISSION-ASSERT-FAIL (a wave bounce reads FLYING for a frame or two).
+[params.offWaterFrames]
+required = false
+type = "int"
+min = 0
+max = 100
+
+# Game-time budget of the run (s) before a MISSION-FLAKE naming the distance made.
+[params.taxiTimeoutSeconds]
+required = false
+type = "number"
+min = 10.0
+max = 3600.0
+
+# Rest: surface speed under restSpeedMps while SPLASHED on restDebounceFrames frames.
+[params.restSpeedMps]
+required = false
+type = "number"
+min = 0.05
+max = 10.0
+
+[params.restDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+
+# Game-time budget of the stop (s) before a MISSION-FLAKE.
+[params.stopTimeoutSeconds]
+required = false
+type = "number"
+min = 10.0
+max = 3600.0

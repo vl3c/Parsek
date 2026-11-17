@@ -1,0 +1,222 @@
+schema = 1
+id = "LAY-1-laythe-reentry-splashdown"
+tier = "operator"
+# =============================================================================
+# LAY-1: A LIVE ATMOSPHERIC LANDING OFF KERBIN, RECORDED, REWOUND AND REPLAYED.
+#
+# Authored 2026-11-17 for todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9 (audit B9: "no lane
+# flies ... a live atmospheric landing off Kerbin"). NEVER FLOWN: its first flight is a
+# READING run (tag `pending-flight`). Every regex below matches a literal found in C#
+# source (file cited); the windows that depend on stock physics (where the pod comes down,
+# how many debris pieces survive) are left open.
+#
+# HOST: `laythe-park-nerv` (B25's Laythe park, Parsek-stripped): the crewed "Duna Rocket"
+# ORBITING Laythe, SMA 572,085.8 m ecc 0.0277 (periapsis ~56.2 km, apoapsis ~87.9 km,
+# above Laythe's 50 km atmosphere), Mk1 pod + HeatShield1 (Ablator 200/200) + TR-18A
+# decoupler over the NERV core stack (2 x MK1 fuselage, 267 LF each) with four EMPTY
+# radial MK1 tanks on radial decouplers. Staging read off the fixture's parts: stage 1 =
+# the four radial decouplers (sqor 1), stage 0 = the pod's decoupler (sqor 0) together with
+# the Mk16 main and the two Mk12-R drogues, all `automateSafeDeploy = 0` (they arm at the
+# stage and open only once safe). No other vessel orbits Laythe.
+#
+# THE FLIGHT (mission `b4_reentry` in its new ORBIT-START mode, `startInOrbit = true`,
+# mlib.b4_decide): the PRELAUNCH gate launches nothing; it accepts the handed-over vessel
+# once it reads ORBITING Laythe with a periapsis >= 52 km on 3 frames, cuts the throttle
+# and enters the ORBIT waypoint. From there it is B4's own walk, live-proven on Kerbin:
+# point retrograde, wait 10 s AND a <= 5 deg AutoPilot error, burn until the periapsis
+# reads <= 20 km (~30-50 m/s on the NERV, a few seconds), cut, release the AutoPilot, then
+# pay two owed stages 2 s apart (the radial tanks, then the pod's separation, which also
+# arms the chutes), rails-warp the exo coast in 60 s hops above 55 km, poll below, deploy
+# the chutes (already armed) at 8 km and wait for SPLASHED or LANDED. Laythe is mostly
+# ocean, so SPLASHED is the likely end; both are accepted.
+#
+# WHAT IT GATES (recording half): the recording starts in Laythe orbit (seam
+# StartRecording, the rewind save captured there); the ACTIVE recorder classifies the
+# descent as Atmospheric on a body that is not Kerbin and closes an Atmospheric section
+# with frames; the chutes' part events are recorded; the commit names a SURFACE terminal
+# on LAYTHE (ParsekFlight.MergeFlow.cs takes the surface body from TerminalPosition for a
+# Landed / Splashed terminal, which is exactly the claim: the pod ended on Laythe's
+# surface, not in its orbit).
+# (playback half): a Rewind-to-Launch to the recording's start, a Tracking Station visit
+# (READ ON FLIGHT 1, NOT GATED: whether a map ghost appears there at all; the clock sits 15 s
+# before the recording's start, so the gate answers `before-activation`, and a Splashed
+# terminal is not map-presence eligible unless the optimizer split off an orbital head;
+# `phase=GhostCreated surface=ProtoIcon ... body=Laythe` with mapRenderTracing on), and after
+# the clock passes the recording's end the spawned pod
+# sits where the recording ended (the LeafVesselPlacement cell: within 100 m of the
+# terminal surface position on Laythe).
+# NOT CHECKED: the ghost's position DURING the atmospheric descent (no in-game cell samples
+# a live map ghost against the recording mid-flight; the same gap AIR-2 names for a KSC
+# ghost).
+#
+# SPAWN UT. The fixture's clock is 28,817,025.34. The mission's game-time bounds are
+# deorbit 300 + reentry 2,400 + descent 900 s, so the recording ends before ~28,820,750
+# even on a full-budget run (a typical one ends ~1,000-2,000 s after the start). The
+# post-rewind warp goes to 28,821,000, past that bound, so the leaf has spawned by then.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) no existing lane flies this prefix: B25/B26
+# leave Laythe's park upward. (2) every wait is the mission's own condition or an
+# explicit-UT WarpToUT. (3) no dwell keys. (4) the deorbit burn runs at 1x (B4's DEORBIT
+# phase never warps). (5) b5 coast keys do not apply (B4 machine). (6) the gate fails fast
+# with a named MISSION-ASSERT-FAIL on a wrong handoff; B4 already ends every loss at once.
+# (7) the count window is open until the reading run measures it. (8) tier operator by the
+# calibration discipline until flown. (9) flight_efficiency.py owed after the first green
+# flight.
+# =============================================================================
+description = "NEVER FLOWN (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9, audit B9): the crewed Duna Rocket parked in Laythe orbit (laythe-park-nerv) deorbits on its NERV, drops its radial tanks and its core stack, reenters on the heat shield and comes down under its chutes on Laythe (b4_reentry in its new orbit-start mode). Gates the active recorder's Atmospheric section on a body that is not Kerbin, the chute part events and a Splashed / Landed terminal on Laythe at the commit; then Rewind-to-Launch, a Tracking Station visit (whether a map ghost appears there is read on flight 1, not gated: the clock sits before the recording's start and a Splashed terminal is not map-eligible), and the spawned pod at its terminal surface place (LeafVesselPlacement)."
+instanceProfile = "stock-minimal"
+tags = ["LAY1", "laythe", "atmosphere", "reentry", "chute", "splashdown", "orbit-start",
+        "commit-landed-foreign-body", "rewind-to-launch", "leaf-placement", "ingame-batch",
+        "crewed", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/laythe-park-nerv"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b4_reentry"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },                   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },               expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },                    expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },                expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" },                  expect = "OK" },
+  { cmd = "StartRecording",                                                                    expect = "OK", budget = 180 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 2400 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "CommitTree",                                                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lay1-committed" },                                  expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                                  expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },               expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lay1-rewound" },                                    expect = "OK" },
+  { cmd = "SaveGame",   args = { name = "persistent" },                                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "MissionMark", args = { label = "lay1-ts" },                                         expect = "OK" },
+  { cmd = "SaveGame",   args = { name = "persistent" },                                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",   args = { ut = "28821000" },                                            expect = "OK", budget = 300 },
+  { cmd = "MissionMark", args = { label = "lay1-past-end" },                                   expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                           expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                          expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+# ORBIT-START mode (mlib.b4_start_gate_refusal): the park reads periapsis ~56.2 km.
+startInOrbit                   = true
+startInOrbitBodyName           = "Laythe"
+startInOrbitMinPeriapsisMeters = 52000
+startInOrbitDebounceFrames     = 3
+startInOrbitGateMaxFrames      = 40
+landingBodyName                = "Laythe"
+# The ascent keys are still required by the schema; no ascent is flown. The apoapsisFloor
+# row reads the PEAK apoapsis of the whole flight, which is the park's ~87.9 km: floor
+# 80,000 - 20,000 = 60 km.
+targetApoapsisMeters      = 80000
+targetPeriapsisMeters     = 56000
+apoErrorMeters            = 20000
+periErrorMeters           = 5000
+ascentTimeoutSeconds      = 420
+circularizeTimeoutSeconds = 300
+# Deorbit: periapsis 20 km, 30 km inside Laythe's 50 km atmosphere.
+deorbitPeriapsisMeters    = 20000
+retroSettleSeconds        = 10
+maxAttitudeErrorDeg       = 5
+stageSettleSeconds        = 2
+# Stage 1 drops the four empty radial tanks, stage 0 separates the pod + heat shield and
+# arms the three chutes.
+reentryStageCount         = 2
+# Rails hops only above Laythe's atmosphere (50 km) with a margin.
+warpAboveAltMeters        = 55000
+warpHopSeconds            = 60
+chuteDeployAltMeters      = 8000
+deorbitTimeoutSeconds     = 300
+reentryTimeoutSeconds     = 2400
+descentTimeoutSeconds     = 900
+landedSituations          = ["LANDED", "SPLASHED"]
+
+[dimensionsCovered]
+D1  = ["commit-landed-foreign-body"]
+D4  = ["atmospheric"]
+D5  = ["staging-debris-ttl"]
+D6  = ["ghost-map-presence"]
+D7  = ["chute-two-phase", "decouple-stage-destroy"]
+D9  = ["rewind-to-launch"]
+D14 = ["laythe", "atmosphere", "warp-1x", "warp-rails", "scene-flight", "scene-ts", "scene-ksc", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Open until the reading run: the root, the two stage separations' continuations and up to
+# five debris pieces (4 radial tanks, the core stack), plus optimizer splits at the
+# Exo -> Atmospheric -> Surface boundaries. Above 20 the commit prints the root's summary
+# line only (ParsekFlight.CommitTerminalLogLimit), which the terminal token still reads.
+count = { min = 2, max = 20 }
+
+[expectations.logContracts]
+required = [
+  # ParsekTestCommandAddon.cs (LoadGame applier).
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  # ParsekTestCommandAddon.cs (StartRecording applier).
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # FlightRecorder.StartRecording.cs (CaptureRewindSave) + RewindLauncher.cs (the plain
+  # rewind's initiated line): the rewind goes back to the Laythe-orbit start.
+  "Captured rewind save at UT ([0-9.]+): vessel \"Duna Rocket\" in ORBITING \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  # EnvironmentDetector.cs (both transition literals): the descent reaches Atmospheric.
+  "Environment transition: \\w+ -> Atmospheric at UT=",
+  # FlightRecorder.EnvironmentAndTrackSections.cs (CloseTrackSection, [Recorder] tag = the
+  # ACTIVE recorder, not a background debris piece): an Atmospheric section with frames.
+  "\\[Recorder\\] TrackSection closed: env=Atmospheric ref=(?:Absolute|Relative) frames=[1-9][0-9]* ",
+  # FlightRecorder.EngineAndRcs.cs (the active poll sink's part-event line).
+  "Part event: ParachuteDeployed '(?:parachuteSingle|radialDrogue)'",
+  # ParsekFlight.MergeFlow.cs (FormatCommitTerminalLine / the summary line): a SURFACE
+  # terminal whose body is Laythe.
+  "CommitTreeFlight terminal: rec=[0-9a-f]+ terminalState=(?:Splashed|Landed) terminalOrbitBody=Laythe",
+  # ParsekTestCommandAddon.cs (CommitTree applier).
+  "committree committed=true",
+  # ParsekTestCommandAddon.InvokeRewindToLaunch.cs.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # LoadReconcilePolicy.cs (FormatClassifiedLine).
+  "MISSIONMARK label=lay1-committed ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind ",
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  # LeafVesselPlacement.cs (FormatSummaryLine) + InGameTestRunner.cs (BATCH_COMPLETE): the
+  # spawned pod sits at its terminal surface place on Laythe.
+  "MISSIONMARK label=lay1-past-end ut=[\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[(?:[A-Za-z]+,)*Laythe(?:,[A-Za-z]+)*\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "timejump ",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# 300 load + 180 start + 2,400 mission + 120 commit + 300 rewind + 2 x (120 save + 300
+# load) + 300 warp + 300 tests + 120 save + margin.
+budgetSeconds = 5400
+
+[retry]
+# One retry prices a kRPC / AutoPilot flake; a wrong handoff or a loss on reentry
+# reproduces and names itself.
+policy = "once"
+
+[expectedFail]
+bugId = ""

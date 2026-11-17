@@ -155,3 +155,23 @@ min = 10.0
 required = false
 type = "number"
 min = 0.0
+
+# --- FORMATION OPT-IN (SOI-2: a background wingman through the SOI edge). Absent or 0,
+# the walk is SOI-1's. > 0: APPROACH stages once at time_to_soi <= this many seconds
+# (the decoupled lower stack becomes the loaded background wingman), the straddle burn
+# never runs, and the pod coasts the boundary at 1x; burnTrailSeconds still ends the run
+# and straddleTimeoutSeconds still bounds it. The crossing row becomes
+# crossedInFormationAt1x.
+[params.formationStageLeadSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 55.0
+
+# The stage-to-crossing time the crossedInFormationAt1x row accepts: inside Parsek's 60 s
+# debris recording window, so the wingman is still recorded when it crosses.
+[params.formationMaxStageAgeSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 60.0

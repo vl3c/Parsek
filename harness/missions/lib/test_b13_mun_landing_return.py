@@ -1220,10 +1220,20 @@ class RunnerRebindTests(unittest.TestCase):
 B5_LANDING_TRACE_DIGEST = "fd4d3260afd4299bd4173f491372c820f95c2c826ea8ffdb3fba5b2e90887acb"
 # Re-pinned 2026-11-15 for one new field only (B5Params escape_extra_park_orbits): with
 # its default repr removed the trace hashes to the previous pin 9bae0487...78e8.
-MOR_TRACE_DIGEST = "5ddd95e58eb692db873a2a6d8e3ae51dcd30b442458a7f2bb4bfefcf0e578c75"
+# Re-pinned 2026-11-17 for new fields only (B4Params start_in_orbit, start_body,
+# start_min_periapsis, start_debounce_frames, start_gate_max_frames, landing_body; B4State
+# start_streak, start_gate_frames, start_entry_body / _situation / _periapsis / _apoapsis,
+# LAY-1's orbit-start opt-in): with those fields' default reprs removed the trace hashes
+# to the previous pin 5ddd95e5...8c75.
+MOR_TRACE_DIGEST = "dc848442973db513946c128a973c458b567410282063fd49433fa77fb81fe34b"
 # Re-pinned 2026-11-15 for one new field only (B5Params escape_extra_park_orbits): with
 # its default repr removed the trace hashes to the previous pin 048c388f...90ae.
-MSC_TRACE_DIGEST = "e6849f99ae8e220e24471f6b9e736d6cac791afb83e8edb26f815533e8832221"
+# Re-pinned 2026-11-17 for new fields only (B4Params start_in_orbit, start_body,
+# start_min_periapsis, start_debounce_frames, start_gate_max_frames, landing_body; B4State
+# start_streak, start_gate_frames, start_entry_body / _situation / _periapsis / _apoapsis,
+# LAY-1's orbit-start opt-in): with those fields' default reprs removed the trace hashes
+# to the previous pin e6849f99...2221.
+MSC_TRACE_DIGEST = "dc49c7fc6df2dfa82d1ed805aa6d1360c872c579ba769d5ee5b7ae3fcbccc258"
 MLR_RELEASE_OFF_ACTIONS_DIGEST = (
     "19c29a559fca2e2e26938935b0eb6d27d4a583846d1ad4f5a5da6609d2d82f67")
 

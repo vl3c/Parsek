@@ -2315,7 +2315,36 @@ in parallel in the cloud):
    ROUTE-SOURCE-OPTIMIZER-REWRITE, fixed in the same PR.
 9. [ ] Missing mission shapes (audit B9): a live atmospheric landing off Kerbin (Eve or Laythe),
    a Minmus or orbital miner, a boat, and the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT formation
-   flight through an SOI edge with a background wingman.
+   flight through an SOI edge with a background wingman. THREE LANES AUTHORED 2026-11-17
+   (harness only, no C# change), all NEVER FLOWN (tier operator, tag `pending-flight`):
+   - `LAY-1-laythe-reentry-splashdown`: the crewed Duna Rocket parked in Laythe orbit
+     (`laythe-park-nerv`) deorbits on its NERV, drops its radial tanks and core stack, reenters
+     on the heat shield and comes down under its chutes on Laythe. `b4_reentry` gained an
+     ORBIT-START opt-in (`startInOrbit` + `startInOrbitBodyName` /
+     `startInOrbitMinPeriapsisMeters` / `startInOrbitDebounceFrames` /
+     `startInOrbitGateMaxFrames`; `landingBodyName` adds a `landedOnBody` row). Gates an
+     Atmospheric section on the active recorder, the chute part events, a Splashed / Landed
+     terminal on Laythe, then Rewind-to-Launch, a Tracking Station visit (its map ghost read on flight 1, not gated) and the end
+     spawn (LeafVesselPlacement). Not checked: the ghost mid-descent. Eve was not used: its only
+     park (`eve-park-kerbalx`) is ~5,000 km high and its Mk1 pod has no heat shield.
+   - `BOAT-1-mallard-water-taxi`: the stock Mallard afloat east of KSC drives 400 m on the water
+     on its jets and comes to rest (new mission `boat1_water_taxi`, `mlib.boat_decide`), on the
+     new fixture `mallard-splashed` (AIR-1's harvest `air-circuit-recorded` with Parsek stripped,
+     built by `harness/tools/build_mallard_splashed.py`). Gates a SurfaceMobile section on water
+     and a Splashed terminal, then Rewind-to-Launch, the KSC ghost to its Splashed end and the
+     end spawn (LeafVesselPlacement).
+   - `SOI-2-mun-exit-formation-wingman`: SOI-1's Mun escape with a new FORMATION opt-in on
+     `soi1_mun_exit_burn` (`formationStageLeadSeconds`): the pod drops its lander stack 25 s
+     before the SOI exit and the two coast through it at 1x, so the debris wingman is LOADED
+     when it changes SOI. Gates `SOI changed off rails for background vessel` and the background
+     section-split line for the same pid and recording.
+   NOT BUILT: a Minmus miner. The orbital miner is covered by AST-3 (drills a Klaw-held rock in
+   LKO, green 2026-11-15). A Minmus surface miner needs a new fixture: the miner rover
+   (`build_miner_rover_landed.py`) re-homed onto Minmus flats (LANDED body 3, a measured flats
+   lat / lon and terrain height, which no committed save records, and a non-zero Ore
+   concentration there), plus a way to get it there that keeps the ground contact stable on
+   load; none of that can be verified without flying it. Each lane leaves this item when it
+   flies green.
 10. [ ] The unit-test residue of the audit (C4 background off-rails handler and C9
    GhostCommNetManager done 2026-11-16: their decisions extracted pure and xUnit-pinned, the
    live halves named in the residue entry; C6 harvest totals, C5 rewind point slot ambiguity and
@@ -2509,7 +2538,7 @@ lines and the key.
 - ~~DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock into a resumed Parsek-spawned vessel reads as a different launch (identity links are not consulted by `VesselLaunchIdentity`).~~ FIXED 2026-11-16, branch `fix-residual-dock-link`; xUnit; low. Reproduced headless first: the resumed recording keeps the original launch guid G0 at the spawn pid, the dock stamps the live guid G1, and the bare guid test refused every dock-claim read, so after a rewind the resumed recording was not an intermediate chain link and spawned its vessel beside the docked stack's spawn (the Missions partner and dock-event partner read `guidRejected`). Fix: `VesselLaunchIdentity.GuidsConclusivelyDifferAllowingLinks` (the bare test, then the link rows in both directions, so a link G1 -> G0 joins either argument order; two guids that only share an ancestor stay apart) at the seven dock-claim sites: `GhostChainWalker` (latest-launch filter, `FindIntermediateLinkChain`, `MergeCrossTreeLinks`, `ForkContinuesWalkedVessel`) and `MissionCrossTreeDock` (`FindSameTreeDockClaims`, `FindClaimedRecording`, which `DockEventGraph`'s cross-tree step reuses, and the journey's `FindBranchSuccessor`). Unlinked launches of one craft are still refused. Tests: `DockIntoResumedSpawnLinkTests` (each site mutation-checked). Not changed: `ParsekFlight.SelectChainPidsToGhost` and `GhostCommNet`'s chain filter compare live guids with claim guids the same bare way; no failing sequence was found for them. Lane owed: a CI-9 / VN-12 twin (fly a Real Spawn again, commit, dock a second launch into it, rewind before the spawn) requiring one spawn of the resumed vessel.
 - CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract either gate leaves unfiled is not filed later when the clock reaches its outcome. FIXED 2026-11-16 (branch `fix-residuals-contract-d5`): each patch with a real clock files, from its accept snapshot and silently (no ledger row, no `SetState`, nothing paid or charged), every walk-ended, non-tombstoned contract stock holds in neither list whose outcome end UT is at or before the clock (`KspStatePatcher.PlanMissingTerminalContractFilings` + `FileMissingTerminalContracts`; `archiveLateFiled` / `archiveLateFailed` on the `PatchContracts: removedStale=` summary, one `late-filed ended contract` Info line each; skips logged Verbose). The same covers a clock jump past both the accept and the outcome. Defect shown first on the pure planners (a no-clock removal, then a real-clock patch: the retire planner reads only the active list, so nothing filed it); cells in `ContractCrossedOutcomeArchiveTests` (files once, a repeat adds no copy, outcome after the clock or unknown stays unfiled, skips, load failure). Not flown: RW-20 would show it only on a run that crosses with `archiveNoClock=1` first.
 - D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: the capture's distance is measured from the promotion point, and a capture on the vessel-switch stop path with a Relative section still open takes the flat route. FIXED 2026-11-16 (branch `fix-residuals-contract-d5`), second half only: the vessel-switch stop (`FlightRecorder.HandleVesselSwitchDuringRecording`, EVA board / `ChainToVessel`) builds the capture without closing the section, so it now hands the open `currentTrackSection` (when it has payload, `TrackSectionHasResumePayload`) to `SnapshotVessel`, and the route, the body-fixed samples and the end-biome sample read `LiveVesselSnapshot.BuildDistanceRouteSections(closed, open)`; with no body-fixed sample the distances stay 0 so the finalize backfill still runs. Reachable for a kerbal boarding in RELATIVE mode (off the surface, near the vessel); the capture's distance is read by the unconfirmed-boarding / fallback paths (`TryAppendCapturedToTree` keeps the larger value, the standalone copy takes it). Cells in `PromotedDebrisSnapshotDistanceTests` (the switch-stop shape routes flat on the closed sections alone, body-fixed with the open one: 5 km, not >1000 km). The promotion-point half stays accepted (cosmetic, larger value kept). The vessel-switch stop now closes its open section before the capture (EVA-SWITCH-STOP-DROPS-OPEN-SECTION), so that half reads the closed list.
-- RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: lane owed, a formation flight through an SOI edge with a background wingman. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): lane owed, SOI-1 host with a decouple before the boundary.
+- RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: lane owed, a formation flight through an SOI edge with a background wingman. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): lane owed, SOI-1 host with a decouple before the boundary. AUTHORED 2026-11-17, NEVER FLOWN: `SOI-2-mun-exit-formation-wingman` (NEXT-TESTS-TO-BUILD-2026-11-11 item 9).
 - VB-1-KSP-HANG-AT-MAIN-MENU: a hang after the MAINMENU line is still caught only by the long timeout. DONE: the boot watchdog's main-menu phase (`hlib` rule `no-seam-receipt`) now catches a hang after MAINMENU.
 - FAST-POLL-SETTLES-STILL-RACE: CI-6 still waits on a timer; a named-condition wait would replace it. TRIAGED 2026-11-16 (`/mnt/project-files/bugfix-1.0.3/residuals-triage-2026-11-16.md`): ACCEPTED: CI-6 is green on `WarpToUT`; a named wait is a harness nicety.
 
@@ -2736,7 +2765,9 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   UiAction seam before its RunTests step, or a C# change making its cells raise
   `ParsekKSC.ShowUIForTesting` (restored in a finally).
 - [ ] B9: no lane flies an aircraft, a boat, a live atmospheric landing off Kerbin or a Minmus /
-  orbital miner (the claw has only the synthetic H41 / H42 cells).
+  orbital miner (the claw has only the synthetic H41 / H42 cells). Aircraft: AIR-1 green
+  2026-11-16. Orbital miner: AST-3 green 2026-11-15. Boat and Laythe landing: BOAT-1 and LAY-1
+  authored 2026-11-17, never flown. Minmus miner: open (NEXT-TESTS-TO-BUILD-2026-11-11 item 9).
 - [ ] Fixes proven by xUnit only, never seen in game: ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER,
   RESCUE-PLACED-MARKER-SESSION-ONLY,
   RESCUE-PLACED-MARKER-NEVER-RETIRES, the drop path of
