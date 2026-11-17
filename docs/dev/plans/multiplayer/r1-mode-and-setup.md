@@ -420,6 +420,12 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     Verbose `[Race] Mark saved: ..` per save.
   - `ParsekGameModeGateTests.GatedEntryPointNames` lists `ParsekRaceScenario.OnLoad`, so the
     IL check proves the scenario's load calls `ParsekGameModeGate.CheckInert`.
+  - `SaveRoundTripCoverageGateTests.Exempt` has a row for `IRaceScenarioChild`: the gate counts
+    any type with a `Save*` / `Load*` method over a ConfigNode, and the interface has no fields to
+    round-trip. Each implementer is its own row or covered test when it lands (R3E-15 first).
+    `RaceLinkCodec.TryRead` and `ParsekRaceScenario.OnLoad` / `OnSave` do not match the gate's
+    name prefixes, and `RaceLinkCodec.Write` (R1-10) will not either, so R1-10's field-level
+    round trip of `RaceLink` in `RaceLinkCodecTests` is required by this plan, not by the gate.
   - The 29 forbidden edges are 13 single edges into RaceCore and one list edge out of it with
     its 16 targets. `headless_pins.toml` gained only the RaceCore rows (measured: 13 methods,
     754 instructions, no reach, no leak). `ilanalysis.coupling_report` now writes zero reach
