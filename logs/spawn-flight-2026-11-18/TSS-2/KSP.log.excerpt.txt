@@ -1,0 +1,18 @@
+# excerpt of 2026-11-18_0133_TSS-2-mun-orbit-end-ts/KSP.log (collect-logs of the last attempt)
+----- KSP.log line 11180
+[LOG 01:32:12.438] [Parsek][INFO][TestCommands] recv id=0012 cmd=ListHandles args=1
+----- KSP.log line 11183
+[LOG 01:32:12.439] [Parsek][INFO][TestCommands] exec id=0012 cmd=ListHandles start
+----- KSP.log line 11193
+[LOG 01:32:12.456] [Parsek][INFO][TestCommands] MISSIONMARK label=tss2-committed-1 ut=21815.100307942015
+----- KSP.log line 11938
+[LOG 01:32:15.419] [Parsek][INFO][TestCommands] MISSIONMARK label=tss2-ts ut=21735.040307940595
+----- KSP.log line 12022
+[LOG 01:32:16.157] [Vessel Ghost: Kerbal X]: Vessel was destroyed.
+[LOG 01:32:16.158] [Parsek][INFO][GhostMap] destroy: rec=32860908d1eb4260a626d4a9ac3afa14 idx=0 vessel="Kerbal X" source=StateVector branch=Absolute body=Mun worldPos=(3818281.8,297.3,-11446165.2) ghostPid=1024451730 ut=21805.8 scene=TRACKSTATION reason=tracking-station-spawn-handoff
+[LOG 01:32:16.158] [Parsek][INFO][GhostMap] Tracking-station handoff spawned #0 "Kerbal X" pid=2106145342 preserveIdentity=False
+[LOG 01:32:16.158] [Parsek][VERBOSE][GhostMap] ResolveTrackingStationGhostSource: Tracking-station orbit source: context=tracking-station-lifecycle recIndex=0 rec=32860908d1eb4260a626d4a9ac3afa14 vessel="Kerbal X" currentUT=21950.2 source=None orbitSource=none reason=already-spawned terminal=Orbiting terminalBody=Mun terminalSma=339569 endpoint=(TrajectoryPoint,Mun) hasSegments=False vesselSpawned=True spawnedPid=2106145342 already spawned sourceKind=None rec=32860908d1eb4260a626d4a9ac3afa14 body=(none) sourceUT=(none) world=(none)
+[LOG 01:32:16.161] [Parsek][INFO][GhostMap] Tracking Station vessel list refreshed: reason=tracking-station-lifecycle created=0 destroyed=1
+----- KSP.log line 12227
+[LOG 01:33:13.292] [Parsek][INFO][TestCommands] recv id=0021 cmd=ListHandles args=1
+[LOG 01:33:13.292] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=ListHandles | suppressed=11

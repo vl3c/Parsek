@@ -1,0 +1,474 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_2337_AIR-3-plane-drone-midair-collision_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 749,
+  "collectLogs": {
+    "path": "Collecting logs into: 2026-11-18_0149_AIR-3-plane-drone-midair-collision/",
+    "ran": true
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "gs1-two-stage-pad",
+          "scene": "FLIGHT",
+          "ut": "26.69999999999952"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "26.919999999999515",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoMerge",
+          "ut": "26.939999999999515",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "26.979999999999514",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "air3-flight",
+          "ut": "26.999999999999513"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "expect": "MISSION-OK",
+        "id": "0006",
+        "met": true,
+        "missionVerdict": "MISSION-OK",
+        "phase": "mission",
+        "subkind": null,
+        "verdict": "MISSION-OK"
+      },
+      {
+        "captured": {
+          "label": "air3-down",
+          "ut": "510.15999999982597"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "scene": "SPACECENTER",
+          "ut": "510.25999999982588"
+        },
+        "cmd": "ExitToSpaceCenter",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "air3-committed",
+          "ut": "510.27999999982586"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "adjustedUT": "15.9",
+          "rec": "12f8879a6dfc4071bc4db7b9432d94c4",
+          "rewound": "true",
+          "tree": "ed4c20d847174eccb2d5dbe57d93ecea",
+          "ut": "15.959999999999429"
+        },
+        "cmd": "InvokeRewindToLaunch",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "16.179999999999424",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "air3-rewound",
+          "ut": "16.199999999999424"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "1983.7600000000007",
+          "maxRate": "10",
+          "target": "2000",
+          "ut": "1999.7970568850549"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "air3-replayed",
+          "ut": "1999.9770568850547"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "1999.9970568850547"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T23:49:53Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": 487,
+  "note": "",
+  "runId": "2026-11-17_2337_AIR-3-plane-drone-midair-collision",
+  "scenarioId": "AIR-3-plane-drone-midair-collision",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 4015297,
+    "files": 100,
+    "path": "2026-11-17_2337_AIR-3-plane-drone-midair-collision_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PARSEK-FAIL"
+  },
+  "startedUtc": "2026-11-17T23:37:24Z",
+  "subkind": "expectation",
+  "tier": "operator",
+  "verdict": "PARSEK-FAIL",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-3\\saves\\gs1-two-stage-pad\\analysis\\gs1-two-stage-pad.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-3\\saves\\gs1-two-stage-pad\\analysis\\gs1-two-stage-pad.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [
+        "logContracts.required not matched: ProcessBreakupEvent: controlled child created: pid=([0-9]+), name='AIR Drone Carrier Probe'[\\s\\S]*?Part death on background vessel: (?:Destroyed|ParachuteDestroyed) '[^'\\r\\n]+' pid=[0-9]+ vesselPid=\\1(?![0-9])[\\s\\S]*?MISSIONMARK label=air3-down "
+      ],
+      "observed": {
+        "recordings": {
+          "count": 14
+        }
+      },
+      "reserved": [],
+      "status": "FAIL"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": false,
+      "status": "PASS"
+    },
+    "mission": {
+      "missionVerdict": "MISSION-OK",
+      "status": "PASS",
+      "subkind": ""
+    },
+    "missionOutcome": {
+      "firstUnmet": null,
+      "gatingVerbs": [],
+      "reason": "no-gating-verbs",
+      "status": "SKIPPED"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [
+        "recordings.structure"
+      ],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 1172,
+            "recordings": 3,
+            "smallest": 45,
+            "total": 1481,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "JointBreak": 1
+            },
+            "committedTrees": 1,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "AIR Drone Carrier": 2,
+              "AIR Drone Carrier Probe": 1
+            },
+            "recordings": 3,
+            "spaceObjectParts": {
+              "Ast. VPA-167": 1
+            },
+            "spawnedVessels": 0,
+            "terminalStates": {
+              "Destroyed": 1,
+              "Splashed": 1
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "GS1 Auto-Chute Booster": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 1,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 0
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 0,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 749
+}

@@ -1,0 +1,15 @@
+# excerpt of 2026-11-18_0137_SPW-6-map-view-end-spawn-max-warp/KSP.log (collect-logs of the last attempt)
+----- KSP.log line 10295
+[LOG 01:27:05.188] [Parsek][WARN][TestRunner] Late vessel switch to 'Kerbal X' inside the reload commit window (armedBy='TestCommandLoadGame:eva2-lko-crewed/persistent'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+----- KSP.log line 11928
+[LOG 01:27:59.081] [Parsek][WARN][TestRunner] Late vessel switch to 'Kerbal X Probe' inside the reload commit window (armedBy='TestCommandLoadGame:eva2-lko-crewed/spw6-rewound'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+----- KSP.log line 12184
+[LOG 01:28:01.072] [Parsek][INFO][TestCommands] exec id=0023 cmd=WarpToUT start
+[LOG 01:28:01.072] [Parsek][INFO][TestCommands] warptout start ut=1000000 delta=999589.76658355724s maxRate=0 rate=1 ladder=auto stockMode=HIGH ceilingIndex=3
+[LOG 01:28:01.073] [Parsek][INFO][TestCommands] warptout rate requested=3 applied=0 rate=1 mode=HIGH ceilingIndex=3 clamped=true remaining=999589.76658355724s ut=1000000 instant=false
+----- KSP.log line 14158
+[LOG 01:37:01.089] [Parsek][INFO][TestCommands] warptout dewarp reason=warp-timeout fromIndex=3 rate=1
+[LOG 01:37:01.089] [Parsek][WARN][TestCommands] timeout id=0023 cmd=WarpToUT deferred=540.0s reason=warp-timeout
+[LOG 01:37:01.089] [Parsek][ERROR][TestCommands] warptout timeout reason=warp-timeout ut=1000000 reachedUT=27371.724546203521 maxRate=50 elapsed=540.0s
+[LOG 01:37:01.090] [Parsek][VERBOSE][TestCommands] journal id=0023 phase=EXECUTED
+[LOG 01:37:01.090] [Parsek][INFO][TestCommands] exec id=0023 verdict=ERROR

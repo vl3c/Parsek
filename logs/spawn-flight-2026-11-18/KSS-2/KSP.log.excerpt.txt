@@ -1,0 +1,17 @@
+# excerpt of 2026-11-18_0139_KSS-2-orbit-deferred-ksc-then-ts/KSP.log (collect-logs of the last attempt)
+----- KSP.log line 11208
+[LOG 01:37:58.743] [Parsek][INFO][TestCommands] MISSIONMARK label=kss2-committed-1 ut=470.05341644273756
+----- KSP.log line 11705
+[LOG 01:38:01.272] [Parsek][INFO][TestCommands] MISSIONMARK label=kss2-rewound ut=408.95341644277948
+----- KSP.log line 11762
+[LOG 01:38:35.358] [Parsek][INFO][TestCommands] MISSIONMARK label=kss2-ksc-past-end-false-0 ut=1999.9341101836244
+----- KSP.log line 12045
+[LOG 01:38:36.004] [Parsek][VERBOSE][Spawner] Spawn #0 (Kerbal X): using recorded terminal orbit propagated to current UT (ut=1999.99, body=Kerbin, lat=-0.0494, lon=-125.2748, alt=94503.8, speed=2263.5)
+----- KSP.log line 12068
+[LOG 01:38:36.028] [Parsek][INFO][Spawner] Orbital vessel spawn for #0 (Kerbal X) pid=1089704334 lat=-0.0494 lon=-125.2748 alt=94503.8 terminal=Orbiting
+----- KSP.log line 12071
+[LOG 01:38:36.031] [Parsek][INFO][GhostMap] Tracking-station handoff spawned #0 "Kerbal X" pid=1089704334 preserveIdentity=False
+----- KSP.log line 12111
+[LOG 01:38:36.154] [Parsek][INFO][TestCommands] MISSIONMARK label=kss2-ts ut=2000.0541101836243
+----- KSP.log line 12317
+[LOG 01:39:31.030] [Parsek][INFO][TestCommands] MISSIONMARK label=kss2-ts-spawned-true-1089704334-end ut=2499.9774549097847

@@ -1,0 +1,520 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_2326_SPW-11-rsc-warp-orbital-held-target_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 74,
+  "collectLogs": {
+    "path": "Collecting logs into: 2026-11-18_0128_SPW-11-rsc-warp-orbital-held-target/",
+    "ran": true
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "eva2-lko-crewed",
+          "scene": "FLIGHT",
+          "ut": "422.21341644278107"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "422.41341644278089",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "422.43341644278087",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "already": "true",
+          "mode": "advanced",
+          "op": "complexity",
+          "ut": "422.45341644278085"
+        },
+        "cmd": "UiAction",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "already": "false",
+          "op": "open",
+          "open": "true",
+          "ut": "422.51341644278079",
+          "window": "main"
+        },
+        "cmd": "UiAction",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "1",
+          "kind": "committed",
+          "rec0": "single-point-hold-rec",
+          "rec0name": "Single Point Holder",
+          "rec0pid": "2549825239",
+          "rec0spawned": "false",
+          "rec0spawnedPid": "0",
+          "rec0state": "Immutable",
+          "rec0tree": "tree-single-point-hold-rec",
+          "truncated": "false",
+          "ut": "422.53341644278078"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "spw11-loaded-count-1-false",
+          "ut": "422.57341644278074"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c0.count}",
+            "value": "1"
+          },
+          {
+            "arg": "label",
+            "ref": "${c0.rec0spawned}",
+            "value": "false"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "3.3865835572192964",
+          "maxRate": "1",
+          "target": "426",
+          "ut": "425.79341644277781"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "already": "false",
+          "op": "open",
+          "open": "true",
+          "ut": "425.87341644277774",
+          "window": "spawncontrol"
+        },
+        "cmd": "UiAction",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "departure": "false",
+          "op": "warp",
+          "recording": "0",
+          "ut": "441.193416442782",
+          "vessel": "Single Point Holder",
+          "window": "spawncontrol"
+        },
+        "cmd": "UiAction",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "spw11-pressed",
+          "ut": "441.25341644278194"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "8.7065835572180958",
+          "maxRate": "1",
+          "target": "450",
+          "ut": "449.77341644277419"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "1",
+          "kind": "committed",
+          "rec0": "single-point-hold-rec",
+          "rec0name": "Single Point Holder",
+          "rec0pid": "2549825239",
+          "rec0spawned": "true",
+          "rec0spawnedPid": "3828316060",
+          "rec0state": "Immutable",
+          "rec0tree": "tree-single-point-hold-rec",
+          "truncated": "false",
+          "ut": "449.993416442774"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "spw11-after-warp-true-3828316060-end",
+          "ut": "450.013416442774"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c1.rec0spawned}",
+            "value": "true"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec0spawnedPid}",
+            "value": "3828316060"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "cmd": "UiAction",
+        "expect": "REJECTED",
+        "id": "0015",
+        "met": true,
+        "msg": "window-not-open%20window%3Dspawncontrol%20op%3Dwarp%20(open%20it%20first:%20this%20op%20photographs%20a%20drawn%20surface)",
+        "verdict": "REJECTED"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "450.07341644277392"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T23:28:12Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-17_2326_SPW-11-rsc-warp-orbital-held-target",
+  "scenarioId": "SPW-11-rsc-warp-orbital-held-target",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 804369,
+    "files": 16,
+    "path": "2026-11-17_2326_SPW-11-rsc-warp-orbital-held-target_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PARSEK-FAIL"
+  },
+  "startedUtc": "2026-11-17T23:26:57Z",
+  "subkind": "expectation",
+  "tier": "operator",
+  "verdict": "PARSEK-FAIL",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-2\\saves\\eva2-lko-crewed\\analysis\\eva2-lko-crewed.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-2\\saves\\eva2-lko-crewed\\analysis\\eva2-lko-crewed.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [
+        "logContracts.required not matched: uiaction rejected reason=warp-(?:no-candidate-row|button-disabled) window=spawncontrol"
+      ],
+      "observed": {
+        "recordings": {
+          "count": 1
+        }
+      },
+      "reserved": [],
+      "status": "FAIL"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": true,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 1,
+            "recordings": 1,
+            "smallest": 1,
+            "total": 1,
+            "trivialRecordings": 1,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {},
+            "committedTrees": 1,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "Single Point Holder": 1
+            },
+            "recordings": 1,
+            "spaceObjectParts": {
+              "Ast. VPA-167": 1
+            },
+            "spawnedVessels": 1,
+            "terminalStates": {
+              "Orbiting": 1
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "Kerbal X": 1,
+              "Kerbal X Probe": 1,
+              "Single Point Holder": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 0
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 0,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 74
+}

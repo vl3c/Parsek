@@ -1,0 +1,684 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_2336_KSS-2-orbit-deferred-ksc-then-ts_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 195,
+  "collectLogs": {
+    "path": "Collecting logs into: 2026-11-18_0139_KSS-2-orbit-deferred-ksc-then-ts/",
+    "ran": true
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "eva2-lko-crewed",
+          "scene": "FLIGHT",
+          "ut": "422.21341644278107"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "422.45341644278085",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnEva",
+          "ut": "422.49341644278081",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "422.51341644278079",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "1.4465835572192418",
+          "maxRate": "1",
+          "target": "424",
+          "ut": "423.79341644277963"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "3654f09dcb60434c804b303ef9ec0a59",
+          "ut": "423.81341644277961"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "46.166583557220406",
+          "maxRate": "1",
+          "target": "470",
+          "ut": "469.79341644273779"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "469.91341644273768"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "committed": "true",
+          "ut": "469.97341644273763"
+        },
+        "cmd": "CommitTree",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "469.99341644273761"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "1",
+          "kind": "committed",
+          "rec0": "3654f09dcb60434c804b303ef9ec0a59",
+          "rec0name": "Kerbal X",
+          "rec0pid": "3620499050",
+          "rec0spawned": "true",
+          "rec0spawnedPid": "3620499050",
+          "rec0state": "Immutable",
+          "rec0tree": "f0343132ad2946d3872f37169ce3e3e4",
+          "truncated": "false",
+          "ut": "470.03341644273758"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "kss2-committed-1",
+          "ut": "470.05341644273756"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c0.count}",
+            "value": "1"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "adjustedUT": "408.8",
+          "rec": "3654f09dcb60434c804b303ef9ec0a59",
+          "rewound": "true",
+          "tree": "f0343132ad2946d3872f37169ce3e3e4",
+          "ut": "408.87341644277956"
+        },
+        "cmd": "InvokeRewindToLaunch",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "408.89341644277954",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "408.9334164427795",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "kss2-rewound",
+          "ut": "408.95341644277948"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "1591.0065835572204",
+          "maxRate": "100",
+          "target": "2000",
+          "ut": "1999.7941101836245"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "1",
+          "kind": "committed",
+          "rec0": "3654f09dcb60434c804b303ef9ec0a59",
+          "rec0name": "Kerbal X",
+          "rec0pid": "3620499050",
+          "rec0spawned": "false",
+          "rec0spawnedPid": "0",
+          "rec0state": "Immutable",
+          "rec0tree": "f0343132ad2946d3872f37169ce3e3e4",
+          "truncated": "false",
+          "ut": "1999.9341101836244"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "kss2-ksc-past-end-false-0",
+          "ut": "1999.9341101836244"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c1.rec0spawned}",
+            "value": "false"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec0spawnedPid}",
+            "value": "0"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "1999.9741101836244"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "eva2-lko-crewed",
+          "scene": "TRACKSTATION",
+          "ut": "2000.0341101836243"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0021",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "kss2-ts",
+          "ut": "2000.0541101836243"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0022",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "499.90588981637575",
+          "maxRate": "10",
+          "target": "2500",
+          "ut": "2499.7774549097849"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0023",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "1",
+          "kind": "committed",
+          "rec0": "3654f09dcb60434c804b303ef9ec0a59",
+          "rec0name": "Kerbal X",
+          "rec0pid": "3620499050",
+          "rec0spawned": "true",
+          "rec0spawnedPid": "1089704334",
+          "rec0state": "Immutable",
+          "rec0tree": "f0343132ad2946d3872f37169ce3e3e4",
+          "truncated": "false",
+          "ut": "2499.9774549097847"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0024",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "kss2-ts-spawned-true-1089704334-end",
+          "ut": "2499.9774549097847"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0025",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c2.rec0spawned}",
+            "value": "true"
+          },
+          {
+            "arg": "label",
+            "ref": "${c2.rec0spawnedPid}",
+            "value": "1089704334"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "failed": "0",
+          "passed": "1",
+          "results": "parsek-test-results.txt",
+          "skipped": "0",
+          "ut": "2500.2174549097845"
+        },
+        "cmd": "RunTests",
+        "expect": "OK",
+        "id": "0026",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "2500.3974549097843"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0027",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "2500.4574549097842"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0028",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T23:39:45Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-17_2336_KSS-2-orbit-deferred-ksc-then-ts",
+  "scenarioId": "KSS-2-orbit-deferred-ksc-then-ts",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 1074057,
+    "files": 20,
+    "path": "2026-11-17_2336_KSS-2-orbit-deferred-ksc-then-ts_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PARSEK-FAIL"
+  },
+  "startedUtc": "2026-11-17T23:36:30Z",
+  "subkind": "expectation",
+  "tier": "operator",
+  "verdict": "PARSEK-FAIL",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\eva2-lko-crewed\\analysis\\eva2-lko-crewed.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\eva2-lko-crewed\\analysis\\eva2-lko-crewed.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": "LeafVesselPlacement",
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": 0,
+      "found": true,
+      "matchedRuns": 1,
+      "multi": false,
+      "perCategoryCount": 1,
+      "runsShort": false,
+      "status": "PASS"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [
+        "logContracts.required not matched: MISSIONMARK label=kss2-ts [\\s\\S]*?\\[Spawner\\] Spawn #([0-9]+) \\(Kerbal X\\): using recorded terminal orbit propagated to current UT \\(ut=[0-9.]+, body=Kerbin, [\\s\\S]*?\\[Spawner\\] Orbital vessel spawn for #\\1 \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*?Tracking-station handoff spawned #\\1 \"Kerbal X\" pid=\\2 [\\s\\S]*?MISSIONMARK label=kss2-ts-spawned-true-\\2-end "
+      ],
+      "observed": {
+        "recordings": {
+          "count": 1
+        }
+      },
+      "reserved": [],
+      "status": "FAIL"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": false,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [
+        "rewind",
+        "recordings.structure"
+      ],
+      "gating": false,
+      "mismatches": [
+        "recordings.structure.vesselNames.Kerbal X Debris 0 != 4"
+      ],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 16,
+            "recordings": 1,
+            "smallest": 16,
+            "total": 16,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {},
+            "committedTrees": 1,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "Kerbal X": 1
+            },
+            "recordings": 1,
+            "spaceObjectParts": {
+              "Ast. AJR-797": 1,
+              "Ast. EHW-542": 1,
+              "Ast. JQO-701": 1,
+              "Ast. JRS-993": 1,
+              "Ast. RJQ-575": 1,
+              "Ast. SCQ-369": 1,
+              "Ast. VPA-167": 1,
+              "Ast. XSD-091": 1
+            },
+            "spawnedVessels": 1,
+            "terminalStates": {
+              "Orbiting": 1
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "Kerbal X": 1,
+              "Kerbal X Probe": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": 0,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 0
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 0,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 195
+}

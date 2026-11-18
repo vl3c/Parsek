@@ -1,0 +1,561 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-17_2333_TSS-3-two-deliveries-same-spot-ts_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 148,
+  "collectLogs": {
+    "path": "Collecting logs into: 2026-11-18_0136_TSS-3-two-deliveries-same-spot-ts/",
+    "ran": true
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "gloops-airshow",
+          "scene": "TRACKSTATION",
+          "ut": "21.219999999999636"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "21.359999999999634",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "21.399999999999633",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "2",
+          "kind": "committed",
+          "rec0": "spawn-stack-a",
+          "rec0name": "Stack Probe A",
+          "rec0pid": "1349228767",
+          "rec0spawned": "false",
+          "rec0spawnedPid": "0",
+          "rec0state": "Immutable",
+          "rec0tree": "tree-spawn-stack-a",
+          "rec1": "spawn-stack-b",
+          "rec1name": "Stack Probe B",
+          "rec1pid": "1366006386",
+          "rec1spawned": "false",
+          "rec1spawnedPid": "0",
+          "rec1state": "Immutable",
+          "rec1tree": "tree-spawn-stack-b",
+          "truncated": "false",
+          "ut": "21.419999999999632"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "tss3-ts-2-false-false",
+          "ut": "21.459999999999631"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c0.count}",
+            "value": "2"
+          },
+          {
+            "arg": "label",
+            "ref": "${c0.rec0spawned}",
+            "value": "false"
+          },
+          {
+            "arg": "label",
+            "ref": "${c0.rec1spawned}",
+            "value": "false"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "199978.54",
+          "maxRate": "10000",
+          "target": "200000",
+          "ut": "199999.78350258467"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "2",
+          "kind": "committed",
+          "rec0": "spawn-stack-a",
+          "rec0name": "Stack Probe A",
+          "rec0pid": "1349228767",
+          "rec0spawned": "true",
+          "rec0spawnedPid": "3516968520",
+          "rec0state": "Immutable",
+          "rec0tree": "tree-spawn-stack-a",
+          "rec1": "spawn-stack-b",
+          "rec1name": "Stack Probe B",
+          "rec1pid": "1366006386",
+          "rec1spawned": "true",
+          "rec1spawnedPid": "3074612544",
+          "rec1state": "Immutable",
+          "rec1tree": "tree-spawn-stack-b",
+          "truncated": "false",
+          "ut": "199999.86350258463"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "tss3-spawned-2-Stack Probe A-true-3516968520-Stack Probe B-true-3074612544-end",
+          "ut": "199999.88350258462"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c1.count}",
+            "value": "2"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec0name}",
+            "value": "Stack Probe A"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec0spawned}",
+            "value": "true"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec0spawnedPid}",
+            "value": "3516968520"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec1name}",
+            "value": "Stack Probe B"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec1spawned}",
+            "value": "true"
+          },
+          {
+            "arg": "label",
+            "ref": "${c1.rec1spawnedPid}",
+            "value": "3074612544"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "199999.90350258461"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "gloops-airshow",
+          "scene": "FLIGHT",
+          "ut": "200001.24350258391"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "focusPid",
+            "ref": "${c1.rec0spawnedPid}",
+            "value": "3516968520"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "tss3-flight",
+          "ut": "200001.36350258384"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "failed": "0",
+          "passed": "1",
+          "results": "parsek-test-results.txt",
+          "skipped": "0",
+          "ut": "200002.30350258335"
+        },
+        "cmd": "RunTests",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "200002.50350258325"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "200002.54350258323"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-17T23:36:01Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": null,
+  "note": "",
+  "runId": "2026-11-17_2333_TSS-3-two-deliveries-same-spot-ts",
+  "scenarioId": "TSS-3-two-deliveries-same-spot-ts",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 228425,
+    "files": 29,
+    "path": "2026-11-17_2333_TSS-3-two-deliveries-same-spot-ts_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PARSEK-FAIL"
+  },
+  "startedUtc": "2026-11-17T23:33:33Z",
+  "subkind": "expectation",
+  "tier": "operator",
+  "verdict": "PARSEK-FAIL",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-2\\saves\\gloops-airshow\\analysis\\gloops-airshow.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal-2\\saves\\gloops-airshow\\analysis\\gloops-airshow.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": "LeafVesselPlacement",
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": 0,
+      "found": true,
+      "matchedRuns": 1,
+      "multi": false,
+      "perCategoryCount": 1,
+      "runsShort": false,
+      "status": "PASS"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [
+        "recordings.count 3 > max 2",
+        "logContracts.required not matched: Tracking-station handoff spawned #[0-9]+ \"Stack Probe A\" pid=[0-9]+ [\\s\\S]*?warptout complete reachedUT=[0-9.]+ ut=200000 rate=[0-9.]+ maxRate=100000 "
+      ],
+      "observed": {
+        "recordings": {
+          "count": 3
+        }
+      },
+      "reserved": [],
+      "status": "FAIL"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": true,
+      "status": "PASS"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [
+        "rewind",
+        "recordings.structure"
+      ],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 5,
+            "recordings": 3,
+            "smallest": 3,
+            "total": 11,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "VesselSwitchContinuation": 1
+            },
+            "committedTrees": 2,
+            "duplicateRecordingIds": [
+              "spawn-stack-a"
+            ],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 1,
+            "recordingNames": {
+              "Stack Probe A": 1,
+              "Stack Probe B": 1
+            },
+            "recordings": 3,
+            "spaceObjectParts": {
+              "Ast. DRF-239": 1,
+              "Ast. FIJ-808": 1,
+              "Ast. IYH-467": 1,
+              "Ast. KHJ-543": 1,
+              "Ast. QCV-360": 1,
+              "Ast. QXR-049": 1,
+              "Ast. UNZ-545": 1,
+              "Ast. VPA-167": 1,
+              "Ast. XXN-587": 1,
+              "Ast. ZPN-817": 1,
+              "UnknownComet": 1
+            },
+            "spawnedVessels": 2,
+            "terminalStates": {
+              "Landed": 2
+            },
+            "treeNodes": 3,
+            "trees": 2,
+            "vesselNames": {
+              "Stack Probe A": 1,
+              "Stack Probe B": 1,
+              "mk1-capsule": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": 0,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 4,
+      "afterQuitFrameless": 4,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 4
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 4,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 148
+}

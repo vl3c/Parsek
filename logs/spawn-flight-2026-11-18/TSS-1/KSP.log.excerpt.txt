@@ -1,0 +1,9 @@
+# excerpt of 2026-11-18_0130_TSS-1-rover-delivery-ts-max-warp/KSP.log (collect-logs of the last attempt)
+----- KSP.log line 10641
+[LOG 01:30:03.454] [Parsek][INFO][TestCommands] dispatch id=0006 -> EXECUTE
+[LOG 01:30:03.454] [Parsek][VERBOSE][TestCommands] journal id=0006 phase=CLAIMED
+[LOG 01:30:03.454] [Parsek][INFO][TestCommands] exec id=0006 cmd=DriveVessel start
+[LOG 01:30:03.457] [Parsek][WARN][TestCommands] drivevessel rejected reason=drivevessel-not-on-surface vessel=rover fuel 0 situation=PRELAUNCH packed=false loaded=true wheelMotors=4 readyPorts=1
+[LOG 01:30:03.457] [Parsek][VERBOSE][TestCommands] journal id=0006 phase=EXECUTED
+[LOG 01:30:03.457] [Parsek][INFO][TestCommands] exec id=0006 verdict=REJECTED
+[LOG 01:30:03.457] [Parsek][VERBOSE][TestCommands] response appended id=0006 verdict=REJECTED

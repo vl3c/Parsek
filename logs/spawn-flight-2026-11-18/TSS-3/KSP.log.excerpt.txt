@@ -1,0 +1,21 @@
+# excerpt of 2026-11-18_0136_TSS-3-two-deliveries-same-spot-ts/KSP.log (collect-logs of the last attempt)
+----- KSP.log line 10421
+[LOG 01:34:18.861] [Parsek][INFO][TestCommands] MISSIONMARK label=tss3-ts-2-false-false ut=21.459999999999631
+----- KSP.log line 10478
+[LOG 01:34:22.669] [Parsek][INFO][GhostMap] Tracking-station handoff spawned #0 "Stack Probe A" pid=3516968520 preserveIdentity=False
+----- KSP.log line 10497
+[LOG 01:34:22.674] [Parsek][INFO][GhostMap] Tracking-station handoff spawned #1 "Stack Probe B" pid=3074612544 preserveIdentity=False
+----- KSP.log line 10730
+[LOG 01:35:40.925] [Parsek][INFO][TestCommands] warptout complete reachedUT=199999.78350258467 ut=200000 rate=1 maxRate=10000 ladder=auto modeAsserts=0 elapsed=82.0s
+----- KSP.log line 10750
+[LOG 01:35:41.029] [Parsek][INFO][TestCommands] MISSIONMARK label=tss3-spawned-2-Stack Probe A-true-3516968520-Stack Probe B-true-3074612544-end ut=199999.88350258462
+----- KSP.log line 11124
+[LOG 01:35:43.916] [Parsek][INFO][RecordingStore] Armed committed-tree restore attempt for 'Stack Probe A' (id=tree-spawn-stack-a, recordings=1, cutoffs=1, resumed=spawn-stack-a resumeUT=199999.9235025846 endUT=30081.16 resumedCutoff=30081.16 rule=end (not ahead of the clock) storedEventsAtResume=0, reason=TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write)
+----- KSP.log line 11128
+[LOG 01:35:43.917] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: attached BackgroundRecorder for tree 'Stack Probe A' (0 background entry(ies))
+----- KSP.log line 11190
+[LOG 01:35:43.964] [Parsek][INFO][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Stack Probe A' for vessel 'Stack Probe A' pid=3516968520 via PromoteFromBackground (continues in new segment '8172306c-0d2b-4755-ba1d-5bb3f7752196')
+----- KSP.log line 11412
+[LOG 01:35:45.642] [Parsek][INFO][TestCommands] MISSIONMARK label=tss3-flight ut=200001.36350258384
+----- KSP.log line 11875
+[LOG 01:35:47.526] [Parsek][INFO][RecordingStore] Armed committed-tree restore attempt for 'Stack Probe A' (id=tree-spawn-stack-a, recordings=1, cutoffs=1, resumed=spawn-stack-a resumeUT=199999.9235025846 endUT=30081.16 resumedCutoff=30081.16 rule=end (not ahead of the clock) storedEventsAtResume=0, reason=cold load re-armed it from the save; armed by: TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write)

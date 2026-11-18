@@ -1,0 +1,27 @@
+# excerpt of 2026-11-18_0128_SPW-11-rsc-warp-orbital-held-target/KSP.log (collect-logs of the last attempt)
+----- KSP.log line 10774
+[LOG 01:27:47.949] [Parsek][INFO][TestCommands] uiaction complexity mode=advanced already=true
+----- KSP.log line 10783
+[LOG 01:27:47.965] [Parsek][INFO][TestCommands] uiaction open initiated window=main already=false (awaiting one drawn frame)
+----- KSP.log line 10787
+[LOG 01:27:47.995] [Parsek][INFO][TestCommands] uiaction open window=main open=true already=false frames=1 hostShowUi=true
+----- KSP.log line 10805
+[LOG 01:27:48.062] [Parsek][INFO][TestCommands] MISSIONMARK label=spw11-loaded-count-1-false ut=422.57341644278074
+----- KSP.log line 10855
+[LOG 01:27:51.349] [Parsek][INFO][TestCommands] uiaction open initiated window=spawncontrol already=false (awaiting one drawn frame)
+----- KSP.log line 10860
+[LOG 01:27:51.367] [Parsek][INFO][TestCommands] uiaction open window=spawncontrol open=true already=false frames=1 hostShowUi=true
+----- KSP.log line 10938
+[LOG 01:27:51.420] [Parsek][INFO][TestCommands] uiaction warp window=spawncontrol vessel=Single Point Holder recording=0 departure=false
+----- KSP.log line 10991
+[LOG 01:27:51.499] [Parsek][INFO][TestCommands] MISSIONMARK label=spw11-pressed ut=441.25341644278194
+----- KSP.log line 11051
+[LOG 01:27:51.774] [Parsek][INFO][TimeJump] Placement watch complete: ref=single-point-hold-rec ut=441.47 reason=done unpackPending=0
+[LOG 01:27:51.994] [Parsek][VERBOSE][UI] Main window position: x=20 y=100 w=250 h=0 | suppressed=221
+[LOG 01:27:52.852] [Parsek][VERBOSE][UI] Real Spawn Control auto-close: reason=zero-candidates candidates=0
+[LOG 01:27:53.118] [Parsek][INFO][TestCommands] warptout progress ut=450 reachedUT=442.81341644278052 remaining=7.1865835572194783s rate=1 rateIndex=0 elapsed=1.5s | suppressed=275
+[LOG 01:27:53.504] [Parsek][VERBOSE][Spawner] Spawn suppressed: 1 recording(s) | already spawned (VesselSpawned=true)=1 | suppressed=114
+----- KSP.log line 11087
+[LOG 01:28:00.324] [Parsek][INFO][TestCommands] MISSIONMARK label=spw11-after-warp-true-3828316060-end ut=450.013416442774
+----- KSP.log line 11096
+[LOG 01:28:00.339] [Parsek][WARN][TestCommands] uiaction rejected reason=window-not-open op=warp window=spawncontrol

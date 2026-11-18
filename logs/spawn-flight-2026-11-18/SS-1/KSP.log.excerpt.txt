@@ -1,0 +1,27 @@
+# excerpt of 2026-11-18_0112_SS-1-spawn-safety-corrections/KSP.log (collect-logs of the last attempt)
+----- KSP.log line 12245
+[LOG 01:11:04.637] [Parsek][INFO][Spawner] Spawning vessel: "Situation Hopper" sit=LANDED, nearest vessel=957822m
+----- KSP.log line 12448
+[LOG 01:11:30.421] [Parsek][INFO][Spawner] Spawning vessel: "Low Perigee Probe" sit=ORBITING, nearest vessel=372388m
+----- KSP.log line 12654
+[LOG 01:11:50.768] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (289462 bytes) to 'ptb-73c0b0be-persistent.bak'
+----- KSP.log line 13239
+[LOG 01:11:53.985] [Parsek][INFO][TestRunner] Batch baseline restore succeeded (batch-complete-final-restore)
+[LOG 01:11:54.000] [Parsek][VERBOSE][Policy] PlaybackCompleted index=0 vessel=Situation Hopper ghostWasActive=False pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 01:11:54.000] [Parsek][VERBOSE][Policy] PlaybackCompleted index=1 vessel=Low Perigee Probe ghostWasActive=False pastEffectiveEnd=True needsSpawn=False isMidChain=False watched=False loopFirstRun=False
+[LOG 01:11:54.115] [Parsek][VERBOSE][TestRunner] Batch-end corruption check: +0 exc/8f -> healthy (no bounce)
+[LOG 01:11:54.124] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (289462 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 01:11:54.128] [Parsek][INFO][TestRunner] Batch baseline: removed batch-created recording sidecars deleted=0 failed=0 keptReferenced=0 keptUnrecognized=0 baselineFiles=10 currentFiles=10
+[LOG 01:11:54.129] [Parsek][VERBOSE][TestHelper] Deleted temporary save slot 'eva2-lko-crewed/ptb-73c0b0be'
+[LOG 01:11:54.129] [Parsek][VERBOSE][TestHelper] Deleted orphaned save sidecar 'ptb-73c0b0be.loadmeta'
+[LOG 01:11:54.134] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-73c0b0be-persistent.bak'
+----- KSP.log line 13262
+[LOG 01:11:54.317] [Parsek][INFO][TestCommands] exec id=0016 cmd=FlushAndQuit start
+[LOG 01:11:54.318] [Parsek][INFO][TestCommands] flushandquit: save suppressed (batch baseline already restored) - the in-game test batch teardown reverted persistent.sfs to its batch-start bytes and that revert is the intended final state; quitting without re-saving
+[LOG 01:11:54.318] [Parsek][INFO][TestCommands] flushandquit: saved=false game-loaded=true; quitting
+[LOG 01:11:54.318] [Parsek][VERBOSE][TestCommands] journal id=0016 phase=EXECUTED
+----- KSP.log line 13268
+[LOG 01:11:54.319] [Parsek][VERBOSE][TestCommands] journal id=0016 phase=DONE
+[LOG 01:11:54.319] [Parsek][INFO][TestCommands] flushandquit: scheduling Application.Quit (deferred one frame) id=0016
+[LOG 01:11:54.333] [Parsek][INFO][TestCommands] flushandquit: Application.Quit
+[LOG 01:11:54.344] [Parsek][INFO][Init] Application quitting latched source=OnApplicationQuit - teardown-time repair paths stand down from here

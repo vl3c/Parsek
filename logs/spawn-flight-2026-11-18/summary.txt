@@ -1,0 +1,21 @@
+2026-11-17T23:12:19Z PARSEK-FAIL SS-1-spawn-safety-corrections attempts=1 wall=147s slot=stock-minimal runIds=2026-11-17_2309_SS-1-spawn-safety-corrections
+2026-11-17T23:12:51Z PASS EVA-15-orbiting-eva-deferred-spawn attempts=1 wall=163s slot=stock-minimal-2 runIds=2026-11-17_2310_EVA-15-orbiting-eva-deferred-spawn
+2026-11-17T23:13:36Z PASS SEAT-2-seat-occupant-survives-spawn attempts=1 wall=157s slot=stock-minimal-3 runIds=2026-11-17_2311_SEAT-2-seat-occupant-survives-spawn
+2026-11-17T23:14:10Z PASS SPW-1-laythe-orbit-end-spawn-flight attempts=1 wall=111s slot=stock-minimal runIds=2026-11-17_2312_SPW-1-laythe-orbit-end-spawn-flight
+2026-11-17T23:14:56Z PASS SPW-2-duna-orbit-end-spawn-runway attempts=1 wall=117s slot=stock-minimal-2 runIds=2026-11-17_2313_SPW-2-duna-orbit-end-spawn-runway
+2026-11-17T23:15:28Z PASS SPW-3-tylo-orbit-end-spawn-flight attempts=1 wall=109s slot=stock-minimal-3 runIds=2026-11-17_2313_SPW-3-tylo-orbit-end-spawn-flight
+2026-11-17T23:17:23Z PASS SPW-5-physics-warp-end-spawn-near-active attempts=1 wall=147s slot=stock-minimal-2 runIds=2026-11-17_2314_SPW-5-physics-warp-end-spawn-near-active
+2026-11-17T23:20:36Z PASS SPW-7-end-spawn-while-recording attempts=1 wall=193s slot=stock-minimal-2 runIds=2026-11-17_2317_SPW-7-end-spawn-while-recording
+2026-11-17T23:22:47Z PASS SPW-8-quickload-while-spawn-held attempts=1 wall=131s slot=stock-minimal-2 runIds=2026-11-17_2320_SPW-8-quickload-while-spawn-held
+2026-11-17T23:25:09Z PASS SPW-9-cold-load-past-unspawned-end attempts=1 wall=143s slot=stock-minimal-2 runIds=2026-11-17_2322_SPW-9-cold-load-past-unspawned-end
+2026-11-17T23:26:56Z PASS SPW-10-mun-orbit-end-spawn-placement attempts=1 wall=107s slot=stock-minimal-2 runIds=2026-11-17_2325_SPW-10-mun-orbit-end-spawn-placement
+2026-11-17T23:28:22Z PARSEK-FAIL SPW-11-rsc-warp-orbital-held-target attempts=1 wall=86s slot=stock-minimal-2 runIds=2026-11-17_2326_SPW-11-rsc-warp-orbital-held-target
+2026-11-17T23:30:25Z INVALID TSS-1-rover-delivery-ts-max-warp attempts=2 wall=123s slot=stock-minimal-2 runIds=2026-11-17_2328_TSS-1-rover-delivery-ts-max-warp,2026-11-17_2329_TSS-1-rover-delivery-ts-max-warp_a2
+2026-11-17T23:33:32Z INVALID TSS-2-mun-orbit-end-ts attempts=1 wall=187s slot=stock-minimal-2 runIds=2026-11-17_2330_TSS-2-mun-orbit-end-ts
+2026-11-17T23:36:13Z PARSEK-FAIL TSS-3-two-deliveries-same-spot-ts attempts=1 wall=161s slot=stock-minimal-2 runIds=2026-11-17_2333_TSS-3-two-deliveries-same-spot-ts
+2026-11-17T23:36:21Z INVALID SPW-4-max-rails-warp-two-ends-flight attempts=2 wall=1321s slot=stock-minimal runIds=2026-11-17_2314_SPW-4-max-rails-warp-two-ends-flight,2026-11-17_2325_SPW-4-max-rails-warp-two-ends-flight_a2
+2026-11-17T23:37:23Z INVALID SPW-6-map-view-end-spawn-max-warp attempts=2 wall=1313s slot=stock-minimal-3 runIds=2026-11-17_2315_SPW-6-map-view-end-spawn-max-warp,2026-11-17_2326_SPW-6-map-view-end-spawn-max-warp_a2
+2026-11-17T23:39:55Z PARSEK-FAIL KSS-2-orbit-deferred-ksc-then-ts attempts=1 wall=206s slot=stock-minimal runIds=2026-11-17_2336_KSS-2-orbit-deferred-ksc-then-ts
+2026-11-17T23:50:03Z PARSEK-FAIL AIR-3-plane-drone-midair-collision attempts=1 wall=760s slot=stock-minimal-3 runIds=2026-11-17_2337_AIR-3-plane-drone-midair-collision
+2026-11-17T23:57:32Z PASS KSS-1-mun-lander-ksc-end-spawn attempts=1 wall=1279s slot=stock-minimal-2 runIds=2026-11-17_2336_KSS-1-mun-lander-ksc-end-spawn
+# totals PASS=11 PARSEK-FAIL=5 INVALID=4 pending=1 of 20

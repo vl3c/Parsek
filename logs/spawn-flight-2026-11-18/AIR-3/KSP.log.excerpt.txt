@@ -1,0 +1,29 @@
+# excerpt of 2026-11-18_0149_AIR-3-plane-drone-midair-collision/KSP.log (collect-logs of the last attempt)
+----- KSP.log line 10580
+[LOG 01:38:06.337] [Parsek][INFO][TestCommands] MISSIONMARK label=air3-flight ut=26.999999999999513
+----- KSP.log line 12230
+[LOG 01:43:11.748] [Parsek][INFO][Coalescer] ProcessBreakupEvent: controlled child created: pid=839797731, name='AIR Drone Carrier Probe', recId=bc9bb065d7524a26a5bd284c0ee09302, alive=True, bgRecorder=True seedPoint@328.08 body=Kerbin flags=1 lla=(-0.23,-73.98,2504.14) vel=(-41.42,53.15,-64.60) liveRootUT=328.60 rootPart=radialDecoupler1-2 pid=433513340 rootLla=(-0.23,-73.97,2499.78) seed-liveRoot=(19.02,-28.49,36.36) seedLiveRootDist=49.95m
+----- KSP.log line 12958
+[LOG 01:45:27.693] [Parsek][VERBOSE][RecordingStore] SaveRecordingFiles: id=bc9bb065d7524a26a5bd284c0ee09302 trajectoryEncoding=BinaryV0 snapshotEncoding=DeflateV1 snapshotCompression=Optimal ghostSnapshotMode=Separate wroteVessel=True wroteGhost=True deletedStaleGhost=False readableMirrorsEnabled=True wroteReadableTrajectory=True wroteReadableVessel=True readableVesselSource=InMemory wroteReadableGhost=True readableGhostSource=InMemory deletedReadableTrajectory=False deletedReadableVessel=False deletedReadableGhost=False
+[LOG 01:45:27.693] [Parsek][VERBOSE][BgRecorder] PersistFinalizedRecording: wrote sidecar for recId=bc9bb065d7524a26a5bd284c0ee09302 (OnBackgroundVesselWillDestroy pid=839797731)
+[LOG 01:45:27.693] [Parsek][WARN][BgRecorder] Background vessel destroyed: pid=839797731
+[LOG 01:45:27.693] [Parsek][VERBOSE][Flight] Captured terminal state for AIR Drone Carrier Probe: situation=FLYING, body=Kerbin
+[LOG 01:45:27.696] fuelTank Exploded!! - blast awesomeness: 0.5
+----- KSP.log line 12965
+[LOG 01:45:27.705] [Parsek][INFO][BgRecorder] Cascade depth cap fired: skipping background split — parentRec=rec[bc9bb065|AIR Drone Carrier Probe|tree|-] gen=1 parentPid=839797731 skippedChildren=1 branchUT=464.4
+----- KSP.log line 12981
+[LOG 01:45:27.747] [Parsek][VERBOSE][RecordingStore] SaveRecordingFiles: id=bc9bb065d7524a26a5bd284c0ee09302 trajectoryEncoding=BinaryV0 snapshotEncoding=DeflateV1 snapshotCompression=Optimal ghostSnapshotMode=Separate wroteVessel=True wroteGhost=True deletedStaleGhost=False readableMirrorsEnabled=True wroteReadableTrajectory=True wroteReadableVessel=True readableVesselSource=InMemory wroteReadableGhost=True readableGhostSource=InMemory deletedReadableTrajectory=False deletedReadableVessel=False deletedReadableGhost=False
+[LOG 01:45:27.747] [Parsek][VERBOSE][BgRecorder] PersistFinalizedRecording: wrote sidecar for recId=bc9bb065d7524a26a5bd284c0ee09302 (DeferredDestructionCheck pid=839797731)
+[LOG 01:45:27.747] [Parsek][WARN][Flight] Background vessel destroyed: pid=839797731 recId=bc9bb065d7524a26a5bd284c0ee09302
+[LOG 01:45:27.747] [Parsek][VERBOSE][TreeDestruction] AreAllLeavesTerminal: leaves=2 terminal=1 alive=1 -> False
+[LOG 01:45:27.757] [Parsek][VERBOSE][Flight] Ignoring decouple-created vessel pid=607774791: originalPid=2090234170, recordedPid=3973407900
+----- KSP.log line 12992
+[LOG 01:45:27.769] [Collision Enhancer] EXPLODE on "probeCoreOcto2.v2" (vel: 415360)
+----- KSP.log line 13640
+[LOG 01:46:13.740] [Parsek][INFO][TestCommands] MISSIONMARK label=air3-down ut=510.15999999982597
+----- KSP.log line 14539
+[LOG 01:46:17.054] [Parsek][INFO][TestCommands] MISSIONMARK label=air3-committed ut=510.27999999982586
+----- KSP.log line 14947
+[LOG 01:46:19.346] [Parsek][INFO][TestCommands] MISSIONMARK label=air3-rewound ut=16.199999999999424
+----- KSP.log line 15640
+[LOG 01:49:42.651] [Parsek][INFO][TestCommands] MISSIONMARK label=air3-replayed ut=1999.9770568850547
