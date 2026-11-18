@@ -1,0 +1,15 @@
+# KSP.log lines containing PSUB or [Parsek][WARN]/[ERROR], run 2026-11-18_0056_FORGE-psub-pad
+[LOG 02:57:15.819] [Parsek][WARN][TestRunner] Late vessel switch to 'mk1-capsule' inside the reload commit window (armedBy='TestCommandLoadGame:bdock-forge-base/persistent'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 02:57:19.534] Launching vessel from LaunchPad. Craft file: C:/Users/USER/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../saves/bdock-forge-base/Ships/VAB/PSUB-1.craft
+[LOG 02:57:20.070] Loading ship from file: C:/Users/USER/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../saves/bdock-forge-base/Ships/VAB/PSUB-1.craft
+[LOG 02:57:20.095] PSUB-1 loaded!
+[LOG 02:57:21.324] [PSUB-1]: Ready to Launch - waiting to start physics...
+[LOG 02:57:21.326] [FLIGHT GLOBALS]: Switching To Vessel PSUB-1 ---------------------- 
+[LOG 02:57:21.326] [Parsek][INFO][Scenario] Vessel switch ignored: 'mk1-capsule' -> 'PSUB-1' fired before onFlightReady (scene-entry initial focus, not a player switch) - vessel-switch flag not armed (frame=8055)
+[LOG 02:57:22.793] [Parsek][INFO][Flight] FreshRollout: captured scene-entry vessel pid=2300110077 ('PSUB-1', StartupBehaviour=NEW_FROM_FILE) — committed-tree restore will skip only this pid for the lifetime of this scene
+[LOG 02:57:22.847] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping fresh-rollout vessel 'PSUB-1' pid=2300110077 (matches captured scene-entry pid) - new mission gets its own tree
+[LOG 02:57:22.878] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part probeCoreOcto2.v2 on vessel PSUB-1
+[LOG 02:57:22.879] [FlightIntegrator]: Vessel PSUB-1 has been unloaded 1.79769313486232E+308, applying analytic temperature 308.967693311774
+[LOG 02:57:22.941] [PlanetariumCamera]: Focus: PSUB-1
+[LOG 02:57:24.145] [PSUB-1]: ground contact! - error. Moving Vessel  down -0.101m
+[LOG 02:57:24.145] Unpacking PSUB-1

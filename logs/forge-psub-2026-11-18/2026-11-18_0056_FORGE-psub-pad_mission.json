@@ -1,0 +1,69 @@
+{
+  "assertions": [
+    {
+      "met": true,
+      "name": "launched",
+      "required": "LAUNCH",
+      "value": "SETTLED"
+    },
+    {
+      "met": true,
+      "minCrew": 0,
+      "name": "crewAboard",
+      "value": 0
+    },
+    {
+      "accepted": [
+        "PRE_LAUNCH"
+      ],
+      "met": true,
+      "name": "settledOnPad",
+      "required": "SETTLED",
+      "value": "PRE_LAUNCH"
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.19183369993697852,
+    "rpcPort": 50000
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "forge_station",
+  "phasesReached": [
+    "PRELAUNCH",
+    "LAUNCH",
+    "SETTLED"
+  ],
+  "reason": "all telemetry assertions met",
+  "schema": 1,
+  "verdict": "MISSION-OK",
+  "wallSeconds": 6.903,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.0,
+      "gameSecondsPerWallSecond": 0.0,
+      "phase": "PRELAUNCH",
+      "wallSeconds": 0.023,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 3.36,
+      "gameSecondsPerWallSecond": 0.503,
+      "phase": "LAUNCH",
+      "wallSeconds": 6.677,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.0,
+      "gameSecondsPerWallSecond": 0.0,
+      "phase": "SETTLED",
+      "wallSeconds": 0.0,
+      "warpCommands": 0
+    }
+  ]
+}
