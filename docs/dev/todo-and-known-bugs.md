@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; AUTHORED, NEVER FLOWN: the forge (tag `pending-flight`) and three lanes (tier `pending-fixture`); OPEN: the forge flight, the harvest, the hand-over, then the SUB lanes' reading runs]
+## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; OPEN: the SUB lanes' reading runs (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
 `LeafPlacement height:` depth check have no live subject below sea level: BOAT-1's Mallard floats.

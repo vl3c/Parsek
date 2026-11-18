@@ -11,23 +11,12 @@ id = "SUB-1-submarine-dive-ksc-end-spawn"
 # recorded depth for a Splashed leaf) have no live subject below sea level. BOAT-1's
 # Mallard floats, so its recorded depth is the surface.
 #
-# *** NOT FLYABLE YET. *** tier "pending-fixture", tag "awaiting-fixture". `saveTemplate`
-# names `fixtures/saves/psub-splashed`, which DOES NOT EXIST until FORGE-psub-pad flies,
-# its save is harvested (`harvest_bdock_station.py --target-name psub-pad
-# --expect-situation PRELAUNCH`) and `harness/tools/build_psub_splashed.py --write`
-# moves PSUB-1 into the sea. Until then this spec stays out of every cadence and the full
-# run, `test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES` exempts it from the
-# saveTemplate sweep, and that map's self-retiring cell reds the day the fixture lands.
-# The WarpToUT target is a CALIBRATION SEED: the forge base boots at UT 21.2 and the
-# forge flight adds about a minute, so the dive starts near UT 100; its worst case
+# HOST FORGED 2026-11-18: FORGE-psub-pad PASS attempt 1 (run 2026-11-18_0056), psub-pad
+# harvested and psub-splashed built (FLIGHTSTATE UT 26.54). Flyable: tier operator, tag
+# pending-flight until its first flight.
+# The WarpToUT target is the harvested save's UT 26.54 + 600: the dive's worst case
 # (handoff, three drops with their settle and measure windows, the 60 s no-sink wait,
-# the 300 s sink budget and the hold) ends before about UT 600, so 1500 covers it.
-#
-# TO MAKE IT FLYABLE, in ONE commit after the harvest (todo SUBMARINE-TEST-KIT lists the
-# whole checklist): tier = "operator", swap the tag "awaiting-fixture" for nothing (keep
-# "pending-flight"), add "sandbox" back to D14 (the game-mode claim needs a fixture to
-# witness it), delete the PENDING_FIXTURE_LANES entry, re-seed the WarpToUT target off
-# the harvested save's UT (its FLIGHTSTATE `UT` + 600).
+# the 300 s sink budget and the hold) is about 500 s, so 627 is past the end.
 #
 # HOST: `psub-splashed` (build_psub_splashed.py): the stock submarine PSUB-1
 # (build_psub_craft.py: an uncrewed Octo2 probe hull, three float pairs of EMPTY FL-T100s
@@ -76,12 +65,12 @@ id = "SUB-1-submarine-dive-ksc-end-spawn"
 # reading run. (8) pending-fixture, then operator by the calibration discipline.
 # (9) flight_efficiency.py owed after the first green flight.
 # =====================================================================================
-tier = "pending-fixture"
-description = "AUTHORED 2026-11-17, NEVER FLOWN, NOT FLYABLE UNTIL FORGE-psub-pad IS HARVESTED AND build_psub_splashed.py HAS WRITTEN psub-splashed (todo SUBMARINE-TEST-KIT; the WarpToUT target is a calibration seed). The stock submarine PSUB-1, afloat east of KSC, drops float pairs until it sinks and dives to 40 m (psub_dive, every reading logged); committed, Rewound-to-Launch, its KSC ghost replayed to the Splashed end, the real PSUB-1 spawned at its RECORDED depth (no clamp) and read by LeafVesselPlacement, its height line gated: a negative altitude, heightVerdict=ok."
+tier = "operator"
+description = "AUTHORED 2026-11-17, NEVER FLOWN; host psub-splashed forged 2026-11-18 (todo SUBMARINE-TEST-KIT). The stock submarine PSUB-1, afloat east of KSC, drops float pairs until it sinks and dives to 40 m (psub_dive, every reading logged); committed, Rewound-to-Launch, its KSC ghost replayed to the Splashed end, the real PSUB-1 spawned at its RECORDED depth (no clamp) and read by LeafVesselPlacement, its height line gated: a negative altitude, heightVerdict=ok."
 instanceProfile = "stock-minimal"
 tags = ["SUB1", "SUB", "submarine", "water", "splashed", "underwater", "surface-mobile",
         "ksc-ghost", "rewind-to-launch", "leaf-placement", "ingame-batch",
-        "awaiting-fixture", "pending-flight"]
+        "pending-flight"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/psub-splashed"
@@ -108,7 +97,7 @@ steps = [
   { cmd = "MissionMark", args = { label = "sub1-rewound" },                           expect = "OK" },
   # CALIBRATION SEED (see the header): past the dive's end, at most 10x so the KSC ghost
   # stays drawn.
-  { cmd = "WarpToUT",   args = { ut = "1500", maxRate = "10" },                        expect = "OK", budget = 400 },
+  { cmd = "WarpToUT",   args = { ut = "627", maxRate = "10" },                        expect = "OK", budget = 400 },
   { cmd = "MissionMark", args = { label = "sub1-past-end" },                          expect = "OK" },
   { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                  expect = "OK", budget = 300 },
   { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
@@ -141,7 +130,7 @@ D1  = ["commit-revert-merge"]
 D4  = ["surface-mobile"]
 D6  = ["basic-playback"]
 D9  = ["rewind-to-launch"]
-D14 = ["kerbin", "warp-1x", "scene-flight", "scene-ksc"]
+D14 = ["kerbin", "warp-1x", "scene-flight", "scene-ksc", "sandbox"]
 
 [expectations]
 allowedAnomalies = []

@@ -12,8 +12,9 @@ id = "SUB-3-submarine-dive-and-rise-separations"
 # decouplers) happens in the water, most of them under it, and the recording spans
 # sinking, the turn at depth and the ascent. Then the tree is committed; no playback.
 #
-# *** NOT FLYABLE YET. *** tier "pending-fixture", tag "awaiting-fixture"; SUB-1's
-# fixture, exemption and hand-over (read its header). No WarpToUT, so nothing to re-seed.
+# HOST FORGED 2026-11-18: FORGE-psub-pad PASS attempt 1 (run 2026-11-18_0056), psub-pad
+# harvested and psub-splashed built (FLIGHTSTATE UT 26.54). Flyable: tier operator, tag
+# pending-flight until its first flight. No WarpToUT.
 #
 # WHAT IT GATES (only what the dive cannot avoid producing): a fresh recording started
 # on the sub, an ACTIVE-recorder SurfaceMobile section with frames, a Splashed terminal on
@@ -33,11 +34,11 @@ id = "SUB-3-submarine-dive-and-rise-separations"
 #   - the recording count (window open: the sub plus up to two debris per pair);
 #   - the Rewind Point count (expected 0: no controllable child separates).
 # =====================================================================================
-tier = "pending-fixture"
-description = "AUTHORED 2026-11-17, NEVER FLOWN, NOT FLYABLE UNTIL psub-splashed EXISTS (todo SUBMARINE-TEST-KIT). The stock submarine PSUB-1 drops float pairs until it sinks, dives to 40 m, then drops the floats left and one ballast pair per measurement until it rises back to the surface (psub_dive with riseAfterTarget, every reading logged): up to six radial separations in and under the water in one recording. Gates the active SurfaceMobile section, a Splashed terminal and the commit; the decouple and debris lines, the section count and the recording count are read, not gated, on the first flight."
+tier = "operator"
+description = "AUTHORED 2026-11-17, NEVER FLOWN; host psub-splashed forged 2026-11-18 (todo SUBMARINE-TEST-KIT). The stock submarine PSUB-1 drops float pairs until it sinks, dives to 40 m, then drops the floats left and one ballast pair per measurement until it rises back to the surface (psub_dive with riseAfterTarget, every reading logged): up to six radial separations in and under the water in one recording. Gates the active SurfaceMobile section, a Splashed terminal and the commit; the decouple and debris lines, the section count and the recording count are read, not gated, on the first flight."
 instanceProfile = "stock-minimal"
 tags = ["SUB3", "SUB", "submarine", "water", "splashed", "underwater", "surface-mobile",
-        "decouple", "debris", "awaiting-fixture", "pending-flight"]
+        "decouple", "debris", "pending-flight"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/psub-splashed"
@@ -90,7 +91,7 @@ offWaterFrames        = 20
 D1  = ["commit-revert-merge"]
 D4  = ["surface-mobile"]
 D7  = ["decouple-stage-destroy"]
-D14 = ["kerbin", "warp-1x", "scene-flight"]
+D14 = ["kerbin", "warp-1x", "scene-flight", "sandbox"]
 
 [expectations]
 allowedAnomalies = []

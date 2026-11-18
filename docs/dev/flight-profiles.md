@@ -11,16 +11,15 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | lanes | 631 |
 | tier daily | 29 |
 | tier nightly | 290 |
-| tier operator | 304 |
+| tier operator | 307 |
 | tier longhaul | 5 |
-| tier (other) | 3 |
 | profile stock-minimal | 587 |
 | profile stock-tree | 40 |
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 156 |
 | seam-only lanes | 475 |
-| LIVE-PROVEN date in status row | 502 |
-| no LIVE-PROVEN date | 129 |
+| LIVE-PROVEN date in status row | 503 |
+| no LIVE-PROVEN date | 128 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -59,7 +58,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | FAR | 6 | - | - | 6 | - | - | 6 |
 | FGV | 1 | - | - | 1 | - | - | 1 |
 | FLG | 1 | - | 1 | - | - | - | 1 |
-| FORGE | 9 | - | - | 9 | - | 9 | 3 |
+| FORGE | 9 | - | - | 9 | - | 9 | 4 |
 | FXR | 1 | - | - | 1 | - | - | 1 |
 | GC | 2 | - | 1 | 1 | - | - | 2 |
 | GS | 10 | - | 3 | 7 | - | 10 | 6 |
@@ -120,7 +119,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | SS | 1 | - | 1 | - | - | - | - |
 | ST | 4 | - | 4 | - | - | 1 | 4 |
 | STR | 4 | - | - | 4 | - | 2 | 4 |
-| SUB | 3 | - | - | - | - | 3 | - |
+| SUB | 3 | - | - | 3 | - | 3 | - |
 | SWS | 1 | - | - | 1 | - | - | 1 |
 | TL | 1 | - | 1 | - | - | - | 1 |
 | TOUR | 1 | - | 1 | - | - | - | 1 |
@@ -320,7 +319,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 385 | 125 | 305 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +74 |
+| Kerbin | 385 | 125 | 306 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +74 |
 | Mun | 59 | 15 | 48 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, SOI 2, EVA 1, GUI 1 +9 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -1090,7 +1089,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | FORGE-gs1-two-stage | operator | bdock-forge-base | forge_station | Kerbin | save | - | FLOWN 2026-08-05 |
 | FORGE-gs2-orbital-stack | operator | bdock-forge-base | forge_lko | Kerbin | save | - | FIXTURE-FORGE, not a coverage flight. The... |
 | FORGE-logi-pad | operator | bdock-forge-base | forge_station | Kerbin | save | - | forge mechanism |
-| FORGE-psub-pad | operator | bdock-forge-base | forge_station | Kerbin | save | - | forge mechanism; AUTHORED 2026-11-17, NEV... |
+| FORGE-psub-pad | operator | bdock-forge-base | forge_station | Kerbin | save | - | LIVE-PROVEN 2026-11-18 |
 
 ### FXR (1)
 
@@ -1789,9 +1788,9 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| SUB-1-submarine-dive-ksc-end-spawn | pending-fixture | psub-splashed | psub_dive | Kerbin | rewind-to-launch, save, warp | LeafVesselPlacement | NEVER FLOWN, waits on FORGE-psub-pad's ha... |
-| SUB-2-submarine-dive-flight-ghost-spawn | pending-fixture | psub-splashed | psub_dive | Kerbin | rewind-to-launch, save, warp, scene-change | LeafVesselPlacement | NEVER FLOWN, waits on psub-splashed; tags... |
-| SUB-3-submarine-dive-and-rise-separations | pending-fixture | psub-splashed | psub_dive | Kerbin | save | - | NEVER FLOWN, waits on psub-splashed; tags... |
+| SUB-1-submarine-dive-ksc-end-spawn | operator | psub-splashed | psub_dive | Kerbin | rewind-to-launch, save, warp | LeafVesselPlacement | NEVER FLOWN; host psub-splashed forged 20... |
+| SUB-2-submarine-dive-flight-ghost-spawn | operator | psub-splashed | psub_dive | Kerbin | rewind-to-launch, save, warp, scene-change | LeafVesselPlacement | NEVER FLOWN; host psub-splashed forged 20... |
+| SUB-3-submarine-dive-and-rise-separations | operator | psub-splashed | psub_dive | Kerbin | save | - | NEVER FLOWN; host psub-splashed forged 20... |
 
 ### SWS (1)
 

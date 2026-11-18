@@ -872,6 +872,11 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # starts its recording through the seam on the Mallard, which the source save
         # holds a COMMITTED TREE for (measured, B23 flight 1).
         "mallard-splashed": True,
+        # FORGE-psub-pad's harvest (PSUB-1 on the pad, keeps its ParsekScenario) and
+        # `psub-splashed`, built from it by `harness/tools/build_psub_splashed.py`
+        # (byte-gated by `test_psub_splashed.py`) with the mallard-splashed strip.
+        "psub-pad": True,
+        "psub-splashed": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         # `eva3-pad-3crew` plus a crewless rover clone parked 153 m off the pad, the

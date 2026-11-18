@@ -15,12 +15,11 @@ id = "SUB-2-submarine-dive-flight-ghost-spawn"
 # the 2.5 km load range of a splashed vessel, so the spawned sub stays packed and does
 # not sink further before LeafVesselPlacement reads it).
 #
-# *** NOT FLYABLE YET. *** tier "pending-fixture", tag "awaiting-fixture"; the same
-# fixture, exemption and hand-over as SUB-1 (read its header), plus one more step in the
-# hand-over commit: add `"psub-splashed" = ["Settings Probe"]` to
-# `harness/fixtures/shared-ships.toml` so the VAB can load the observer craft (the
-# manifest's own validator refuses a row naming a save that does not exist yet, so the row
-# cannot land before the fixture). The WarpToUT target is SUB-1's calibration seed.
+# HOST FORGED 2026-11-18: FORGE-psub-pad PASS attempt 1 (run 2026-11-18_0056), psub-pad
+# harvested and psub-splashed built (FLIGHTSTATE UT 26.54). Flyable: tier operator, tag
+# pending-flight until its first flight.
+# The observer craft row `"psub-splashed" = ["Settings Probe"]` is in shared-ships.toml;
+# the WarpToUT target is SUB-1's (UT 26.54 + 600).
 #
 # WHAT IT GATES (on top of SUB-1's recording half): the ghost-render tracer's mesh
 # lifecycle for PSUB-1 in FLIGHT (built `reason=ghost-created`, then destroyed), NO
@@ -33,12 +32,12 @@ id = "SUB-2-submarine-dive-flight-ghost-spawn"
 # NOT CHECKED: the ghost's depth frame by frame (no in-game cell samples a flight ghost
 # against its recording mid-run in this lane).
 # =====================================================================================
-tier = "pending-fixture"
-description = "AUTHORED 2026-11-17, NEVER FLOWN, NOT FLYABLE UNTIL psub-splashed EXISTS (todo SUBMARINE-TEST-KIT; WarpToUT target a calibration seed; the shared-ships row for Settings Probe lands with the fixture). SUB-1's dive of the stock submarine PSUB-1, committed and Rewound-to-Launch; the player then launches a one-part probe onto the pad and watches the flight-scene ghost of the sub play under water and hand over: mesh built and destroyed, no terrain clamp below sea level, the real PSUB-1 spawned SPLASHED at its recorded depth (no clamp, one spawn), LeafVesselPlacement read in FLIGHT."
+tier = "operator"
+description = "AUTHORED 2026-11-17, NEVER FLOWN; host psub-splashed forged 2026-11-18 (todo SUBMARINE-TEST-KIT). SUB-1's dive of the stock submarine PSUB-1, committed and Rewound-to-Launch; the player then launches a one-part probe onto the pad and watches the flight-scene ghost of the sub play under water and hand over: mesh built and destroyed, no terrain clamp below sea level, the real PSUB-1 spawned SPLASHED at its recorded depth (no clamp, one spawn), LeafVesselPlacement read in FLIGHT."
 instanceProfile = "stock-minimal"
 tags = ["SUB2", "SUB", "submarine", "water", "splashed", "underwater", "flight-ghost",
         "rewind-to-launch", "editor-launch", "leaf-placement", "ingame-batch",
-        "awaiting-fixture", "pending-flight"]
+        "pending-flight"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/psub-splashed"
@@ -70,7 +69,7 @@ steps = [
   { cmd = "LaunchFromEditor",                                                         expect = "OK", budget = 180 },
   { cmd = "MissionMark", args = { label = "sub2-observer-on-pad" },                   expect = "OK" },
   # CALIBRATION SEED (SUB-1's header): past the dive's end, at most 10x.
-  { cmd = "WarpToUT",   args = { ut = "1500", maxRate = "10" },                        expect = "OK", budget = 400 },
+  { cmd = "WarpToUT",   args = { ut = "627", maxRate = "10" },                        expect = "OK", budget = 400 },
   { cmd = "MissionMark", args = { label = "sub2-past-end" },                          expect = "OK" },
   { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                  expect = "OK", budget = 300 },
   { cmd = "SaveGame",                                                                 expect = "OK", budget = 120 },
@@ -103,7 +102,7 @@ D1  = ["commit-revert-merge"]
 D4  = ["surface-mobile"]
 D6  = ["basic-playback"]
 D9  = ["rewind-to-launch"]
-D14 = ["kerbin", "warp-1x", "scene-flight", "scene-ksc", "scene-editor"]
+D14 = ["kerbin", "warp-1x", "scene-flight", "scene-ksc", "scene-editor", "sandbox"]
 
 [expectations]
 allowedAnomalies = []

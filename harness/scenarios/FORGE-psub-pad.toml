@@ -2,8 +2,8 @@ schema = 1
 id = "FORGE-psub-pad"
 # =====================================================================================
 # FIXTURE-FORGE for the stock submarine test kit (SUB-1 / SUB-2 / SUB-3). NOT a coverage
-# flight. (Submarine kit, 2026-11-17. Todo SUBMARINE-TEST-KIT. AUTHORED, NEVER FLOWN:
-# tag `pending-flight`.)
+# flight. (Submarine kit, 2026-11-17. Todo SUBMARINE-TEST-KIT. LIVE-PROVEN 2026-11-18:
+# run 2026-11-18_0056 PASS attempt 1, harvested as psub-pad; tag `flown`.)
 #
 # operator tier by mechanism, like every forge: it NEVER runs on a cadence, only under
 # an explicit `--id FORGE-psub-pad`. It boots the committed bdock-forge-base, launches
@@ -43,7 +43,7 @@ id = "FORGE-psub-pad"
 tier = "operator"
 description = "FIXTURE-FORGE: boot the committed forge base, launch the stock submarine PSUB-1 onto the pad uncrewed, settle PRELAUNCH, SaveGame -- stamps the psub-pad fixture (harvest_bdock_station.py --target-name psub-pad), which build_psub_splashed.py relocates into the sea as psub-splashed."
 instanceProfile = "stock-minimal"
-tags = ["FORGE", "fixture", "SUB", "submarine", "pending-flight"]
+tags = ["FORGE", "fixture", "SUB", "submarine", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/bdock-forge-base"
