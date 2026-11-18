@@ -6,6 +6,15 @@ id = "SS-1-spawn-safety-corrections"
 # waits to UT 730 and UT 1106 (the same 15 s and 6 s of game time), and the 12-step
 # pre-warp settle is gone (the post-load physics hold is WarpToUT's own defer since TC-1).
 # Spec changed, not re-flown.
+#
+# RE-FLOWN 2026-11-17 with the LeafVesselPlacement batch added (parallel runner run
+# spawn-flight-2026-11-18, main 64c68379, Debug DLL bd950021...): PARSEK-FAIL(save-structure),
+# a SPEC error. Every log token matched (both spawns, the deferral, the placement batch);
+# the gating `structure` block read spawnedVessels 0 because the batch restored the
+# load-time save: `Batch baseline: restored campaign persistent.sfs (289462 bytes) from
+# batch-start backup; later FlushAndQuit saves are suppressed`. ListHandles had both
+# recordings spawned at the c2 mark. Fix: a `SaveGame name=persistent` before the batch,
+# so the backup it restores already holds both spawns. Not re-flown since.
 # -------------------------------------------------------------------------------------
 # D13 `situation-correction` + `terminal-orbit-safety` (catalog: spawn safety). Two
 # end-of-recording spawn guards driven through the real flight-scene spawn path by an
@@ -132,6 +141,11 @@ steps = [
   { cmd = "WarpToUT", args = { ut = "1106", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
   { cmd = "MissionMark", args = { label = "ss1-after-spawn-${c2.rec0}-${c2.rec0spawned}-${c2.rec1}-${c2.rec1spawned}" }, expect = "OK" },
+  # Save BEFORE the batch (VB-1's shape): RunTests backs up persistent.sfs at batch start
+  # and restores it at the end, suppressing the later FlushAndQuit saves, so without this
+  # the produced save is the LOAD-time one with neither spawn in it (first re-flight
+  # 2026-11-17, header).
+  { cmd = "SaveGame",    args = { name = "persistent" }, expect = "OK", budget = 120 },
   { cmd = "MissionMark", args = { label = "ss1-placement" }, expect = "OK" },
   { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                    expect = "OK", budget = 300 },
   { cmd = "FlushAndQuit", expect = "OK" },
@@ -194,6 +208,8 @@ required  = [
   # Situation Hopper carries no TerminalPosition, so it reads unsupported, not compared.
   "MISSIONMARK label=ss1-placement [\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
   "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  # The pre-batch save the produced save's structure reads (2026-11-17 fix).
+  "savegame name=persistent folder=\\S+ saved=true[\\s\\S]*?MISSIONMARK label=ss1-placement ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

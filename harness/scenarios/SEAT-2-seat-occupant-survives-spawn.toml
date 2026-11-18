@@ -217,12 +217,13 @@ required = [
   "MISSIONMARK label=seat2-spawned-true-([0-9]+)-end[\\s\\S]*evaseatleave start kerbal='Bill Kerman' vehiclePid=\\1 seatPart=seatExternalCmd",
   "MISSIONMARK label=seat2-spawned-true-([0-9]+)-end[\\s\\S]*evaseatleave complete kerbal='Bill Kerman' kerbalPid=[0-9]+ vehiclePid=\\1",
   "MISSIONMARK label=seat2-end-committed-1 ",
-  # Added 2026-11-17 (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 3; NOT YET RE-FLOWN):
+  # Added 2026-11-17 (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 3); RE-FLOWN green
+  # 2026-11-17 (run 2026-11-17_2311), so the batch is pinned whole:
   # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs, read right after the
   # spawn (before the switch): the one recording's spawned rover sits at its recorded
   # terminal surface position and is the only live vessel holding its pid.
   "MISSIONMARK label=seat2-placement [\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

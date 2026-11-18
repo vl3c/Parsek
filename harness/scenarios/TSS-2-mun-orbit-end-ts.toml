@@ -44,6 +44,17 @@ tier = "operator"
 # (LAY-1 measured the Tracking Station opening at the rewind clock); the optimizer's count
 # (window 1-2).
 #
+# FIRST FLIGHT 2026-11-17_2330 (parallel runner run spawn-flight-2026-11-18, main
+# 64c68379, Debug DLL bd950021...): INVALID(driver-unresolved-handle) at the post-warp
+# mark, a SPEC error: `'c1' answered OK but its payload has no field 'rec1spawned'`. The
+# commit made ONE recording (`MISSIONMARK label=tss2-committed-1`), so ListHandles has no
+# rec1 and the label could not resolve. The subject itself ran: in the Tracking Station
+# `Tracking-station handoff spawned #0 "Kerbal X" pid=2106145342 preserveIdentity=False`
+# (the log names the vessel `Kerbal X`, not the `#autoLOC_501232` MC-5 measured). Fix: the
+# mark reads rec0 only, the recording count is pinned exact 1, and a new token ties the
+# handoff pid to the mark's spawned pid. The expectations were short-circuited, so every
+# other token is still unread. Not re-flown since.
+#
 # FAST-LANE CHECKLIST (harness/README.md): (1) reuse: no committed lane crosses an Orbiting
 # end in the Tracking Station (V22T forbids the handoff; EVA-15 / CN-3 cross in FLIGHT);
 # MC-5 / SOI-1 fly this host. (2) explicit-UT WarpToUT waits only. (3) no dwell keys. (4) no
@@ -51,7 +62,7 @@ tier = "operator"
 # 1-2 until the reading run. (8) tier operator by the calibration discipline until flown.
 # (9) flight_efficiency.py owed after the first green flight.
 # =============================================================================
-description = "NEVER FLOWN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1b): on mun-park-kerbalx the crewed Kerbal X coasts in Mun orbit, recorded and committed; Rewind-to-Launch, then the Tracking Station from before the recording's start and an uncapped warp past its end. Gates the Tracking Station handoff spawning Kerbal X once on its recorded terminal orbit (Orbital route, propagated-orbit line) and LeafVesselPlacement matching the live Mun orbit to the recorded one."
+description = "NOT YET GREEN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1b; first flight 2026-11-17 INVALID on a spec label naming a second recording, fixed): on mun-park-kerbalx the crewed Kerbal X coasts in Mun orbit, recorded and committed; Rewind-to-Launch, then the Tracking Station from before the recording's start and an uncapped warp past its end. Gates the Tracking Station handoff spawning Kerbal X once on its recorded terminal orbit (Orbital route, propagated-orbit line) and LeafVesselPlacement matching the live Mun orbit to the recorded one."
 instanceProfile = "stock-minimal"
 tags = ["TSS-2", "spawn", "end-spawn", "tracking-station", "ts-handoff", "orbital",
         "terminal-orbit", "warp", "mun", "rewind-to-launch", "leaf-placement",
@@ -93,7 +104,8 @@ steps = [
   # THE SUBJECT: uncapped rails warp across the end in the Tracking Station.
   { cmd = "WarpToUT",   args = { ut = "40000" },                                               expect = "OK", budget = 300 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",                          expect = "OK" },
-  { cmd = "MissionMark", args = { label = "tss2-spawned-${c1.count}-${c1.rec0spawned}-${c1.rec0spawnedPid}-${c1.rec1spawned}-${c1.rec1spawnedPid}-end" }, expect = "OK" },
+  # One recording (first flight), so the mark reads rec0 only.
+  { cmd = "MissionMark", args = { label = "tss2-spawned-${c1.count}-${c1.rec0spawned}-${c1.rec0spawnedPid}-end" }, expect = "OK" },
   { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                           expect = "OK", budget = 300 },
   { cmd = "SaveGame",                                                                          expect = "OK", budget = 120 },
   { cmd = "FlushAndQuit",                                                                      expect = "OK" },
@@ -110,7 +122,8 @@ D14 = ["mun", "warp-1x", "warp-rails", "scene-flight", "scene-ts", "scene-ksc", 
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 1, max = 2 }
+# Exact 1 since the first flight (`MISSIONMARK label=tss2-committed-1`).
+count = { min = 1, max = 1 }
 
 # REPORT-ONLY until a reading run: one committed tree, the leaf Orbiting, one spawned
 # vessel in the final save.
@@ -136,6 +149,8 @@ required = [
   # VesselSpawner.EndOfRecording.cs (the propagated-orbit line and the Orbital path label)
   # and GhostMapPresence.TrackingStationLifecycle.cs (the handoff line), tied by #N.
   "MISSIONMARK label=tss2-ts [\\s\\S]*?\\[Spawner\\] Spawn #([0-9]+) \\((?:#autoLOC_501232|Kerbal X)\\): using recorded terminal orbit propagated to current UT \\(ut=[0-9.]+, body=Mun, [\\s\\S]*?\\[Spawner\\] Orbital vessel spawn for #\\1 \\((?:#autoLOC_501232|Kerbal X)\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*?Tracking-station handoff spawned #\\1 \"(?:#autoLOC_501232|Kerbal X)\" pid=\\2 [\\s\\S]*?warptout complete reachedUT=[0-9.]+ ut=40000 ",
+  # The handoff's vessel is the one the committed store names after the warp (first flight).
+  "Tracking-station handoff spawned #[0-9]+ \"(?:#autoLOC_501232|Kerbal X)\" pid=([0-9]+) [\\s\\S]*?MISSIONMARK label=tss2-spawned-1-true-\\1-end ",
   # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs: the live orbit around the
   # Mun matches the recorded terminal orbit.
   "MISSIONMARK label=tss2-spawned-[\\s\\S]*?LeafPlacement summary: scene=TRACKSTATION compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Mun\\]",

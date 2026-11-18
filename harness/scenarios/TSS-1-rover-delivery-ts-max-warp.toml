@@ -43,7 +43,8 @@ tier = "operator"
 # WHAT "AT MAX" MEANS HERE, stated: the end is ~65 game seconds after the Tracking Station
 # opens, so it is crossed while the warp is still easing up (expected 10x-1000x), not at
 # 100,000x itself; a live recording cannot end 250,000 s after its rewind point (the tail
-# trim). The 100,000x crossing of a LANDED end is TSS-3's (synthetic ends 30,000 s out).
+# trim). TSS-3 was authored to cross a LANDED end at 100,000x, but its first flight showed
+# a 200,000 s warp tops at 10,000x and crosses on the climb; no lane yet does.
 # What this lane gates is the TS handoff firing mid-warp and staying single for the rest of
 # a max-rate warp, with `maxRate=100000` pinned on the warp's completion line.
 #
@@ -53,6 +54,16 @@ tier = "operator"
 # `[KSCSpawn] Vessel spawned` forbid reds and names it; the fix is a longer drive); the
 # optimizer's recording count (window 1-2).
 #
+# FIRST FLIGHT 2026-11-17_2328 (+ retry _2329_a2, parallel runner run
+# spawn-flight-2026-11-18, main 64c68379): INVALID(driver-gate) at the first settle, a SPEC
+# error: `drivevessel rejected reason=drivevessel-not-on-surface vessel=rover fuel 0
+# situation=PRELAUNCH`. The fixture's rover is PRELAUNCH and DriveVessel accepts only LANDED
+# / SPLASHED (TestCommandDriveVessel.DecideGate); LF-1 / LF-2 never drive it. Fixed in the
+# staged copy, not the fixture: the `[[fixture.liveState]] situation = "LANDED"` entry below
+# rewrites the rover's own `sit` (savepatch.py, logged `situation=PRELAUNCH->LANDED`), the
+# state a stock rover leaves PRELAUNCH in the moment it rolls. Nothing past the gate flew,
+# so every reading below is still owed.
+#
 # FAST-LANE CHECKLIST (harness/README.md): (1) reuse: no committed lane ends a live landed
 # recording inside a Tracking Station warp (V22T forbids the handoff; LAY-1 crosses at the
 # Space Center). (2) every game-time wait is an explicit-UT WarpToUT or a DriveVessel
@@ -61,7 +72,7 @@ tier = "operator"
 # 1-2 until the reading run. (8) tier operator by the calibration discipline until flown.
 # (9) flight_efficiency.py owed after the first green flight.
 # =============================================================================
-description = "NEVER FLOWN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1a): on pad-runway-pair the probe rover drives 30 s off the runway end, recorded and committed; Rewind-to-Launch, then the Tracking Station from before the recording's start and an uncapped warp to 100,000x. Gates the Tracking Station handoff spawning the rover once mid-warp (before the warp completes, max rate 100,000x reached), LeafVesselPlacement in the Tracking Station, and that a FLIGHT load focused on the spawned rover keeps its pid and spawns no second rover."
+description = "NOT YET GREEN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1a; first flight 2026-11-17 INVALID at the drive gate on the PRELAUNCH rover, fixed with a staged situation=LANDED patch): on pad-runway-pair the probe rover drives 30 s off the runway end, recorded and committed; Rewind-to-Launch, then the Tracking Station from before the recording's start and an uncapped warp to 100,000x. Gates the Tracking Station handoff spawning the rover once mid-warp (before the warp completes, max rate 100,000x reached), LeafVesselPlacement in the Tracking Station, and that a FLIGHT load focused on the spawned rover keeps its pid and spawns no second rover."
 instanceProfile = "stock-minimal"
 tags = ["TSS-1", "spawn", "end-spawn", "tracking-station", "ts-handoff", "warp", "max-warp",
         "rover", "rewind-to-launch", "leaf-placement", "ingame-batch", "kerbin", "sandbox",
@@ -77,6 +88,12 @@ craft              = []
 # holders=intro_TS`). The stage step sets it complete in the staged copy
 # (savepatch.apply_ts_intro_done; logged `trackingStationIntroDone patched`).
 trackingStationIntroDone = true
+
+# DriveVessel refuses a PRELAUNCH vessel (first flight, header); the rover is made LANDED in
+# the staged copy, its only change.
+[[fixture.liveState]]
+pid       = 95298807
+situation = "LANDED"
 
 [driver]
 kind = "seam"

@@ -1297,6 +1297,66 @@ class CommittedFillTests(unittest.TestCase):
             self.assertEqual("evaChute,evaChute,evaChute", csv)
 
 
+class SituationKeyTests(unittest.TestCase):
+    """`situation = "LANDED"`: ends a rollout's PRELAUNCH so `DriveVessel` (which
+    drives only a LANDED or SPLASHED vessel) can drive it. Run on the committed
+    `pad-runway-pair` bytes TSS-1 stages, where `rover fuel 0` is PRELAUNCH on
+    the runway with `landed = True`."""
+
+    SAVE = "pad-runway-pair"
+    ROVER = 95298807
+
+    def _text(self):
+        path = os.path.join(HARNESS_ROOT, "fixtures", "saves", self.SAVE,
+                            "persistent.sfs")
+        with open(path, "rb") as fh:
+            return fh.read().decode("utf-8")
+
+    def test_it_rewrites_exactly_the_vessels_own_sit_line(self):
+        before = self._text()
+        after, notes = savepatch.apply_live_state(
+            before, [{"pid": self.ROVER, "situation": "LANDED"}],
+            save_name=self.SAVE)
+        diff = _diff_lines(before, after)
+        self.assertEqual(1, len(diff), diff)
+        _i, old, new = diff[0]
+        self.assertEqual("\t\t\tsit = PRELAUNCH", old)
+        self.assertEqual("\t\t\tsit = LANDED", new)
+        self.assertEqual(["pid=95298807 name=rover fuel 0 resources=[-] "
+                          "inventory=keep situation=PRELAUNCH->LANDED"], notes)
+
+    def test_a_vessel_that_is_not_prelaunch_is_refused(self):
+        once, _ = savepatch.apply_live_state(
+            self._text(), [{"pid": self.ROVER, "situation": "LANDED"}],
+            save_name=self.SAVE)
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            savepatch.apply_live_state(
+                once, [{"pid": self.ROVER, "situation": "LANDED"}],
+                save_name=self.SAVE)
+        self.assertIn("needs sit = PRELAUNCH", str(ctx.exception))
+
+    def test_a_prelaunch_vessel_not_on_the_ground_is_refused(self):
+        text = self._text().replace(
+            "\t\t\tlanded = True", "\t\t\tlanded = False", 1)
+        with self.assertRaises(savepatch.LiveStatePatchError):
+            savepatch.apply_live_state(
+                text, [{"pid": self.ROVER, "situation": "LANDED"}],
+                save_name=self.SAVE)
+
+    def test_only_landed_is_accepted(self):
+        for bad in ("FLYING", "ORBITING", "landed", True, 1):
+            errs = savepatch.validate_live_state(
+                {"liveState": [{"pid": 1, "situation": bad}]})
+            self.assertTrue(errs, "situation=%r was accepted" % (bad,))
+        self.assertEqual([], savepatch.validate_live_state(
+            {"liveState": [{"pid": 1, "situation": "LANDED"}]}))
+
+    def test_it_cannot_be_combined_with_remove(self):
+        errs = savepatch.validate_live_state(
+            {"liveState": [{"pid": 1, "remove": True, "situation": "LANDED"}]})
+        self.assertTrue(any("cannot be combined" in e for e in errs), errs)
+
+
 class CommittedSpecUsageTests(unittest.TestCase):
     """Every committed spec that declares liveState must declare it against a
     fixture whose vessel vocabulary someone has actually derived, and every pid
@@ -1354,6 +1414,11 @@ class CommittedSpecUsageTests(unittest.TestCase):
         # SPW-10 removes the index-0 asteroid so that save focuses the first pad debris.
         "mun-park-kerbalx": (
             2815888106,   # `Ast. MII-526`, FLIGHTSTATE index 0
+        ),
+        # TSS-1 ends the runway rover's rollout PRELAUNCH (`situation = "LANDED"`) so
+        # DriveVessel can drive it.
+        "pad-runway-pair": (
+            95298807,     # `rover fuel 0`, PRELAUNCH on the runway
         ),
     }
 

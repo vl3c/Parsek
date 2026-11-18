@@ -2740,6 +2740,12 @@ inventory = "clear"                  # and empty both containers
 * `fill = { part = "<partName>", slots = N }` - CLONE a `STOREDPART` node ALREADY
   PRESENT IN THIS SAVE into EVERY FREE SLOT of every `ModuleInventoryPart` on the
   vessel. See the section below; it is a separate key, composable with `inventory`.
+* `situation = "LANDED"` - rewrite a PRELAUNCH vessel's own `sit` to LANDED and
+  nothing else, so `DriveVessel` (which drives only a LANDED or SPLASHED vessel) can
+  drive a rover a rollout left PRELAUNCH. "LANDED" is the only value and PRELAUNCH
+  with `landed = True` the only accepted source; anything else is refused at staging.
+  The note gains `situation=PRELAUNCH->LANDED`. Exclusive with `remove = true`. TSS-1
+  uses it on `pad-runway-pair`'s runway rover.
 * `remove = true` - DELETE the vessel's whole `VESSEL` node, the only way to author
   "the endpoint this route names is no longer in the save" without a second harvest.
   Exclusive with `resources` / `partResources` / `inventory` / `fill` (each would

@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 156 |
 | seam-only lanes | 475 |
-| LIVE-PROVEN date in status row | 493 |
-| no LIVE-PROVEN date | 138 |
+| LIVE-PROVEN date in status row | 502 |
+| no LIVE-PROVEN date | 129 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -70,7 +70,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | IR | 7 | - | 7 | - | - | - | 7 |
 | KB | 5 | 1 | 4 | - | - | - | 5 |
 | KD | 1 | - | - | 1 | - | 1 | 1 |
-| KSS | 2 | - | - | 2 | - | 1 | - |
+| KSS | 2 | - | - | 2 | - | 1 | 1 |
 | L | 22 | 6 | 13 | 3 | - | 6 | 14 |
 | LAB | 18 | - | 1 | 17 | - | 1 | 18 |
 | LABX | 1 | - | - | 1 | - | 1 | 1 |
@@ -116,7 +116,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | SLM | 3 | - | - | 3 | - | - | 3 |
 | SN | 1 | - | 1 | - | - | - | 1 |
 | SOI | 2 | - | - | 2 | - | 2 | 2 |
-| SPW | 11 | - | - | 11 | - | - | - |
+| SPW | 11 | - | - | 11 | - | - | 8 |
 | SS | 1 | - | 1 | - | - | - | - |
 | ST | 4 | - | 4 | - | - | 1 | 4 |
 | STR | 4 | - | - | 4 | - | 2 | 4 |
@@ -320,19 +320,19 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 385 | 125 | 300 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +74 |
-| Mun | 59 | 15 | 46 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, SOI 2, EVA 1, GUI 1 +9 |
+| Kerbin | 385 | 125 | 305 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +74 |
+| Mun | 59 | 15 | 48 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, SOI 2, EVA 1, GUI 1 +9 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
 | Eve | 12 | 4 | 6 | V 7, B 4, FAR 1 |
 | Gilly | 7 | 2 | 5 | V 4, B 2, FAR 1 |
-| Duna | 30 | 10 | 19 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 +1 |
+| Duna | 30 | 10 | 20 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 +1 |
 | Ike | 10 | 3 | 10 | V 4, FAR 3, B 2, RF 1 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
-| Jool | 48 | 18 | 40 | V 25, B 18, SPW 2, FAR 1, S 1, TP 1 |
-| Laythe | 29 | 15 | 28 | B 14, V 11, FAR 1, LAY 1, SPW 1, TP 1 |
+| Jool | 48 | 18 | 42 | V 25, B 18, SPW 2, FAR 1, S 1, TP 1 |
+| Laythe | 29 | 15 | 29 | B 14, V 11, FAR 1, LAY 1, SPW 1, TP 1 |
 | Vall | 11 | 5 | 11 | B 5, V 5, TP 1 |
-| Tylo | 13 | 6 | 12 | B 6, V 6, SPW 1 |
+| Tylo | 13 | 6 | 13 | B 6, V 6, SPW 1 |
 | Bop | 8 | 4 | 8 | B 4, V 4 |
 | Pol | 4 | 2 | 4 | B 2, V 2 |
 | Eeloo | 3 | 1 | - | V 2, B 1 |
@@ -349,7 +349,7 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 | re-fly | 59 | RF 24, RB 5, RW 5, S 5, QL 4, CI 3, LAB 2, VN 2, AJ 1, AST 1, FXR 1 +6 |
 | revert | 21 | RW 4, IR 3, QL 3, VN 3, LAB 2, FAR 1, FXR 1, LX 1, REV 1, RF 1, STR 1 |
 | reload | 168 | V 30, QL 19, RF 17, LAB 10, SPW 9, EVA 8, MINE 7, RW 6, RB 5, VN 5 +32 |
-| save | 269 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +53 |
+| save | 270 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +54 |
 | warp | 238 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, SPW 11, CI 8, VN 8 +54 |
 | physics-warp | 16 | QL 5, PWR 3, RF 2, CA 1, FAR 1, L 1, SPW 1, STR 1, V 1 |
 | time-jump | 123 | V 44, RVR 14, RF 9, TP 8, S 6, GUI 5, H 5, QL 5, IR 4, MINE 4 +17 |
@@ -364,7 +364,7 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 385 | 97 | 48 | 15 | 136 | 198 | 188 | 14 | 46 | 140 | 12 | - |
+| Kerbin | 385 | 97 | 48 | 15 | 136 | 199 | 188 | 14 | 46 | 140 | 12 | - |
 | Mun | 59 | 27 | 6 | 5 | 12 | 39 | 38 | - | 10 | 35 | - | 1 |
 | Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
@@ -472,7 +472,7 @@ Lanes per family (rows) per timeline operation (columns).
 | SN | 1 | - | - | - | - | - | - | - | - | - | - | - |
 | SOI | 2 | - | - | - | - | - | - | - | - | - | - | - |
 | SPW | 11 | 9 | - | - | 9 | 10 | 11 | 1 | - | 1 | - | - |
-| SS | 1 | - | - | - | - | - | 1 | - | - | - | - | - |
+| SS | 1 | - | - | - | - | 1 | 1 | - | - | - | - | - |
 | ST | 4 | - | - | - | 1 | 1 | - | - | - | 1 | - | - |
 | STR | 4 | 2 | 1 | 1 | 3 | 4 | 3 | 1 | - | 3 | - | - |
 | SUB | 3 | 2 | - | - | - | 3 | 2 | - | - | 1 | - | - |
@@ -563,7 +563,7 @@ Lanes per family (rows) per timeline operation (columns).
 | LoadGame | 631 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +90 |
 | SetSetting | 622 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +90 |
 | StopRecording | 354 | V 65, RF 25, RW 24, RVR 19, LAB 17, EVA 16, H 15, B 14, MINE 14 +56 |
-| SaveGame | 269 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +53 |
+| SaveGame | 270 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +54 |
 | DiscardTree | 251 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, SPW 9, TP 9 +39 |
 | WarpToUT | 238 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, SPW 11, CI 8, VN 8 +54 |
 | RecordingState | 234 | RF 27, V 21, LAB 14, QL 14, MINE 12, CS 11, EVA 11, L 11, VN 11 +46 |
@@ -840,7 +840,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | AIR-1-runway-circuit-splashdown | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | - | - | LIVE-PROVEN 2026-11-16 |
 | AIR-2-runway-circuit-ksc-ghost | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | rewind-to-launch, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
-| AIR-3-plane-drone-midair-collision | operator | gs1-two-stage-pad | air3_drone_intercept | Kerbin | rewind-to-launch, warp, scene-change | - | FLIGHT 5 2026-11-17 2026-11-17_1741 PARSE... |
+| AIR-3-plane-drone-midair-collision | operator | gs1-two-stage-pad | air3_drone_intercept | Kerbin | rewind-to-launch, warp, scene-change | - | FLIGHT 6 2026-11-17 2026-11-17_2337 PARSE... |
 
 ### AJ (1)
 
@@ -1279,8 +1279,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| KSS-1-mun-lander-ksc-end-spawn | operator | b2-lko-craft | b13_mun_landing | Kerbin, Mun | rewind-to-launch, save, warp | LeafVesselPlacement | NEVER FLOWN; tag pending-flight |
-| KSS-2-orbit-deferred-ksc-then-ts | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | NEVER FLOWN; tag pending-flight |
+| KSS-1-mun-lander-ksc-end-spawn | operator | b2-lko-craft | b13_mun_landing | Kerbin, Mun | rewind-to-launch, save, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
+| KSS-2-orbit-deferred-ksc-then-ts | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | FIRST FLIGHT PARSEK-FAIL(expectation) 202... |
 
 ### L (22)
 
@@ -1749,23 +1749,23 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| SPW-1-laythe-orbit-end-spawn-flight | operator | laythe-park-nerv | seam | Jool, Laythe | rewind-to-launch, reload, save, warp | LeafVesselPlacement | AUTHORED 2026-11-17, NEVER FLOWN; tag pen... |
-| SPW-10-mun-orbit-end-spawn-placement | operator | mun-park-kerbalx | seam | Mun | rewind-to-launch, reload, save, warp | LeafVesselPlacement | AUTHORED 2026-11-17, NEVER FLOWN; tag pen... |
-| SPW-11-rsc-warp-orbital-held-target | operator | eva2-lko-crewed +inj single-poi... | seam | Kerbin | warp | - | AUTHORED 2026-11-17, NEVER FLOWN; tag pen... |
-| SPW-2-duna-orbit-end-spawn-runway | operator | duna-park-probe | seam | Duna | rewind-to-launch, save, warp, scene-change | LeafVesselPlacement | AUTHORED 2026-11-17, NEVER FLOWN; tag pen... |
-| SPW-3-tylo-orbit-end-spawn-flight | operator | tylo-park-nerv | seam | Jool, Tylo | rewind-to-launch, reload, save, warp | LeafVesselPlacement | AUTHORED 2026-11-17, NEVER FLOWN; tag pen... |
-| SPW-4-max-rails-warp-two-ends-flight | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | LeafVesselPlacement | AUTHORED 2026-11-17, NEVER FLOWN; tag pen... |
-| SPW-5-physics-warp-end-spawn-near-active | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | AUTHORED 2026-11-17, NEVER FLOWN; tag pen... |
-| SPW-6-map-view-end-spawn-max-warp | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | LeafVesselPlacement | AUTHORED 2026-11-17, NEVER FLOWN; tag pen... |
-| SPW-7-end-spawn-while-recording | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | LeafVesselPlacement | AUTHORED 2026-11-17, NEVER FLOWN; tag pen... |
-| SPW-8-quickload-while-spawn-held | operator | eva2-lko-crewed +inj spawn-safety | seam | Kerbin | reload, save, warp | - | AUTHORED 2026-11-17, NEVER FLOWN; tag pen... |
-| SPW-9-cold-load-past-unspawned-end | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | LeafVesselPlacement | AUTHORED 2026-11-17, NEVER FLOWN; tag pen... |
+| SPW-1-laythe-orbit-end-spawn-flight | operator | laythe-park-nerv | seam | Jool, Laythe | rewind-to-launch, reload, save, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
+| SPW-10-mun-orbit-end-spawn-placement | operator | mun-park-kerbalx | seam | Mun | rewind-to-launch, reload, save, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
+| SPW-11-rsc-warp-orbital-held-target | operator | eva2-lko-crewed +inj single-poi... | seam | Kerbin | warp | - | FIRST FLIGHT PARSEK-FAIL(expectation) 202... |
+| SPW-2-duna-orbit-end-spawn-runway | operator | duna-park-probe | seam | Duna | rewind-to-launch, save, warp, scene-change | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
+| SPW-3-tylo-orbit-end-spawn-flight | operator | tylo-park-nerv | seam | Jool, Tylo | rewind-to-launch, reload, save, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
+| SPW-4-max-rails-warp-two-ends-flight | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | LeafVesselPlacement | FLOWN ONCE 2026-11-17, not green on a spe... |
+| SPW-5-physics-warp-end-spawn-near-active | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
+| SPW-6-map-view-end-spawn-max-warp | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | LeafVesselPlacement | FLOWN ONCE 2026-11-17, not green on a spe... |
+| SPW-7-end-spawn-while-recording | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
+| SPW-8-quickload-while-spawn-held | operator | eva2-lko-crewed +inj spawn-safety | seam | Kerbin | reload, save, warp | - | LIVE-PROVEN 2026-11-17 |
+| SPW-9-cold-load-past-unspawned-end | operator | eva2-lko-crewed | seam | Kerbin | rewind-to-launch, reload, save, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-17 |
 
 ### SS (1)
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| SS-1-spawn-safety-corrections | nightly | eva2-lko-crewed +inj spawn-safety | seam | Kerbin | warp | LeafVesselPlacement | SPEC CHANGED 2026-11-17 (todo END-SPAWN-S... |
+| SS-1-spawn-safety-corrections | nightly | eva2-lko-crewed +inj spawn-safety | seam | Kerbin | save, warp | LeafVesselPlacement | SPEC CHANGED 2026-11-17 (todo END-SPAWN-S... |
 
 ### ST (4)
 
@@ -1829,9 +1829,9 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| TSS-1-rover-delivery-ts-max-warp | operator | pad-runway-pair | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | NEVER FLOWN; tag pending-flight |
-| TSS-2-mun-orbit-end-ts | operator | mun-park-kerbalx | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | NEVER FLOWN; tag pending-flight |
-| TSS-3-two-deliveries-same-spot-ts | operator | gloops-airshow +inj spawn-stack | seam | Kerbin | reload, save, warp | LeafVesselPlacement | NEVER FLOWN; tag pending-flight |
+| TSS-1-rover-delivery-ts-max-warp | operator | pad-runway-pair | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | FLOWN ONCE 2026-11-17, not green on a spe... |
+| TSS-2-mun-orbit-end-ts | operator | mun-park-kerbalx | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | FLOWN ONCE 2026-11-17, not green on a spe... |
+| TSS-3-two-deliveries-same-spot-ts | operator | gloops-airshow +inj spawn-stack | seam | Kerbin | reload, save, warp | LeafVesselPlacement | FIRST FLIGHT PARSEK-FAIL(expectation) 202... |
 
 ### UIS (1)
 
