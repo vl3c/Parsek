@@ -648,6 +648,27 @@ All prior phases target stock KSP (including Making History DLC). This phase add
 
 ---
 
+## Phase 17: Mission Profile (future: analyze, design, build)
+
+Read every recording of a mission from launch to its last ending and produce a NASA / Apollo-style mission profile: first as a text report, later as a graph with visuals (a phase diagram of the flight path with numbered events, like the classic Apollo mission profile charts). Not designed yet; analysis comes first.
+
+Typical contents of a real mission profile, all derivable from Parsek recordings:
+
+- **Phases** in order (launch, ascent, orbit insertion, transfer, capture, descent, landing, surface stay, ascent, rendezvous and docking, return, reentry, splashdown or landing), each with start / end time and body.
+- **Sequence of events**: a mission-elapsed-time table (staging, engine start / cutoff, fairing and decoupler separations, docking / undocking, EVAs, parachutes, crashes).
+- **Burns**: each maneuver with time, duration, engine, delta-v, and the orbit before and after (Ap / Pe / inclination).
+- **Delta-v budget**: per-phase and total delta-v planned versus used, with remaining margin.
+- **Vessels and stages**: the vessel tree (separations, which stage became what), parts and crew per vessel, and how each piece ended (recovered, landed, crashed, in orbit).
+- **Key numbers**: maximum altitude, speed, max-Q / reentry heating peaks if recorded, mission duration.
+
+References:
+
+- [Apollo 10 Operational Trajectory, Vol. 1: Mission Profile (NASA)](https://www.nasa.gov/wp-content/uploads/static/history/afj/ap10fj/pdf/a10-sc-op-traj-rev1-vol1-mission-profile-1969-05-17-launch-19690326.pdf)
+- [Apollo 13 Review Board, chapter 3: mission description and sequence of events (NASA)](https://webarchive.library.unt.edu/eot2008/20080920012314/http:/history.nasa.gov/ap13rb/ch3.pdf)
+- [Delta-v budget (overview)](https://wikiwand.com/en/articles/Delta-v_budget)
+
+---
+
 ## Deferred
 
 ### Planetarium.right drift compensation for long orbital segments
