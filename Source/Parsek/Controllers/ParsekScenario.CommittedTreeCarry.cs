@@ -8,8 +8,8 @@ using UnityEngine;
 
 namespace Parsek
 {
-    // Keeping committed trees across a load fault: preserve the loaded state, carry a committed
-    // tree node forward from the loaded save, rehydrate from the disk save.
+    // Keeping committed trees across a load fault: preserve the loaded state, carry an
+    // unwritable recording's node forward from the loaded save, rehydrate from the disk save.
     public partial class ParsekScenario
     {
         /// <summary>
@@ -162,15 +162,13 @@ namespace Parsek
         /// "hint a call site sets" was never set by anything - dead code with a doc that
         /// described an intention rather than the shipped behaviour.</para>
         ///
-        /// <para><b>Why reading the campaign save is nonetheless safe.</b> The node that
-        /// comes out is RECONCILED against the LIVE tree by
-        /// <see cref="TryCarryForwardCommittedTreeNodeFromLoadedSave"/>: only recordings
-        /// the live tree still has AND whose sidecars exist on disk survive, the tree is
-        /// refused outright if its root recording did not survive, and the branch-point
-        /// topology is pruned to what remains. So a save targeting a quicksave slot cannot
-        /// acquire recordings this game does not have. What it can still inherit is a stale
-        /// SCALAR field (a tree name, a flag) from the campaign's copy of the same tree -
-        /// strictly better than dropping the tree, which is the only alternative here.</para>
+        /// <para><b>Why reading the campaign save is nonetheless safe.</b> The save reads
+        /// only the RECORDING nodes of recordings it cannot write out of it, by id, through
+        /// <see cref="SpliceLastKnownGoodRecordingNodes"/>; the tree, its topology and every
+        /// other recording come from memory. So a save targeting a quicksave slot cannot
+        /// acquire recordings this game does not have. What an unwritable member can still
+        /// inherit is the campaign's copy of its own node - strictly better than dropping
+        /// it.</para>
         /// </summary>
         internal static ConfigNode TryLoadCarryForwardSourceParsekNode(out string sourcePath)
         {
@@ -195,202 +193,64 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Copies ONE committed tree's last-known-good RECORDING_TREE node out of an already
-        /// loaded save into the node being written, RECONCILED against the live tree.
+        /// Replaces, in a tree node just written from memory, the RECORDING node of each
+        /// recording in <paramref name="unwritableIds"/> with that recording's
+        /// last-known-good RECORDING node from <paramref name="diskTree"/> (the same tree in
+        /// the on-disk save). Returns how many were replaced.
         ///
-        /// <para><b>Why reconcile.</b> The on-disk node is older than memory. Carried
-        /// verbatim it can RESURRECT recordings the player has since deleted: the tree node
-        /// would list ids whose sidecars are gone, and the next load's orphan reap - which
-        /// works the other way round, deleting files nothing references - would then be
-        /// operating on a corpus that disagrees with the save. So a carried RECORDING is
-        /// kept only when the LIVE tree still has that id. Everything else is dropped,
-        /// counted, and logged.</para>
+        /// <para><b>Why only those nodes.</b> The tree itself comes from memory: its
+        /// topology, its scalars and every recording added since the disk save (a Re-Fly
+        /// fork, a continuation segment, a new branch). Carrying the whole disk node instead
+        /// dropped all of those on every save while the fault lasted, and the next cold load
+        /// quarantined their sidecars. An unwritable member's on-disk node names the sidecar
+        /// epoch and hashes the files on disk carry, which the failed write did not change,
+        /// so the next load reads that member's previous content rather than a stale-epoch
+        /// mismatch.</para>
         ///
-        /// <para><b>Why membership alone, not "membership AND a sidecar on disk".</b> A
-        /// deleted recording leaves the live tree, so membership already covers the
-        /// resurrection hazard. A recording that is still IN the live tree but has no
-        /// trajectory sidecar is not deleted data - it is exactly the sidecar fault this
-        /// carry exists to survive (the tree is unserializable BECAUSE that recording
-        /// cannot be written). Requiring the sidecar dropped precisely the faulted
-        /// recording, and when that recording was the root the carry was refused and the
-        /// whole tree was deleted at Error - the outcome the invariant above forbids. The
-        /// synthetic corpus's 34 metadata-only tree recordings reproduced it on every
-        /// save (H5 / S1.4 / S1.6 red from 2026-08-29). Keeping the metadata is strictly
-        /// better than dropping the tree: the recording loads as trajectory-missing,
-        /// plays nothing, and the player can still delete it.</para>
-        ///
-        /// <para><b>The topology has to follow the recordings.</b> Dropping RECORDING
-        /// children alone leaves <c>rootRecordingId</c> / <c>activeRecordingId</c> /
-        /// BRANCH_POINT parent+child ids pointing at recordings that are no longer in the
-        /// node - and the dropped id is very often the trigger recording itself. The
-        /// load side cannot rescue that: its prunes fire for schema-REJECTED ids, not for
-        /// ids that were simply never written. So this prunes the way a load would want:
-        /// a dropped ROOT refuses the carry outright (a tree with a dangling root loads
-        /// as a broken tree), a dropped ACTIVE id is nulled, and any BRANCH_POINT
-        /// referencing a dropped id is removed.</para>
-        ///
-        /// <para>Returns false (nothing added) when there is no such committed node, when
-        /// reconciliation leaves no recordings at all - an empty shell is not worth writing
-        /// and would itself read as a corrupt tree - or when the root recording did not
-        /// survive. Never throws.</para>
+        /// <para><b>Nothing is added.</b> The walk runs over the nodes memory wrote, so a
+        /// recording the disk save still lists but the live tree has deleted is never
+        /// resurrected, and no branch point can dangle (they are memory's, over memory's
+        /// recordings). An unwritable id the disk tree does not hold keeps memory's node.
+        /// Order is kept. Pure over the ConfigNodes; never throws on null inputs.</para>
         /// </summary>
-        internal static bool TryCarryForwardCommittedTreeNodeFromLoadedSave(
-            ConfigNode targetNode,
-            ConfigNode sourceParsekNode,
-            RecordingTree liveTree,
-            out int carriedRecordings,
-            out int droppedRecordings)
+        internal static int SpliceLastKnownGoodRecordingNodes(
+            ConfigNode writtenTree, ConfigNode diskTree, ICollection<string> unwritableIds)
         {
-            carriedRecordings = 0;
-            droppedRecordings = 0;
-            if (targetNode == null || sourceParsekNode == null || liveTree == null
-                || string.IsNullOrEmpty(liveTree.Id))
-                return false;
-            try
-            {
-                ConfigNode diskTree = FindCommittedTreeNodeById(sourceParsekNode, liveTree.Id);
-                if (diskTree == null)
-                    return false;
-
-                ConfigNode carried = diskTree.CreateCopy();
-                var keep = new List<ConfigNode>();
-                var keptIds = new HashSet<string>(StringComparer.Ordinal);
-                foreach (ConfigNode recNode in carried.GetNodes("RECORDING"))
-                {
-                    string recordingId = recNode?.GetValue("recordingId");
-                    if (IsCarriedRecordingStillReal(liveTree, recordingId))
-                    {
-                        keep.Add(recNode.CreateCopy());
-                        keptIds.Add(recordingId);
-                    }
-                    else
-                    {
-                        droppedRecordings++;
-                    }
-                }
-                if (keep.Count == 0)
-                {
-                    ParsekLog.Warn("Scenario",
-                        $"OnSave: refusing to carry forward tree id={liveTree.Id} - none of its "
-                        + $"{droppedRecordings} on-disk recording(s) still exist in the live tree, "
-                        + "so the carried node would resurrect deleted data");
-                    return false;
-                }
-
-                // The root is structural: a carried tree whose rootRecordingId names a
-                // dropped recording loads as a broken tree, and the load-side prunes never
-                // fire for it (they handle schema-REJECTED ids, not absent ones).
-                string carriedRoot = carried.GetValue("rootRecordingId");
-                if (!string.IsNullOrEmpty(carriedRoot) && !keptIds.Contains(carriedRoot))
-                {
-                    ParsekLog.Warn("Scenario",
-                        $"OnSave: refusing to carry forward tree id={liveTree.Id} - its root "
-                        + $"recording '{carriedRoot}' did not survive reconciliation "
-                        + $"(kept={keep.Count} dropped={droppedRecordings}), and a carried tree "
-                        + "with a dangling root would load as a broken tree");
-                    return false;
-                }
-
-                carried.RemoveNodes("RECORDING");
-                for (int i = 0; i < keep.Count; i++)
-                    carried.AddNode(keep[i]);
-
-                // A dangling activeRecordingId is recoverable (the tree simply has no active
-                // recording), so null it rather than refusing the whole carry.
-                string carriedActive = carried.GetValue("activeRecordingId");
-                if (!string.IsNullOrEmpty(carriedActive) && !keptIds.Contains(carriedActive))
-                {
-                    carried.RemoveValues("activeRecordingId");
-                    ParsekLog.Warn("Scenario",
-                        $"OnSave: carried tree id={liveTree.Id} dropped its activeRecordingId "
-                        + $"'{carriedActive}' - that recording did not survive reconciliation");
-                }
-
-                int droppedBranchPoints = PruneCarriedBranchPoints(carried, keptIds);
-                if (droppedBranchPoints > 0)
-                    ParsekLog.Warn("Scenario",
-                        $"OnSave: carried tree id={liveTree.Id} dropped {droppedBranchPoints} "
-                        + "BRANCH_POINT node(s) referencing recordings that did not survive "
-                        + "reconciliation");
-
-                carriedRecordings = keep.Count;
-                targetNode.AddNode(carried);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn("Scenario",
-                    $"OnSave: failed to carry forward the last-known-good node for tree "
-                    + $"id={liveTree.Id}: {ex.Message}");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Removes every BRANCH_POINT of a carried tree node that names a recording id
-        /// outside <paramref name="keptIds"/>, in either its <c>parentId</c> or
-        /// <c>childId</c> values. A branch point is a relation between recordings; with one
-        /// end missing it is not a weaker relation, it is a dangling one. Returns how many
-        /// were removed. Pure over the ConfigNode.
-        /// </summary>
-        internal static int PruneCarriedBranchPoints(ConfigNode carriedTree, HashSet<string> keptIds)
-        {
-            if (carriedTree == null)
-                return 0;
-            ConfigNode[] branchPoints = carriedTree.GetNodes("BRANCH_POINT");
-            if (branchPoints == null || branchPoints.Length == 0)
+            if (writtenTree == null || diskTree == null || unwritableIds == null || unwritableIds.Count == 0)
                 return 0;
 
-            var survivors = new List<ConfigNode>();
-            int dropped = 0;
-            for (int i = 0; i < branchPoints.Length; i++)
+            var diskById = new Dictionary<string, ConfigNode>(StringComparer.Ordinal);
+            foreach (ConfigNode diskRec in diskTree.GetNodes("RECORDING"))
             {
-                ConfigNode bp = branchPoints[i];
-                if (bp == null) { dropped++; continue; }
-                if (AllReferencedIdsKept(bp, "parentId", keptIds)
-                    && AllReferencedIdsKept(bp, "childId", keptIds))
-                    survivors.Add(bp.CreateCopy());
-                else
-                    dropped++;
+                string id = diskRec?.GetValue("recordingId");
+                if (!string.IsNullOrEmpty(id) && !diskById.ContainsKey(id))
+                    diskById[id] = diskRec;
             }
-            if (dropped == 0)
+
+            ConfigNode[] written = writtenTree.GetNodes("RECORDING");
+            var rebuilt = new List<ConfigNode>(written.Length);
+            int spliced = 0;
+            for (int i = 0; i < written.Length; i++)
+            {
+                string id = written[i]?.GetValue("recordingId");
+                if (!string.IsNullOrEmpty(id) && unwritableIds.Contains(id)
+                    && diskById.TryGetValue(id, out ConfigNode lastKnownGood))
+                {
+                    rebuilt.Add(lastKnownGood.CreateCopy());
+                    spliced++;
+                }
+                else if (written[i] != null)
+                {
+                    rebuilt.Add(written[i].CreateCopy());
+                }
+            }
+            if (spliced == 0)
                 return 0;
 
-            carriedTree.RemoveNodes("BRANCH_POINT");
-            for (int i = 0; i < survivors.Count; i++)
-                carriedTree.AddNode(survivors[i]);
-            return dropped;
-        }
-
-        private static bool AllReferencedIdsKept(ConfigNode bp, string key, HashSet<string> keptIds)
-        {
-            string[] values = bp.GetValues(key);
-            if (values == null)
-                return true;
-            for (int i = 0; i < values.Length; i++)
-            {
-                if (string.IsNullOrEmpty(values[i]))
-                    continue;
-                if (keptIds == null || !keptIds.Contains(values[i]))
-                    return false;
-            }
-            return true;
-        }
-
-        /// <summary>
-        /// Reconciliation predicate for one carried RECORDING node: the id must still be in
-        /// the live tree. That is the whole test. Sidecar presence is deliberately NOT
-        /// consulted - see the "Why membership alone" paragraph on
-        /// <see cref="TryCarryForwardCommittedTreeNodeFromLoadedSave"/>: the carry runs
-        /// precisely when a live recording's sidecar cannot be written, so a sidecar
-        /// requirement drops the one recording the carry is for and deletes the tree
-        /// whenever that recording is the root. Pure over the tree; never touches disk.
-        /// </summary>
-        internal static bool IsCarriedRecordingStillReal(RecordingTree liveTree, string recordingId)
-        {
-            if (liveTree == null || string.IsNullOrEmpty(recordingId))
-                return false;
-            return liveTree.Recordings != null && liveTree.Recordings.ContainsKey(recordingId);
+            writtenTree.RemoveNodes("RECORDING");
+            for (int i = 0; i < rebuilt.Count; i++)
+                writtenTree.AddNode(rebuilt[i]);
+            return spliced;
         }
 
         internal static int TryRehydrateCommittedTreesAndMissionsFromDiskSave(
