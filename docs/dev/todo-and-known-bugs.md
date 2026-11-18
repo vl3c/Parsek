@@ -40,7 +40,10 @@ The kit is a stock submarine and the pieces that turn it into a host and fly it:
 - Mission `psub_dive` (`mlib.psub_decide`) measures the vertical speed after every drop and drops
   the next float pair only while the sub is not yet sinking, so it calibrates k itself; it sinks to
   a target depth or the floor, holds, and optionally rises by ballast drops. Every reading is
-  logged. The "k too high" / "k too low" ends name a craft that cannot dive at all.
+  logged. The "k too high" / "k too low" ends name a craft that cannot dive at all. Stock reports
+  a hull touching the sea floor LANDED (Landed is tested before Splashed), so LANDED under sea
+  level counts as floor contact, not off the water: it ends the sink in any sink phase and the
+  hold and the rise may rest on the floor (the site's floor depth is not measured).
 
 The lanes (rows in `docs/dev/autotest-status.md`; all tier `pending-fixture`, listed in
 `test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES`; SUB-1 / SUB-2 also in `INTERIM_PIN_IDS`):

@@ -218,6 +218,63 @@ class WalkTests(unittest.TestCase):
         self.assertTrue(st.floor_reached)
         self.assertTrue(st.readings[-1].startswith("at-floor:"))
 
+    def test_resting_on_the_sea_floor_through_the_hold_ends_done(self):
+        # Stock reads a hull on the sea floor LANDED; the sub keeps sinking through
+        # the hold, so the hold sits on the floor and must still end PSUB-DONE.
+        st = _settled()
+        st, _ = _measure_once(st, 5.0, 0.0, -1.0)
+        st, _ = mlib.psub_decide(st, _f(20.0, -26.0, floor=-30.0))
+        self.assertEqual(mlib.PSUB_HOLD, st.phase)
+        for i in range(8):
+            st, _ = mlib.psub_decide(st, _f(20.5 + 0.5 * i, -28.0, floor=-30.0,
+                                            situation="LANDED"))
+        self.assertTrue(st.done, st.loss_reason)
+        self.assertIsNone(st.verdict)
+        self.assertEqual(mlib.PSUB_DONE, st.phase)
+        self.assertEqual(0, st.off_water_max_streak)
+        self.assertTrue(st.floor_reached)
+
+    def test_floor_contact_before_the_sink_phase_ends_the_sink(self):
+        # A fast sink after the decisive drop can touch bottom while still measuring.
+        st = _settled()
+        st, _ = mlib.psub_decide(st, _f(5.0, 0.0))
+        self.assertEqual(mlib.PSUB_MEASURE, st.phase)
+        st, _ = mlib.psub_decide(st, _f(6.0, -12.0, floor=-14.0, situation="LANDED"))
+        self.assertEqual(mlib.PSUB_HOLD, st.phase)
+        self.assertTrue(st.floor_reached)
+        self.assertTrue(st.readings[-1].startswith("at-floor:"))
+
+    def test_the_rise_starts_from_the_sea_floor(self):
+        st = _settled(RISE)
+        st, _ = _measure_once(st, 5.0, 0.0, -1.0)
+        st, _ = mlib.psub_decide(st, _f(10.0, -12.0, floor=-14.0, situation="LANDED"))
+        self.assertEqual(mlib.PSUB_HOLD, st.phase)
+        st, acts = mlib.psub_decide(st, _f(15.0, -12.5, floor=-14.0, situation="LANDED"))
+        self.assertEqual(mlib.PSUB_MODE_RISE, st.mode)
+        self.assertEqual([Action(mlib.ACTION_ACTIVATE_STAGE)], acts)
+        self.assertEqual(mlib.PSUB_DROP, st.phase)
+        st, _ = mlib.psub_decide(st, _f(15.5, -12.5, 24, 5, floor=-14.0,
+                                        situation="LANDED"))
+        self.assertEqual(mlib.PSUB_SETTLE, st.phase)
+        self.assertEqual(1, st.floats_dropped)
+        # The floats still aboard go next, unmeasured, the sub still on the floor.
+        st, acts = mlib.psub_decide(st, _f(16.0, -12.5, 24, 5, floor=-14.0,
+                                           situation="LANDED"))
+        self.assertEqual([Action(mlib.ACTION_ACTIVATE_STAGE)], acts)
+        st, _ = mlib.psub_decide(st, _f(16.5, -12.5, 20, 4, floor=-14.0,
+                                        situation="LANDED"))
+        self.assertEqual(2, st.floats_dropped)
+        self.assertIsNone(st.verdict, st.loss_reason)
+        self.assertEqual(0, st.off_water_max_streak)
+
+    def test_landed_at_or_above_sea_level_is_not_floor_contact(self):
+        self.assertTrue(mlib.psub_is_floor_contact(_f(1.0, -3.0, situation="LANDED")))
+        self.assertFalse(mlib.psub_is_floor_contact(_f(1.0, 0.0, situation="LANDED")))
+        self.assertFalse(mlib.psub_is_floor_contact(_f(1.0, 4.0, situation="LANDED")))
+        self.assertFalse(mlib.psub_is_floor_contact(_f(1.0, -3.0, situation="SPLASHED")))
+        self.assertFalse(mlib.psub_is_floor_contact(
+            snap(ut=1.0, situation="LANDED")))
+
     def test_the_rise_drops_the_floats_aboard_then_ballast_until_rising(self):
         st = _settled(RISE)
         st, _ = _measure_once(st, 5.0, 0.0, 0.0)                       # afloat

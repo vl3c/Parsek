@@ -38775,9 +38775,11 @@ def evaluate_boat_assertions(frames, params: BoatParams,
 #
 # Guards in every phase after the handoff: deeper than ``maxDepthMeters`` (the crush
 # margin: stock parts tolerate about 4 MPa, ~400 m of water) or off the water (any
-# situation but SPLASHED, the sea floor reads LANDED) on more than
-# ``offWaterFrames`` consecutive frames is a MISSION-ASSERT-FAIL; a lost vessel is a
-# MISSION-ASSERT-FAIL. Every measurement and every periodic reading lands in
+# situation but SPLASHED, except LANDED under sea level, which is the hull resting on
+# the sea floor) on more than ``offWaterFrames`` consecutive frames is a
+# MISSION-ASSERT-FAIL; a lost vessel is a MISSION-ASSERT-FAIL. Floor contact in the
+# sink (SETTLE, MEASURE or SINK) ends the sink at once -> PSUB-HOLD with the floor
+# reached; in the HOLD and the RISE the sub may rest on the floor. Every measurement and every periodic reading lands in
 # ``psub_reading`` (a MACHINE_DIFF_FIELDS entry, so each one prints one gate line) and
 # in ``readings`` (the result's evidence).
 # ---------------------------------------------------------------------------
@@ -39011,6 +39013,18 @@ def _psub_start_measure(state: PsubState, snapshot: TelemetrySnapshot) -> PsubSt
                                if _is_finite(snapshot.mean_altitude) else None))
 
 
+PSUB_FLOOR_SITUATION = "LANDED"
+
+
+def psub_is_floor_contact(snapshot: TelemetrySnapshot) -> bool:
+    """True when the sub rests on the sea floor: stock reports LANDED (any part in
+    ground contact wins over Splashed) while the sub is under sea level. LANDED at or
+    above sea level is a beached sub, off the water."""
+    alt = snapshot.mean_altitude
+    return (snapshot.situation == PSUB_FLOOR_SITUATION and _is_finite(alt)
+            and float(alt) < 0.0)
+
+
 def psub_decide(state: PsubState, snapshot: TelemetrySnapshot
                 ) -> Tuple[PsubState, List[Action]]:
     """Advance the PSUB dive machine one frame; return (new_state, actions). The
@@ -39056,7 +39070,10 @@ def psub_decide(state: PsubState, snapshot: TelemetrySnapshot
             return _psub_fail(_psub_record(st, psub_format_reading("crush-guard", st, snapshot)),
                               "%.1f m under sea level, past maxDepthMeters %.0f"
                               % (-alt, p.max_depth)), []
-    if snapshot.situation == PSUB_WATER_SITUATION:
+    # Stock tests Landed before Splashed, so a hull touching the sea floor reads
+    # LANDED; under sea level that is floor contact, not off the water.
+    on_floor = psub_is_floor_contact(snapshot)
+    if snapshot.situation == PSUB_WATER_SITUATION or on_floor:
         st = replace(st, off_water_streak=0)
     else:
         streak = st.off_water_streak + 1
@@ -39065,6 +39082,19 @@ def psub_decide(state: PsubState, snapshot: TelemetrySnapshot
         if streak > max(0, p.off_water_frames):
             return _psub_fail(st, "off the water: situation %s on %d consecutive frames"
                               % (snapshot.situation or "<unread>", streak)), []
+
+    if (on_floor and st.mode == PSUB_MODE_SINK
+            and st.phase in (PSUB_SETTLE, PSUB_MEASURE, PSUB_SINK)):
+        # The floor stopped the dive wherever it was: the sink is over.
+        st = replace(st, floor_reached=True,
+                     target_ut=float(snapshot.ut) if _is_finite(snapshot.ut) else None,
+                     last_log_ut=float(snapshot.ut) if _is_finite(snapshot.ut)
+                     else st.last_log_ut)
+        st = _psub_record(st, psub_format_reading("at-floor", st, snapshot,
+                                                  snapshot.vertical_speed))
+        return _psub_enter(st, PSUB_HOLD, snapshot.ut), []
+    if on_floor and not st.floor_reached:
+        st = replace(st, floor_reached=True)
 
     if st.phase == PSUB_SETTLE:
         if st.mode == PSUB_MODE_RISE and st.floats_dropped < p.float_stages:
