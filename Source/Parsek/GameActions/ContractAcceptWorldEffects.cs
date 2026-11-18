@@ -49,15 +49,43 @@ namespace Parsek
         /// <summary>The committed timeline completes, fails or cancels this contract: its
         /// outcome is decided, and a second stranded copy would be a paradox.</summary>
         CommittedResolution,
-        /// <summary>A committed flight names the kerbal: that flight owns him (a ghost
-        /// carrying him, a spawn at its end), so a stranded copy would be a duplicate.</summary>
-        KerbalHeldByCommittedFlight,
+        /// <summary>The kerbal is reserved: a committed flight names him, Parsek manages him
+        /// (reserved now, a stand-in, retired) or he is in the crew swap map. That flight owns
+        /// him (a ghost carrying him, a spawn at its end), so a stranded copy would be a
+        /// duplicate and a swap would rename the rescue.</summary>
+        KerbalReserved,
         /// <summary>The kerbal to rescue is not in the roster (the offer was generated after
-        /// the rewind save), so stock's generators would add nothing.</summary>
+        /// the rewind save), so stock's generators would add nothing. Left alone: re-creating
+        /// a kerbal under a given name is a roster write stock never makes (its offer draws a
+        /// fresh random name), and the contract's text and parameters would still name him.</summary>
         KerbalNotInRoster,
         /// <summary>A target is missing and nothing above holds it: stock's accept-side
         /// generation would have to run once.</summary>
         Regenerate
+    }
+
+    /// <summary>What the roster holds for one listed tourist.</summary>
+    internal struct TouristRosterFact
+    {
+        internal bool InRoster;
+        internal bool IsTourist;
+        internal bool IsUnowned;
+        /// <summary>Named by a committed flight, managed by Parsek, or in the crew swap map.</summary>
+        internal bool Reserved;
+    }
+
+    /// <summary>What to do with one listed tourist of a rebuilt TourismContract.</summary>
+    internal enum TouristConversion
+    {
+        /// <summary>Unowned and unreserved: apply stock's accept effect.</summary>
+        Convert,
+        AlreadyTourist,
+        /// <summary>A committed flight or Parsek's crew bookkeeping holds him: never touched.</summary>
+        Reserved,
+        /// <summary>Crew or applicant: not the offer's kerbal any more, never touched.</summary>
+        NotUnowned,
+        /// <summary>Not in the roster (the offer postdates the rewind save).</summary>
+        NotInRoster
     }
 
     /// <summary>The targets a RecoverAsset snapshot names (its own saved values).</summary>
@@ -77,7 +105,8 @@ namespace Parsek
         internal Func<uint, bool> PartInAnyVessel;
         internal Func<string, bool> KerbalAboardAnyVessel;
         internal Func<string, bool> KerbalInRoster;
-        internal Func<string, bool> KerbalNamedByCommittedFlight;
+        /// <summary>Named by a committed flight, managed by Parsek, or in the crew swap map.</summary>
+        internal Func<string, bool> KerbalReserved;
         internal bool CommittedResolution;
     }
 
@@ -175,13 +204,24 @@ namespace Parsek
                 return StrandedAssetDecision.TargetPresent;
             if (facts.CommittedResolution)
                 return StrandedAssetDecision.CommittedResolution;
-            if (target.RecoveringKerbal && facts.KerbalNamedByCommittedFlight != null
-                && facts.KerbalNamedByCommittedFlight(target.KerbalName))
-                return StrandedAssetDecision.KerbalHeldByCommittedFlight;
+            if (target.RecoveringKerbal && facts.KerbalReserved != null
+                && facts.KerbalReserved(target.KerbalName))
+                return StrandedAssetDecision.KerbalReserved;
             if (target.RecoveringKerbal
                 && (facts.KerbalInRoster == null || !facts.KerbalInRoster(target.KerbalName)))
                 return StrandedAssetDecision.KerbalNotInRoster;
             return StrandedAssetDecision.Regenerate;
+        }
+
+        /// <summary>
+        /// Whether the parameter part lists need repair after stock's generator ran: the
+        /// generators draw a fresh <c>partID</c>, while the rebuilt contract's AcquirePart /
+        /// RecoverPart still list the one the snapshot carries. True only for a part recovery
+        /// whose id changed to a real one.
+        /// </summary>
+        internal static bool NeedsPartListRepair(bool recoveringPart, uint partIdBefore, uint partIdAfter)
+        {
+            return recoveringPart && partIdAfter != 0 && partIdAfter != partIdBefore;
         }
 
         /// <summary>A TourismContract snapshot's tourists (<c>tourists = a|b|c</c>).</summary>
@@ -250,6 +290,38 @@ namespace Parsek
                     break;
             }
             return plan;
+        }
+
+        /// <summary>
+        /// What to do with one listed tourist, the guard of stock's
+        /// <c>TourismContract.OnAccepted</c> effect (type Tourist, tourist trait, Available).
+        /// First match wins.
+        /// </summary>
+        internal static TouristConversion DecideTouristConversion(TouristRosterFact fact)
+        {
+            if (!fact.InRoster)
+                return TouristConversion.NotInRoster;
+            if (fact.IsTourist)
+                return TouristConversion.AlreadyTourist;
+            if (fact.Reserved)
+                return TouristConversion.Reserved;
+            if (!fact.IsUnowned)
+                return TouristConversion.NotUnowned;
+            return TouristConversion.Convert;
+        }
+
+        /// <summary>The decision for every listed tourist of a TourismContract snapshot, in order.</summary>
+        internal static List<KeyValuePair<string, TouristConversion>> DecideTouristConversions(
+            ConfigNode snapshot, Func<string, TouristRosterFact> factOf)
+        {
+            var result = new List<KeyValuePair<string, TouristConversion>>();
+            List<string> tourists = ReadTourists(snapshot);
+            for (int i = 0; i < tourists.Count; i++)
+            {
+                TouristRosterFact f = factOf != null ? factOf(tourists[i]) : default(TouristRosterFact);
+                result.Add(new KeyValuePair<string, TouristConversion>(tourists[i], DecideTouristConversion(f)));
+            }
+            return result;
         }
 
         internal static string DescribeTarget(RecoverAssetTarget t)
