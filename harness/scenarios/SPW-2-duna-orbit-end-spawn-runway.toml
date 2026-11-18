@@ -2,10 +2,15 @@ schema = 1
 id = "SPW-2-duna-orbit-end-spawn-runway"
 # =====================================================================================
 # SPW-2: A TRUE END SPAWN AT DUNA, IN FLIGHT, WITH THE PLAYER ON THE KERBIN RUNWAY.
-# (End-spawn program, 2026-11-17, todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
-# tag `pending-flight`.) SPW-1's question at Duna, with the other player position: a
+# (End-spawn program, 2026-11-17, todo END-SPAWN-LANES-2026-11-17. AUTHORED, FLOWN:
+# LIVE-PROVEN, see below.) SPW-1's question at Duna, with the other player position: a
 # freshly launched, LANDED active vessel (EVA-10's road) instead of a debris in orbit, so
 # the end crosses with stock's rails ceiling lifted.
+#
+# LIVE-PROVEN 2026-11-17 on its first flight: run 2026-11-17_2313, PASS attempt 1, 117 s
+# (parallel runner run spawn-flight-2026-11-18, main 64c68379, Debug DLL bd950021...).
+# The LeafVesselPlacement batch is pinned whole (passed=1 failed=0 skipped=0) and left
+# INTERIM_PIN_IDS.
 #
 # THE HOST. `duna-park-probe` (Parsek-stripped): the DD1 Duna Direct Probe (pid 2200110044)
 # ORBITING Duna (SMA 1,038,215 m, ~718 km up, period ~12,100 s), nobody's committed leaf,
@@ -32,10 +37,10 @@ id = "SPW-2-duna-orbit-end-spawn-runway"
 # allows (no vessel survives the strip).
 # =====================================================================================
 tier = "operator"
-description = "Far-body end spawn in FLIGHT (Duna): on duna-park-probe ~300 s of DD1's Duna orbit is recorded and committed, Rewound-to-Launch (the strip removes DD1), the stock Kerbal X is launched from the SPH onto the runway, and an uncapped rails warp past the end must create DD1 once at Duna through the recorded-terminal-orbit path, read back spawned with that pid and on its recorded orbit and phase (LeafVesselPlacement in FLIGHT)."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_2313, first flight). Far-body end spawn in FLIGHT (Duna): on duna-park-probe ~300 s of DD1's Duna orbit is recorded and committed, Rewound-to-Launch (the strip removes DD1), the stock Kerbal X is launched from the SPH onto the runway, and an uncapped rails warp past the end must create DD1 once at Duna through the recorded-terminal-orbit path, read back spawned with that pid and on its recorded orbit and phase (LeafVesselPlacement in FLIGHT)."
 instanceProfile = "stock-minimal"
 tags = ["SPW-2", "end-spawn", "far-body", "duna", "orbital", "rewind-to-launch",
-        "leaf-placement", "ingame-batch", "warp", "sandbox", "pending-flight"]
+        "leaf-placement", "ingame-batch", "warp", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/duna-park-probe"
@@ -117,7 +122,7 @@ required = [
   # Placement: on Duna, on its recorded orbit and phase, no pid on two vessels.
   "LeafPlacement: rec=[0-9a-f]+ vessel='DD1 Duna Direct Probe' pid=[0-9]+ kind=orbit body=Duna liveBody=Duna [^\\r\\n]*verdict=ok",
   "MISSIONMARK label=spw2-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Duna\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [

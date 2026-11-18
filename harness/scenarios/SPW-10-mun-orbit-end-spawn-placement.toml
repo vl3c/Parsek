@@ -2,8 +2,13 @@ schema = 1
 id = "SPW-10-mun-orbit-end-spawn-placement"
 # =====================================================================================
 # SPW-10: A TRUE END SPAWN IN MUN ORBIT, IN FLIGHT, CHECKED AGAINST THE RECORDED ORBIT.
-# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
-# tag `pending-flight`.)
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, FLOWN:
+# LIVE-PROVEN, see below.)
+#
+# LIVE-PROVEN 2026-11-17 on its first flight: run 2026-11-17_2325, PASS attempt 1, 107 s
+# (parallel runner run spawn-flight-2026-11-18, main 64c68379, Debug DLL bd950021...).
+# The LeafVesselPlacement batch is pinned whole (passed=1 failed=0 skipped=0) and left
+# INTERIM_PIN_IDS.
 #
 # WHY. The #475 family (an orbit spawn on the right body but at the wrong phase or SMA) has
 # only been read on Kerbin. The Mun is the nearest body where a propagated terminal orbit
@@ -43,10 +48,10 @@ id = "SPW-10-mun-orbit-end-spawn-placement"
 # 1. (8) operator until measured. (9) flight_efficiency.py after the first green flight.
 # =====================================================================================
 tier = "operator"
-description = "Mun-orbit end spawn in FLIGHT: on mun-park-kerbalx (asteroid removed) ~300 s of the Kerbal X upper stage's Mun orbit is recorded and committed, Rewound-to-Launch (the strip removes it), reloaded into FLIGHT on a landed pad debris, and a rails warp past the end must create it once at the Mun through the recorded-terminal-orbit path, read back spawned with that pid and on its recorded orbit and phase (LeafVesselPlacement in FLIGHT, bodies=[Mun])."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_2325, first flight). Mun-orbit end spawn in FLIGHT: on mun-park-kerbalx (asteroid removed) ~300 s of the Kerbal X upper stage's Mun orbit is recorded and committed, Rewound-to-Launch (the strip removes it), reloaded into FLIGHT on a landed pad debris, and a rails warp past the end must create it once at the Mun through the recorded-terminal-orbit path, read back spawned with that pid and on its recorded orbit and phase (LeafVesselPlacement in FLIGHT, bodies=[Mun])."
 instanceProfile = "stock-minimal"
 tags = ["SPW-10", "end-spawn", "far-body", "mun", "orbital", "rewind-to-launch",
-        "leaf-placement", "ingame-batch", "warp", "sandbox", "pending-flight"]
+        "leaf-placement", "ingame-batch", "warp", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/mun-park-kerbalx"
@@ -135,7 +140,7 @@ required = [
   # Placement: on Mun, on its recorded orbit and phase, no pid on two vessels.
   "LeafPlacement: rec=[0-9a-f]+ vessel='(?:Kerbal X|#autoLOC_501232)' pid=[0-9]+ kind=orbit body=Mun liveBody=Mun [^\\r\\n]*verdict=ok",
   "MISSIONMARK label=spw10-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Mun\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [

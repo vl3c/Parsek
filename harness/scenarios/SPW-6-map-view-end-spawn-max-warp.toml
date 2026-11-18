@@ -30,6 +30,21 @@ id = "SPW-6-map-view-end-spawn-max-warp"
 #     `verdict=phase` if the spawn UT and the orbit epoch disagree: a finding.
 #   - stock's eased upshift may cross ~470 below the top rung; still a warp, still queued.
 #
+# FIRST FLIGHT 2026-11-17_2315 (+ retry _2326_a2) (parallel runner run spawn-flight-2026-11-18, main
+# 64c68379, Debug DLL bd950021...): INVALID(driver-verdict-mismatch) on both attempts, a
+# SPEC error. The rewound save is written at the Space Center, so its active vessel is index
+# 0, the first pad debris, and the plain reload flew it; stock's KSC declutter
+# (GameSettings.DECLUTTER_KSC, on in the provisioned instance since 2026-09-27) then deletes
+# the non-commandable LANDED debris about 1.5 s after the load, and the focus fell to the
+# orbiting probe (`Late vessel switch to 'Kerbal X Probe' inside the reload commit
+# window`). From ~100 km the rails ceiling is 50x (`warptout start ... ceilingIndex=3`),
+# so the uncapped warp crawled and timed out (`warptout timeout reason=warp-timeout
+# ut=1000000 reachedUT=27371... maxRate=50 elapsed=540.0s`). Fix, both halves of the
+# intended road: `[runtime] kspSettings = { DECLUTTER_KSC = false }` (VB-1's key, restored
+# at teardown) keeps the debris, and the reload names it, `focusPid = "1365670035"` (the
+# fixture's first `Kerbal X Debris`, LANDED on the pad), pinned by its `loadgame focus`
+# line. No spawn was read. Not re-flown since.
+#
 # FAST-LANE CHECKLIST: (1) EVA-15's host and road. (2) explicit-UT waits. (3)/(4)/(5) none.
 # (6) retry once. (7) count exact 1. (8) operator until measured. (9) flight_efficiency.py.
 # =====================================================================================
@@ -66,7 +81,7 @@ steps = [
   { cmd = "MissionMark", args = { label = "spw6-commit-count-${c0.count}" }, expect = "OK" },
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
   { cmd = "SaveGame",   args = { name = "spw6-rewound" },                    expect = "OK", budget = 120 },
-  { cmd = "LoadGame",   args = { save = "${runSave}", name = "spw6-rewound" }, expect = "OK", budget = 300 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "spw6-rewound", focusPid = "1365670035" }, expect = "OK", budget = 300 },
   { cmd = "StopRecording",                                                   expect = "OK" },
   { cmd = "DiscardTree",                                                     expect = "OK" },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
@@ -105,6 +120,9 @@ vesselNames    = { "Kerbal X" = 1, "Kerbal X Probe" = 1, "Kerbal X Debris" = 4 }
 
 [expectations.logContracts]
 required = [
+  # The reload flies the LANDED pad debris (first flight, header), so the rails ceiling is
+  # lifted (ParsekTestCommandAddon.cs, the LoadGame focus line).
+  "loadgame focus pid=1365670035 idx=[0-9]+ name='Kerbal X Debris' ",
   "startrecording recordingId=[0-9a-f]+ already=false",
   "committree committed=true",
   "MISSIONMARK label=spw6-commit-count-1 ",
@@ -142,6 +160,8 @@ forbidden = [
 
 [runtime]
 budgetSeconds = 2400
+# Stock's KSC declutter deletes the pad debris the reload flies (first flight, header).
+kspSettings = { DECLUTTER_KSC = false }
 
 [retry]
 policy = "once"

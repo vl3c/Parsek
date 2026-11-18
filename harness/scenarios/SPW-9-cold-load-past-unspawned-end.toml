@@ -2,8 +2,15 @@ schema = 1
 id = "SPW-9-cold-load-past-unspawned-end"
 # =====================================================================================
 # SPW-9: LOADING, INTO FLIGHT, A SAVE WHOSE CLOCK IS ALREADY PAST AN UNSPAWNED END.
-# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
-# tag `pending-flight`.)
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, FLOWN:
+# LIVE-PROVEN, see below.)
+#
+# LIVE-PROVEN 2026-11-17 on its first flight: run 2026-11-17_2322, PASS attempt 1, 143 s
+# (parallel runner run spawn-flight-2026-11-18, main 64c68379, Debug DLL bd950021...).
+# The LeafVesselPlacement batch is pinned whole (passed=1 failed=0 skipped=0) and left
+# INTERIM_PIN_IDS.
+# It is the live proof of the COLD-LOAD-DROPS-OWED-SPAWN fix (the pre-registered red below
+# did not happen: the owed spawn survived the Cold load).
 #
 # WAS EXPECTED TO RED ON COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN, FIXED 2026-11-17 AS COLD-LOAD-DROPS-OWED-SPAWN (todo; SPW-8 is
 # its quickload twin). The Space Center never spawns an Orbiting end: it defers it to the
@@ -36,10 +43,10 @@ id = "SPW-9-cold-load-past-unspawned-end"
 # flight_efficiency.py after the first green flight.
 # =====================================================================================
 tier = "operator"
-description = "Cold load past an unspawned end: on eva2-lko-crewed (asteroid removed) ~46 s of Kerbal X's low Kerbin orbit is recorded, committed and Rewound-to-Launch; at the Space Center the clock is warped past the end (the KSC defers an Orbiting spawn to the flight scene), the game saved, and that save loaded by the player into FLIGHT. Pins that the owed spawn is made exactly once on its recorded orbit. Expected to red today on COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_2322, first flight). Cold load past an unspawned end: on eva2-lko-crewed (asteroid removed) ~46 s of Kerbal X's low Kerbin orbit is recorded, committed and Rewound-to-Launch; at the Space Center the clock is warped past the end (the KSC defers an Orbiting spawn to the flight scene), the game saved, and that save loaded by the player into FLIGHT. Pins that the owed spawn is made exactly once on its recorded orbit. Was expected to red on COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN; fixed as COLD-LOAD-DROPS-OWED-SPAWN, and this flight is its live proof."
 instanceProfile = "stock-minimal"
 tags = ["SPW-9", "spawn", "end-spawn", "terminal-orbit", "cold-load", "space-center",
-        "rewind-to-launch", "kerbin", "sandbox", "pending-flight"]
+        "rewind-to-launch", "kerbin", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"
@@ -122,7 +129,7 @@ required = [
   "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw9-loaded-count-1-a-[0-9a-f-]+-true-\\1-end ",
   "LeafPlacement: rec=[0-9a-f]+ vessel='Kerbal X' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
   "MISSIONMARK label=spw9-loaded-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [

@@ -157,7 +157,7 @@ rate-limited Verbose line, so confirm the lane's verbose setting before pinning 
 create gate `sealed=True`. Reuse a host that already flies a boundary crossing before adding a
 flight (`harness/README.md` -> "Authoring a fast lane").
 
-## ~~COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN~~: loading a save into FLIGHT after a recording's end, before its vessel spawned, drops the vessel for good [FILED 2026-11-17 by code reading during the end-spawn lane program (todo END-SPAWN-LANES-2026-11-17); no flight yet; SPW-8 and SPW-9 are pre-registered to red on it; high (a vessel the player was owed never appears, silently apart from one log line); FIXED 2026-11-17 under the id COLD-LOAD-DROPS-OWED-SPAWN (the same defect, found twice the same day); SPW-8 and SPW-9 should now read green]
+## ~~COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN~~: loading a save into FLIGHT after a recording's end, before its vessel spawned, drops the vessel for good [FILED 2026-11-17 by code reading during the end-spawn lane program (todo END-SPAWN-LANES-2026-11-17); no flight yet; SPW-8 and SPW-9 are pre-registered to red on it; high (a vessel the player was owed never appears, silently apart from one log line); FIXED 2026-11-17 under the id COLD-LOAD-DROPS-OWED-SPAWN (the same defect, found twice the same day); SPW-8 and SPW-9 read green on their first flights 2026-11-17 (runs `2026-11-17_2320` / `_2322`, runner run `spawn-flight-2026-11-18`), the fix's live proof]
 
 What happens. Every Cold load (a save-file load: the Load menu, and stock F9, which classifies Cold
 `coldReason=save-file` in `LoadReconcilePolicy`) runs the phase `crew-auto-unreserve`
@@ -184,7 +184,7 @@ leaves a past-end unspawned recording owed, and the scene's own end-spawn path m
 (recorded terminal orbit for Orbiting ends). Whether the crew unreserve should still run for a
 recording that will spawn is part of the design question.
 
-## END-SPAWN-LANES-2026-11-17: harness lanes for end spawns at far bodies, under high warp and with a busy player [FILED 2026-11-17, branch `wip/spawnlanes2`, harness only; eleven lanes AUTHORED, NEVER FLOWN (tag `pending-flight`); OPEN: the flights, and two seam proposals]
+## END-SPAWN-LANES-2026-11-17: harness lanes for end spawns at far bodies, under high warp and with a busy player [FILED 2026-11-17, branch `wip/spawnlanes2`, harness only; eleven lanes AUTHORED; FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): eight LIVE-PROVEN, three re-pinned on spec errors; OPEN: the three re-flights, and two seam proposals]
 
 The lanes (each `tier = "operator"` until measured; rows in `docs/dev/autotest-status.md`):
 - `SPW-1` / `SPW-3` / `SPW-10`: a segment of a parked orbit at Laythe / Tylo / the Mun is recorded,
@@ -211,6 +211,27 @@ Not built, because no seam verb exists (proposals, not implemented):
 
 Done when each lane has flown once as a reading run and is re-pinned (count windows, the interim
 `BATCH_COMPLETE` split) or its red is filed.
+
+FIRST FLIGHTS 2026-11-17 (runner run `spawn-flight-2026-11-18`, 3 slots, Debug DLL sha256 prefix
+bd950021 from main 64c68379; diagnostics on branch `forge-logs-2026-11-18-spawn`; read on branch
+`wip/spawnread`). GREEN, attempt 1, moved to Live-proven with the batch pinned whole: `SPW-1`
+`_2312`, `SPW-2` `_2313`, `SPW-3` `_2313`, `SPW-5` `_2314`, `SPW-7` `_2317`, `SPW-8` `_2320`,
+`SPW-9` `_2322`, `SPW-10` `_2325` (SPW-8 / SPW-9: COLD-LOAD-DROPS-OWED-SPAWN's live proof).
+NOT GREEN, every one a SPEC error (no product defect; the deciding line is in each spec header):
+- `SPW-4` / `SPW-6` INVALID(driver-verdict-mismatch), both attempts: the rewound save, written at
+  the Space Center, focuses index 0, the first pad debris, and stock's KSC declutter
+  (DECLUTTER_KSC, on in the provisioned instance) deletes it ~1.5 s after the load (`Late vessel
+  switch to 'Kerbal X Probe' inside the reload commit window`); from ~100 km the ceiling is 50x
+  and the uncapped warp timed out (`warptout timeout ... maxRate=50 elapsed=540.0s`). Fixed with
+  `[runtime] kspSettings = { DECLUTTER_KSC = false }` and `focusPid = 1365670035` on the reload.
+- `SPW-11` PARSEK-FAIL on one token: the target spawned, the window closed itself on zero
+  candidates (`Real Spawn Control auto-close: reason=zero-candidates`), so the second press reads
+  `reason=window-not-open`; re-pinned. The collision branch is still unread.
+Observation, not a defect: the same declutter removes `eva2-lko-crewed`'s four pad debris on
+every reload that does not turn it off, so a header that says a lane "flies the pad debris"
+(EVA-15, SPW-7, SPW-9) describes the authored intent; those lanes passed with whatever focus
+stock gave them. Re-fly order: SPW-11, then SPW-6 and SPW-4 (each ~20 min if the warp still
+crawls, ~3 min if the fix holds).
 ## ~~SPAWN-TS-STACK-NO-DE-OVERLAP~~: two landed deliveries that end on one spot while the player is in the Tracking Station are spawned inside each other [FILED 2026-11-17 by the end-of-recording spawn audit (END-SPAWN-SCENE-LANES-2026-11-17), by code reading; lane `TSS-3-two-deliveries-same-spot-ts` authored to red on it, NEVER FLOWN. ~~done~~ 2026-11-17, branch `wip/spawnfix3`; NOT YET FLOWN (TSS-3 is its regression lane)]
 
 What the code does. The Space Center end spawn nudges a Landed / Splashed spawn clear of every
@@ -255,7 +276,7 @@ nudge patterns cover both sites. TSS-3 re-pinned: no longer an expected red, its
 pins kept, plus the de-overlap line. Tests: `TipSpawnPlacementTests` (`EndOfRecordingDeOverlap_*`,
 `Wiring_EndOfRecordingSpawn_DeOverlapsAgainstUnloadedLandedVesselsBeforeTheCollisionCheck`).
 
-## END-SPAWN-SCENE-LANES-2026-11-17: lanes for end-of-recording spawns in the Tracking Station and at the Space Center, and a placement check on the existing end-spawn lanes [FILED 2026-11-17 (the end-of-recording spawn audit). AUTHORED 2026-11-17, branch `wip/spawnlanes1`, harness and test-generator code only; NEVER FLOWN; OPEN for the first flights]
+## END-SPAWN-SCENE-LANES-2026-11-17: lanes for end-of-recording spawns in the Tracking Station and at the Space Center, and a placement check on the existing end-spawn lanes [FILED 2026-11-17 (the end-of-recording spawn audit). FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): KSS-1 LIVE-PROVEN, EVA-15 / SEAT-2 re-flown green, TSS-1..3, KSS-2 and SS-1 re-pinned on spec errors, re-flights owed. AUTHORED 2026-11-17, branch `wip/spawnlanes1`, harness and test-generator code only; NEVER FLOWN; OPEN for the first flights]
 
 Five new lanes, all `tier = "operator"`, tag `pending-flight`, one `RunTests LeafVesselPlacement`
 step each (loose interim batch pin, `INTERIM_PIN_IDS`):
@@ -311,9 +332,29 @@ is the vessel's reference point, not its lowest part, and the terrain is PQS onl
 pad or a building reads high). To gate a lane on it, pin
 `LeafPlacement height: [^\r\n]*heightVerdict=(?!ok)` as forbidden after a reading run.
 
-First flights owed, in this order: TSS-1, TSS-2, KSS-2, TSS-3 (no longer an expected red:
-SPAWN-TS-STACK-NO-DE-OVERLAP is fixed), KSS-1 (a full B13 flight), then re-fly the four changed
-lanes. Each is a reading run: pin what it measures, the new height lines included.
+~~First flights owed~~ FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`, Debug DLL sha256
+prefix bd950021 from main 64c68379; read on branch `wip/spawnread`):
+- GREEN: `KSS-1` `2026-11-17_2336` (1279 s, LIVE-PROVEN, KSC-END-SPAWN-SKIPS-OFF-KERBIN's
+  Kerbin-start re-flight), `EVA-15` `_2310` and `SEAT-2` `_2311` re-flown; batches pinned whole.
+- `SS-1` `_2309` PARSEK-FAIL(save-structure), SPEC: every token matched, but the batch restored
+  the load-time save (`Batch baseline: restored campaign persistent.sfs ... later FlushAndQuit
+  saves are suppressed`), so the armed census read spawnedVessels 0. A `SaveGame` now runs
+  before the batch (VB-1's shape).
+- `TSS-1` `_2328` / `_2329_a2` INVALID(driver-gate), SPEC: `drivevessel rejected
+  reason=drivevessel-not-on-surface vessel=rover fuel 0 situation=PRELAUNCH`. New savepatch
+  liveState key `situation = "LANDED"` (PRELAUNCH -> LANDED only, `sit` line only) in the
+  staged copy.
+- `TSS-2` `_2330` INVALID(driver-unresolved-handle), SPEC: the mark named `rec1spawned` and the
+  commit makes one recording; rec0 only, count exact 1, the handoff pid tied to the mark.
+- `TSS-3` `_2333` PARSEK-FAIL, SPEC, every defect token green (>= 10 m apart, the de-overlap
+  line, placement 2/2 in FLIGHT): a 200,000 s warp tops at 10,000x (`maxRate=10000`; the ends
+  are crossed on the climb, so no lane crosses a LANDED end at 100,000x yet), and the FLIGHT
+  visit on Stack Probe A continues its committed tree in a new segment (count 3, by design,
+  `TryRestoreCommittedTreeForSpawnedActiveVessel ... (continues in new segment`).
+- `KSS-2` `_2336` PARSEK-FAIL on one token, SPEC: the Tracking Station paid the spawn on its
+  first handoff tick inside the load, 0.12 s before the `kss2-ts` mark the token was anchored
+  on; re-anchored on the load's `loadgame start ... requestedScene=TrackingStation` line.
+Re-fly order: SS-1, TSS-2, KSS-2, TSS-3, TSS-1 (all short), each re-pin read off its own log.
 
 ---
 
@@ -3049,7 +3090,13 @@ in parallel in the cloud):
 3b. [ ] (AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
    re-tuned on branch `air3tune`; RE-FLOWN TWICE 2026-11-17 INVALID (no release), the release
    fixed on branch `air3tune`; FLOWN A FIFTH TIME 2026-11-17, the collision flown, PARSEK-FAIL on
-   one spec error, re-pinned on branch `wip/air3read`, re-flight owed.)
+   one spec error, re-pinned on branch `wip/air3read`; FLOWN A SIXTH TIME 2026-11-17 (run
+   `2026-11-17_2337`, runner run `spawn-flight-2026-11-18`), MISSION-OK, PARSEK-FAIL on another
+   spec error: KSP destroyed the drone whole (`[BgRecorder] Background vessel destroyed:
+   pid=839797731`) before its part deaths arrived, so no `Part death on background vessel` line
+   for it (OnBackgroundPartDie skips a destroyed recording by design); the pin now also accepts
+   the drone's `[Flight] Background vessel destroyed: pid=<drone> recId=` line, re-pinned on
+   branch `wip/spawnread`, re-flight owed.)
    Two airplanes flying into each other (owner request 2026-11-16): two recorded aircraft collide
    in the air; checks both recordings end at the impact and both ghosts replay it.
    Shape: the craft `AIR Drone Carrier` (`harness/tools/build_air_drone_carrier.py`, in
