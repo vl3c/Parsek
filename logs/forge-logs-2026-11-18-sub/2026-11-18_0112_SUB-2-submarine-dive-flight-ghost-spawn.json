@@ -1,0 +1,613 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-18_0112_SUB-2-submarine-dive-flight-ghost-spawn_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 163,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "psub-splashed",
+          "scene": "FLIGHT",
+          "ut": "27.5599999999995"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "27.719999999999498"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "27.759999999999497"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "27.779999999999497",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "27.799999999999496",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "ghostRenderTracing",
+          "ut": "27.819999999999496",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "e0ac75dc04ac477a8b99fe013ff2be01",
+          "ut": "27.859999999999495"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "expect": "MISSION-OK",
+        "id": "0008",
+        "met": true,
+        "missionVerdict": "MISSION-OK",
+        "phase": "mission",
+        "subkind": null,
+        "verdict": "MISSION-OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "62.200000000004124"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "committed": "true",
+          "ut": "62.24000000000413"
+        },
+        "cmd": "CommitTree",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "62.280000000004136"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "sub2-committed",
+          "ut": "62.30000000000414"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "adjustedUT": "12.9",
+          "rec": "e0ac75dc04ac477a8b99fe013ff2be01",
+          "rewound": "true",
+          "tree": "6db6ef4b1b844b6b8b41f7e8fda1944b",
+          "ut": "12.899999999999494"
+        },
+        "cmd": "InvokeRewindToLaunch",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "12.939999999999493",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "ghostRenderTracing",
+          "ut": "12.959999999999493",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "sub2-rewound",
+          "ut": "12.979999999999492"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "craft": "Settings Probe",
+          "facility": "VAB",
+          "parts": "1",
+          "scene": "EDITOR",
+          "ship": "Settings Probe",
+          "ut": "12.999999999999492"
+        },
+        "cmd": "GoToEditor",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "pid": "1100000001",
+          "scene": "FLIGHT",
+          "site": "LaunchPad",
+          "situation": "PRELAUNCH",
+          "ut": "13.299999999999486",
+          "vessel": "Settings Probe"
+        },
+        "cmd": "LaunchFromEditor",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "sub2-observer-on-pad",
+          "ut": "13.399999999999483"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "612.68000000000052",
+          "maxRate": "10",
+          "target": "627",
+          "ut": "626.8088101196314"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "sub2-past-end",
+          "ut": "626.96881011963126"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0021",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "failed": "0",
+          "passed": "1",
+          "results": "parsek-test-results.txt",
+          "skipped": "0",
+          "ut": "628.42881011962993"
+        },
+        "cmd": "RunTests",
+        "expect": "OK",
+        "id": "0022",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "628.58881011962978"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0023",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "628.64881011962973"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0024",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-18T01:15:25Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": 34,
+  "note": "",
+  "runId": "2026-11-18_0112_SUB-2-submarine-dive-flight-ghost-spawn",
+  "scenarioId": "SUB-2-submarine-dive-flight-ghost-spawn",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 616467,
+    "files": 25,
+    "path": "2026-11-18_0112_SUB-2-submarine-dive-flight-ghost-spawn_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-18T01:12:42Z",
+  "subkind": "",
+  "tier": "operator",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\psub-splashed\\analysis\\psub-splashed.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\psub-splashed\\analysis\\psub-splashed.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": "LeafVesselPlacement",
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": 0,
+      "found": true,
+      "matchedRuns": 1,
+      "multi": false,
+      "perCategoryCount": 1,
+      "runsShort": false,
+      "status": "PASS"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 1
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 27,
+            "legacyLines": 0,
+            "maxRotDeg": 0.0,
+            "maxRotDegAt": {
+              "path": "non-loop",
+              "playbackUT": "28.109",
+              "rec": "e0ac75dc",
+              "rotRef": "surface"
+            },
+            "perRef": {
+              "surface": {
+                "maxRotDeg": 0.0,
+                "maxRotDegAt": {
+                  "path": "non-loop",
+                  "playbackUT": "28.109",
+                  "rec": "e0ac75dc",
+                  "rotRef": "surface"
+                },
+                "resolvedLines": 27,
+                "sweepDeg": 0.174,
+                "sweepRec": "e0ac75dc"
+              }
+            },
+            "resolvedLines": 27,
+            "sweepDeg": 0.174,
+            "sweepRec": "e0ac75dc",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 1,
+          "destroyedReasons": {
+            "held-spawn-succeeded": 1
+          },
+          "destroyedRecordings": 1,
+          "malformed": 0,
+          "peakLive": 1,
+          "peakLiveFrame": 11558,
+          "peakLiveRecording": "e0ac75dc04ac477a8b99fe013ff2be01",
+          "perVessel": {
+            "PSUB-1": {
+              "destroyLines": 1,
+              "spawnLines": 1,
+              "spawned": 1
+            }
+          },
+          "spawnLines": 1,
+          "spawnReasons": {
+            "ghost-created": 1
+          },
+          "spawned": 1,
+          "spawnedRecordingIds": [
+            "e0ac75dc04ac477a8b99fe013ff2be01"
+          ],
+          "unbalanced": [],
+          "vessels": [
+            "PSUB-1"
+          ]
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": false,
+      "status": "PASS"
+    },
+    "mission": {
+      "missionVerdict": "MISSION-OK",
+      "status": "PASS",
+      "subkind": ""
+    },
+    "missionOutcome": {
+      "firstUnmet": null,
+      "gatingVerbs": [],
+      "reason": "no-gating-verbs",
+      "status": "SKIPPED"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [
+        "rewind"
+      ],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 18,
+            "recordings": 1,
+            "smallest": 18,
+            "total": 18,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {},
+            "committedTrees": 1,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "PSUB-1": 1
+            },
+            "recordings": 1,
+            "spaceObjectParts": {
+              "Ast. VPA-167": 1
+            },
+            "spawnedVessels": 1,
+            "terminalStates": {
+              "Splashed": 1
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "PSUB-1": 1,
+              "Settings Probe": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": 0,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 1
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 1,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 163
+}

@@ -1,0 +1,104 @@
+# KSP.log lines with PSUB, LeafPlacement or [Parsek][WARN]/[ERROR], run 2026-11-18_0110_SUB-1-submarine-dive-ksc-end-spawn
+[LOG 03:10:40.795] [FLIGHT GLOBALS]: Switching To Vessel PSUB-1 ---------------------- 
+[LOG 03:10:40.796] [Parsek][INFO][Scenario] Vessel switch ignored: '' -> 'PSUB-1' fired before onFlightReady (scene-entry initial focus, not a player switch) - vessel-switch flag not armed (frame=9269)
+[LOG 03:10:40.865] [Parsek][WARN][TestRunner] Late vessel switch to 'PSUB-1' inside the reload commit window (armedBy='TestCommandLoadGame:psub-splashed/persistent'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 03:10:42.529] [FlightIntegrator]: Reloaded drag cube for zeroed cube root part probeCoreOcto2.v2 (PSUB-1) on vessel PSUB-1
+[LOG 03:10:42.593] [PlanetariumCamera]: Focus: PSUB-1
+[LOG 03:10:43.518] Unpacking PSUB-1
+[LOG 03:10:43.548] [Parsek][INFO][TestCommands] loadgame flight-ready wait: waited frames=55 seconds=1.00 after the FLIGHT scene settled (onFlightReady observed, active vessel unpacked) save=psub-splashed vessel='PSUB-1'
+[LOG 03:10:43.643] [Parsek][INFO][Flight] CommittedSpawnedRestoreSuppression: armed pid=2300110077 vessel='PSUB-1' reason=test-command-discard-nothing previousPid=0 - committed-tree restore skips this vessel until a live tree or recorder exists, the active vessel changes, or the scene ends
+[LOG 03:10:43.717] [Parsek][VERBOSE][Spawner] ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for TryBackupSnapshot pid=2300110077 vessel='PSUB-1' on body 'Kerbin' (REF=1)
+[LOG 03:10:43.719] [Parsek][INFO][Flight] Always-tree: created single-node tree id=d921d674675b420fae31ac6cb6584e27, root=95921914ad6046ce8c0a75778654fc46, vessel=PSUB-1 (pid=2300110077), ghostSnap=True
+[LOG 03:10:43.721] [Parsek][VERBOSE][Recorder] Harvest converter cache: vessel='PSUB-1' converters=0 (rebuild reason=start)
+[LOG 03:10:43.728] [Parsek][VERBOSE][Recorder] Visual recording coverage for 'PSUB-1' pid=2300110077: parts=28 modules=113 parachute=0 jettison=0 deployable=0 ladder=0 animationGroup=0 animateGeneric=0 lights=0 gear=0 cargoBay=0 fairing=0 aeroSurface=0 controlSurface=0 robotArmScanner=0 animateHeat=0 engine=0 rcs=0 robotics=0
+[LOG 03:10:43.730] [Parsek][INFO][RecState] [#6][OnSave:pre] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.7 scene=FLIGHT
+[LOG 03:10:43.730] [Parsek][INFO][RecState] [#7][FlushRecorderIntoActiveTree:entry] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.7 scene=FLIGHT
+[LOG 03:10:43.732] [Parsek][INFO][RecState] [#8][FlushRecorderIntoActiveTree:post] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.7 scene=FLIGHT
+[LOG 03:10:43.734] [Parsek][INFO][Scenario] OnSave: rewriting sidecars for recording='PSUB-1' id=95921914ad6046ce8c0a75778654fc46 treeKind=active tree reason=trajectory-missing
+[LOG 03:10:43.773] [Parsek][INFO][Scenario] OnSave: wrote ACTIVE tree 'PSUB-1' (1 recording(s), activeRecId=95921914ad6046ce8c0a75778654fc46) for quickload resume
+[LOG 03:10:43.780] [Parsek][INFO][RecState] [#9][OnSave:post] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.7 scene=FLIGHT
+[LOG 03:10:43.786] [Parsek][INFO][Recorder] Captured rewind save at UT 27.7399999999995: vessel "PSUB-1" in SPLASHED (save: parsek_rw_2f891d)
+[LOG 03:10:43.797] [Parsek][VERBOSE][Recorder] RouteOriginProof seam scan: settledDockSeamCandidates=0 externalParentCandidates=0 recId=2300110077 vessel='PSUB-1' mergedPid=2300110077
+[LOG 03:10:43.798] [Parsek][VERBOSE][Recorder] RouteOriginProof skipped: no external coupling recId=2300110077 vessel='PSUB-1' candidates=0 isEva=False
+[LOG 03:10:43.798] [Parsek][VERBOSE][Recorder] RouteRunManifest start: recId=2300110077 vessel='PSUB-1' parts=28 res=3
+[LOG 03:10:43.801] [Parsek][INFO][Recorder] Recording started: vessel="PSUB-1", parts=28, points=0, treeRec=rec[95921914|PSUB-1|tree|-]
+[LOG 03:10:43.806] [Parsek][INFO][RecState] [#10][StartRecording:post] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=T/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.7 scene=FLIGHT
+[LOG 03:10:43.826] [Parsek][WARN][Diagnostics] Recording frame exceeded budget: 11.92ms for vessel "PSUB-1"
+[LOG 03:10:54.580] [Parsek][VERBOSE][Spawner] ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for TryBackupSnapshot pid=2300110077 vessel='PSUB-1' on body 'Kerbin' (REF=1) | suppressed=1
+[LOG 03:11:04.789] [Parsek][VERBOSE][Spawner] ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for TryBackupSnapshot pid=2300110077 vessel='PSUB-1' on body 'Kerbin' (REF=1)
+[LOG 03:11:16.785] [Parsek][VERBOSE][Spawner] ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for TryBackupSnapshot pid=2300110077 vessel='PSUB-1' on body 'Kerbin' (REF=1)
+[LOG 03:11:18.160] [Parsek][VERBOSE][Recorder] Built capture recording: vessel="PSUB-1", points=18, orbits=0, partEvents=0, checkpointDensifiedPoints=0, hasSnapshot=True
+[LOG 03:11:18.199] [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='95921914ad6046ce8c0a75778654fc46' vessel='PSUB-1' points=18 orbitSegs=0 terminal=Splashed maxDist=55m snapshot=True leaf=True
+[LOG 03:11:18.199] [Parsek][INFO][Flight] FinalizeTreeRecordings: tree 'PSUB-1' finalized (resource accounting via ledger; no tree-level delta captured).
+[LOG 03:11:18.200] [Parsek][VERBOSE][RecordingStore] MarkTreeAsApplied: tree id='d921d674675b420fae31ac6cb6584e27' name='PSUB-1' recordingsAdvanced=1
+[LOG 03:11:18.202] [Parsek][INFO][Merger] MergeTree: starting merge for tree='PSUB-1' recordings=1
+[LOG 03:11:18.206] [Parsek][INFO][Merger] MergeTree: vessel='PSUB-1' id=95921914ad6046ce8c0a75778654fc46 inputSections=1 outputSections=1 overlapsResolved=0 active=1 background=0 checkpoint=0
+[LOG 03:11:18.206] [Parsek][INFO][Merger] MergeTree: completed merge for tree='PSUB-1' merged=1 recordings
+[LOG 03:11:18.207] [Parsek][VERBOSE][RecordingStore] GenerateUniqueGroupName: 'PSUB-1' is unique, returning unchanged
+[LOG 03:11:18.207] [Parsek][INFO][RecordingStore] Auto-grouped 1 recordings under 'PSUB-1'
+[LOG 03:11:18.249] [Parsek][INFO][RecordingStore] Committed tree 'PSUB-1' (1 recordings). Total committed: 1 recordings, 1 trees
+[LOG 03:11:18.249] [Parsek][VERBOSE][RecordingStore] CommitTree: child rec[95921914|PSUB-1|tree|-]
+[LOG 03:11:18.260] [Parsek][VERBOSE][KerbalsModule] PopulateCrewEndStates: recording='PSUB-1' (id=95921914ad6046ce8c0a75778654fc46) has no crew in ghost snapshot -- resolved
+[LOG 03:11:18.265] [Parsek][INFO][LedgerOrchestrator] NotifyLedgerTreeCommitted: filed rows for 1 recording(s) of tree 'PSUB-1' before one ledger walk (chainSegments=0)
+[LOG 03:11:18.270] [Parsek][VERBOSE][LedgerOrchestrator] NotifyLedgerTreeCommitted: tree='PSUB-1' recordings=1, chainSegments=0, gapsClosed=0, reFlyWindowsExtended=0, retiredProvisionalRows=0
+[LOG 03:11:18.273] [Parsek][VERBOSE][Flight] CommitTreeFlight: committed tree "PSUB-1" — 0 vessel(s) spawned
+[LOG 03:11:18.284] [Parsek][INFO][RecordingStore] Armed committed-tree restore attempt for 'PSUB-1' (id=d921d674675b420fae31ac6cb6584e27, recordings=1, cutoffs=1, resumed=95921914ad6046ce8c0a75778654fc46 resumeUT=62.120000000004111 endUT=62.100000000004108 resumedCutoff=62.100000000004108 rule=end (not ahead of the clock) storedEventsAtResume=0, reason=TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write)
+[LOG 03:11:18.284] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: attached BackgroundRecorder for tree 'PSUB-1' (0 background entry(ies))
+[LOG 03:11:18.285] [Parsek][VERBOSE][Recorder] Harvest converter cache: vessel='PSUB-1' converters=0 (rebuild reason=start)
+[LOG 03:11:18.286] [Parsek][VERBOSE][Recorder] Visual recording coverage for 'PSUB-1' pid=2300110077: parts=28 modules=113 parachute=0 jettison=0 deployable=0 ladder=0 animationGroup=0 animateGeneric=0 lights=0 gear=0 cargoBay=0 fairing=0 aeroSurface=0 controlSurface=0 robotArmScanner=0 animateHeat=0 engine=0 rcs=0 robotics=0
+[LOG 03:11:18.289] [Parsek][VERBOSE][Recorder] RouteOriginProof seam scan: settledDockSeamCandidates=0 externalParentCandidates=0 recId=2300110077 vessel='PSUB-1' mergedPid=2300110077
+[LOG 03:11:18.289] [Parsek][VERBOSE][Recorder] RouteOriginProof skipped: no external coupling recId=2300110077 vessel='PSUB-1' candidates=0 isEva=False
+[LOG 03:11:18.289] [Parsek][INFO][Recorder] Recording started: vessel="PSUB-1", parts=28, points=0, promotion, treeRec=rec[95921914|PSUB-1|tree|-]
+[LOG 03:11:18.292] [Parsek][INFO][Flight] ResumeCommittedActiveRecording: resumed committed recording '95921914ad6046ce8c0a75778654fc46' on vessel 'PSUB-1' pid=2300110077
+[LOG 03:11:18.292] [Parsek][INFO][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'PSUB-1' for vessel 'PSUB-1' pid=2300110077 via ResumeActiveRecording
+[LOG 03:11:18.294] [Parsek][INFO][RecState] [#11][CommittedSpawnedRestore:post] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=T/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=62.1 scene=FLIGHT
+[LOG 03:11:18.300] [Parsek][VERBOSE][Flight] Ghost playback skip state: #0 id=95921914ad6046ce8c0a75778654fc46 vessel="PSUB-1" skip=True reason=historical-not-replayed hasRenderableData=True playbackEnabled=True externalVesselSuppressed=False supersededByRelation=False rewindRetired=False
+[LOG 03:11:18.317] [Parsek][VERBOSE][GhostMap] Overlap gate decision rec=#0 "PSUB-1": (a) loopPlayback=False autoIsOverlapLoop=False | (b) isMember=False overlapCadence=NaN span=NaN unitOverlaps=False | (none) | verdict shouldDrive=False (not-driven)
+[LOG 03:11:18.321] [Parsek][VERBOSE][GhostCommNet] No ghost node for key=95921914ad6046ce8c0a75778654fc46 vessel="PSUB-1": real-vessel-relays
+[LOG 03:11:18.335] [Parsek][VERBOSE][Recorder] Built capture recording: vessel="PSUB-1", points=1, orbits=0, partEvents=0, checkpointDensifiedPoints=0, hasSnapshot=True
+[LOG 03:11:18.394] [Parsek][VERBOSE][Rewind] Rewind owner strip: owner='PSUB-1' guid=3962829fdc8f4d24913acfcd87e543d4 evaChildNames=0 identityGuids=1 ownerAliases=0
+[LOG 03:11:18.402] [Parsek][VERBOSE][Rewind] Rewind strip scope: strip spawned pid=2300110077 of 'PSUB-1' (id=95921914ad6046ce8c0a75778654fc46) via holder-replays
+[LOG 03:11:18.403] [Parsek][INFO][Rewind] Stripped 1 vessel(s) from save (1 by name [PSUB-1], 0 by owner guid, 0 by PID; kept 0 other launch(es) of the owner's craft)
+[LOG 03:11:18.435] [Parsek][INFO][RecState] [#12][FlushRecorderIntoActiveTree:entry] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=F/F rec.buf=1/0/0 lastUT=62.1 tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=62.2 scene=FLIGHT
+[LOG 03:11:18.435] [Parsek][INFO][RecState] [#13][FlushRecorderIntoActiveTree:post] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=62.1 tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=62.2 scene=FLIGHT
+[LOG 03:11:18.438] [Parsek][INFO][RecState] [#14][OnSceneChangeRequested] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=62.1 tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=62.2 scene=FLIGHT
+[LOG 03:11:18.439] [Parsek][INFO][RecState] [#15][FinalizeTreeOnSceneChange:entry] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=62.1 tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=62.2 scene=FLIGHT
+[LOG 03:11:18.439] [Parsek][INFO][RecState] [#16][CommitTreeSceneExit:entry] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=62.1 tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=62.2 scene=FLIGHT
+[LOG 03:11:18.441] [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='95921914ad6046ce8c0a75778654fc46' vessel='PSUB-1' points=19 orbitSegs=0 terminal=Splashed maxDist=55m snapshot=True leaf=True
+[LOG 03:11:18.441] [Parsek][INFO][Flight] FinalizeTreeRecordings: tree 'PSUB-1' finalized (resource accounting via ledger; no tree-level delta captured).
+[LOG 03:11:18.486] [Parsek][INFO][RecordingStore] Stashed pending tree 'PSUB-1' (1 recordings, state=Finalized)
+[LOG 03:11:18.486] [Parsek][VERBOSE][RecordingStore] StashPendingTree: active rec[95921914|PSUB-1|tree|-]
+[LOG 03:11:18.486] [Parsek][INFO][Flight] CommitTreeSceneExit: stashed pending tree 'PSUB-1'
+[LOG 03:11:18.486] [Parsek][INFO][RecState] [#17][CommitTreeSceneExit:post] mode=tree tree=d921d674|PSUB-1 rec=95921914|PSUB-1|pid=2300110077 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=62.1 tree.recs=1/0 pend.tree=d921d674:Finalized pend.sa=- pend.split=F/F ut=62.2 scene=FLIGHT
+[LOG 03:11:20.707] [Parsek][VERBOSE][Rewind] SpawnSuppressedByRewind applied: #0 "PSUB-1" id=95921914ad6046ce8c0a75778654fc46 tree=d921d674675b420fae31ac6cb6584e27 reason=same-recording rewindUT=27.740 startUT=27.740 endUT=62.100 (#573 active/source recording protection)
+[LOG 03:11:20.799] [Parsek][WARN][RecordingStore] Tree 'd921d674675b420fae31ac6cb6584e27' already committed with a different topology; updating committed tree (oldRecordings=1, newRecordings=1, reason=newRecordingIds=0 newBranchPointIds=0 rootChanged=False activeChanged=False recordingTopologyChanged=False branchTopologyChanged=False recordingPayloadChanged=True) preservedRootGroup='PSUB-1'
+[LOG 03:11:20.799] [Parsek][INFO][Merger] MergeTree: starting merge for tree='PSUB-1' recordings=1
+[LOG 03:11:20.800] [Parsek][INFO][Merger] MergeTree: vessel='PSUB-1' id=95921914ad6046ce8c0a75778654fc46 inputSections=2 outputSections=2 overlapsResolved=0 active=2 background=0 checkpoint=0
+[LOG 03:11:20.800] [Parsek][WARN][Merger] MergeTree: boundary discontinuity=2.28m at section[1] ut=62.12 vessel='PSUB-1' prevRef=Absolute nextRef=Absolute prevSrc=Active nextSrc=Active dt=1.42s expectedFromVel=2.28m ratio=1.00 cause=unrecorded-gap
+[LOG 03:11:20.800] [Parsek][INFO][Merger] MergeTree: completed merge for tree='PSUB-1' merged=1 recordings
+[LOG 03:11:20.800] [Parsek][INFO][RecordingStore] Auto-grouped 1 recordings under 'PSUB-1'
+[LOG 03:11:20.823] [Parsek][INFO][RecordingStore] Updated committed tree 'PSUB-1' (1 recordings). Total committed: 1 recordings, 1 trees
+[LOG 03:11:20.823] [Parsek][VERBOSE][RecordingStore] CommitTree: child rec[95921914|PSUB-1|tree|-]
+[LOG 03:11:20.826] [Parsek][VERBOSE][RecordingStore] MarkTreeAsApplied: tree id='d921d674675b420fae31ac6cb6584e27' name='PSUB-1' recordingsAdvanced=1
+[LOG 03:11:20.826] [Parsek][INFO][LedgerOrchestrator] NotifyLedgerTreeCommitted: filed rows for 1 recording(s) of tree 'PSUB-1' before one ledger walk (chainSegments=0)
+[LOG 03:11:20.829] [Parsek][VERBOSE][LedgerOrchestrator] NotifyLedgerTreeCommitted: tree='PSUB-1' recordings=1, chainSegments=0, gapsClosed=0, reFlyWindowsExtended=0, retiredProvisionalRows=0
+[LOG 03:11:20.829] [Parsek][WARN][Scenario] Safety net: committed pending tree on save outside Flight
+[LOG 03:11:20.835] [Parsek][INFO][Scenario] OnSave: advancing deferred sidecar epoch for recording='PSUB-1' id=95921914ad6046ce8c0a75778654fc46 treeKind=committed tree epoch=1 (content was flushed out-of-band without advancing it)
+[LOG 03:11:23.172] [Parsek][VERBOSE][KSCGhost] Ghost #0 "PSUB-1" spawned (engines=0 rcs=0 lights=0 deployables=0 fairings=0 parachutes=0)
+[LOG 03:11:23.172] [Parsek][VERBOSE][KSCGhost] Ghost #0 "PSUB-1" entered range: targetUT=27.8 recUT=[27.7,62.2] cycle=0 loop=False terminal=Splashed
+[LOG 03:11:23.174] [Parsek][VERBOSE][KSCGhost] KSC SURFACE playback resolved: recording=rec[95921914|PSUB-1|tree|-] targetUT=27.83 body=Kerbin branch=absolute
+[LOG 03:11:25.189] [Parsek][VERBOSE][KSCGhost] KSC SURFACE playback resolved: recording=rec[95921914|PSUB-1|tree|-] targetUT=48.23 body=Kerbin branch=absolute | suppressed=119
+[LOG 03:11:26.596] [Parsek][VERBOSE][KSCGhost] KSC SURFACE playback resolved: recording=rec[95921914|PSUB-1|tree|-] ut=62.14 body=Kerbin branch=absolute
+[LOG 03:11:26.597] [Parsek][VERBOSE][Rewind] same-recording spawn suppression lifted for standalone rewind target rec=95921914ad6046ce8c0a75778654fc46 vessel="PSUB-1" pid=2300110077 — no live same-craft vessel present (plain Rewind-to-Launch not re-flown); recorded terminal will materialize (#573/#589)
+[LOG 03:11:26.607] [Parsek][INFO][KSCSpawn] Attempting spawn for #0 "PSUB-1" (id=95921914ad6046ce8c0a75778654fc46)
+[LOG 03:11:26.609] [Parsek][VERBOSE][Spawner] Splashed spawn #0 (PSUB-1) keeps its recorded depth alt=-55.9 (seaFloor=-706.9, site=endpoint)
+[LOG 03:11:26.611] [Parsek][VERBOSE][KSCSpawn] De-overlap for #0 "PSUB-1": clear (existing landed=0, nearest=179769313486232000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000.0m >= min=15m)
+[LOG 03:11:26.611] [Parsek][VERBOSE][Spawner] Spawn rotation prep (Snapshot override #0 (PSUB-1), source=terminal surface pose): body=Kerbin frame=surface-relative(format-v0) -> ProtoVessel.rot (KSP loads as vessel.srfRelRotation; no body multiply) srfRel=-0.701417089,-0.0935442671,-0.0987393484,0.69965291 bodyRot=0,-0.9383623,0,-0.345653415 rot=-0.701417089,-0.0935442671,-0.0987393484,0.69965291
+[LOG 03:11:26.612] [Parsek][INFO][Spawner] Snapshot position override for #0 (PSUB-1): alt -55.922945127822459 → -55.922945127822459 (rot updated from surface-relative frame, source=terminal surface pose) [deliberate-override stamped]
+[LOG 03:11:26.614] [Parsek][VERBOSE][Spawner] Stripped deliberate position-override stamp for KSC spawn #0 (PSUB-1) (PSUB-1) (pre-ProtoVessel-load hygiene)
+[LOG 03:11:26.623] [Parsek][INFO][KSCSpawn] Vessel spawned for #0 "PSUB-1" pid=1462476643 sit=SPLASHED lat=-0.09720037912583139 lon=-74.14999542619482 alt=-55.922945127822459 — will appear in Tracking Station
+[LOG 03:11:26.623] [Parsek][VERBOSE][KSCGhost] Ghost #0 "PSUB-1" exited range at UT 62.2
+[LOG 03:12:28.723] [Parsek][INFO][LeafPlacement] LeafPlacement: rec=95921914ad6046ce8c0a75778654fc46 vessel='PSUB-1' pid=1462476643 kind=surface body=Kerbin liveBody=Kerbin distM=0.0 verdict=ok
+[LOG 03:12:28.723] [Parsek][INFO][LeafPlacement] LeafPlacement height: rec=95921914ad6046ce8c0a75778654fc46 vessel='PSUB-1' pid=1462476643 terminal=Splashed body=Kerbin altM=-55.9 refM=-55.8 deltaM=-0.1 floorM=-706.9 heightVerdict=ok
+[LOG 03:12:28.724] [Parsek][INFO][LeafPlacement] LeafPlacement summary: scene=SPACECENTER compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=[Kerbin]
+[LOG 03:12:28.724] [Parsek][INFO][LeafPlacement] LeafPlacement height summary: scene=SPACECENTER checked=1 ok=1 bad=0 unsupported=0

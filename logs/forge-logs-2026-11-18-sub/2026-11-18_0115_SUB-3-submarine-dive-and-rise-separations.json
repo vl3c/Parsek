@@ -1,0 +1,410 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-18_0115_SUB-3-submarine-dive-and-rise-separations_shots"
+  },
+  "attempt": 1,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": false,
+    "skippedTailSteps": [
+      {
+        "cmd": "CommitTree",
+        "id": "0009",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "SaveGame",
+        "id": "0011",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      }
+    ],
+    "steps": [
+      {
+        "captured": {
+          "save": "psub-splashed",
+          "scene": "FLIGHT",
+          "ut": "27.5599999999995"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "27.719999999999498"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "27.739999999999498"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "27.759999999999497",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "27.779999999999497",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "e9896cb9d9c94d1582df7e3d26b434b5",
+          "ut": "27.819999999999496"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "expect": "MISSION-OK",
+        "id": "0007",
+        "met": false,
+        "missionVerdict": "MISSION-ASSERT-FAIL",
+        "phase": "mission",
+        "subkind": "mission",
+        "verdict": "INVALID"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "79.160000000001389"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "79.180000000001385"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "79.220000000001377"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-18T01:17:05Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": 51,
+  "note": "",
+  "runId": "2026-11-18_0115_SUB-3-submarine-dive-and-rise-separations",
+  "scenarioId": "SUB-3-submarine-dive-and-rise-separations",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 568668,
+    "files": 19,
+    "path": "2026-11-18_0115_SUB-3-submarine-dive-and-rise-separations_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=INVALID"
+  },
+  "startedUtc": "2026-11-18T01:15:27Z",
+  "subkind": "mission",
+  "tier": "operator",
+  "verdict": "INVALID",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\psub-splashed\\analysis\\psub-splashed.analysis.json",
+      "reportTxt": "C:\\Users\\USER\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\psub-splashed\\analysis\\psub-splashed.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": true
+    },
+    "anomalySweep": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "FAIL",
+      "subkind": "mission"
+    },
+    "expectations": {
+      "observed": {
+        "recordings": {
+          "count": 1
+        }
+      },
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "driver-invalid",
+      "status": "SKIPPED"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "mission": {
+      "missionVerdict": "MISSION-ASSERT-FAIL",
+      "status": "FAIL",
+      "subkind": "mission"
+    },
+    "missionOutcome": {
+      "firstUnmet": null,
+      "gatingVerbs": [],
+      "reason": "no-gating-verbs",
+      "status": "SKIPPED"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "driver-invalid",
+      "status": "SKIPPED",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "blocks": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 97,
+            "recordings": 1,
+            "smallest": 97,
+            "total": 97,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "JointBreak": 3
+            },
+            "committedTrees": 0,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {},
+            "recordings": 1,
+            "spaceObjectParts": {
+              "Ast. VPA-167": 1
+            },
+            "spawnedVessels": 0,
+            "terminalStates": {},
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "PSUB-1": 1,
+              "PSUB-1 Debris": 6
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "driver-invalid",
+      "scenarioFound": true,
+      "status": "SKIPPED"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "failures": 0,
+      "reason": "short-circuit-or-invalid-driver",
+      "status": "SKIPPED"
+    },
+    "unityExceptions": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "unmetMissionTail": {
+      "reason": "mission-unmet",
+      "skippedSteps": [
+        {
+          "cmd": "CommitTree",
+          "id": "0009",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "SaveGame",
+          "id": "0011",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        }
+      ],
+      "status": "SKIPPED"
+    }
+  },
+  "wallSeconds": 98
+}

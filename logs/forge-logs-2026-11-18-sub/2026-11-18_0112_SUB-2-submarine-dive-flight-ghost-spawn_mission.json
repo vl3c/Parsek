@@ -1,0 +1,119 @@
+{
+  "assertions": [
+    {
+      "expectedVesselName": "PSUB-1",
+      "handoffFrames": 3,
+      "met": true,
+      "name": "handoffAfloat",
+      "seaFloor": -708.6032308120048,
+      "startAlt": -2.517459481372498,
+      "startParts": 28,
+      "startStage": 6,
+      "value": "SPLASHED",
+      "vessel": "PSUB-1"
+    },
+    {
+      "floatsDropped": 0,
+      "floorReached": false,
+      "met": true,
+      "name": "sankBelowTarget",
+      "sinkUT": 49.860000000002195,
+      "sinkVs": -1.6062258882627822,
+      "targetDepthMeters": 40.0,
+      "targetUT": 51.88000000000251,
+      "value": -56.93535715015605
+    },
+    {
+      "met": true,
+      "name": "measurementsLogged",
+      "phasesReached": [
+        "PSUB-HANDOFF",
+        "PSUB-SETTLE",
+        "PSUB-MEASURE",
+        "PSUB-SINK",
+        "PSUB-HOLD",
+        "PSUB-DONE"
+      ],
+      "readings": [
+        "handoff:ut=29.4,mode=sink,floats=0,ballast=0,alt=-2.52,vs=nan,floor=-708.6,parts=28,stage=6,sit=SPLASHED",
+        "measure1:ut=49.9,mode=sink,floats=0,ballast=0,alt=-37.28,vs=-1.606,floor=-708.6,parts=28,stage=6,sit=SPLASHED",
+        "sink:ut=50.4,mode=sink,floats=0,ballast=0,alt=-38.09,vs=-1.603,floor=-708.6,parts=28,stage=6,sit=SPLASHED",
+        "at-target:ut=51.9,mode=sink,floats=0,ballast=0,alt=-40.52,vs=nan,floor=-708.6,parts=28,stage=6,sit=SPLASHED",
+        "hold:ut=57.0,mode=sink,floats=0,ballast=0,alt=-48.73,vs=-1.603,floor=-708.6,parts=28,stage=6,sit=SPLASHED",
+        "hold-end:ut=62.1,mode=sink,floats=0,ballast=0,alt=-56.94,vs=-1.603,floor=-708.6,parts=28,stage=6,sit=SPLASHED"
+      ],
+      "value": 1
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.1466311999829486,
+    "rpcPort": 50000
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "psub_dive",
+  "phasesReached": [
+    "PSUB-HANDOFF",
+    "PSUB-SETTLE",
+    "PSUB-MEASURE",
+    "PSUB-SINK",
+    "PSUB-HOLD",
+    "PSUB-DONE"
+  ],
+  "reason": "all telemetry assertions met",
+  "schema": 1,
+  "verdict": "MISSION-OK",
+  "wallSeconds": 33.985,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.04,
+      "gameSecondsPerWallSecond": 0.977,
+      "phase": "PSUB-HANDOFF",
+      "wallSeconds": 1.065,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 10.28,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "PSUB-SETTLE",
+      "wallSeconds": 10.28,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 10.22,
+      "gameSecondsPerWallSecond": 1.001,
+      "phase": "PSUB-MEASURE",
+      "wallSeconds": 10.209,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 2.02,
+      "gameSecondsPerWallSecond": 0.998,
+      "phase": "PSUB-SINK",
+      "wallSeconds": 2.024,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 10.24,
+      "gameSecondsPerWallSecond": 0.999,
+      "phase": "PSUB-HOLD",
+      "wallSeconds": 10.248,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.0,
+      "gameSecondsPerWallSecond": 0.0,
+      "phase": "PSUB-DONE",
+      "wallSeconds": 0.0,
+      "warpCommands": 0
+    }
+  ]
+}
