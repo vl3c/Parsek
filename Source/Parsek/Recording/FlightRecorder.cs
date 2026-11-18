@@ -1988,8 +1988,13 @@ namespace Parsek
             // Intentionally does not set CaptureAtStop. Forced stops happen during
             // scene transitions where vessel state may already be changing/unreliable;
             // ParsekFlight falls back to scene-change snapshot capture in that path.
+            // Terminal engine / RCS / robotic shutdowns ARE emitted (todo
+            // FORCESTOP-LEAVES-ENGINES-LIT): they come from the recorder's own tracking
+            // sets, need no live vessel, and are the only thing that ends a plume still
+            // lit at the scene exit or the commit, exactly as the background half of the
+            // same commit does (BackgroundRecorder.FinalizeAllForCommit).
             FinalizeRecordingState(
-                emitTerminalEvents: false,
+                emitTerminalEvents: true,
                 clearRelativeMode: false,
                 sampleBoundaryOnRails: false,
                 logTag: "force stop");

@@ -133,23 +133,25 @@ namespace Parsek
         private void FinalizeRecordingState(bool emitTerminalEvents, bool clearRelativeMode,
             bool sampleBoundaryOnRails, string logTag)
         {
+            double stopUT = ReadStopUT();
+
             // Finalize in-progress orbit segment
             if (isOnRails)
             {
-                currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+                currentOrbitSegment.endUT = stopUT;
                 OrbitSegments.Add(currentOrbitSegment);
                 AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
                 isOnRails = false;
 
                 if (sampleBoundaryOnRails)
                 {
-                    Vessel v = FlightGlobals.ActiveVessel;
+                    Vessel v = TryGetFlightGlobalsActiveVessel();
                     if (v != null) SamplePosition(v);
                 }
             }
 
             // Close final TrackSection
-            CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+            CloseCurrentTrackSection(stopUT);
 
             // Clear RELATIVE mode state
             if (clearRelativeMode)
@@ -177,22 +179,30 @@ namespace Parsek
                 DiagnosticsState.hasActiveGrowthRate = false;
             }
 
-            // Optionally emit terminal shutdown events for engines/RCS/robotics still active (bug #108)
+            // Optionally emit terminal shutdown events for engines/RCS/robotics still active (bug #108).
+            // Read from the recorder's own tracking sets, so no live vessel is needed: this is
+            // why the forced stop (scene exit, every tree commit) can emit them too.
             if (emitTerminalEvents)
             {
-                double terminalUT = Planetarium.GetUniversalTime();
                 var terminalEvts = EmitTerminalEngineAndRcsEvents(
                     activeEngineKeys, activeRcsKeys, activeRoboticKeys,
-                    lastRoboticPosition, terminalUT, "Recorder", thrustingJetpackParts);
+                    lastRoboticPosition, stopUT, "Recorder", thrustingJetpackParts);
                 PartEvents.AddRange(terminalEvts);
                 // Save the exact terminal events so ResumeAfterFalseAlarm can remove them
                 // by content-match (#287). Index-based RemoveRange is brittle across unstable
                 // sort paths and any code path that appends events between stop and resume.
                 lastEmittedTerminalEvents = terminalEvts;
+                ParsekLog.Verbose("Recorder",
+                    $"FinalizeRecordingState ({logTag}): emitted {terminalEvts.Count} terminal event(s) " +
+                    $"at UT={stopUT.ToString("F2", CultureInfo.InvariantCulture)} pid={RecordingVesselId}");
             }
             else
             {
                 lastEmittedTerminalEvents = null;
+                ParsekLog.Verbose("Recorder",
+                    $"FinalizeRecordingState ({logTag}): terminal events not emitted " +
+                    $"(engines={activeEngineKeys?.Count ?? 0} rcs={activeRcsKeys?.Count ?? 0} " +
+                    $"robotics={activeRoboticKeys?.Count ?? 0}) pid={RecordingVesselId}");
             }
 
             // Sort part/flag events chronologically with STABLE semantics so same-UT
@@ -207,6 +217,39 @@ namespace Parsek
             var sortedFlags = StableSortByUT(FlagEvents, e => e.ut);
             FlagEvents.Clear();
             FlagEvents.AddRange(sortedFlags);
+        }
+
+        /// <summary>
+        /// Test seam for the stop UT <see cref="FinalizeRecordingState"/> reads once and uses for
+        /// the orbit segment end, the section close and the terminal events. Null in every
+        /// player build.
+        /// </summary>
+        internal static Func<double> StopUTProviderForTesting;
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadStopUT()
+        {
+            if (StopUTProviderForTesting != null)
+                return StopUTProviderForTesting();
+            return Planetarium.GetUniversalTime();
+        }
+
+        // FlightGlobals' static initializer fails headless (mono runs it at JIT of the CALLING
+        // method), so the stop path reads the active vessel only through this wrapper.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static Vessel TryGetFlightGlobalsActiveVessel()
+        {
+            try { return ReadFlightGlobalsActiveVesselCore(); }
+            catch (TypeInitializationException) { return null; }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static Vessel ReadFlightGlobalsActiveVesselCore()
+        {
+            return FlightGlobals.ActiveVessel;
         }
 
         /// <summary>

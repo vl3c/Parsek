@@ -20,6 +20,26 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~FORCESTOP-LEAVES-ENGINES-LIT~~: leaving the scene mid-burn left the ghost's engines lit [FIXED 2026-11-18, branch `wp3-recording-ends`; xUnit `RecorderStopEndingTests`; no lane gates it yet; medium (a replay with a plume burning to its end)]
+
+Cause: the scene exit and every tree commit stop the active recorder with `FlightRecorder.ForceStop`,
+which ran `FinalizeRecordingState(emitTerminalEvents: false)`, so an engine, RCS thruster or robotic
+part still running at that moment had no closing event. The background half of the same commit
+(`BackgroundRecorder.FinalizeAllForCommit`) did emit them, and done todo #108 promised a shutdown at
+every recording boundary.
+
+Fix: `ForceStop` emits the terminal EngineShutdown / RCSStopped / RoboticMotionStopped /
+EvaJetpackThrustStopped events at the stop UT. They come from the recorder's own tracking sets, so
+no live vessel is read. Every caller checked for double emission: `ForceStop` runs only while
+`IsRecording`, a backgrounded recorder is stopped by `IsRecording = false` (its vessel's background
+state emits), and no stop runs after a ForceStop on the same recorder. The discard callers drop the
+data, so the events there are harmless. `FinalizeRecordingState` now reads its UT once through
+`ReadStopUT` (test seam `StopUTProviderForTesting`) and the active vessel through a NoInlining
+wrapper, so the stop runs headless.
+
+Tests: `RecorderStopEndingTests.ForceStop_EnginesStillBurning_EmitsTerminalShutdownsAtTheStopUT`
+(red before the fix), `ForceStop_NothingRunning_EmitsNothing`.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the

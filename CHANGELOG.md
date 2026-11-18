@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **Leaving the scene during a burn no longer leaves the replay's engines lit.** Going to the
+  Space Center, or committing the flight, while an engine or thruster was firing kept its plume
+  burning in the replay until the end. It now shuts off at the moment you left.
+  (FORCESTOP-LEAVES-ENGINES-LIT)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now
