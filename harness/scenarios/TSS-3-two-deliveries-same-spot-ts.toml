@@ -38,13 +38,33 @@ tier = "operator"
 #
 # THE FLIGHT: boot straight into the Tracking Station (the first scene to see the
 # recordings, so its playhead sweep latches them; CN-1T's shape), then an UNCAPPED
-# WarpToUT to 200,000. The ladder reaches 100,000x well before UT 30,060, so both ends are
-# crossed at the top rate, ~25,000 game s per 0.25 s handoff tick: one handoff pass sees
-# both (the worst case for stacking). Then SaveGame, LoadGame FLIGHT focused on the first
+# WarpToUT to 200,000. AS AUTHORED: the ladder reaches 100,000x well before UT 30,060.
+# AS FLOWN (first flight, below): the ladder tops at 10,000x for this span and the ends
+# are crossed on the climb; one handoff pass still sees both (the worst case for
+# stacking). Then SaveGame, LoadGame FLIGHT focused on the first
 # spawned pid, and LeafVesselPlacement in FLIGHT with both probes loaded (one RunTests per
 # spec; TSS-1 owns the Tracking Station run of the cell).
-# This is also the lane that crosses a LANDED end at 100,000x (TSS-1's live rover end is
-# crossed during the warp's climb).
+# (Authored as the lane that crosses a LANDED end at 100,000x; the first flight showed it
+# does not, see FIRST FLIGHT.)
+#
+# FIRST FLIGHT 2026-11-17_2333 (parallel runner run spawn-flight-2026-11-18, main
+# 64c68379, Debug DLL bd950021...): PARSEK-FAIL(expectation) on two halves, BOTH spec
+# errors; every defect token matched (both `Spawning vessel` lines >= 10 m, the de-overlap
+# line, LeafVesselPlacement compared=2 ok=2 in FLIGHT, no spawn-death).
+#   * the rate: `warptout complete reachedUT=199999.78... ut=200000 rate=1 maxRate=10000`.
+#     A 200,000 s request is under the 250,000 s the 100,000x rung needs, so 10,000x is
+#     the ladder's top here, and the ends (save + 30,060 s) were crossed on the climb, 4 s
+#     into the warp, both in one handoff pass (`Tracking-station handoff spawned #0 "Stack
+#     Probe A" pid=3516968520` and `#1 "Stack Probe B" pid=3074612544`, 5 ms apart). The
+#     header's "crossed at 100,000x" was wrong; the token now pins maxRate=10000, and no
+#     lane yet crosses a LANDED end at 100,000x.
+#   * the count, 3 not 2: the FLIGHT visit focuses Stack Probe A, and flying a vessel
+#     Parsek spawned restores its committed tree and continues it in a new segment
+#     (`TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Stack Probe A' for
+#     vessel 'Stack Probe A' pid=3516968520 via PromoteFromBackground (continues in new
+#     segment ...)`, ParsekFlight.TreeRestore.cs, by design). Pinned exact 3, with that
+#     line required.
+# Not re-flown since.
 #
 # FIRST-FLIGHT RISKS: whether the handoff spawns both in one tick or two (the second sees
 # the first's proto vessel either way); how far apart the two probes really are (read the
@@ -56,7 +76,7 @@ tier = "operator"
 # (2, injected). (8) tier operator until flown. (9)
 # flight_efficiency.py owed after the first green flight.
 # =============================================================================
-description = "Regression lane for todo SPAWN-TS-STACK-NO-DE-OVERLAP (fixed 2026-11-17); NEVER FLOWN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1c): gloops-airshow plus the spawn-stack preset (two committed Landed probes ending 20 s apart on the same KSC grass point, 30,000 s after the save). Boots into the Tracking Station, warps uncapped to 100,000x across both ends, and pins that the two spawns are placed at least 10 m apart (the spawn-context nearest-vessel distance), then LeafVesselPlacement in FLIGHT on the spot with both probes loaded and no spawn-death."
+description = "Regression lane for todo SPAWN-TS-STACK-NO-DE-OVERLAP (fixed 2026-11-17); NOT YET GREEN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1c; the 2026-11-17 first flight matched every defect token and failed only on two spec pins, the warp's top rate and the recording count, re-pinned): gloops-airshow plus the spawn-stack preset (two committed Landed probes ending 20 s apart on the same KSC grass point, 30,000 s after the save). Boots into the Tracking Station, warps uncapped (10,000x for this span) across both ends, and pins that the two spawns are placed at least 10 m apart (the spawn-context nearest-vessel distance), then LeafVesselPlacement in FLIGHT on the spot with both probes loaded and no spawn-death."
 instanceProfile = "stock-minimal"
 tags = ["TSS-3", "spawn", "end-spawn", "tracking-station", "ts-handoff", "warp", "max-warp",
         "spawn-overlap", "landed-de-overlap", "leaf-placement", "ingame-batch", "kerbin",
@@ -81,7 +101,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },                    expect = "OK" },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",                          expect = "OK" },
   { cmd = "MissionMark", args = { label = "tss3-ts-${c0.count}-${c0.rec0spawned}-${c0.rec1spawned}" }, expect = "OK" },
-  # THE SUBJECT: uncapped, both ends crossed at 100,000x.
+  # THE SUBJECT: uncapped; the ladder tops at 10,000x for this span (first flight).
   { cmd = "WarpToUT",   args = { ut = "200000" },                                              expect = "OK", budget = 300 },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",                          expect = "OK" },
   { cmd = "MissionMark", args = { label = "tss3-spawned-${c1.count}-${c1.rec0name}-${c1.rec0spawned}-${c1.rec0spawnedPid}-${c1.rec1name}-${c1.rec1spawned}-${c1.rec1spawnedPid}-end" }, expect = "OK" },
@@ -102,8 +122,9 @@ D14 = ["kerbin", "warp-rails", "warp-high", "scene-ts", "scene-flight", "sandbox
 allowedAnomalies = []
 
 [expectations.recordings]
-# Injected: the two stack probes, nothing recorded live.
-count = { min = 2, max = 2 }
+# The two injected stack probes, plus the segment the FLIGHT visit opens on Stack Probe A
+# (its committed tree restored and continued, by design; first flight, header).
+count = { min = 3, max = 3 }
 
 # REPORT-ONLY: two committed trees, both Landed, both spawned once.
 [expectations.recordings.structure]
@@ -120,7 +141,8 @@ required = [
   # Both injected, neither spawned before the warp (ListHandles, TestCommandListHandles.cs).
   "MISSIONMARK label=tss3-ts-2-false-false ",
   # GhostMapPresence.TrackingStationLifecycle.cs: both handed off during the warp.
-  "Tracking-station handoff spawned #[0-9]+ \"Stack Probe A\" pid=[0-9]+ [\\s\\S]*?warptout complete reachedUT=[0-9.]+ ut=200000 rate=[0-9.]+ maxRate=100000 ",
+  # maxRate=10000: 200,000 s is under the 250,000 s the top rung needs (first flight).
+  "Tracking-station handoff spawned #[0-9]+ \"Stack Probe A\" pid=[0-9]+ [\\s\\S]*?warptout complete reachedUT=[0-9.]+ ut=200000 rate=[0-9.]+ maxRate=10000 ",
   "Tracking-station handoff spawned #[0-9]+ \"Stack Probe B\" pid=[0-9]+ [\\s\\S]*?warptout complete reachedUT=[0-9.]+ ut=200000 ",
   # THE DEFECT TOKENS (header): each probe's resolved spawn spot is at least 10 m from the
   # nearest vessel on Kerbin, so the later one is not inside the earlier one.
@@ -133,6 +155,9 @@ required = [
   # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs, in FLIGHT on the spot
   # (both probes loaded, physics running).
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  # ParsekFlight.TreeRestore.cs: the focused probe's committed tree continues in a new
+  # segment (the third recording).
+  "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Stack Probe A' for vessel 'Stack Probe A' pid=[0-9]+ via [A-Za-z]+ \\(continues in new segment ",
   "MISSIONMARK label=tss3-flight [\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=2 ok=2 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Kerbin\\]",
   "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
   "savegame name=persistent folder=\\S+ saved=true",

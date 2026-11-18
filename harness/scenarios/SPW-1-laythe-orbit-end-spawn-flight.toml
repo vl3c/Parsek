@@ -3,7 +3,13 @@ id = "SPW-1-laythe-orbit-end-spawn-flight"
 # =====================================================================================
 # SPW-1: A TRUE END SPAWN AT LAYTHE, IN FLIGHT, WITH THE PLAYER IN KERBIN ORBIT.
 # (End-spawn program, 2026-11-17: far-body ends, high warp and a busy player. Todo
-# END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN: tag `pending-flight`.)
+# END-SPAWN-LANES-2026-11-17. AUTHORED; LIVE-PROVEN, see
+# below.)
+#
+# LIVE-PROVEN 2026-11-17 on its first flight: run 2026-11-17_2312, PASS attempt 1, 111 s
+# (parallel runner run spawn-flight-2026-11-18, main 64c68379, Debug DLL bd950021...).
+# The LeafVesselPlacement batch is pinned whole (passed=1 failed=0 skipped=0) and left
+# INTERIM_PIN_IDS.
 #
 # WHY. No green lane spawns a vessel at the end of a recording that ends at a far body.
 # FAR-1 and FAR-2 read vessels their saves already held (the rewind strip kept the
@@ -60,10 +66,10 @@ id = "SPW-1-laythe-orbit-end-spawn-flight"
 # flight.
 # =====================================================================================
 tier = "operator"
-description = "Far-body end spawn in FLIGHT (Laythe): on laythe-park-nerv (asteroid removed) ~300 s of the Duna Rocket's Laythe orbit is recorded and committed, Rewound-to-Launch (the strip removes the Duna Rocket), reloaded into FLIGHT on a debris in Kerbin orbit, and a rails warp past the end must create the Duna Rocket once at Laythe through the recorded-terminal-orbit path, read back spawned with that pid and on its recorded orbit and phase (LeafVesselPlacement in FLIGHT)."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_2312, first flight). Far-body end spawn in FLIGHT (Laythe): on laythe-park-nerv (asteroid removed) ~300 s of the Duna Rocket's Laythe orbit is recorded and committed, Rewound-to-Launch (the strip removes the Duna Rocket), reloaded into FLIGHT on a debris in Kerbin orbit, and a rails warp past the end must create the Duna Rocket once at Laythe through the recorded-terminal-orbit path, read back spawned with that pid and on its recorded orbit and phase (LeafVesselPlacement in FLIGHT)."
 instanceProfile = "stock-minimal"
 tags = ["SPW-1", "end-spawn", "far-body", "laythe", "jool", "orbital", "rewind-to-launch",
-        "leaf-placement", "ingame-batch", "warp", "sandbox", "pending-flight"]
+        "leaf-placement", "ingame-batch", "warp", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/laythe-park-nerv"
@@ -152,7 +158,7 @@ required = [
   # Placement: on Laythe, on its recorded orbit and phase, no pid on two vessels.
   "LeafPlacement: rec=[0-9a-f]+ vessel='Duna Rocket' pid=[0-9]+ kind=orbit body=Laythe liveBody=Laythe [^\\r\\n]*verdict=ok",
   "MISSIONMARK label=spw1-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Laythe\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [

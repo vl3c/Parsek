@@ -24,13 +24,14 @@ id = "SPW-11-rsc-warp-orbital-held-target"
 # open Real Spawn Control; PRESS the first row's Warp (`UiAction op=warp`, the button's
 # own click body); a 1x wait of ~8 s for the watch to resolve; PRESS again: the target's
 # end is now in the past, so the row is gone or its button is greyed and the press is
-# REJECTED (`warp-no-candidate-row` / `warp-button-disabled`), exactly what a player's
-# greyed button shows.
+# REJECTED (authored as `warp-no-candidate-row` / `warp-button-disabled`; flown, the window
+# has closed itself and the refusal is `window-not-open`, see FIRST FLIGHT).
 #
 # WHAT IS GATED: the row warp names the target and jumps in `mode=placement`; the watch is
 # armed for it and resolves to exactly ONE named outcome (never `Pending`, never
 # `no-answer`); if the outcome is not `Spawned`, its cause is a collision cause; at most one
-# spawn of the target; the second press is refused with one of the two seam reasons.
+# spawn of the target; the second press is refused (window-not-open since the first
+# flight: the window closes itself on zero candidates).
 #
 # PRE-REGISTERED READINGS: the placement may put the group far enough from the end point
 # that the probe no longer blocks and the target spawns (`outcome=Spawned cause=spawned`):
@@ -43,12 +44,23 @@ id = "SPW-11-rsc-warp-orbital-held-target"
 # `flight.WarpToNextCraftSpawn()` through the button body is the proposal), and a Mun
 # target (a Mun-landed host with an EVA walk recorded beside the lander) waits on it.
 #
+# FIRST FLIGHT 2026-11-17_2326 (parallel runner run spawn-flight-2026-11-18, main
+# 64c68379, Debug DLL bd950021...): PARSEK-FAIL(expectation) on ONE token, a SPEC error.
+# The press, the placement jump, the watch and its one outcome all matched, and the target
+# SPAWNED (c1 `rec0spawned=true rec0spawnedPid=3828316060`). With no candidate left, the
+# window closed itself 1.4 s after the press (`Real Spawn Control auto-close:
+# reason=zero-candidates candidates=0`, SpawnControlUI.cs, designed), so the second press
+# was refused `uiaction rejected reason=window-not-open op=warp window=spawncontrol`, not
+# with a row reason. That IS what the player sees (the window goes away), so the refusal
+# token now pins the auto-close followed by the window-not-open refusal. The spawn means the
+# collision branch was not read (pre-registered above). Not re-flown since.
+#
 # FAST-LANE CHECKLIST: (1) EX-2's host and preset, RSC-1's press. (2) explicit-UT waits.
 # (3)/(4)/(5) none. (6) retry once. (7) count exact 1 (EX-2's). (8) operator until
 # measured. (9) flight_efficiency.py after the first green flight.
 # =====================================================================================
 tier = "operator"
-description = "Real Spawn Control from orbit: on eva2-lko-crewed with the single-point-hold preset, the orbiting player opens Real Spawn Control and presses the row Warp for the in-progress Single Point Holder, whose end spawn is blocked by the co-orbiting probe. Pins the placement-mode jump, the armed warp spawn watch resolving to one named outcome (a collision cause when not spawned), at most one spawn, and a second press refused once the target's end has passed."
+description = "Real Spawn Control from orbit: on eva2-lko-crewed with the single-point-hold preset, the orbiting player opens Real Spawn Control and presses the row Warp for the in-progress Single Point Holder, whose end spawn is blocked by the co-orbiting probe. Pins the placement-mode jump, the armed warp spawn watch resolving to one named outcome (a collision cause when not spawned), at most one spawn, and a second press refused once the target's end has passed (the window has closed itself on zero candidates, so the refusal is window-not-open). First flight 2026-11-17 PARSEK-FAIL on that refusal token only, a spec error, re-pinned."
 instanceProfile = "stock-minimal"
 tags = ["SPW-11", "real-spawn-control", "spawn", "end-spawn", "ui-seam", "spawn-blocked",
         "single-point", "injected-recordings", "kerbin", "sandbox", "pending-flight"]
@@ -103,7 +115,9 @@ required = [
   "WarpToRecordingEnd: jumping to UT=441\\.[0-9] for 'Single Point Holder' \\(delta=[0-9.]+s, mode=placement\\)",
   "Warp spawn watch armed: rec=([^ ]+) vessel=\"Single Point Holder\" targetUT=441\\.[0-9][\\s\\S]*?Warp spawn outcome: rec=\\1 vessel=\"Single Point Holder\" outcome=(?:Spawned cause=spawned|(?:Refused|Held) cause=collision-[a-z-]+) ",
   "MISSIONMARK label=spw11-after-warp-",
-  "uiaction rejected reason=warp-(?:no-candidate-row|button-disabled) window=spawncontrol",
+  # With no candidate left the window closes itself (SpawnControlUI.cs, VerboseOnChange),
+  # so the second press finds it closed (first flight, header).
+  "MISSIONMARK label=spw11-pressed [\\s\\S]*?Real Spawn Control auto-close: reason=zero-candidates candidates=0[\\s\\S]*?MISSIONMARK label=spw11-after-warp-[\\s\\S]*?uiaction rejected reason=window-not-open op=warp window=spawncontrol",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

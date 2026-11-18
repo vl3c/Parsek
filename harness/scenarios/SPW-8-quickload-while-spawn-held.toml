@@ -2,8 +2,13 @@ schema = 1
 id = "SPW-8-quickload-while-spawn-held"
 # =====================================================================================
 # SPW-8: THE PLAYER QUICKSAVES AND QUICKLOADS (F5 / F9) WHILE AN END SPAWN IS STILL HELD.
-# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
-# tag `pending-flight`.)
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, FLOWN:
+# LIVE-PROVEN, see below.)
+#
+# LIVE-PROVEN 2026-11-17 on its first flight: run 2026-11-17_2320, PASS attempt 1, 131 s
+# (parallel runner run spawn-flight-2026-11-18, main 64c68379, Debug DLL bd950021...).
+# It is the live proof of the COLD-LOAD-DROPS-OWED-SPAWN fix (the pre-registered red below
+# did not happen: the owed spawn survived the Cold load).
 #
 # WAS EXPECTED TO RED ON COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN, FIXED 2026-11-17 AS COLD-LOAD-DROPS-OWED-SPAWN (todo). Stock F9
 # is a save-file load and classifies Cold (`LoadReconcilePolicy`, `coldReason=save-file`).
@@ -35,10 +40,10 @@ id = "SPW-8-quickload-while-spawn-held"
 # measured. (9) flight_efficiency.py after the first green flight.
 # =====================================================================================
 tier = "operator"
-description = "Quickload while a spawn is held: SS-1's spawn-safety preset on eva2-lko-crewed, where the Orbiting Low Perigee Probe's end spawn is deferred and held until its next safe UT; the player quicksaves and quickloads (a Cold save-file load) during the hold, then warps past the safe UT. Pins that the owed spawn survives the quickload and is made exactly once. Expected to red today on COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_2320, first flight). Quickload while a spawn is held: SS-1's spawn-safety preset on eva2-lko-crewed, where the Orbiting Low Perigee Probe's end spawn is deferred and held until its next safe UT; the player quicksaves and quickloads (a Cold save-file load) during the hold, then warps past the safe UT. Pins that the owed spawn survives the quickload and is made exactly once. Was expected to red on COLD-LOAD-INTO-FLIGHT-DROPS-DUE-SPAWN; fixed as COLD-LOAD-DROPS-OWED-SPAWN, and this flight is its live proof."
 instanceProfile = "stock-minimal"
 tags = ["SPW-8", "spawn", "end-spawn", "deferred-spawn", "terminal-orbit-safety", "quickload",
-        "cold-load", "injected-recordings", "warp", "kerbin", "sandbox", "pending-flight"]
+        "cold-load", "injected-recordings", "warp", "kerbin", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"

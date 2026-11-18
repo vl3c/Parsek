@@ -119,7 +119,8 @@ class LiveStatePatchError(Exception):
 # log token in this family spells a KSP `persistentId`.
 LIVE_STATE_KEY = "liveState"
 
-ENTRY_KEYS = ("pid", "resources", "partResources", "inventory", "remove", "fill")
+ENTRY_KEYS = ("pid", "resources", "partResources", "inventory", "remove", "fill",
+              "situation")
 
 # `partResources` - the PER-PART form of `resources`, for a vessel that carries a
 # resource in more than one tank (where `resources` refuses, see `_set_resource`):
@@ -184,6 +185,22 @@ PART_RESOURCES_ITEM_KEYS = ("part", "resources")
 # `activeVessel` refusal below is re-checked per entry against the index the save
 # still carries (removals strictly AFTER it never move it, in any order).
 REMOVE_KEY = "remove"
+
+# `situation = "LANDED"` rewrites a PRELAUNCH vessel's `sit` to LANDED, and does
+# nothing else. It exists for ONE measured refusal: the `DriveVessel` seam verb drives
+# only a LANDED or SPLASHED vessel (`TestCommandDriveVessel.DecideGate`, "a PRELAUNCH
+# vessel's first motion belongs to the launch path"), and a rover rolled out onto the
+# runway is saved PRELAUNCH (`pad-runway-pair`'s `rover fuel 0`, TSS-1's first flight
+# 2026-11-17: `drivevessel rejected reason=drivevessel-not-on-surface ...
+# situation=PRELAUNCH`). The one accepted value is "LANDED" and the one accepted
+# source is PRELAUNCH with `landed = True` already set (a PRELAUNCH vessel on the
+# ground carries it), so the patch cannot move a vessel off the surface or invent a
+# landing: any other source situation is a REFUSAL naming the vessel and what it
+# carries. Composable with the resource / inventory keys; exclusive with
+# `remove = true`. The note gains `situation=PRELAUNCH->LANDED`.
+SITUATION_KEY = "situation"
+SITUATION_VALUES = ("LANDED",)
+SITUATION_SOURCE = "PRELAUNCH"
 
 # The inventory modes. `keep` is the DEFAULT (an absent key changes nothing), so
 # a spec that only wants a tank number writes only `resources`.
@@ -382,6 +399,13 @@ def validate_live_state(fixture: Any) -> List[str]:
                     errs.append("%s.%s" % (where, ex))
         if FILL_KEY in entry:
             errs.extend(_validate_fill(entry[FILL_KEY], where))
+        if SITUATION_KEY in entry:
+            sit = entry[SITUATION_KEY]
+            if sit not in SITUATION_VALUES:
+                errs.append("%s.%s: %r is not an accepted value (accepted: %s, "
+                            "from %s only)"
+                            % (where, SITUATION_KEY, sit, list(SITUATION_VALUES),
+                               SITUATION_SOURCE))
         if REMOVE_KEY in entry:
             remove = entry[REMOVE_KEY]
             if not isinstance(remove, bool):
@@ -394,20 +418,23 @@ def validate_live_state(fixture: Any) -> List[str]:
                 errs.append("%s.%s: false patches nothing; omit the key instead"
                             % (where, REMOVE_KEY))
             elif (("resources" in entry) or (PART_RESOURCES_KEY in entry)
-                    or ("inventory" in entry) or (FILL_KEY in entry)):
+                    or ("inventory" in entry) or (FILL_KEY in entry)
+                    or (SITUATION_KEY in entry)):
                 errs.append(
                     "%s: `%s = true` cannot be combined with `resources` / `%s` / "
-                    "`inventory` / `%s` - those would patch a VESSEL node this "
-                    "entry then deletes, so the declaration reads as two "
+                    "`inventory` / `%s` / `%s` - those would patch a VESSEL node "
+                    "this entry then deletes, so the declaration reads as two "
                     "different intentions"
-                    % (where, REMOVE_KEY, PART_RESOURCES_KEY, FILL_KEY))
+                    % (where, REMOVE_KEY, PART_RESOURCES_KEY, FILL_KEY,
+                       SITUATION_KEY))
         if (("resources" not in entry) and (PART_RESOURCES_KEY not in entry)
                 and ("inventory" not in entry) and (FILL_KEY not in entry)
-                and (REMOVE_KEY not in entry)):
+                and (REMOVE_KEY not in entry) and (SITUATION_KEY not in entry)):
             errs.append(
-                "%s: declares none of `resources`, `%s`, `inventory`, `%s` or "
-                "`%s`, so it patches nothing"
-                % (where, PART_RESOURCES_KEY, FILL_KEY, REMOVE_KEY))
+                "%s: declares none of `resources`, `%s`, `inventory`, `%s`, `%s` "
+                "or `%s`, so it patches nothing"
+                % (where, PART_RESOURCES_KEY, FILL_KEY, SITUATION_KEY,
+                   REMOVE_KEY))
     return errs
 
 
@@ -1683,6 +1710,27 @@ def _apply_fill(lines: List[str], vessel: Tuple[int, int], vessel_name: str,
         part_name, len(addresses), slots, ",".join(addresses), source)
 
 
+def _set_situation(lines: List[str], vessel: Tuple[int, int], vessel_name: str,
+                   target: str) -> Tuple[List[str], str]:
+    """Rewrite the VESSEL node's own `sit` from PRELAUNCH to ``target``.
+
+    Refuses (LiveStatePatchError) unless the vessel carries `sit = PRELAUNCH` and
+    `landed = True` at its own depth: the patch only ends a rollout's PRELAUNCH,
+    it never moves a vessel off the surface or lands a flying one."""
+    current = get_value(lines, vessel, "sit")
+    landed = get_value(lines, vessel, "landed")
+    if current != SITUATION_SOURCE or (landed or "").strip() != "True":
+        raise LiveStatePatchError(
+            "liveState: situation=%s on vessel %r needs sit = %s and landed = True, "
+            "found sit = %s landed = %s"
+            % (target, vessel_name, SITUATION_SOURCE, current, landed))
+    out = list(lines)
+    if not set_value(out, vessel, "sit", target):
+        raise LiveStatePatchError(
+            "liveState: could not rewrite sit on vessel %r" % (vessel_name,))
+    return out, "%s->%s" % (current, target)
+
+
 def apply_live_state(text: str, entries: Sequence[Dict],
                      save_name: str = "") -> Tuple[str, List[str]]:
     """Apply every declared liveState entry to a save's text. Pure.
@@ -1762,6 +1810,15 @@ def apply_live_state(text: str, entries: Sequence[Dict],
                 % (pid, vessel_name,
                    ",".join(resource_notes) if resource_notes else "-",
                    inv_note))
+
+        # `situation` is APPENDED only when declared, like `fill`, so a note
+        # authored before the key existed reads exactly as it did.
+        if entry.get(SITUATION_KEY):
+            span = [s for n, vpid, s in flightstate_vessels(lines)
+                    if vpid == pid][0]
+            lines, sit_note = _set_situation(lines, span, vessel_name,
+                                             entry[SITUATION_KEY])
+            note = "%s situation=%s" % (note, sit_note)
 
         # `fill` LAST, and the segment is APPENDED only when the key is declared:
         # every note a spec authored before this key existed must read exactly as

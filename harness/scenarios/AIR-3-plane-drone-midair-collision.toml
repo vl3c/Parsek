@@ -6,7 +6,9 @@ id = "AIR-3-plane-drone-midair-collision"
 # RE-TUNED 2026-11-17 off those flights' own numbers; RE-FLOWN TWICE 2026-11-17 (INVALID
 # autopilot-flake both attempts: the release never fired), the release fixed, not yet
 # re-flown; FLOWN A FIFTH TIME 2026-11-17 on the roll-out (MISSION-OK, the collision on the
-# first pass), PARSEK-FAIL(expectation) on one spec error, re-pinned below, re-flight owed.
+# first pass), PARSEK-FAIL(expectation) on one spec error, re-pinned below; FLOWN A SIXTH
+# TIME 2026-11-17 (MISSION-OK again), PARSEK-FAIL(expectation) on another spec error,
+# re-pinned below, re-flight owed.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3b (owner request 2026-11-16: two airplanes
 # flying into each other, for recording and ghost playback reliability).
 #
@@ -92,6 +94,21 @@ id = "AIR-3-plane-drone-midair-collision"
 # whole-ghost explosion, so a per-part hide 0.02 s earlier would not be visible: no defect.
 # The drone pin now reads the drone ghost's `terminal=Destroyed` entry and the explosion on
 # that ghost's own index.
+#
+# THE SIXTH FLIGHT (parallel runner run `spawn-flight-2026-11-18`: `2026-11-17_2337`,
+# MISSION-OK, PARSEK-FAIL(expectation) attempt 1, 760 s; Debug DLL bd950021... from main
+# 64c68379). The collision again (`assert midAirCollision value=drone-absent met=True`),
+# 14 recordings, every pin held but ONE, the background part death, and that is a SPEC
+# error: the drone was destroyed whole BEFORE any of its parts' deaths reached the
+# recorder. Order in the log: `[BgRecorder] Background vessel destroyed: pid=839797731`
+# (OnBackgroundVesselWillDestroy, 01:45:27.693) and only then `fuelTank Exploded!!`
+# (.696). OnBackgroundVesselWillDestroy seals the recording and drops the loaded state,
+# and OnBackgroundPartDie skips a destroyed recording or a vessel with no loaded state
+# (BackgroundRecorder.GameEventHandlers.cs), by design, so no `Part death on background
+# vessel` line for the drone's pid can follow. Flight 5 had the other order. The
+# background-side pin now accepts either a part death on the drone's pid or the deferred
+# destruction line for it (`[Flight] Background vessel destroyed: pid=<drone> recId=`,
+# ParsekFlight.TerminalEvents.cs), both inside the mission. Not re-flown since.
 #
 # THE SIMPLER VARIANT, AND WHY IT KEEPS THE POINT. Both aircraft must be members of ONE
 # recording tree and both must be loaded when they meet. A switch to a vessel outside
@@ -195,7 +212,7 @@ id = "AIR-3-plane-drone-midair-collision"
 #      the leg banks again (the model releases with 10+ s of the leg left).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-17; flown twice 2026-11-17 INVALID (5.5 m vertical misses, then the drone reached the floor), re-tuned (a learned pitch trim, a 2500 m release), re-flown twice INVALID (the loiter's steady 9 - 10 deg bank held the 8 deg roll gate, no release in 600 s), the release now rolls the wings level first; flown a fifth time 2026-11-17 (MISSION-OK, collision on the first pass) PARSEK-FAIL(expectation) on one spec error (the drone, destroyed whole, has no per-part visibility apply in the replay: its ghost explodes at its Destroyed end), re-pinned, re-flight owed. Two aircraft of one recording tree collide in the air: the stock Mallard carrying a parachute drone under its wing (derived craft `AIR Drone Carrier`) takes off from the Runway, releases the drone over the sea, turns back and flies into it, steering on the drone's live position every poll (mission air3_drone_intercept). Gates the active and the background part deaths at the collision, the drone's own recording, both leaves finalized Destroyed or Splashed and the commit, then Rewinds-to-Launch and replays both ghosts at the Space Center: the carrier's destroyed parts hidden, the drone's ghost exploding at its Destroyed end."
+description = "AUTHORED 2026-11-17; flown twice 2026-11-17 INVALID (5.5 m vertical misses, then the drone reached the floor), re-tuned (a learned pitch trim, a 2500 m release), re-flown twice INVALID (the loiter's steady 9 - 10 deg bank held the 8 deg roll gate, no release in 600 s), the release now rolls the wings level first; flown a fifth time 2026-11-17 (MISSION-OK, collision on the first pass) PARSEK-FAIL(expectation) on one spec error (the drone, destroyed whole, has no per-part visibility apply in the replay: its ghost explodes at its Destroyed end), re-pinned; flown a sixth time 2026-11-17 (MISSION-OK, collision) PARSEK-FAIL(expectation) on one spec error (the drone destroyed whole before its part deaths reached the background recorder, so no part-death line for it), the background pin now also accepts the drone's destruction line, re-flight owed. Two aircraft of one recording tree collide in the air: the stock Mallard carrying a parachute drone under its wing (derived craft `AIR Drone Carrier`) takes off from the Runway, releases the drone over the sea, turns back and flies into it, steering on the drone's live position every poll (mission air3_drone_intercept). Gates the active and the background part deaths at the collision, the drone's own recording, both leaves finalized Destroyed or Splashed and the commit, then Rewinds-to-Launch and replays both ghosts at the Space Center: the carrier's destroyed parts hidden, the drone's ghost exploding at its Destroyed end."
 instanceProfile = "stock-minimal"
 tags = ["AIR3", "aircraft", "crash", "part-destroyed", "background-recording", "rewind-to-launch", "ksc-ghost", "pending-flight"]
 
@@ -278,7 +295,8 @@ aftermathTimeoutSeconds = 480.0
 #   D1 commit-scene-exit, auto-merge <- the exit start line (autoMerge=true) and the
 #                             full-fidelity scene-exit auto-commit
 #   D5 controlled-decoupled-child <- "ProcessBreakupEvent: controlled child created"
-#   D5 bg-recording        <- "Part death on background vessel" on the drone's pid
+#   D5 bg-recording        <- "Part death on background vessel" or the background
+#                             destruction line, on the drone's pid
 #   D7 decouple-stage-destroy <- the carrier ghost's Destroyed visibility apply
 #   D6 basic-playback      <- both KSC ghosts entered range
 #   D9 rewind-to-launch    <- "invokerewindtolaunch complete"
@@ -320,8 +338,10 @@ required = [
   # FlightRecorder.PartEvents.cs:144 (Verbose): a part of the ACTIVE Mallard died.
   "(?s)MISSIONMARK label=air3-flight (?:(?!MISSIONMARK label=).)*?\\[Recorder\\] Part event: Destroyed '[^'\\r\\n]+' pid=[0-9]+(?:(?!MISSIONMARK label=).)*?MISSIONMARK label=air3-down ",
   # BackgroundRecorder.GameEventHandlers.cs:98 (Verbose): a part of the BACKGROUND
-  # drone died, on the drone's own vessel pid (back-reference to the child line).
-  "ProcessBreakupEvent: controlled child created: pid=([0-9]+), name='AIR Drone Carrier Probe'[\\s\\S]*?Part death on background vessel: (?:Destroyed|ParachuteDestroyed) '[^'\\r\\n]+' pid=[0-9]+ vesselPid=\\1(?![0-9])[\\s\\S]*?MISSIONMARK label=air3-down ",
+  # drone died, on the drone's own vessel pid (back-reference to the child line); OR, when
+  # KSP destroys the drone whole before its part deaths arrive (flight 6, header), the
+  # deferred destruction line for that pid (ParsekFlight.TerminalEvents.cs, Warn).
+  "ProcessBreakupEvent: controlled child created: pid=([0-9]+), name='AIR Drone Carrier Probe'[\\s\\S]*?(?:Part death on background vessel: (?:Destroyed|ParachuteDestroyed) '[^'\\r\\n]+' pid=[0-9]+ vesselPid=\\1(?![0-9])|\\[Flight\\] Background vessel destroyed: pid=\\1 recId=[0-9a-f]+)[\\s\\S]*?MISSIONMARK label=air3-down ",
   # --- 3. THE COMMIT (ParsekTestCommandAddon.ExitToSpaceCenter.cs:76 and :165;
   # ParsekScenario.AutoCommit.cs:352 Silent / :371 Limbo-preserving) ---
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=(?:false hasPendingTree=true|true hasPendingTree=false)",

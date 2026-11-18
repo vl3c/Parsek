@@ -3,8 +3,13 @@ id = "SPW-5-physics-warp-end-spawn-near-active"
 # =====================================================================================
 # SPW-5: AN END SPAWN INSIDE THE PHYSICS BUBBLE, ~30 M FROM THE ACTIVE VESSEL, CROSSED
 # UNDER 4X PHYSICS WARP.
-# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
-# tag `pending-flight`.)
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, FLOWN:
+# LIVE-PROVEN, see below.)
+#
+# LIVE-PROVEN 2026-11-17 on its first flight: run 2026-11-17_2314, PASS attempt 1, 147 s
+# (parallel runner run spawn-flight-2026-11-18, main 64c68379, Debug DLL bd950021...).
+# The LeafVesselPlacement batch is pinned whole (passed=1 failed=0 skipped=0) and left
+# INTERIM_PIN_IDS.
 #
 # WHY. Every committed end-spawn lane crosses its end on rails, with the spawn far from the
 # player (EVA-15's header names the in-bubble follow-up this is). Physics warp keeps the
@@ -50,10 +55,10 @@ id = "SPW-5-physics-warp-end-spawn-near-active"
 # operator until measured. (9) flight_efficiency.py after the first green flight.
 # =====================================================================================
 tier = "operator"
-description = "Physics warp across an in-bubble end spawn: on eva2-lko-crewed (asteroid and pad debris removed) ~46 s of Kerbal X's low Kerbin orbit is recorded beside its spent probe core and committed; Rewind-to-Launch and a reload into FLIGHT on that probe put the ghost ~30 m away, and a 4x physics-ladder WarpToUT crosses the end. Pins that the spawn is deferred during the physics warp and then made exactly once on the recorded orbit, beside the player."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_2314, first flight). Physics warp across an in-bubble end spawn: on eva2-lko-crewed (asteroid and pad debris removed) ~46 s of Kerbal X's low Kerbin orbit is recorded beside its spent probe core and committed; Rewind-to-Launch and a reload into FLIGHT on that probe put the ghost ~30 m away, and a 4x physics-ladder WarpToUT crosses the end. Pins that the spawn is deferred during the physics warp and then made exactly once on the recorded orbit, beside the player."
 instanceProfile = "stock-minimal"
 tags = ["SPW-5", "spawn", "end-spawn", "deferred-spawn", "terminal-orbit", "warp", "physics-warp",
-        "collision", "rewind-to-launch", "kerbin", "sandbox", "pending-flight"]
+        "collision", "rewind-to-launch", "kerbin", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"
@@ -152,7 +157,7 @@ required = [
   "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw5-spawned-count-1-a-[0-9a-f-]+-true-\\1-end ",
   "LeafPlacement: rec=[0-9a-f]+ vessel='Kerbal X' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
   "MISSIONMARK label=spw5-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [

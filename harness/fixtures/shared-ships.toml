@@ -162,3 +162,8 @@
 # AIR-1's harvest (the Mallard at rest in the sea east of KSC); the three craft are
 # the host fixture gs1-two-stage-pad's own, dropped from the copy by the harvest.
 "air-circuit-recorded" = ["GS1 Auto-Chute Booster", "Jumping Flea", "Kerbal X"]
+# FORGE-psub-pad's harvest (PSUB-1 on the pad); the six craft are the forge base
+# bdock-forge-base's own, dropped from the copy by the harvest.
+"psub-pad" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X", "LABX Orbital Lab", "Logi Cargo Rig"]
+# build_psub_splashed.py's host (PSUB-1 afloat east of KSC); SUB-2's observer craft.
+"psub-splashed" = ["Settings Probe"]

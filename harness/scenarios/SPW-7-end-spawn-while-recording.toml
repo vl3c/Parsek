@@ -2,8 +2,13 @@ schema = 1
 id = "SPW-7-end-spawn-while-recording"
 # =====================================================================================
 # SPW-7: A RECORDING ENDS AND SPAWNS ITS VESSEL WHILE THE PLAYER IS RECORDING ANOTHER.
-# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
-# tag `pending-flight`.)
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, FLOWN:
+# LIVE-PROVEN, see below.)
+#
+# LIVE-PROVEN 2026-11-17 on its first flight: run 2026-11-17_2317, PASS attempt 1, 193 s
+# (parallel runner run spawn-flight-2026-11-18, main 64c68379, Debug DLL bd950021...).
+# The LeafVesselPlacement batch is pinned whole (passed=1 failed=0 skipped=0) and left
+# INTERIM_PIN_IDS.
 #
 # WHY. Every committed end-spawn lane crosses its end with no recorder running. A player
 # who is recording while an older recording ends is the ordinary case: the spawn must not
@@ -35,10 +40,10 @@ id = "SPW-7-end-spawn-while-recording"
 # measured. (9) flight_efficiency.py after the first green flight.
 # =====================================================================================
 tier = "operator"
-description = "End spawn while recording: on eva2-lko-crewed (asteroid removed) ~46 s of Kerbal X's low Kerbin orbit is recorded and committed, Rewound-to-Launch and reloaded into FLIGHT on a landed pad debris; the player starts recording that debris and a 1x wait crosses the end. Pins that Kerbal X spawns exactly once on its recorded orbit while the recorder stays live on the same tree, takes no branch, and commits as its own second tree."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_2317, first flight). End spawn while recording: on eva2-lko-crewed (asteroid removed) ~46 s of Kerbal X's low Kerbin orbit is recorded and committed, Rewound-to-Launch and reloaded into FLIGHT on a landed pad debris; the player starts recording that debris and a 1x wait crosses the end. Pins that Kerbal X spawns exactly once on its recorded orbit while the recorder stays live on the same tree, takes no branch, and commits as its own second tree."
 instanceProfile = "stock-minimal"
 tags = ["SPW-7", "spawn", "end-spawn", "terminal-orbit", "recording-active",
-        "rewind-to-launch", "kerbin", "sandbox", "pending-flight"]
+        "rewind-to-launch", "kerbin", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"
@@ -125,7 +130,7 @@ required = [
   "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw7-spawned-count-1-a-[0-9a-f-]+-true-\\1-end ",
   "LeafPlacement: rec=[0-9a-f]+ vessel='Kerbal X' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
   "MISSIONMARK label=spw7-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [

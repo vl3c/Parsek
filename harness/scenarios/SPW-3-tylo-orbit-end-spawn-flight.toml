@@ -2,10 +2,15 @@ schema = 1
 id = "SPW-3-tylo-orbit-end-spawn-flight"
 # =====================================================================================
 # SPW-3: A TRUE END SPAWN AT TYLO (A JOOL MOON), IN FLIGHT, WITH THE PLAYER IN KERBIN ORBIT.
-# (End-spawn program, 2026-11-17, todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
-# tag `pending-flight`.) SPW-1's flight verbatim on a second Jool moon, so a body-specific
+# (End-spawn program, 2026-11-17, todo END-SPAWN-LANES-2026-11-17. AUTHORED, FLOWN:
+# LIVE-PROVEN, see below.) SPW-1's flight verbatim on a second Jool moon, so a body-specific
 # fault (Tylo's frame, a moon of a moon's SOI chain from the Kerbin-side active vessel) and
 # a Laythe-only accident read apart.
+#
+# LIVE-PROVEN 2026-11-17 on its first flight: run 2026-11-17_2313, PASS attempt 1, 109 s
+# (parallel runner run spawn-flight-2026-11-18, main 64c68379, Debug DLL bd950021...).
+# The LeafVesselPlacement batch is pinned whole (passed=1 failed=0 skipped=0) and left
+# INTERIM_PIN_IDS.
 #
 # THE HOST. `tylo-park-nerv` (B27's Tylo park, Parsek-stripped): the crewed Duna Rocket
 # (pid 807470910) ORBITING Tylo (SMA 738,486 m, ~138 km up, period ~2,370 s), nobody's
@@ -30,10 +35,10 @@ id = "SPW-3-tylo-orbit-end-spawn-flight"
 # green flight).
 # =====================================================================================
 tier = "operator"
-description = "Far-body end spawn in FLIGHT (Tylo, a Jool moon): on tylo-park-nerv (asteroid removed) ~300 s of the Duna Rocket's Tylo orbit is recorded and committed, Rewound-to-Launch (the strip removes the Duna Rocket), reloaded into FLIGHT on a debris in Kerbin orbit, and a rails warp past the end must create the Duna Rocket once at Tylo through the recorded-terminal-orbit path, read back spawned with that pid and on its recorded orbit and phase (LeafVesselPlacement in FLIGHT)."
+description = "LIVE-PROVEN 2026-11-17 (run 2026-11-17_2313, first flight). Far-body end spawn in FLIGHT (Tylo, a Jool moon): on tylo-park-nerv (asteroid removed) ~300 s of the Duna Rocket's Tylo orbit is recorded and committed, Rewound-to-Launch (the strip removes the Duna Rocket), reloaded into FLIGHT on a debris in Kerbin orbit, and a rails warp past the end must create the Duna Rocket once at Tylo through the recorded-terminal-orbit path, read back spawned with that pid and on its recorded orbit and phase (LeafVesselPlacement in FLIGHT)."
 instanceProfile = "stock-minimal"
 tags = ["SPW-3", "end-spawn", "far-body", "tylo", "jool", "orbital", "rewind-to-launch",
-        "leaf-placement", "ingame-batch", "warp", "sandbox", "pending-flight"]
+        "leaf-placement", "ingame-batch", "warp", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/tylo-park-nerv"
@@ -122,7 +127,7 @@ required = [
   # Placement: on Tylo, on its recorded orbit and phase, no pid on two vessels.
   "LeafPlacement: rec=[0-9a-f]+ vessel='Duna Rocket' pid=[0-9]+ kind=orbit body=Tylo liveBody=Tylo [^\\r\\n]*verdict=ok",
   "MISSIONMARK label=spw3-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Tylo\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [
