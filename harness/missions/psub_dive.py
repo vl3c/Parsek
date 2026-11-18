@@ -7,7 +7,9 @@ its empty float pairs and rises by dropping its Ore ballast pairs, one stage cli
 time. How much a part displaces is unmeasured (build_psub_craft.py, assumption C2), so
 the machine measures the vertical speed after every drop and only drops the next pair
 when the sub is not yet sinking (or rising): it calibrates itself, and every reading it
-takes is logged (the `psubReading` gate line and the result's evidence).
+takes is logged (the `psubReading` gate line and the result's evidence). In the rise the
+floats left and the first ballast pair go back to back, and a fall of riseDropFallMeters
+after a drop drops the next pair at once (a sub with every float gone sinks fast).
 
 A THIN shell: every decision is the pure ``mlib.psub_decide`` machine and
 ``mlib.evaluate_psub_assertions``; the connect, fly loop, logging and result write are

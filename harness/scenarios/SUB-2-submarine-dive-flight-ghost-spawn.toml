@@ -2,7 +2,8 @@ schema = 1
 id = "SUB-2-submarine-dive-flight-ghost-spawn"
 # =====================================================================================
 # SUB-2: THE SUBMARINE'S GHOST PLAYS UNDER WATER IN FLIGHT AND HANDS OVER TO THE REAL
-# VESSEL AT ITS RECORDED DEPTH. AUTHORED 2026-11-17, NEVER FLOWN. Todo SUBMARINE-TEST-KIT.
+# VESSEL AT ITS RECORDED DEPTH. AUTHORED 2026-11-17; LIVE-PROVEN 2026-11-18 ON ITS FIRST
+# FLIGHT. Todo SUBMARINE-TEST-KIT.
 #
 # SUB-1's dive (same host, same mission, same params), then the playback half in the
 # FLIGHT scene instead of the Space Center: after the Rewind-to-Launch lands at the Space
@@ -16,8 +17,17 @@ id = "SUB-2-submarine-dive-flight-ghost-spawn"
 # not sink further before LeafVesselPlacement reads it).
 #
 # HOST FORGED 2026-11-18: FORGE-psub-pad PASS attempt 1 (run 2026-11-18_0056), psub-pad
-# harvested and psub-splashed built (FLIGHTSTATE UT 26.54). Flyable: tier operator, tag
-# pending-flight until its first flight.
+# harvested and psub-splashed built (FLIGHTSTATE UT 26.54). Tier operator.
+# FIRST FLIGHT 2026-11-18, run 2026-11-18_0112 (hand-over a000551b): PASS attempt 1, 163 s
+# (mission 34 s). The dive read as SUB-1's: PSUB-1 sank as delivered at 1.603 m/s, dropped
+# nothing, held to 56.9 m. One recording, terminal Splashed; the flight ghost was built
+# `reason=ghost-created` at playbackUT 28.109 and destroyed `reason=held-spawn-succeeded`
+# at 62.309, no terrain clamp line; the end spawn kept its recorded depth alt=-56.1
+# (seaFloor=-706.9) and spawned PSUB-1 SPLASHED at alt=-56.11, no clamp; LeafPlacement
+# in FLIGHT distM=0.0 verdict=ok, height altM=-56.1 refM=-56.0 heightVerdict=ok, the
+# summary compared=1 ok=1 absent=0 unsupported=0; the batch passed=1 failed=0 skipped=0.
+# Pinned off it: the recording count {1,1}, the summary and the BATCH_COMPLETE line whole
+# (tag `flown`, out of INTERIM_PIN_IDS).
 # The observer craft row `"psub-splashed" = ["Settings Probe"]` is in shared-ships.toml;
 # the WarpToUT target is SUB-1's (UT 26.54 + 600).
 #
@@ -33,11 +43,11 @@ id = "SUB-2-submarine-dive-flight-ghost-spawn"
 # against its recording mid-run in this lane).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-17, NEVER FLOWN; host psub-splashed forged 2026-11-18 (todo SUBMARINE-TEST-KIT). SUB-1's dive of the stock submarine PSUB-1, committed and Rewound-to-Launch; the player then launches a one-part probe onto the pad and watches the flight-scene ghost of the sub play under water and hand over: mesh built and destroyed, no terrain clamp below sea level, the real PSUB-1 spawned SPLASHED at its recorded depth (no clamp, one spawn), LeafVesselPlacement read in FLIGHT."
+description = "AUTHORED 2026-11-17; host psub-splashed forged 2026-11-18; LIVE-PROVEN 2026-11-18 on its first flight (run 2026-11-18_0112, PASS attempt 1; todo SUBMARINE-TEST-KIT). SUB-1's dive of the stock submarine PSUB-1, committed and Rewound-to-Launch; the player then launches a one-part probe onto the pad and watches the flight-scene ghost of the sub play under water and hand over: mesh built and destroyed, no terrain clamp below sea level, the real PSUB-1 spawned SPLASHED at its recorded depth (no clamp, one spawn), LeafVesselPlacement read in FLIGHT."
 instanceProfile = "stock-minimal"
 tags = ["SUB2", "SUB", "submarine", "water", "splashed", "underwater", "flight-ghost",
         "rewind-to-launch", "editor-launch", "leaf-placement", "ingame-batch",
-        "pending-flight"]
+        "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/psub-splashed"
@@ -108,9 +118,10 @@ D14 = ["kerbin", "warp-1x", "scene-flight", "scene-ksc", "scene-editor", "sandbo
 allowedAnomalies = []
 
 [expectations.recordings]
-# OPEN on purpose (SUB-1's reason); the observer probe is never recorded
-# (autoRecordOnLaunch=false and no StartRecording after the launch).
-count = { min = 1, max = 15 }
+# Measured on run 2026-11-18_0112: 1 (the sub sinks as delivered and drops nothing); the
+# observer probe is never recorded (autoRecordOnLaunch=false and no StartRecording after
+# the launch).
+count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 required = [
@@ -144,8 +155,9 @@ required = [
   "MISSIONMARK label=sub2-past-end ut=[\\s\\S]*?LeafPlacement: rec=[0-9a-f]+ vessel='PSUB-1' pid=[0-9]+ kind=surface body=Kerbin liveBody=Kerbin distM=[0-9.]+ verdict=ok",
   # Read, not judged (SUB-1 gates the verdict): the height line exists for PSUB-1.
   "LeafPlacement height: rec=[0-9a-f]+ vessel='PSUB-1' pid=[0-9]+ terminal=Splashed body=Kerbin altM=",
-  "LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  # Pinned whole off run 2026-11-18_0112.
+  "LeafPlacement summary: scene=FLIGHT compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

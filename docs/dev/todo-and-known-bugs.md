@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; OPEN: the SUB lanes' reading runs (step 4)]
+## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
 `LeafPlacement height:` depth check have no live subject below sea level: BOAT-1's Mallard floats.
@@ -45,8 +45,8 @@ The kit is a stock submarine and the pieces that turn it into a host and fly it:
   level counts as floor contact, not off the water: it ends the sink in any sink phase and the
   hold and the rise may rest on the floor (the site's floor depth is not measured).
 
-The lanes (rows in `docs/dev/autotest-status.md`; all tier `pending-fixture`, listed in
-`test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES`; SUB-1 / SUB-2 also in `INTERIM_PIN_IDS`):
+The lanes (rows in `docs/dev/autotest-status.md`; tier `operator` since the hand-over; SUB-1 / SUB-2
+LIVE-PROVEN 2026-11-18 and out of `INTERIM_PIN_IDS`, SUB-3 tag `pending-flight`):
 - `SUB-1-submarine-dive-ksc-end-spawn`: the dive to 40 m, committed, Rewound-to-Launch, the KSC
   ghost to its Splashed end, the real PSUB-1 spawned at its RECORDED depth (no clamp line, one
   spawn), LeafVesselPlacement at the Space Center with the height line GATED (`heightVerdict=ok`).
@@ -73,6 +73,29 @@ THE HAND-OVER, in order (PC; the forge is operator tier):
 4. Fly SUB-1, SUB-2, SUB-3 once each as reading runs; then tighten the count windows, pin the
    `BATCH_COMPLETE` split whole (leaving `INTERIM_PIN_IDS`), and decide from SUB-3's reading which
    decouple / debris / section facts to gate.
+   FLOWN 2026-11-18 at hand-over a000551b (logs on branch `forge-logs-2026-11-18-sub`):
+   - SUB-1 `2026-11-18_0110` PASS attempt 1 (152 s), SUB-2 `2026-11-18_0112` PASS attempt 1
+     (163 s). PSUB-1 SANK AS DELIVERED (1.603 m/s steady: k is under the craft table's 0.75), so
+     the dive dropped nothing and each run made one recording. DONE for both: count {1,1}, the
+     LeafPlacement summaries and `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0` pinned
+     whole (the split read off each result JSON's RunTests capture and batchComplete row; the
+     KSP.log excerpts on the logs branch carry only the PSUB / LeafPlacement / WARN lines), out
+     of `INTERIM_PIN_IDS`, tag `flown`, status rows Live-proven.
+   - SUB-3 `2026-11-18_0115` and `_0117_a2` INVALID MISSION-ASSERT-FAIL, a mission defect. The
+     sink read green (56.6 m at the hold end). The rise dropped the three floats back to back
+     (28 -> 24 -> 20 -> 16 parts, stage 6 -> 3, at 58.7 / 63.4 / 69.7 m, as the staging table
+     says), then the machine settled 10 s and measured with every float gone: the sub fell 69.7 ->
+     133.1 m in the 10.3 s settle (6.15 m/s mean) and to 150.8 m 2.5 s into the measurement (7.06
+     m/s and still accelerating), where the 150 m crush guard ended it with ballastDropped=0
+     (attempt 2: 68.3 -> 151.8 m). Fix: `psub_decide` drops the floats AND the first ballast pair
+     back to back (at k < 0.75 one ballast pair cannot outweigh three floats), and while a pair is
+     left cuts a rise settle or measurement, dropping the next pair at once (a `rise-cut` reading),
+     after a `riseDropFallMeters` (default 10 m) fall below the last confirmed drop; SUB-3's
+     `maxDepthMeters` 150 -> 200 (half the ~400 m stock parts tolerate). `test_psub_dive` replays
+     the flight's frames (the old machine settles at 66.24, the fix clicks ballast at 66.74, 78 m
+     above the guard) and flies a model fitted to both flights at the pessimistic k = 0.67: the
+     fixed rise turns at 98.5 m and surfaces; with the first-ballast rule alone it still reaches
+     164.8 m. OPEN: re-fly SUB-3, then decide which decouple / debris / section facts to gate.
 
 What the first flights check (build_psub_craft.py C1-C5, and the host): the craft loads whole on
 the pad (C1); each stage click drops exactly one pair, floats first (C2); the sub sinks inside three
@@ -94,7 +117,8 @@ Not built (SUB-4..7, ideas for after the reading runs):
   exceed their 4 MPa limit, so the recording ends Destroyed under water (the terminal-kind
   classification and the ghost's explosion at depth). Needs a site deeper than the crush depth.
 
-Done when the SUB lanes have flown once as reading runs and are re-pinned, or their reds are filed.
+Done when the SUB lanes have flown once as reading runs and are re-pinned, or their reds are filed
+(SUB-1 and SUB-2 done 2026-11-18; SUB-3 owes its re-flight on the fixed rise).
 
 ## ~~SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL~~: sealing an Unfinished Flight whose recording was split kept its tree "not finished" forever, so no supply route could be made from it [FILED 2026-11-17 from AST-3's red, run `2026-11-17_1636_AST-3-klaw-mine-route` (PARSEK-FAIL(expectation)), by log and code reading plus a headless repro. FIXED 2026-11-17, branch `item31-seal-split-chain`, PR #2714; xUnit + mutation; NO REGRESSION 2026-11-17: all 36 seal / route lanes PASS on the fix (run `item31-proof`), but no flight reached the split-then-seal shape, so the fix itself is proven headless only; OPEN: a lane for that shape, todo SEAL-SPLIT-CHAIN-LANE-OWED; medium (route creation blocked for that tree for good, no data loss)]
 

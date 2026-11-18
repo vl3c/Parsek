@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 156 |
 | seam-only lanes | 475 |
-| LIVE-PROVEN date in status row | 503 |
-| no LIVE-PROVEN date | 128 |
+| LIVE-PROVEN date in status row | 505 |
+| no LIVE-PROVEN date | 126 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -119,7 +119,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | SS | 1 | - | 1 | - | - | - | - |
 | ST | 4 | - | 4 | - | - | 1 | 4 |
 | STR | 4 | - | - | 4 | - | 2 | 4 |
-| SUB | 3 | - | - | 3 | - | 3 | - |
+| SUB | 3 | - | - | 3 | - | 3 | 2 |
 | SWS | 1 | - | - | 1 | - | - | 1 |
 | TL | 1 | - | 1 | - | - | - | 1 |
 | TOUR | 1 | - | 1 | - | - | - | 1 |
@@ -319,7 +319,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 385 | 125 | 306 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +74 |
+| Kerbin | 385 | 125 | 308 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +74 |
 | Mun | 59 | 15 | 48 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, SOI 2, EVA 1, GUI 1 +9 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -1788,9 +1788,9 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| SUB-1-submarine-dive-ksc-end-spawn | operator | psub-splashed | psub_dive | Kerbin | rewind-to-launch, save, warp | LeafVesselPlacement | NEVER FLOWN; host psub-splashed forged 20... |
-| SUB-2-submarine-dive-flight-ghost-spawn | operator | psub-splashed | psub_dive | Kerbin | rewind-to-launch, save, warp, scene-change | LeafVesselPlacement | NEVER FLOWN; host psub-splashed forged 20... |
-| SUB-3-submarine-dive-and-rise-separations | operator | psub-splashed | psub_dive | Kerbin | save | - | NEVER FLOWN; host psub-splashed forged 20... |
+| SUB-1-submarine-dive-ksc-end-spawn | operator | psub-splashed | psub_dive | Kerbin | rewind-to-launch, save, warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-18 |
+| SUB-2-submarine-dive-flight-ghost-spawn | operator | psub-splashed | psub_dive | Kerbin | rewind-to-launch, save, warp, scene-change | LeafVesselPlacement | LIVE-PROVEN 2026-11-18 |
+| SUB-3-submarine-dive-and-rise-separations | operator | psub-splashed | psub_dive | Kerbin | save | - | FIRST FLIGHT INVALID MISSION-ASSERT-FAIL... |
 
 ### SWS (1)
 

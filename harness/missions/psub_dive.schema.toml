@@ -135,8 +135,8 @@ type = "number"
 min = 0.5
 max = 120.0
 
-# After the hold, drop the floats still aboard and then one ballast pair per measurement
-# until the sub rises back to the surface.
+# After the hold, drop the floats still aboard and the first ballast pair back to back,
+# then one ballast pair per measurement until the sub rises back to the surface.
 [params.riseAfterTarget]
 required = false
 type = "bool"
@@ -162,3 +162,11 @@ required = false
 type = "int"
 min = 0
 max = 1000
+
+# In the rise, a settle or measurement is cut short and the next pair dropped at once
+# when the sub has fallen this far below the depth of the last confirmed drop.
+[params.riseDropFallMeters]
+required = false
+type = "number"
+min = 1.0
+max = 100.0

@@ -2,19 +2,43 @@ schema = 1
 id = "SUB-3-submarine-dive-and-rise-separations"
 # =====================================================================================
 # SUB-3: THE SUBMARINE DIVES AND RISES BACK, SHEDDING SIX PART PAIRS UNDER WATER, AND THE
-# RECORDER KEEPS ONE TREE. AUTHORED 2026-11-17, NEVER FLOWN. Todo SUBMARINE-TEST-KIT.
+# RECORDER KEEPS ONE TREE. AUTHORED 2026-11-17; FLOWN 2026-11-18, INVALID x2 (the rise
+# drowned the sub; mission fixed, see below), owes a re-flight. Todo SUBMARINE-TEST-KIT.
 #
 # The environment-and-separations half of the kit. SUB-1's dive to 40 m, then with
 # `riseAfterTarget` the mission drops the float pairs still aboard back to back (each
-# makes the sub heavier, so they go unmeasured) and then one Ore ballast pair per
-# measurement until the sub rises at 0.2 m/s or more, and runs until it is within 2 m of
+# makes the sub heavier, so they go unmeasured) together with the first Ore ballast pair,
+# then one ballast pair per measurement (cut short after a 10 m fall) until the sub rises
+# at 0.2 m/s or more, and runs until it is within 2 m of
 # sea level. So every separation of the craft (up to six radial pairs on TT-70
 # decouplers) happens in the water, most of them under it, and the recording spans
 # sinking, the turn at depth and the ascent. Then the tree is committed; no playback.
 #
 # HOST FORGED 2026-11-18: FORGE-psub-pad PASS attempt 1 (run 2026-11-18_0056), psub-pad
 # harvested and psub-splashed built (FLIGHTSTATE UT 26.54). Flyable: tier operator, tag
-# pending-flight until its first flight. No WarpToUT.
+# pending-flight until a green flight. No WarpToUT.
+#
+# FIRST FLIGHTS 2026-11-18 (hand-over a000551b): runs 2026-11-18_0115 and _0117, INVALID
+# MISSION-ASSERT-FAIL on both attempts, a mission defect, not a Parsek one. PSUB-1 sank
+# AS DELIVERED (1.603 m/s steady with every pair aboard: k is under the craft table's
+# 0.75), so no float went in the sink; it passed 40 m at UT 51.7 and held to 56.6 m. The
+# rise then dropped the three floats back to back (part count 28 -> 24 -> 20 -> 16, stage
+# 6 -> 3, at 58.7, 63.4 and 69.7 m), each making the sub heavier: 2.5, 3.6 and 5.0 m/s
+# over the 0.5 s after each confirm. The old machine then SETTLED 10 s and MEASURED with
+# every float gone: the sub fell 69.7 -> 133.1 m in the 10.3 s settle (6.15 m/s mean)
+# and to 150.8 m 2.5 s into the measurement (7.06 m/s, still accelerating), where the
+# crush guard ended it with ballastDropped=0 (attempt 2: 68.3 -> 151.8 m, 6.97 m/s). The
+# sink half read green on both (sankBelowTarget, the readings).
+# FIX (mlib.psub_decide): in the rise the floats AND the first ballast pair go back to
+# back, unmeasured (at k < 0.75 one ballast pair cannot outweigh three floats), and
+# while a pair is left a settle or measurement is cut short, the next pair dropped at
+# once with a `rise-cut` reading, when the sub has fallen riseDropFallMeters (10 m)
+# below the last confirmed drop. A click took 1.1 s to confirm on every flown drop, so
+# at the fastest flown 7.06 m/s each further pair costs at most about 18 m. maxDepthMeters
+# 150 -> 200 (half of the ~400 m stock parts tolerate): a model fitted to the two
+# flights at the pessimistic k = 0.67 (test_psub_dive.Sub3RiseModelTests) turns at
+# 98.5 m, and the bound above puts the last pair near 115 m. targetDepthMeters stays 40
+# (the sink measurement alone already reaches 37 m at 1.6 m/s). Owes a re-flight.
 #
 # WHAT IT GATES (only what the dive cannot avoid producing): a fresh recording started
 # on the sub, an ACTIVE-recorder SurfaceMobile section with frames, a Splashed terminal on
@@ -35,7 +59,7 @@ id = "SUB-3-submarine-dive-and-rise-separations"
 #   - the Rewind Point count (expected 0: no controllable child separates).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-17, NEVER FLOWN; host psub-splashed forged 2026-11-18 (todo SUBMARINE-TEST-KIT). The stock submarine PSUB-1 drops float pairs until it sinks, dives to 40 m, then drops the floats left and one ballast pair per measurement until it rises back to the surface (psub_dive with riseAfterTarget, every reading logged): up to six radial separations in and under the water in one recording. Gates the active SurfaceMobile section, a Splashed terminal and the commit; the decouple and debris lines, the section count and the recording count are read, not gated, on the first flight."
+description = "AUTHORED 2026-11-17; host psub-splashed forged 2026-11-18; first flights 2026-11-18 INVALID x2 (the rise's settle after the last float let the sub fall to the 150 m crush guard; psub_dive fixed, owes a re-flight; todo SUBMARINE-TEST-KIT). The stock submarine PSUB-1 drops float pairs until it sinks, dives to 40 m, then drops the floats left and the first ballast pair back to back and one more ballast pair per measurement (cut short after a 10 m fall) until it rises back to the surface (psub_dive with riseAfterTarget, every reading logged): up to six radial separations in and under the water in one recording. Gates the active SurfaceMobile section, a Splashed terminal and the commit; the decouple and debris lines, the section count and the recording count are read, not gated, on the first flight."
 instanceProfile = "stock-minimal"
 tags = ["SUB3", "SUB", "submarine", "water", "splashed", "underwater", "surface-mobile",
         "decouple", "debris", "pending-flight"]
@@ -77,7 +101,7 @@ dropConfirmFrames     = 40
 noSinkTimeoutSeconds  = 60.0
 targetDepthMeters     = 40.0
 floorClearanceMeters  = 5.0
-maxDepthMeters        = 150.0
+maxDepthMeters        = 200.0
 sinkTimeoutSeconds    = 300.0
 holdSeconds           = 10.0
 logIntervalSeconds    = 5.0
@@ -86,6 +110,7 @@ surfaceDepthMeters    = 2.0
 riseTimeoutSeconds    = 300.0
 # Breaching at the end of the ascent can read FLYING for a few frames.
 offWaterFrames        = 20
+riseDropFallMeters    = 10.0
 
 [dimensionsCovered]
 D1  = ["commit-revert-merge"]

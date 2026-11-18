@@ -38764,12 +38764,18 @@ def evaluate_boat_assertions(frames, params: BoatParams,
 #                  ``sinkTimeoutSeconds`` -> MISSION-FLAKE.
 #   PSUB-HOLD      ``holdSeconds`` more of readings (the sub keeps sinking: a stock sub
 #                  cannot hover), then PSUB-DONE, or with ``riseAfterTarget`` the RISE.
-#   RISE           staging is sequential, so the floats still aboard go first (each
-#                  makes the sub heavier, dropped back to back without a measurement),
-#                  then one ballast pair per measurement until rising (vs >=
-#                  +riseRateMps) -> PSUB-ASCEND; sinking with every pair gone
-#                  ``noSinkTimeoutSeconds`` after the last drop is the named
-#                  MISSION-ASSERT-FAIL "k too low".
+#   RISE           staging is sequential, so the floats still aboard go first and the
+#                  FIRST ballast pair right behind them, all back to back with no settle
+#                  and no measurement (each float makes the sub heavier, and the SUB-3
+#                  flights of 2026-11-18 showed a sub with every float gone sinking at
+#                  6 - 7 m/s: a settle plus a measurement there fell 81 m into the crush
+#                  guard before any ballast went). Then one ballast pair per measurement
+#                  until rising (vs >= +riseRateMps) -> PSUB-ASCEND. While a pair is
+#                  left, a settle or measurement is cut short, and the next pair dropped
+#                  at once (a ``rise-cut`` reading), when the sub has fallen
+#                  ``riseDropFallMeters`` below the depth of the last confirmed drop.
+#                  Sinking with every pair gone ``noSinkTimeoutSeconds`` after the last
+#                  drop is the named MISSION-ASSERT-FAIL "k too low".
 #   PSUB-ASCEND    until the sub is within ``surfaceDepthMeters`` of sea level ->
 #                  PSUB-DONE. Over ``riseTimeoutSeconds`` -> MISSION-FLAKE.
 #
@@ -38824,6 +38830,7 @@ class PsubParams:
     surface_depth: float = 2.0
     rise_timeout: float = 300.0
     off_water_frames: int = 10
+    rise_drop_fall: float = 10.0
 
 
 def psub_params_from_dict(params: Dict) -> PsubParams:
@@ -38849,6 +38856,7 @@ def psub_params_from_dict(params: Dict) -> PsubParams:
         surface_depth=float(params.get("surfaceDepthMeters", 2.0)),
         rise_timeout=float(params.get("riseTimeoutSeconds", 300.0)),
         off_water_frames=int(params.get("offWaterFrames", 10)),
+        rise_drop_fall=float(params.get("riseDropFallMeters", 10.0)),
     )
     if not p.expected_vessel_name:
         raise ValueError("expectedVesselName is required (the handoff gate compares it)")
@@ -38864,6 +38872,8 @@ def psub_params_from_dict(params: Dict) -> PsubParams:
         raise ValueError("need 0 < surfaceDepthMeters < targetDepthMeters < maxDepthMeters")
     if p.log_interval <= 0.0:
         raise ValueError("logIntervalSeconds must be positive")
+    if p.rise_drop_fall <= 0.0:
+        raise ValueError("riseDropFallMeters must be positive")
     return p
 
 
@@ -38894,6 +38904,8 @@ class PsubState:
     drop_frames: int = 0
     drop_baseline_parts: int = 0
     last_drop_ut: Optional[float] = None
+    last_drop_alt: Optional[float] = None
+    rise_cuts: int = 0
     # The measurement window.
     window_ut: Optional[float] = None
     window_alt: Optional[float] = None
@@ -39013,6 +39025,22 @@ def _psub_start_measure(state: PsubState, snapshot: TelemetrySnapshot) -> PsubSt
                                if _is_finite(snapshot.mean_altitude) else None))
 
 
+def _psub_rise_cut_due(state: PsubState, alt) -> bool:
+    """True when the rise must not wait out its settle or measurement: a pair is left
+    and the sub has fallen ``riseDropFallMeters`` below the depth of the last drop."""
+    return (state.mode == PSUB_MODE_RISE and _psub_drops_left(state) > 0
+            and state.last_drop_alt is not None and _is_finite(alt)
+            and float(alt) <= state.last_drop_alt - state.params.rise_drop_fall)
+
+
+def _psub_rise_cut(state: PsubState, snapshot: TelemetrySnapshot
+                   ) -> Tuple[PsubState, List[Action]]:
+    st = replace(state, rise_cuts=state.rise_cuts + 1)
+    st = _psub_record(st, psub_format_reading("rise-cut", st, snapshot,
+                                              snapshot.vertical_speed))
+    return _psub_start_drop(st, snapshot)
+
+
 PSUB_FLOOR_SITUATION = "LANDED"
 
 
@@ -39097,14 +39125,20 @@ def psub_decide(state: PsubState, snapshot: TelemetrySnapshot
         st = replace(st, floor_reached=True)
 
     if st.phase == PSUB_SETTLE:
-        if st.mode == PSUB_MODE_RISE and st.floats_dropped < p.float_stages:
-            # A float still aboard only makes the sub heavier: drop it unmeasured.
+        if (st.mode == PSUB_MODE_RISE and st.ballast_dropped == 0
+                and _psub_drops_left(st) > 0):
+            # A float still aboard only makes the sub heavier, and with every float
+            # gone one ballast pair is the least the rise needs: drop them unmeasured.
             return _psub_start_drop(st, snapshot)
+        if _psub_rise_cut_due(st, alt):
+            return _psub_rise_cut(st, snapshot)
         if _psub_elapsed(st, snapshot.ut) >= p.settle_seconds:
             return _psub_start_measure(st, snapshot), []
         return st, []
 
     if st.phase == PSUB_MEASURE:
+        if _psub_rise_cut_due(st, alt):
+            return _psub_rise_cut(st, snapshot)
         if st.window_ut is None or st.window_alt is None:
             return _psub_start_measure(st, snapshot), []
         if _psub_elapsed(st, snapshot.ut) < p.measure_seconds:
@@ -39155,7 +39189,8 @@ def psub_decide(state: PsubState, snapshot: TelemetrySnapshot
                 st = replace(st, ballast_dropped=st.ballast_dropped + 1)
                 kind = "drop-ballast"
             st = replace(st, last_drop_ut=(float(snapshot.ut)
-                                           if _is_finite(snapshot.ut) else st.last_drop_ut))
+                                           if _is_finite(snapshot.ut) else st.last_drop_ut),
+                         last_drop_alt=(float(alt) if _is_finite(alt) else None))
             st = _psub_record(st, psub_format_reading(kind, st, snapshot))
             return _psub_enter(st, PSUB_SETTLE, snapshot.ut), []
         if frames >= max(1, p.drop_confirm_frames):
@@ -39260,6 +39295,7 @@ def evaluate_psub_assertions(frames, params: PsubParams,
             st.rise_vs if st is not None else None,
             {"surfaceDepthMeters": params.surface_depth,
              "ballastDropped": st.ballast_dropped if st is not None else None,
+             "riseCuts": st.rise_cuts if st is not None else None,
              "riseUT": st.rise_ut if st is not None else None,
              "surfaceUT": st.surface_ut if st is not None else None}))
     out.append(AssertionOutcome(

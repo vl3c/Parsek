@@ -94,8 +94,10 @@ def _measure_once(st, ut0, alt0, alt1, parts=PARTS, stage=STAGE):
     return mlib.psub_decide(st, _f(ut0 + 2.0, alt1, parts, stage))
 
 
-def _drop(st, ut, parts_after, stage_after):
-    st, acts = mlib.psub_decide(st, _f(ut, st.window_alt or 0.0, parts_after, stage_after))
+def _drop(st, ut, parts_after, stage_after, alt=None):
+    if alt is None:
+        alt = st.window_alt or 0.0
+    st, acts = mlib.psub_decide(st, _f(ut, alt, parts_after, stage_after))
     assert st.phase == mlib.PSUB_SETTLE, st.phase
     return st, acts
 
@@ -139,7 +141,7 @@ class GateAndHelperTests(unittest.TestCase):
                       {"measureSeconds": 0.0}, {"settleSeconds": -1.0},
                       {"sinkRateMps": 0.0}, {"riseRateMps": -0.1},
                       {"targetDepthMeters": 200.0}, {"surfaceDepthMeters": 50.0},
-                      {"logIntervalSeconds": 0.0}):
+                      {"logIntervalSeconds": 0.0}, {"riseDropFallMeters": 0.0}):
             with self.assertRaises(ValueError, msg=extra):
                 mlib.psub_params_from_dict(dict(PARAMS, **extra))
 
@@ -275,7 +277,7 @@ class WalkTests(unittest.TestCase):
         self.assertFalse(mlib.psub_is_floor_contact(
             snap(ut=1.0, situation="LANDED")))
 
-    def test_the_rise_drops_the_floats_aboard_then_ballast_until_rising(self):
+    def test_the_rise_drops_the_floats_aboard_and_one_ballast_pair_then_measures(self):
         st = _settled(RISE)
         st, _ = _measure_once(st, 5.0, 0.0, 0.0)                       # afloat
         st, _ = _drop(st, 8.0, 24, 5)                                  # float 1
@@ -285,27 +287,35 @@ class WalkTests(unittest.TestCase):
         st, acts = mlib.psub_decide(st, _f(35.0, -50.0, 24, 5, vs=-2.0))  # hold end
         self.assertEqual(mlib.PSUB_MODE_RISE, st.mode)
         self.assertEqual([Action(mlib.ACTION_ACTIVATE_STAGE)], acts)
-        # The two floats still aboard go back to back, with no measurement between.
-        st, _ = _drop(st, 36.0, 20, 4)
-        st, acts = mlib.psub_decide(st, _f(37.0, -52.0, 20, 4))
-        self.assertEqual([Action(mlib.ACTION_ACTIVATE_STAGE)], acts)
-        st, _ = _drop(st, 38.0, 16, 3)
-        self.assertEqual((3, 0), (st.floats_dropped, st.ballast_dropped))
         m0 = st.measurements
-        # Now settle and measure: still sinking, so one ballast pair.
-        st, acts = _measure_once(st, 41.0, -56.0, -58.0, 16, 3)
+        # The two floats still aboard AND the first ballast pair go back to back, with
+        # no settle and no measurement between them.
+        st, _ = _drop(st, 36.0, 20, 4, alt=-51.0)
+        st, acts = mlib.psub_decide(st, _f(36.5, -51.5, 20, 4))
+        self.assertEqual([Action(mlib.ACTION_ACTIVATE_STAGE)], acts)
+        st, _ = _drop(st, 37.0, 16, 3, alt=-52.0)
+        self.assertEqual((3, 0), (st.floats_dropped, st.ballast_dropped))
+        st, acts = mlib.psub_decide(st, _f(37.5, -52.5, 16, 3))
+        self.assertEqual([Action(mlib.ACTION_ACTIVATE_STAGE)], acts)
+        st, _ = _drop(st, 38.0, 12, 2, alt=-53.0)
+        self.assertEqual((3, 1), (st.floats_dropped, st.ballast_dropped))
+        self.assertEqual(m0, st.measurements)
+        self.assertTrue(st.readings[-1].startswith("drop-ballast:"))
+        self.assertEqual(-53.0, st.last_drop_alt)
+        # Now settle and measure: still sinking (within the fall budget), so one more.
+        st, acts = _measure_once(st, 41.0, -55.0, -56.0, 12, 2)
         self.assertEqual(m0 + 1, st.measurements)
         self.assertEqual([Action(mlib.ACTION_ACTIVATE_STAGE)], acts)
-        st, _ = _drop(st, 44.0, 12, 2)
-        self.assertEqual((3, 1), (st.floats_dropped, st.ballast_dropped))
-        self.assertTrue(st.readings[-1].startswith("drop-ballast:"))
-        st, acts = _measure_once(st, 47.0, -60.0, -59.0, 12, 2)       # rising
+        st, _ = _drop(st, 44.0, 8, 1, alt=-57.0)
+        self.assertEqual((3, 2), (st.floats_dropped, st.ballast_dropped))
+        st, acts = _measure_once(st, 47.0, -58.0, -57.0, 8, 1)        # rising
         self.assertEqual([], acts)
         self.assertEqual(mlib.PSUB_ASCEND, st.phase)
         self.assertAlmostEqual(0.5, st.rise_vs)
-        st, _ = mlib.psub_decide(st, _f(80.0, -10.0, 12, 2, vs=1.5))
+        self.assertEqual(0, st.rise_cuts)
+        st, _ = mlib.psub_decide(st, _f(80.0, -10.0, 8, 1, vs=1.5))
         self.assertFalse(st.done)
-        st, _ = mlib.psub_decide(st, _f(90.0, -1.5, 12, 2, vs=1.0))
+        st, _ = mlib.psub_decide(st, _f(90.0, -1.5, 8, 1, vs=1.0))
         self.assertTrue(st.done)
         self.assertIsNone(st.verdict)
         rows = {r.name: r for r in mlib.evaluate_psub_assertions(
@@ -347,15 +357,230 @@ class CalibrationEndTests(unittest.TestCase):
         st, _ = mlib.psub_decide(st, _f(20.0, -41.0, vs=-2.0))
         st, acts = mlib.psub_decide(st, _f(25.0, -50.0, vs=-2.0))
         self.assertEqual([Action(mlib.ACTION_ACTIVATE_STAGE)], acts)
-        st, _ = _drop(st, 26.0, 24, 5)                 # the one float
-        st, _ = _measure_once(st, 28.0, -55.0, -57.0, 24, 5)
-        st, _ = _drop(st, 31.0, 20, 4)                 # the one ballast pair
-        st, acts = _measure_once(st, 33.0, -60.0, -62.0, 20, 4)
+        st, _ = _drop(st, 26.0, 24, 5, alt=-51.0)      # the one float
+        st, acts = mlib.psub_decide(st, _f(26.5, -51.5, 24, 5))
+        self.assertEqual([Action(mlib.ACTION_ACTIVATE_STAGE)], acts)
+        st, _ = _drop(st, 27.0, 20, 4, alt=-52.0)      # the one ballast pair, at once
+        # Every pair gone: no fall budget left to cut on, the measurement just repeats.
+        st, acts = _measure_once(st, 30.0, -60.0, -66.0, 20, 4)
         self.assertEqual([], acts)
-        st, _ = mlib.psub_decide(st, _f(42.0, -70.0, 20, 4))
+        self.assertEqual(0, st.rise_cuts)
+        st, _ = mlib.psub_decide(st, _f(38.0, -80.0, 20, 4))
         self.assertTrue(st.done)
         self.assertEqual(mlib.MISSION_ASSERT_FAIL, st.verdict)
         self.assertIn("k is too low", st.loss_reason)
+
+
+# SUB-3's first flight, run 2026-11-18_0115 (hand-over a000551b), as the machine saw it:
+# (ut, Flight.MeanAltitude) off the mission stdout's window dumps, 0.5 s apart except
+# across each PSUB-DROP. The part count and the stage follow the logged drops: 28 / 6
+# until the first confirm at 63.02, then 24 / 5, 20 / 4 from 64.62 and 16 / 3 from 66.24
+# (build_psub_craft.py: stages 5..3 drop the float pairs, four parts each with their
+# TT-70s). Sink rates: 1.603 m/s steady with every pair aboard; over the 0.5 s after
+# each float confirm 2.53, 3.61 and 5.02 m/s; with every float gone 6.15 m/s on average
+# over the 10.3 s settle and 7.06 m/s, still accelerating, at the crush guard.
+SUB3_FLIGHT_0115 = (
+    (28.30, -0.813), (28.82, -1.649), (29.34, -2.485), (29.86, -3.321), (30.36, -4.124),
+    (30.88, -4.985), (31.40, -5.926), (31.90, -6.859), (32.40, -7.811), (32.92, -8.809),
+    (33.44, -9.804), (33.94, -10.755), (34.44, -11.698), (34.96, -12.671), (35.46, -13.597),
+    (35.96, -14.513), (36.48, -15.455), (36.98, -16.349), (37.48, -17.231), (38.00, -18.133),
+    (38.50, -18.986), (39.00, -19.823), (39.52, -20.674), (40.02, -21.476), (40.52, -22.279),
+    (41.04, -23.124), (41.56, -23.968), (42.08, -24.804), (42.58, -25.608), (43.08, -26.415),
+    (43.60, -27.250), (44.10, -28.054), (44.60, -28.857), (45.12, -29.691), (45.64, -30.525),
+    (46.14, -31.327), (46.66, -32.160), (47.18, -32.994), (47.68, -33.796), (48.18, -34.597),
+    (48.70, -35.430), (49.20, -36.232), (49.70, -37.033), (50.22, -37.867), (50.74, -38.700),
+    (51.24, -39.502), (51.74, -40.303), (52.26, -41.137), (52.76, -41.938), (53.26, -42.739),
+    (53.78, -43.573), (54.28, -44.374), (54.78, -45.176), (55.30, -46.009), (55.80, -46.810),
+    (56.32, -47.644), (56.84, -48.477), (57.36, -49.311), (57.88, -50.145), (58.38, -50.946),
+    (58.88, -51.747), (59.40, -52.581), (59.90, -53.382), (60.40, -54.184), (60.92, -55.017),
+    (61.42, -55.818), (61.92, -56.620), (63.02, -58.695), (63.52, -59.961), (64.62, -63.416),
+    (65.14, -65.294), (66.24, -69.716), (66.74, -72.228), (67.24, -74.911), (67.76, -77.786),
+    (68.28, -80.718), (68.80, -83.700), (69.32, -86.731), (69.84, -89.811), (70.36, -92.938),
+    (70.88, -96.109), (71.40, -99.323), (71.92, -102.579), (72.44, -105.876), (72.96, -109.213),
+    (73.46, -112.459), (73.98, -115.868), (74.48, -119.178), (75.00, -122.652), (75.52, -126.158),
+    (76.02, -129.555), (76.54, -133.114), (77.06, -136.699), (77.58, -140.307), (78.08, -143.796),
+    (78.58, -147.304), (79.08, -150.830),
+)
+SUB3_FLOWN_PARAMS = dict(PARAMS, settleSeconds=10.0, measureSeconds=10.0,
+                         handoffMaxFrames=60, dropConfirmFrames=40,
+                         noSinkTimeoutSeconds=60.0, sinkTimeoutSeconds=300.0,
+                         holdSeconds=10.0, logIntervalSeconds=5.0, riseAfterTarget=True,
+                         riseTimeoutSeconds=300.0, offWaterFrames=20)
+
+
+def _sub3_frame(ut, alt):
+    parts, stage = ((28, 6) if ut < 63.0 else (24, 5) if ut < 64.6
+                    else (20, 4) if ut < 66.2 else (16, 3))
+    return _f(ut, alt, parts, stage, floor=-708.6, vs=float("nan"))
+
+
+class Sub3FlightReplayTests(unittest.TestCase):
+    """The rise of SUB-3's first two flights drowned the sub: the old machine dropped the
+    three floats back to back, then settled 10 s and measured with every float gone,
+    and the sub fell 81 m (69.7 -> 150.8) into the crush guard before any ballast pair
+    went (attempt 2: 68.3 -> 151.8)."""
+
+    def _replay(self):
+        st = _state(SUB3_FLOWN_PARAMS)
+        clicks = []
+        for ut, alt in SUB3_FLIGHT_0115:
+            st, acts = mlib.psub_decide(st, _sub3_frame(ut, alt))
+            if any(a.kind == mlib.ACTION_ACTIVATE_STAGE for a in acts):
+                clicks.append((ut, alt, st.floats_dropped, st.ballast_dropped))
+            if st.done or len(clicks) == 4:
+                break
+        return st, clicks
+
+    def test_the_replay_follows_the_flight_up_to_the_third_float(self):
+        st, clicks = self._replay()
+        self.assertEqual([(61.92, -56.62, 0, 0), (63.52, -59.961, 1, 0),
+                          (65.14, -65.294, 2, 0)], clicks[:3])
+        self.assertEqual(3, st.floats_dropped)
+        self.assertEqual(51.74, st.target_ut)
+        self.assertEqual(61.92, st.hold_end_ut)
+
+    def test_the_first_ballast_pair_follows_the_floats_at_once(self):
+        # The old machine settled here and the flight fell to the crush guard at 79.08
+        # with ballastDropped=0; the fix clicks the first ballast pair on the next frame,
+        # 78 m above the guard.
+        st, clicks = self._replay()
+        self.assertIsNone(st.verdict, st.loss_reason)
+        self.assertEqual(4, len(clicks), clicks)
+        self.assertEqual((66.74, -72.228, 3, 0), clicks[3])
+        self.assertEqual(mlib.PSUB_DROP, st.phase)
+        self.assertEqual(-72.228, st.deepest)
+
+
+class Sub3RiseModelTests(unittest.TestCase):
+    """A first-order model of PSUB-1 fitted to the 2026-11-18 SUB-3 flights, run through
+    the machine with SUB-3's committed params. Terminal speeds (m/s, up positive) per
+    (float pairs, ballast pairs) aboard: (3,3) -1.6 and (0,3) -7.5 as flown (1.603 steady;
+    7.06 and still rising 12.8 s after the third float); the rest from the craft's
+    masses and volumes (build_psub_craft.py) with the displacement factor k = 0.67 and a
+    linear water drag of 0.37 t per m/s that fit those two: (2,3) -3.5, (1,3) -5.5,
+    (0,2) -3.6, (0,1) +0.19 (under riseRateMps: a measurement reads it as not rising),
+    (0,0) +2.1. The approach to each terminal speed has a 7 s time constant (the flown
+    -4.76 -> -7.06 m/s over 12.8 s); a stage click lands two frames later. k = 0.67 is the
+    pessimistic end of what the flights allow (a quadratic drag fit gives 0.73, where the
+    sub already rises with two ballast pairs gone), so this sub needs every pair. The
+    model's float drops are gentler than the flight's (65.5 m at the third float against
+    69.7 m flown), so it reads a few metres shallow."""
+
+    TERMINAL = {(3, 3): -1.6, (2, 3): -3.5, (1, 3): -5.5, (0, 3): -7.5,
+                (0, 2): -3.6, (0, 1): 0.19, (0, 0): 2.1}
+
+    def _spec_params(self):
+        with open(os.path.join(_HARNESS, "scenarios",
+                               "SUB-3-submarine-dive-and-rise-separations.toml"), "rb") as fh:
+            return tomllib.load(fh)["driver"]["missionParams"]
+
+    def _fly(self, params):
+        import math
+        st = mlib.psub_initial_state(mlib.psub_params_from_dict(params))
+        floats, ballast, parts, stage = 3, 3, 28, 6
+        alt, vs, ut, pending = -0.8, -1.6, 28.3, []
+        deepest = alt
+        while not st.done and ut < 1500.0:
+            ut += 0.5
+            for due in [d for d in pending if d <= ut]:
+                pending.remove(due)
+                if floats:
+                    floats -= 1
+                else:
+                    ballast -= 1
+                parts, stage = parts - 4, stage - 1
+            term = self.TERMINAL[(floats, ballast)]
+            vs = term + (vs - term) * math.exp(-0.5 / 7.0)
+            alt = min(0.0, alt + vs * 0.5)
+            deepest = min(deepest, alt)
+            st, acts = mlib.psub_decide(st, _f(ut, alt, parts, stage, floor=-708.6, vs=vs))
+            if any(a.kind == mlib.ACTION_ACTIVATE_STAGE for a in acts):
+                pending.append(ut + 1.0)
+        return st, deepest
+
+    def test_the_model_sub_survives_the_flown_params(self):
+        # With the params SUB-3 flew (the 150 m guard) the old machine drowned the
+        # model sub the way it drowned the real one (settle + measure with every float
+        # gone, no ballast pair before the guard); the fixed rise stays above 100 m.
+        st, deepest = self._fly(SUB3_FLOWN_PARAMS)
+        self.assertIsNone(st.verdict, st.loss_reason or st.flake_reason)
+        self.assertEqual(mlib.PSUB_DONE, st.phase)
+        self.assertGreater(deepest, -100.0)
+
+    def test_sub3_rises_to_the_surface_well_inside_the_crush_guard(self):
+        params = self._spec_params()
+        st, deepest = self._fly(params)
+        self.assertIsNone(st.verdict, st.loss_reason or st.flake_reason)
+        self.assertEqual(mlib.PSUB_DONE, st.phase)
+        self.assertEqual((3, 3), (st.floats_dropped, st.ballast_dropped))
+        self.assertIsNotNone(st.surface_ut)
+        # The flights fell 81 m in 12.8 s with every float gone; the fixed rise turns the
+        # model sub at 98.5 m (two rise-cuts), 100 m short of SUB-3's maxDepthMeters.
+        self.assertEqual(200.0, params["maxDepthMeters"])
+        self.assertGreater(deepest, -100.0, st.readings)
+        self.assertGreater(st.rise_cuts, 0)
+        self.assertTrue(any(r.startswith("rise-cut:") for r in st.readings))
+
+
+class RiseCutTests(unittest.TestCase):
+    def _after_first_ballast(self, params=None):
+        p = dict(RISE, floatStages=1, ballastStages=3, **(params or {}))
+        st = _settled(p)
+        st, _ = _measure_once(st, 5.0, 0.0, -1.0)
+        st, _ = mlib.psub_decide(st, _f(20.0, -41.0, vs=-2.0))
+        st, _ = mlib.psub_decide(st, _f(25.0, -50.0, vs=-2.0))     # hold end: float
+        st, _ = _drop(st, 26.0, 24, 5, alt=-51.0)
+        st, _ = mlib.psub_decide(st, _f(26.5, -52.0, 24, 5))       # ballast 1, at once
+        st, _ = _drop(st, 27.0, 20, 4, alt=-53.0)
+        self.assertEqual((1, 1), (st.floats_dropped, st.ballast_dropped))
+        return st
+
+    def test_a_settle_is_cut_when_the_sub_falls_the_budget(self):
+        st = self._after_first_ballast()
+        st, acts = mlib.psub_decide(st, _f(27.5, -62.9, 20, 4, vs=-5.0))
+        self.assertEqual([], acts)                                 # 9.9 m: not yet
+        self.assertEqual(mlib.PSUB_SETTLE, st.phase)
+        st, acts = mlib.psub_decide(st, _f(28.0, -63.0, 20, 4, vs=-5.0))
+        self.assertEqual([Action(mlib.ACTION_ACTIVATE_STAGE)], acts)
+        self.assertEqual(mlib.PSUB_DROP, st.phase)
+        self.assertEqual(1, st.rise_cuts)
+        self.assertTrue(st.readings[-1].startswith("rise-cut:ut=28.0,mode=rise,"))
+        self.assertIn("vs=-5.000", st.readings[-1])
+
+    def test_a_measurement_is_cut_too_and_the_budget_is_a_param(self):
+        st = self._after_first_ballast({"riseDropFallMeters": 20.0})
+        st, _ = mlib.psub_decide(st, _f(29.5, -60.0, 20, 4))       # settle ends
+        self.assertEqual(mlib.PSUB_MEASURE, st.phase)
+        st, acts = mlib.psub_decide(st, _f(30.0, -72.0, 20, 4))    # 19 m: not yet
+        self.assertEqual([], acts)
+        st, acts = mlib.psub_decide(st, _f(30.5, -73.0, 20, 4))
+        self.assertEqual([Action(mlib.ACTION_ACTIVATE_STAGE)], acts)
+        self.assertEqual(0, st.measurements - 1)                   # only the sink one
+
+    def test_no_cut_with_every_pair_gone(self):
+        p = dict(RISE, floatStages=1, ballastStages=1)
+        st = _settled(p)
+        st, _ = _measure_once(st, 5.0, 0.0, -1.0)
+        st, _ = mlib.psub_decide(st, _f(20.0, -41.0, vs=-2.0))
+        st, _ = mlib.psub_decide(st, _f(25.0, -50.0, vs=-2.0))
+        st, _ = _drop(st, 26.0, 24, 5, alt=-51.0)
+        st, _ = mlib.psub_decide(st, _f(26.5, -52.0, 24, 5))
+        st, _ = _drop(st, 27.0, 20, 4, alt=-53.0)
+        st, acts = mlib.psub_decide(st, _f(28.0, -90.0, 20, 4))
+        self.assertEqual([], acts)
+        self.assertEqual(mlib.PSUB_SETTLE, st.phase)
+        self.assertEqual(0, st.rise_cuts)
+
+    def test_the_sink_never_cuts(self):
+        # Sink mode: a fast fall after a float drop is the sink working, not a reason to
+        # drop the next float.
+        st = _settled()
+        st, _ = _measure_once(st, 5.0, 0.0, 0.0)
+        st, _ = _drop(st, 8.0, 24, 5, alt=-1.0)
+        st, acts = mlib.psub_decide(st, _f(8.5, -30.0, 24, 5))
+        self.assertEqual([], acts)
+        self.assertEqual(mlib.PSUB_SETTLE, st.phase)
+        self.assertEqual(-1.0, st.last_drop_alt)
 
 
 class NamedEndTests(unittest.TestCase):

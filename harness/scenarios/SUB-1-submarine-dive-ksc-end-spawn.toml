@@ -2,7 +2,7 @@ schema = 1
 id = "SUB-1-submarine-dive-ksc-end-spawn"
 # =====================================================================================
 # SUB-1: A SUBMARINE DIVES, IS RECORDED, REWOUND, AND SPAWNS BACK AT ITS RECORDED DEPTH.
-# AUTHORED 2026-11-17, NEVER FLOWN. Todo SUBMARINE-TEST-KIT.
+# AUTHORED 2026-11-17; LIVE-PROVEN 2026-11-18 ON ITS FIRST FLIGHT. Todo SUBMARINE-TEST-KIT.
 #
 # WHY. No lane puts a vessel UNDER the water, so the recorded-depth end spawn
 # (`VesselSpawner.ResolveSplashedSpawnAltitude`, owner ruling 2026-11-17: a Splashed end
@@ -12,8 +12,18 @@ id = "SUB-1-submarine-dive-ksc-end-spawn"
 # Mallard floats, so its recorded depth is the surface.
 #
 # HOST FORGED 2026-11-18: FORGE-psub-pad PASS attempt 1 (run 2026-11-18_0056), psub-pad
-# harvested and psub-splashed built (FLIGHTSTATE UT 26.54). Flyable: tier operator, tag
-# pending-flight until its first flight.
+# harvested and psub-splashed built (FLIGHTSTATE UT 26.54). Tier operator.
+# FIRST FLIGHT 2026-11-18, run 2026-11-18_0110 (hand-over a000551b): PASS attempt 1, 152 s
+# (mission 34 s). The reading: PSUB-1 SANK AS DELIVERED (1.603 m/s steady over the first
+# measurement: k is under the craft table's 0.75), so the dive dropped NOTHING (floats=0,
+# 28 parts, stage 6 throughout); the sea floor reads -708.6 m; 40 m passed at UT 51.8, the
+# hold ended at 56.7 m. One recording (no drop, no debris), terminal Splashed; the KSC
+# ghost entered range at targetUT=27.8 (recUT=[27.7,62.2]) and exited at UT 62.2; the end
+# spawn kept its recorded depth alt=-55.9 (seaFloor=-706.9) with no clamp line;
+# LeafPlacement distM=0.0, height altM=-55.9 refM=-55.8 deltaM=-0.1 heightVerdict=ok;
+# both summaries compared / checked=1 ok=1, unsupported=0; the batch passed=1 failed=0
+# skipped=0. Pinned off it: the recording count {1,1}, both summaries and the
+# BATCH_COMPLETE line whole (tag `flown`, out of INTERIM_PIN_IDS).
 # The WarpToUT target is the harvested save's UT 26.54 + 600: the dive's worst case
 # (handoff, three drops with their settle and measure windows, the 60 s no-sink wait,
 # the 300 s sink budget and the hold) is about 500 s, so 627 is past the end.
@@ -61,16 +71,16 @@ id = "SUB-1-submarine-dive-ksc-end-spawn"
 # (4) the run is at 1x by design (a buoyancy reading under warp is a different reading).
 # (5) no b5 coast. (6) a wrong handoff, a click that drops nothing, k out of range, the
 # crush guard and leaving the water each end the mission at once by name. (7) the count
-# window is open (each float pair can leave debris recordings); tighten it off the
-# reading run. (8) pending-fixture, then operator by the calibration discipline.
+# window is pinned off the reading run ({1,1}: the sub sinks as delivered, so nothing is
+# dropped). (8) pending-fixture, then operator by the calibration discipline.
 # (9) flight_efficiency.py owed after the first green flight.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-17, NEVER FLOWN; host psub-splashed forged 2026-11-18 (todo SUBMARINE-TEST-KIT). The stock submarine PSUB-1, afloat east of KSC, drops float pairs until it sinks and dives to 40 m (psub_dive, every reading logged); committed, Rewound-to-Launch, its KSC ghost replayed to the Splashed end, the real PSUB-1 spawned at its RECORDED depth (no clamp) and read by LeafVesselPlacement, its height line gated: a negative altitude, heightVerdict=ok."
+description = "AUTHORED 2026-11-17; host psub-splashed forged 2026-11-18; LIVE-PROVEN 2026-11-18 on its first flight (run 2026-11-18_0110, PASS attempt 1; todo SUBMARINE-TEST-KIT). The stock submarine PSUB-1, afloat east of KSC, drops float pairs until it sinks and dives to 40 m (psub_dive, every reading logged); committed, Rewound-to-Launch, its KSC ghost replayed to the Splashed end, the real PSUB-1 spawned at its RECORDED depth (no clamp) and read by LeafVesselPlacement, its height line gated: a negative altitude, heightVerdict=ok."
 instanceProfile = "stock-minimal"
 tags = ["SUB1", "SUB", "submarine", "water", "splashed", "underwater", "surface-mobile",
         "ksc-ghost", "rewind-to-launch", "leaf-placement", "ingame-batch",
-        "pending-flight"]
+        "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/psub-splashed"
@@ -136,9 +146,9 @@ D14 = ["kerbin", "warp-1x", "scene-flight", "scene-ksc", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# OPEN on purpose: the sub's own recording, plus whatever debris recordings the dropped
-# float pairs leave (up to two per pair). Tighten off the reading run.
-count = { min = 1, max = 15 }
+# Measured on run 2026-11-18_0110: 1 (the sub sinks as delivered, so no pair is dropped
+# and no debris recording opens). A drop in a later flight reds this first.
+count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 required = [
@@ -172,9 +182,10 @@ required = [
   # FormatSummary) + InGameTestRunner.cs (BATCH_COMPLETE).
   "MISSIONMARK label=sub1-past-end ut=[\\s\\S]*?LeafPlacement: rec=[0-9a-f]+ vessel='PSUB-1' pid=[0-9]+ kind=surface body=Kerbin liveBody=Kerbin distM=[0-9.]+ verdict=ok",
   "LeafPlacement height: rec=[0-9a-f]+ vessel='PSUB-1' pid=[0-9]+ terminal=Splashed body=Kerbin altM=-[0-9.]+ refM=-[0-9.]+ deltaM=-?[0-9.]+ floorM=-?[0-9.]+ heightVerdict=ok",
-  "LeafPlacement height summary: scene=SPACECENTER checked=[1-9][0-9]* ok=[1-9][0-9]* bad=0 unsupported=[0-9]+",
-  "LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER",
+  # Pinned whole off run 2026-11-18_0110.
+  "LeafPlacement height summary: scene=SPACECENTER checked=1 ok=1 bad=0 unsupported=0",
+  "LeafPlacement summary: scene=SPACECENTER compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=SPACECENTER",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
