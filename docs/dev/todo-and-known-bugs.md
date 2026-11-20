@@ -77,7 +77,11 @@ Review follow-ups (2026-11-20, same branch):
   path's `terminal-orbit-resolution-failed` CannotSpawnSafely and releases the collision block
   (`Chain tip spawn refused: recorded terminal orbit unresolved`). This also changes an Orbiting
   tip whose orbit cannot be built: refused like the end-of-recording spawn, not placed at its
-  last point.
+  last point. To keep that refusal from catching good tips, the chain-tip, blocked-tip ghost and
+  Ready-reference spawns now pick the body as the end-of-recording spawn does
+  (`VesselSpawner.ResolveSpawnBodyName` / `ResolveSpawnBody`): an orbit-route spawn reads the
+  recording's preferred endpoint body before its last trajectory point, which can sit in another
+  sphere (a burn at the Mun, then a rails coast out to a Kerbin orbit adds no point).
 
 - Consumers. `GhostPlaybackLogic.HasSpawnableTerminal(Recording)` (a spawnable terminal or an
   escape) is now the one "does this end in a vessel" test for the breakup-continuous effective

@@ -278,10 +278,7 @@ namespace Parsek
             // not at the snapshot position: resolve that state first so the collision check
             // tests the place the vessel will appear (the end-of-recording spawn does the same).
             CelestialBody spawnBody = tipPoint.HasValue
-                ? VesselSpawner.ResolveEscapeSpawnBody(
-                    tipRecording,
-                    VesselSpawner.ResolveSpawnRotationBody(tipRecording, tipPoint),
-                    spawnUT)
+                ? VesselSpawner.ResolveSpawnBody(tipRecording, tipPoint, spawnUT)
                 : null;
             bool haveOrbitalSpawnState = false;
             double orbitLat = 0.0, orbitLon = 0.0, orbitAlt = 0.0;
@@ -562,10 +559,7 @@ namespace Parsek
                     tipRecording.VesselName ?? "(unknown)", clearDuration.ToString("F1", ic)));
 
             uint spawnedPid;
-            CelestialBody spawnBody = VesselSpawner.ResolveEscapeSpawnBody(
-                tipRecording,
-                VesselSpawner.ResolveSpawnRotationBody(tipRecording, tipPoint),
-                currentUT);
+            CelestialBody spawnBody = VesselSpawner.ResolveSpawnBody(tipRecording, tipPoint, currentUT);
             if (spawnBody != null)
             {
                 bool useRecordedTerminalOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tipRecording);

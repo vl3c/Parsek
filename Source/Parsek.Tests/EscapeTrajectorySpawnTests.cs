@@ -643,5 +643,86 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region spawn body for an orbit-route spawn
+
+        /// <summary>
+        /// An Orbiting recording whose last trajectory point is at the Mun (a physics burn
+        /// there) while its terminal orbit is a closed Kerbin orbit reached on rails: tree
+        /// mode adds no point at an on-rails sphere change.
+        /// </summary>
+        private static Recording MunBurnThenKerbinOrbit()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-mun-out",
+                VesselName = "Mun Return",
+                VesselPersistentId = 4321u,
+                VesselSnapshot = Snapshot("ORBITING"),
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 9000000.0,
+                TerminalOrbitEccentricity = 0.4,
+                TerminalOrbitEpoch = 5000.0,
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 1000.0, bodyName = "Mun", altitude = 20000.0 });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000.0,
+                endUT = 3000.0,
+                bodyName = "Mun",
+                semiMajorAxis = 400000.0,
+                eccentricity = 0.9,
+            });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 3000.0,
+                endUT = 5000.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 9000000.0,
+                eccentricity = 0.4,
+            });
+            return rec;
+        }
+
+        [Fact]
+        public void ResolveSpawnBodyName_OrbitRoute_TakesTheEndpointBodyOverTheLastPoint()
+        {
+            Recording rec = MunBurnThenKerbinOrbit();
+            TrajectoryPoint last = rec.Points[rec.Points.Count - 1];
+
+            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
+            Assert.True(RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out string endpoint));
+            Assert.Equal("Kerbin", endpoint);
+            Assert.Equal("Kerbin", VesselSpawner.ResolveSpawnBodyName(rec, last));
+            Assert.Contains(logLines, l => l.Contains("[Spawner]")
+                && l.Contains("endpoint body Kerbin over last point body Mun"));
+        }
+
+        [Fact]
+        public void ResolveSpawnBodyName_NotOrbitRoute_KeepsThePointBody()
+        {
+            Recording rec = MunBurnThenKerbinOrbit();
+            rec.TerminalStateValue = TerminalState.Landed;
+            TrajectoryPoint last = rec.Points[rec.Points.Count - 1];
+
+            Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
+            Assert.Equal("Mun", VesselSpawner.ResolveSpawnBodyName(rec, last));
+        }
+
+        [Fact]
+        public void ResolveSpawnBodyName_FallsBackWhenThePreferredSourceIsEmpty()
+        {
+            Recording rec = MunBurnThenKerbinOrbit();
+            Assert.Equal("Kerbin", VesselSpawner.ResolveSpawnBodyName(rec, null));
+
+            Recording landed = MunBurnThenKerbinOrbit();
+            landed.TerminalStateValue = TerminalState.Landed;
+            Assert.True(RecordingEndpointResolver.TryGetPreferredEndpointBodyName(landed, out string landedEndpoint));
+            Assert.Equal(landedEndpoint,
+                VesselSpawner.ResolveSpawnBodyName(landed, new TrajectoryPoint { ut = 1.0 }));
+        }
+
+        #endregion
     }
 }
