@@ -168,6 +168,90 @@ A split that throws undoes these re-points with the rest of its rollback ledger.
 
 **Tests:** `RecordingOptimizerSplitAtUTTests.SplitAtUT_CrashedFlight_VesselDestroyedMovesWithTheTerminal`, `MergeInto_DestroyedTarget_RefusesAndCanAutoMergeRefusesUpFront`; `IdentityLossClassifierTests.RecordingOptimizer_MergeInto_SkipsDestroyedTarget` now expects null (its old expectation pinned the bug). All three red under a mutation that restores the old code.
 
+## ~~DEBRIS-LIFETIME-LOST-ON-PROMOTION~~: a debris piece the player switched to lost its 60 s limit [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a promoted booster recorded until it crashed; GS-11 measured it)]
+
+Cause: the debris time limit lived only in `BackgroundRecorder.debrisTTLExpiry`. A promotion to the
+active recorder cancels that entry (D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: the background recorder no
+longer owns the piece), and the active recorder had no limit, so the booster recorded to impact
+(GS-11 `points=271 terminal=Destroyed`). Switching away again did not re-arm it, a Fly / Switch-To
+continuation segment of the piece recorded as a plain, non-debris segment with no limit, and a
+post-switch watch armed while the piece was tracked started a fresh recording once its limit ended
+it (draft review question 7). Owner ruling Q13 (2026-11-18): "Always the 60 s limit".
+
+Fix: the limit is read from the tree by the pure `BackgroundRecorder.TryResolveDebrisExpiryUT` (separation
+branch point UT + 60 s, walking up through `VesselSwitchContinuation` points). The active recorder
+honours it: `ParsekFlight.CheckActiveDebrisLifetime` (pure gate `EvaluateActiveDebrisLifetimeEnd`,
+deferred while a split, an unprocessed split check, dock merge, restore or hand-off is in progress)
+hands the piece back to the background recorder the way a vessel switch does, flushing the coalescer
+window and unprocessed decouple captures first (`FlushPendingSplits`) and ends it there
+(`BackgroundRecorder.EndDebrisRecordingForLifetime`, a background time-limit end); the vessel stays
+focused, unrecorded. `OnVesselBackgrounded` re-arms the same limit for a debris piece with none
+(`Debris lifetime re-armed from the tree`, Info for a hand-back, Verbose for a recording created this
+frame; a background split child sets its own deadline before the hand-off). `SwitchSegmentBuilder.InheritDebrisIdentityFromParent`
+keeps `IsDebris`, `ParentAnchorRecordingId` and `Generation` on a continuation of a debris piece whose limit still
+runs (a piece past its limit, from an older flight, continues as a plain segment, as before).
+`CheckDebrisTTL` returns the pids it ended and the flight host disarms a post-switch watch armed on
+one (`reason=debris-recording-ended`). Promotion already kept `IsDebris` and
+`ParentAnchorRecordingId` (same `Recording` object); only the limit was lost.
+
+Tests: `DebrisLifetimeTests` (lifetime resolution, the active gate, the hand-back re-arm and end, the
+continuation inheritance, `CheckDebrisTTL`'s ended pids). Red before the fix, by disabling the two
+new call sites: `HandBackToBackground_RearmsTheSeparationLifetime`,
+`SwitchContinuation_OfLiveDebris_StaysDebris`; the active gate and resolver are new code. The live
+hand-back (`TransitionToBackground` -> flush -> `OnVesselBackgrounded` -> end) is not headless-testable;
+lane GS-11 flies it (expected to change: the promoted booster now ends at its limit, not at impact).
+
+## ~~EVA-MARKS-SHIP-AS-SPINOFF-GENERATION~~: an EVA gave the ship the spinoff generation and the kerbal the ship's [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `BackgroundSplitTests`; low (no player-visible effect left after BG-BREAKUP-GENERATION-CAP)]
+
+Cause: `ParsekFlight.BuildSplitBranchData` gives the ACTIVE child the parent's generation and the
+background child one more. On an EVA KSP hands focus to the kerbal, so the kerbal kept the
+generation and the ship was marked as the spinoff; with the old cascade cap a landed ship that
+tipped over after an EVA recorded no breakup (draft review question 9).
+
+Fix: on an EVA branch whose kerbal is the active child, the ship (background child) keeps the
+parent's generation and the kerbal gets one more, as when the kerbal is the background child.
+BG-BREAKUP-GENERATION-CAP already lets the ship record its breakups (its recording is not debris),
+so this corrects the stored generation only. Merge note: a five-line edit inside the EVA block of
+`BuildSplitBranchData` in `ParsekFlight.SplitBranching.cs`.
+
+Tests: `BackgroundSplitTests.BuildSplitBranchData_EvaFromActiveShip_ShipKeepsGeneration_KerbalIsSpinoff`
+(red before the fix), `BuildSplitBranchData_EvaKerbalInBackground_ShipKeepsGeneration`.
+
+## ~~BG-BREAKUP-GENERATION-CAP~~: a background vessel never recorded its own breakup after its first split [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `BackgroundSplitTests`; medium (a second separation of a probe or crewed vessel left its pieces unrecorded)]
+
+Cause: `BackgroundRecorder.HandleBackgroundVesselSplit` skipped every split whose parent recording
+was at `Generation >= MaxRecordingGeneration` (1), so a probe or crewed vessel that had come off
+the launched vessel (generation 1) never recorded its own later separations while in the
+background (draft review question 9; the cap was undocumented).
+
+Fix: owner ruling Q14 (2026-11-18), "Yes, for controllable ones". `ShouldSkipForCascadeCap` takes
+whether the parent is controllable (`IsCascadeCapControllableParent`: a recording that is not
+debris, or a live parent that `ParsekFlight.ShouldRecordAsOwnBranch` accepts) and caps plain debris
+only. A lifted cap logs `Cascade depth cap lifted for a controllable parent`; the cap line gains
+`parentIsDebris` and `liveParentOwnBranch`. The flight-recorder design doc now states the rule.
+
+Tests: `BackgroundSplitTests.ShouldSkipForCascadeCap_ControllableParent_NeverSkips` (red before the
+fix), `IsCascadeCapControllableParent_PlainDebrisOnlyIsCapped`; the existing cap cells pass
+`parentControllable: false` and keep their expectations.
+
+## ~~DEBRIS-ENDS-WHEN-PARENT-GOES-ON-RAILS~~: time warp ended every parent-anchored debris recording [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a booster's fall was cut off whenever the player warped)]
+
+Cause: `BackgroundRecorder.CheckDebrisTTL` ended a parent-anchored debris recording when its parent
+vessel was packed or unloaded (`ParentOnRailsOrDestroyed`, plan Decision section 10). Time warp
+packs every loaded vessel, so warping right after staging ended every dropped stage's recording at
+once (draft review question 6). Owner ruling Q12 (2026-11-18): keep to the time limit.
+
+Fix: the per-entry verdict is the pure `BackgroundRecorder.ClassifyDebrisTtlEntry`. A parent that
+is on rails (packed or unloaded) no longer ends the debris; only a parent vessel that is gone does
+(`ParentVesselDestroyed`, log `Debris TTL: parent vessel gone, ending recording`). The debris keeps
+its 60 s limit and its other ends (vessel gone, left the physics bubble, parent recording missing
+or no longer written). While on rails it records through the existing background on-rails state
+(orbit checkpoints); no section is added to that state. A kept entry logs, rate-limited,
+`Debris TTL: parent on rails, debris keeps recording to its time limit`.
+
+Tests: `DebrisLifetimeTests` (the verdict table; `ParentPackedByTimeWarp_DebrisKeepsRecording` and
+`ParentUnloaded_DebrisKeepsRecording` red before the fix).
+
 ## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
 
 Cause: `RecordingEndpointResolver.TryGetCoordinatesForPhase`'s `TrajectoryPoint` phase took the last

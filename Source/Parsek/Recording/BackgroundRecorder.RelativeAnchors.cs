@@ -443,8 +443,8 @@ namespace Parsek
 
             // Resolve the parent vessel by its persistent id so we can author a Live
             // anchor candidate when the parent is loaded. The recorded-anchor pose
-            // path is a graceful fallback when the parent vessel is gone (the
-            // CheckDebrisTTL hook ends the recording shortly after this).
+            // path is the fallback when the parent vessel is unloaded (the debris keeps
+            // recording to its time limit) or gone (CheckDebrisTTL ends it shortly after).
             Recording parentRec = null;
             tree?.Recordings?.TryGetValue(parentRecId, out parentRec);
             Vessel parentVessel = parentRec != null

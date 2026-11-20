@@ -34,9 +34,10 @@ namespace Parsek
 
         // Cascade depth from primary recording. 0 = primary recording (active vessel),
         // 1 = primary debris (boosters/fairings decoupled by gen-0 vessel). Background
-        // splits whose parent is at Generation >= MaxRecordingGeneration are skipped
-        // entirely — fragments-of-fragments stay alive in KSP but Parsek does not
-        // track them. See bug #284 and BackgroundRecorder.HandleBackgroundVesselSplit.
+        // splits whose parent is plain debris at Generation >= MaxRecordingGeneration are
+        // skipped entirely - fragments-of-fragments stay alive in KSP but Parsek does not
+        // track them; a parent with crew or a probe core records every breakup. See bug
+        // #284 and BackgroundRecorder.HandleBackgroundVesselSplit.
         // Persisted in .sfs (RecordingTree.SaveRecordingInto/LoadRecordingFrom) so the
         // cascade cap remains correct after F5/F9 — without persistence, a gen-1 booster
         // would reload as gen-0 and a subsequent breakup would slip past the cap.
