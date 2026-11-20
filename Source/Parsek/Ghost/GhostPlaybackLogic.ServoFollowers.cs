@@ -136,6 +136,10 @@ namespace Parsek
                 }
             }
 
+            // The baseline re-pose below is not playback: mark every servo as already logged so
+            // the first-playback-re-pose line cannot fire inside the bind, then re-arm it after.
+            foreach (RoboticGhostInfo servo in servoByPid.Values)
+                servo.followerReposeLogged = true;
             int carryingServos = 0;
             foreach (var kvp in servoByPid)
             {
@@ -144,8 +148,7 @@ namespace Parsek
                 if (!followerByPid.ContainsKey(kvp.Key))
                     PropagateServoFollowers(kvp.Value);
             }
-            // The re-pose above puts the followers at the baseline; it is not playback, so the
-            // first-playback-re-pose line is armed only now.
+            // Re-arm: the next re-pose comes from playback.
             foreach (RoboticGhostInfo servo in servoByPid.Values)
                 servo.followerReposeLogged = false;
 
