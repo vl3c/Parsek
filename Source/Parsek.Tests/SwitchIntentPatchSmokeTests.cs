@@ -428,7 +428,7 @@ namespace Parsek.Tests
             // the Merge handler appears before the (single)
             // ArmIntentAndSwitchTo invocation".
             int armIdx = mergeBody.IndexOf(
-                "ArmIntentAndSwitchTo(target)", StringComparison.Ordinal);
+                "ArmIntentAndSwitchTo(target, cycleSwitch)", StringComparison.Ordinal);
             Assert.True(armIdx > 0,
                 "MergePriorAndSwitchTo must call ArmIntentAndSwitchTo");
             int searchFrom = 0;
@@ -558,7 +558,7 @@ namespace Parsek.Tests
                 mergeBody);
 
             // (f) ArmIntentAndSwitchTo runs at the end.
-            Assert.Contains("ArmIntentAndSwitchTo(target)", mergeBody);
+            Assert.Contains("ArmIntentAndSwitchTo(target, cycleSwitch)", mergeBody);
         }
 
         // Fails if: the no-session Discard path tries to discard a
@@ -624,7 +624,7 @@ namespace Parsek.Tests
                 discardBody);
 
             // (e) ArmIntentAndSwitchTo runs at the end.
-            Assert.Contains("ArmIntentAndSwitchTo(target)", discardBody);
+            Assert.Contains("ArmIntentAndSwitchTo(target, cycleSwitch)", discardBody);
         }
 
         // -----------------------------------------------------------------

@@ -2856,6 +2856,10 @@ namespace Parsek
             public TrajectoryPoint? BaselineSeedPoint;
             public PostSwitchOrbitSnapshot BaselineOrbit;
             public double AttitudeThresholdExceededAtUt = double.NaN;
+            public bool BaselineSasEnabled;
+            public int BaselineSasMode;
+            public bool RotationCommandSeen;
+            public float PassiveAttitudeDriftDegrees;
             public Dictionary<string, ResourceAmount> BaselineResources;
             public Dictionary<string, InventoryItem> BaselineInventory;
             public Dictionary<string, int> BaselineCrew;

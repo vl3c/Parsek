@@ -37,6 +37,19 @@ namespace Parsek.Patches
     /// </para>
     ///
     /// <para>
+    /// The vessel the press lands on then takes the map Switch-To's pre-switch handling
+    /// (owner ruling 2026-11-18; <see cref="MapFocusObjectOnSelectPatch.TryTakePreSwitch"/>):
+    /// with an armed switch segment focused on another vessel (Case A), or a live recording
+    /// and a loaded, separately committed target (Case C), the recording the player leaves is
+    /// merged or discarded first and the switch is made by that handler (or the dialog's
+    /// buttons) with the cycle's own call, so the target picks up its own committed mission
+    /// through the committed-clone path. While stock is not clear to save such a press is refused
+    /// as the map Switch-To is, with no commit and no switch. Any other press (GC-4's cycle
+    /// between members of one tree, with no switch session armed) routes exactly as before and
+    /// arms no intent.
+    /// </para>
+    ///
+    /// <para>
     /// Everything after the key read and the game-mode gate is <see cref="RunCycle"/>, which
     /// the automation-only <c>CycleVessel</c> seam verb calls as a key press would (no seam
     /// can press a key); its optional report is the only difference, and the key path passes
@@ -82,6 +95,83 @@ namespace Parsek.Patches
             return f;
         }
 
+        /// <summary>How a press reaches the vessel it lands on.</summary>
+        internal enum CycleRoute
+        {
+            /// <summary>Every candidate was dropped (ghost markers or Re-Fly refusals).</summary>
+            NothingKept,
+            /// <summary>Nothing was dropped: stock's own final step switches.</summary>
+            LeaveToStock,
+            /// <summary>The Prefix switches with <c>ForceSetActiveVessel</c>.</summary>
+            ForceSwitch,
+            /// <summary>Every kept candidate is packed and the game is not clear to save:
+            /// stock's <c>SetActiveVessel</c> fallback, which stock refuses with its own message.</summary>
+            SetActiveFallback,
+            /// <summary>The target needs the map Switch-To's pre-switch handling.</summary>
+            PreSwitch,
+        }
+
+        /// <summary>The pure routing of one press: the route, the candidate index it lands on
+        /// (-1 for none), and the route the press takes when the pre-switch handling does not
+        /// take the switch.</summary>
+        internal struct CycleRouting
+        {
+            public CycleRoute Route;
+            public int TargetIndex;
+            public CycleRoute DirectRoute;
+        }
+
+        /// <summary>
+        /// Pure: where a press goes, over the candidates in stock's order. The target is the
+        /// candidate stock's own final step takes (from the kept list when anything was
+        /// dropped): the first one that is unpacked, or any one when the game is clear to save.
+        /// <paramref name="takePreSwitch"/> (by candidate index) is called at most once, for
+        /// the target, and only for a switch that will happen (a switch stock refuses decides
+        /// nothing, as the map Switch-To's own <c>StockWillRefuse</c> rule); true means the
+        /// shared pre-switch handling took the switch (<see cref="CycleRoute.PreSwitch"/>),
+        /// false leaves the press on <see cref="CycleRouting.DirectRoute"/>. The live caller
+        /// passes <see cref="MapFocusObjectOnSelectPatch.TryTakePreSwitch"/>.
+        /// </summary>
+        internal static CycleRouting RouteCycle(
+            CycleFilter filter, IList<bool> candidatePacked, bool clearToSave, Func<int, bool> takePreSwitch)
+        {
+            var r = new CycleRouting { Route = CycleRoute.NothingKept, TargetIndex = -1, DirectRoute = CycleRoute.NothingKept };
+            if (filter.LeaveToStock)
+            {
+                int pick = StockPickIndex(candidatePacked, clearToSave);
+                r.Route = r.DirectRoute = CycleRoute.LeaveToStock;
+                r.TargetIndex = pick;
+                return AskPreSwitch(r, candidatePacked, clearToSave, takePreSwitch);
+            }
+            if (filter.KeptIndices == null || filter.KeptIndices.Count == 0)
+                return r;
+            for (int k = 0; k < filter.KeptIndices.Count; k++)
+            {
+                int i = filter.KeptIndices[k];
+                bool packed = candidatePacked != null && i < candidatePacked.Count && candidatePacked[i];
+                if (packed && !clearToSave) continue;
+                r.Route = r.DirectRoute = CycleRoute.ForceSwitch;
+                r.TargetIndex = i;
+                return AskPreSwitch(r, candidatePacked, clearToSave, takePreSwitch);
+            }
+            r.Route = r.DirectRoute = CycleRoute.SetActiveFallback;
+            r.TargetIndex = filter.KeptIndices[0];
+            return r;
+        }
+
+        private static CycleRouting AskPreSwitch(
+            CycleRouting r, IList<bool> candidatePacked, bool clearToSave, Func<int, bool> takePreSwitch)
+        {
+            if (takePreSwitch == null || r.TargetIndex < 0) return r;
+            bool packed = candidatePacked != null && r.TargetIndex < candidatePacked.Count
+                && candidatePacked[r.TargetIndex];
+            // Stock's own fallback (every candidate packed, not clear to save) is a switch
+            // setActiveVessel refuses: it decides nothing.
+            if (packed && !clearToSave) return r;
+            if (takePreSwitch(r.TargetIndex)) r.Route = CycleRoute.PreSwitch;
+            return r;
+        }
+
         /// <summary>What one cycle press did, filled only for the automation seam
         /// (<c>CycleVessel</c>); the key path passes no report.</summary>
         internal enum CycleOutcome
@@ -100,6 +190,13 @@ namespace Parsek.Patches
             /// <summary>Every kept candidate was packed and the game was not clear to save:
             /// stock's own <c>SetActiveVessel</c> fallback on the first kept candidate.</summary>
             SetActiveFallback,
+            /// <summary>The press landed on a vessel that needs the map Switch-To's
+            /// pre-switch handling (Case A / Case C), which took the switch: its Merge /
+            /// Discard handler switched (<see cref="CycleReport.Detail"/> <c>auto-resolved</c>),
+            /// its dialog is open and its buttons switch (<c>dialog-open</c>), or stock was not
+            /// clear to save and the press was refused like the map Switch-To, with no commit and
+            /// no switch (<c>refused-not-clear-to-save</c>).</summary>
+            PreSwitchHandoff,
         }
 
         /// <summary>The seam's view of one press. Candidate lists are in stock's order.</summary>
@@ -180,19 +277,8 @@ namespace Parsek.Patches
                 isAllowed = pid => ReFlySwitchGate.Decide(true, pid, allowed, ReFlySwitchGate.PathVesselCycle).Allowed;
             CycleFilter filter = FilterCandidates(candidatePids, GhostMapPresence.IsGhostMapVessel, isAllowed);
             if (report != null) { report.GhostsDropped = filter.GhostsDropped; report.RefusedDropped = filter.RefusedDropped; }
-            if (filter.LeaveToStock)
-            {
-                if (report != null)
-                {
-                    // Seam only: name the vessel stock's final step will take from this list
-                    // (stock reads ClearToSave there too).
-                    report.Outcome = CycleOutcome.LeftToStock;
-                    FillStockPick(report, candidates, FlightGlobals.ClearToSave() == ClearToSaveStatus.CLEAR);
-                }
-                return true; // stock picks from the same list
-            }
 
-            if (filter.KeptIndices.Count == 0)
+            if (!filter.LeaveToStock && filter.KeptIndices.Count == 0)
             {
                 if (filter.FirstRefusedIndex >= 0)
                 {
@@ -212,6 +298,49 @@ namespace Parsek.Patches
                 return false;
             }
 
+            // Owner ruling 2026-11-18: a press that lands on a vessel needing the map
+            // Switch-To's pre-switch handling (Case A / Case C) takes it, after the candidate
+            // order, the ghost drop and the Re-Fly gate above. Stock reads ClearToSave in its
+            // own final step too.
+            bool clearToSave = FlightGlobals.ClearToSave() == ClearToSaveStatus.CLEAR;
+            var packed = new List<bool>(candidates.Count);
+            for (int i = 0; i < candidates.Count; i++)
+                packed.Add(candidates[i].packed);
+            MapFocusObjectOnSelectPatch.PreSwitchTake take = MapFocusObjectOnSelectPatch.PreSwitchTake.NotTaken;
+            CycleRouting routing = RouteCycle(filter, packed, clearToSave, i =>
+            {
+                take = MapFocusObjectOnSelectPatch.TryTakePreSwitch(candidates[i], cycleSwitch: true);
+                return take != MapFocusObjectOnSelectPatch.PreSwitchTake.NotTaken;
+            });
+            if (report != null) FillStockPick(report, candidates, clearToSave);
+
+            if (routing.Route == CycleRoute.PreSwitch)
+            {
+                Vessel target = candidates[routing.TargetIndex];
+                string detail = take == MapFocusObjectOnSelectPatch.PreSwitchTake.DialogOpened
+                    ? "dialog-open"
+                    : take == MapFocusObjectOnSelectPatch.PreSwitchTake.RefusedNotClearToSave
+                        ? "refused-not-clear-to-save" : "auto-resolved";
+                ParsekLog.Info("SwitchIntentPatch",
+                    $"Vessel cycle handed to pre-switch handling: targetPid={target.persistentId} " +
+                    $"take={take} directRoute={routing.DirectRoute} ghostsDropped={filter.GhostsDropped} " +
+                    $"refusedDropped={filter.RefusedDropped} candidates={candidates.Count}");
+                if (report != null)
+                {
+                    report.Outcome = CycleOutcome.PreSwitchHandoff;
+                    report.Detail = detail;
+                    report.PickedPid = target.persistentId;
+                }
+                return false; // the pre-switch handler (or its dialog) switches
+            }
+
+            if (routing.Route == CycleRoute.LeaveToStock)
+            {
+                // Seam only: the vessel stock's final step will take from this list.
+                if (report != null) report.Outcome = CycleOutcome.LeftToStock;
+                return true; // stock picks from the same list
+            }
+
             Vessel next = candidates[filter.KeptIndices[0]];
             ParsekLog.Verbose(filter.RefusedDropped > 0 ? ReFlySwitchGate.LogTag : "GhostMap",
                 $"Vessel cycle skipped {filter.GhostsDropped} ghost marker(s) and {filter.RefusedDropped} refused candidate(s) " +
@@ -219,13 +348,9 @@ namespace Parsek.Patches
                 $"next={next.persistentId} candidates={candidates.Count}");
 
             CameraManager.Instance.SetCameraFlight();
-            ClearToSaveStatus clear = FlightGlobals.ClearToSave();
-            if (report != null) FillStockPick(report, candidates, clear == ClearToSaveStatus.CLEAR);
-            for (int k = 0; k < filter.KeptIndices.Count; k++)
+            if (routing.Route == CycleRoute.ForceSwitch)
             {
-                Vessel v = candidates[filter.KeptIndices[k]];
-                if (v.packed && clear != ClearToSaveStatus.CLEAR)
-                    continue;
+                Vessel v = candidates[routing.TargetIndex];
                 if (report != null) { report.Outcome = CycleOutcome.Switched; report.PickedPid = v.persistentId; }
                 FlightGlobals.ForceSetActiveVessel(v);
                 FlightInputHandler.ResumeVesselCtrlState(v);

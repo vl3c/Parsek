@@ -147,6 +147,7 @@ namespace Parsek.Tests
         [InlineData("only-refused", "false")]
         [InlineData("switched", "false")]
         [InlineData("set-active-fallback", "false")]
+        [InlineData("pre-switch-handoff", "false")]
         public void Payload_LeftToStock_IsThePrefixLettingStockRun(string outcome, string expected)
         {
             var payload = TestCommandCycleVessel.BuildOkPayload(false, outcome, "map-view",
