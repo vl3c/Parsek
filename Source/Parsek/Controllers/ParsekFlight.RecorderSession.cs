@@ -239,6 +239,10 @@ namespace Parsek
 
             RecorderStateLog.RecState("PromoteFromBackground:entry", CaptureRecorderState());
 
+            // Never drop one (owner ruling 2026-11-18): branch what is pending before the
+            // active recording changes and the recorder start resets the window.
+            SplitBrancher.FlushPendingSplits("PromoteRecordingFromBackground", newVessel.persistentId);
+
             // Callers pass the target recording id explicitly; BackgroundMap membership is
             // not a hard precondition here. The committed-tree restore path may already have
             // removed stale entries for this recording before the live promotion runs.
@@ -985,6 +989,10 @@ namespace Parsek
         public void StartRecording(bool suppressStartScreenMessage = false,
             bool fromPrelaunchTransition = false)
         {
+            // Never drop one (owner ruling 2026-11-18): branch what is pending before the
+            // recorder start resets the window.
+            SplitBrancher.FlushPendingSplits("StartRecording");
+
             // Commit orphaned CaptureAtStop from a previous recorder that was stopped
             // by vessel switch but never committed (e.g., auto-record started on new
             // vessel before scene change). Without this, the old recording data is lost.
@@ -1134,12 +1142,29 @@ namespace Parsek
             }
             liveResumeSessionStartUT = double.NaN;
 
-            // Reset crash coalescer on every recorder start so a fresh recorder cannot
-            // inherit a stale coalescing window from the previous segment or scene.
+            // A fresh recorder starts with an empty coalescing window. Every caller flushes
+            // the window before it changes the active recording (owner ruling 2026-11-18,
+            // never drop one; pinned by PendingSplitFlushWiringTests); a window still open
+            // here is emitted before the reset rather than dropped with it.
             if (crashCoalescer != null)
             {
+                if (crashCoalescer.HasPendingBreakup)
+                {
+                    ParsekLog.Warn("Coalescer",
+                        $"Coalescer window still open at recorder start (reason={reason}, " +
+                        $"activeRec={activeTree?.ActiveRecordingId ?? "(none)"}) - emitting it before the reset");
+                    SplitBrancher.EmitPendingSplitNow("PrepareSessionStateForRecorderStart:" + reason, null);
+                }
                 crashCoalescer.Reset();
                 ParsekLog.Verbose("Coalescer", "Coalescer reset on recording start");
+            }
+            int unfedDecoupleCaptures = decoupleControllerStatus?.Count ?? 0;
+            if (unfedDecoupleCaptures > 0 && !deferredJointBreakCheckInFlight)
+            {
+                ParsekLog.Verbose("Coalescer",
+                    $"PrepareSessionStateForRecorderStart: clearing {unfedDecoupleCaptures} decouple capture(s) " +
+                    $"the caller's flush did not feed (recorded vessel, background member or the split's own " +
+                    $"vessels; reason={reason})");
             }
 
             // A newly-started recorder owns split detection from a clean slate.

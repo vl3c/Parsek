@@ -36,6 +36,7 @@ namespace Parsek
         void IMergeFlowHost.StashActiveTreeAsPendingLimbo(double commitUT) =>
             StashActiveTreeAsPendingLimbo(commitUT);
         void IMergeFlowHost.ClearSceneChangeTransientState() => ClearSceneChangeTransientState();
+        void IMergeFlowHost.FlushPendingSplits(string reason) => SplitBrancher.FlushPendingSplits(reason);
         int IMergeFlowHost.lastPlaybackIndex { get => lastPlaybackIndex; set => lastPlaybackIndex = value; }
         void IMergeFlowHost.ScreenMessage(string message, float duration) => ScreenMessage(message, duration);
         void IMergeFlowHost.Log(string message) => Log(message);

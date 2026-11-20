@@ -74,6 +74,11 @@ namespace Parsek.Tests
             Calls.Add("ClearSceneChangeTransientState");
         }
 
+        public void FlushPendingSplits(string reason)
+        {
+            Calls.Add("FlushPendingSplits:" + reason);
+        }
+
         public void ScreenMessage(string message, float duration)
         {
             Calls.Add("ScreenMessage");

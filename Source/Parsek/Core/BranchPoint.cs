@@ -54,10 +54,11 @@ namespace Parsek
         public List<string> ChildRecordingIds = new List<string>();
 
         // SPLIT metadata (for Undock, EVA, JointBreak)
-        // "DECOUPLE" (background split, crash coalescer), "UNDOCK" (background docking-port
-        // undock, or a clicked pre-attached port's Undock in either recorder) or "BROKE_OFF"
-        // (a joint that broke under force, either recorder); null elsewhere, including a
-        // foreground Undock, which reads by its type.
+        // "DECOUPLE" (background split, crash coalescer), "UNDOCK" (every docking-port
+        // undock: background, focused, or a clicked pre-attached port's Undock in either
+        // recorder) or "BROKE_OFF" (a joint that broke under force, either recorder); null
+        // elsewhere (an EVA reads by its type). A focused docking-port Undock also names the
+        // undocked port in DecouplerPartId; the background undock leaves it 0.
         public string SplitCause;
         public uint DecouplerPartId;           // Part that triggered separation (0 if not applicable)
 
