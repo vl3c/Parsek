@@ -79,6 +79,19 @@ Review follow-ups (2026-11-20, same branch):
   tip whose orbit cannot be built: refused like the end-of-recording spawn, not placed at its
   last point.
 
+- Consumers. `GhostPlaybackLogic.HasSpawnableTerminal(Recording)` (a spawnable terminal or an
+  escape) is now the one "does this end in a vessel" test for the breakup-continuous effective
+  leaf (`TryRejectSpawnForTreeShape`, `IsFinalSpawnSegment`, `TimelineBuilder.IsBreakupContinuousSpawnLeaf`),
+  the stable-leaf snapshot refreshes (`ParsekFlight.Finalization`, `ShouldRefreshActiveEffectiveLeafSnapshot`),
+  the ghost CommNet continuation hold and the chain-tip route cargo scan; the lazy snapshot
+  re-hydration also reads a SubOrbital with a propagatable terminal orbit
+  (`Recording.IsEscapeTrajectoryTerminalCandidate`, since the closed-conic evidence is in the
+  snapshot); the auto-merge scene-exit release keeps an escape's snapshot
+  (`ShouldKeepVesselSnapshotForSpawnAtEnd`). Left Orbiting-only, noted: the terminal map-presence
+  retention (`ParsekPlaybackPolicy.ShouldRetainMapPresenceForTerminalRealSpawn`, whose map orbit
+  code assumes a closed conic in one sphere) and the optimizer's tail trim (`RecordingOptimizer`,
+  owned by another package; it refuses to trim a non-spawnable terminal, the safe side).
+
 Residue: (a) the label still reads Sub-orbital for an escaping vessel; (b) live-proven by no lane
 (recommended: a probe committed on a Kerbin escape, rewound, the end spawn read in flight before and
 after the sphere exit); (c) the extrapolator samples encounters at 3600 s, so a very short moon pass

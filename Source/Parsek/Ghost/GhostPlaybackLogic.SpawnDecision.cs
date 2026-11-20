@@ -196,6 +196,21 @@ namespace Parsek
         /// from the trim UT onward. For non-spawnable terminals the tail IS the
         /// playback the player sees, so it must be preserved.
         /// </summary>
+        /// <summary>
+        /// The recording-level spawnable-terminal test: a spawnable terminal state
+        /// (<see cref="IsSpawnableTerminal(TerminalState)"/>), or a SubOrbital that is an
+        /// escape trajectory (<see cref="Recording.IsEscapeTrajectoryTerminal(Recording)"/>,
+        /// owner ruling Q10). Every consumer that asks "does this recording end in a vessel
+        /// that spawns" reads this, so an escape is never treated as a crash or a ghost-only.
+        /// </summary>
+        internal static bool HasSpawnableTerminal(Recording rec)
+        {
+            return rec != null
+                && rec.TerminalStateValue.HasValue
+                && (IsSpawnableTerminal(rec.TerminalStateValue.Value)
+                    || Recording.IsEscapeTrajectoryTerminal(rec));
+        }
+
         internal static bool IsSpawnableTerminal(TerminalState ts)
         {
             switch (ts)
@@ -375,9 +390,12 @@ namespace Parsek
             // after a Rewind-to-Launch) would silently fail to re-materialize.
             if (rec.VesselSnapshot == null)
             {
+                // An escape candidate is hydrated too: its closed-conic escape evidence
+                // lives in the snapshot, so the full escape test runs after the read.
                 bool worthHydrating = !rec.IsDebris
                     && rec.TerminalStateValue.HasValue
-                    && IsSpawnableTerminal(rec.TerminalStateValue.Value);
+                    && (IsSpawnableTerminal(rec.TerminalStateValue.Value)
+                        || Recording.IsEscapeTrajectoryTerminalCandidate(rec));
                 if (!worthHydrating
                     || !RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec))
                 {
@@ -433,8 +451,7 @@ namespace Parsek
             // continuation). If no child shares this vessel's PID, the recording IS the
             // effective leaf and should be spawnable. Only applies to non-debris recordings
             // with a spawnable terminal state (Landed/Splashed/Orbiting). (#224)
-            bool hasSpawnableTerminal = rec.TerminalStateValue.HasValue
-                && IsSpawnableTerminal(rec.TerminalStateValue.Value);
+            bool hasSpawnableTerminal = HasSpawnableTerminal(rec);
             bool effectiveLeaf = rec.ChildBranchPointId != null
                 && !rec.IsDebris
                 && hasSpawnableTerminal
@@ -711,8 +728,7 @@ namespace Parsek
             if (!string.IsNullOrEmpty(rec.ChainId) && RecordingChainQueries.IsChainMidSegment(rec))
                 return false;
 
-            bool hasSpawnableTerminal = rec.TerminalStateValue.HasValue
-                && IsSpawnableTerminal(rec.TerminalStateValue.Value);
+            bool hasSpawnableTerminal = HasSpawnableTerminal(rec);
             bool effectiveLeaf = rec.ChildBranchPointId != null
                 && hasSpawnableTerminal
                 && IsEffectiveLeafForVessel(rec, treeContext);

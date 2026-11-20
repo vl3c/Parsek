@@ -325,6 +325,19 @@ namespace Parsek
             return IsEscapeTrajectoryTerminal(rec, out _);
         }
 
+        /// <summary>
+        /// True when the recording could be an escape-trajectory terminal once its vessel
+        /// snapshot is read: SubOrbital with a propagatable recorded terminal orbit. The
+        /// closed-conic escape evidence is the snapshot's own situation, so a consumer that
+        /// holds no snapshot (the lazy re-hydration) asks this, then the full test.
+        /// </summary>
+        internal static bool IsEscapeTrajectoryTerminalCandidate(Recording rec)
+        {
+            return rec != null
+                && rec.TerminalStateValue == TerminalState.SubOrbital
+                && EscapeTrajectoryTerminal.IsPropagatableTerminalOrbit(rec.TerminalOrbitAsSegment());
+        }
+
         /// <inheritdoc cref="IsEscapeTrajectoryTerminal(Recording)"/>
         internal static bool IsEscapeTrajectoryTerminal(Recording rec, out string evidence)
         {

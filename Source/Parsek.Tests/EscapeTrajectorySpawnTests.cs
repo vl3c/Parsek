@@ -447,5 +447,85 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region consumers agree with the escape rule
+
+        [Fact]
+        public void HasSpawnableTerminal_AdmitsEscapesButNotArcs()
+        {
+            Assert.True(GhostPlaybackLogic.HasSpawnableTerminal(HyperbolicEscapeProbe()));
+            Assert.False(GhostPlaybackLogic.HasSpawnableTerminal(BallisticArc()));
+            Recording landed = BallisticArc();
+            landed.TerminalStateValue = TerminalState.Landed;
+            Assert.True(GhostPlaybackLogic.HasSpawnableTerminal(landed));
+            Assert.False(GhostPlaybackLogic.HasSpawnableTerminal(null));
+        }
+
+        [Fact]
+        public void EscapeCandidate_NeedsNoSnapshot()
+        {
+            // The lazy re-hydration asks before the snapshot is read.
+            Recording closed = BallisticArc();
+            closed.VesselSnapshot = null;
+            Assert.True(Recording.IsEscapeTrajectoryTerminalCandidate(closed));
+            Assert.False(Recording.IsEscapeTrajectoryTerminal(closed));
+
+            Recording landed = BallisticArc();
+            landed.TerminalStateValue = TerminalState.Landed;
+            Assert.False(Recording.IsEscapeTrajectoryTerminalCandidate(landed));
+
+            Recording noOrbit = BallisticArc();
+            noOrbit.TerminalOrbitBody = null;
+            Assert.False(Recording.IsEscapeTrajectoryTerminalCandidate(noOrbit));
+        }
+
+        [Fact]
+        public void SceneExitSnapshotRelease_KeepsAnEscapeSnapshot()
+        {
+            Assert.True(ParsekFlightMergeFlow.ShouldKeepVesselSnapshotForSpawnAtEnd(HyperbolicEscapeProbe()));
+            Assert.False(ParsekFlightMergeFlow.ShouldKeepVesselSnapshotForSpawnAtEnd(BallisticArc()));
+        }
+
+        private static RecordingTree BreakupTree(Recording parent)
+        {
+            var debris = new Recording
+            {
+                RecordingId = parent.RecordingId + "-shed",
+                VesselName = "Escape Probe Debris",
+                VesselPersistentId = 999u,
+                TreeId = "tree-esc",
+                IsDebris = true,
+                TerminalStateValue = TerminalState.SubOrbital,
+            };
+            parent.TreeId = "tree-esc";
+            parent.ChildBranchPointId = "bp-shed";
+            var tree = new RecordingTree { Id = "tree-esc", TreeName = "Escape", RootRecordingId = parent.RecordingId };
+            var bp = new BranchPoint { Id = "bp-shed", Type = BranchPointType.Breakup, UT = 900.0 };
+            bp.ParentRecordingIds.Add(parent.RecordingId);
+            bp.ChildRecordingIds.Add(debris.RecordingId);
+            tree.BranchPoints.Add(bp);
+            tree.Recordings[parent.RecordingId] = parent;
+            tree.Recordings[debris.RecordingId] = debris;
+            return tree;
+        }
+
+        [Fact]
+        public void BreakupContinuousEscape_IsTheEffectiveLeafAndSpawns()
+        {
+            Recording probe = HyperbolicEscapeProbe();
+            RecordingTree tree = BreakupTree(probe);
+
+            Assert.True(GhostPlaybackLogic.IsFinalSpawnSegment(probe, tree));
+            Assert.True(TimelineBuilder.IsBreakupContinuousSpawnLeaf(probe));
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(probe, false, tree);
+            Assert.True(needsSpawn, reason);
+
+            Recording arc = BallisticArc();
+            RecordingTree arcTree = BreakupTree(arc);
+            Assert.False(GhostPlaybackLogic.IsFinalSpawnSegment(arc, arcTree));
+            Assert.False(TimelineBuilder.IsBreakupContinuousSpawnLeaf(arc));
+        }
+
+        #endregion
+
     }
 }

@@ -1021,15 +1021,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True for the stable terminals (Landed / Splashed / Orbiting) whose vessel snapshot
-        /// the auto-merge scene-exit commit keeps for spawn-at-end.
+        /// True for the stable terminals (Landed / Splashed / Orbiting) and the escape
+        /// trajectories (owner ruling Q10) whose vessel snapshot the auto-merge scene-exit
+        /// commit keeps for spawn-at-end.
         /// </summary>
         internal static bool ShouldKeepVesselSnapshotForSpawnAtEnd(Recording rec)
         {
             return rec.TerminalStateValue.HasValue
                 && (rec.TerminalStateValue.Value == TerminalState.Landed
                     || rec.TerminalStateValue.Value == TerminalState.Splashed
-                    || rec.TerminalStateValue.Value == TerminalState.Orbiting);
+                    || rec.TerminalStateValue.Value == TerminalState.Orbiting
+                    || Recording.IsEscapeTrajectoryTerminal(rec));
         }
 
         /// <summary>
