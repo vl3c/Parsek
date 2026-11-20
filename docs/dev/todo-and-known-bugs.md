@@ -131,7 +131,7 @@ step pinned to Measure and the SOI block off (today's behavior) three cells fail
 Residual, not this finding: other passive changes still trigger for an outsider, notably
 `ResourceChange` from solar panels charging a battery and `LandedMotion` from a vessel settling.
 
-## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
+## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; RE-FLOWN 2026-11-20 (run 2026-11-20_2149) PASS, LIVE-PROVEN; OPEN: SUB-3's gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
 `LeafPlacement height:` depth check have no live subject below sea level: BOAT-1's Mallard floats.
@@ -206,7 +206,14 @@ THE HAND-OVER, in order (PC; the forge is operator tier):
      the flight's frames (the old machine settles at 66.24, the fix clicks ballast at 66.74, 78 m
      above the guard) and flies a model fitted to both flights at the pessimistic k = 0.67: the
      fixed rise turns at 98.5 m and surfaces; with the first-ballast rule alone it still reaches
-     164.8 m. OPEN: re-fly SUB-3, then decide which decouple / debris / section facts to gate.
+     164.8 m. ~~OPEN: re-fly SUB-3~~, then decide which decouple / debris / section facts to gate.
+   - SUB-3 RE-FLOWN 2026-11-20 `2026-11-20_2149` PASS attempt 1 (245 s, runner run
+     `tip-spawn-reflight-2026-11-20`, Debug DLL 72189e6d from main c11d6cde2), MISSION-OK: the
+     fixed rise turned at 88.9 m (one `rise-cut` at 88.0 m) and surfaced at UT 204.4 after five
+     separations (three floats, two ballast pairs). READ for the gate decision (nothing armed):
+     five `DECOUPLE emitted: ... controlledChildren=0 debris=2`, five JointBreak branch points,
+     recordings 5 (PSUB-1 1, PSUB-1 Debris 4, all Splashed) against ten debris vessels live,
+     rewindPoints 0. Tag `flown`, status row Live-proven. OPEN: which of these to gate.
 
 What the first flights check (build_psub_craft.py C1-C5, and the host): the craft loads whole on
 the pad (C1); each stage click drops exactly one pair, floats first (C2); the sub sinks inside three
@@ -395,7 +402,7 @@ leaves a past-end unspawned recording owed, and the scene's own end-spawn path m
 (recorded terminal orbit for Orbiting ends). Whether the crew unreserve should still run for a
 recording that will spawn is part of the design question.
 
-## END-SPAWN-LANES-2026-11-17: harness lanes for end spawns at far bodies, under high warp and with a busy player [FILED 2026-11-17, branch `wip/spawnlanes2`, harness only; eleven lanes AUTHORED; FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): eight LIVE-PROVEN, three re-pinned on spec errors; OPEN: the three re-flights, and two seam proposals]
+## END-SPAWN-LANES-2026-11-17: harness lanes for end spawns at far bodies, under high warp and with a busy player [FILED 2026-11-17, branch `wip/spawnlanes2`, harness only; eleven lanes AUTHORED; FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): eight LIVE-PROVEN, three re-pinned on spec errors; RE-FLOWN GREEN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20`): SPW-4 / SPW-6 / SPW-11 LIVE-PROVEN, all eleven green; OPEN: the two seam proposals]
 
 The lanes (each `tier = "operator"` until measured; rows in `docs/dev/autotest-status.md`):
 - `SPW-1` / `SPW-3` / `SPW-10`: a segment of a parked orbit at Laythe / Tylo / the Mun is recorded,
@@ -441,8 +448,14 @@ NOT GREEN, every one a SPEC error (no product defect; the deciding line is in ea
 Observation, not a defect: the same declutter removes `eva2-lko-crewed`'s four pad debris on
 every reload that does not turn it off, so a header that says a lane "flies the pad debris"
 (EVA-15, SPW-7, SPW-9) describes the authored intent; those lanes passed with whatever focus
-stock gave them. Re-fly order: SPW-11, then SPW-6 and SPW-4 (each ~20 min if the warp still
-crawls, ~3 min if the fix holds).
+stock gave them. ~~Re-fly order: SPW-11, then SPW-6 and SPW-4 (each ~20 min if the warp still
+crawls, ~3 min if the fix holds).~~
+RE-FLOWN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20`, 2 slots, Debug DLL sha256 prefix
+72189e6d from main c11d6cde2; read on branch `tip-spawn-flights`), each PASS attempt 1: `SPW-11`
+`2026-11-20_2152` (84 s; the target spawned again, so the collision branch is still unread),
+`SPW-6` `_2200` (231 s) and `SPW-4` `_2203` (233 s), both at `maxRate=100000` with DECLUTTER_KSC
+off (the fix held, ~4 min each). SPW-4 / SPW-6 batches pinned whole (`passed=1 failed=0
+skipped=0`), out of `INTERIM_PIN_IDS`; tags `flown`, status rows Live-proven.
 ## ~~SPAWN-TS-STACK-NO-DE-OVERLAP~~: two landed deliveries that end on one spot while the player is in the Tracking Station are spawned inside each other [FILED 2026-11-17 by the end-of-recording spawn audit (END-SPAWN-SCENE-LANES-2026-11-17), by code reading; lane `TSS-3-two-deliveries-same-spot-ts` authored to red on it, NEVER FLOWN. ~~done~~ 2026-11-17, branch `wip/spawnfix3`; NOT YET FLOWN (TSS-3 is its regression lane)]
 
 What the code does. The Space Center end spawn nudges a Landed / Splashed spawn clear of every
@@ -487,7 +500,7 @@ nudge patterns cover both sites. TSS-3 re-pinned: no longer an expected red, its
 pins kept, plus the de-overlap line. Tests: `TipSpawnPlacementTests` (`EndOfRecordingDeOverlap_*`,
 `Wiring_EndOfRecordingSpawn_DeOverlapsAgainstUnloadedLandedVesselsBeforeTheCollisionCheck`).
 
-## END-SPAWN-SCENE-LANES-2026-11-17: lanes for end-of-recording spawns in the Tracking Station and at the Space Center, and a placement check on the existing end-spawn lanes [FILED 2026-11-17 (the end-of-recording spawn audit). FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): KSS-1 LIVE-PROVEN, EVA-15 / SEAT-2 re-flown green, TSS-1..3, KSS-2 and SS-1 re-pinned on spec errors, re-flights owed. AUTHORED 2026-11-17, branch `wip/spawnlanes1`, harness and test-generator code only; NEVER FLOWN; OPEN for the first flights]
+## END-SPAWN-SCENE-LANES-2026-11-17: lanes for end-of-recording spawns in the Tracking Station and at the Space Center, and a placement check on the existing end-spawn lanes [FILED 2026-11-17 (the end-of-recording spawn audit). FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): KSS-1 LIVE-PROVEN, EVA-15 / SEAT-2 re-flown green, TSS-1..3, KSS-2 and SS-1 re-pinned on spec errors; ~~re-flights owed~~ RE-FLOWN GREEN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20` + TSS-1 serially after a re-host): all five LIVE-PROVEN, every batch pinned whole. AUTHORED 2026-11-17, branch `wip/spawnlanes1`, harness and test-generator code only; NEVER FLOWN; OPEN for the first flights]
 
 Five new lanes, all `tier = "operator"`, tag `pending-flight`, one `RunTests LeafVesselPlacement`
 step each (loose interim batch pin, `INTERIM_PIN_IDS`):
@@ -565,7 +578,29 @@ prefix bd950021 from main 64c68379; read on branch `wip/spawnread`):
 - `KSS-2` `_2336` PARSEK-FAIL on one token, SPEC: the Tracking Station paid the spawn on its
   first handoff tick inside the load, 0.12 s before the `kss2-ts` mark the token was anchored
   on; re-anchored on the load's `loadgame start ... requestedScene=TrackingStation` line.
-Re-fly order: SS-1, TSS-2, KSS-2, TSS-3, TSS-1 (all short), each re-pin read off its own log.
+~~Re-fly order: SS-1, TSS-2, KSS-2, TSS-3, TSS-1 (all short), each re-pin read off its own log.~~
+RE-FLOWN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20`, 2 slots, Debug DLL sha256 prefix
+72189e6d from main c11d6cde2; read on branch `tip-spawn-flights`), each PASS attempt 1, each
+LeafVesselPlacement batch `total=1 passed=1 failed=0 skipped=0`, pinned whole, out of
+`INTERIM_PIN_IDS`, tag `flown` (SS-1 is nightly, untagged), status rows Live-proven:
+- `SS-1` `2026-11-20_2149` (153 s): both spawns, the census green after the new `SaveGame`.
+- `TSS-2` `_2153` (193 s): the handoff pid on the mark's rec0, placement ok at the Mun.
+- `KSS-2` `_2154` (205 s): deferred at the Space Center, paid in the Tracking Station.
+- `TSS-3` `_2157` (173 s): both probes >= 10 m from anything (2852 m / 2845 m), placement 2/2
+  in FLIGHT (distM 0.1 / 14.9), the live proof of SPAWN-TS-STACK-NO-DE-OVERLAP.
+- `TSS-1` `2026-11-20_2240` (227 s, serial `run.py`), its fifth flight. Flights 2-4 were
+  INVALID(driver-verdict-mismatch), each with its retry, the recorded drive moving nothing:
+  `_2157` / `_2159_a2` on `pad-runway-pair` (4.6 m; that rover, commanded from a stack probe
+  core, never drove in any lane), re-hosted on `miner-rover-landed` (RVC-1's rover);
+  `_2232` / `_2234_a2` 0.0 m (no reference part in the save, so `PartAction controlfrom` on
+  the probe core, as RVC-1 does); `_2236` / `_2237_a2` still 0.0 m with the control point
+  applied. The fifth flight added a 1x `WarpToUT` to UT 60 before the drive and moved 518.3 m.
+OBSERVATION, no product change: a DriveVessel issued ~1.5-2 s after a FLIGHT load did not move
+on two hosts (`pad-runway-pair`'s rover 4.6 m at 0.19 m/s, `miner-rover-landed`'s 0.0 m with
+its control point set, startUT 32.62); on `miner-rover-landed` a 1x wait to UT 60 (RVC-1's first
+drive time) fixed it (518.3 m at up to 25.09 m/s); `pad-runway-pair` was not re-tried with the
+wait. Not explained; a drive lane waits first (TSS-1 header). Filed here as an observation,
+not a defect.
 
 ---
 
@@ -3298,7 +3333,7 @@ in parallel in the cloud):
    commit `recordings=4`, both leaves Landed, the replay hid `pid=4129919072` on rec=2 and
    `pid=2576286852` on rec=3; ghost lifecycle 4 / 4 balanced (report-only). Recordings 4 now pinned
    exactly (count, commit line, mark); tag `flown`.
-3b. [ ] (AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
+3b. [x] ~~(AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
    re-tuned on branch `air3tune`; RE-FLOWN TWICE 2026-11-17 INVALID (no release), the release
    fixed on branch `air3tune`; FLOWN A FIFTH TIME 2026-11-17, the collision flown, PARSEK-FAIL on
    one spec error, re-pinned on branch `wip/air3read`; FLOWN A SIXTH TIME 2026-11-17 (run
@@ -3307,7 +3342,10 @@ in parallel in the cloud):
    pid=839797731`) before its part deaths arrived, so no `Part death on background vessel` line
    for it (OnBackgroundPartDie skips a destroyed recording by design); the pin now also accepts
    the drone's `[Flight] Background vessel destroyed: pid=<drone> recId=` line, re-pinned on
-   branch `wip/spawnread`, re-flight owed.)
+   branch `wip/spawnread`; FLOWN A SEVENTH TIME 2026-11-20 (run `2026-11-20_2206`, runner run
+   `tip-spawn-reflight-2026-11-20`, 783 s) PASS attempt 1, LIVE-PROVEN: the drone destroyed
+   whole again, matched by that destruction branch; tag `flown`.)~~ Done 2026-11-20: LIVE-PROVEN
+   on its seventh flight, `2026-11-20_2206` PASS attempt 1 (783 s).
    Two airplanes flying into each other (owner request 2026-11-16): two recorded aircraft collide
    in the air; checks both recordings end at the impact and both ghosts replay it.
    Shape: the craft `AIR Drone Carrier` (`harness/tools/build_air_drone_carrier.py`, in

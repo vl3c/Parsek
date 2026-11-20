@@ -6,22 +6,23 @@ tier = "operator"
 # STATION; IT SPAWNS ONCE, WHERE IT ENDED, AND STAYS ONE VESSEL IN FLIGHT.
 #
 # Authored 2026-11-17 for the end-of-recording spawn audit (todo
-# END-SPAWN-SCENE-LANES-2026-11-17, scope 1a). NEVER FLOWN: its first flight is a READING
-# run (tag `pending-flight`). Every regex below matches a literal found in C# source (file
+# END-SPAWN-SCENE-LANES-2026-11-17, scope 1a). LIVE-PROVEN 2026-11-20 on its fifth flight
+# (below; tag `flown`). Every regex below matches a literal found in C# source (file
 # cited); the windows that depend on stock physics (how far the rover drives, which way it
 # faces) are left open.
 #
-# HOST: `pad-runway-pair` (LF-1's): the 16-part probe rover "rover fuel 0" (pid 95298807,
-# FLIGHTSTATE index 0) PRELAUNCH at the runway's west end (-0.048685, -74.724506), about
-# 60 m east of the runway-threshold exclusion point, and "Logi Cargo Rig" on the pad (the
-# save's active vessel). No committed trees. `LoadGame focusPid=95298807` flies the rover.
+# HOST: `miner-rover-landed` (MINE-2's): the probe rover "Mining Rover RC" (pid 110406740,
+# the save's active vessel) LANDED on open ground about 8.7 km north of the runway's west end
+# (0.0296163, -74.72474), plus "Observer Probe" in orbit. No committed trees. The same rover
+# drives in RVC-1 (rover-crash-watched is a derived copy of this save). `LoadGame
+# focusPid=110406740` flies the rover.
 #
 # THE FLIGHT, every step a player's:
 #   (a) the rover settles after the load (DriveVessel settle mode, RVR-21's), recording
 #       starts, the rover drives at full throttle for 30 s (RVC-1 measured 365 m in 30 s at
 #       20 m/s on KSC ground) and brakes to a stop (settle, ~8 s measured). It ends 300+ m
-#       from where it started, outside both 50 m KSC exclusion circles whichever way it
-#       faces (east down the runway, or west onto the grass past the threshold).
+#       from where it started, kilometres from both KSC exclusion circles whichever way
+#       it faces.
 #   (b) commit in flight; the commit's optimizer trims the stationary tail to 10 s after
 #       the last movement (RecordingOptimizer.TailTrim.cs), so EndUT is ~start + 50.
 #   (c) Rewind-to-Launch the tree just committed: the owner strip removes the rover from the
@@ -57,10 +58,11 @@ tier = "operator"
 # FIRST FLIGHT 2026-11-17_2328 (+ retry _2329_a2, parallel runner run
 # spawn-flight-2026-11-18, main 64c68379): INVALID(driver-gate) at the first settle, a SPEC
 # error: `drivevessel rejected reason=drivevessel-not-on-surface vessel=rover fuel 0
-# situation=PRELAUNCH`. The fixture's rover is PRELAUNCH and DriveVessel accepts only LANDED
-# / SPLASHED (TestCommandDriveVessel.DecideGate); LF-1 / LF-2 never drive it. Fixed in the
-# staged copy, not the fixture: the `[[fixture.liveState]] situation = "LANDED"` entry below
-# rewrites the rover's own `sit` (savepatch.py, logged `situation=PRELAUNCH->LANDED`), the
+# situation=PRELAUNCH`. That host's rover (pad-runway-pair "rover fuel 0", pid 95298807)
+# is PRELAUNCH and DriveVessel accepts only LANDED / SPLASHED
+# (TestCommandDriveVessel.DecideGate); LF-1 / LF-2 never drive it. Fixed in the staged
+# copy, not the fixture: a `[[fixture.liveState]] situation = "LANDED"` entry (dropped
+# with that host 2026-11-20) rewrote the rover's own `sit` (savepatch.py, logged `situation=PRELAUNCH->LANDED`), the
 # state a stock rover leaves PRELAUNCH in the moment it rolls. Nothing past the gate flew,
 # so every reading below is still owed.
 #
@@ -71,38 +73,59 @@ tier = "operator"
 # refuses in one frame; the drive fails fast on drivevessel-did-not-move. (7) count window
 # 1-2 until the reading run. (8) tier operator by the calibration discipline until flown.
 # (9) flight_efficiency.py owed after the first green flight.
+#
+# SECOND FLIGHT 2026-11-20_2157 (+ retry _2159_a2, parallel runner run
+# tip-spawn-reflight-2026-11-20, main c11d6cde2): INVALID(driver-verdict-mismatch) both
+# attempts at the recorded drive, a HOST error: `drivevessel end: outcome=did-not-move
+# vessel=rover fuel 0 ... wheelMotors=4 ... maxSrfSpeed=0.19 pathMeters=4.6` with full
+# ElectricCharge, motors enabled and undamaged; that rover is commanded from a stack probe
+# core and no lane ever drove it. Re-hosted on `miner-rover-landed` (above), whose rover
+# RVC-1 drives at speed; the staged situation patch and the intro patch went with the old
+# host (this save is LANDED and carries no ScenarioNewGameIntro node).
+# THIRD FLIGHT 2026-11-20_2232 (+ retry _2234_a2, serial run.py, same DLL): the same
+# INVALID on the new host, `outcome=did-not-move vessel=Mining Rover RC ... maxSrfSpeed=0.00
+# pathMeters=0.0`. The save names no reference part (`ref = 0`); RVC-1 drives this rover
+# only after `PartAction controlfrom` on its probe core (partPid 2300437286), so the lane
+# now sets that control point before recording starts.
+# FOURTH FLIGHT 2026-11-20_2236 (+ _2237_a2): the control point applied
+# (`partaction applied button=controlfrom ... event=MakeReference`) and the drive still
+# moved 0.0 m, ~2 s after the load (startUT=32.62). RVC-1's first drive runs at UT 60
+# after a 1x WarpToUT; with that same wait (the step before the settle) the FIFTH FLIGHT
+# 2026-11-20_2240 PASSED attempt 1 (227 s): `drivevessel end: outcome=moved ... pathMeters=518.3`.
+# Measured, not explained: a DriveVessel within ~2 s of a FLIGHT load on these hosts
+# moves nothing, so a drive lane waits first.
+# LIVE-PROVEN on that fifth flight (serial run.py, main c11d6cde2, Debug DLL 72189e6d...):
+# `Tracking-station handoff spawned #0 "Mining Rover RC" pid=309357365` mid-warp, the warp
+# at `maxRate=100000`; LeafVesselPlacement `scene=TRACKSTATION compared=1 ok=1 ...
+# bodies=[Kerbin]` (distM 0.0, height checked=1 ok=1), batch `total=1 passed=1 failed=0
+# skipped=0`, now pinned whole; the id left INTERIM_PIN_IDS.
 # =============================================================================
-description = "NOT YET GREEN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1a; first flight 2026-11-17 INVALID at the drive gate on the PRELAUNCH rover, fixed with a staged situation=LANDED patch): on pad-runway-pair the probe rover drives 30 s off the runway end, recorded and committed; Rewind-to-Launch, then the Tracking Station from before the recording's start and an uncapped warp to 100,000x. Gates the Tracking Station handoff spawning the rover once mid-warp (before the warp completes, max rate 100,000x reached), LeafVesselPlacement in the Tracking Station, and that a FLIGHT load focused on the spawned rover keeps its pid and spawns no second rover."
+description = "LIVE-PROVEN 2026-11-20 (run 2026-11-20_2240, the fifth flight; todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1a; earlier flights INVALID before the recorded drive on hosts that could not drive; re-hosted 2026-11-20): on miner-rover-landed the probe rover drives 30 s across open ground north of the runway, recorded and committed; Rewind-to-Launch, then the Tracking Station from before the recording's start and an uncapped warp to 100,000x. Gates the Tracking Station handoff spawning the rover once mid-warp (before the warp completes, max rate 100,000x reached), LeafVesselPlacement in the Tracking Station, and that a FLIGHT load focused on the spawned rover keeps its pid and spawns no second rover."
 instanceProfile = "stock-minimal"
 tags = ["TSS-1", "spawn", "end-spawn", "tracking-station", "ts-handoff", "warp", "max-warp",
         "rover", "rewind-to-launch", "leaf-placement", "ingame-batch", "kerbin", "sandbox",
-        "pending-flight"]
+        "flown"]
 
 [fixture]
-saveTemplate       = "fixtures/saves/pad-runway-pair"
+saveTemplate       = "fixtures/saves/miner-rover-landed"
 injectedRecordings = "none"
 craft              = []
-# The fixture carries `ScenarioNewGameIntro tsComplete = False`, so stock's first
-# Tracking Station visit sets the `intro_TS` lock, which holds TIMEWARP and makes
-# WarpToUT refuse above 1x there (`warptout refused reason=warp-locked
-# holders=intro_TS`). The stage step sets it complete in the staged copy
-# (savepatch.apply_ts_intro_done; logged `trackingStationIntroDone patched`).
-trackingStationIntroDone = true
 
-# DriveVessel refuses a PRELAUNCH vessel (first flight, header); the rover is made LANDED in
-# the staged copy, its only change.
-[[fixture.liveState]]
-pid       = 95298807
-situation = "LANDED"
 
 [driver]
 kind = "seam"
 steps = [
-  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", focusPid = "95298807" }, expect = "OK", budget = 300 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", focusPid = "110406740" }, expect = "OK", budget = 300 },
   { cmd = "StopRecording",                                                                     expect = "OK" },
   { cmd = "DiscardTree",                                                                       expect = "OK" },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },               expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },                    expect = "OK" },
+  # The control point on the rover's own probe core, as RVC-1 sets it: the save names no
+  # reference part (`ref = 0`), and the drive without it moved 0.0 m (header).
+  { cmd = "PartAction", args = { button = "controlfrom", part = "probeStackSmall", partPid = "2300437286" }, expect = "OK" },
+  # RVC-1's 1x wait before its first drive: every drive this lane tried within ~2 s of the
+  # load moved 0.0 m (header); RVC-1's first drive runs at UT 60.
+  { cmd = "WarpToUT",   args = { ut = "60", maxRate = "1" },                                   expect = "OK", budget = 120 },
   { cmd = "DriveVessel", args = { settleBelow = "0.05", seconds = "20" },                       expect = "OK" },
   { cmd = "StartRecording",                                                                    expect = "OK", budget = 180 },
   { cmd = "DriveVessel", args = { wheelThrottle = "1", seconds = "30" },                        expect = "OK" },
@@ -148,14 +171,14 @@ allowedAnomalies = []
 count = { min = 1, max = 2 }
 
 # REPORT-ONLY until a reading run. Expected in the final save: one committed tree, the rover
-# Landed, spawned once, the cargo rig untouched.
+# Landed, spawned once.
 [expectations.recordings.structure]
 gating         = false
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 terminalStates = { Landed = { min = 1, max = 2 } }
 spawnedVessels = { min = 1, max = 1 }
-vesselNames    = { "rover fuel 0" = 1 }
+vesselNames    = { "Mining Rover RC" = 1 }
 
 [expectations.logContracts]
 required = [
@@ -177,11 +200,11 @@ required = [
   # GhostMapPresence.TrackingStationLifecycle.cs (the handoff line), both after the
   # Tracking Station mark and before the warp's completion line
   # (ParsekTestCommandAddon.WarpToUT.cs), which must report the 100,000x rung reached.
-  "MISSIONMARK label=tss1-ts-[\\s\\S]*?\\[Spawner\\] Spawning vessel: \"rover fuel 0\" sit=[A-Z_]+, nearest vessel=[0-9]+m[\\s\\S]*?Tracking-station handoff spawned #[0-9]+ \"rover fuel 0\" pid=([0-9]+) preserveIdentity=\\w+[\\s\\S]*?warptout complete reachedUT=[0-9.]+ ut=600000 rate=[0-9.]+ maxRate=100000 [\\s\\S]*?MISSIONMARK label=tss1-spawned-[0-9]+-true-\\1-end ",
+  "MISSIONMARK label=tss1-ts-[\\s\\S]*?\\[Spawner\\] Spawning vessel: \"Mining Rover RC\" sit=[A-Z_]+, nearest vessel=[0-9]+m[\\s\\S]*?Tracking-station handoff spawned #[0-9]+ \"Mining Rover RC\" pid=([0-9]+) preserveIdentity=\\w+[\\s\\S]*?warptout complete reachedUT=[0-9.]+ ut=600000 rate=[0-9.]+ maxRate=100000 [\\s\\S]*?MISSIONMARK label=tss1-spawned-[0-9]+-true-\\1-end ",
   # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs (BATCH_COMPLETE), in the
   # Tracking Station and then in FLIGHT on the spawned rover.
   "MISSIONMARK label=tss1-spawned-[\\s\\S]*?LeafPlacement summary: scene=TRACKSTATION compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=TRACKSTATION",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=TRACKSTATION",
   # FLIGHT on the spawned rover: the committed store still names the SAME pid (no
   # respawn on the scene change; the duplicate forbids below catch a second rover).
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight[\\s\\S]*?MISSIONMARK label=tss1-flight-",
@@ -191,16 +214,16 @@ required = [
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   # A second rover, from any scene's spawn path.
-  "Spawning vessel: \"rover fuel 0\"[\\s\\S]*Spawning vessel: \"rover fuel 0\"",
-  "Tracking-station handoff spawned #[0-9]+ \"rover fuel 0\"[\\s\\S]*Tracking-station handoff spawned #[0-9]+ \"rover fuel 0\"",
+  "Spawning vessel: \"Mining Rover RC\"[\\s\\S]*Spawning vessel: \"Mining Rover RC\"",
+  "Tracking-station handoff spawned #[0-9]+ \"Mining Rover RC\"[\\s\\S]*Tracking-station handoff spawned #[0-9]+ \"Mining Rover RC\"",
   # The end crossed at the Space Center instead (ParsekKSC.cs), a historical skip
   # (GhostMapPresence.TrackingStationLifecycle.cs) or a refused / retired spawn.
-  "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"rover fuel 0\"",
-  "spawn handoff skipped #[0-9]+ \"rover fuel 0\": historical",
-  "Tracking-station handoff skipped duplicate spawn for #[0-9]+ \"rover fuel 0\"",
+  "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"Mining Rover RC\"",
+  "spawn handoff skipped #[0-9]+ \"Mining Rover RC\": historical",
+  "Tracking-station handoff skipped duplicate spawn for #[0-9]+ \"Mining Rover RC\"",
   "Spawn RETIRED",
   "Spawn ABANDONED",
-  "Spawn refused for #[0-9]+ \\(rover fuel 0\\)",
+  "Spawn refused for #[0-9]+ \\(Mining Rover RC\\)",
   "Vessel spawn failed",
   "invokerewindtolaunch refused",
   "invokerewindtolaunch failed",

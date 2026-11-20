@@ -8,7 +8,12 @@ id = "AIR-3-plane-drone-midair-collision"
 # re-flown; FLOWN A FIFTH TIME 2026-11-17 on the roll-out (MISSION-OK, the collision on the
 # first pass), PARSEK-FAIL(expectation) on one spec error, re-pinned below; FLOWN A SIXTH
 # TIME 2026-11-17 (MISSION-OK again), PARSEK-FAIL(expectation) on another spec error,
-# re-pinned below, re-flight owed.
+# re-pinned below; FLOWN A SEVENTH TIME 2026-11-20, LIVE-PROVEN: run 2026-11-20_2206,
+# PASS attempt 1, 783 s (parallel runner run tip-spawn-reflight-2026-11-20, main
+# c11d6cde2, Debug DLL 72189e6d...), MISSION-OK (`midAirCollision value=drone-absent`,
+# `bothDown value=['SPLASHED', 'ABSENT']`). KSP again destroyed the drone whole
+# (`[Flight] Background vessel destroyed: pid=2905398684 recId=f2d24fa8...`, no `Part
+# death on background vessel` line), so the re-pinned background branch is what matched.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3b (owner request 2026-11-16: two airplanes
 # flying into each other, for recording and ghost playback reliability).
 #
@@ -108,7 +113,8 @@ id = "AIR-3-plane-drone-midair-collision"
 # vessel` line for the drone's pid can follow. Flight 5 had the other order. The
 # background-side pin now accepts either a part death on the drone's pid or the deferred
 # destruction line for it (`[Flight] Background vessel destroyed: pid=<drone> recId=`,
-# ParsekFlight.TerminalEvents.cs), both inside the mission. Not re-flown since.
+# ParsekFlight.TerminalEvents.cs), both inside the mission. The seventh flight
+# (2026-11-20_2206, PASS) matched the destruction branch (header).
 #
 # THE SIMPLER VARIANT, AND WHY IT KEEPS THE POINT. Both aircraft must be members of ONE
 # recording tree and both must be loaded when they meet. A switch to a vessel outside
@@ -212,9 +218,9 @@ id = "AIR-3-plane-drone-midair-collision"
 #      the leg banks again (the model releases with 10+ s of the leg left).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-17; flown twice 2026-11-17 INVALID (5.5 m vertical misses, then the drone reached the floor), re-tuned (a learned pitch trim, a 2500 m release), re-flown twice INVALID (the loiter's steady 9 - 10 deg bank held the 8 deg roll gate, no release in 600 s), the release now rolls the wings level first; flown a fifth time 2026-11-17 (MISSION-OK, collision on the first pass) PARSEK-FAIL(expectation) on one spec error (the drone, destroyed whole, has no per-part visibility apply in the replay: its ghost explodes at its Destroyed end), re-pinned; flown a sixth time 2026-11-17 (MISSION-OK, collision) PARSEK-FAIL(expectation) on one spec error (the drone destroyed whole before its part deaths reached the background recorder, so no part-death line for it), the background pin now also accepts the drone's destruction line, re-flight owed. Two aircraft of one recording tree collide in the air: the stock Mallard carrying a parachute drone under its wing (derived craft `AIR Drone Carrier`) takes off from the Runway, releases the drone over the sea, turns back and flies into it, steering on the drone's live position every poll (mission air3_drone_intercept). Gates the active and the background part deaths at the collision, the drone's own recording, both leaves finalized Destroyed or Splashed and the commit, then Rewinds-to-Launch and replays both ghosts at the Space Center: the carrier's destroyed parts hidden, the drone's ghost exploding at its Destroyed end."
+description = "AUTHORED 2026-11-17; flown twice 2026-11-17 INVALID (5.5 m vertical misses, then the drone reached the floor), re-tuned (a learned pitch trim, a 2500 m release), re-flown twice INVALID (the loiter's steady 9 - 10 deg bank held the 8 deg roll gate, no release in 600 s), the release now rolls the wings level first; flown a fifth time 2026-11-17 (MISSION-OK, collision on the first pass) PARSEK-FAIL(expectation) on one spec error (the drone, destroyed whole, has no per-part visibility apply in the replay: its ghost explodes at its Destroyed end), re-pinned; flown a sixth time 2026-11-17 (MISSION-OK, collision) PARSEK-FAIL(expectation) on one spec error (the drone destroyed whole before its part deaths reached the background recorder, so no part-death line for it), the background pin now also accepts the drone's destruction line; LIVE-PROVEN 2026-11-20 on the seventh flight (run 2026-11-20_2206, MISSION-OK, the drone destroyed whole again). Two aircraft of one recording tree collide in the air: the stock Mallard carrying a parachute drone under its wing (derived craft `AIR Drone Carrier`) takes off from the Runway, releases the drone over the sea, turns back and flies into it, steering on the drone's live position every poll (mission air3_drone_intercept). Gates the active and the background part deaths at the collision, the drone's own recording, both leaves finalized Destroyed or Splashed and the commit, then Rewinds-to-Launch and replays both ghosts at the Space Center: the carrier's destroyed parts hidden, the drone's ghost exploding at its Destroyed end."
 instanceProfile = "stock-minimal"
-tags = ["AIR3", "aircraft", "crash", "part-destroyed", "background-recording", "rewind-to-launch", "ksc-ghost", "pending-flight"]
+tags = ["AIR3", "aircraft", "crash", "part-destroyed", "background-recording", "rewind-to-launch", "ksc-ghost", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
