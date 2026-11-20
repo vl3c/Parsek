@@ -133,7 +133,7 @@ namespace Parsek.Tests
         {
             // Undock, then stock moves focus to the departing tug (200): the watch re-arms on
             // it, and the depot (100) becomes the separated vessel of the tug's recording.
-            var carried = ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(
+            var carried = Carry(
                 new List<ParsekFlight.PostSwitchStructuralSplit> { Capture(100u, 200u) }, 100u, 200u);
 
             Assert.Single(carried);
@@ -148,7 +148,7 @@ namespace Parsek.Tests
         [Fact]
         public void Rearm_OnTheSeparatedVessel_KeepsTheOtherSeparations()
         {
-            var carried = ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(
+            var carried = Carry(
                 new List<ParsekFlight.PostSwitchStructuralSplit> { Capture(100u, 200u), Capture(100u, 300u) },
                 100u, 200u);
 
@@ -160,8 +160,8 @@ namespace Parsek.Tests
         {
             var captures = new List<ParsekFlight.PostSwitchStructuralSplit> { Capture(100u, 200u) };
             Assert.Equal(200u, Assert.Single(
-                ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(captures, 100u, 100u)).ChildPid);
-            Assert.Empty(ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(captures, 100u, 999u));
+                Carry(captures, 100u, 100u)).ChildPid);
+            Assert.Empty(Carry(captures, 100u, 999u));
         }
 
         [Fact]
@@ -169,12 +169,12 @@ namespace Parsek.Tests
         {
             // W (100) lost C1 (200) and C2 (300); `]` to C1, then `]` to C2 before the watch
             // started (suppressed under warp). The C2 watch must record W and C1, once each.
-            var hop1 = ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(
+            var hop1 = Carry(
                 new List<ParsekFlight.PostSwitchStructuralSplit> { Capture(100u, 200u), Capture(100u, 300u) },
                 100u, 200u);
             Assert.Equal(new[] { 100u, 300u }, ChildPids(hop1));
 
-            var hop2 = ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(hop1, 200u, 300u);
+            var hop2 = Carry(hop1, 200u, 300u);
             Assert.Equal(new[] { 100u, 200u }, ChildPids(hop2));
             ParsekFlight.PostSwitchStructuralSplit c1 = hop2.Find(c => c.ChildPid == 200u);
             Assert.True(c1.HasController);              // C1's own split-time data
@@ -212,6 +212,15 @@ namespace Parsek.Tests
             int add = body.IndexOf("PendingStructuralSplits.AddRange(carried)", StringComparison.Ordinal);
             Assert.True(carry >= 0 && drops > carry && replace > drops && add > replace,
                 "ArmPostSwitchAutoRecord must carry the captures (and log the drop decision) before it replaces the watch");
+        }
+
+        // The production overload, with the duplicate count discarded.
+        private static List<ParsekFlight.PostSwitchStructuralSplit> Carry(
+            IReadOnlyList<ParsekFlight.PostSwitchStructuralSplit> captures, uint previousWatchedPid, uint newWatchedPid)
+        {
+            int refused;
+            return ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(
+                captures, previousWatchedPid, newWatchedPid, out refused);
         }
 
         private static uint[] ChildPids(List<ParsekFlight.PostSwitchStructuralSplit> splits)

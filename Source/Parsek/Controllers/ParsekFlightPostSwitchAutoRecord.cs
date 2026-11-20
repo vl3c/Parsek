@@ -1204,15 +1204,6 @@ namespace Parsek
             return result;
         }
 
-        internal static List<ParsekFlight.PostSwitchStructuralSplit> CarryStructuralSplitsAcrossRearm(
-            IReadOnlyList<ParsekFlight.PostSwitchStructuralSplit> captures,
-            uint previousWatchedPid,
-            uint newWatchedPid)
-        {
-            int ignored;
-            return CarryStructuralSplitsAcrossRearm(captures, previousWatchedPid, newWatchedPid, out ignored);
-        }
-
         // One vessel of a captured split with its own split-time data (held in the Child*
         // fields of a side record); the first record of a pid wins.
         private static void AddSide(
