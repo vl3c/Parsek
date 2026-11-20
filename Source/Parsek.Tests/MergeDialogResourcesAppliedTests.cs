@@ -784,6 +784,121 @@ namespace Parsek.Tests
             Assert.Equal(MergeJournal.Phases.Finalize, scenario.ActiveMergeJournal.Phase);
         }
 
+        private RecordingTree CommitTreeThenStashUnchangedClone()
+        {
+            var a1 = MakeRecording("rec-dup-1", "tree-dup", 100.0, 200.0);
+            var a2 = MakeRecording("rec-dup-2", "tree-dup", 150.0, 250.0);
+            var committedTree = MakeTree("tree-dup", "rec-dup-1", a1, a2);
+            PendingTreeSlot.StashPendingTree(committedTree);
+            MergeDialog.MergeCommit(committedTree,
+                new Dictionary<string, bool> { { "rec-dup-1", false }, { "rec-dup-2", false } },
+                spawnCount: 0);
+            Assert.Contains(RecordingStore.CommittedTrees, t => ReferenceEquals(t, committedTree));
+
+            // A different object with the same id and the same content: nothing new to add.
+            var cloneTree = MakeTree("tree-dup", "rec-dup-1",
+                MakeRecording("rec-dup-1", "tree-dup", 100.0, 200.0),
+                MakeRecording("rec-dup-2", "tree-dup", 150.0, 250.0));
+            PendingTreeSlot.StashPendingTree(cloneTree);
+            return cloneTree;
+        }
+
+        [Theory]
+        [InlineData(true)]  // the dialog's Merge button
+        [InlineData(false)] // a silent auto-commit through MergeCommit
+        public void MergeCommit_DuplicateSkip_NoMergedToast_PendingDropped_RewindNotHeld(bool clicked)
+        {
+            // M13: a duplicate-commit skip toasted "Merged" although nothing reached the
+            // timeline. Keeping the skipped tree pending instead would hold every later route
+            // (each skips it again) and the rewind / fast-forward gates
+            // (RewindLauncher: "Merge or discard pending tree first") for good, so the skip
+            // drops it, honestly.
+            var cloneTree = CommitTreeThenStashUnchangedClone();
+            var screenMessages = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (m, d) => screenMessages.Add(m);
+            ParsekLog.VerboseOverrideForTesting = true;
+            int notifiedBefore = logLines.FindAll(
+                l => l.Contains("committed-tree listeners notified")).Count;
+
+            MergeDialog.MergeCommit(cloneTree,
+                new Dictionary<string, bool> { { "rec-dup-1", false }, { "rec-dup-2", false } },
+                spawnCount: 0, reShowDialogOnRefusal: clicked);
+
+            Assert.False(PendingTreeSlot.HasPendingTree); // the rewind gates' condition
+            Assert.DoesNotContain(screenMessages, m => m.StartsWith("Merged"));
+            // No committed-tree listener runs for a merge that added nothing.
+            Assert.Equal(notifiedBefore, logLines.FindAll(
+                l => l.Contains("committed-tree listeners notified")).Count);
+            if (clicked)
+                Assert.Contains(screenMessages,
+                    m => m == "Nothing new to merge: this flight is already in the timeline");
+            else
+                Assert.Empty(screenMessages);
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("CommitPendingTree: tree id='tree-dup'")
+                && l.Contains("skipped as a duplicate") && l.Contains("pending slot cleared"));
+            Assert.Contains(logLines, l => l.Contains("[MergeDialog]")
+                && l.Contains("commit skipped as a duplicate")
+                && l.Contains("pending tree dropped, no success toast"));
+        }
+
+        [Fact]
+        public void MergeCommit_InterruptedReFlyPath_NoMergedToast_CommittedListenersStillRun()
+        {
+            // L14: an interrupted Re-Fly supersede used to be followed by the "Merged"
+            // success toast right after "Merge interrupted - will finish on next load".
+            var origin = MakeRecording("rec-origin-l14", "tree-refly-l14", 100.0, 200.0);
+            var provisional = MakeRecording("rec-provisional-l14", "tree-refly-l14", 100.0, 220.0);
+            provisional.MergeState = MergeState.NotCommitted;
+            provisional.SupersedeTargetId = origin.RecordingId;
+            provisional.TerminalStateValue = TerminalState.Landed;
+
+            var tree = MakeTree("tree-refly-l14", provisional.RecordingId, origin, provisional);
+            PendingTreeSlot.StashPendingTree(tree);
+
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = MakeMarker(
+                    "sess-refly-l14", "tree-refly-l14", provisional.RecordingId, origin.RecordingId),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            var screenMessages = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (m, d) => screenMessages.Add(m);
+            ParsekLog.VerboseOverrideForTesting = true;
+            MergeJournalOrchestrator.FaultInjectionPoint = MergeJournalOrchestrator.Phase.Finalize;
+            MergeJournalOrchestrator.DurableSaveForTesting = _ => { };
+
+            try
+            {
+                MergeDialog.MergeCommit(
+                    tree,
+                    new Dictionary<string, bool>
+                    {
+                        { origin.RecordingId, false },
+                        { provisional.RecordingId, false },
+                    },
+                    spawnCount: 1);
+            }
+            finally
+            {
+                MergeJournalOrchestrator.FaultInjectionPoint = null;
+            }
+
+            Assert.Contains(screenMessages, m => m.Contains("Merge interrupted"));
+            Assert.DoesNotContain(screenMessages, m => m.StartsWith("Merged"));
+            // The tree is committed, so the committed-tree listeners still run.
+            Assert.Contains(logLines, l => l.Contains("[MergeDialog]")
+                && l.Contains("committed-tree listeners notified")
+                && l.Contains("reFlyResult=Interrupted"));
+            Assert.Contains(logLines, l => l.Contains("[MergeDialog]")
+                && l.Contains("Re-Fly supersede interrupted")
+                && l.Contains("route prompt and the merged toast suppressed"));
+        }
+
         // ================================================================
         // 6. Null-tree safety on both branches
         // ================================================================

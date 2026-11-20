@@ -101,13 +101,14 @@ namespace Parsek
         {
             int mergeCount = 0;
             HashSet<string> heldForRoutes = null;
+            Dictionary<string, string> heldByLiveReFlyMerge = CollectLiveReFlyMergeHeldIds();
             const int maxMergesPerPass = 50;
             // Iterate merge passes until no more candidates (merging may create new adjacent pairs)
             bool changed = true;
             while (changed && mergeCount < maxMergesPerPass)
             {
                 changed = false;
-                var candidates = RecordingOptimizer.FindMergeCandidates(recordings);
+                var candidates = RecordingOptimizer.FindMergeCandidates(recordings, heldByLiveReFlyMerge);
                 if (candidates.Count == 0) break;
 
                 // Process one candidate per pass (indices shift after removal): the first one
@@ -120,6 +121,16 @@ namespace Parsek
                 var absorbed = recordings[idxB];
 
                 string absorbedId = RecordingOptimizer.MergeInto(target, absorbed);
+                if (absorbedId == null)
+                {
+                    // A refused merge changes nothing: the absorbed recording, its ledger
+                    // tags and its files all stay. Stop this pass; the refusal is a
+                    // pair CanAutoMerge should not have offered.
+                    ParsekLog.Warn("RecordingStore",
+                        $"Optimization: merge of '{absorbed.RecordingId}' into '{target.RecordingId}' " +
+                        "refused - nothing removed; stopping the merge pass");
+                    break;
+                }
                 target.FilesDirty = true;
                 string chainId = target.ChainId;
                 RetagLedgerActionsAfterOptimizationMerge(target, absorbed);
@@ -127,6 +138,7 @@ namespace Parsek
                 InFlightRecoveryRequest.MoveAwaitingStockPayout(
                     absorbed.RecordingId, target.RecordingId, "optimization-merge");
                 UpdateTreeStateAfterOptimizationMerge(target, absorbed);
+                RepointAnchorsAfterOptimizationMerge(recordings, target, absorbed);
 
                 // Remove absorbed recording from committed list
                 RecordingStore.RemoveCommittedAt(idxB, target);
@@ -161,6 +173,87 @@ namespace Parsek
                     $"[{FormatSortedIds(heldForRoutes)}] - a supply route's source recordings stay whole");
 
             return mergeCount;
+        }
+
+        /// <summary>
+        /// The recordings a live Re-Fly session holds out of the merge pass (id -> why): the
+        /// marker's supersede target (TIP once the split ran) and its origin (HEAD), and while
+        /// a merge journal is active also the provisional. Their supersede rows do not exist
+        /// yet when the cold OnLoad's pass runs ahead of the journal finisher (a crash between
+        /// the split save and Durable Save #1), so a HEAD + TIP pair would be glued back. The
+        /// provisional alone is left out without a journal: a live session's own commit pass
+        /// may merge the attempt, which <c>MergeDialog.ResolveOptimizedRecordingSurvivor</c>
+        /// follows (an in-place continuation's provisional is the origin, likewise). Read here
+        /// and handed to <see cref="RecordingOptimizer.CanAutoMerge"/>, which must not name
+        /// Rewind types. Empty, never null.
+        /// </summary>
+        internal static Dictionary<string, string> CollectLiveReFlyMergeHeldIds()
+        {
+            var held = new Dictionary<string, string>(StringComparer.Ordinal);
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario)) return held;
+            var marker = scenario.ActiveReFlySessionMarker;
+            if (marker == null) return held;
+            bool journalActive = scenario.ActiveMergeJournal != null;
+            string suffix = " sess=" + (marker.SessionId ?? "<no-id>")
+                + " journal=" + (journalActive ? "active" : "none");
+            string provisional = marker.ActiveReFlyRecordingId;
+            if (journalActive && !string.IsNullOrEmpty(provisional))
+                held[provisional] = "merge journal provisional" + suffix;
+            string origin = marker.OriginChildRecordingId;
+            if (!string.IsNullOrEmpty(origin)
+                && (journalActive || !string.Equals(origin, provisional, StringComparison.Ordinal)))
+                held[origin] = "marker origin" + suffix;
+            if (!string.IsNullOrEmpty(marker.SupersedeTargetId))
+                held[marker.SupersedeTargetId] = "marker supersede target" + suffix;
+            return held;
+        }
+
+        /// <summary>
+        /// The absorbed recording's id disappears with the merge, so every other recording's
+        /// reference to it moves to the merge target, which now covers the absorbed time range:
+        /// a Relative section's <see cref="TrackSection.anchorRecordingId"/> and a
+        /// <see cref="Recording.ParentAnchorRecordingId"/>. Touched recordings are marked dirty
+        /// (the section anchor lives in the trajectory sidecar). One summary line when anything
+        /// moved.
+        /// </summary>
+        internal static void RepointAnchorsAfterOptimizationMerge(
+            IReadOnlyList<Recording> recordings, Recording target, Recording absorbed)
+        {
+            string absorbedId = absorbed?.RecordingId;
+            string targetId = target?.RecordingId;
+            if (recordings == null || string.IsNullOrEmpty(absorbedId) || string.IsNullOrEmpty(targetId))
+                return;
+            int sections = 0;
+            int parentAnchors = 0;
+            for (int r = 0; r < recordings.Count; r++)
+            {
+                var rec = recordings[r];
+                if (rec == null || ReferenceEquals(rec, absorbed)) continue;
+                if (string.Equals(rec.ParentAnchorRecordingId, absorbedId, StringComparison.Ordinal))
+                {
+                    rec.ParentAnchorRecordingId = targetId;
+                    parentAnchors++;
+                }
+                if (rec.TrackSections == null) continue;
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    var s = rec.TrackSections[i];
+                    if (!string.Equals(s.anchorRecordingId, absorbedId, StringComparison.Ordinal))
+                        continue;
+                    s.anchorRecordingId = targetId;
+                    rec.TrackSections[i] = s;
+                    rec.FilesDirty = true;
+                    sections++;
+                }
+            }
+            if (sections > 0 || parentAnchors > 0)
+            {
+                ParsekLog.Info("RecordingStore",
+                    $"Optimization: anchors re-pointed {absorbedId} -> {targetId} " +
+                    $"(sections={sections.ToString(CultureInfo.InvariantCulture)} " +
+                    $"parentAnchors={parentAnchors.ToString(CultureInfo.InvariantCulture)})");
+            }
         }
 
         /// <summary>

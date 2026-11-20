@@ -71,17 +71,24 @@ namespace Parsek
         /// skip semantics MUST either (a) clear the live marker first, or
         /// (b) confirm their use case wants the union semantics.</para>
         /// </summary>
-        public static void CommitTree(RecordingTree tree)
+        /// <returns>
+        /// False only when a different tree object with the same id is already committed and
+        /// the incoming tree is not a richer topology to replace it with (the duplicate skip):
+        /// nothing of <paramref name="tree"/> reached the timeline. True when the tree is on
+        /// the timeline after the call, an already-committed reference-equal tree included.
+        /// </returns>
+        public static bool CommitTree(RecordingTree tree)
         {
-            if (tree == null) return;
-            CommitTreeCore(tree);
+            if (tree == null) return false;
+            bool committed = CommitTreeCore(tree);
             // A commit (a merge, a Re-Fly union swapping older recordings in by reference, a
             // replace commit of a copy-on-write clone) can put back older names on legs a
             // vessel name decision covers; re-apply them (design-vessel-and-mission-names.md 7.4).
             VesselNameStore.ApplyAll("commit-tree");
+            return committed;
         }
 
-        private static void CommitTreeCore(RecordingTree tree)
+        private static bool CommitTreeCore(RecordingTree tree)
         {
 
             // First-commit guard data (collapse-seal-into-mergestate plan §4.1):
@@ -115,7 +122,7 @@ namespace Parsek
                             tree.Recordings?.Keys,
                             $"CommitTree duplicate-skip (reference-equal) tree '{tree.Id}'");
                         SceneEntryVesselScope.ClearRewindReplayTargetScope();
-                        return;
+                        return true;
                     }
 
                     if (!ShouldReplaceCommittedTree(RecordingStore.CommittedTrees[i], tree, out var replaceReason))
@@ -178,7 +185,7 @@ namespace Parsek
                             tree.Recordings?.Keys,
                             $"CommitTree duplicate-skip (reason={replaceReason}) tree '{tree.Id}'");
                         SceneEntryVesselScope.ClearRewindReplayTargetScope();
-                        return;
+                        return false;
                     }
 
                     replaceCommittedTreeIndex = i;
@@ -214,6 +221,7 @@ namespace Parsek
             FinalizeTreeCommit(tree, replaceCommittedTreeIndex, unchangedRouteSourceIds);
             CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForTree(tree.Id, "CommitTree accepted restored active tree");
             SceneEntryVesselScope.ClearRewindReplayTargetScope();
+            return true;
         }
 
         /// <summary>
@@ -1706,18 +1714,33 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Commits the pending tree to the timeline.
+        /// Commits the pending tree to the timeline. Returns false when nothing was committed:
+        /// no pending tree, or <see cref="CommitTree"/> skipped it as a duplicate of a committed
+        /// tree. A skipped tree is dropped from the slot all the same: kept pending it would be
+        /// skipped again by every route (the dialog, both outside-flight auto-commits) and would
+        /// hold the rewind / fast-forward gates for good with nothing to discard it. The caller
+        /// must not report a merge on false.
         /// </summary>
-        public static void CommitPendingTree()
+        public static bool CommitPendingTree()
         {
-            if (PendingTreeSlot.PendingTree == null)
+            var pending = PendingTreeSlot.PendingTree;
+            if (pending == null)
             {
                 ParsekLog.Verbose("RecordingStore", "CommitPendingTree called with no pending tree");
-                return;
+                return false;
             }
 
-            CommitTree(PendingTreeSlot.PendingTree);
+            if (!CommitTree(pending))
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"CommitPendingTree: tree id='{pending.Id}' name='{pending.TreeName}' " +
+                    $"recordings={pending.Recordings?.Count ?? 0} was skipped as a duplicate of the " +
+                    "committed tree - nothing committed, pending slot cleared");
+                PendingTreeSlot.ClearSlot();
+                return false;
+            }
             PendingTreeSlot.ClearSlot();
+            return true;
         }
     }
 }
