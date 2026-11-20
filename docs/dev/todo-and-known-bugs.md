@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CHAIN-INDEX-HOLE-RESTORES-EARLIER-PIECE~~: a hole in a chain's indices made an earlier piece look like the chain's end to the committed-tree restore [FILED 2026-11-18 by the recording split / trim / merge review (finding L11), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a resume of a committed vessel could record onto an earlier piece)]
+
+**Cause:** `ParsekFlight.HasNextChainSegmentInTree` (the "a later piece exists" check of `IsCommittedSpawnedRecordingRestorable`) looked for exactly `ChainIndex + 1`, so when that piece was gone (a hole in the indices) an earlier piece passed as the chain's last one.
+
+**Fix:** the check accepts any later piece of the same chain and branch (`ChainIndex > rec.ChainIndex`).
+
+**Tests:** `CommittedRestoreChainTipTests.ChainIndexHole_HeadIsNotRestorable` (red before the fix).
+
 ## ~~TRIM-IGNORES-SUPERSEDE-AND-REFLY~~: the boring-tail trim cut superseded recordings and the recordings of a live Re-Fly [FILED 2026-11-18 by the recording split / trim / merge review (finding L7), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a superseded or in-merge recording lost its tail behind the merge's back)]
 
 **Cause:** the split pass skips superseded recordings and defers the live Re-Fly provisional, and the merge pass refuses both and the recordings the live session names, but `CommittedListOptimizer.TrimBoringTailsForOptimization` held only supply route sources.

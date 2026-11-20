@@ -2528,13 +2528,14 @@ namespace Parsek
             if (tree == null || rec == null || string.IsNullOrEmpty(rec.ChainId))
                 return false;
 
-            int nextIdx = rec.ChainIndex + 1;
+            // Any later piece, not only ChainIndex + 1: a piece removed from the chain leaves a
+            // hole in the indices, and the flight still goes on past this recording.
             foreach (Recording other in tree.Recordings.Values)
             {
                 if (other == null || ReferenceEquals(other, rec))
                     continue;
                 if (other.ChainId == rec.ChainId
-                    && other.ChainIndex == nextIdx
+                    && other.ChainIndex > rec.ChainIndex
                     && other.ChainBranch == rec.ChainBranch)
                 {
                     return true;
