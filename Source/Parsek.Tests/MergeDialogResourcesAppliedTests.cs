@@ -816,23 +816,19 @@ namespace Parsek.Tests
             var cloneTree = CommitTreeThenStashUnchangedClone();
             var screenMessages = new List<string>();
             ParsekLog.ScreenMessageSinkForTesting = (m, d) => screenMessages.Add(m);
-            int committedEvents = 0;
-            System.Action<RecordingTree> onCommitted = t => committedEvents++;
-            MergeDialog.OnTreeCommitted += onCommitted;
-            try
-            {
-                MergeDialog.MergeCommit(cloneTree,
-                    new Dictionary<string, bool> { { "rec-dup-1", false }, { "rec-dup-2", false } },
-                    spawnCount: 0, reShowDialogOnRefusal: clicked);
-            }
-            finally
-            {
-                MergeDialog.OnTreeCommitted -= onCommitted;
-            }
+            ParsekLog.VerboseOverrideForTesting = true;
+            int notifiedBefore = logLines.FindAll(
+                l => l.Contains("committed-tree listeners notified")).Count;
+
+            MergeDialog.MergeCommit(cloneTree,
+                new Dictionary<string, bool> { { "rec-dup-1", false }, { "rec-dup-2", false } },
+                spawnCount: 0, reShowDialogOnRefusal: clicked);
 
             Assert.False(PendingTreeSlot.HasPendingTree); // the rewind gates' condition
             Assert.DoesNotContain(screenMessages, m => m.StartsWith("Merged"));
-            Assert.Equal(0, committedEvents);
+            // No committed-tree listener runs for a merge that added nothing.
+            Assert.Equal(notifiedBefore, logLines.FindAll(
+                l => l.Contains("committed-tree listeners notified")).Count);
             if (clicked)
                 Assert.Contains(screenMessages,
                     m => m == "Nothing new to merge: this flight is already in the timeline");
@@ -872,9 +868,7 @@ namespace Parsek.Tests
 
             var screenMessages = new List<string>();
             ParsekLog.ScreenMessageSinkForTesting = (m, d) => screenMessages.Add(m);
-            int committedEvents = 0;
-            System.Action<RecordingTree> onCommitted = t => committedEvents++;
-            MergeDialog.OnTreeCommitted += onCommitted;
+            ParsekLog.VerboseOverrideForTesting = true;
             MergeJournalOrchestrator.FaultInjectionPoint = MergeJournalOrchestrator.Phase.Finalize;
             MergeJournalOrchestrator.DurableSaveForTesting = _ => { };
 
@@ -892,12 +886,14 @@ namespace Parsek.Tests
             finally
             {
                 MergeJournalOrchestrator.FaultInjectionPoint = null;
-                MergeDialog.OnTreeCommitted -= onCommitted;
             }
 
             Assert.Contains(screenMessages, m => m.Contains("Merge interrupted"));
             Assert.DoesNotContain(screenMessages, m => m.StartsWith("Merged"));
-            Assert.Equal(1, committedEvents);
+            // The tree is committed, so the committed-tree listeners still run.
+            Assert.Contains(logLines, l => l.Contains("[MergeDialog]")
+                && l.Contains("committed-tree listeners notified")
+                && l.Contains("reFlyResult=Interrupted"));
             Assert.Contains(logLines, l => l.Contains("[MergeDialog]")
                 && l.Contains("Re-Fly supersede interrupted")
                 && l.Contains("route prompt and the merged toast suppressed"));
