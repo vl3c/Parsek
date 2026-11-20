@@ -20,6 +20,34 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~STOP-TAKES-NO-FINAL-SAMPLE~~: a physics-mode stop ended the recording at the last adaptive sample [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecorderStopEndingTests`; low (the real data ended up to 1-8 s before the stop)]
+
+Cause: the active recorder's stops (`StopRecording`, `ForceStop`) sampled a boundary point only when
+on rails (and then from the ACTIVE vessel, which can already be another one), the background
+commit (`BackgroundRecorder.FinalizeAllForCommit`) and the background destroy
+(`OnBackgroundVesselWillDestroy`) took none. The adaptive sampler can be seconds behind, so the
+recording ended short of where the vessel was (draft review L1).
+
+Fix: `FinalizeRecordingState` takes a final sample at the stop UT from the RECORDED vessel
+(`RecordingVesselId`, never the active one), before the open section closes, gated by the pure
+`FlightRecorder.DecideFinalPhysicsSample` (skip reasons `recorded-vessel-not-found`,
+`vessel-destroyed`, `vessel-unloaded`, `vessel-packed`, `already-sampled-at-stop`, each logged).
+`StopRecording` and `ForceStop` sample; a chain-boundary stop does not (the dock / undock / split
+has already moved the vessel, the next leg seeds that boundary); the scene teardown
+(`ParsekFlight.OnDestroy`) and the two discard paths in `ParsekFlightMergeFlow` pass
+`sampleFinalPoint: false`. The on-rails boundary sample reads the recorded vessel at the stop UT.
+The background commit and destroy paths append the same final sample through
+`BackgroundRecorder.SampleBackgroundEndPoint` (loaded, unpacked vessels only) and normalize a
+parent-anchored Relative tail after it, as the on-rails flush does. The commit-path call sits in
+`FinalizeAllForCommit` after the flush and changes nothing `ResolveBackgroundEndTerminalUT` /
+`ScopeFinalizationCacheToBackgroundEnd` read.
+
+Tests: `RecorderStopEndingTests.DecideFinalPhysicsSample_TruthTable`,
+`DecideFinalPhysicsSample_LastSampleAtOrPastStop_Skips`,
+`ForceStop_RecordedVesselGone_LogsTheSkippedFinalSample` (red before the fix),
+`ForceStop_SampleNotRequested_TakesNoSample`. A live vessel cannot be built headless, so the
+sampled branch is proven only by a lane.
+
 ## ~~FORCESTOP-LEAVES-ENGINES-LIT~~: leaving the scene mid-burn left the ghost's engines lit [FIXED 2026-11-18, branch `wp3-recording-ends`; xUnit `RecorderStopEndingTests`; no lane gates it yet; medium (a replay with a plume burning to its end)]
 
 Cause: the scene exit and every tree commit stop the active recorder with `FlightRecorder.ForceStop`,

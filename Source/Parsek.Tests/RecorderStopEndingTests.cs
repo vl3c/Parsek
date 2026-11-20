@@ -85,5 +85,62 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Recorder]")
                 && l.Contains("FinalizeRecordingState (force stop): emitted 0 terminal event(s)"));
         }
+
+        // ---- final sample (todo STOP-TAKES-NO-FINAL-SAMPLE) and the stop vessel ----
+
+        [Theory]
+        [InlineData(true, false, true, false, null)]
+        [InlineData(false, false, true, false, "recorded-vessel-not-found")]
+        [InlineData(true, true, true, false, "vessel-destroyed")]
+        [InlineData(true, false, false, false, "vessel-unloaded")]
+        [InlineData(true, false, true, true, "vessel-packed")]
+        public void DecideFinalPhysicsSample_TruthTable(
+            bool hasVessel, bool destroyed, bool loaded, bool packed, string expected)
+        {
+            Assert.Equal(expected,
+                FlightRecorder.DecideFinalPhysicsSample(hasVessel, destroyed, loaded, packed));
+            // A last sample older than the stop UT does not change the verdict.
+            Assert.Equal(expected,
+                FlightRecorder.DecideFinalPhysicsSample(hasVessel, destroyed, loaded, packed,
+                    lastSampleUT: 495.0, stopUT: 500.0));
+        }
+
+        [Theory]
+        [InlineData(500.0)]
+        [InlineData(501.0)]
+        public void DecideFinalPhysicsSample_LastSampleAtOrPastStop_Skips(double lastSampleUT)
+        {
+            Assert.Equal("already-sampled-at-stop",
+                FlightRecorder.DecideFinalPhysicsSample(true, false, true, false,
+                    lastSampleUT: lastSampleUT, stopUT: 500.0));
+        }
+
+        [Fact]
+        public void ForceStop_RecordedVesselGone_LogsTheSkippedFinalSample()
+        {
+            var rec = new FlightRecorder();
+            rec.IsRecording = true;
+            Patches.PhysicsFramePatch.ActiveRecorder = rec;
+
+            rec.ForceStop();
+
+            Assert.Contains(logLines, l => l.Contains("[Recorder]")
+                && l.Contains("FinalizeRecordingState (force stop): final physics sample skipped reason=recorded-vessel-not-found"));
+        }
+
+        [Fact]
+        public void ForceStop_SampleNotRequested_TakesNoSample()
+        {
+            var rec = new FlightRecorder();
+            rec.IsRecording = true;
+            Patches.PhysicsFramePatch.ActiveRecorder = rec;
+
+            rec.ForceStop(sampleFinalPoint: false);
+
+            Assert.Contains(logLines, l => l.Contains("[Recorder]")
+                && l.Contains("ForceStop: final physics sample not requested"));
+            Assert.DoesNotContain(logLines, l => l.Contains("final physics sample skipped"));
+            Assert.Empty(rec.Recording);
+        }
     }
 }

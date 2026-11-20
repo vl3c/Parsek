@@ -426,8 +426,9 @@ namespace Parsek
             // PhysicsFramePatch_ActiveRecorder_NullWhenNotRecording).
             if (host.recorder != null)
             {
+                // The tree is dropped, so no final sample is taken.
                 if (host.recorder.IsRecording)
-                    host.recorder.ForceStop();
+                    host.recorder.ForceStop(sampleFinalPoint: false);
                 Patches.PhysicsFramePatch.ActiveRecorder = null;
                 host.recorder = null;
             }
@@ -686,8 +687,9 @@ namespace Parsek
 
             if (host.recorder != null)
             {
+                // The tree is dropped, so no final sample is taken.
                 if (host.recorder.IsRecording)
-                    host.recorder.ForceStop();
+                    host.recorder.ForceStop(sampleFinalPoint: false);
                 Patches.PhysicsFramePatch.ActiveRecorder = null;
                 host.recorder = null;
             }

@@ -32,6 +32,10 @@ Not released yet.
   Space Center, or committing the flight, while an engine or thruster was firing kept its plume
   burning in the replay until the end. It now shuts off at the moment you left.
   (FORCESTOP-LEAVES-ENGINES-LIT)
+- **A recording now ends where the vessel was when it stopped.** Stopping, leaving the scene or
+  committing could end the replay a few seconds short of the vessel's real last position, and a
+  crash watched from another vessel could end the wreck in the air above the impact. The final
+  position is now sampled at the stop. (STOP-TAKES-NO-FINAL-SAMPLE)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now
