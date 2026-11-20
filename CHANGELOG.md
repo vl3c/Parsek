@@ -28,6 +28,9 @@ Not released yet.
 
 ### Fixed
 
+- **A flight you hid, disabled or looped keeps that setting when Parsek splits it.** The new
+  piece used to come back visible, enabled and not looping. A flight with a loop range is now
+  never split or shortened. (SPLIT-DROPS-PLAYER-ROW-SETTINGS)
 - **A merge that adds nothing no longer says "Merged".** When the flight was already on the
   timeline, the merge still reported success. Clicking Merge now says "Nothing new to merge:
   this flight is already in the timeline", and an automatic merge says nothing.

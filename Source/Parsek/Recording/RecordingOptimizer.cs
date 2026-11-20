@@ -909,6 +909,7 @@ namespace Parsek
             int normalizedRecordings = 0;
             int normalizedOrdinalShifts = 0;
             int skippedSuperseded = 0;
+            int skippedLoopRange = 0;
 
             // A superseded recording is never split (mirror of CanAutoMerge's supersede
             // guard). The supersede relation names it by RecordingId, so a fresh-id second
@@ -938,6 +939,11 @@ namespace Parsek
                     && EffectiveState.IsSupersededByRelation(rec, supersedes))
                 {
                     skippedSuperseded++;
+                    continue;
+                }
+                if (HasPlayerLoopRange(rec))
+                {
+                    skippedLoopRange++;
                     continue;
                 }
 
@@ -1068,6 +1074,13 @@ namespace Parsek
                 ParsekLog.Verbose("Optimizer",
                     $"FindSplitCandidatesForOptimizer: skipped {skippedSuperseded.ToString(CultureInfo.InvariantCulture)} " +
                     "superseded recording(s) (a split half would escape the supersede relation)");
+            }
+
+            if (skippedLoopRange > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"FindSplitCandidatesForOptimizer: kept {skippedLoopRange.ToString(CultureInfo.InvariantCulture)} " +
+                    "recording(s) whole: the player set a loop range on them");
             }
 
             return candidates;
@@ -1752,6 +1765,12 @@ namespace Parsek
             // EVA linkage: both halves represent the same EVA kerbal
             second.EvaCrewName = original.EvaCrewName;
             second.ParentRecordingId = original.ParentRecordingId;
+            // The player's row settings stay on both halves (owner RULE 1, "always keep
+            // them"): a hidden or disabled flight stays hidden or disabled in full, and a
+            // whole-recording loop keeps looping on both rows on the same period. A loop
+            // RANGE cannot be divided, so the optimizer never splits a recording that has
+            // one (HasPlayerLoopRange).
+            CopyPlayerRowSettings(original, second);
 
             var secondFlatTailSource = new Recording
             {
@@ -1863,6 +1882,45 @@ namespace Parsek
                     ? " (crew death respawn stamp moved: respawn=" + second.CrewDeathRespawns.Value +
                       " timer=" + second.CrewDeathRespawnSeconds.ToString("R", CultureInfo.InvariantCulture) + ")"
                     : ""));
+        }
+
+        /// <summary>
+        /// Copies the player's row settings from <paramref name="original"/> onto the split's
+        /// second half: <see cref="Recording.Hidden"/>, <see cref="Recording.PlaybackEnabled"/>
+        /// and the whole-recording loop (<see cref="Recording.LoopPlayback"/>, its period, unit
+        /// and anchor). The seal (<see cref="Recording.MergeState"/>) and the groups travel
+        /// through their own copies. Logs one line when any non-default setting moved.
+        /// </summary>
+        internal static void CopyPlayerRowSettings(Recording original, Recording second)
+        {
+            if (original == null || second == null) return;
+            second.Hidden = original.Hidden;
+            second.PlaybackEnabled = original.PlaybackEnabled;
+            second.LoopPlayback = original.LoopPlayback;
+            second.LoopIntervalSeconds = original.LoopIntervalSeconds;
+            second.LoopTimeUnit = original.LoopTimeUnit;
+            second.LoopAnchorVesselId = original.LoopAnchorVesselId;
+            second.LoopAnchorBodyName = original.LoopAnchorBodyName;
+            if (original.Hidden || !original.PlaybackEnabled || original.LoopPlayback
+                || original.LoopAnchorVesselId != 0
+                || original.LoopIntervalSeconds != LoopTiming.UntouchedLoopIntervalSentinel)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"Split: player row settings kept on both halves (original={original.RecordingId ?? "<no-id>"} " +
+                    $"hidden={original.Hidden} playbackEnabled={original.PlaybackEnabled} " +
+                    $"loop={original.LoopPlayback} loopAnchor={original.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture)})");
+            }
+        }
+
+        /// <summary>
+        /// True when the player set a loop RANGE on <paramref name="rec"/>
+        /// (<see cref="Recording.LoopStartUT"/> or <see cref="Recording.LoopEndUT"/>). Such a
+        /// recording is never split or tail-trimmed by the optimizer: the range names UTs of
+        /// the whole flight, and no division of it keeps the loop the player chose.
+        /// </summary>
+        internal static bool HasPlayerLoopRange(Recording rec)
+        {
+            return rec != null && (!double.IsNaN(rec.LoopStartUT) || !double.IsNaN(rec.LoopEndUT));
         }
 
         /// <summary>
