@@ -390,6 +390,20 @@ namespace Parsek.TestCommands
         internal const string AdministrationNotReadyDeferReason = "administration-not-ready";
 
         /// <summary>
+        /// Pure: whether a Space-Center-only <c>KscAction</c> sub-action may also run in
+        /// <paramref name="scene"/>. Only <c>demolish-building</c> in FLIGHT: the KSC
+        /// <c>DestructibleBuilding</c>s are live there, and <c>Demolish()</c> fires the same
+        /// <c>OnKSCStructureCollapsing</c> a crash into the building fires
+        /// (<c>DestructibleBuilding.AddDamage</c>), so a collapse during a live recording is
+        /// tagged to it exactly as a flight-caused destruction is. The repair stays at the
+        /// Space Center: its debit lives on a SPACECENTER <c>SpaceCenterBuilding</c>.
+        /// </summary>
+        internal static bool IsKscActionAllowedInFlight(string action, TestCommandScene scene)
+        {
+            return scene == TestCommandScene.Flight && action == "demolish-building";
+        }
+
+        /// <summary>
         /// The wrong-scene token for a FLIGHT verb: the DEFER reason for most of them and
         /// the REJECTED msg for the <see cref="RejectOutsideFlightVerbs"/> set.
         /// </summary>
@@ -949,7 +963,12 @@ namespace Parsek.TestCommands
                         || action == "sack-kerbal" || action == "press-strategy"
                         || action == "purchase-part" || action == "purchase-all"
                         || action == "purchase-upgrade";
-                    if (needsSpaceCenter && !state.AtSpaceCenter)
+                    // demolish-building also runs in FLIGHT, where the KSC buildings are live
+                    // too: a collapse there fires the same OnKSCStructureCollapsing a crash
+                    // into the building does (DestructibleBuilding.AddDamage -> Demolish), so
+                    // a lane can make a recorded flight destroy a building (PADX-1 / PADX-2).
+                    if (needsSpaceCenter && !state.AtSpaceCenter
+                        && !IsKscActionAllowedInFlight(action, state.Scene))
                         return DispatchResult.Defer("not-at-space-center");
                     // The Administration building's screen owns the slot count stock checks.
                     if (action == "activate-strategy" && !state.StrategyAdministrationReady)

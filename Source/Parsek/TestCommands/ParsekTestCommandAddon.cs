@@ -1527,7 +1527,8 @@ namespace Parsek.TestCommands
                 RnDPresent = IsResearchReady(),
                 AtSpaceCenter = HighLogic.LoadedScene == GameScenes.SPACECENTER,
                 KscStructuresSettling = head.Verb == "KscAction"
-                    && HighLogic.LoadedScene == GameScenes.SPACECENTER
+                    && (HighLogic.LoadedScene == GameScenes.SPACECENTER
+                        || HighLogic.LoadedScene == GameScenes.FLIGHT)
                     && TestCommandKscAction.LiveStructuresSettling(),
                 StrategyAdministrationReady = KSP.UI.Screens.Administration.Instance != null,
                 // M-C2 EVA seam-verb bits.
