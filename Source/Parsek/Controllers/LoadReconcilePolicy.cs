@@ -1229,8 +1229,9 @@ namespace Parsek
         // takes the loaded copy (a scene change reads the copy OnSave just wrote). A plain rewind's
         // OnLoad node is persistent.sfs carrying the session's node, and a Discard Re-fly's carries
         // the session's node around the rewind point's world: neither describes the landed world,
-        // so both clear it, and the landed Space Center's own contract patch regenerates what it
-        // rebuilds there directly.
+        // so both clear it. The landed Space Center's own contract patch regenerates what it
+        // rebuilds there; a rescue the landed save already holds Active with its vessel missing
+        // (its own list named it) is todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD.
         private static LoadReconcileDecision DecideRescueAcceptDeferrals(LoadKind kind)
         {
             switch (kind)
@@ -1241,12 +1242,14 @@ namespace Parsek
                 case LoadKind.PlainRewind:
                     return Today(LoadReconcileAction.Clear,
                         "cleared in the prologue: the node is persistent.sfs carrying the session's node, not the rewind "
-                        + "save's world; the rewind lands in the Space Center, where the contract patch regenerates "
-                        + "what it rebuilds");
+                        + "save's world; a rescue the patch rebuilds in the landed Space Center regenerates there, but "
+                        + "one the rewind save already holds Active with its vessel missing is skipped as existing "
+                        + "(todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD)");
                 case LoadKind.DiscardReFly:
                     return Today(LoadReconcileAction.Clear,
                         "cleared in the prologue: the node is the session's, carried around the rewind point's world, so "
-                        + "its list names no contract of the landed world");
+                        + "a rescue the rewind point's own save had deferred is not regenerated "
+                        + "(todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD)");
                 // Consumed in the prologue, before the revert detector: one cell for all three.
                 case LoadKind.StockRevert:
                 case LoadKind.QuickloadFlight:

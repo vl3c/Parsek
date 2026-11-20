@@ -121,8 +121,8 @@ this; its vessel is in that save).
    parameters may never fail) is
    never read as a missing accept effect; a scan could not tell the two apart.
 2. `KerbalNotInRoster`: left alone (re-creating a named Unowned kerbal is a roster write stock never
-   makes; its offer draws a fresh random name). Owner decision still open: recreate him or accept the
-   gap. `KerbalNotUnowned` is also left alone (stock's generator would seat a crew kerbal in a
+   makes; its offer draws a fresh random name). Owner ruling 2026-11-20: accept the gap, never recreate
+   him. `KerbalNotUnowned` is also left alone (stock's generator would seat a crew kerbal in a
    second spot).
 3. Tourism, any scene: each listed tourist whose `TouristConversion` is `Convert` (in the roster,
    Unowned, not reserved) gets `TourismContract.OnAccepted`'s three lines (type Tourist,
@@ -171,6 +171,21 @@ Cold): pending=1`), and the next Space Center scene must log `Rescue accept defe
 contractId='e8ba5ea6-... outcome=Regenerate repair=RegenerateStrandedAsset`, the `regenerated
 stranded asset` line with `added=1` and `drained (onContractsLoaded, scene=SPACECENTER):
 evaluated=1 regenerated=1`; a second Space Center visit must add nothing (`pending=0`).
+## RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD: a rescue the landed save already holds Active with its stranded vessel missing is not regenerated after a plain rewind or Discard Re-fly [FILED 2026-11-20 from the batch-1 re-review of the CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS follow-up; low (needs a rescue rebuilt in Flight before a rewind save or rewind point was written, then a rewind or Discard Re-fly to that save)]
+
+**What happens.** `RESCUE_ACCEPT_DEFERRALS` describes the world of the `.sfs` that carries it. A plain rewind's OnLoad
+node is persistent.sfs carrying the session's PARSEK node, and a Discard Re-fly's is the session's node carried around
+the rewind point's world, so both loads clear the list (`LoadReconcilePolicy.DecideRescueAcceptDeferrals`). When the
+rewind save (written at launch) or the rewind point (written at a separation) already holds the rescue Active with its
+vessel missing, its own node listed the id, but that copy is never read; the landed Space Center's contract patch
+skips the contract as existing, so the vessel is never regenerated and the contract can only fail at its deadline.
+A missed regeneration, never a duplicate.
+
+**Fix direction.** Read the deferral list from the landed save's own PARSEK node on these two loads (the rewind save /
+rewind point file), or re-derive pending ids at the landed Space Center for rescues whose accept snapshot the ledger
+holds and whose target is absent, with the same guards. Owner rulings 2026-11-20 also leave the related
+`KerbalNotInRoster` case as an accepted gap (the kerbal is never recreated).
+
 ## ~~SAVE-FREEZE-ON-MISSING-SIDECAR~~: one recording whose sidecar cannot be written froze its whole tree in every later save [FILED 2026-11-18 by code reading (test-gap pass, branch `test-gaps-savefreeze`); CONFIRMED 2026-11-20 by two red xUnit cells on the pre-fix code. FIXED 2026-11-20, same branch; xUnit; ST-4 re-pinned by code read, re-flight owed; high (silent loss of every later change to the tree; the sidecars of recordings the save no longer named were left as orphans on disk)]
 
 What happened. `ParsekScenario.SaveTreeRecordings` (`Controllers/ParsekScenario.Save.cs`) writes a

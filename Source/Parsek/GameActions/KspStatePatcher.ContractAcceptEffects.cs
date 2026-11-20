@@ -215,6 +215,13 @@ namespace Parsek
 
         private static void DrainRescueAcceptDeferralsCore(string trigger)
         {
+            if (ParsekGameModeGate.IsInertForCurrentGame)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Rescue accept deferrals: drain ({trigger}) skipped: Parsek is inert for the current game; " +
+                    $"pending={RescueAcceptDeferrals.Count.ToString(IC)} kept");
+                return;
+            }
             GameScenes scene = HighLogic.LoadedScene;
             bool loadOrPatchPending = ParsekScenario.IsOnLoadInProgress || DeferredContractPatchState.HasPending;
             ContractSystem system = ContractSystem.Instance;
