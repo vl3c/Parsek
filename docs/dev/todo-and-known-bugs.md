@@ -92,6 +92,14 @@ Review follow-ups (2026-11-20, same branch):
   code assumes a closed conic in one sphere) and the optimizer's tail trim (`RecordingOptimizer`,
   owned by another package; it refuses to trim a non-spawnable terminal, the safe side).
 
+- Patch-start epoch. A terminal orbit captured on rails carries the epoch of its patch start,
+  the last sphere-of-influence crossing, where the state sits on the boundary and the
+  extrapolator's immediate exit / entry tests are numerical noise (a Moon flyby could be carried
+  on the parent conic, or an escape bounced to the transition cap). `ResolveAtUT` now starts at the
+  recording's end UT when that is later than the epoch, and a start still at the epoch does not
+  take an immediate crossing of the boundary it sits on (`Extrapolate`'s new initial
+  suppressions, `EscapeTrajectoryTerminal.ResolveBoundarySuppressions`).
+
 Residue: (a) the label still reads Sub-orbital for an escaping vessel; (b) live-proven by no lane
 (recommended: a probe committed on a Kerbin escape, rewound, the end spawn read in flight before and
 after the sphere exit); (c) the extrapolator samples encounters at 3600 s, so a very short moon pass

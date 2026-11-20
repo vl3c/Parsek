@@ -120,7 +120,8 @@ namespace Parsek
             resolution = EscapeTrajectoryTerminal.ResolveAtUT(
                 rec.TerminalOrbitAsSegment(),
                 bodies,
-                ut);
+                ut,
+                rec.EndUT);
             return true;
         }
 

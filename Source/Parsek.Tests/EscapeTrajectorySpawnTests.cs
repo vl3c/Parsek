@@ -527,5 +527,121 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region a patch-start epoch on a sphere boundary
+
+        private const double MoonGravParameter = 6.5e10;
+        private const double MoonRadius = 200000.0;
+        private const double MoonSoi = 2000000.0;
+        private static readonly Vector3d MoonPosition = new Vector3d(10000000.0, 0.0, 0.0);
+
+        private static Dictionary<string, ExtrapolationBody> HomeAndMoon()
+        {
+            return new Dictionary<string, ExtrapolationBody>
+            {
+                ["Home"] = new ExtrapolationBody
+                {
+                    Name = "Home",
+                    GravitationalParameter = HomeGravParameter,
+                    Radius = HomeRadius,
+                    AtmosphereDepth = HomeAtmosphereDepth,
+                },
+                ["Moon"] = new ExtrapolationBody
+                {
+                    Name = "Moon",
+                    ParentBodyName = "Home",
+                    GravitationalParameter = MoonGravParameter,
+                    Radius = MoonRadius,
+                    SphereOfInfluence = MoonSoi,
+                    ParentFrameState = (double ut, out Vector3d position, out Vector3d velocity) =>
+                    {
+                        position = MoonPosition;
+                        velocity = new Vector3d(0.0, 500.0, 0.0);
+                    },
+                },
+            };
+        }
+
+        /// <summary>The conic of a state at <paramref name="epoch"/> as a recorded terminal orbit.</summary>
+        private static OrbitSegment SegmentFromState(
+            string body, double gravParameter, Vector3d position, Vector3d velocity, double epoch)
+        {
+            Assert.True(BallisticExtrapolator.TwoBodyOrbit.TryCreate(
+                position, velocity, gravParameter, epoch, out BallisticExtrapolator.TwoBodyOrbit o));
+            const double radToDeg = 180.0 / Math.PI;
+            var seg = new OrbitSegment
+            {
+                startUT = epoch,
+                endUT = epoch,
+                inclination = o.Inclination * radToDeg,
+                eccentricity = o.Eccentricity,
+                semiMajorAxis = o.SemiMajorAxis,
+                longitudeOfAscendingNode = o.LongitudeOfAscendingNode * radToDeg,
+                argumentOfPeriapsis = o.ArgumentOfPeriapsis * radToDeg,
+                meanAnomalyAtEpoch = o.MeanAnomalyAtEpoch,
+                epoch = o.Epoch,
+                bodyName = body,
+            };
+            Assert.True(BallisticExtrapolator.TryPropagate(seg, gravParameter, epoch, out Vector3d p, out _));
+            Assert.True((p - position).magnitude < 0.05,
+                "segment must reproduce the boundary state, off by " + (p - position).magnitude);
+            return seg;
+        }
+
+        [Fact]
+        public void ResolveAtUT_EpochJustOutsideTheMoonSphereInbound_StaysInTheMoonSphere()
+        {
+            // A Moon flyby captured on rails: the patch starts on the Moon's sphere, the state
+            // half a metre outside it by numerical noise, heading in.
+            OrbitSegment terminal = SegmentFromState(
+                "Moon", MoonGravParameter,
+                new Vector3d(MoonSoi + 0.5, 0.0, 0.0),
+                new Vector3d(-300.0, 250.0, 0.0),
+                1000.0);
+
+            EscapeSpawnConicResolution r = EscapeTrajectoryTerminal.ResolveAtUT(
+                terminal, HomeAndMoon(), 1300.0);
+
+            Assert.True(r.Resolved, r.RefusalReason);
+            Assert.Equal("Moon", r.BodyName);
+            Assert.Equal(0, r.SoiTransitions);
+        }
+
+        [Fact]
+        public void ResolveAtUT_EpochJustInsideTheMoonSphereOutbound_StaysOnTheParent()
+        {
+            // Just left the Moon: the parent-body patch starts half a metre inside the Moon's
+            // sphere by numerical noise, heading out.
+            OrbitSegment terminal = SegmentFromState(
+                "Home", HomeGravParameter,
+                MoonPosition + new Vector3d(MoonSoi - 0.5, 0.0, 0.0),
+                new Vector3d(300.0, 600.0, 0.0),
+                1000.0);
+
+            EscapeSpawnConicResolution r = EscapeTrajectoryTerminal.ResolveAtUT(
+                terminal, HomeAndMoon(), 1300.0);
+
+            Assert.True(r.Resolved, r.RefusalReason);
+            Assert.Equal("Home", r.BodyName);
+            Assert.Equal(0, r.SoiTransitions);
+        }
+
+        [Fact]
+        public void ResolveAtUT_StartsAtTheRecordingEndWhenLaterThanTheEpoch()
+        {
+            OrbitSegment terminal = SegmentFromState(
+                "Moon", MoonGravParameter,
+                new Vector3d(MoonSoi + 0.5, 0.0, 0.0),
+                new Vector3d(-300.0, 250.0, 0.0),
+                1000.0);
+
+            EscapeSpawnConicResolution r = EscapeTrajectoryTerminal.ResolveAtUT(
+                terminal, HomeAndMoon(), 1300.0, captureUT: 1060.0);
+
+            Assert.True(r.Resolved, r.RefusalReason);
+            Assert.Equal("Moon", r.BodyName);
+            Assert.Equal(0, r.SoiTransitions);
+        }
+
+        #endregion
     }
 }

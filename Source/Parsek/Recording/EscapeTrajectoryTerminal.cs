@@ -60,6 +60,13 @@ namespace Parsek
         internal const string RefusalExtrapolationFailed = "extrapolation-failed";
 
         /// <summary>
+        /// Relative distance from a sphere-of-influence boundary within which a start state
+        /// at the terminal orbit's own epoch counts as sitting on it (a patch starts exactly
+        /// on the boundary it crossed).
+        /// </summary>
+        internal const double BoundaryRelativeTolerance = 1e-6;
+
+        /// <summary>
         /// Pure: does a recording with this terminal state, recorded terminal orbit and
         /// snapshot situation end on an escape trajectory that spawns on its path? SubOrbital
         /// terminal, a propagatable terminal orbit naming a body, and escape evidence: an
@@ -121,6 +128,24 @@ namespace Parsek
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
             double spawnUT)
         {
+            return ResolveAtUT(terminal, bodies, spawnUT, double.NaN);
+        }
+
+        /// <summary>
+        /// <see cref="ResolveAtUT(OrbitSegment, IReadOnlyDictionary{string, ExtrapolationBody}, double)"/>
+        /// starting at <paramref name="captureUT"/> (the recording's end, where the vessel was
+        /// known to be inside the terminal body's sphere) when that is later than the orbit's
+        /// epoch. A terminal orbit captured on rails carries the epoch of its patch start, the
+        /// last sphere-of-influence crossing, where the state sits on the boundary and the
+        /// extrapolator's immediate exit / entry tests are numerical noise; a start still at
+        /// that epoch does not take an immediate crossing of the boundary it sits on.
+        /// </summary>
+        internal static EscapeSpawnConicResolution ResolveAtUT(
+            OrbitSegment terminal,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            double spawnUT,
+            double captureUT)
+        {
             var resolution = new EscapeSpawnConicResolution
             {
                 Resolved = false,
@@ -141,6 +166,8 @@ namespace Parsek
             }
 
             double startUT = terminal.epoch;
+            if (!double.IsNaN(captureUT) && !double.IsInfinity(captureUT) && captureUT > startUT)
+                startUT = captureUT;
             if (double.IsNaN(spawnUT) || double.IsInfinity(spawnUT)
                 || spawnUT - startUT <= NoPropagationEpsilonSeconds)
             {
@@ -168,11 +195,22 @@ namespace Parsek
                 orbitalFrameRotation = terminal.orbitalFrameRotation
             };
 
+            string suppressedParentExit = null;
+            string suppressedChildEntry = null;
+            if (Math.Abs(startUT - terminal.epoch) <= NoPropagationEpsilonSeconds)
+            {
+                ResolveBoundarySuppressions(
+                    body, bodies, startUT, startPosition,
+                    out suppressedParentExit, out suppressedChildEntry);
+            }
+
             ExtrapolationLimits limits = ExtrapolationLimits.Default;
             // The horizon is the spawn UT itself (plus a hair so the last conic reaches it).
             limits.maxHorizonYears = (spawnUT - startUT + 1.0) / BallisticExtrapolator.SecondsPerYear;
             ExtrapolationResult extrapolated = BallisticExtrapolator.Extrapolate(
-                startState, bodies, limits, warnOnSubSurfaceStart: false);
+                startState, bodies, limits, warnOnSubSurfaceStart: false,
+                initialSuppressedParentExitParentBodyName: suppressedParentExit,
+                initialSuppressedChildEntryBodyName: suppressedChildEntry);
 
             // PqsUnavailable is a soft fallback (the surface scan used sea level), not a
             // broken chain; every other reason means the path could not be followed.
@@ -232,6 +270,63 @@ namespace Parsek
             resolution.Segment = chosen;
             resolution.BodyName = chosen.bodyName;
             return resolution;
+        }
+
+        /// <summary>
+        /// Pure: for a start state at a patch start, the boundary it sits on (within
+        /// <see cref="BoundaryRelativeTolerance"/>): its own body's sphere (suppress the
+        /// immediate exit into the parent) and the nearest child sphere (suppress the
+        /// immediate entry into that child).
+        /// </summary>
+        internal static void ResolveBoundarySuppressions(
+            ExtrapolationBody body,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            double ut,
+            Vector3d position,
+            out string suppressedParentExitParentBodyName,
+            out string suppressedChildEntryBodyName)
+        {
+            suppressedParentExitParentBodyName = null;
+            suppressedChildEntryBodyName = null;
+            if (body == null)
+                return;
+
+            double radius = Magnitude(position);
+            if (!string.IsNullOrEmpty(body.ParentBodyName)
+                && body.SphereOfInfluence > 0.0
+                && Math.Abs(radius - body.SphereOfInfluence)
+                    <= body.SphereOfInfluence * BoundaryRelativeTolerance)
+            {
+                suppressedParentExitParentBodyName = body.ParentBodyName;
+            }
+
+            if (bodies == null)
+                return;
+
+            double nearest = double.PositiveInfinity;
+            foreach (ExtrapolationBody child in bodies.Values)
+            {
+                if (child == null
+                    || child.SphereOfInfluence <= 0.0
+                    || child.ParentFrameState == null
+                    || !string.Equals(child.ParentBodyName, body.Name, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                child.ParentFrameState(ut, out Vector3d childPosition, out _);
+                double gap = Math.Abs(Magnitude(position - childPosition) - child.SphereOfInfluence);
+                if (gap <= child.SphereOfInfluence * BoundaryRelativeTolerance && gap < nearest)
+                {
+                    nearest = gap;
+                    suppressedChildEntryBodyName = child.Name;
+                }
+            }
+        }
+
+        private static double Magnitude(Vector3d v)
+        {
+            return Math.Sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
         }
 
         private static bool IsFinite(Vector3d v)
