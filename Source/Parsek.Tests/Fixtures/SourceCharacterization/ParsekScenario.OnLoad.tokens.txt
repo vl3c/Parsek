@@ -9,6 +9,8 @@ S:"an inert load makes no backup attempt"
 C:InSessionStagedStateHandoff.Drop
 C:SaveFileLoadIntent.Clear
 S:"inert-game-mode"
+C:RescueAcceptDeferrals.Clear
+S:"inert-game-mode"
 A:inertGameModePassthroughNode
 C:InFlightRecoveryRequest.Clear
 S:"OnLoad"

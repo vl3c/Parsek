@@ -1044,6 +1044,9 @@ namespace Parsek
                 PreParsekBackup.DropUnusedAutomationFault("an inert load makes no backup attempt");
                 InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropInertGameMode);
                 SaveFileLoadIntent.Clear("inert-game-mode");
+                // The deferral list names the previous save's contracts; an inert game must
+                // never drain it (the drain is subscribed process-wide on onContractsLoaded).
+                RescueAcceptDeferrals.Clear("inert-game-mode");
                 return;
             }
             inertGameModePassthroughNode = null;
