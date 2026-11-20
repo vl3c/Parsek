@@ -591,6 +591,11 @@ namespace Parsek
                 var marker = scenario.ActiveReFlySessionMarker;
                 if (IsPostFinalizePhase(entryPhase))
                 {
+                    // The merge state is final, so this is a completed merge: its session
+                    // rewind points (the quicksaves of slots the merge left open) are promoted
+                    // as the Durable1Done step does, never left session-provisional for the
+                    // load-time sweep to delete once the marker is gone.
+                    bool rpsPromoted = PromoteSessionRewindPointsOnGiveUp(marker, scenario, sessionId);
                     if (marker != null)
                         scenario.ClearActiveReFlySessionMarker("marker-cleared");
                     scenario.ActiveMergeJournal = null;
@@ -598,7 +603,10 @@ namespace Parsek
                     ParsekLog.Warn(Tag,
                         $"Finisher gave up sess={sessionId} after phase={entryPhase} (stage={stage}, " +
                         $"{cause?.GetType().Name}: {cause?.Message}): merge state was already final, " +
-                        "marker and journal cleared");
+                        $"marker and journal cleared, session rewind points " +
+                        $"{(rpsPromoted ? "promoted like a completed merge" : "NOT promoted (tag pass threw)")}");
+                    RecalcAfterMarkerCleared(sessionId, "merge-journal-finisher-gave-up-after-finalize",
+                        "Give-up recalc");
                     RunPostMergeOptimizationPass(scenario, sessionId, "finisher-gave-up-after-finalize");
                     return;
                 }
@@ -622,6 +630,9 @@ namespace Parsek
                     $"marker {(marker != null ? "kept" : "absent")} - Discard unlocked");
                 ParsekLog.ScreenMessage(
                     "Re-Fly merge could not be finished - the old flight is kept", 5f);
+                // The load's own recalc ran before the finisher with these tombstones in place,
+                // so KSP state still reflects the abandoned attempt until a recalc re-derives it.
+                RecalcAfterMarkerCleared(sessionId, "merge-journal-finisher-gave-up", "Give-up recalc");
             }
             catch (Exception ex)
             {
@@ -630,6 +641,38 @@ namespace Parsek
                     $"Finisher give-up threw {ex.GetType().Name}: {ex.Message} sess={sessionId} - " +
                     "journal cleared anyway so the load continues");
             }
+        }
+
+        /// <summary>
+        /// The completed-merge rewind point step for a give-up after Finalize:
+        /// <see cref="TagRpsForReap"/> then the reaper. Returns false when the tag pass threw
+        /// (logged; the give-up continues).
+        /// </summary>
+        private static bool PromoteSessionRewindPointsOnGiveUp(
+            ReFlySessionMarker marker, ParsekScenario scenario, string sessionId)
+        {
+            try
+            {
+                TagRpsForReap(marker, scenario);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Finisher give-up sess={sessionId}: TagRpsForReap threw {ex.GetType().Name}: " +
+                    $"{ex.Message} - session rewind points left as they are");
+                return false;
+            }
+            try
+            {
+                RewindPointReaper.ReapOrphanedRPs();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Finisher give-up sess={sessionId}: ReapOrphanedRPs threw {ex.GetType().Name}: " +
+                    $"{ex.Message} - the next reap pass retries");
+            }
+            return true;
         }
 
         /// <summary>
@@ -895,7 +938,8 @@ namespace Parsek
         /// missing.
         /// </para>
         /// </summary>
-        private static void RecalcAfterMarkerCleared(string sessionId, string reason)
+        private static void RecalcAfterMarkerCleared(
+            string sessionId, string reason, string label = "Post-marker-clear recalc")
         {
             var hook = RecalcAfterMarkerClearedForTesting;
             if (hook != null)
@@ -910,14 +954,14 @@ namespace Parsek
                     ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
                     reason);
                 ParsekLog.Info(Tag,
-                    $"Post-marker-clear recalc sess={sessionId ?? "<no-id>"} reason={reason}");
+                    $"{label} sess={sessionId ?? "<no-id>"} reason={reason}");
             }
             catch (Exception ex)
             {
                 // Non-fatal: the merge itself has already committed and been made
                 // durable. A failed re-derive is repaired by the next recalc.
                 ParsekLog.Warn(Tag,
-                    $"Post-marker-clear recalc threw {ex.GetType().Name}: {ex.Message} " +
+                    $"{label} threw {ex.GetType().Name}: {ex.Message} " +
                     $"— sess={sessionId ?? "<no-id>"} reason={reason}; merge stands, " +
                     "next recalc repairs the derived state");
             }

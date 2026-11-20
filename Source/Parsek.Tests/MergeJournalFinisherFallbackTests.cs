@@ -209,6 +209,8 @@ namespace Parsek.Tests
                 CreatedRealTime = "2026-01-01T00:00:00.0000000Z",
             });
             scenario.ActiveMergeJournal = Journal(MergeJournal.Phases.Tombstone);
+            var recalcs = new List<string>();
+            MergeJournalOrchestrator.RecalcAfterMarkerClearedForTesting = reason => recalcs.Add(reason);
 
             bool completed = MergeJournalOrchestrator.RunFinisher();
 
@@ -226,6 +228,55 @@ namespace Parsek.Tests
                 && l.Contains("Finisher gave up sess=sess_fb") && l.Contains("Discard unlocked")
                 && l.Contains("rowsRemoved=1") && l.Contains("tombstonesRemoved=1"));
             Assert.Contains(screenMessages, m => m.Contains("Re-Fly merge could not be finished"));
+            // The load's own recalc ran before the finisher with this merge's tombstones in
+            // place; removing them must re-derive KSP state at once (review item 2).
+            Assert.Equal(new[] { "merge-journal-finisher-gave-up" }, recalcs.ToArray());
+        }
+
+        [Fact]
+        public void Finisher_GivesUpAfterFinalize_KeepsTheSessionRewindPointsLikeACompletedMerge()
+        {
+            // After Finalize the merge state is final, so a give-up there is a completed merge:
+            // the session's rewind points (the Unfinished Flight quicksaves of slots the merge
+            // left open) must be promoted like Durable1Done's step does, not left
+            // session-provisional for the load-time sweep to delete once the marker clears
+            // (review item 3).
+            var origin = new Recording
+            {
+                RecordingId = "rec_origin", VesselName = "o", TreeId = "tree_1",
+                MergeState = MergeState.Immutable, TerminalStateValue = TerminalState.Destroyed,
+            };
+            origin.Points.Add(new TrajectoryPoint { ut = 1.0 });
+            var provisional = Provisional("rec_prov", TerminalState.Destroyed);
+            provisional.MergeState = MergeState.CommittedProvisional;
+            InstallTree("tree_1", new[] { origin, provisional });
+            var marker = Marker("rec_origin", "rec_prov");
+            var scenario = InstallScenario(marker);
+            var sessionRp = new RewindPoint
+            {
+                RewindPointId = "rp_session", SessionProvisional = true, CreatingSessionId = "sess_fb",
+            };
+            scenario.RewindPoints.Add(sessionRp);
+            scenario.ActiveMergeJournal = Journal(MergeJournal.Phases.MarkerCleared);
+            var recalcs = new List<string>();
+            MergeJournalOrchestrator.RecalcAfterMarkerClearedForTesting = reason =>
+            {
+                recalcs.Add(reason);
+                if (reason == "merge-journal-finisher-marker-cleared")
+                    throw new InvalidOperationException("synthetic recalc failure");
+            };
+
+            bool completed = MergeJournalOrchestrator.RunFinisher();
+
+            Assert.False(completed);
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            Assert.False(sessionRp.SessionProvisional);
+            Assert.Null(sessionRp.CreatingSessionId);
+            Assert.Contains("merge-journal-finisher-gave-up-after-finalize", recalcs);
+            Assert.Contains(logLines, l => l.Contains("[MergeJournal]")
+                && l.Contains("Finisher gave up sess=sess_fb after phase=MarkerCleared")
+                && l.Contains("session rewind points promoted like a completed merge"));
         }
 
         // ---------- RULE 4 stage 2: whole-recording fallback ----------------
