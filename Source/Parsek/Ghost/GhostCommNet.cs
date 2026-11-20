@@ -1016,8 +1016,7 @@ namespace Parsek
                 return;
 
             string key = rec.RecordingId;
-            bool spawnable = rec.TerminalStateValue.HasValue
-                && GhostPlaybackLogic.IsSpawnableTerminal(rec.TerminalStateValue.Value);
+            bool spawnable = GhostPlaybackLogic.HasSpawnableTerminal(rec);
             bool owns = ContinuationOwnsTerminalSpawn(
                 chainIntermediateWouldSpawn,
                 superseded,

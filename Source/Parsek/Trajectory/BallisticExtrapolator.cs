@@ -108,7 +108,7 @@ namespace Parsek
         // every read/write across that boundary converts.
         private const double DegToRad = Math.PI / 180.0;
         private const double RadToDeg = 180.0 / Math.PI;
-        private const double SecondsPerYear = 365.0 * 24.0 * 60.0 * 60.0;
+        internal const double SecondsPerYear = 365.0 * 24.0 * 60.0 * 60.0;
         private const double OrbitEpsilon = 1e-9;
         private const double StateVectorEpsilon = 1e-8;
         private const int MaxLocalCutoffSamples = 720;
@@ -183,11 +183,20 @@ namespace Parsek
             }
         }
 
+        /// <param name="initialSuppressedParentExitParentBodyName">When set, an immediate
+        /// sphere-of-influence exit at the start UT into this PARENT body is not taken: the
+        /// start state sits on the boundary it just crossed inward (a patch start), so the
+        /// boundary test is numerical noise.</param>
+        /// <param name="initialSuppressedChildEntryBodyName">When set, an immediate entry into
+        /// this child body's sphere at the start UT is not taken (a patch start just outside
+        /// the child's sphere it was leaving).</param>
         internal static ExtrapolationResult Extrapolate(
             BallisticStateVector startState,
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
             ExtrapolationLimits? limitsOverride = null,
-            bool warnOnSubSurfaceStart = true)
+            bool warnOnSubSurfaceStart = true,
+            string initialSuppressedParentExitParentBodyName = null,
+            string initialSuppressedChildEntryBodyName = null)
         {
             ExtrapolationLimits limits = limitsOverride ?? ExtrapolationLimits.Default;
             var result = new ExtrapolationResult
@@ -215,9 +224,12 @@ namespace Parsek
             double horizonUT = startState.ut + Math.Max(0.0, limits.maxHorizonYears) * SecondsPerYear;
             var currentState = startState;
             int soiTransitions = 0;
-            string suppressedImmediateChildEntryBodyName = null;
-            string suppressedImmediateParentExitBodyName = null;
-            double suppressedImmediateUT = double.NaN;
+            string suppressedImmediateChildEntryBodyName = initialSuppressedChildEntryBodyName;
+            string suppressedImmediateParentExitBodyName = initialSuppressedParentExitParentBodyName;
+            double suppressedImmediateUT =
+                initialSuppressedChildEntryBodyName != null || initialSuppressedParentExitParentBodyName != null
+                    ? startState.ut
+                    : double.NaN;
 
             double startAltitude = Magnitude(startState.position) - currentBody.Radius;
             ParsekLog.Info(LogTag, string.Format(
