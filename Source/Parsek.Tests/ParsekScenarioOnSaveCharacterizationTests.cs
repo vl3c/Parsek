@@ -30,7 +30,7 @@ namespace Parsek.Tests
             "\"vessel-names\"", "\"preserve-tree-state-guard\"", "\"game-state\"",
             "\"refly-state-persist\"", "\"routes\"", "\"stock-pool-reference\"",
             "\"ledger-held-window\"", "\"rewind-vessel-holds\"", "\"playback-replay-scope\"",
-            "\"removed-replay-flags\"", "\"save-stamp\"", "\"save-format\"",
+            "\"removed-replay-flags\"", "\"rescue-accept-deferrals\"", "\"save-stamp\"", "\"save-format\"",
         };
 
         private static string ClassText()

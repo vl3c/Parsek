@@ -43,9 +43,18 @@ namespace Parsek
         /// <summary>The snapshot names no recovery type, location or target.</summary>
         NotReadable,
         /// <summary>Every target (the kerbal aboard some vessel, the part in some vessel) is
-        /// already in the world: nothing to do. This is also what keeps a regeneration from
-        /// running twice: the vessel it adds is saved with the game.</summary>
+        /// already in the world: nothing to do. A regeneration's vessel is saved with the game,
+        /// so the next rebuild of the same contract finds it here. With
+        /// <see cref="PartiallyPresent"/> it is what keeps a regeneration from running twice:
+        /// a compound rescue is checked target by target, never only as the pair.</summary>
         TargetPresent,
+        /// <summary>A compound rescue (kerbal and part) of which one target is already in the
+        /// world and the other is not (the kerbal aboard a vessel while the snapshot's part id is
+        /// in none, or the part in a vessel while the kerbal is aboard none). Stock's generators
+        /// make both targets together, so a regeneration would seat the same kerbal in a second
+        /// vessel (<c>GenerateKerbalInPart</c> -> <c>SeatKerbal</c>) or add a second copy of the
+        /// part's vessel. Left alone.</summary>
+        PartiallyPresent,
         /// <summary>The committed timeline completes, fails or cancels this contract: its
         /// outcome is decided, and a second stranded copy would be a paradox.</summary>
         CommittedResolution,
@@ -72,14 +81,42 @@ namespace Parsek
     /// world effect.</summary>
     internal enum ContractAcceptRepair
     {
-        /// <summary>Nothing: no effect, nothing missing, a guard holds it, or the scene.</summary>
+        /// <summary>Nothing: no effect, nothing missing, or a guard holds it.</summary>
         None,
         /// <summary>Run the RecoverAsset's own stock generator once
         /// (<c>GenerateLandRecovery</c> / <c>GenerateOrbitalRecovery</c>).</summary>
         RegenerateStrandedAsset,
+        /// <summary>A regeneration the scene refuses (Flight, the editors): the contract id is
+        /// kept in <see cref="RescueAcceptDeferrals"/> and the stranded vessel is regenerated, under
+        /// the same guards, at the next Space Center or Tracking Station visit.</summary>
+        DeferStrandedAsset,
         /// <summary>Apply <c>TourismContract.OnAccepted</c>'s roster change to the tourists
         /// whose decision is <see cref="TouristConversion.Convert"/>.</summary>
         ConvertTourists
+    }
+
+    /// <summary>
+    /// What the deferred-rescue drain (<see cref="RescueAcceptDeferrals"/>) does with one listed
+    /// contract before the stranded-asset guard runs. First match wins.
+    /// </summary>
+    internal enum DeferredRescueDrainStep
+    {
+        /// <summary>Not the Space Center or the Tracking Station: the id stays listed.</summary>
+        KeepNotRegenerationScene,
+        /// <summary>A scenario load or a deferred contract patch is still running; the patch
+        /// fires <c>onContractsLoaded</c> again when it is done, and the drain runs then.</summary>
+        KeepLoadOrPatchPending,
+        /// <summary>The ledger's contracts module is not there yet: the id stays listed.</summary>
+        KeepLedgerNotReady,
+        /// <summary>Stock holds no Active RecoverAsset with this id (it completed, failed, was
+        /// removed or never came back): dropped.</summary>
+        DropContractNotActive,
+        /// <summary>The ledger no longer holds the contract accepted by now (the next contract
+        /// patch takes it off stock's active list): dropped, never regenerated.</summary>
+        DropNotLedgerActive,
+        /// <summary>Run the stranded-asset guard on the live contract; the id leaves the list
+        /// whatever it decides.</summary>
+        Evaluate
     }
 
     /// <summary>What the roster holds for one listed tourist.</summary>
@@ -128,6 +165,9 @@ namespace Parsek
         internal Func<string, bool> KerbalUnowned;
         /// <summary>Named by a committed flight, managed by Parsek, or in the crew swap map.</summary>
         internal Func<string, bool> KerbalReserved;
+        /// <summary>The committed timeline completes, fails or cancels the contract (a committed
+        /// ContractComplete / Fail / Cancel row at any UT). Read by both repairs: the stranded
+        /// asset and the tourist conversion (owner ruling 2026-11-20).</summary>
         internal bool CommittedResolution;
     }
 
@@ -225,12 +265,17 @@ namespace Parsek
         {
             if (!target.Readable)
                 return StrandedAssetDecision.NotReadable;
-            bool kerbalPresent = !target.RecoveringKerbal
-                || (facts.KerbalAboardAnyVessel != null && facts.KerbalAboardAnyVessel(target.KerbalName));
-            bool partPresent = !target.RecoveringPart
-                || (facts.PartInAnyVessel != null && facts.PartInAnyVessel(target.PartId));
+            bool kerbalAboard = target.RecoveringKerbal
+                && facts.KerbalAboardAnyVessel != null && facts.KerbalAboardAnyVessel(target.KerbalName);
+            bool partInWorld = target.RecoveringPart
+                && facts.PartInAnyVessel != null && facts.PartInAnyVessel(target.PartId);
+            bool kerbalPresent = !target.RecoveringKerbal || kerbalAboard;
+            bool partPresent = !target.RecoveringPart || partInWorld;
             if (kerbalPresent && partPresent)
                 return StrandedAssetDecision.TargetPresent;
+            // Any named target already in the world: stock's generators would duplicate it.
+            if (kerbalAboard || partInWorld)
+                return StrandedAssetDecision.PartiallyPresent;
             if (facts.CommittedResolution)
                 return StrandedAssetDecision.CommittedResolution;
             if (target.RecoveringKerbal && facts.KerbalReserved != null
@@ -255,6 +300,27 @@ namespace Parsek
         internal static bool IsRegenerationScene(GameScenes scene)
         {
             return scene == GameScenes.SPACECENTER || scene == GameScenes.TRACKSTATION;
+        }
+
+        /// <summary>
+        /// The deferred-rescue drain's first step for one listed contract
+        /// (<see cref="DeferredRescueDrainStep"/>). <paramref name="ledgerActiveByNow"/> is null
+        /// when the ledger cannot answer yet.
+        /// </summary>
+        internal static DeferredRescueDrainStep DecideDeferredRescueDrainStep(
+            GameScenes scene, bool loadOrPatchPending, bool activeRescueInStock, bool? ledgerActiveByNow)
+        {
+            if (!IsRegenerationScene(scene))
+                return DeferredRescueDrainStep.KeepNotRegenerationScene;
+            if (loadOrPatchPending)
+                return DeferredRescueDrainStep.KeepLoadOrPatchPending;
+            if (!ledgerActiveByNow.HasValue)
+                return DeferredRescueDrainStep.KeepLedgerNotReady;
+            if (!activeRescueInStock)
+                return DeferredRescueDrainStep.DropContractNotActive;
+            if (!ledgerActiveByNow.Value)
+                return DeferredRescueDrainStep.DropNotLedgerActive;
+            return DeferredRescueDrainStep.Evaluate;
         }
 
         /// <summary>
@@ -289,7 +355,9 @@ namespace Parsek
         /// The plan for one rebuilt contract: what its accept-side world effect is, whether
         /// the world lacks it, and what the patch does about it. <paramref name="touristFactOf"/>
         /// answers what the roster holds for one listed tourist; <paramref name="scene"/> is the
-        /// scene the patch runs in.
+        /// scene the patch runs in. A stranded asset to regenerate outside the regeneration
+        /// scenes plans <see cref="ContractAcceptRepair.DeferStrandedAsset"/>; a tourism contract
+        /// the committed timeline resolves converts nobody.
         /// </summary>
         internal static ContractAcceptWorldEffectPlan Plan(
             string contractTypeName, ConfigNode snapshot,
@@ -317,9 +385,16 @@ namespace Parsek
                     if (d == StrandedAssetDecision.Regenerate)
                     {
                         if (IsRegenerationScene(scene))
+                        {
                             plan.Repair = ContractAcceptRepair.RegenerateStrandedAsset;
+                        }
                         else
+                        {
+                            // Owner ruling 2026-11-20: regenerated at the next Space Center or
+                            // Tracking Station visit (RescueAcceptDeferrals).
+                            plan.Repair = ContractAcceptRepair.DeferStrandedAsset;
                             plan.RepairSkipReason = "scene=" + scene;
+                        }
                     }
                     else if (plan.WorldEffectMissing)
                     {
@@ -351,6 +426,13 @@ namespace Parsek
                     plan.Detail = notTourist.Count > 0
                         ? "not a Tourist in the roster: [" + string.Join(", ", notTourist.ToArray()) + "]"
                         : "tourists=" + plan.Tourists.Count.ToString(IC);
+                    if (convert > 0 && strandedFacts.CommittedResolution)
+                    {
+                        // Owner ruling 2026-11-20: the committed timeline completes, fails or
+                        // cancels this contract, so its accept is not replayed into the roster.
+                        plan.RepairSkipReason = StrandedAssetDecision.CommittedResolution.ToString();
+                        break;
+                    }
                     if (convert > 0)
                         plan.Repair = ContractAcceptRepair.ConvertTourists;
                     if (held.Count > 0)

@@ -29,9 +29,10 @@ Not released yet.
 ### Fixed
 
 - **A rescue or tourism contract still works after you go back in time.** If you go back to before
-  you accepted a rescue, the stranded kerbal or part now reappears when the clock reaches the accept
-  again, and a tourism contract's passengers become tourists again, so the contract can still be
-  completed instead of failing. (CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS)
+  you accepted a rescue, the stranded kerbal or part reappears when the clock reaches the accept
+  again (at your next Space Center or Tracking Station visit if you are flying then), and tourism
+  passengers become tourists again, unless your recorded future already ends that contract.
+  (CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS)
 - **One missing recording file no longer stops a mission from saving.** When one recording of a
   mission had lost its file, every later save kept that mission exactly as it was before:
   new flights in it, renames and other changes were silently not saved. The mission now saves

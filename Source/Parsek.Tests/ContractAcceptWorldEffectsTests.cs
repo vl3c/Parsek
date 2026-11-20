@@ -108,13 +108,31 @@ namespace Parsek.Tests
         [InlineData(GameScenes.FLIGHT)]
         [InlineData(GameScenes.EDITOR)]
         [InlineData(GameScenes.MAINMENU)]
-        public void RebuiltRescue_OutsideSpaceCenterAndTrackingStation_IsNotRegenerated(GameScenes scene)
+        public void RebuiltRescue_OutsideSpaceCenterAndTrackingStation_IsDeferredToTheNextVisit(GameScenes scene)
         {
+            // Owner ruling 2026-11-20: the stranded vessel comes at the next Space Center or
+            // Tracking Station visit; the gap is no longer permanent.
             Assert.False(ContractAcceptWorldEffects.IsRegenerationScene(scene));
             ContractAcceptWorldEffectPlan plan = PlanRescue(RewindSaveWorld(), scene);
-            Assert.Equal(ContractAcceptRepair.None, plan.Repair);
+            Assert.Equal(ContractAcceptRepair.DeferStrandedAsset, plan.Repair);
             Assert.True(plan.WorldEffectMissing);
+            Assert.Equal("Regenerate", plan.Outcome);
             Assert.Equal("scene=" + scene, plan.RepairSkipReason);
+        }
+
+        [Fact]
+        public void RebuiltRescue_HeldByAGuard_OutsideTheRegenerationScenes_IsNotDeferred()
+        {
+            // Only a Regenerate decision waits for a regeneration scene; a guard is final.
+            ContractAcceptWorldEffectPlan held = PlanRescue(
+                RewindSaveWorld(committedResolution: true), GameScenes.FLIGHT);
+            Assert.Equal(ContractAcceptRepair.None, held.Repair);
+            Assert.Equal("CommittedResolution", held.RepairSkipReason);
+
+            ContractAcceptWorldEffectPlan present = PlanRescue(
+                RewindSaveWorld(aboard: true), GameScenes.FLIGHT);
+            Assert.Equal(ContractAcceptRepair.None, present.Repair);
+            Assert.Null(present.RepairSkipReason);
         }
 
         [Fact]
@@ -235,6 +253,73 @@ namespace Parsek.Tests
             Assert.Equal("[Sielan Kerman:Reserved]", heldOnly.RepairSkipReason);
         }
 
+        [Fact]
+        public void RebuiltTourism_TheCommittedTimelineResolvesTheContract_ConvertsNobody()
+        {
+            // Owner ruling 2026-11-20: the same CommittedResolution guard the rescue side reads.
+            var world = new StrandedAssetWorldFacts { CommittedResolution = true };
+            foreach (GameScenes scene in new[] { GameScenes.SPACECENTER, GameScenes.FLIGHT })
+            {
+                ContractAcceptWorldEffectPlan plan = ContractAcceptWorldEffects.Plan(
+                    "TourismContract", TourismSnapshot("Barfurt Kerman|Stelney Kerman"),
+                    world, name => OfferedTourist(), scene);
+                Assert.Equal(ContractAcceptRepair.None, plan.Repair);
+                Assert.True(plan.WorldEffectMissing);
+                Assert.Equal("missing", plan.Outcome);
+                Assert.Equal("CommittedResolution", plan.RepairSkipReason);
+            }
+
+            // Nothing to convert: no reason is invented.
+            ContractAcceptWorldEffectPlan present = ContractAcceptWorldEffects.Plan(
+                "TourismContract", TourismSnapshot("Barfurt Kerman"), world,
+                name => new TouristRosterFact { InRoster = true, IsTourist = true }, GameScenes.SPACECENTER);
+            Assert.Equal(ContractAcceptRepair.None, present.Repair);
+            Assert.Null(present.RepairSkipReason);
+        }
+
+        public static IEnumerable<object[]> DrainStepCases()
+        {
+            // Not a regeneration scene: keep, whatever else holds.
+            yield return new object[] { GameScenes.FLIGHT, false, true, (bool?)true, nameof(DeferredRescueDrainStep.KeepNotRegenerationScene) };
+            yield return new object[] { GameScenes.EDITOR, true, false, (bool?)null, nameof(DeferredRescueDrainStep.KeepNotRegenerationScene) };
+            // A load or a contract patch still running: its own onContractsLoaded drains after it.
+            yield return new object[] { GameScenes.SPACECENTER, true, false, (bool?)false, nameof(DeferredRescueDrainStep.KeepLoadOrPatchPending) };
+            // No ledger to read yet: keep.
+            yield return new object[] { GameScenes.SPACECENTER, false, true, (bool?)null, nameof(DeferredRescueDrainStep.KeepLedgerNotReady) };
+            // Stock holds no Active RecoverAsset with the id (completed, failed, removed): drop.
+            yield return new object[] { GameScenes.SPACECENTER, false, false, (bool?)true, nameof(DeferredRescueDrainStep.DropContractNotActive) };
+            // The ledger no longer holds it accepted by now: the next patch removes it, drop.
+            yield return new object[] { GameScenes.TRACKSTATION, false, true, (bool?)false, nameof(DeferredRescueDrainStep.DropNotLedgerActive) };
+            yield return new object[] { GameScenes.SPACECENTER, false, true, (bool?)true, nameof(DeferredRescueDrainStep.Evaluate) };
+            yield return new object[] { GameScenes.TRACKSTATION, false, true, (bool?)true, nameof(DeferredRescueDrainStep.Evaluate) };
+        }
+
+        [Theory]
+        [MemberData(nameof(DrainStepCases))]
+        public void DecideDeferredRescueDrainStep_FirstMatchWins(
+            GameScenes scene, bool loadOrPatchPending, bool activeRescueInStock, bool? ledgerActiveByNow,
+            string expected)
+        {
+            Assert.Equal(expected, ContractAcceptWorldEffects.DecideDeferredRescueDrainStep(
+                scene, loadOrPatchPending, activeRescueInStock, ledgerActiveByNow).ToString());
+        }
+
+        [Fact]
+        public void DeferredRescue_AtTheNextSpaceCenterVisit_RunsTheSameGuardsAsTheRebuild()
+        {
+            // The drain re-plans from the live contract in the regeneration scene: Regenerate
+            // regenerates, and every guard still holds (a vessel that appeared meanwhile, a
+            // committed resolution, a reserved kerbal).
+            Assert.Equal(ContractAcceptRepair.RegenerateStrandedAsset,
+                PlanRescue(RewindSaveWorld(), GameScenes.SPACECENTER).Repair);
+            Assert.Equal(ContractAcceptRepair.None,
+                PlanRescue(RewindSaveWorld(aboard: true), GameScenes.SPACECENTER).Repair);
+            Assert.Equal(ContractAcceptRepair.None,
+                PlanRescue(RewindSaveWorld(committedResolution: true), GameScenes.TRACKSTATION).Repair);
+            Assert.Equal(ContractAcceptRepair.None,
+                PlanRescue(RewindSaveWorld(reserved: true), GameScenes.TRACKSTATION).Repair);
+        }
+
         [Theory]
         [InlineData(false, false, false, false, nameof(TouristConversion.NotInRoster))]
         [InlineData(true, true, false, true, nameof(TouristConversion.AlreadyTourist))]
@@ -341,10 +426,40 @@ namespace Parsek.Tests
 
             RecoverAssetTarget compound = ContractAcceptWorldEffects.ReadRecoverAssetTarget(
                 RescueSnapshot(recoveryType: "3"));
+            Assert.Equal(StrandedAssetDecision.TargetPresent,
+                ContractAcceptWorldEffects.DecideStrandedAsset(compound,
+                    RewindSaveWorld(aboard: true, partInWorld: true)));
             Assert.Equal(StrandedAssetDecision.Regenerate,
+                ContractAcceptWorldEffects.DecideStrandedAsset(compound, RewindSaveWorld()));
+        }
+
+        [Fact]
+        public void DecideStrandedAsset_CompoundRescueHalfInTheWorld_IsNeverRegenerated()
+        {
+            // Stock's generators make the kerbal and the part together: a regeneration with the
+            // kerbal already aboard a vessel would seat him in a second one (GenerateKerbalInPart
+            // -> SeatKerbal), and one with the part present would add a second copy of it. The
+            // snapshot's partID can also be stale after a regeneration re-drew it.
+            RecoverAssetTarget compound = ContractAcceptWorldEffects.ReadRecoverAssetTarget(
+                RescueSnapshot(recoveryType: "3"));
+            Assert.Equal(StrandedAssetDecision.PartiallyPresent,
                 ContractAcceptWorldEffects.DecideStrandedAsset(compound, RewindSaveWorld(aboard: true)));
-            Assert.Equal(StrandedAssetDecision.Regenerate,
+            Assert.Equal(StrandedAssetDecision.PartiallyPresent,
                 ContractAcceptWorldEffects.DecideStrandedAsset(compound, RewindSaveWorld(partInWorld: true)));
+            RecoverAssetTarget surfaceCompound = ContractAcceptWorldEffects.ReadRecoverAssetTarget(
+                RescueSnapshot(recoveryType: "3", recoveryLocation: "3"));
+            Assert.Equal(StrandedAssetDecision.PartiallyPresent,
+                ContractAcceptWorldEffects.DecideStrandedAsset(surfaceCompound, RewindSaveWorld(aboard: true)));
+
+            foreach (GameScenes scene in new[] { GameScenes.SPACECENTER, GameScenes.FLIGHT })
+            {
+                ContractAcceptWorldEffectPlan plan = PlanRescue(RewindSaveWorld(aboard: true), scene,
+                    RescueSnapshot(recoveryType: "3"));
+                Assert.Equal(ContractAcceptRepair.None, plan.Repair);
+                Assert.True(plan.WorldEffectMissing);
+                Assert.Equal("PartiallyPresent", plan.Outcome);
+                Assert.Equal("PartiallyPresent", plan.RepairSkipReason);
+            }
         }
 
         [Fact]

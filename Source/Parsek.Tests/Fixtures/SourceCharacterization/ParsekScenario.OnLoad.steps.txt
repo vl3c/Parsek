@@ -46,6 +46,8 @@ phase playback-replay-scope-load
 call ParsekScenario.LoadPlaybackReplayScope
 phase removed-replay-flags-load
 call ParsekScenario.LoadRemovedReplayFlags
+phase rescue-accept-deferrals-load
+call ParsekScenario.LoadRescueAcceptDeferrals
 phase rewind-point-carry-over
 call RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad
 phase rewind-staged-lists-carry-over
@@ -193,6 +195,8 @@ phase playback-replay-scope-load
 call ParsekScenario.LoadPlaybackReplayScope
 phase removed-replay-flags-load
 call ParsekScenario.LoadRemovedReplayFlags
+phase rescue-accept-deferrals-load
+call ParsekScenario.LoadRescueAcceptDeferrals
 phase rewind-point-carry-over
 call RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad
 phase rewind-staged-lists-carry-over
@@ -278,6 +282,8 @@ phase playback-replay-scope-load
 call ParsekScenario.LoadPlaybackReplayScope
 phase removed-replay-flags-load
 call ParsekScenario.LoadRemovedReplayFlags
+phase rescue-accept-deferrals-load
+call ParsekScenario.LoadRescueAcceptDeferrals
 phase rewind-point-carry-over
 call RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad
 phase rewind-staged-lists-carry-over
@@ -422,6 +428,8 @@ phase playback-replay-scope-load
 call ParsekScenario.LoadPlaybackReplayScope
 phase removed-replay-flags-load
 call ParsekScenario.LoadRemovedReplayFlags
+phase rescue-accept-deferrals-load
+call ParsekScenario.LoadRescueAcceptDeferrals
 phase rewind-point-carry-over
 call RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad
 phase rewind-staged-lists-carry-over
@@ -569,6 +577,8 @@ phase playback-replay-scope-load
 call ParsekScenario.LoadPlaybackReplayScope
 phase removed-replay-flags-load
 call ParsekScenario.LoadRemovedReplayFlags
+phase rescue-accept-deferrals-load
+call ParsekScenario.LoadRescueAcceptDeferrals
 phase rewind-point-carry-over
 call RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad
 phase rewind-staged-lists-carry-over
@@ -726,6 +736,8 @@ phase playback-replay-scope-load
 call ParsekScenario.LoadPlaybackReplayScope
 phase removed-replay-flags-load
 call ParsekScenario.LoadRemovedReplayFlags
+phase rescue-accept-deferrals-load
+call ParsekScenario.LoadRescueAcceptDeferrals
 phase rewind-point-carry-over
 call RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad
 phase rewind-staged-lists-carry-over
@@ -871,6 +883,8 @@ phase playback-replay-scope-load
 call ParsekScenario.LoadPlaybackReplayScope
 phase removed-replay-flags-load
 call ParsekScenario.LoadRemovedReplayFlags
+phase rescue-accept-deferrals-load
+call ParsekScenario.LoadRescueAcceptDeferrals
 phase rewind-point-carry-over
 call RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad
 phase rewind-staged-lists-carry-over

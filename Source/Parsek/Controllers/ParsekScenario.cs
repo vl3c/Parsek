@@ -582,6 +582,11 @@ namespace Parsek
                 savePhase = "removed-replay-flags";
                 RemovedReplayFlags.SaveInto(node);
 
+                // The rescues whose stranded vessel waits for the next Space Center or Tracking
+                // Station visit (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS).
+                savePhase = "rescue-accept-deferrals";
+                RescueAcceptDeferrals.SaveInto(node);
+
                 // A fresh stamp per save: an in-session load that reads another one read a
                 // save no stock load announced (the canary, design 4.1).
                 savePhase = "save-stamp";
@@ -1292,6 +1297,12 @@ namespace Parsek
             // other load keeps memory's and drops the removals after the loaded world's UT below.
             ctx.Phase = "removed-replay-flags-load";
             LoadRemovedReplayFlags(node, earlyLoadKind);
+
+            // The rescues whose stranded vessel waits for a Space Center or Tracking Station
+            // visit describe the world of the save that lists them (LoadReconcilePolicy,
+            // RescueAcceptDeferrals).
+            ctx.Phase = "rescue-accept-deferrals-load";
+            LoadRescueAcceptDeferrals(node, earlyLoadKind);
 
             // A rewind point always survives a plain rewind (operator ruling
             // 2026-09-23). The node above is persistent.sfs as last written, not the

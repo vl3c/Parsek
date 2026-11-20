@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Contracts;
 using Contracts.Parameters;
 using Contracts.Templates;
@@ -22,6 +23,10 @@ namespace Parsek
         }
 
         private const BindingFlags RecoverAssetPrivate = BindingFlags.Instance | BindingFlags.NonPublic;
+
+        /// <summary>The <c>onContractsLoaded</c> subscription that drains
+        /// <see cref="RescueAcceptDeferrals"/>; added once, the first time the list is not empty.</summary>
+        private static EventVoid.OnEvent rescueDeferralDrainHandler;
 
         /// <summary>
         /// Todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS. For one contract the patch just
@@ -67,23 +72,9 @@ namespace Parsek
             if (world == null)
                 world = BuildContractAcceptWorldIndex();
             ContractAcceptWorldIndex w = world;
-            KerbalRoster roster = HighLogic.CurrentGame != null ? HighLogic.CurrentGame.CrewRoster : null;
             KerbalsModule kerbals = LedgerOrchestrator.Kerbals;
-            Func<string, ProtoCrewMember> lookup =
-                name => roster != null && !string.IsNullOrEmpty(name) ? roster[name] : null;
-            var facts = new StrandedAssetWorldFacts
-            {
-                PartInAnyVessel = id => w.PartFlightIds.Contains(id),
-                KerbalAboardAnyVessel = name => !string.IsNullOrEmpty(name) && w.CrewAboard.Contains(name),
-                KerbalInRoster = name => lookup(name) != null,
-                KerbalUnowned = name =>
-                {
-                    ProtoCrewMember pcm = lookup(name);
-                    return pcm != null && pcm.type == ProtoCrewMember.KerbalType.Unowned;
-                },
-                KerbalReserved = name => IsKerbalHeldFromAcceptEffect(kerbals, name),
-                CommittedResolution = HasCommittedContractResolution(CommittedFutureIndexCache.Current, contractId)
-            };
+            Func<string, ProtoCrewMember> lookup = BuildRosterLookup();
+            StrandedAssetWorldFacts facts = BuildStrandedAssetWorldFacts(w, lookup, kerbals, contractId);
             GameScenes scene = HighLogic.LoadedScene;
             ContractAcceptWorldEffectPlan plan = ContractAcceptWorldEffects.Plan(
                 typeName, snapshot, facts,
@@ -106,6 +97,11 @@ namespace Parsek
                 $"skip={plan.RepairSkipReason ?? "none"} ({plan.Detail}; " +
                 $"vessels={w.VesselCount.ToString(IC)} scene={scene})");
 
+            // The rebuild decided this rescue again; an earlier deferral of it is spent.
+            if (plan.Effect == ContractAcceptWorldEffect.StrandedAsset
+                && plan.Repair != ContractAcceptRepair.DeferStrandedAsset)
+                RescueAcceptDeferrals.Remove(contractId, "rebuilt again: outcome=" + plan.Outcome + " repair=" + plan.Repair);
+
             switch (plan.Repair)
             {
                 case ContractAcceptRepair.RegenerateStrandedAsset:
@@ -116,12 +112,221 @@ namespace Parsek
                         world = null;
                     }
                     break;
+                case ContractAcceptRepair.DeferStrandedAsset:
+                    // Owner ruling 2026-11-20: regenerated at the next Space Center or Tracking
+                    // Station visit, under the same guards.
+                    RescueAcceptDeferrals.Add(contractId, "rebuild scene=" + scene);
+                    EnsureRescueDeferralDrainSubscribed();
+                    break;
                 case ContractAcceptRepair.ConvertTourists:
                     if (ConvertRebuiltContractTourists(contractId, lookup, plan.Tourists) > 0)
                         repaired++;
                     break;
             }
             return plan.WorldEffectMissing;
+        }
+
+        private static Func<string, ProtoCrewMember> BuildRosterLookup()
+        {
+            KerbalRoster roster = HighLogic.CurrentGame != null ? HighLogic.CurrentGame.CrewRoster : null;
+            return name => roster != null && !string.IsNullOrEmpty(name) ? roster[name] : null;
+        }
+
+        private static StrandedAssetWorldFacts BuildStrandedAssetWorldFacts(
+            ContractAcceptWorldIndex w, Func<string, ProtoCrewMember> lookup, KerbalsModule kerbals,
+            string contractId)
+        {
+            return new StrandedAssetWorldFacts
+            {
+                PartInAnyVessel = id => w.PartFlightIds.Contains(id),
+                KerbalAboardAnyVessel = name => !string.IsNullOrEmpty(name) && w.CrewAboard.Contains(name),
+                KerbalInRoster = name => lookup(name) != null,
+                KerbalUnowned = name =>
+                {
+                    ProtoCrewMember pcm = lookup(name);
+                    return pcm != null && pcm.type == ProtoCrewMember.KerbalType.Unowned;
+                },
+                KerbalReserved = name => IsKerbalHeldFromAcceptEffect(kerbals, name),
+                CommittedResolution = HasCommittedContractResolution(CommittedFutureIndexCache.Current, contractId)
+            };
+        }
+
+        /// <summary>
+        /// Subscribes the deferred-rescue drain to stock's <c>onContractsLoaded</c>, which stock
+        /// fires once its ContractSystem has loaded a scene's contracts and the contract patch
+        /// fires at its end. Idempotent; the subscription lives for the process (a no-op while
+        /// the list is empty).
+        /// </summary>
+        internal static void EnsureRescueDeferralDrainSubscribed()
+        {
+            if (rescueDeferralDrainHandler != null)
+                return;
+            try
+            {
+                SubscribeRescueDeferralDrainCore();
+                ParsekLog.Verbose(Tag,
+                    "Rescue accept deferrals: drain subscribed to onContractsLoaded " +
+                    $"(pending={RescueAcceptDeferrals.Count.ToString(IC)})");
+            }
+            catch (Exception ex)
+            {
+                rescueDeferralDrainHandler = null;
+                ParsekLog.Warn(Tag,
+                    $"Rescue accept deferrals: drain subscription failed ({ex.GetType().Name}: {ex.Message}); " +
+                    $"pending={RescueAcceptDeferrals.Count.ToString(IC)} wait for the next subscription attempt");
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void SubscribeRescueDeferralDrainCore()
+        {
+            EventVoid.OnEvent handler = () => DrainRescueAcceptDeferrals("onContractsLoaded");
+            GameEvents.Contract.onContractsLoaded.Add(handler);
+            rescueDeferralDrainHandler = handler;
+        }
+
+        /// <summary>
+        /// Owner ruling 2026-11-20 (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS): regenerates
+        /// the stranded vessel of every rescue a rebuild deferred, once the scene is the Space
+        /// Center or the Tracking Station and stock has loaded its contracts. Each listed id is
+        /// kept (another scene, a load or contract patch still running, no ledger yet), dropped
+        /// (stock holds no Active RecoverAsset with it, or the ledger no longer holds it accepted
+        /// by now) or evaluated: the live contract is re-planned with the rebuild's own guards
+        /// (target present or half present, committed resolution, reserved kerbal, roster) and
+        /// regenerated only on Regenerate. An evaluated id leaves the list whatever the outcome,
+        /// so no contract is regenerated twice. Logs one line per evaluated or dropped id and
+        /// one summary.
+        /// </summary>
+        internal static void DrainRescueAcceptDeferrals(string trigger)
+        {
+            if (RescueAcceptDeferrals.Count == 0)
+                return;
+            try
+            {
+                DrainRescueAcceptDeferralsCore(trigger);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Rescue accept deferrals: drain ({trigger}) threw {ex.GetType().Name}: {ex.Message}; " +
+                    $"pending={RescueAcceptDeferrals.Count.ToString(IC)} kept");
+            }
+        }
+
+        private static void DrainRescueAcceptDeferralsCore(string trigger)
+        {
+            GameScenes scene = HighLogic.LoadedScene;
+            bool loadOrPatchPending = ParsekScenario.IsOnLoadInProgress || DeferredContractPatchState.HasPending;
+            ContractSystem system = ContractSystem.Instance;
+            List<Contract> current = system != null ? system.Contracts : null;
+            ContractsModule ledger = LedgerOrchestrator.Contracts;
+            double nowUT = ParsekScenario.GetCurrentTimelineUTForLedgerRecalc();
+
+            var ids = new List<string>(RescueAcceptDeferrals.Pending);
+            int kept = 0, dropped = 0, evaluated = 0, regenerated = 0;
+            DeferredRescueDrainStep lastKeep = DeferredRescueDrainStep.Evaluate;
+            ContractAcceptWorldIndex world = null;
+            for (int i = 0; i < ids.Count; i++)
+            {
+                string id = ids[i];
+                Contract contract = FindContractById(current, id);
+                bool activeRescue = contract is RecoverAsset && contract.ContractState == Contract.State.Active;
+                bool? ledgerActive = null;
+                if (ledger != null && current != null)
+                    ledgerActive = IsLedgerActiveByNow(ledger, id, nowUT);
+                DeferredRescueDrainStep step = ContractAcceptWorldEffects.DecideDeferredRescueDrainStep(
+                    scene, loadOrPatchPending, activeRescue, ledgerActive);
+                switch (step)
+                {
+                    case DeferredRescueDrainStep.KeepNotRegenerationScene:
+                    case DeferredRescueDrainStep.KeepLoadOrPatchPending:
+                    case DeferredRescueDrainStep.KeepLedgerNotReady:
+                        kept++;
+                        lastKeep = step;
+                        continue;
+                    case DeferredRescueDrainStep.DropContractNotActive:
+                    case DeferredRescueDrainStep.DropNotLedgerActive:
+                        dropped++;
+                        RescueAcceptDeferrals.Remove(id, "drain " + step + " (stock state=" +
+                            (contract != null ? contract.GetType().Name + "/" + contract.ContractState : "absent") + ")");
+                        continue;
+                }
+
+                evaluated++;
+                if (world == null)
+                    world = BuildContractAcceptWorldIndex();
+                if (EvaluateDeferredRescue(id, (RecoverAsset)contract, world, scene))
+                {
+                    regenerated++;
+                    world = null;
+                }
+            }
+
+            string summary =
+                $"Rescue accept deferrals drained ({trigger}, scene={scene}): evaluated={evaluated.ToString(IC)} " +
+                $"regenerated={regenerated.ToString(IC)} dropped={dropped.ToString(IC)} kept={kept.ToString(IC)}" +
+                (kept > 0 ? " keepReason=" + lastKeep : "") +
+                $" pending={RescueAcceptDeferrals.Count.ToString(IC)}";
+            if (evaluated > 0 || dropped > 0)
+                ParsekLog.Info(Tag, summary);
+            else
+                ParsekLog.Verbose(Tag, summary);
+        }
+
+        /// <summary>Re-plans one deferred rescue from its live contract, regenerates on
+        /// Regenerate, and takes it off the list. Returns true when stock added a vessel.</summary>
+        private static bool EvaluateDeferredRescue(
+            string contractId, RecoverAsset contract, ContractAcceptWorldIndex world, GameScenes scene)
+        {
+            var live = new ConfigNode("CONTRACT");
+            contract.Save(live);
+            StrandedAssetWorldFacts facts = BuildStrandedAssetWorldFacts(
+                world, BuildRosterLookup(), LedgerOrchestrator.Kerbals, contractId);
+            ContractAcceptWorldEffectPlan plan = ContractAcceptWorldEffects.Plan(
+                "RecoverAsset", live, facts, null, scene);
+            ParsekLog.Info(Tag,
+                $"Rescue accept deferral evaluated: contractId='{contractId}' outcome={plan.Outcome} " +
+                $"repair={plan.Repair} skip={plan.RepairSkipReason ?? "none"} ({plan.Detail}; " +
+                $"vessels={world.VesselCount.ToString(IC)} scene={scene})");
+            bool added = plan.Repair == ContractAcceptRepair.RegenerateStrandedAsset
+                && RegenerateRebuiltStrandedAsset(contractId, contract, plan.Target);
+            RescueAcceptDeferrals.Remove(contractId,
+                "drain evaluated: outcome=" + plan.Outcome + " regenerated=" + added);
+            return added;
+        }
+
+        private static Contract FindContractById(List<Contract> contracts, string contractId)
+        {
+            if (contracts == null || string.IsNullOrEmpty(contractId))
+                return null;
+            for (int i = 0; i < contracts.Count; i++)
+            {
+                Contract c = contracts[i];
+                if (c != null && string.Equals(c.ContractGuid.ToString(), contractId, StringComparison.OrdinalIgnoreCase))
+                    return c;
+            }
+            return null;
+        }
+
+        /// <summary>The ledger holds the contract active and accepted by
+        /// <paramref name="nowUT"/> (the contract patch's own accepted-by-now rule).</summary>
+        private static bool IsLedgerActiveByNow(ContractsModule ledger, string contractId, double nowUT)
+        {
+            bool inLedger = false;
+            foreach (string id in ledger.GetActiveContractIds())
+            {
+                if (string.Equals(id, contractId, StringComparison.OrdinalIgnoreCase))
+                {
+                    contractId = id;
+                    inLedger = true;
+                    break;
+                }
+            }
+            if (!inLedger)
+                return false;
+            List<string> acceptedLater;
+            return SelectContractsAcceptedByNow(
+                new[] { contractId }, ledger.GetActiveContractAcceptUT, nowUT, out acceptedLater).Count == 1;
         }
 
         /// <summary>

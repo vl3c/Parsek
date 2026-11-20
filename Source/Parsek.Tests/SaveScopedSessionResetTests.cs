@@ -506,6 +506,9 @@ namespace Parsek.Tests
             // The removed replay flags' Save cell: Replace(LoadFrom(node)).
             [typeof(RemovedReplayFlags)] = () => RemovedReplayFlags.Replace(
                 RemovedReplayFlags.LoadFrom(EmptyScenarioNode()), "load Cold"),
+            // The rescue accept deferrals' Save cell: Replace(LoadFrom(node)).
+            [typeof(RescueAcceptDeferrals)] = () => RescueAcceptDeferrals.Replace(
+                RescueAcceptDeferrals.LoadFrom(EmptyScenarioNode()), "load Cold"),
             // The helper captures the dropped flight; the cold branch reaps it once the lists are final.
             [typeof(NoSaveSceneExit)] = () => NoSaveSceneExit.ReapDroppedFlightSidecars(false, false, false),
             // Every OnLoad consumes the intent while it classifies, before the helper runs.
@@ -544,6 +547,7 @@ namespace Parsek.Tests
             LedgerHeldWindow.ResetForTesting();
             RewindVesselHold.ResetForTesting();
             RemovedReplayFlags.ResetForTesting();
+            RescueAcceptDeferrals.ResetForTesting();
             Ledger.ResetForTesting();
             NoSaveSceneExit.ResetForTesting();
             SaveFileLoadIntent.ResetForTesting();

@@ -139,8 +139,7 @@ AREAS = collections.OrderedDict([
         [
             "CommittedTreeStateLoadedForTesting", "PreserveRecordingStateIfLoadFault",
             "ShouldPreserveCommittedTreeState", "FindCommittedTreeNodeById",
-            "TryLoadCarryForwardSourceParsekNode", "TryCarryForwardCommittedTreeNodeFromLoadedSave",
-            "PruneCarriedBranchPoints", "AllReferencedIdsKept", "IsCarriedRecordingStillReal",
+            "TryLoadCarryForwardSourceParsekNode",
             "TryRehydrateCommittedTreesAndMissionsFromDiskSave", "FindParsekScenarioNodeInGame",
         ])),
     ("RewindStaging", (
