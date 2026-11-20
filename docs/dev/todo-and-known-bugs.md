@@ -20,6 +20,28 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~BREAKUP-REMNANT-ENDING-DEPENDS-ON-DISTANCE~~: breakup remnants got different endings depending on distance [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `EffectiveLeafFinalizationTests`; medium (a wreck could respawn at the end of its replay)]
+
+Cause: the identity-loss override (`IdentityLossClassifier.IsRecordedIdentityLost`: a remnant that
+kept none of the recorded controller parts and is not trackable on its own is a wreck, whatever
+situation KSP gives it) ran only in `BackgroundRecorder.OnBackgroundVesselGoOnRails`, so only a
+remnant that went on rails (far from the focus) was sealed Destroyed. The same remnant still loaded
+at the commit, or flown as the active vessel, took its live situation (KSP sets LANDED from terrain
+proximity) in `FinalizeIndividualRecording` and could spawn back as a wreck (draft review M8).
+
+Fix: `ParsekFlight.StampTerminalStateFromLiveVessel` (the finalization branch every live leaf goes
+through: the loaded background remnant and the active vessel, scene exit or commit) asks the same
+classifier first, through a new `FinalizationLiveVesselAccess.IsRecordedIdentityLost` seam (default
+`IsRecordedIdentityLostAtFinalization`, which short-circuits debris and recordings with no recorded
+controllers before any live read), and on a positive verdict seals the recording with
+`Recording.MarkDestroyedAtTerminal` at its current end, logged
+(`recorded controllable identity lost for ...`). All three paths now give the same ending.
+
+Tests: `EffectiveLeafFinalizationTests.FinalizeIndividualRecording_LiveRemnantLostItsControllers_IsDestroyed`
+(commit and scene exit, both red before the fix),
+`FinalizeIndividualRecording_LiveRemnantKeptItsControllers_TakesItsSituation`,
+`IsRecordedIdentityLostAtFinalization_NoControllersOrDebris_IsFalseWithoutALiveRead`.
+
 ## ~~CRASH-HANDOFF-LOSES-DESTROYED~~: a crash where KSP moved control to a surviving piece lost the destroyed ending [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `EffectiveLeafFinalizationTests`; medium (a crashed craft respawned intact at its end)]
 
 Cause: `FlightRecorder.VesselDestroyedDuringRecording` reached the recording only on two paths: the

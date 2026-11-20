@@ -321,6 +321,95 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.PropagateRecorderDestructionToTreeRecording(true, null, "t"));
         }
 
+        private static ParsekFlight.FinalizationLiveVesselAccess IdentityAccess(bool identityLost) =>
+            new ParsekFlight.FinalizationLiveVesselAccess(
+                isFound: vessel => !ReferenceEquals(vessel, null),
+                determineTerminalState: vessel =>
+                    RecordingTree.DetermineTerminalState((int)vessel.situation),
+                captureTerminalOrbit: (rec, vessel) => { },
+                captureTerminalPosition: (rec, vessel) => { },
+                tryBackupSnapshot: vessel => null,
+                tryRefreshStableTerminalSnapshot: (rec, vessel, isSceneExit, logPrefix) => false,
+                isRecordedIdentityLost: (rec, vessel) => identityLost);
+
+        private static Recording RemnantRecording(string id)
+        {
+            var rec = new Recording
+            {
+                RecordingId = id,
+                VesselName = "Kerbal X",
+                VesselPersistentId = 777u,
+                Controllers = new List<ControllerInfo>
+                {
+                    new ControllerInfo { partName = "mk1pod.v2", partPersistentId = 5000u }
+                }
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 3.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110.0, altitude = 1.0, bodyName = "Kerbin" });
+            return rec;
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void FinalizeIndividualRecording_LiveRemnantLostItsControllers_IsDestroyed(bool isSceneExit)
+        {
+            // BREAKUP-REMNANT-ENDING-DEPENDS-ON-DISTANCE: the identity-loss override ran only
+            // when a background remnant went on rails; a remnant still loaded at the commit (or
+            // flown as the active vessel) took KSP's LANDED and could respawn as a wreck.
+            var tree = new RecordingTree { Id = "tree-remnant", TreeName = "Kerbal X" };
+            Recording rec = RemnantRecording("remnant");
+            tree.Recordings[rec.RecordingId] = rec;
+            Vessel wreck = TestVessel(rec.VesselPersistentId, Vessel.Situations.LANDED);
+
+            ParsekFlight.FinalizeIndividualRecording(
+                rec,
+                commitUT: 120.0,
+                isSceneExit: isSceneExit,
+                treeContext: tree,
+                findVesselByPid: pid => pid == rec.VesselPersistentId ? wreck : null,
+                liveVesselAccess: IdentityAccess(identityLost: true));
+
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.True(rec.VesselDestroyed);
+            Assert.Null(rec.TerminalPosition);
+            Assert.Contains(logLines, l => l.Contains("[Flight]")
+                && l.Contains("recorded controllable identity lost for 'remnant'"));
+        }
+
+        [Fact]
+        public void FinalizeIndividualRecording_LiveRemnantKeptItsControllers_TakesItsSituation()
+        {
+            var tree = new RecordingTree { Id = "tree-remnant-ok", TreeName = "Kerbal X" };
+            Recording rec = RemnantRecording("intact");
+            tree.Recordings[rec.RecordingId] = rec;
+            Vessel lander = TestVessel(rec.VesselPersistentId, Vessel.Situations.LANDED);
+
+            ParsekFlight.FinalizeIndividualRecording(
+                rec,
+                commitUT: 120.0,
+                isSceneExit: false,
+                treeContext: tree,
+                findVesselByPid: pid => pid == rec.VesselPersistentId ? lander : null,
+                liveVesselAccess: IdentityAccess(identityLost: false));
+
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+            Assert.False(rec.VesselDestroyed);
+        }
+
+        [Fact]
+        public void IsRecordedIdentityLostAtFinalization_NoControllersOrDebris_IsFalseWithoutALiveRead()
+        {
+            // A vessel object nothing initialised: reaching the live classifier would throw.
+            Vessel bare = TestVessel(1u, Vessel.Situations.LANDED);
+            Assert.False(ParsekFlight.IsRecordedIdentityLostAtFinalization(
+                new Recording { RecordingId = "no-controllers" }, bare));
+            var debris = RemnantRecording("debris");
+            debris.IsDebris = true;
+            Assert.False(ParsekFlight.IsRecordedIdentityLostAtFinalization(debris, bare));
+            Assert.False(ParsekFlight.IsRecordedIdentityLostAtFinalization(debris, null));
+        }
+
         [Fact]
         public void PendingSplitDestroyedCapture_AppendedActiveLeafBeatsLiveSplashedSceneExit()
         {

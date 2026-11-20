@@ -32,6 +32,10 @@ Not released yet.
   Space Center, or committing the flight, while an engine or thruster was firing kept its plume
   burning in the replay until the end. It now shuts off at the moment you left.
   (FORCESTOP-LEAVES-ENGINES-LIT)
+- **A wreck is a wreck however close you were.** When a crash broke a craft so that no command
+  part survived, what was left was recorded as destroyed only if you had flown far away from it;
+  nearby it could be saved as landed and come back as a wreck at the end of its replay.
+  (BREAKUP-REMNANT-ENDING-DEPENDS-ON-DISTANCE)
 - **A crash stays a crash when the game hands you a surviving piece.** When a craft crashed and
   the game switched to a piece that survived, the crashed craft could be saved as landed at the
   impact point and come back intact at the end of its replay. (CRASH-HANDOFF-LOSES-DESTROYED)
