@@ -1,4 +1,4 @@
-# In-game test category inventory (all 144 categories)
+# In-game test category inventory (all 145 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -114,6 +114,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `FinalizeBackfill` | 7 | 7 | 0 | 0 | 0 | 0 | H10 | A |
 | `FinalizeLimbo` | 2 | 2 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `Flight` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
+| `FlightGhostPosition` | 3 | 3 | 0 | 0 | 0 | 3 | GPOS-1-kerbalx-ascent-ghost-position (FLIGHT, new) and V23M-mun-landing-player-loop (FLIGHT, step added), both wired 2026-11-20 (test-gap Batch 3, todo FLIGHT-GHOST-POSITION-LANES-2026-11-20, branch `test-gaps-b3-ghost-pos`), NEVER FLOWN with the step: `total=3` literal with the split regexed. Three FLIGHT cells, one per recorded surface (`absolute`, `parent-anchored`, `relative-anchor`), that resolve each live flight ghost at the UT the engine plays it at and compare its rendered root with the recorded body-fixed place through `RouteGhostPlacement`'s comparator (pure core `FlightGhostPosition`, xUnit `FlightGhostPositionTests`). Its own category so no other pinned `BATCH_COMPLETE` tally moves. Each cell self-skips when it compared nothing, which each driving lane reds by requiring `passed=` of at least 1 and the compared summary of the surface it flies. Bucket **A** on the interim standing | A |
 | `FlightIntegration` | 4 | 4 | 0 | 0 | 0 | 0 | H17 | A |
 | `ForwardRender` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `FreeTechUnlock` | 1 | 0 | 1 | 0 | 0 | 1 | AH-1-auto-hire-reserved-applicant (MULTI, appended 2026-11-16 by test gap audit B11 and MEASURED the same day: reading run `2026-11-16_2038`, PASS attempt 1, 45 s, `total=1 passed=1 failed=0 skipped=0` - the cell ran and passed - pinned whole. PROMOTED to bucket **A** (A3) by that run, on the promotion rule below). Was NOT DRIVEN (FREE-TECH-NODE-LOST-AFTER-REWIND, 2026-10-28, branch `fix-free-tech-row`). One SPACECENTER cell that calls stock `ResearchAndDevelopment.UnlockProtoTechNode` on a locked tree node with the free-unlock capture's subscribers swapped for a probe (nothing reaches the career's recorder or ledger), asserts one capture, asserts a repeat call on the now-Available node captures nothing, and restores the node's proto entry in a finally. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips without the R&D singleton, the tech tree, or a locked node. | A |
@@ -238,8 +239,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived from the table on 2026-11-16: **144 categories / 704 declarations**.
-Buckets **A 112 categories (409 declarations)**, **B 31 categories (289 declarations)**,
+Totals, re-derived from the table on 2026-11-20: **145 categories / 707 declarations**.
+Buckets **A 113 categories (412 declarations)**, **B 31 categories (289 declarations)**,
 **C 1 category (4 declarations)**. The 2026-11-16 test gap audit B11 wiring moved six of the
 seven categories no committed spec ran into **A**, first on the interim standing (`total=`
 literal, split regexed) and the same evening as measured **A3** members: reading runs
@@ -267,6 +268,10 @@ on the same interim standing: A 111 -> 112 categories, 406 -> 409 declarations.
 The same day H60 gained two `RouteEscrowContention` cells (todo
 ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW): A stays 112 categories, 409 -> 411 declarations, so
 **144 categories / 704 declarations**.
+The new FLIGHT category `FlightGhostPosition` 3 (2026-11-20, test-gap Batch 3, todo
+FLIGHT-GHOST-POSITION-LANES-2026-11-20) was wired into the new lane
+`GPOS-1-kerbalx-ascent-ghost-position` and into `V23M-mun-landing-player-loop` on the interim
+standing: A 112 -> 113 categories, 409 -> 412 declarations, so **145 categories / 707 declarations**.
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
 the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it; both flew green the
 same day and it stays **B** (each lane is a scene slice, 4 of 9).

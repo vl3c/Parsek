@@ -5023,7 +5023,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # SUB-2-submarine-dive-flight-ghost-spawn LEFT on run 2026-11-18_0112 (both their first
     # flights, PASS attempt 1; passed=1 failed=0 skipped=0 each, read off the RunTests step's
     # capture and the batchComplete verifier's found line in the result JSONs; pinned whole).
+    # GPOS-1-kerbalx-ascent-ghost-position ENTERED and V23M-mun-landing-player-loop
+    # RE-ENTERED on 2026-11-20 (test-gap Batch 3, todo FLIGHT-GHOST-POSITION-LANES-2026-11-20:
+    # the new FlightGhostPosition category's three FLIGHT cells, `total=3` literal with the
+    # split regexed). Not H-series ids; CommittedBatchTallySourceSyncTests gates their
+    # `total=`. Each leaves on its first flight with the step.
     INTERIM_PIN_IDS: set = {
+        "GPOS-1-kerbalx-ascent-ghost-position",
+        "V23M-mun-landing-player-loop",
         "FGV-1-fairing-ghost-visual",
         "SPW-4-max-rails-warp-two-ends-flight",
         "SPW-6-map-view-end-spawn-max-warp",
@@ -11522,6 +11529,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # cadence yet; promotion is a later human call after the report-only
         # reading run and the arming sequence its header specifies. Nothing is
         # outstanding beyond flying it, which is what `--tier operator` is for.
+        "GPOS-1-kerbalx-ascent-ghost-position.toml": "tier=operator by the calibration discipline (authored 2026-11-20, never flown; its first run is the reading run that pins the batch split), NOT debt; test-gap Batch 3, todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: GS-4's Kerbal X ascent in RF-9's coast-exit profile, committed in flight, rewound to launch, the Mallard on the Runway and a warp into the replay, then the FlightGhostPosition batch reads the live ghosts by position; owed: the first flight, then the ordinary promotion call",
         "GS-1-auto-chute-booster.toml":     "FLOWN 4x 2026-08-05 (flight 4 PASS) and ARMED; operator tier is now an open PROMOTION call, not debt",
         # FLOWN GREEN 2026-08-27, same-day discipline: reading run
         # `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two

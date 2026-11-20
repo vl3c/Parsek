@@ -1,0 +1,161 @@
+schema = 1
+id = "GPOS-1-kerbalx-ascent-ghost-position"
+# =====================================================================================
+# GPOS-1: THE KERBAL X ASCENT GHOSTS, READ BY POSITION IN FLIGHT. AUTHORED 2026-11-20,
+# NEVER FLOWN. Test-gap doc 2026-11-18, Batch 3: "flight-scene ghosts never checked by
+# position" (todo FLIGHT-GHOST-POSITION-LANES-2026-11-20). Only route ghosts
+# (RouteGhostPlacement), map loops and end spawns (LeafVesselPlacement) were read by
+# position; every flight-scene replay lane pinned counts and log lines only.
+#
+# WHY A STANDALONE LANE AND NOT A STEP ON GS-4 / GS-9. GS-4 was absorbed into GS-9
+# (2026-10-14) and GS-9's `kx_rewind_watch` mission owns the whole replay: the rewind,
+# the watcher launch, the watch and a PLAYBACK-WAIT that only ends past the recorded end
+# (`playbackMarginSeconds` has a 0 floor). A post-mission RunTests step therefore runs
+# with every ghost already retired, and a mid-replay step does not exist in the seam
+# grammar. Adding a third rewind cycle would move GS-9's armed per-cycle census
+# (8 / 16 / 16). So this lane flies GS-4's subject itself and stops the clock INSIDE the
+# replay.
+#
+# THE ROAD.
+#   1. MISSION `kx_rewind_watch` in RF-9's `coastExitProfile` (RF-9's parameters verbatim,
+#      live-proven there, last green `2026-11-17_1700`): the staged Kerbal X ascent - six
+#      radial boosters dropped in pairs (parent-anchored debris, Relative sections with a
+#      body-fixed shadow), the core discarded (the "Kerbal X Probe" controlled child) - and
+#      the mission ends in FLIGHT with the recorder live and the top stack coasting above
+#      71 km. No rewind, no watcher, no playback inside the mission.
+#   2. SEAM: StopRecording, CommitTree, StopRecording (AIR-2's commit-in-flight recipe),
+#      then InvokeRewindToLaunch tree=latest: the Space Center 15 s before the launch, the
+#      tree kept as a future ghost.
+#   3. GoToEditor SPH craft=Mallard + LaunchFromEditor: the stock Mallard on the RUNWAY,
+#      about 2 km from the pad the ghost launches from, so the replay plays inside the
+#      5 km full-fidelity zone and no live vessel shares the ghost's pad or its craft pid.
+#   4. WarpToUT 72 at up to 10x. GS-9's archived run `2026-11-17_1402` read the launch at
+#      UT 30.78, the six booster ghosts spawned at UT 61.6 / 61.6 / 63.8 / 63.8 / 65.9 /
+#      65.9, two of them done at 67.1 and the other four live (parent-anchored, Relative
+#      coverage) until ~112; the parent ascends until ~143. UT 72 sits after every drop
+#      and ~40 s before the debris coverage ends, which is room for the three cells (8 s
+#      of real time each at most, 1x).
+#   5. RunTests FlightGhostPosition: three FLIGHT cells. `absolute` reads the parent's
+#      Absolute sections, `parent-anchored` the four boosters' body-fixed shadow, and
+#      `relative-anchor` (anchor-local Relative sections of a NON-parent-anchored
+#      recording) has nothing to read on this subject and skips by design.
+#
+# PRE-REGISTERED (the reading run classifies into one; a Parsek-side outcome is a FINDING
+# filed in docs/dev/todo-and-known-bugs.md, never re-flown away):
+#   (P1) the expected shape: absolute and parent-anchored compared >= 1, bad=0, the
+#        batch `total=3 passed=2 failed=0 skipped=1`.
+#   (P2) a `verdict=horizontal` / `verdict=vertical` sample line: a ghost drawn off its
+#        recorded place. Read the sample line's horizM / dAltM and the ghost's section
+#        before calling it a product defect (a boundary seam, a terrain clamp or a
+#        positioner continuity correction would show as a few metres at one UT).
+#   (P3) a cell skipped with ghosts=0 or compared=0: the WarpToUT target missed the
+#        debris window (read the cell's skip reason: outsideWindow / hidden / otherKind),
+#        a spec calibration, not a product finding.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) GS-9 cannot host it (above); no other lane
+# flies this prefix and stops inside the replay. (2) every wait is the mission's own gate
+# or an explicit-UT WarpToUT. (3) no dwell keys. (4) the replay wait is 10x rails warp.
+# (5) b5 coast keys do not apply (kx machine). (6) RF-9's profile already fails fast with
+# named flakes. (7) the count window is GS-4's measured 8 widened by one each way until
+# the reading run (this lane commits in flight, GS-9 at scene exit). (8) operator by the
+# calibration discipline. (9) flight_efficiency.py owed after the first green flight.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-20, NEVER FLOWN (test-gap Batch 3: flight-scene ghosts never checked by position). GS-4's staged Kerbal X ascent flown in RF-9's coastExitProfile, committed in flight and Rewound-to-Launch; the stock Mallard is launched onto the Runway and the clock warped to UT 72, inside the replay with the parent ascending and four booster ghosts parent-anchored; the FlightGhostPosition category then compares each live ghost's rendered root with its recorded body-fixed place (absolute and parent-anchored cells; the relative-anchor cell skips on this subject)."
+instanceProfile = "stock-minimal"
+tags = ["GPOS1", "GS4", "ghost-position", "ghost-render", "rewind-to-launch", "parent-anchored",
+        "ingame-batch"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 1600 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "CommitTree",                                                               expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "MissionMark", args = { label = "gpos1-rewound" },                          expect = "OK" },
+  { cmd = "GoToEditor", args = { facility = "SPH", craft = "Mallard" },               expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                         expect = "OK", budget = 180 },
+  # Inside the replay: after the last booster drop, before the debris coverage ends
+  # (header step 4). At most 10x so the ghosts stay drawn (hidden above 50x).
+  { cmd = "WarpToUT",   args = { ut = "72", maxRate = "10" },                          expect = "OK", budget = 120 },
+  { cmd = "MissionMark", args = { label = "gpos1-sampling" },                         expect = "OK" },
+  { cmd = "RunTests",   args = { category = "FlightGhostPosition" },                  expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# RF-9's coastExitProfile parameters, verbatim (see RF-9-atmosphere-exit-split-stays-open
+# for each number's reason).
+[driver.missionParams]
+craftName                   = "Kerbal X"
+launchSite                  = "LaunchPad"
+coastExitProfile            = true
+coreDiscardApoapsisMeters   = 95000.0
+coreDiscardMaxFlightSeconds = 300.0
+coastExitMinAltitudeMeters  = 71000.0
+coastExitSituations         = ["SUB_ORBITAL"]
+coastExitDebounceFrames     = 2
+coastExitFrames             = 600
+flightMaxSeconds            = 700.0
+recordedSpanWindowSeconds   = { min = 60.0, max = 650.0 }
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# GS-4's measured 8 (parent, six boosters, the probe core), widened by one each way until
+# the reading run: this lane commits in flight where GS-9 commits at scene exit.
+count = { min = 7, max = 9 }
+
+[expectations.logContracts]
+required = [
+  "committree committed=true",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "launchfromeditor complete scene=FLIGHT vessel=Mallard pid=[0-9]+ site=Runway situation=PRELAUNCH ",
+  # FlightGhostPositionInGameTests.cs (FormatSummary in FlightGhostPosition.cs): the two
+  # surfaces this subject puts on screen, each compared at least once with no bad sample.
+  "MISSIONMARK label=gpos1-sampling ut=[\\s\\S]*?FlightGhostPosition summary: kind=absolute scene=FLIGHT frames=[0-9]+ ghosts=[1-9][0-9]* compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 [^\\r\\n]*bodies=\\[Kerbin\\]",
+  "MISSIONMARK label=gpos1-sampling ut=[\\s\\S]*?FlightGhostPosition summary: kind=parent-anchored scene=FLIGHT frames=[0-9]+ ghosts=[1-9][0-9]* compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 [^\\r\\n]*bodies=\\[Kerbin\\]",
+  # Interim pin (INTERIM_PIN_IDS): total literal, split regexed until the reading run
+  # (pre-registered P1: passed=2 skipped=1).
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=FlightGhostPosition scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "goeditor (?:rejected|error) ",
+  "launchfromeditor refused",
+  "FlightGhostPosition: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+# Boot + LoadGame 660 + 2 SetSetting 240 + the flight 1600 (RF-9: 153 s mission wall)
+# + commit 360 + rewind 660 + 3 SetSetting / 2 MissionMark 600 + editor 120 + launch 180
+# + warp 120 + RunTests 300 + quit 120, rounded up.
+budgetSeconds = 5400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

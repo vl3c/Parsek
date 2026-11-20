@@ -20,6 +20,51 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## FLIGHT-GHOST-POSITION-LANES-2026-11-20: no flight-scene ghost was ever read by position [FILED 2026-11-20 from the test-gap doc 2026-11-18 (Batch 3, high priority), branch `test-gaps-b3-ghost-pos`; the in-game category and its xUnit core BUILT, one new lane and one host step AUTHORED, NEVER FLOWN; OPEN: the two reading flights, and the three hosts that cannot take the step (below)]
+
+Only route ghosts (`RouteGhostPlacement`), map loops and end spawns (`LeafVesselPlacement`) were
+compared with their recording by position; every flight-scene replay lane pinned counts and log
+lines, so a ghost drawn on the wrong body rotation, at a Relative offset read as latitude /
+longitude, or at an anchor resolved at the wrong instant would have read green.
+
+**Built.** The FLIGHT category `FlightGhostPosition` (`InGameTests/FlightGhostPositionInGameTests.cs`,
+pure core `InGameTests/FlightGhostPosition.cs`, xUnit `FlightGhostPositionTests`), three cells, one per
+recorded surface: `absolute` (an Absolute section's body-fixed frames), `parent-anchored` (a
+parent-anchored recording's Relative section, read on its body-fixed shadow, its primary playback
+surface) and `relative-anchor` (a NON-parent-anchored Relative section, which the positioner places
+from the anchor's resolved pose and the anchor-local offset; the cell compares it with the body-fixed
+shadow the recorder writes beside the offsets, so the check is not circular). Each live primary ghost
+is resolved at the UT the engine plays it at (the loop unit's span clock, the recording's own loop
+clock, else the current UT, in watch mode's resolution order) and compared through
+`RouteGhostPlacement`'s comparator unchanged (3 m + float grid + one frame of motion horizontally,
+the recorded / terrain-plus-clearance window vertically, here widened by one frame of motion). A loop's
+anchor-local Relative section resolves against the LIVE anchor by contract and is counted unsupported;
+a re-aim, descent-trigger or self-overlapping unit and an overlap loop likewise; a sample whose float
+grid swallows the signal (`InGameFixtureMath.ToleranceResolvesSignal` against max(50 m, one second of
+the ghost's travel)) is counted `unresolved`. A cell that compared nothing skips.
+
+**Lanes (both NEVER FLOWN, interim pins in `INTERIM_PIN_IDS`).**
+- `GPOS-1-kerbalx-ascent-ghost-position` (new, operator, stock-minimal): GS-4's staged Kerbal X ascent
+  in RF-9's `coastExitProfile`, committed in flight, Rewind-to-Launch, the stock Mallard launched onto
+  the Runway, `WarpToUT 72` (after GS-9's measured booster drops at UT 61.6-65.9, inside the four
+  boosters' Relative coverage that ends ~112), then the batch. Expected `absolute` and
+  `parent-anchored` pass, `relative-anchor` skips: `total=3 passed=2 failed=0 skipped=1`.
+- `V23M-mun-landing-player-loop` (step added): the batch after `TimeJump 1272933`, ~60 s before the
+  loop copy's Mun touchdown. Expected `absolute` passes (a mission-loop unit member drawn through the
+  span clock and the Mun body-fixed shift), the other two skip: `total=3 passed=1 failed=0 skipped=2`.
+
+**Hosts that cannot take the step (owner call on whether more lanes are wanted).**
+- GS-4 / GS-9: GS-4 was absorbed into GS-9, whose `kx_rewind_watch` PLAYBACK-WAIT ends only past the
+  recorded end, so a post-mission batch sees no live ghost, and a third rewind cycle would move GS-9's
+  armed per-cycle census. GPOS-1 flies the GS-4 subject instead.
+- BDOCK-1 / BDOCK-2: nothing replays in their flights (both trees are flown live), and the `bdock-*`
+  fixtures carry no rewind save, so a docking replay is only reachable as a LOOP, whose Relative
+  sections bind the live anchor and are unsupported here. A non-loop docking replay (a lane that flies
+  a dock, commits and Rewinds-to-Launch) is what the `relative-anchor` cell still needs.
+- AIR-2 and LAY-1: their replay half plays in the Space Center / Tracking Station, not in FLIGHT, and
+  no vessel near Laythe exists after LAY-1's rewind. A Space Center cell over `ParsekKSC`'s ghosts (the
+  gap AIR-2's header names, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3) is separate work.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
