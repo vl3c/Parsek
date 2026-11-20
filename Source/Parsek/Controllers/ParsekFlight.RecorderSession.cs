@@ -228,6 +228,146 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: should the ACTIVE recording end now because it is debris whose time limit ran
+        /// out (owner ruling Q13, 2026-11-18: a debris piece the player switched to stays debris
+        /// and ends 60 s after it separated)? The limit is read from the tree
+        /// (<see cref="BackgroundRecorder.TryResolveDebrisExpiryUT"/>), so it survives the promotion that cancelled the
+        /// background recorder's own deadline. <paramref name="reason"/> is <c>expired</c> when
+        /// true; otherwise why not (<c>no-active-recording</c>, <c>recorder-not-live</c>,
+        /// <c>hand-off-in-progress</c>, <c>running</c>, or the lifetime resolver's reason).
+        /// </summary>
+        internal static bool EvaluateActiveDebrisLifetimeEnd(
+            RecordingTree tree,
+            bool recorderLive,
+            bool handOffInProgress,
+            double currentUT,
+            out double expiryUT,
+            out string reason)
+        {
+            expiryUT = double.NaN;
+            Recording activeRec = null;
+            if (tree == null
+                || string.IsNullOrEmpty(tree.ActiveRecordingId)
+                || tree.Recordings == null
+                || !tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRec)
+                || activeRec == null)
+            {
+                reason = "no-active-recording";
+                return false;
+            }
+            if (!activeRec.IsDebris)
+            {
+                reason = "not-debris";
+                return false;
+            }
+            if (!recorderLive)
+            {
+                reason = "recorder-not-live";
+                return false;
+            }
+            string separationBpId;
+            if (!BackgroundRecorder.TryResolveDebrisExpiryUT(activeRec, tree, out expiryUT, out separationBpId, out reason))
+                return false;
+            if (currentUT < expiryUT)
+            {
+                reason = "running";
+                return false;
+            }
+            if (handOffInProgress)
+            {
+                reason = "hand-off-in-progress";
+                return false;
+            }
+            reason = "expired";
+            return true;
+        }
+
+        /// <summary>
+        /// Ends the active recording when it is debris past its time limit. The piece is handed
+        /// back to the background recorder (the same flush the vessel-switch path does) and
+        /// closed there exactly like a background time-limit end; the player keeps flying /
+        /// watching the vessel, which is simply no longer recorded.
+        /// </summary>
+        private void CheckActiveDebrisLifetime(double currentUT)
+        {
+            if (activeTree == null || recorder == null) return;
+
+            bool recorderLive = recorder.IsRecording && !recorder.IsBackgrounded;
+            // A split the deferred check has not processed yet must branch under this recording
+            // first: FlushPendingSplits (in the hand-off below) only feeds the captures no
+            // deferred check will take, so wait for the check instead of dropping its split.
+            bool handOffInProgress = pendingSplitInProgress
+                || pendingSplitRecorder != null
+                || pendingDeferredSplitCheckTrigger != DeferredSplitCheckTrigger.None
+                || recorder.HasPendingJointBreakCheck
+                || pendingTreeDockMerge
+                || restoringActiveTree
+                || recorder.ChainToVesselPending
+                || recorder.TransitionToBackgroundPending;
+            double expiryUT;
+            string reason;
+            if (!EvaluateActiveDebrisLifetimeEnd(
+                    activeTree, recorderLive, handOffInProgress, currentUT, out expiryUT, out reason))
+            {
+                if (reason == "hand-off-in-progress")
+                {
+                    ParsekLog.VerboseRateLimited("Flight", "active-debris-lifetime-deferred",
+                        $"Active debris lifetime over but a hand-off is in progress; ending it later: " +
+                        $"rec={activeTree.ActiveRecordingId} expiry={BackgroundRecorder.FormatDebrisUT(expiryUT)} " +
+                        $"currentUT={BackgroundRecorder.FormatDebrisUT(currentUT)}", 5.0);
+                }
+                return;
+            }
+
+            string recId = activeTree.ActiveRecordingId;
+            Recording rec = activeTree.Recordings[recId];
+            uint pid = recorder.RecordingVesselId != 0 ? recorder.RecordingVesselId : rec.VesselPersistentId;
+            if (pid == 0)
+            {
+                ParsekLog.WarnRateLimited("Flight", "active-debris-lifetime-no-pid",
+                    $"Active debris lifetime over but the recording has no vessel pid: rec={recId}");
+                return;
+            }
+
+            ParsekLog.Info("Flight",
+                $"Debris lifetime over on the active recording, handing it back to end it: " +
+                $"rec={recId} pid={pid} expiry={BackgroundRecorder.FormatDebrisUT(expiryUT)} " +
+                $"currentUT={BackgroundRecorder.FormatDebrisUT(currentUT)} (the vessel stays focused, unrecorded)");
+
+            SplitBrancher.EmitPendingSplitBeforeFocusLeaves("ActiveDebrisLifetime");
+            recorder.TransitionToBackground();
+            FlushRecorderToTreeRecording(recorder, activeTree);
+            activeTree.BackgroundMap[pid] = recId;
+            activeTree.ActiveRecordingId = null;
+            recorder.IsRecording = false;
+            RecordingFinalizationCache cache = recorder.GetFinalizationCacheForRecording(rec);
+            recorder = null;
+
+            EnsureBackgroundRecorderAttached("ActiveDebrisLifetime");
+            backgroundRecorder.OnVesselBackgrounded(pid, inheritedFinalizationCache: cache);
+            backgroundRecorder.EndDebrisRecordingForLifetime(pid, expiryUT, currentUT, "active-recorder");
+            DisarmPostSwitchWatchForEndedDebris(new List<uint> { pid });
+        }
+
+        /// <summary>
+        /// A debris piece whose recording just ended must not start a fresh recording from the
+        /// post-switch watcher (armed when the player switched to it while it was still a
+        /// tracked background member): it stays ended (owner ruling Q13).
+        /// </summary>
+        private void DisarmPostSwitchWatchForEndedDebris(List<uint> endedPids)
+        {
+            if (endedPids == null || endedPids.Count == 0 || postSwitchAutoRecord == null)
+                return;
+            for (int i = 0; i < endedPids.Count; i++)
+            {
+                if (!IsPostSwitchAutoRecordArmedForPid(endedPids[i]))
+                    continue;
+                PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("debris-recording-ended");
+                return;
+            }
+        }
+
+        /// <summary>
         /// Creates a new FlightRecorder for the promoted vessel, starts recording with
         /// isPromotion=true, updates activeTree state.
         /// </summary>
