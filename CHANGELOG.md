@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **Switching to a falling booster no longer records it forever.** A dropped stage you switched to
+  kept recording until it crashed, unlike every other dropped stage. It now stays a dropped stage
+  and its recording ends 60 seconds after it separated, while you keep watching it.
+  (DEBRIS-LIFETIME-LOST-ON-PROMOTION)
 - **A crewed or probe-controlled vessel you are not flying records every breakup.** A vessel
   that had already separated once from your rocket no longer ignored its own later separations
   while in the background. Plain debris still records only the separation that made it.

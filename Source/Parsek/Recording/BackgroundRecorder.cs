@@ -709,6 +709,7 @@ namespace Parsek
             }
 
             AdoptInheritedFinalizationCache(vesselPid, recordingId, inheritedFinalizationCache);
+            ArmDebrisLifetimeFromTreeIfMissing(vesselPid, recordingId, "backgrounded");
 
             if (initialEnvironmentOverride.HasValue)
             {

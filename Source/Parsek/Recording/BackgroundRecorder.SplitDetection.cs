@@ -1219,6 +1219,174 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The debris lifetime read from the recording tree, so it follows a debris recording
+        /// wherever it is recorded (owner ruling Q13, 2026-11-18: switching to a falling debris
+        /// piece changes nothing; it stays debris and ends 60 s after it separated). This
+        /// recorder keeps its own per-vessel deadline (<c>debrisTTLExpiry</c>) while it records
+        /// the piece; when the active recorder takes the piece over (a promotion, a
+        /// switch-continuation segment) the deadline is re-derived here, and it is re-armed from
+        /// here when the piece comes back to the background.
+        ///
+        /// <para>
+        /// The separation is the branch point the debris lineage starts at: the recording's
+        /// parent branch point, walking up through
+        /// <see cref="BranchPointType.VesselSwitchContinuation"/> points (a switch onto the piece
+        /// is an observation boundary, not a separation). Every debris creation site keys its
+        /// deadline on that point's UT: the background split (<c>branchUT</c>), the focused
+        /// breakup (<c>breakupBp.UT</c>) and the background debris parent continuation.
+        /// </para>
+        ///
+        /// Pure: false (with a reason) for a recording that is not debris, has no separation
+        /// branch point in <paramref name="tree"/>, or whose lineage cannot be walked.
+        /// </summary>
+        internal static bool TryResolveDebrisExpiryUT(
+            Recording rec,
+            RecordingTree tree,
+            out double expiryUT,
+            out string separationBranchPointId,
+            out string reason)
+        {
+            expiryUT = double.NaN;
+            separationBranchPointId = null;
+            if (rec == null)
+            {
+                reason = "no-recording";
+                return false;
+            }
+            if (!rec.IsDebris)
+            {
+                reason = "not-debris";
+                return false;
+            }
+            if (tree?.BranchPoints == null || tree.Recordings == null)
+            {
+                reason = "no-tree";
+                return false;
+            }
+
+            Recording current = rec;
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            for (int hop = 0; hop < MaxDebrisLineageHops; hop++)
+            {
+                string bpId = current.ParentBranchPointId;
+                if (string.IsNullOrEmpty(bpId) || !visited.Add(bpId))
+                {
+                    reason = string.IsNullOrEmpty(bpId) ? "no-separation-branch-point" : "lineage-cycle";
+                    return false;
+                }
+
+                BranchPoint bp = null;
+                for (int i = 0; i < tree.BranchPoints.Count; i++)
+                {
+                    BranchPoint candidate = tree.BranchPoints[i];
+                    if (candidate != null && string.Equals(candidate.Id, bpId, StringComparison.Ordinal))
+                    {
+                        bp = candidate;
+                        break;
+                    }
+                }
+                if (bp == null)
+                {
+                    reason = "branch-point-missing";
+                    return false;
+                }
+
+                if (bp.Type != BranchPointType.VesselSwitchContinuation)
+                {
+                    if (double.IsNaN(bp.UT) || double.IsInfinity(bp.UT))
+                    {
+                        reason = "branch-point-ut-invalid";
+                        return false;
+                    }
+                    expiryUT = bp.UT + DebrisTTLSeconds;
+                    separationBranchPointId = bp.Id;
+                    reason = "separation";
+                    return true;
+                }
+
+                string parentId = bp.ParentRecordingIds != null && bp.ParentRecordingIds.Count > 0
+                    ? bp.ParentRecordingIds[0]
+                    : null;
+                Recording parent;
+                if (string.IsNullOrEmpty(parentId) || !tree.Recordings.TryGetValue(parentId, out parent)
+                    || parent == null)
+                {
+                    reason = "continuation-parent-missing";
+                    return false;
+                }
+                current = parent;
+            }
+
+            reason = "lineage-too-deep";
+            return false;
+        }
+
+        private const int MaxDebrisLineageHops = 64;
+
+        internal static string FormatDebrisUT(double ut)
+            => ut.ToString("F1", CultureInfo.InvariantCulture);
+
+        /// <summary>
+        /// Re-arms the debris time limit of a debris recording handed (back) to the background
+        /// recorder when it holds none: a debris piece the player switched to and away from
+        /// again (the promotion cancelled the background entry), or any other hand-off. The
+        /// limit is read from the tree (<see cref="TryResolveDebrisExpiryUT"/>), so it is the same 60 s
+        /// from the separation the piece had before (owner ruling Q13). A lifetime already
+        /// over ends the recording on the next <see cref="CheckDebrisTTL"/>. A fresh split
+        /// child sets its own entry right after this with the same value.
+        /// </summary>
+        private void ArmDebrisLifetimeFromTreeIfMissing(uint vesselPid, string recordingId, string context)
+        {
+            if (debrisTTLExpiry.ContainsKey(vesselPid) || tree?.Recordings == null)
+                return;
+            Recording rec;
+            if (string.IsNullOrEmpty(recordingId)
+                || !tree.Recordings.TryGetValue(recordingId, out rec)
+                || rec == null
+                || !rec.IsDebris)
+                return;
+
+            double expiryUT;
+            string separationBpId, reason;
+            if (!TryResolveDebrisExpiryUT(rec, tree, out expiryUT, out separationBpId, out reason))
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"Debris lifetime not re-armed: pid={vesselPid} rec={recordingId} " +
+                    $"context={context} reason={reason}");
+                return;
+            }
+
+            debrisTTLExpiry[vesselPid] = expiryUT;
+            ParsekLog.Info("BgRecorder",
+                $"Debris lifetime re-armed from the tree: pid={vesselPid} rec={recordingId} " +
+                $"expiryUT={FormatDebrisUT(expiryUT)} separationBp={separationBpId} " +
+                $"context={context}");
+        }
+
+        /// <summary>
+        /// Ends a debris recording whose time limit ran out while the ACTIVE recorder held it:
+        /// the flight host hands the piece back to the background first (so this recorder owns
+        /// its tracking state), then this closes it exactly like a background time-limit end.
+        /// False when the vessel is not a background member.
+        /// </summary>
+        internal bool EndDebrisRecordingForLifetime(uint vesselPid, double expiryUT, double endUT, string context)
+        {
+            if (tree?.BackgroundMap == null || !tree.BackgroundMap.ContainsKey(vesselPid))
+            {
+                ParsekLog.Warn("BgRecorder",
+                    $"EndDebrisRecordingForLifetime: pid={vesselPid} is not a background member " +
+                    $"context={context}");
+                return false;
+            }
+            ParsekLog.Info("BgRecorder",
+                $"Debris lifetime over for a piece handed back from the active recorder, ending recording: " +
+                $"vesselPid={vesselPid} expiry={FormatDebrisUT(expiryUT)} " +
+                $"currentUT={FormatDebrisUT(endUT)} context={context}");
+            EndDebrisRecording(vesselPid, endUT, BackgroundRecordingEndReason.TtlExpired);
+            return true;
+        }
+
+        /// <summary>
         /// Sets the debris TTL expiry for an externally-created debris recording.
         /// Called by ParsekFlight.ProcessBreakupEvent when adding debris child
         /// recordings to the active tree.

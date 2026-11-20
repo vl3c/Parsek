@@ -567,6 +567,7 @@ namespace Parsek
                 SwitchSegmentSessionId = sessionId.ToString("D", CultureInfo.InvariantCulture),
             };
             newRec.Points.Add(boundary);
+            InheritDebrisIdentityFromParent(tree, parentRec, newRec, switchUT);
 
             // Step 7: attach under the parent terminal leaf via a fresh
             // VesselSwitchContinuation branch point (or skip when standalone).
@@ -616,6 +617,48 @@ namespace Parsek
                     switchUT.ToString("R", CultureInfo.InvariantCulture)));
 
             return result;
+        }
+
+        /// <summary>
+        /// Owner ruling Q13 (2026-11-18): switching to a falling debris piece changes nothing,
+        /// so a continuation segment of a debris recording whose time limit still runs at
+        /// <paramref name="switchUT"/> stays debris: it keeps <c>IsDebris</c> and
+        /// <c>ParentAnchorRecordingId</c>, and its time limit (read through the
+        /// <see cref="BranchPointType.VesselSwitchContinuation"/> point by
+        /// <see cref="BackgroundRecorder.TryResolveDebrisExpiryUT"/>) is still 60 s from the separation, which the active
+        /// recorder honours. A debris parent past its lifetime (a piece of an older flight)
+        /// continues as a plain segment, as before.
+        /// </summary>
+        internal static void InheritDebrisIdentityFromParent(
+            RecordingTree tree, Recording parentRec, Recording newRec, double switchUT)
+        {
+            if (parentRec == null || newRec == null || !parentRec.IsDebris)
+                return;
+
+            double expiryUT;
+            string separationBpId, reason;
+            bool resolved = BackgroundRecorder.TryResolveDebrisExpiryUT(
+                parentRec, tree, out expiryUT, out separationBpId, out reason);
+            if (!resolved || switchUT >= expiryUT)
+            {
+                ParsekLog.Info("SwitchSegment",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "debris parent past its lifetime, continuation records as a plain segment: " +
+                        "parentRecId={0} segmentRecId={1} reason={2} expiry={3:F1} switchUT={4:F1}",
+                        parentRec.RecordingId, newRec.RecordingId,
+                        resolved ? "lifetime-over" : reason, expiryUT, switchUT));
+                return;
+            }
+
+            newRec.IsDebris = true;
+            newRec.ParentAnchorRecordingId = parentRec.ParentAnchorRecordingId;
+            ParsekLog.Info("SwitchSegment",
+                string.Format(CultureInfo.InvariantCulture,
+                    "continuation keeps debris identity: parentRecId={0} segmentRecId={1} " +
+                    "parentAnchorRecId={2} separationBp={3} expiry={4:F1} switchUT={5:F1}",
+                    parentRec.RecordingId, newRec.RecordingId,
+                    parentRec.ParentAnchorRecordingId ?? "(none)", separationBpId,
+                    expiryUT, switchUT));
         }
 
         /// <summary>
