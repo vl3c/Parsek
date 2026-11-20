@@ -33,8 +33,9 @@ it (draft review question 7). Owner ruling Q13 (2026-11-18): "Always the 60 s li
 Fix: the limit is read from the tree by the pure `BackgroundRecorder.TryResolveDebrisExpiryUT` (separation
 branch point UT + 60 s, walking up through `VesselSwitchContinuation` points). The active recorder
 honours it: `ParsekFlight.CheckActiveDebrisLifetime` (pure gate `EvaluateActiveDebrisLifetimeEnd`,
-deferred while a split, dock merge, restore or hand-off is in progress) hands the piece back to the
-background recorder the way a vessel switch does and ends it there
+deferred while a split, an unprocessed split check, dock merge, restore or hand-off is in progress)
+hands the piece back to the background recorder the way a vessel switch does, flushing the coalescer
+window and unprocessed decouple captures first (`FlushPendingSplits`) and ends it there
 (`BackgroundRecorder.EndDebrisRecordingForLifetime`, a background time-limit end); the vessel stays
 focused, unrecorded. `OnVesselBackgrounded` re-arms the same limit for a debris piece with none
 (`Debris lifetime re-armed from the tree`, Info for a hand-back, Verbose for a recording created this

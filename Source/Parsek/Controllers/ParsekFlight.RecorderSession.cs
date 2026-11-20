@@ -293,8 +293,13 @@ namespace Parsek
             if (activeTree == null || recorder == null) return;
 
             bool recorderLive = recorder.IsRecording && !recorder.IsBackgrounded;
+            // A split the deferred check has not processed yet must branch under this recording
+            // first: FlushPendingSplits (in the hand-off below) only feeds the captures no
+            // deferred check will take, so wait for the check instead of dropping its split.
             bool handOffInProgress = pendingSplitInProgress
                 || pendingSplitRecorder != null
+                || pendingDeferredSplitCheckTrigger != DeferredSplitCheckTrigger.None
+                || recorder.HasPendingJointBreakCheck
                 || pendingTreeDockMerge
                 || restoringActiveTree
                 || recorder.ChainToVesselPending
