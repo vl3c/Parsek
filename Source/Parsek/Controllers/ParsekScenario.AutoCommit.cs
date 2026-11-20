@@ -406,6 +406,11 @@ namespace Parsek
                 else
                 {
                     string reason = ghostOnlyReason;
+                    // reason=re-fly-active writes no supersede rows on purpose: a Re-Fly
+                    // supersede is never done silently. The attempt stays NotCommitted under
+                    // its session marker; while the marker validates the session (and its
+                    // Discard) stays alive, and once it does not the load-time sweep ends the
+                    // session and discards the attempt as a zombie, keeping the old flight.
                     int snapshotsNulled = AutoCommitTreeGhostOnly(pt);
                     if (!CommitPendingTreeAsApplied(pt))
                     {

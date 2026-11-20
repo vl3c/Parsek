@@ -20,6 +20,10 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REFLY-GHOST-ONLY-AUTOCOMMIT-NO-SUPERSEDE: a ghost-only auto-commit outside flight during a Re-Fly writes no supersede rows [FILED 2026-11-18 by the recording split / trim / merge review (finding L13), by code reading. NOT A BUG (by design), decided 2026-11-20 from the code and `docs/dev/done/plans/silent-full-fidelity-autocommit.md` section 4.2; comment added at the site, branch `rsr-wp2-refly-merge`]
+
+`ParsekScenario.AutoCommitPendingTreeOutsideFlight` routes an active Re-Fly to the ghost-only commit (`ClassifyAutoCommitFidelity` reason `re-fly-active`) on purpose: a full commit would run `MergeDialog.TryCommitReFlySupersede`, the irreversible supersede the plan forbids doing without the player's click. The ghost-only commit leaves the attempt `NotCommitted` (`ApplyRewindProvisionalMergeStates` only touches `Immutable` recordings). While the session marker validates, the session and its Discard stay alive; once it does not, `LoadTimeSweep` ends the session and discards the attempt as a zombie, keeping the old flight. That is the dialog-less equivalent of Discard, which is the safe default the plan chose. Nothing to fix; the comment at the ghost-only branch now says so.
+
 ## ~~MERGE-DUPLICATE-SKIP-TOASTS-MERGED~~: a duplicate-commit skip dropped the pending flight while toasting "Merged" [FILED 2026-11-18 by the recording split / trim / merge review (finding M13), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; medium (a flight silently lost). The commit side of owner RULE 3 ("my live flight wins") is a later package; this entry only makes the skip honest]
 
 **Cause:** `TreeCommitService.CommitTreeCore` returns early when a different tree object with the same id is committed and the incoming tree is not a richer topology (`ShouldReplaceCommittedTree`), but `CommitPendingTree` still emptied the pending slot and `MergeDialog.MergeCommit` went on to notify the ledger, run the Re-Fly supersede and toast "Merged".

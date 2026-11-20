@@ -882,7 +882,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Finisher_UnknownPhase_TreatsAsRollback()
+        public void Finisher_UnknownPhase_DrivesForwardAndClearsTheJournal()
         {
             var (scenario, _) = MakeStandardFixture();
             scenario.ActiveMergeJournal = new MergeJournal
