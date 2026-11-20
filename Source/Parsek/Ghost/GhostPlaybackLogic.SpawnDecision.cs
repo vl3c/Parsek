@@ -482,10 +482,19 @@ namespace Parsek
             out string reason)
         {
             reason = "";
-            // Terminal states: destroyed/recovered/docked/boarded/suborbital should not spawn
-            // SubOrbital includes FLYING and ESCAPING — vessel would materialize mid-air and crash (#45)
+            // A SubOrbital that is an escape trajectory with a recorded terminal orbit
+            // spawns on that path (owner ruling Q10, 2026-11-18): the live spawn carries
+            // the orbit to the spawn UT and runs the terminal-orbit safety check on it.
+            bool escapeTerminal = Recording.IsEscapeTrajectoryTerminal(rec, out string escapeEvidence);
+            if (escapeTerminal)
+                LogEscapeTerminalAdmitted(rec, escapeEvidence);
+
+            // Terminal states: destroyed/recovered/docked/boarded/suborbital should not spawn.
+            // SubOrbital includes FLYING (would materialize mid-air and crash, #45); its
+            // ESCAPING half spawns only as an escape terminal (above).
             if (rec.TerminalStateValue.HasValue
-                && !IsSpawnableTerminal(rec.TerminalStateValue.Value))
+                && !IsSpawnableTerminal(rec.TerminalStateValue.Value)
+                && !escapeTerminal)
             {
                 reason = $"terminal state {rec.TerminalStateValue.Value}";
                 return true;
@@ -528,8 +537,9 @@ namespace Parsek
             // from recording start. Orbiting: vessel captured during ascent (FLYING)
             // but achieved orbit. The spawn path corrects the snapshot situation
             // before spawning. (#169, #EVA-spawn)
-            bool terminalOverridesUnsafe = rec.TerminalStateValue.HasValue
-                && IsSpawnableTerminal(rec.TerminalStateValue.Value);
+            bool terminalOverridesUnsafe = escapeTerminal
+                || (rec.TerminalStateValue.HasValue
+                    && IsSpawnableTerminal(rec.TerminalStateValue.Value));
             if (!terminalOverridesUnsafe && IsSnapshotSituationUnsafe(rec.VesselSnapshot))
             {
                 reason = "snapshot situation unsafe (FLYING/SUB_ORBITAL)";
@@ -588,6 +598,22 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private static void LogEscapeTerminalAdmitted(Recording rec, string evidence)
+        {
+            ParsekLog.VerboseRateLimited("Spawner",
+                "escape-terminal-admitted." + (rec.RecordingId ?? "(null)"),
+                string.Format(CultureInfo.InvariantCulture,
+                    "Escape-trajectory terminal admitted for spawn: rec={0} vessel=\"{1}\" " +
+                    "evidence={2} body={3} sma={4:F1} ecc={5:F5}",
+                    rec.RecordingId ?? "(null)",
+                    rec.VesselName ?? "(null)",
+                    evidence,
+                    rec.TerminalOrbitBody ?? "(null)",
+                    rec.TerminalOrbitSemiMajorAxis,
+                    rec.TerminalOrbitEccentricity),
+                minIntervalSeconds: 30.0);
         }
 
         internal const string LiveFlownRecordingSpawnReason =
@@ -977,6 +1003,12 @@ namespace Parsek
             // continued by the chain tip, so spawning it here too would leave a duplicate.
             if (result.needsSpawn && ShouldSuppressSpawnForChain(chains, rec).suppressed)
                 return (false, KscSpawnSkipIntermediateGhostChainLink);
+
+            // An escape trajectory spawns on its recorded orbit like an Orbiting terminal,
+            // so it defers to the flight scene the same way (#171).
+            if (result.needsSpawn && Recording.IsEscapeTrajectoryTerminal(rec))
+                return (false, "orbital vessel deferred to flight scene "
+                    + "(terminal=SubOrbital on an escape trajectory)");
 
             // The #171 deferral for an un-finalized recording: with no terminal state the
             // snapshot's own situation is what the finalize path would have decided (the

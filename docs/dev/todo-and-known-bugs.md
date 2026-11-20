@@ -20,6 +20,59 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS~~: a probe left on an escape trajectory ended SubOrbital and never became real [FILED 2026-11-18 by the recording split / trim / merge review (design question 4), owner ruling Q10 "spawn on its path". FIXED 2026-11-20, branch `rsr-wp7-spawn-ends`; xUnit (`EscapeTrajectorySpawnTests`); no lane flies it yet; medium (a vessel the player left flying vanished at the end of its replay)]
+
+What the player saw: commit a flight with a probe on its way out of Kerbin (or the Mun), rewind,
+and watch the replay end: the probe's ghost disappears and no vessel is left on the path.
+
+Cause. KSP reports such a vessel ESCAPING (`Vessel.updateSituation`, decompiled 1.12.5: outside
+the atmosphere, `eccentricity >= 1` or `ApR >= sphereOfInfluence`, whatever the periapsis), and
+`RecordingTree.DetermineTerminalState` folds ESCAPING into `TerminalState.SubOrbital`, which
+`GhostPlaybackLogic.IsSpawnableTerminal` never admits (the #45 rule written for FLYING). The
+terminal orbit was captured (`ParsekFlight.CaptureTerminalOrbit` covers ESCAPING), but
+`VesselSpawner.HasRecordedTerminalOrbit` and the orbit seeds required `semiMajorAxis > 0`, so a
+hyperbolic orbit could not have been spawned anyway, and nothing carried an orbit across a sphere
+of influence change.
+
+Why no new `TerminalState` member (decided from the code). A dedicated `Escaping` member would be
+the cleaner label, but about 25 consumers switch on the terminal state, and the Re-Fly ones in
+`Rewind/` (`UnfinishedFlightClassifier`: an Orbiting / SubOrbital non-focus slot is an Unfinished
+Flight; `ReFlyAutoSealPreview`: Orbiting seals the focus slot) would silently change meaning for
+escaping vessels; `Orbiting` is wrong too (it means a stable bound orbit to the Re-Fly seal, the
+timeline "Ends orbiting X" text and route endpoints). A new member also could not reach recordings
+already committed. So the terminal state stays `SubOrbital` (in flight, unconcluded, labelled
+"Sub-orbital" as before) and only the spawn changes.
+
+Fix. `Recording.IsEscapeTrajectoryTerminal` / `EscapeTrajectoryTerminal.IsEscapeTerminal`: a
+`SubOrbital` terminal with a propagatable recorded terminal orbit and escape evidence (an open
+conic, or the snapshot's ESCAPING situation for a closed conic whose apoapsis is beyond the sphere)
+is admitted by `TryRejectSpawnForTerminalAndSituation` and deferred to the flight scene at the Space
+Center like an Orbiting one. It takes the orbit spawn route (`ShouldUseRecordedTerminalOrbitSpawnState`,
+`ShouldRouteThroughSpawnAtPosition`), seeded from the terminal orbit itself and carried from its
+epoch to the spawn UT by `EscapeTrajectoryTerminal.ResolveAtUT` (the scene-exit finalizer's
+two-body `BallisticExtrapolator` over the live bodies: sphere-of-influence exits and encounters);
+`VesselSpawner.ResolveEscapeSpawnBody` gives the end-of-recording, chain-tip and Ready-reference
+spawns the body the vessel is in at the spawn UT. A path that ends in an atmosphere or on a surface
+before the spawn UT, or cannot be followed, is refused (`Cannot spawn terminal orbit safely ...
+terminal-orbit-resolution-failed`, with the `escape path refused` line naming the reason). The
+terminal-orbit safety check runs on the spawn-UT orbit; for a conic that leaves the sphere and is
+past periapsis the periapsis it judges is the current altitude (`ResolveEscapeEffectivePeriapsisAltitude`),
+so a direct-ascent escape whose periapsis is inside the planet spawns, and the same conic flown
+inbound is refused. `ComputeSpawnMeanAnomaly` propagates a hyperbolic mean anomaly without wrapping.
+A spawned escape vessel that dies is abandoned like a terminal-orbit vessel (BUG-C path). Log lines:
+`Escape-trajectory terminal admitted for spawn`, `Escape spawn body resolved through patched conics`,
+`escape terminal orbit for rec=...`, `Escape spawn safety: ... judgedPeriapsis=`.
+
+Tests: `EscapeTrajectorySpawnTests` (evidence truth table, the spawn decision and KSC deferral
+(red on the old code), the spawn routes, the hyperbolic mean anomaly, the effective periapsis and
+the safety verdicts, `ResolveAtUT` in-sphere / after the sphere exit / diving into the atmosphere /
+unknown body).
+
+Residue: (a) the label still reads Sub-orbital for an escaping vessel; (b) live-proven by no lane
+(recommended: a probe committed on a Kerbin escape, rewound, the end spawn read in flight before and
+after the sphere exit); (c) the extrapolator samples encounters at 3600 s, so a very short moon pass
+between the end and a much later spawn UT can be missed (the scene-exit finalizer shares the limit).
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the

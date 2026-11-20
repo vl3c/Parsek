@@ -215,7 +215,8 @@ namespace Parsek
             TrajectoryPoint? last = rec.Points != null && rec.Points.Count > 0
                 ? (TrajectoryPoint?)rec.Points[rec.Points.Count - 1]
                 : null;
-            body = VesselSpawner.ResolveSpawnRotationBody(rec, last);
+            body = VesselSpawner.ResolveEscapeSpawnBody(
+                rec, VesselSpawner.ResolveSpawnRotationBody(rec, last), spawnUT);
             if (body == null)
             {
                 reason = "no-spawn-body";

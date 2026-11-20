@@ -14,7 +14,188 @@ namespace Parsek
         {
             return rec != null
                 && !string.IsNullOrEmpty(rec.TerminalOrbitBody)
-                && rec.TerminalOrbitSemiMajorAxis > 0.0;
+                && (rec.TerminalOrbitSemiMajorAxis > 0.0
+                    || Recording.IsEscapeTrajectoryTerminal(rec));
+        }
+
+        /// <summary>Seed source name of an escape-trajectory spawn (the recorded terminal orbit).</summary>
+        internal const string TerminalOrbitSeedEscapeTerminal = "escape-terminal-orbit";
+
+        /// <summary>
+        /// Pure: the periapsis altitude the terminal-orbit safety check judges for an escape
+        /// trajectory. A vessel that leaves the sphere of influence and is already past
+        /// periapsis never comes back down in this body, so the lowest point of its remaining
+        /// path is where it is now; one still approaching periapsis passes through it first.
+        /// A conic that stays inside the sphere of influence keeps its own periapsis.
+        /// </summary>
+        internal static double ResolveEscapeEffectivePeriapsisAltitude(
+            double periapsisAltitude,
+            double currentAltitude,
+            bool leavesSphereOfInfluence,
+            bool approachingPeriapsis)
+        {
+            if (!leavesSphereOfInfluence || approachingPeriapsis)
+                return periapsisAltitude;
+            return currentAltitude;
+        }
+
+        /// <summary>
+        /// Pure: does a conic with these elements leave a sphere of influence of radius
+        /// <paramref name="sphereOfInfluence"/>? Open conics always do; a closed one does when
+        /// its apoapsis radius is beyond the sphere (KSP's own ESCAPING rule).
+        /// </summary>
+        internal static bool ConicLeavesSphereOfInfluence(
+            double semiMajorAxis,
+            double eccentricity,
+            double sphereOfInfluence)
+        {
+            if (double.IsNaN(eccentricity) || double.IsNaN(semiMajorAxis))
+                return false;
+            if (eccentricity >= 1.0)
+                return true;
+            if (double.IsNaN(sphereOfInfluence) || sphereOfInfluence <= 0.0
+                || double.IsInfinity(sphereOfInfluence))
+                return false;
+            return semiMajorAxis * (1.0 + eccentricity) > sphereOfInfluence;
+        }
+
+        /// <summary>
+        /// The body an escape-trajectory spawn at <paramref name="ut"/> belongs to: the
+        /// sphere of influence its recorded terminal orbit has reached by then through patched
+        /// conics. Any other recording, or a path that cannot be followed, keeps
+        /// <paramref name="defaultBody"/> (the orbit build then refuses on its own).
+        /// </summary>
+        internal static CelestialBody ResolveEscapeSpawnBody(
+            Recording rec,
+            CelestialBody defaultBody,
+            double ut)
+        {
+            if (!Recording.IsEscapeTrajectoryTerminal(rec))
+                return defaultBody;
+
+            if (!TryResolveEscapeSpawnConic(rec, ut, out EscapeSpawnConicResolution resolution)
+                || !resolution.Resolved
+                || string.IsNullOrEmpty(resolution.BodyName))
+            {
+                return defaultBody;
+            }
+
+            if (defaultBody != null
+                && string.Equals(defaultBody.name, resolution.BodyName, StringComparison.Ordinal))
+            {
+                return defaultBody;
+            }
+
+            CelestialBody resolved = FlightGlobals.GetBodyByName(resolution.BodyName);
+            ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                "Escape spawn body resolved through patched conics: rec={0} vessel=\"{1}\" " +
+                "terminalBody={2} spawnBody={3} defaultBody={4} ut={5:F2} soiTransitions={6}",
+                rec.RecordingId ?? "(null)",
+                rec.VesselName ?? "(null)",
+                rec.TerminalOrbitBody ?? "(null)",
+                resolution.BodyName,
+                defaultBody?.name ?? "(null)",
+                ut,
+                resolution.SoiTransitions));
+            return resolved ?? defaultBody;
+        }
+
+        /// <summary>
+        /// Carries an escape recording's terminal orbit to <paramref name="ut"/> through the
+        /// live bodies (<see cref="EscapeTrajectoryTerminal.ResolveAtUT"/>). False when the
+        /// live body table cannot be built.
+        /// </summary>
+        private static bool TryResolveEscapeSpawnConic(
+            Recording rec,
+            double ut,
+            out EscapeSpawnConicResolution resolution)
+        {
+            resolution = default(EscapeSpawnConicResolution);
+            if (!IncompleteBallisticSceneExitFinalizer.TryBuildExtrapolationBodies(
+                    rec?.RecordingId, ut, out Dictionary<string, ExtrapolationBody> bodies))
+            {
+                return false;
+            }
+
+            resolution = EscapeTrajectoryTerminal.ResolveAtUT(
+                rec.TerminalOrbitAsSegment(),
+                bodies,
+                ut);
+            return true;
+        }
+
+        /// <summary>
+        /// Builds the spawn orbit of an escape-trajectory recording at <paramref name="ut"/>:
+        /// the recorded terminal orbit carried through patched conics, in the body whose
+        /// sphere of influence holds the vessel then. Refused (logged) when the path enters an
+        /// atmosphere or reaches a surface before <paramref name="ut"/>, cannot be followed,
+        /// or ends in a body other than <paramref name="body"/>.
+        /// </summary>
+        private static bool TryBuildEscapeTerminalOrbitForSpawn(
+            Recording rec, CelestialBody body, double ut, out Orbit orbit)
+        {
+            orbit = null;
+            if (!TryResolveEscapeSpawnConic(rec, ut, out EscapeSpawnConicResolution resolution))
+            {
+                ParsekLog.Warn("Spawner",
+                    $"TryBuildRecordedTerminalOrbitForSpawn: escape terminal for rec={rec?.RecordingId ?? "(null)"} " +
+                    "could not build the live body table");
+                return false;
+            }
+
+            if (!resolution.Resolved)
+            {
+                ParsekLog.Warn("Spawner", string.Format(CultureInfo.InvariantCulture,
+                    "TryBuildRecordedTerminalOrbitForSpawn: escape path refused for rec={0} vessel=\"{1}\" " +
+                    "terminalBody={2} {3}",
+                    rec?.RecordingId ?? "(null)",
+                    rec?.VesselName ?? "(null)",
+                    rec?.TerminalOrbitBody ?? "(null)",
+                    EscapeTrajectoryTerminal.Describe(resolution, ut)));
+                return false;
+            }
+
+            if (!string.Equals(body.name, resolution.BodyName, StringComparison.Ordinal))
+            {
+                ParsekLog.Warn("Spawner",
+                    $"TryBuildRecordedTerminalOrbitForSpawn: body mismatch " +
+                    $"(body={body.name}, escapeSpawnBody={resolution.BodyName}, source={TerminalOrbitSeedEscapeTerminal})");
+                return false;
+            }
+
+            OrbitSegment seg = resolution.Segment;
+            try
+            {
+                double meanAnomalyAtSpawnUT = ComputeSpawnMeanAnomaly(
+                    seg.meanAnomalyAtEpoch,
+                    seg.epoch,
+                    seg.semiMajorAxis,
+                    body.gravParameter,
+                    ut);
+                orbit = new Orbit(
+                    seg.inclination,
+                    seg.eccentricity,
+                    seg.semiMajorAxis,
+                    seg.longitudeOfAscendingNode,
+                    seg.argumentOfPeriapsis,
+                    meanAnomalyAtSpawnUT,
+                    ut,
+                    body);
+                ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                    "TryBuildRecordedTerminalOrbitForSpawn: escape terminal orbit for rec={0} " +
+                    "source={1} {2}",
+                    rec?.RecordingId ?? "(null)",
+                    TerminalOrbitSeedEscapeTerminal,
+                    EscapeTrajectoryTerminal.Describe(resolution, ut)));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Spawner",
+                    $"TryBuildRecordedTerminalOrbitForSpawn escape build failed: {ex.Message}");
+                orbit = null;
+                return false;
+            }
         }
 
         /// <summary>
@@ -88,6 +269,9 @@ namespace Parsek
             double periapsisAltitude = ComputeOrbitPeriapsisAltitude(orbit, body);
             double apoapsisAltitude = ComputeOrbitApoapsisAltitude(orbit, body);
             double pressure = TryGetAtmosphericPressure(body, currentAltitude);
+            if (Recording.IsEscapeTrajectoryTerminal(rec))
+                periapsisAltitude = ResolveEscapeSafetyPeriapsisAltitude(
+                    rec, index, body, orbit, currentUT, currentAltitude, periapsisAltitude);
 
             decision = EvaluateTerminalOrbitSpawnSafetyGeometry(
                 body != null && body.atmosphere,
@@ -165,6 +349,60 @@ namespace Parsek
 
             TerminalOrbitSpawnSafety.Clear(rec);
             return true;
+        }
+
+        /// <summary>
+        /// The periapsis the safety check reads for an escape trajectory
+        /// (<see cref="ResolveEscapeEffectivePeriapsisAltitude"/>), from the live orbit at the
+        /// spawn UT: whether it leaves the body's sphere of influence, and whether it is still
+        /// approaching periapsis (radial velocity negative).
+        /// </summary>
+        private static double ResolveEscapeSafetyPeriapsisAltitude(
+            Recording rec,
+            int index,
+            CelestialBody body,
+            Orbit orbit,
+            double currentUT,
+            double currentAltitude,
+            double periapsisAltitude)
+        {
+            bool leavesSoi;
+            bool approaching;
+            try
+            {
+                leavesSoi = orbit != null && body != null
+                    && ConicLeavesSphereOfInfluence(
+                        orbit.semiMajorAxis, orbit.eccentricity, body.sphereOfInfluence);
+                approaching = true;
+                if (orbit != null)
+                {
+                    Vector3d r = orbit.getRelativePositionAtUT(currentUT);
+                    Vector3d v = orbit.getOrbitalVelocityAtUT(currentUT);
+                    approaching = Vector3d.Dot(r, v) < 0.0;
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Spawner",
+                    $"Escape spawn safety: orbit read failed for rec={rec?.RecordingId ?? "(null)"}: {ex.Message}");
+                return periapsisAltitude;
+            }
+
+            double effective = ResolveEscapeEffectivePeriapsisAltitude(
+                periapsisAltitude, currentAltitude, leavesSoi, approaching);
+            ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                "Escape spawn safety: rec={0} idx={1} vessel=\"{2}\" body={3} leavesSoi={4} " +
+                "approachingPeriapsis={5} periapsis={6:F1} currentAlt={7:F1} judgedPeriapsis={8:F1}",
+                rec?.RecordingId ?? "(null)",
+                index,
+                rec?.VesselName ?? "(null)",
+                body?.name ?? "(null)",
+                leavesSoi,
+                approaching,
+                periapsisAltitude,
+                currentAltitude,
+                effective));
+            return effective;
         }
 
         internal static void RejectUnresolvedTerminalOrbitSpawn(
@@ -468,8 +706,9 @@ namespace Parsek
         internal static bool ShouldUseRecordedTerminalOrbitSpawnState(Recording rec)
         {
             return rec != null
-                && rec.TerminalStateValue == TerminalState.Orbiting
-                && HasRecordedTerminalOrbit(rec);
+                && ((rec.TerminalStateValue == TerminalState.Orbiting
+                        && HasRecordedTerminalOrbit(rec))
+                    || Recording.IsEscapeTrajectoryTerminal(rec));
         }
 
         internal static bool ShouldRouteThroughSpawnAtPosition(Recording rec)
@@ -482,6 +721,7 @@ namespace Parsek
 
             return rec.TerminalStateValue == TerminalState.Orbiting
                 || rec.TerminalStateValue == TerminalState.Docked
+                || Recording.IsEscapeTrajectoryTerminal(rec)
                 || isEva
                 || isBreakupContinuous;
         }
@@ -502,13 +742,23 @@ namespace Parsek
             double semiMajorAxis, double gravParameter,
             double spawnUT)
         {
-            if (semiMajorAxis <= 0.0
-                || gravParameter <= 0.0
+            if (gravParameter <= 0.0
+                || double.IsNaN(semiMajorAxis)
+                || double.IsInfinity(semiMajorAxis)
+                || semiMajorAxis == 0.0
                 || double.IsNaN(spawnUT)
                 || double.IsInfinity(spawnUT)
                 || Math.Abs(spawnUT - epoch) < 1e-9)
             {
                 return meanAnomalyAtEpoch;
+            }
+
+            if (semiMajorAxis < 0.0)
+            {
+                // Open conic: the hyperbolic mean anomaly grows without wrapping.
+                double a = -semiMajorAxis;
+                return meanAnomalyAtEpoch
+                    + Math.Sqrt(gravParameter / (a * a * a)) * (spawnUT - epoch);
             }
 
             return TimeJumpManager.ComputeEpochShiftedMeanAnomaly(
@@ -534,6 +784,13 @@ namespace Parsek
 
             if (body == null)
                 return false;
+
+            if (Recording.IsEscapeTrajectoryTerminal(rec))
+            {
+                bool built = TryBuildEscapeTerminalOrbitForSpawn(rec, body, ut, out orbit);
+                seedSource = built ? TerminalOrbitSeedEscapeTerminal : null;
+                return built;
+            }
 
             double inclination;
             double eccentricity;

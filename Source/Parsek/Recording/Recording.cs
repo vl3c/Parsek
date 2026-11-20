@@ -297,6 +297,46 @@ namespace Parsek
         public double TerminalOrbitEpoch;
         public string TerminalOrbitBody;
 
+        /// <summary>The recorded terminal orbit as a zero-length segment at its epoch.</summary>
+        internal OrbitSegment TerminalOrbitAsSegment()
+        {
+            return new OrbitSegment
+            {
+                startUT = TerminalOrbitEpoch,
+                endUT = TerminalOrbitEpoch,
+                inclination = TerminalOrbitInclination,
+                eccentricity = TerminalOrbitEccentricity,
+                semiMajorAxis = TerminalOrbitSemiMajorAxis,
+                longitudeOfAscendingNode = TerminalOrbitLAN,
+                argumentOfPeriapsis = TerminalOrbitArgumentOfPeriapsis,
+                meanAnomalyAtEpoch = TerminalOrbitMeanAnomalyAtEpoch,
+                epoch = TerminalOrbitEpoch,
+                bodyName = TerminalOrbitBody,
+                isPredicted = true
+            };
+        }
+
+        /// <summary>
+        /// True when the recording ends on an escape trajectory that spawns on its recorded
+        /// path (owner ruling Q10, 2026-11-18): see <see cref="EscapeTrajectoryTerminal"/>.
+        /// </summary>
+        internal static bool IsEscapeTrajectoryTerminal(Recording rec)
+        {
+            return IsEscapeTrajectoryTerminal(rec, out _);
+        }
+
+        /// <inheritdoc cref="IsEscapeTrajectoryTerminal(Recording)"/>
+        internal static bool IsEscapeTrajectoryTerminal(Recording rec, out string evidence)
+        {
+            evidence = null;
+            return rec != null
+                && EscapeTrajectoryTerminal.IsEscapeTerminal(
+                    rec.TerminalStateValue,
+                    rec.TerminalOrbitAsSegment(),
+                    rec.VesselSnapshot?.GetValue("sit"),
+                    out evidence);
+        }
+
         // Terminal surface position (for Landed/Splashed terminal state)
         public SurfacePosition? TerminalPosition;      // null if not landed/splashed
 

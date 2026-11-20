@@ -23,6 +23,11 @@ Not released yet.
 - **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
   makes no rewind point of its own and never shows it in Unfinished Flights. The rock still gets
   its own replay from the release and becomes real at its end. (ROCK-RELEASE-REFLY-SLOT)
+- **A probe left on an escape trajectory becomes real at the end of its recording.** It used to
+  stay a replay that vanished. It now appears on its recorded path, in whichever planet's or the
+  Sun's reach it has got to by then, after the same orbit safety checks as an orbiting vessel.
+  A path that dips into an atmosphere or hits ground first still never spawns.
+  (SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS)
 - **Mining an asteroid on a supply route works like mining the ground.** A route that mines a
   rock never drains the real rock (owner ruling 2026-11-15).
 

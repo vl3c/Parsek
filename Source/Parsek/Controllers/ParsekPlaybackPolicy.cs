@@ -294,8 +294,9 @@ namespace Parsek
                 rec.SpawnDeathCount++;
                 detected++;
 
-                if (rec.TerminalStateValue == TerminalState.Orbiting
-                    && VesselSpawner.HasRecordedTerminalOrbit(rec))
+                if ((rec.TerminalStateValue == TerminalState.Orbiting
+                        && VesselSpawner.HasRecordedTerminalOrbit(rec))
+                    || Recording.IsEscapeTrajectoryTerminal(rec))
                 {
                     uint terminalOldPid = rec.SpawnedVesselPersistentId;
                     rec.VesselSpawned = false;

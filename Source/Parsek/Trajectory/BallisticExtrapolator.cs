@@ -108,7 +108,7 @@ namespace Parsek
         // every read/write across that boundary converts.
         private const double DegToRad = Math.PI / 180.0;
         private const double RadToDeg = 180.0 / Math.PI;
-        private const double SecondsPerYear = 365.0 * 24.0 * 60.0 * 60.0;
+        internal const double SecondsPerYear = 365.0 * 24.0 * 60.0 * 60.0;
         private const double OrbitEpsilon = 1e-9;
         private const double StateVectorEpsilon = 1e-8;
         private const int MaxLocalCutoffSamples = 720;

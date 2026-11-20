@@ -343,7 +343,8 @@ namespace Parsek
                     VesselSnapshotOps.OverrideSnapshotPosition(snapshot, endpointLat, endpointLon, endpointAlt, -1, logContext ?? rec.VesselName);
 
                 if (rec.TerminalStateValue == TerminalState.Orbiting
-                    || rec.TerminalStateValue == TerminalState.Docked)
+                    || rec.TerminalStateValue == TerminalState.Docked
+                    || Recording.IsEscapeTrajectoryTerminal(rec))
                 {
                     VesselSnapshotOps.NormalizeOrbitalSpawnMetadata(snapshot, currentUT);
                 }
