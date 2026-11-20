@@ -32,6 +32,9 @@ Not released yet.
   Space Center, or committing the flight, while an engine or thruster was firing kept its plume
   burning in the replay until the end. It now shuts off at the moment you left.
   (FORCESTOP-LEAVES-ENGINES-LIT)
+- **Dropped boosters that were still burning stop their flame when their replay ends.** A spent
+  stage or booster whose recording ended while its engine still fired kept the flame lit to the
+  end of its replay. (DEBRIS-END-LEAVES-ENGINES-LIT)
 - **A recording now ends where the vessel was when it stopped.** Stopping, leaving the scene or
   committing could end the replay a few seconds short of the vessel's real last position, and a
   crash watched from another vessel could end the wreck in the air above the impact. The final

@@ -20,6 +20,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~DEBRIS-END-LEAVES-ENGINES-LIT~~: a debris recording ended by its TTL kept its engines lit [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `BackgroundRecorderTests`; low]
+
+Cause: `BackgroundRecorder.EndDebrisRecording` (debris TTL, parent closed, parent on rails, vessel
+gone) closed the recording through `OnVesselRemovedFromBackground`, which drops the loaded state
+that tracks running engines, RCS and robotics without emitting their terminal events. Every other
+recording end (rails transition, commit, active stops) emits them (draft review L9).
+
+Fix: `EndDebrisRecording` calls `EmitDebrisEndTerminalEvents` before the removal: the terminal
+events at the end UT from the loaded state, logged with their count. A recording already sealed as
+destroyed is left alone (`reason=destroyed-sealed`, as `FinalizeAllForCommit` does), and on-rails
+debris has no tracking state (its rails transition emitted them). The finalization-cache refresh
+in `EndDebrisRecording` is unchanged.
+
+Tests: `BackgroundRecorderTests.CheckDebrisTTL_EnginesStillBurning_EmitsTerminalShutdownsAtTheEndUT`
+and `CheckDebrisTTL_DestroyedSealedDebris_EmitsNoTerminalEvents` (both red before the fix).
+
 ## ~~STOP-TAKES-NO-FINAL-SAMPLE~~: a physics-mode stop ended the recording at the last adaptive sample [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecorderStopEndingTests`; low (the real data ended up to 1-8 s before the stop)]
 
 Cause: the active recorder's stops (`StopRecording`, `ForceStop`) sampled a boundary point only when
