@@ -20,6 +20,253 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; OPEN: the PC lane (live proof), and the prebuilt-ship / experimental-part templates (measure first, item 4); high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
+
+**What happens.** The player accepts a rescue contract (`Contracts.Templates.RecoverAsset`) at UT
+T, rewinds to before T, and the clock reaches T again. `KspStatePatcher.PatchContractsCore`
+rebuilds the committed accept from its snapshot (`Activator.CreateInstance` + `Contract.Load`),
+which sets the state field directly and never runs `SetState(Active)`. Stock's accept order is
+`AwardAdvance`, `OnAccepted`, `onAccepted.Fire` (decompiled `Contract.SetState`), and
+`RecoverAsset.OnAccepted` is what adds the stranded vessel to the game (`GenerateOrbitalRecovery`
+/ `GenerateLandRecovery` -> `Game.AddVessel`; `GenerateKerbalInPart` / `GenerateLonePart` also set
+`partID`). The snapshot is taken at `onAccepted`, so it already holds what `OnAccepted` wrote into
+the contract (the kerbal in `AcquireCrew` / `RecoverKerbal`, the part id), but the vessel was
+spawned at T, after the rewind save, so the rewind world has none. The kerbal himself is created
+Unowned / Assigned at OFFER time (`RecoverAsset.Generate`), so he is in the rewind save's roster
+when the offer predates it (cs-career-mun4: Rayvan Kerman, Unowned) and absent when it does not.
+The Offered copy the rebuild replaces is removed with `Unregister` only (no `Cleanup`), so the
+kerbal is not expunged. Result: an Active rescue naming a kerbal no vessel holds.
+
+**Other templates** (every stock `OnAccepted` override, decompiled): `TourismContract` turns each
+tourist (created Unowned / Assigned at offer) into a Tourist and Available, so after the rebuild
+the tourists stay Unowned and cannot be seated; `OrbitalConstructionContract`,
+`RoverConstructionContract` and `VesselRepairContract` call `ContractSystem.SpawnPreBuiltShip`
+(the snapshot also carries `waitingForVslSpawn`); `PartTest` makes the part experimental
+(`ResearchAndDevelopment.AddExperimentalPart`). `BaseContract`, `SatelliteContract`,
+`StationContract` and `GrandTour` only stamp a launch id into a parameter the snapshot carries.
+Nothing else in Parsek re-creates any of these (grep `RecoverAsset`, `OnAccepted`,
+`GenerateOrbitalRecovery`, `recoveryKerbal`, `SpawnPreBuiltShip`, `AddExperimentalPart`: no hit
+outside this entry's code). A rewind or Re-Fly to a point AFTER T is unaffected: its save holds
+the vessel and the Active contract.
+
+**Shipped (detection only).** `GameActions/ContractAcceptWorldEffects.cs` (pure): `Classify` names
+the template's accept-side effect; `ReadRecoverAssetTarget` reads the snapshot's own
+`recoveryType` / `recoveryLocation` / `kerbalName` / `partID`; `DecideStrandedAsset` is the guard a
+regeneration must pass, first match wins: `NotReadable`, `TargetPresent` (the kerbal aboard some
+vessel, the part in some vessel; also what keeps a regeneration from running twice, since the
+vessel it adds is saved with the game), `CommittedResolution` (the committed timeline completes,
+fails or cancels the contract at any UT), `KerbalReserved` (`KerbalsModule.ShouldBlockDismissal`: managed or
+named by a committed flight; or either side of the crew swap map), `KerbalNotInRoster`, `KerbalNotUnowned`
+(the kerbal is no longer the offer's Unowned stranded kerbal), `Regenerate`. `KspStatePatcher.ContractAcceptEffects.cs` builds the world facts
+from `flightState.protoVessels` once per patch, only when a rebuilt contract has an effect, and logs
+`PatchContracts: accept-side world effect not run on rebuild: contractId=... effect=StrandedAsset
+outcome=Regenerate worldMissing=True (...)`, plus one summary line naming this id. Tests:
+`ContractAcceptWorldEffectsTests` (28 cases; 11 red with `Classify` stubbed to the rebuild's current
+"no effect" answer, e.g. `Assert.Equal() Failure` Expected `StrandedAsset`, Actual `None`).
+
+**Fix (built 2026-11-20, rescue and tourism).** Owner rules: never reduce earned value, no paradox,
+earliest outcome wins. Nothing here touches funds, science, reputation or a ledger row. The pure
+`ContractAcceptWorldEffects.Plan` now also names the repair (`ContractAcceptRepair`) and, when a
+missing effect is left alone, a grep-stable `skip=` reason; `KspStatePatcher.ContractAcceptEffects.cs`
+applies it right after the rebuilt contract's `Register`, only for a contract the rebuild just
+re-Activated (a contract the loaded save already holds Active survives the patch and never reaches
+this; its vessel is in that save).
+1. RecoverAsset, on `Regenerate` only and only in SPACECENTER or TRACKSTATION
+   (`IsRegenerationScene`; stock's own accept runs at Mission Control, every vessel packed; FLIGHT
+   and the editors defer it, item 1a): reflect and call the private
+   `GenerateLandRecovery` (surface) or `GenerateOrbitalRecovery` on the rebuilt contract (decompile
+   in `logs/decompile/rescuecontract-2026-11-20/`), under `SuppressionGuard.Crew()`. Not
+   `OnAccepted`: the snapshot already carries its parameter half. The private `partID` is read
+   before and after; when the generator re-drew it for a part recovery (`NeedsPartListRepair`),
+   `AcquirePart` / `RecoverPart` swap the old id for the new one (the live contract only: the
+   accept snapshot keeps the old id). Double-spawn guards: the world check reads
+   `flightState.protoVessels` target by target. `TargetPresent` when every named target is in the
+   world (the kerbal aboard any vessel, the part in any vessel); `PartiallyPresent` (review finding
+   2026-11-20) when a compound rescue has one target in the world and not the other, because stock's
+   generators make both together: with the kerbal aboard, `GenerateKerbalInPart` -> `SeatKerbal`
+   would seat the same `ProtoCrewMember` in a second vessel, and with the part present a second copy
+   of its vessel would be added. That is also the case a later rebuild of a regenerated compound
+   rescue meets (the kerbal aboard, the snapshot's stale part id in no vessel), so it is skipped,
+   never regenerated; the rebuilt contract then names that stale part id (residual gap, see
+   below). The index is rebuilt after a spawn, and a regenerated contract is Active in the live
+   list so later patches skip it. The orbit is stock's (`ChooseOrbit`; low orbits are random), so the vessel
+   sits elsewhere than in the first timeline (no committed flight depends on it: `KerbalReserved` /
+   `CommittedResolution` skip that case). Lines: `PatchContracts: regenerated stranded asset for
+   rebuilt contract '<id>' through RecoverAsset.<generator>: added=N [...]` and, on a part swap,
+   `rebuilt rescue '<id>' part lists now name partID=...`.
+1a. Deferral (owner ruling 2026-11-20). A `Regenerate` decision in FLIGHT or an editor plans
+   `ContractAcceptRepair.DeferStrandedAsset` (the line still reads `skip=scene=<scene>`) and lists
+   the contract in `RescueAcceptDeferrals` (`GameActions/RescueAcceptDeferrals.cs`: `Rescue accept
+   deferral listed: contractId='<id>' (rebuild scene=FLIGHT)`). The list is saved in the PARSEK node
+   (`RESCUE_ACCEPT_DEFERRALS { contractId = <guid> }`, an additive child, no format bump) and each
+   load takes the loaded save's copy (`LoadStateCategory.RescueAcceptDeferrals`: Save on Cold,
+   Re-Fly start and the three in-session kinds; Clear on a plain rewind and a Discard Re-fly, whose
+   OnLoad node is not the landed world's; a scene change reads the copy OnSave just wrote). A
+   non-empty list subscribes `KspStatePatcher.DrainRescueAcceptDeferrals` to stock's
+   `onContractsLoaded` (stock fires it once a scene's contracts are loaded, and the contract patch
+   fires it at its end). The drain, per listed id (`DecideDeferredRescueDrainStep`, first match):
+   keep while the scene is not SPACECENTER / TRACKSTATION, while `ParsekScenario.OnLoad` or a
+   deferred contract patch is still running, or while the ledger's contracts module is absent; drop
+   when stock holds no Active RecoverAsset with the id or the ledger no longer holds it accepted by
+   now; else save the LIVE contract and re-run `Plan` with the rebuild's own guards (present, half
+   present, committed resolution, reserved kerbal, roster), regenerate on `Regenerate`, and take the
+   id off the list whatever the outcome, so it is never regenerated twice. A later rebuild of the
+   same contract that decides anything but a deferral also takes it off. Lines: `Rescue accept
+   deferral evaluated: contractId='<id>' outcome=... repair=...`, the regeneration lines of item 1,
+   `Rescue accept deferral removed: ...` and `Rescue accept deferrals drained (onContractsLoaded,
+   scene=SPACECENTER): evaluated=N regenerated=N dropped=N kept=N pending=N`. Why a persisted list
+   and not a scan of every Active rescue: only the rebuild adds an id, so a contract the player
+   accepted live (stock spawned its vessel) is never on it, and a later loss of that vessel (the
+   player terminated it from the Tracking Station, where no part dies in physics, so the part
+   parameters may never fail) is
+   never read as a missing accept effect; a scan could not tell the two apart.
+2. `KerbalNotInRoster`: left alone (re-creating a named Unowned kerbal is a roster write stock never
+   makes; its offer draws a fresh random name). Owner ruling 2026-11-20: accept the gap, never recreate
+   him. `KerbalNotUnowned` is also left alone (stock's generator would seat a crew kerbal in a
+   second spot).
+3. Tourism, any scene: each listed tourist whose `TouristConversion` is `Convert` (in the roster,
+   Unowned, not reserved) gets `TourismContract.OnAccepted`'s three lines (type Tourist,
+   `SetExperienceTrait(touristTrait)`, Available) under `SuppressionGuard.Crew()`, one Info line per
+   tourist. `AlreadyTourist`, `Reserved` (a committed flight or the crew bookkeeping holds him),
+   `NotUnowned` and `NotInRoster` are never touched and are named in `skip=`. A missing tourist is
+   not recreated. Owner ruling 2026-11-20: when the committed timeline completes, fails or cancels
+   the contract (the same `CommittedResolution` fact the rescue side reads), nobody is converted and
+   the line reads `skip=CommittedResolution`.
+4. Prebuilt ship and experimental part: still detection only; measure first (does
+   `SpawnPreBuiltShip` finish for a rebuilt contract with `waitingForVslSpawn = True`; does R&D keep
+   the experimental part across the rewind).
+
+Tests: `ContractAcceptWorldEffectsTests` (45 cases). Red before the fix with the repair assignments
+and the `KerbalNotUnowned` guard stubbed out: 5 failures, e.g.
+`RebuiltRescue_InTheRewindSaveWorld_AtTheSpaceCenter_RegeneratesTheStrandedVessel` (`Assert.Equal()
+Failure` Expected `RegenerateStrandedAsset`, Actual `None`) and
+`RebuiltTourism_InTheRewindSaveWorld_ConvertsTheOfferedTourists` (Expected `ConvertTourists`,
+Actual `None`). Follow-up (2026-11-20): `ContractAcceptWorldEffectsTests` 57 cases and
+`RescueAcceptDeferralsTests` 14 (the list's add / remove / save / load and its seven load-policy
+cells); 11 red before the follow-up, e.g. `RebuiltRescue_OutsideSpaceCenterAndTrackingStation_IsDeferredToTheNextVisit`
+(Expected `DeferStrandedAsset`, Actual `None`), `DecideStrandedAsset_CompoundRescueHalfInTheWorld_IsNeverRegenerated`
+(Expected `PartiallyPresent`, Actual `Regenerate`) and `RebuiltTourism_TheCommittedTimelineResolvesTheContract_ConvertsNobody`
+(Expected `None`, Actual `ConvertTourists`). The store joins `StoreSaveRoundTripTests`, the Cold
+loader cells of `SaveScopedSessionResetTests` and the OnLoad / OnSave characterization goldens.
+The reflection shell and the drain have no headless or in-game test; the PC lane below is their proof.
+
+**Residual gaps (not fixed).** A compound rescue regenerated once and then rebuilt again from its
+accept snapshot names the snapshot's stale part id (the snapshot is never rewritten), so its part
+parameter cannot complete; reaching that needs a second rebuild of a contract whose regenerated
+vessel survived, which a rewind to before the accept does not produce (that world lacks both
+targets and regenerates afresh). A Discard Re-fly clears the deferral list; a rescue the rewind
+point's own save had deferred and that is still Active in the landed world is not regenerated.
+
+**PC lane (owed).** On cs-career-mun4 (RecoverAsset `e8ba5ea6`, Rayvan Kerman, low Kerbin orbit,
+Offered, Rayvan Unowned in the roster), RW-10's shape: launch and commit a pad Flea, at the Space
+Center `KscAction action=accept-contract contract=e8ba5ea6-570c-4b7f-99b4-44c9dee51030` after the
+launch UT, `InvokeRewindToLaunch tree=latest`, `WarpToUT` past the accept UT, at the Space Center. Before the
+fix the log read `contractId='e8ba5ea6-... effect=StrandedAsset outcome=Regenerate worldMissing=True`;
+with it, the same line carries `repair=RegenerateStrandedAsset`, the `regenerated stranded asset`
+line must follow with `added=1`, a vessel named for Rayvan's pod must exist (a `ListHandles` read or
+a saveParse expectation), and a save / load and a second warp must not add a second one. Deferral
+leg: the same rebuild reached in FLIGHT must log `repair=DeferStrandedAsset skip=scene=FLIGHT` and
+`Rescue accept deferral listed`, survive a save / load (`Rescue accept deferrals installed (load
+Cold): pending=1`), and the next Space Center scene must log `Rescue accept deferral evaluated:
+contractId='e8ba5ea6-... outcome=Regenerate repair=RegenerateStrandedAsset`, the `regenerated
+stranded asset` line with `added=1` and `drained (onContractsLoaded, scene=SPACECENTER):
+evaluated=1 regenerated=1`; a second Space Center visit must add nothing (`pending=0`).
+## RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD: a rescue the landed save already holds Active with its stranded vessel missing is not regenerated after a plain rewind or Discard Re-fly [FILED 2026-11-20 from the batch-1 re-review of the CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS follow-up; low (needs a rescue rebuilt in Flight before a rewind save or rewind point was written, then a rewind or Discard Re-fly to that save)]
+
+**What happens.** `RESCUE_ACCEPT_DEFERRALS` describes the world of the `.sfs` that carries it. A plain rewind's OnLoad
+node is persistent.sfs carrying the session's PARSEK node, and a Discard Re-fly's is the session's node carried around
+the rewind point's world, so both loads clear the list (`LoadReconcilePolicy.DecideRescueAcceptDeferrals`). When the
+rewind save (written at launch) or the rewind point (written at a separation) already holds the rescue Active with its
+vessel missing, its own node listed the id, but that copy is never read; the landed Space Center's contract patch
+skips the contract as existing, so the vessel is never regenerated and the contract can only fail at its deadline.
+A missed regeneration, never a duplicate.
+
+**Fix direction.** Read the deferral list from the landed save's own PARSEK node on these two loads (the rewind save /
+rewind point file), or re-derive pending ids at the landed Space Center for rescues whose accept snapshot the ledger
+holds and whose target is absent, with the same guards. Owner rulings 2026-11-20 also leave the related
+`KerbalNotInRoster` case as an accepted gap (the kerbal is never recreated).
+
+## ~~SAVE-FREEZE-ON-MISSING-SIDECAR~~: one recording whose sidecar cannot be written froze its whole tree in every later save [FILED 2026-11-18 by code reading (test-gap pass, branch `test-gaps-savefreeze`); CONFIRMED 2026-11-20 by two red xUnit cells on the pre-fix code. FIXED 2026-11-20, same branch; xUnit; ST-4 re-pinned by code read, re-flight owed; high (silent loss of every later change to the tree; the sidecars of recordings the save no longer named were left as orphans on disk)]
+
+What happened. `ParsekScenario.SaveTreeRecordings` (`Controllers/ParsekScenario.Save.cs`) writes a
+committed tree only when every recording's sidecars are current. When one is not (a `.prec`
+missing or unreadable at load, so `SidecarLoadFailed` stays set, or a sidecar write that fails),
+the save-must-not-delete fix of QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE
+carried the tree's last-known-good RECORDING_TREE node forward from the on-disk persistent.sfs,
+reconciled to recordings the live tree still had (`TryCarryForwardCommittedTreeNodeFromLoadedSave`).
+The skip condition is sticky, so that old node was written on every save until the fault cleared:
+a recording added to the tree since (a Re-Fly fork, a switch continuation segment, a new branch)
+was missing from every save, every edit to a healthy member (a rename, a group move, a terminal
+state) was replaced by its old value, and the branch-point topology stayed the old one. The two
+red cells on the pre-fix production files: a recording added after the disk save was absent from
+the written tree (`Assert.Contains() Failure`), and a healthy member renamed in memory was written
+with its disk name (`Expected: Renamed In Memory, Actual: Old Name On Disk`).
+
+Fix. The tree is always written from memory. For each recording whose files could not be written,
+`SpliceLastKnownGoodRecordingNodes` (`Controllers/ParsekScenario.CommittedTreeCarry.cs`) replaces
+only the keys that name its sidecar files (`CarriedSidecarIdentityKeys`: `sidecarEpoch`,
+`precHash`, `vesselHash`, `ghostHash`, `ghostSnapshotMode`, `pointCount`) with the values of its
+node in the on-disk save; a key the disk node lacks is removed, and a recording the disk save does
+not hold keeps memory's node. The rest of that recording's node stays memory's on purpose: its
+`childBranchPointId` must agree with memory's BRANCH_POINT nodes, or a recording a branch was
+added under reloads as a leaf. Nothing is added from disk, so a recording the player deleted is
+never resurrected, and the reconcile / root-refusal / branch-point prune of the old carry are
+gone with it. A tree with no on-disk node is now written from memory instead of dropped at Error.
+Logs: one Warn per affected tree (`OnSave: tree '<name>' id=<id> written from memory with N
+unwritable recording(s) [ids]: recordings= splicedFromDisk= unwritableWithoutDiskNode= source=
+diskTreeNode=`, ids capped at 10) and one Info summary per save.
+
+Load side (mirror). The spliced node loads as the same tree: the recording with the missing
+`.prec` hydrates as `trajectory-missing` with no points, which `DropFailedSidecarHydrationRecordings`
+keeps (`IsSyntheticFixtureSidecarMarker`), and keeps its branch-point link; the next save takes the
+same path. Not changed here: a root whose sidecar is unreadable (not missing) still drops its
+whole tree at load, which is the load-side policy, not this save path.
+
+Tests: `UnserializableTreeCarryForwardTests`
+(`SaveTreeRecordings_UnwritableMember_DoesNotFreezeTheRestOfTheTree` is the red cell, plus the
+load-back mirror, the key-set pin against the codec and the splice units). ST-4 pins the reworded
+Warn line; re-flight owed.
+## ~~GHOST-SERVO-CHILDREN-STATIC~~: parts mounted on a Breaking Ground servo stay frozen on the ghost while the servo moves [FILED 2026-11-20 by code reading (test-gap pass). FIXED 2026-11-20, branch `test-gaps-servoghost`; xUnit + mutation; in-game cell `ServoFollowers` written, NEVER RUN; no lane flies a servo craft; low (visual only: a hinge arm, a rotor's blades or a piston's payload does not move on the replay)]
+
+What the code did: the ghost builder parents every part (`ghost_part_<pid>`) directly to the ghost's
+part container at its snapshot pose (`GhostVisualBuilder.AddPartVisuals`), and the robotic
+appliers (`GhostPlaybackLogic.ApplyRoboticPose`, the rotor step in `UpdateActiveRobotics`) write
+only the servo's own moving transform inside the servo part's clone. Nothing beyond the servo part
+is under that transform, so every part attached to a hinge, rotation servo, piston or rotor kept
+its snapshot pose while the servo's own mesh turned.
+
+Fix: a build-time follower plan and a per-servo-write re-pose, no re-parenting (pid lookups,
+visibility walks and the camera pivot all assume the flat hierarchy).
+- `ServoFollowerPlanner` (pure, `Ghost/ServoFollowerPlanner.cs`) decides which parts ride which
+  servo from the snapshot's `parent` / `attN` / `srfN` lines and the prefab's `servoAttachNodes` /
+  `servoSrfMeshNames`, mirroring stock `BaseServo.SetChildParentTransform`: a part follows the
+  NEAREST servo on whose moving side its branch hangs, so a base-side part does not move and a
+  servo on a servo composes through its carrier. A servo whose parent hangs off its moving node
+  (stock's "rotate base" case) is reported and carries nothing.
+- At build, `GhostPlaybackLogic.BindServoFollowers` puts each servo at the moving-transform pose
+  stock saved in the same OnSave that refreshed the attached parts' positions
+  (`servoTransformPosition` / `servoTransformRotation`, decompiled `BaseServo.OnSave` ->
+  `ApplyCoordsUpdate`), stores each follower's pose in its servo's frame, then restores the
+  baseline pose and re-poses the followers.
+- Per frame: `PropagateServoFollowers` runs only where a servo transform is written and the servo
+  has followers: O(followers), no allocation; a ghost without a servo pays one null check per
+  robotic write. Logs: `Servo follower plan for ...` and `Servo followers bound: ...` once per
+  build (rate-limited per ghost).
+- Recorder side (mirror check): nothing new to record. Servo motion is already recorded per module
+  ordinal, the snapshot already carries the attach lines and stock's moving-transform pose, and the
+  moving-side node and mesh names come from the prefab.
+
+Proof: `ServoFollowerPlannerTests` (which parts follow, nested, base side, inverted, malformed)
+and `ServoFollowerPoseTests` (the pose math, nested composition, scale). Red against the pre-fix
+behaviour by mutation (planner yields nothing, follower pose ignores the servo): 9 of 21 cells red.
+
+OPEN:
+- Live proof. Run the in-game category `ServoFollowers` (FLIGHT, needs Breaking Ground; skips
+  without it), or watch a hinge craft's replay.
+- Known limits, not measured: a servo with an inverted mount keeps its base side still; a strut or
+  fuel line spanning the servo keeps its snapshot endpoints; a servo locked in flight after moving
+  with no save in between may have saved its children at an older pose (stock skips the
+  coordinate refresh in OnSave for a locked servo).
 ## ~~CYCLE-SWITCH-PRESWITCH-BYPASS~~: the `[` / `]` keys switch to a vessel of another committed mission without merging the flight being left, and the vessel is grafted into that flight [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b, owner ruling Q16, given twice), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; no lane flies a `[` / `]` press onto a committed vessel yet; medium (the vessel gets a second history and its own mission stops)]
 
 What happened. The map Switch-To (and the alarm Jump) decide the recording the player leaves before

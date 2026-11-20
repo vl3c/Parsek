@@ -72,21 +72,26 @@ namespace Parsek
             int treeRecCount = 0;
             int treeTotalPoints = 0, treeTotalOrbitSegments = 0, treeTotalPartEvents = 0;
             int treeWithTrackSections = 0, treeWithSnapshots = 0, treeTotalBranchPoints = 0;
-            // Lazily loaded carry-forward source (see the !treeFilesCurrent branch below):
+            // Lazily loaded carry-forward source (see the unwritable-member branch below):
             // parsed at most once per invocation, and not at all on the healthy path.
             bool carrySourceLoaded = false;
             ConfigNode carrySourceParsekNode = null;
             string carrySourcePath = null;
+            int treesWithUnwritable = 0, unwritableTotal = 0, splicedTotal = 0;
             for (int t = 0; t < committedTrees.Count; t++)
             {
                 var tree = committedTrees[t];
                 treeTotalBranchPoints += tree.BranchPoints.Count;
 
-                bool treeFilesCurrent = true;
+                List<string> unwritableIds = null;
                 foreach (var rec in tree.Recordings.Values)
                 {
                     if (!EnsureRecordingFilesCurrentForSave(rec, CommittedTreeKind))
-                        treeFilesCurrent = false;
+                    {
+                        if (unwritableIds == null)
+                            unwritableIds = new List<string>();
+                        unwritableIds.Add(rec?.RecordingId);
+                    }
                     treeRecCount++;
                     treeTotalPoints += rec.Points.Count;
                     treeTotalOrbitSegments += rec.OrbitSegments.Count;
@@ -95,51 +100,41 @@ namespace Parsek
                     if (rec.VesselSnapshot != null) treeWithSnapshots++;
                 }
 
-                if (!treeFilesCurrent)
-                {
-                    // A SAVE MUST NEVER DELETE A TREE IT CANNOT SERIALIZE. Skipping the
-                    // AddNode here used to omit the whole tree from persistent.sfs - and
-                    // because the skip condition (a recording whose sidecars are missing /
-                    // unwritable) is STICKY, every subsequent save omitted it too: one
-                    // unwritable recording permanently deleted an entire mission's metadata
-                    // from the campaign save. Carry the tree's last-known-good node forward
-                    // from the on-disk save instead, so the tree survives until the
-                    // underlying sidecar fault is repaired or the player recovers it.
-                    ParsekLog.Warn("Scenario",
-                        $"OnSave: cannot write tree '{tree.TreeName}' id={tree.Id ?? "<none>"} " +
-                        "from memory because at least one recording could not be written with " +
-                        "current v0 sidecars");
-                    // One ConfigNode.Load per OnSave at most, shared across every failing
-                    // tree (the load is a full .sfs parse - doing it per tree turned a
-                    // multi-tree fault into an O(trees) disk cost on every save).
-                    if (!carrySourceLoaded)
-                    {
-                        carrySourceLoaded = true;
-                        carrySourceParsekNode = TryLoadCarryForwardSourceParsekNode(out carrySourcePath);
-                    }
-                    if (TryCarryForwardCommittedTreeNodeFromLoadedSave(
-                            node, carrySourceParsekNode, tree, out int carriedRecs, out int droppedRecs))
-                    {
-                        ParsekLog.Warn("Scenario",
-                            $"OnSave: carried forward last-known-good RECORDING_TREE node for " +
-                            $"'{tree.TreeName}' id={tree.Id ?? "<none>"} from '{carrySourcePath ?? "<none>"}' " +
-                            $"(recordings kept={carriedRecs} dropped={droppedRecs}) so the unserializable " +
-                            "tree is NOT dropped from this save. Investigate the sidecar fault above; " +
-                            "the tree's metadata is preserved meanwhile");
-                    }
-                    else
-                    {
-                        ParsekLog.Error("Scenario",
-                            $"OnSave: tree '{tree.TreeName}' id={tree.Id ?? "<none>"} could not be " +
-                            "written from memory AND has no last-known-good node in the on-disk save " +
-                            "to carry forward; it is being dropped from this save. Recover it from a " +
-                            "backup or quicksave.sfs");
-                    }
-                    continue;
-                }
-
                 ConfigNode treeNode = node.AddNode("RECORDING_TREE");
                 tree.Save(treeNode);
+                if (unwritableIds == null)
+                    continue;
+
+                // A SAVE MUST NEVER DELETE A TREE IT CANNOT SERIALIZE, and one unwritable
+                // recording must not freeze the rest of it. The skip condition (a recording
+                // whose sidecars are missing / unwritable) is STICKY, so whatever this branch
+                // writes repeats on every save until the fault clears. The tree therefore
+                // comes from memory (topology, metadata and every recording added since the
+                // disk save), and each unwritable member takes only the keys that name its
+                // sidecar files from its last-known-good node in the on-disk save (the files
+                // the failed write left untouched). An unwritable member the disk save does
+                // not hold keeps memory's node (it loads as trajectory-missing).
+                // One ConfigNode.Load per OnSave at most, shared across every failing tree.
+                if (!carrySourceLoaded)
+                {
+                    carrySourceLoaded = true;
+                    carrySourceParsekNode = TryLoadCarryForwardSourceParsekNode(out carrySourcePath);
+                }
+                ConfigNode diskTree = FindCommittedTreeNodeById(carrySourceParsekNode, tree.Id);
+                int spliced = SpliceLastKnownGoodRecordingNodes(treeNode, diskTree, unwritableIds);
+                treesWithUnwritable++;
+                unwritableTotal += unwritableIds.Count;
+                splicedTotal += spliced;
+                ParsekLog.Warn("Scenario",
+                    $"OnSave: tree '{tree.TreeName}' id={tree.Id ?? "<none>"} written from memory with " +
+                    $"{unwritableIds.Count.ToString(CultureInfo.InvariantCulture)} unwritable recording(s) " +
+                    $"[{FormatUnwritableIds(unwritableIds)}]: " +
+                    $"recordings={tree.Recordings.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"splicedFromDisk={spliced.ToString(CultureInfo.InvariantCulture)} " +
+                    $"unwritableWithoutDiskNode={(unwritableIds.Count - spliced).ToString(CultureInfo.InvariantCulture)} " +
+                    $"source='{carrySourcePath ?? "<none>"}' diskTreeNode={(diskTree != null)}. " +
+                    "Each spliced recording keeps the sidecar epoch and hashes of its on-disk node; " +
+                    "investigate the sidecar fault above");
             }
             // GC-3: committed trees the schema gate rejected at load, written back verbatim.
             InertRecordingTrees.AppendTo(node, committedTrees);
@@ -149,6 +144,12 @@ namespace Parsek
                     $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots, " +
                     $"{treeTotalBranchPoints} branch points");
+            if (treesWithUnwritable > 0)
+                ParsekLog.Info("Scenario",
+                    $"OnSave: {treesWithUnwritable.ToString(CultureInfo.InvariantCulture)} committed tree(s) " +
+                    $"held {unwritableTotal.ToString(CultureInfo.InvariantCulture)} unwritable recording(s); " +
+                    $"{splicedTotal.ToString(CultureInfo.InvariantCulture)} kept their on-disk sidecar keys, " +
+                    "every tree and every other recording was written from memory");
 
             SaveActiveTreeIfAny(node);
             SavePendingTreeIfAny(node);
@@ -157,6 +158,24 @@ namespace Parsek
             // state" fingerprint; it is handled protectively (not just diagnosed) by
             // PreserveRecordingStateIfLoadFault, which OnSave invokes AFTER the mission
             // section so it can re-hydrate both trees and missions. See that method.
+        }
+
+        /// <summary>
+        /// Lists unwritable recording ids for the per-tree save warning, capped so a tree
+        /// with many failing members does not print an unbounded line.
+        /// </summary>
+        internal static string FormatUnwritableIds(List<string> ids)
+        {
+            if (ids == null || ids.Count == 0)
+                return "";
+            const int MaxListed = 10;
+            var listed = new List<string>(Math.Min(ids.Count, MaxListed));
+            for (int i = 0; i < ids.Count && i < MaxListed; i++)
+                listed.Add(ids[i] ?? "<none>");
+            string text = string.Join(",", listed.ToArray());
+            if (ids.Count > MaxListed)
+                text += ",+" + (ids.Count - MaxListed).ToString(CultureInfo.InvariantCulture) + " more";
+            return text;
         }
 
         internal static bool EnsureRecordingFilesCurrentForSave(Recording rec, string treeKind)

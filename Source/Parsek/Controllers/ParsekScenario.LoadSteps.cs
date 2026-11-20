@@ -161,6 +161,25 @@ namespace Parsek
             LedgerHeldWindow.Clear("load " + earlyLoadKind + " (" + decision.Action + ")");
         }
 
+        /// <summary>
+        /// Installs the rescue accept deferrals the loaded node carries when the policy cell says
+        /// the save owns them (every load whose node is the landed world's), and clears them on a
+        /// plain rewind and a Discard Re-fly (<see cref="LoadStateCategory.RescueAcceptDeferrals"/>).
+        /// A non-empty list arms the drain on stock's <c>onContractsLoaded</c>, so the next Space
+        /// Center or Tracking Station scene regenerates the stranded vessels.
+        /// </summary>
+        private static void LoadRescueAcceptDeferrals(ConfigNode node, EarlyLoadKind earlyLoadKind)
+        {
+            LoadReconcileDecision decision = LoadReconcilePolicy.DecideEarly(
+                earlyLoadKind, LoadStateCategory.RescueAcceptDeferrals);
+            if (decision.Action == LoadReconcileAction.Save)
+                RescueAcceptDeferrals.Replace(RescueAcceptDeferrals.LoadFrom(node), "load " + earlyLoadKind);
+            else
+                RescueAcceptDeferrals.Clear("load " + earlyLoadKind + " (" + decision.Action + ")");
+            if (RescueAcceptDeferrals.Count > 0)
+                KspStatePatcher.EnsureRescueDeferralDrainSubscribed();
+        }
+
         private static void LoadCrewAndGroupState(ConfigNode node)
         {
             if (RewindContext.IsRewinding)

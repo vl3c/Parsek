@@ -250,7 +250,10 @@ namespace Parsek
                         if (partRcsInfos != null)
                             build.rcsInfos.AddRange(partRcsInfos);
                         if (partRoboticInfos != null)
+                        {
                             build.roboticInfos.AddRange(partRoboticInfos);
+                            CollectServoFollowerInputs(build, build.nextPartIndex - 1, partNode, partRoboticInfos);
+                        }
                         if (partSynthesizedMotionInfos != null)
                             MergeSynthesizedMotionInfos(build.synthesizedMotionInfos, partSynthesizedMotionInfos);
                         if (partColorChangerInfos != null)
@@ -372,6 +375,7 @@ namespace Parsek
                 audioInfos = build.audioInfos.Count > 0 ? build.audioInfos : null,
                 snapshotBaselines =
                     build.snapshotBaselines.Count > 0 ? build.snapshotBaselines : null,
+                servoFollowerPlan = ResolveServoFollowerPlan(build, rec),
             };
         }
 
