@@ -1,0 +1,202 @@
+schema = 1
+id = "QL-16-f5-in-refly-discard-then-f9"
+# =====================================================================================
+# QL-16: AN F5 INSIDE A RE-FLY, THEN DISCARD RE-FLY, THEN F9 BACK TO THAT F5. THE ATTEMPT
+# COMES BACK UNMERGED, THE REWIND POINT FILE IS STILL ON DISK, AND THE RESUMED ATTEMPT CAN
+# STILL BE MERGED. Test-gap list 2026-11-18, Batch 3 "F5 inside a Re-Fly, merge or discard,
+# then F9 back to that F5", variant B (discard); variant A is QL-15. Design:
+# docs/dev/design-load-restores-the-save.md section 5 scenario S5 (a discard after the save,
+# then F9) applied to a Re-Fly session, 4.5 (files stay while a save names them), 4.6 (the
+# discard no longer writes quicksave.sfs). AUTHORED 2026-11-20 (branch
+# `test-gaps-b3-refly-f5`), NOT FLOWN.
+#
+# In gameplay terms: the player re-flies the crashed booster of the B9 split, flies on for
+# half a minute, presses F5, changes their mind and discards the Re-Fly from the Esc menu
+# (back at the Space Center at the separation's moment), then presses F9. The F9 loads the
+# F5: the Re-Fly session must be live again with its attempt unmerged and the rewind point
+# and its file there; the player can then merge it.
+#
+# WHY NOT APPENDED TO QL-5c (checklist item 1). QL-5c is this host's F5, F9, Discard; this
+# lane is F5, Discard, F9: the discard runs on the in-session state (the session's committed
+# copy still detached-free in memory, no F9 in between), which is the common player order,
+# and QL-5c's live-proven verdict stays independent of the new tail.
+#
+# WHAT THE CODE SAYS (read 2026-11-20, no defect predicted):
+#   - the Discard (RevertInterceptor.DiscardReFlyHandler) writes the rewind point's game to
+#     persistent.sfs, never quicksave.sfs (4.6), drops the attempt from memory and leaves its
+#     sidecars for the collector (RecordingFileJanitor retains hashed heads in `_versions`);
+#     the collector never runs on the Discard Re-fly load (4.5 "When it runs");
+#   - the F9 is a save-file load (Cold): the save-scoped reset clears memory (including
+#     TreeDiscardService's per-session discarded-tree set, lifetime `save`), and the
+#     quicksave's staging nodes bring the marker back (QL-5c's measured F9 lines);
+#   - the rewind point is never reaped by a discard (QL-5c forbids every reap / purge line);
+#   - on this host the booster sits PRELAUNCH, so the attempt records no flown trajectory and
+#     the merge after the F9 completes with 0 supersede rows
+#     (`AppendRelations outcome=refused-unflown-provisional`, S4.1's pinned outcome). The
+#     row-stacking count is QL-15's (a host whose merge writes rows).
+#
+# HOST: QL-5c's (`gloops-airshow` + the injected `rewind-b9` corpus): rp_b9_root (UT 81.16),
+# slot 1 the crashed booster `b9-booster-a` (CommittedProvisional, open).
+#
+# THE ROUTE:
+#   ACT 0  QL-5c's boot: LoadGame, settings, TimeJump 61 s past the rewind point.
+#   ACT 1  InvokeRewind slot 1, wait for the Re-Fly recorder, TimeJump 30 s, THE F5.
+#   ACT 2  Esc > Revert Flight > Revert to Launch > Discard Re-Fly (`ReFlyRevert`); the
+#          rewind points read back at the Space Center.
+#   ACT 3  THE F9 (`LoadGame quicksave playerLoad=true` from the Space Center into FLIGHT),
+#          wait for the Re-Fly recorder, the rewind points read back.
+#   ACT 4  MERGE (`AnswerMergeDialog merge`, S4.1's route), the rewind points read back.
+#
+# THE GATE:
+#   - the discard landed at the rewind point (QL-5c's `landedAtRewindPoint=true`, `rpKept=true
+#     slotListed=true marker=none`);
+#   - after the F9: `Re-Fly subsystem state loaded (... reFlyInProgress=True): rewindPoints=1
+#     supersedes=0 ... marker=True journal=False`, the same session id as the Re-Fly start,
+#     the committed copy kept for the live session, `[LoadSweep] Marker valid=True` with
+#     `missingQuicksaveRps=0`, the recorder live with `reFlyMarker=true`, and the readback
+#     `ql16-after-f9-1-rp_b9_root-true`;
+#   - the merge completes (`answermergedialog choice=merge result=committed`) with at most one
+#     supersede row, and the point is still listed after it.
+#
+# PRE-REGISTERED RED READINGS:
+#   - `Load classified: early=InSession` after the F9: the F9 was not a save-file load;
+#   - `marker=False` / `Marker loaded: none` after the F9: the discard's marker clear leaked
+#     through the reset (a memory state the quicksave does not hold);
+#   - `missingQuicksaveRps=[1-9]` or `Rewind point file collected: rp=rp_b9_root`: the point's
+#     file went while quicksave.sfs names it;
+#   - `Sidecar version unresolved`: the discard deleted a sidecar the quicksave names;
+#   - `reflyrevert rejected reason=reflyrevert-dialog-not-shown`: QL-5c's own pre-registered
+#     reading for the Esc route (not this lane's defect);
+#   - the after-F9 `awaitRecorderLive=refly` TIMEOUT: the Cold restore did not rebind the
+#     Re-Fly recorder (QL-5c never awaited it after its F9).
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse: see above. 2 no idle waits: the two TimeJumps are explicit jumps (QL-5c's).
+#   3 the 30 s jump is QL-5c's measured separation of the F5 clock from the rewind point.
+#   4 / 5 not applicable (no flight). 6 retry once (QL-5c's policy). 7 the rewind windows are
+#   report-only until a reading run. 8 tier nightly (QL-5c's cost plus one load and one
+#   scene exit). 9 flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "QL-16 (variant B): re-fly the crashed booster of the B9 split, fly 30 s, F5, then Esc > Revert Flight > Revert to Launch > Discard Re-Fly, then the player's F9 back to the F5 (a Cold save-file load). The Re-Fly session is live again with its attempt unmerged, the rewind point and its file are back, and the resumed attempt merges."
+instanceProfile = "stock-minimal"
+tags = ["QL-16", "QL-5c", "quickload", "timeline-ops", "save-file-load", "rewind", "refly",
+        "discard-refly", "merge", "revert-dialog", "rewind-point", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0 (QL-5c's boot)
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },        expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },    expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },         expect = "OK" },
+  { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                           expect = "OK", budget = 120 },
+  # ACT 1: the Re-Fly and the F5 inside it.
+  { cmd = "InvokeRewind",      args = { rp = "rp_b9_root", slot = "1" },                   expect = "OK", budget = 300 },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                     expect = "OK" },
+  { cmd = "TimeJump",          args = { deltaSeconds = "30.0" },                           expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "quicksave" },                              expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "ql16-f5" },                               expect = "OK" },
+  # ACT 2: Discard Re-Fly from the Esc menu.
+  { cmd = "ReFlyRevert",       args = { choice = "discard", target = "launch" },           expect = "OK", budget = 300 },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "r1",              expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "ql16-discarded-${r1.count}-${r1.rp0slot1open}" }, expect = "OK" },
+  # ACT 3: THE F9, the player's load of the F5.
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                     expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "r2",              expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "ql16-after-f9-${r2.count}-${r2.rp0}-${r2.rp0slot1open}" }, expect = "OK" },
+  # ACT 4: the resumed attempt merges.
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                                expect = "OK", budget = 240 },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "r3",              expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "ql16-merged-${r3.count}" },               expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-separation", "revert-during-refly-dialog", "unfinished-flights-stash",
+       "load-time-sweep"]
+D14 = ["scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1 }
+
+# REPORT-ONLY until a reading run. Predicted: the unflown merge writes no row and no
+# tombstone (S4.1), and rp_b9_root stays listed (slot 1 still open).
+[expectations.rewind]
+gating        = false
+supersedeRows = { max = 1 }
+tombstones    = { max = 0 }
+rewindPoints  = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # GROUP 1 - THE RE-FLY AND THE F5 INSIDE IT.
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true[\\s\\S]*savegame name=quicksave folder=.+ saved=true[\\s\\S]*MISSIONMARK label=ql16-f5 ",
+
+  # GROUP 2 - THE DISCARD LANDS AT THE REWIND POINT AND KEEPS IT (QL-5c's tokens).
+  "MISSIONMARK label=ql16-f5 [\\s\\S]*reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+  "DiscardReFly: rewind point game written to persistent.sfs rp=rp_b9_root",
+  "DiscardReFly load intent consumed at ParsekScenario.OnLoad: target=Launch sess=\\S+ scene=SPACECENTER rpSaveUT=\\S+ loadedUT=\\S+ landedAtRewindPoint=true",
+  "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_b9_root rpKept=true slot=b9-booster-a slotListed=true unfinishedFlights=[1-9][0-9]* marker=none",
+  "MISSIONMARK label=ql16-discarded-1-true ut=",
+
+  # GROUP 3 - THE F9 IS A SAVE-FILE LOAD (design 4.1) OF THE F5.
+  "loadgame start save=\\S+ name=quicksave scene=SPACECENTER [^\\r\\n]*playerLoad=true",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave route=Focusable",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
+  "loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave [\\s\\S]*Save-scoped session state reset: reason=save-file ",
+
+  # =================================================================================
+  # THE GATE - THE ATTEMPT IS BACK UNMERGED, THE POINT AND ITS FILE ARE THERE.
+  "loadgame player-load: firing [\\s\\S]*Re-Fly subsystem state loaded \\(restored collections, not a rewind action; reFlyInProgress=True\\): rewindPoints=1 supersedes=0 rewindRetirements=0 tombstones=0 marker=True journal=False",
+  "\\[ReFlySession\\] Started sess=(sess_[0-9a-f]{32}) [\\s\\S]*loadgame player-load: firing [\\s\\S]*\\[ReFlySession\\] Marker loaded: \\1\\b",
+  "loadgame player-load: firing [\\s\\S]*TryRestoreActiveTreeNode: kept the committed copy of tree 'B9 Stack' \\(id=tree-b9-stack-root\\) committed: the restored tree is the live Re-Fly session sess=\\S+",
+  "loadgame player-load: firing [\\s\\S]*\\[LoadSweep\\] Marker valid=True;[^\\r\\n]*\\bmissingQuicksaveRps=0 ",
+  "loadgame player-load: firing [\\s\\S]*recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
+  "MISSIONMARK label=ql16-after-f9-1-rp_b9_root-true ut=",
+  # END GATE
+  # =================================================================================
+
+  # GROUP 4 - THE RESUMED ATTEMPT MERGES (S4.1's pre-transition route).
+  "MISSIONMARK label=ql16-after-f9-1-rp_b9_root-true [\\s\\S]*Pre-transition tree merge dialog: .* labels=ReFlyAttempt",
+  "MISSIONMARK label=ql16-after-f9-1-rp_b9_root-true [\\s\\S]*answermergedialog choice=merge result=committed",
+  "MISSIONMARK label=ql16-merged-1 ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
+  "loadgame player-load: firing [\\s\\S]*Re-Fly subsystem state loaded [^\\r\\n]*marker=False",
+  "DiscardReFly load intent dropped as stale",
+  "landedAtRewindPoint=false",
+  "Rewind point file collected: rp=rp_b9_root",
+  "\\[LoadSweep\\] Marker valid=[^\\r\\n]*\\bmissingQuicksaveRps=[1-9]",
+  "Sidecar version unresolved",
+  "Reaped rp=rp_b9_root",
+  "Purged rp=rp_b9_root",
+  "Added [2-9][0-9]* supersede relations",
+  "MISSIONMARK label=ql16-after-f9-(?!1-rp_b9_root-true )",
+]
+
+[runtime]
+# Deferred verbs at max(budget, 600) + 60: LoadGame x2 1320, TimeJump x2 1320, InvokeRewind
+# 660, ReFlyRevert 660, AnswerMergeDialog 660, SaveGame 180; the rest (SetSetting x2,
+# RecordingState x3, ListHandles x3, MissionMark x4, FlushAndQuit) 13 x 120 = 1560. Sum 6360;
+# +240 margin. Expected wall about 4 minutes.
+budgetSeconds = 6600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
