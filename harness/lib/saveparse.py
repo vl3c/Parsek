@@ -110,6 +110,7 @@ ASCII only; stdlib only.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -616,6 +617,11 @@ class ParsekSaveSnapshot:
     # What only Parsek can read OUTSIDE its SCENARIO node (stock_load_findings).
     # Empty on a stock-loadable save.
     stock_load: Tuple["StockLoadFinding", ...] = ()
+    # The file names under ``<save>/Parsek/RewindPoints/`` ending ``.sfs``, read by
+    # the I/O shell (run.read_save_structure -> with_rewind_point_files), never by
+    # the text parse. None => NOT MEASURED (the two file facets are then absent,
+    # never zero); () => measured, the folder is empty or missing.
+    rewind_point_files: Optional[Tuple[str, ...]] = None
 
     @property
     def recordings(self) -> Tuple[RecordingRow, ...]:
@@ -1068,6 +1074,39 @@ def parse_parsek_scenario(text: Optional[str]) -> ParsekSaveSnapshot:
         ghost_chain_nodes=_count_ghost_chain_nodes(sc),
         flight_vessels=_parse_flight_vessels(res.root),
         stock_load=stock_load_findings(res.root))
+
+
+def with_rewind_point_files(snapshot: Optional[ParsekSaveSnapshot],
+                            file_names: Any) -> Optional[ParsekSaveSnapshot]:
+    """The snapshot with the ``Parsek/RewindPoints`` listing attached (pure).
+
+    ``file_names`` is the directory listing the I/O shell read (plain names, any
+    order); only ``*.sfs`` names count, sorted so the facet is deterministic. An
+    unreadable or non-Parsek snapshot is returned unchanged: a listing beside a
+    save Parsek never wrote judges nothing."""
+    if snapshot is None or not snapshot.parsed or not snapshot.scenario_found:
+        return snapshot
+    names = tuple(sorted(n for n in (file_names or ())
+                         if isinstance(n, str) and n.lower().endswith(".sfs")))
+    return dataclasses.replace(snapshot, rewind_point_files=names)
+
+
+def unlisted_rewind_point_files(snapshot: ParsekSaveSnapshot) -> Tuple[str, ...]:
+    """The rewind point quicksave files on disk that no ``REWIND_POINTS`` POINT of
+    the save lists, by its ``rewindPointId`` (the writer names the file
+    ``<rpId>.sfs``) or by its ``quicksaveFilename``'s base name. Empty when the
+    listing was not measured. Such a file is what the file collector deletes on
+    its next run (design-load-restores-the-save.md 4.5), so a non-zero count is
+    a file of a point the save no longer knows."""
+    if snapshot.rewind_point_files is None:
+        return ()
+    listed = set()
+    for rp in snapshot.rewind_points:
+        if rp.rewind_point_id:
+            listed.add(rp.rewind_point_id + ".sfs")
+        if rp.quicksave_filename:
+            listed.add(rp.quicksave_filename.replace("\\", "/").rsplit("/", 1)[-1])
+    return tuple(n for n in snapshot.rewind_point_files if n not in listed)
 
 
 def spawned_vessel_count(snapshot: ParsekSaveSnapshot) -> int:
@@ -1556,6 +1595,12 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
             # parsed, so record them - a parsed-then-discarded surface is a
             # doc claim nothing backs (adversarial-review finding 5).
             "rewindRetirements": len(snapshot.rewind_retirements),
+            # The two file facets are present only when the I/O shell measured
+            # the Parsek/RewindPoints listing (with_rewind_point_files).
+            **({} if snapshot.rewind_point_files is None else {
+                "rewindPointFiles": len(snapshot.rewind_point_files),
+                "unlistedRewindPointFiles": len(unlisted_rewind_point_files(snapshot)),
+            }),
         },
         "recordings": {
             "structure": {
@@ -1608,8 +1653,15 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
 GATING_KEY = "gating"
 
 REWIND_BLOCK = "rewind"
-REWIND_BLOCK_KEYS: Tuple[str, ...] = (
-    GATING_KEY, "supersedeRows", "tombstones", "rewindPoints")
+# The rewind block's count windows. The last two read the save FOLDER, not the
+# .sfs text: `rewindPointFiles` counts `Parsek/RewindPoints/*.sfs` and
+# `unlistedRewindPointFiles` those no REWIND_POINTS POINT of the save lists (a
+# reverted or discarded point whose quicksave stayed on disk).
+REWIND_COUNT_KEYS: Tuple[str, ...] = (
+    "supersedeRows", "tombstones", "rewindPoints",
+    "rewindPointFiles", "unlistedRewindPointFiles")
+REWIND_FILE_KEYS: Tuple[str, ...] = ("rewindPointFiles", "unlistedRewindPointFiles")
+REWIND_BLOCK_KEYS: Tuple[str, ...] = (GATING_KEY,) + REWIND_COUNT_KEYS
 
 STRUCTURE_BLOCK = "structure"  # nested under [expectations.recordings]
 STRUCTURE_BLOCK_KEYS: Tuple[str, ...] = (
@@ -1768,10 +1820,10 @@ def validate_rewind_expectations(block: Any) -> List[str]:
                     % (unknown, list(REWIND_BLOCK_KEYS)))
     errs.extend(_validate_gating("expectations.rewind", block))
     errs.extend(_validate_armed_empty(
-        "expectations.rewind", block, ("supersedeRows", "tombstones", "rewindPoints")))
+        "expectations.rewind", block, REWIND_COUNT_KEYS))
     errs.extend(_validate_armed_unreddable(
-        "expectations.rewind", block, ("supersedeRows", "tombstones", "rewindPoints")))
-    for key in ("supersedeRows", "tombstones", "rewindPoints"):
+        "expectations.rewind", block, REWIND_COUNT_KEYS))
+    for key in REWIND_COUNT_KEYS:
         if key in block:
             errs.extend(_validate_window("expectations.rewind.%s" % key, block[key]))
     return errs
@@ -1932,7 +1984,7 @@ def save_structure_expectation_warnings(expectations: Optional[Dict]) -> List[st
     warns: List[str] = []
     rewind = expectations.get(REWIND_BLOCK)
     if isinstance(rewind, dict) and not any(
-            k in rewind for k in ("supersedeRows", "tombstones", "rewindPoints")):
+            k in rewind for k in REWIND_COUNT_KEYS):
         warns.append("expectations.rewind: declared with no assertion key - the "
                      "block reports nothing and gates nothing")
     recordings = expectations.get("recordings")
@@ -2168,10 +2220,18 @@ def evaluate_save_structure(
         rewind_spec = expectations.get(REWIND_BLOCK)
         if isinstance(rewind_spec, dict):
             measured = facets["rewind"]
-            for key in ("supersedeRows", "tombstones", "rewindPoints"):
-                if key in rewind_spec:
-                    _check_window("rewind.%s" % key, rewind_spec[key],
-                                  measured[key], per_block[REWIND_BLOCK])
+            for key in REWIND_COUNT_KEYS:
+                if key not in rewind_spec:
+                    continue
+                if key not in measured:
+                    # A file window over a listing nobody read is a DEFINED
+                    # mismatch, never a silent zero.
+                    per_block[REWIND_BLOCK].append(
+                        "rewind.%s: not measured (no Parsek/RewindPoints listing "
+                        "was read beside the save)" % key)
+                    continue
+                _check_window("rewind.%s" % key, rewind_spec[key],
+                              measured[key], per_block[REWIND_BLOCK])
         structure_spec = _structure_block(expectations)
         if structure_spec is not None:
             out = per_block["recordings.structure"]

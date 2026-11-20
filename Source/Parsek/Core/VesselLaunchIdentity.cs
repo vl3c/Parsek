@@ -96,6 +96,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True only when two launch guids POSITIVELY name the same vessel identity: both known
+        /// (neither null nor the empty guid) and equal, or either continues the other through a
+        /// link row (a Parsek spawn, a resumed spawned vessel or an undock re-keys a ship that
+        /// stays the same vessel). An unknown guid on either side is never a match. For watch
+        /// mode's undock step, which follows the vessel the session started on.
+        /// </summary>
+        internal static bool GuidsPositivelySameIdentity(string a, string b)
+        {
+            string na = NormalizeGuid(a);
+            string nb = NormalizeGuid(b);
+            if (na == null || nb == null) return false;
+            string empty = Guid.Empty.ToString("N", CultureInfo.InvariantCulture);
+            if (string.Equals(na, empty, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(nb, empty, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (string.Equals(na, nb, StringComparison.OrdinalIgnoreCase)) return true;
+            return GuidContinuesThroughLink(na, nb) || GuidContinuesThroughLink(nb, na);
+        }
+
+        /// <summary>
         /// True when a live vessel (its <c>persistentId</c> and <c>Vessel.id</c> Guid) is the same
         /// launch the recording captured: the persistentId must match AND the launch Guids must not
         /// conclusively differ. Used at the live-vessel-vs-recording sites (spawn adoption, crew-swap

@@ -94,6 +94,7 @@ namespace Parsek
         // Camera follow state — transient, never serialized
         private int watchedRecordingIndex = -1;       // -1 = not watching
         private string watchedRecordingId;             // stable across index shifts
+        private string watchedIdentityGuid;            // launch guid of the vessel the session started on; kept across auto-follow
         private float watchStartTime;                  // Time.time when watch mode was entered
         private long watchedOverlapCycleIndex = -1;    // which overlap cycle the camera is following (-1 = ready for next, -2 = holding after explosion)
         private double overlapRetargetAfterUT = -1;    // delay re-target after watched cycle explodes
@@ -143,6 +144,8 @@ namespace Parsek
 
         internal bool IsWatchingGhost => watchedRecordingIndex >= 0;
         internal int WatchedRecordingIndex => watchedRecordingIndex;
+        /// <summary>Launch guid of the vessel the current watch session started on (null = unknown or not watching).</summary>
+        internal string WatchedIdentityGuid => watchedIdentityGuid;
         internal int WatchProtectionRecordingIndex => ResolveWatchProtectionRecordingIndex();
         internal long WatchedLoopCycleIndex => watchedOverlapCycleIndex;
         internal void ExitWatchModePreservingLineage(bool skipCameraRestore = false) =>
@@ -1953,6 +1956,10 @@ namespace Parsek
             ClearLineageProtection();
             watchedRecordingIndex = index;
             watchedRecordingId = rec.RecordingId;
+            watchedIdentityGuid = VesselLaunchIdentity.NormalizeGuid(rec.RecordedVesselGuid);
+            ParsekLog.Verbose("Watch",
+                $"Watch session identity: #{index} \"{rec.VesselName}\" id={rec.RecordingId} " +
+                $"identity={(watchedIdentityGuid ?? "unknown")}");
             watchStartTime = RealtimeNow();
 
             // Reset camera mode state for new watch session
@@ -1985,6 +1992,7 @@ namespace Parsek
 
             watchedRecordingIndex = -1;
             watchedRecordingId = null;
+            watchedIdentityGuid = null;
             watchedOverlapCycleIndex = -1;
             overlapRetargetAfterUT = -1;
             // Tidiness, not correctness: the memo is already keyed on Time.frameCount, so a
@@ -2520,10 +2528,12 @@ namespace Parsek
                 RecordingStore.CommittedRecordings,
                 RecordingStore.CommittedTrees,
                 HasActiveGhost,
-                supersedes);
+                supersedes,
+                watchedIdentityGuid);
 
             if (result >= 0)
-                ParsekLog.Info("Watch", $"FindNextWatchTarget: found target at index {result}");
+                ParsekLog.Info("Watch", $"FindNextWatchTarget: found target at index {result} " +
+                    $"(watchedIdentity={(watchedIdentityGuid ?? "unknown")})");
 
             return result;
         }
@@ -2587,12 +2597,16 @@ namespace Parsek
             var preservedCameraMode = currentCameraMode;
             bool preservedModeOverride = userModeOverride;
 
+            // The session keeps following the vessel it started on across the transfer.
+            string preservedIdentityGuid = watchedIdentityGuid;
+
             // Switch watch mode: exit old (preserving camera position), enter new
             ExitWatchMode(skipCameraRestore: true);
 
             // Set up new watch state
             watchedRecordingIndex = nextIndex;
             watchedRecordingId = committed[nextIndex].RecordingId;
+            watchedIdentityGuid = preservedIdentityGuid;
 
             // Restore saved camera state so Backspace returns to original vessel
             savedCameraVessel = preservedVessel;

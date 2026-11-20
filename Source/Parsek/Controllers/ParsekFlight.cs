@@ -2616,6 +2616,9 @@ namespace Parsek
             ? watchMode.WatchedLoopCycleIndex
             : -1;
         internal int WatchedRecordingIndex => watchMode.WatchedRecordingIndex;
+        internal string WatchedIdentityGuidForPolicy => watchMode != null
+            ? watchMode.WatchedIdentityGuid
+            : null;
         internal string DescribeWatchFocusForLogs() => watchMode != null
             ? watchMode.DescribeWatchFocusForLogs()
             : "watch=uninitialized";

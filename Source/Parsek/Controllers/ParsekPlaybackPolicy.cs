@@ -755,6 +755,14 @@ namespace Parsek
                 && string.Equals(heldRecordingId, warpHeldWatchRecordingId, StringComparison.Ordinal);
         }
 
+        private string CurrentWatchedIdentityGuid()
+        {
+            // Tests that stub the watched index drive no live watch session.
+            return WatchedRecordingIndexOverrideForTesting != null || object.ReferenceEquals(host, null)
+                ? null
+                : host.WatchedIdentityGuidForPolicy;
+        }
+
         private int CurrentWatchedRecordingIndex()
         {
             return WatchedRecordingIndexOverrideForTesting != null
@@ -1081,7 +1089,8 @@ namespace Parsek
                             RecordingStore.CommittedTrees,
                             engine.HasActiveGhost,
                             out pendingContinuationUT,
-                            supersedesForActivation))
+                            supersedesForActivation,
+                            CurrentWatchedIdentityGuid()))
                     {
                         GhostPlaybackLogic.ComputePendingWatchHoldWindow(
                             holdSeconds,
