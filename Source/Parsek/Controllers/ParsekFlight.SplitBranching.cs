@@ -680,7 +680,12 @@ namespace Parsek
                 UT = branchUT,
                 Type = branchType,
                 ParentRecordingIds = new List<string> { parentRecordingId },
-                ChildRecordingIds = new List<string> { activeChildId, backgroundChildId }
+                ChildRecordingIds = new List<string> { activeChildId, backgroundChildId },
+                // A docking-port undock carries the same cause the background recorder and the
+                // coalescer (pre-attached port) write, so every Undock reads alike in the
+                // Missions view and the saved tree. CreateSplitBranch stamps the undocked port's
+                // part id as DecouplerPartId (this factory has no part to name).
+                SplitCause = ForegroundSplitCauseFor(branchType)
             };
 
             // activeChild continues the same logical vessel — keep parent generation.
@@ -725,6 +730,16 @@ namespace Parsek
             }
 
             return (bp, activeChild, backgroundChild);
+        }
+
+        /// <summary>
+        /// Pure: the <see cref="BranchPoint.SplitCause"/> a focused split branch point of
+        /// <paramref name="branchType"/> carries: "UNDOCK" for an Undock (matching the background
+        /// recorder's undock), null for every other type (an EVA reads by its type).
+        /// </summary>
+        internal static string ForegroundSplitCauseFor(BranchPointType branchType)
+        {
+            return branchType == BranchPointType.Undock ? "UNDOCK" : null;
         }
 
         internal static SegmentEnvironment? GetEvaBackgroundInitialEnvironmentOverride(
@@ -1492,7 +1507,8 @@ namespace Parsek
         internal IEnumerator DeferredUndockBranch(
             uint oldVesselPid,
             uint newVesselPid,
-            TrajectoryPoint? backgroundInitialTrajectoryPoint = null)
+            TrajectoryPoint? backgroundInitialTrajectoryPoint = null,
+            uint undockedPartPid = 0u)
         {
             yield return null; // defer one frame for KSP to finalize the split
 
@@ -1579,7 +1595,8 @@ namespace Parsek
                     activeVessel,
                     backgroundVessel,
                     branchUT,
-                    backgroundInitialTrajectoryPoint: backgroundInitialTrajectoryPoint);
+                    backgroundInitialTrajectoryPoint: backgroundInitialTrajectoryPoint,
+                    undockedPartPid: undockedPartPid);
             }
             finally
             {

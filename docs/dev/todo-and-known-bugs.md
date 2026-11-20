@@ -115,6 +115,21 @@ Tests. `UndockFocusMoveBranchTests` (the decision table and the guard's order in
 `DeferredUndockBranch`). Lane owed: like VN-8, a crewed pod with Control From Here undocking from
 a probe-less tank that holds the root part; expect an Undock branch with one recording per half.
 
+## ~~UNDOCK-BRANCH-POINT-MISSING-SPLIT-CAUSE~~: focused undock branch points carried no SplitCause / DecouplerPartId [FILED 2026-11-18 by the recording split / trim / merge review (draft L8), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit; low (saved metadata only: every reader labels an Undock by its type, so nothing the player sees changes)]
+
+Cause. `BuildSplitBranchData` wrote no `SplitCause` and `CreateSplitBranch` no `DecouplerPartId`
+for a docking-port Undock, while the background recorder and the coalescer (pre-attached port)
+write "UNDOCK", every test fixture writes "UNDOCK", and `dock-undock-recording-structure.md`
+section 4 documents `SplitCause = "UNDOCK"`, `DecouplerPartId = undockedPart.persistentId`.
+
+Fix. `BuildSplitBranchData` sets `SplitCause` through `ForegroundSplitCauseFor` ("UNDOCK" for an
+Undock, null otherwise); `OnPartUndock` stashes the undocked port's part id beside the seed and
+`OnVesselsUndocking` -> `DeferredUndockBranch` -> `CreateSplitBranch` stamps it as
+`DecouplerPartId`. An additive value of an existing optional key: no format bump.
+
+Tests. `UndockSplitCauseTests` (the factory's branch point through the tree codec and the
+Missions label, EVA unchanged, the part-id wiring; mutation-checked by returning null).
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the

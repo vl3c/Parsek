@@ -33,6 +33,9 @@ namespace Parsek
         // call. We stash the pre-split seed here and let OnVesselsUndocking author the actual
         // Undock branch with the final pids.
         private TrajectoryPoint? pendingUndockRootPartSeed;
+        // The docking-port part onPartUndock reported in the same Part.Undock() call; the
+        // Undock branch point records it as its DecouplerPartId.
+        private uint pendingUndockPartPid;
 
         internal static int SafeCrewCount(Vessel v)
         {
@@ -267,7 +270,8 @@ namespace Parsek
         /// </summary>
         internal void CreateSplitBranch(BranchPointType branchType, Vessel activeVessel, Vessel backgroundVessel,
             double branchUT, string evaCrewName = null, uint evaVesselPid = 0,
-            TrajectoryPoint? backgroundInitialTrajectoryPoint = null)
+            TrajectoryPoint? backgroundInitialTrajectoryPoint = null,
+            uint undockedPartPid = 0u)
         {
             RecorderStateLog.RecState("CreateSplitBranch:entry", host.CaptureRecorderState());
             if (host.pendingSplitRecorder == null)
@@ -387,6 +391,13 @@ namespace Parsek
                 backgroundVessel != null ? Recording.ResolveLocalizedName(backgroundVessel.vesselName) : "Unknown",
                 evaCrewName, evaVesselPid,
                 parentGeneration: parentGen);
+            if (branchType == BranchPointType.Undock)
+            {
+                bp.DecouplerPartId = undockedPartPid;
+                ParsekLog.Verbose("Flight",
+                    $"CreateSplitBranch: Undock branch point bp={bp.Id} splitCause={bp.SplitCause ?? "(none)"} " +
+                    $"decouplerPartId={undockedPartPid}");
+            }
 
             // Set snapshots on child recordings
             activeChild.GhostVisualSnapshot = activeSnapshot;
@@ -2992,6 +3003,7 @@ namespace Parsek
             host.backgroundRecorder?.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
 
             uint undockedPartPid = undockedPart.persistentId;
+            pendingUndockPartPid = undockedPartPid;
             uint undockedRootPartPid = undockedPart.vessel.rootPart?.persistentId ?? 0u;
             if (ParsekFlight.ShouldUseUndockPartOriginSeed(undockedPartPid, undockedRootPartPid)
                 && FlightRecorder.TryCreateAbsoluteTrajectoryPointFromPartOrigin(
@@ -3049,6 +3061,7 @@ namespace Parsek
 
             // Snapshot + clear the pre-split seed stashed by OnPartUndock this same frame.
             TrajectoryPoint? undockRootPartSeed = pendingUndockRootPartSeed;
+            uint undockPartPid = pendingUndockPartPid;
             ClearPendingUndockSeed();
 
             // A vehicle and a kerbal at the end is an EVA, never an Undock (owner ruling
@@ -3149,7 +3162,7 @@ namespace Parsek
             host.pendingSplitInProgress = true;
             host.Log($"onVesselsUndocking: vessel split off (recordedPid={recordedPid}, " +
                 $"oldPid={oldPid}, newPid={newPid}); starting deferred Undock branch");
-            host.StartCoroutine(host.DeferredUndockBranch(oldPid, newPid, undockRootPartSeed));
+            host.StartCoroutine(host.DeferredUndockBranch(oldPid, newPid, undockRootPartSeed, undockPartPid));
         }
 
         /// <summary>
@@ -3220,6 +3233,7 @@ namespace Parsek
         private void ClearPendingUndockSeed()
         {
             pendingUndockRootPartSeed = null;
+            pendingUndockPartPid = 0u;
         }
 
         /// <summary>
