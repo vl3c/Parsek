@@ -716,6 +716,11 @@ namespace Parsek
                 {
                     activeChild.EvaCrewName = evaCrewName;
                     activeChild.ParentRecordingId = backgroundChildId;
+                    // KSP hands focus to the kerbal, so the ship is the background child here,
+                    // and it is the ship that keeps the parent's identity: the kerbal is the
+                    // spinoff generation, never the ship (BackgroundRecorder's cascade cap reads it).
+                    activeChild.Generation = parentGeneration + 1;
+                    backgroundChild.Generation = parentGeneration;
                 }
                 else
                 {

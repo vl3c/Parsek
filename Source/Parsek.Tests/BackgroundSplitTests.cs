@@ -983,6 +983,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BuildSplitBranchData_EvaFromActiveShip_ShipKeepsGeneration_KerbalIsSpinoff()
+        {
+            // EVA-MARKS-SHIP-AS-SPINOFF-GENERATION: KSP hands focus to the kerbal, so the kerbal
+            // is the ACTIVE child; the ship (background child) is the vessel that keeps the
+            // parent's identity and must keep its generation.
+            var (_, activeChild, bgChild) = ParsekFlight.BuildSplitBranchData(
+                "parent_rec", "tree_1", 100.0, BranchPointType.EVA,
+                77, "Jebediah Kerman", 42, "Lander",
+                evaCrewName: "Jebediah Kerman", evaVesselPid: 77,
+                parentGeneration: 0);
+
+            Assert.Equal("Jebediah Kerman", activeChild.EvaCrewName);
+            Assert.Equal(1, activeChild.Generation);
+            Assert.Equal(0, bgChild.Generation);
+        }
+
+        [Fact]
+        public void BuildSplitBranchData_EvaKerbalInBackground_ShipKeepsGeneration()
+        {
+            var (_, activeChild, bgChild) = ParsekFlight.BuildSplitBranchData(
+                "parent_rec", "tree_1", 100.0, BranchPointType.EVA,
+                42, "Lander", 77, "Jebediah Kerman",
+                evaCrewName: "Jebediah Kerman", evaVesselPid: 77,
+                parentGeneration: 1);
+
+            Assert.Equal("Jebediah Kerman", bgChild.EvaCrewName);
+            Assert.Equal(1, activeChild.Generation);
+            Assert.Equal(2, bgChild.Generation);
+        }
+
+        [Fact]
         public void Recording_ApplyPersistenceArtifactsFrom_CopiesGeneration()
         {
             var source = new Recording { Generation = 1 };

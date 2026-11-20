@@ -20,6 +20,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~EVA-MARKS-SHIP-AS-SPINOFF-GENERATION~~: an EVA gave the ship the spinoff generation and the kerbal the ship's [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `BackgroundSplitTests`; low (no player-visible effect left after BG-BREAKUP-GENERATION-CAP)]
+
+Cause: `ParsekFlight.BuildSplitBranchData` gives the ACTIVE child the parent's generation and the
+background child one more. On an EVA KSP hands focus to the kerbal, so the kerbal kept the
+generation and the ship was marked as the spinoff; with the old cascade cap a landed ship that
+tipped over after an EVA recorded no breakup (draft review question 9).
+
+Fix: on an EVA branch whose kerbal is the active child, the ship (background child) keeps the
+parent's generation and the kerbal gets one more, as when the kerbal is the background child.
+BG-BREAKUP-GENERATION-CAP already lets the ship record its breakups (its recording is not debris),
+so this corrects the stored generation only. Merge note: a five-line edit inside the EVA block of
+`BuildSplitBranchData` in `ParsekFlight.SplitBranching.cs`.
+
+Tests: `BackgroundSplitTests.BuildSplitBranchData_EvaFromActiveShip_ShipKeepsGeneration_KerbalIsSpinoff`
+(red before the fix), `BuildSplitBranchData_EvaKerbalInBackground_ShipKeepsGeneration`.
+
 ## ~~BG-BREAKUP-GENERATION-CAP~~: a background vessel never recorded its own breakup after its first split [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `BackgroundSplitTests`; medium (a second separation of a probe or crewed vessel left its pieces unrecorded)]
 
 Cause: `BackgroundRecorder.HandleBackgroundVesselSplit` skipped every split whose parent recording
