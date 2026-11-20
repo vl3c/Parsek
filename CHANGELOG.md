@@ -20,6 +20,9 @@ Not released yet.
 
 ### Changed
 
+- **No Re-Fly on a flight a supply route uses.** Re-flying it would take the route's recorded
+  trip away, so the Fly button is greyed out and its tooltip says to delete the route first.
+  (REFLY-ROUTE-SOURCE-REFUSED)
 - **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
   makes no rewind point of its own and never shows it in Unfinished Flights. The rock still gets
   its own replay from the release and becomes real at its end. (ROCK-RELEASE-REFLY-SLOT)
