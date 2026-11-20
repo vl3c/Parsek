@@ -1,0 +1,182 @@
+schema = 1
+id = "VN-14-refly-rename-merge"
+# =====================================================================================
+# VN-14: VESSEL NAMES ACROSS A RE-FLY THAT IS MERGED (test-gaps Batch 2 item 4,
+# 2026-11-20; AUTHORED, NEVER FLOWN). VN-2's twin with the other ending: every VN lane that
+# renames inside a Re-Fly ends it in Discard (VN-2) or Retry (VN-9), so the merge path of
+# design docs/dev/design-vessel-and-mission-names.md section 8 edge case 5 ("the union swap
+# at commit restores older VesselNames and the apply pass re-applies the decision") and
+# 7.6 (the attempt's epoch ends with a merge; only Discard Re-fly and Retry undo it) had
+# no flight. Rulings 5 and 8 say what a merge must keep: the Parsek rename made inside the
+# attempt AND the attempt's stock rename (a merge cancels nothing).
+#
+# THE HOST is VN-2's (RF-1's flight, `gs1-two-stage-pad`), VN-2's steps verbatim up to the
+# stock rename inside the attempt, with VN14 names:
+#   (d) BEFORE the rewind, the Missions window renames the booster's origin leg "VN14
+#       Booster" (ParsekRename); the Re-Fly's post-load pass writes it onto the reloaded
+#       booster (RenameVessel's `old='VN14 Booster'` reads it).
+#   (e) INSIDE the attempt: a Parsek rename of the pod's origin leg ("VN14 Pod") and a stock
+#       rename of the live booster ("VN14 Booster Stock", a StockDialog decision in the
+#       attempt's epoch that replaces the booster's Parsek decision).
+#   (f) THE MERGE: `AnswerMergeDialog choice=merge` drives the conclusion (RF-1's step). The
+#       attempt's stock rename is NOT undone (no `Revert undo` line anywhere), and every
+#       apply pass after the merge sees both decisions (`withDecision=2`).
+#   (g) THE READBACK: `SaveGame persistent` at the Space Center, then the player's load of it
+#       (`LoadGame persistent scene=spacecenter playerLoad=true`, a Cold save-file load): the store loads both decisions from the save, and the cold apply pass
+#       renames NO leg (`legsRenamed=0`): the merged recordings were saved already carrying
+#       the decision names. The saveParse census (report-only) reads which names those are.
+#
+# PRE-REGISTERED READINGS:
+#   - `legsRenamed=[1-9]` on the cold apply pass: the merge saved legs on stale names that
+#     only the load fixes (the derived copies were not re-applied after the union swap);
+#     a finding against edge case 5, filed in docs/dev/todo-and-known-bugs.md.
+#   - `decisions=1` on the save or the load: a decision was lost at the merge.
+#   - census `VN14 Booster` >= 1: a booster leg kept the replaced Parsek name (coverage or the
+#     union swap); `VN14 Booster Stock` 0: the stock decision did not reach the merged legs.
+# =====================================================================================
+tier = "nightly"
+description = "VN-14: VN-2's road (RF-1's flight, a Parsek rename of the booster's leg before the re-fly written onto the reloaded booster, a Parsek rename of the pod and a stock rename of the booster inside the attempt) ending in MERGE instead of Discard: no revert undo runs, both decisions persist into the save and load back on a cold reload with no leg renamed by the load, and the census reads the merged legs on the attempt's names."
+instanceProfile = "stock-minimal"
+tags = ["VN-14", "vessel-names", "GC-7", "rename", "rewind", "refly", "refly-merge",
+        "GS1", "runtime-handles", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  # RF-1's prefix verbatim (flight, scene-exit auto-merge, back into FLIGHT).
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" },    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },             expect = "OK" },
+  # LOAD-BEARING: the apply-pass and live-write lines are Verbose.
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },        expect = "OK" },
+  { phase = "mission",                                                                 expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                         expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "persistent" },                            expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },       expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },   expect = "OK" },
+  { cmd = "StopRecording",                                                             expect = "OK" },
+  # rp0 = the staging RewindPoint; slot 0 = the pod (focus), slot 1 = the booster.
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",       expect = "OK" },
+  # (d) The Parsek rename of the booster's origin leg, before the rewind.
+  { cmd = "UiAction",       args = { op = "complexity", mode = "advanced" },           expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                   expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "missions" },               expect = "OK" },
+  { cmd = "UiAction",       args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction",       args = { op = "edit", window = "missions", field = "recordingname", key = "${handles.rp0slot1}", draft = "VN14 Booster", commit = "true" }, expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "1" },            expect = "OK", budget = 300 },
+  # The re-fly recorder is live (S4.4's named wait), so the strip and its pass have run.
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                    expect = "OK", budget = 120 },
+  # (e) Inside the attempt.
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                   expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "missions" },               expect = "OK" },
+  { cmd = "UiAction",       args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction",       args = { op = "edit", window = "missions", field = "recordingname", key = "${handles.rp0slot0}", draft = "VN14 Pod", commit = "true" }, expect = "OK" },
+  { cmd = "RenameVessel",   args = { name = "VN14 Booster Stock" },                    expect = "OK" },
+  # (f) THE MERGE (RF-1's conclusion step).
+  { cmd = "MissionMark",    args = { label = "vn14-merge" },                           expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                            expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  # (g) THE READBACK: the save, then a cold load of it.
+  { cmd = "SaveGame",       args = { name = "persistent" },                            expect = "OK" },
+  # The player's load (playerLoad=true: a Cold save-file load that reads the store from the
+  # save; a plain fixture LoadGame is in-session and keeps memory's store), at the Space
+  # Center (QL-10's form), so no flight entry moves anything.
+  { cmd = "MissionMark",    args = { label = "vn14-reload" },                          expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                            expect = "OK" },
+  { cmd = "FlushAndQuit",                                                              expect = "OK" },
+]
+
+[driver.missionParams]
+# RF-1's values VERBATIM (GS-1's plus siblingAirborneAtExit).
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+# D14 values only (each already covered elsewhere). No D value names a vessel rename.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RF-1's window reasons: pod and booster legs, touchdown debris, optimizer splits.
+count = { min = 2, max = 14 }
+
+# REPORT-ONLY until a reading run. The merge wrote a supersede row (RF-1 measured 1).
+[expectations.rewind]
+supersedeRows = { min = 1 }
+
+# REPORT-ONLY until a reading run. The committed legs after the merge: the booster's on the
+# attempt's stock name, the pod's on the Parsek name made inside the attempt, none on a
+# replaced or captured name.
+[expectations.recordings.structure]
+gating         = false
+recordingNames = { "VN14 Booster Stock" = { min = 1 }, "VN14 Pod" = { min = 1 }, "VN14 Booster" = { max = 0 }, "GS1 Auto-Chute Booster Probe" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
+  # (d) The Parsek rename before the rewind.
+  "uiaction edit window=missions field=recordingname key=[0-9a-f]+ draft=VN14 Booster committed=true ",
+  "\\[UI\\] Recording 'GS1 Auto-Chute Booster Probe' renamed to 'VN14 Booster' identity=\\S+ legs=[1-9][0-9]*",
+  "Vessel name decision recorded: identity=\\S+ 'GS1 Auto-Chute Booster Probe' -> 'VN14 Booster' source=ParsekRename ",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  "Flight epoch -> [0-9]+ reason=refly-attempt-start sess=",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke[\\s\\S]*Write-through applied(?: \\(proto\\))?: (?:vessel )?pid=[0-9]+ guid=[0-9a-f]+ 'GS1 Auto-Chute Booster Probe' -> 'VN14 Booster' ",
+  # (e) Inside the attempt.
+  "renamevessel applied pid=[0-9]+ old='VN14 Booster' new='VN14 Booster Stock' type=\\S+ active=true changed=true legs=[1-9][0-9]* decision=StockDialog decisionName='VN14 Booster Stock'",
+  "Stock rename captured: source=StockDialog pid=[0-9]+ guid=[0-9a-f]+ 'VN14 Booster' -> 'VN14 Booster Stock' ",
+  "uiaction edit window=missions field=recordingname key=[0-9a-f]+ draft=VN14 Pod committed=true ",
+  "Vessel name decision recorded: identity=\\S+ '[^'\\r\\n]*' -> 'VN14 Pod' source=ParsekRename seq=[0-9]+ legs=[1-9][0-9]* ",
+  # (f) The merge keeps both decisions.
+  "(?s)MISSIONMARK label=vn14-merge .*?answermergedialog complete choice=merge result=committed",
+  "(?s)MISSIONMARK label=vn14-merge .*?Apply pass \\([^)\\r\\n]+\\): identities=[0-9]+ withDecision=2 ",
+  "(?s)MISSIONMARK label=vn14-merge .*?Saved VESSEL_NAMES: decisions=2 ",
+  # (g) The cold reload loads both and renames no leg.
+  "(?s)MISSIONMARK label=vn14-reload .*?Load classified: early=Cold refined=Cold scene=SPACECENTER [^\\r\\n]*coldReason=save-file",
+  "(?s)MISSIONMARK label=vn14-reload .*?Loaded VESSEL_NAMES: decisions=2 skipped=0 ",
+  "(?s)MISSIONMARK label=vn14-reload .*?Apply pass \\(onload-tail:cold\\): identities=[0-9]+ withDecision=2 newlyCovered=[0-9]+ newlyUncovered=[0-9]+ legsRenamed=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "renamevessel rejected",
+  "renamevessel error",
+  "Parsek rename refused",
+  "Live write rule: stock automatic name kept on",
+  # A merge undoes nothing: no revert undo, no Discard Re-fly load.
+  "Revert undo",
+  "Load classified: early=DiscardReFly",
+  "In-session load found no staged-list handoff",
+]
+
+[runtime]
+# VN-2's budget plus one SaveGame and one cold LoadGame (720 with the step-wait margin).
+budgetSeconds = 4800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

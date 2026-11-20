@@ -86,7 +86,10 @@ namespace Parsek.TestCommands
     /// route-addressed shape: <c>link</c>, <c>unlink</c>, <c>set-cadence</c>. The
     /// endpoint lane adds <c>rescan</c>, the Logistics window's "Re-scan for endpoint"
     /// button, which exists only while the button is drawn
-    /// (<see cref="RescanNotOfferedReason"/>).</para>
+    /// (<see cref="RescanNotOfferedReason"/>). The <c>delete</c> action is the Logistics
+    /// window's Delete button AFTER its confirm (<c>RouteStore.RemoveRoute</c>, the call the
+    /// confirm's Delete callback makes); it reports whether the route had an open cycle, so
+    /// a lane can delete mid-transit and read the outcome.</para>
     ///
     /// <para><b>EVERY STORE REFUSAL GETS ITS OWN TOKEN.</b> The three production methods
     /// behind the new actions (<c>RouteStore.LinkRoutes</c> / <c>UnlinkRoute</c> /
@@ -116,13 +119,14 @@ namespace Parsek.TestCommands
         internal const string ActionUnlink = "unlink";
         internal const string ActionSetCadence = "set-cadence";
         internal const string ActionRescan = "rescan";
+        internal const string ActionDelete = "delete";
 
         /// <summary>The action vocabulary, in wire spelling. Case-sensitive and
         /// exact, like every other fail-closed arg parse on this seam.</summary>
         internal static readonly string[] KnownActions =
         {
             ActionCreate, ActionSendOnce, ActionPause, ActionActivate,
-            ActionLink, ActionUnlink, ActionSetCadence, ActionRescan
+            ActionLink, ActionUnlink, ActionSetCadence, ActionRescan, ActionDelete
         };
 
         // ---- arg keys ----
@@ -211,7 +215,8 @@ namespace Parsek.TestCommands
                 || string.Equals(action, ActionLink, StringComparison.Ordinal)
                 || string.Equals(action, ActionUnlink, StringComparison.Ordinal)
                 || string.Equals(action, ActionSetCadence, StringComparison.Ordinal)
-                || string.Equals(action, ActionRescan, StringComparison.Ordinal);
+                || string.Equals(action, ActionRescan, StringComparison.Ordinal)
+                || string.Equals(action, ActionDelete, StringComparison.Ordinal);
         }
 
         /// <summary>True for the three actions that hand the route to

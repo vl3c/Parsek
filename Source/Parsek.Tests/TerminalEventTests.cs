@@ -42,7 +42,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ApplyTerminalDestruction_WithOrbitalData_PopulatesAllTerminalOrbitFields()
+        public void ApplyTerminalDestruction_WithOrbitalData_KeepsNoTerminalOrbit()
         {
             var pending = new ParsekFlight.PendingDestruction
             {
@@ -68,20 +68,18 @@ namespace Parsek.Tests
 
             ParsekFlight.ApplyTerminalDestruction(pending, rec);
 
+            // TERMINAL-DESTROYED-PAYLOAD-DIVERGES: a destroyed ending carries no terminal
+            // orbit, as MarkDestroyedAtTerminal and the finalization-cache applier write it.
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
             Assert.Equal(6000.0, rec.ExplicitEndUT);
-            Assert.Equal(28.5, rec.TerminalOrbitInclination);
-            Assert.Equal(0.01, rec.TerminalOrbitEccentricity);
-            Assert.Equal(700000.0, rec.TerminalOrbitSemiMajorAxis);
-            Assert.Equal(45.0, rec.TerminalOrbitLAN);
-            Assert.Equal(90.0, rec.TerminalOrbitArgumentOfPeriapsis);
-            Assert.Equal(1.5, rec.TerminalOrbitMeanAnomalyAtEpoch);
-            Assert.Equal(5999.0, rec.TerminalOrbitEpoch);
-            Assert.Equal("Kerbin", rec.TerminalOrbitBody);
+            Assert.True(rec.VesselDestroyed);
+            Assert.Null(rec.TerminalOrbitBody);
+            Assert.Equal(0.0, rec.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(0.0, rec.TerminalOrbitInclination);
         }
 
         [Fact]
-        public void ApplyTerminalDestruction_WithSurfaceData_PopulatesTerminalPosition()
+        public void ApplyTerminalDestruction_WithSurfaceData_KeepsNoTerminalPosition()
         {
             var surfPos = new SurfacePosition
             {
@@ -109,14 +107,10 @@ namespace Parsek.Tests
 
             ParsekFlight.ApplyTerminalDestruction(pending, rec);
 
+            // TERMINAL-DESTROYED-PAYLOAD-DIVERGES: same seal as MarkDestroyedAtTerminal.
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
             Assert.Equal(7000.0, rec.ExplicitEndUT);
-            Assert.True(rec.TerminalPosition.HasValue);
-            Assert.Equal("Mun", rec.TerminalPosition.Value.body);
-            Assert.Equal(12.5, rec.TerminalPosition.Value.latitude);
-            Assert.Equal(-45.3, rec.TerminalPosition.Value.longitude);
-            Assert.Equal(100.0, rec.TerminalPosition.Value.altitude);
-            Assert.Equal(SurfaceSituation.Landed, rec.TerminalPosition.Value.situation);
+            Assert.False(rec.TerminalPosition.HasValue);
         }
 
         [Fact]
@@ -339,7 +333,11 @@ namespace Parsek.Tests
 
             ParsekFlight.ApplyTerminalDestruction(pending, rec);
 
-            Assert.Equal(28.5, rec.TerminalOrbitInclination); // overwritten
+            // The method is still the authority over the terminal fields, and a destroyed
+            // ending carries no terminal orbit (TERMINAL-DESTROYED-PAYLOAD-DIVERGES): both the
+            // pre-existing value and the captured one are gone.
+            Assert.Equal(0.0, rec.TerminalOrbitInclination);
+            Assert.Null(rec.TerminalOrbitBody);
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
         }
 

@@ -117,9 +117,12 @@ An older build opening a save from a newer one keeps what it cannot read and wri
   loaded; a `MISSION` node's unknown values and child nodes round-trip verbatim.
 - **Save-wide stamp.** A newer `parsekSaveFormat` logs one Warn naming both numbers and the
   writer; the unstamped stores load best effort.
-- **Additive enum members** read as unknown on an older build (for example a new `TerminalState`
-  leaves `TerminalStateValue` null through the codec's `Enum.IsDefined` guard): degraded
-  metadata, never corrupt data.
+- **Additive enum members** read as unknown on an older build: degraded metadata, never corrupt
+  data. A recording's `terminalState` is held verbatim (todo NEWER-ENDING-ERASED-BY-OLDER-BUILD):
+  `RecordingTreeRecordCodec` keeps an undefined number in `TerminalStateValue` as is (one `Codec`
+  Warn) and writes it back, and every consumer reads it as a final, non-spawnable ending (no end
+  spawn, no tail trim, no overwrite by a later recovery). Builds before that fix dropped it to
+  null on load, so the ending was lost once they saved and the tail trim could cut the trajectory.
 
 ## 5. How to bump a format
 
@@ -154,4 +157,7 @@ An older build opening a save from a newer one keeps what it cannot read and wri
 - `CrewReservationManager.ApplyToRoster` still runs under a held ledger, on the kerbal rows the
   load derives from the committed recordings.
 - The stores under the save-wide stamp have no hold: a newer `parsekSaveFormat` only warns, and
-  those stores are read best effort.
+  those stores are read best effort. The next save rewrites them in this build's shape (keys and enum values this build does not
+  know are dropped) and stamps this build's `parsekSaveFormat`, so the newer stamp is not kept
+  (owner ruling 2026-11-20: a downgrade then upgrade is rare; the written data really is this
+  build's shape, and keeping the newer number would let the newer build skip its upgrade step).

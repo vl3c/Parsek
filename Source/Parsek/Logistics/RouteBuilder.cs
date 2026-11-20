@@ -562,7 +562,7 @@ namespace Parsek.Logistics
         {
             isKscOrigin =
                 !string.IsNullOrEmpty(originRec.LaunchSiteName)
-                && string.Equals(originRec.StartBodyName, "Kerbin", StringComparison.Ordinal);
+                && HomeWorld.IsHomeBodyName(originRec.StartBodyName);
 
             // M3 pickup direction (plan D8): an originless PURE-PICKUP run loads
             // its cargo FROM the dock endpoint (the reverse of delivery), so it
@@ -591,11 +591,12 @@ namespace Parsek.Logistics
                 origin = new RouteEndpoint
                 {
                     VesselPersistentId = 0,
-                    BodyName = "Kerbin",
+                    // The home world's name (the guard above proved StartBodyName is it).
+                    BodyName = originRec.StartBodyName,
                     // v0: launch-site coordinates resolved at dispatch time by name.
                     // TODO: item 5 scheduler must resolve KSC coords via source ref → recording →
                     // LaunchSiteName, going through EffectiveState.ComputeERS(). The Route does NOT
-                    // persist LaunchSiteName — only Origin.BodyName == "Kerbin" and IsKscOrigin == true.
+                    // persist LaunchSiteName - only Origin.BodyName (the home world) and IsKscOrigin == true.
                     Latitude = 0.0,
                     Longitude = 0.0,
                     Altitude = 0.0,

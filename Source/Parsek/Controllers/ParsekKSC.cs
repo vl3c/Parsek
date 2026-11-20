@@ -1578,8 +1578,9 @@ namespace Parsek
                 reason = KscStructuralReasonTooFewPoints;
                 return KscStructuralRoute.Skip;
             }
-            // The Space Center sits on Kerbin and can only place a ghost there.
-            if (rec.Points[0].bodyName != "Kerbin")
+            // The Space Center sits on the home world (Kerbin in stock, another body in a
+            // planet pack) and can only place a ghost there.
+            if (!HomeWorld.IsHomeBodyName(rec.Points[0].bodyName))
             {
                 reason = KscStructuralReasonOffKerbin;
                 return KscStructuralRoute.SpawnOnly;

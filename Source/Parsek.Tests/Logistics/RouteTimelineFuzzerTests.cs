@@ -36,7 +36,7 @@ namespace Parsek.Tests.Logistics
     /// (design 19.2.4), across warps, saves and load-backs.</para>
     /// </summary>
     [Collection("Sequential")]
-    public class RouteTimelineFuzzerTests : IDisposable
+    public partial class RouteTimelineFuzzerTests : IDisposable
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
