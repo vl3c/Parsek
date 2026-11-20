@@ -94,6 +94,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RowLabel_ReadsTheRole_AVersionOneRowKeepsItsPhase()
+        {
+            Optimize(V2(Make("label", 0, Exo(2000), Atmo(300), Ground(100))));
+            var rows = ChainOf("tree-label");
+            Assert.Equal("Kerbin reentry", RecordingSegmentLabels.GetSegmentPhaseLabel(rows[1], "Kerbin"));
+            var legacy = new Recording { SegmentPhase = "atmo" };
+            Assert.Equal("Kerbin atmo", RecordingSegmentLabels.GetSegmentPhaseLabel(legacy, "Kerbin"));
+        }
+
+        [Fact]
         public void SkipReentry_ShortHops_ReentryRowFromTheFirstDip()
         {
             var shape = new[] { Exo(2000), Atmo(100), Exo(60), Atmo(200), Ground(100) };

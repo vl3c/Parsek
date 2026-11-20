@@ -10,7 +10,9 @@ namespace Parsek
     internal static class RecordingSegmentLabels
     {
         /// <summary>
-        /// Returns a human-readable phase label like "Kerbin atmo" or "exo".
+        /// Returns a human-readable phase label like "Kerbin atmo" or "exo". A row the
+        /// version-2 split rules named (<see cref="Recording.SegmentRole"/>) reads by its
+        /// mission-profile role instead ("Kerbin reentry", "Kerbin aerobraking").
         /// Returns empty string for untagged/legacy recordings.
         /// </summary>
         internal static string GetSegmentPhaseLabel(Recording rec)
@@ -27,10 +29,11 @@ namespace Parsek
                 return displayBody ?? "";
             }
 
-            if (string.IsNullOrEmpty(rec.SegmentPhase)) return "";
+            string phase = !string.IsNullOrEmpty(rec.SegmentRole) ? rec.SegmentRole : rec.SegmentPhase;
+            if (string.IsNullOrEmpty(phase)) return "";
             if (!string.IsNullOrEmpty(displayBody))
-                return displayBody + " " + rec.SegmentPhase;
-            return rec.SegmentPhase;
+                return displayBody + " " + phase;
+            return phase;
         }
 
         internal static string GetSegmentBodyDisplayLabel(Recording rec)
