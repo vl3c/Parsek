@@ -742,6 +742,8 @@ namespace Parsek
                 CaptureChainSiblingsBefore(origin, freshSnapshot.ChainSiblingsBefore);
 
                 Recording tip = RecordingOptimizer.SplitAtUT(origin, cutUT);
+                if (tip != null && SplitFaultForTesting != null)
+                    SplitFaultForTesting(origin);
                 if (tip == null)
                 {
                     // SplitAtUT's remaining guards (debris contract
@@ -1499,6 +1501,41 @@ namespace Parsek
                     return t;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Test seam: when non-null, called inside the fresh-split transaction right after
+        /// <see cref="RecordingOptimizer.SplitAtUT"/> cut the origin, so a test can make the
+        /// split throw and exercise its in-memory rollback and the merge journal finisher's
+        /// whole-recording fallback. Null in production.
+        /// </summary>
+        internal static Action<Recording> SplitFaultForTesting;
+
+        /// <summary>
+        /// The HEAD of a split this Re-Fly session already completed, or null. A completed
+        /// split leaves <c>marker.SupersedeTargetId</c> naming TIP: a chain member at
+        /// ChainIndex &gt;= 1 starting at the rewind UT whose chain predecessor (HEAD, the
+        /// origin's own id) ends there. The merge journal finisher's whole-recording fallback
+        /// (owner ruling 2026-11-18, RULE 4) points the closure root back at HEAD so the whole
+        /// old recording is superseded instead of only its post-rewind part.
+        /// </summary>
+        internal static Recording TryResolveHeadOfCompletedSplit(ReFlySessionMarker marker)
+        {
+            if (marker == null) return null;
+            if (double.IsNaN(marker.RewindPointUT) || marker.RewindPointUT <= 0.0) return null;
+            string closureRootId = !string.IsNullOrEmpty(marker.SupersedeTargetId)
+                ? marker.SupersedeTargetId
+                : marker.OriginChildRecordingId;
+            Recording closureRoot = FindCommittedRecordingById(closureRootId);
+            if (closureRoot == null) return null;
+            const double epsilon = EffectiveState.PidPeerStartUtEpsilonSeconds;
+            double cutUT = ResolveDiscontinuitySafeCutUT(closureRoot, marker.RewindPointUT);
+            if (!LooksLikeAlreadyMutatedClosureRoot(closureRoot, cutUT, epsilon))
+                return null;
+            Recording head = TryFindChainPredecessor(closureRoot);
+            if (head == null || Math.Abs(head.EndUT - cutUT) >= epsilon)
+                return null;
+            return head;
         }
 
         /// <summary>

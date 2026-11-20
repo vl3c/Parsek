@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **A Re-Fly merge that keeps failing no longer blocks the save.** Every load retried it and failed,
+  and Discard stayed refused for good. Parsek now retries once, then hides the whole old flight
+  instead of cutting it; if that fails too it keeps the old flight as it was and lets you discard
+  the new attempt. (REFLY-MERGE-FINISHER-NEVER-CONVERGES)
 - **Timeline cuts never fall inside a time jump or a cheat teleport.** A Re-Fly whose rewind point
   falls inside a time jump cuts the old flight just before the jump, and the timeline cleanup
   moves a split out of a jump or a teleport (or skips it), so no replay slides across one.
