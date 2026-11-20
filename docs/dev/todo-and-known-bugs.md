@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-INTERRUPTED-MERGE-TOASTS-MERGED~~: an interrupted Re-Fly merge toasted "Merged" and offered the route prompt [FILED 2026-11-18 by the recording split / trim / merge review (part of finding H4), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; low (a wrong message)]
+
+**Cause:** `MergeDialog.MergeCommit` ran its success tail (route prompt, "Merged - N vessel(s) ..." toast) whatever `TryCommitReFlySupersede` returned, so an `Interrupted` result showed "Merge interrupted - will finish on next load" and then "Merged".
+
+**Fix:** on `Interrupted` the commit still fires `OnTreeCommitted` (the tree is committed; ghost chains must re-evaluate) but skips the route prompt and the success toast. Warn `User chose: Tree Merge (...) - Re-Fly supersede interrupted; route prompt and the merged toast suppressed`.
+
+**Tests:** `MergeDialogResourcesAppliedTests.MergeCommit_InterruptedReFlyPath_NoMergedToast_CommittedListenersStillRun` (red under a mutation that drops the early return).
+
 ## ~~REFLY-MERGE-FINISHER-NEVER-CONVERGES~~: a Re-Fly merge that fails the same way every time blocked every later load of the save [FILED 2026-11-18 by the recording split / trim / merge review (finding H4), by code reading; ruled by the owner 2026-11-18 (RULE 4). FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; high (the load aborts before the sweep, the reaper and the file collector; the journal never clears and Discard stays refused)]
 
 **Cause:** `RecordingTreeSplitter` rolls back and rethrows, `MergeJournalOrchestrator.RunFinisher` rethrew, and `ParsekScenario.OnLoad` rethrows, so a merge step that throws deterministically (bad split data, or `SupersedeCommit.ClassifyMergeStateOrThrow` when an Orbiting provisional's slot never resolves) threw on every load and the journal never cleared.

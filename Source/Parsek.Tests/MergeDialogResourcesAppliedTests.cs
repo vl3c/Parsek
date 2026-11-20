@@ -784,6 +784,63 @@ namespace Parsek.Tests
             Assert.Equal(MergeJournal.Phases.Finalize, scenario.ActiveMergeJournal.Phase);
         }
 
+        [Fact]
+        public void MergeCommit_InterruptedReFlyPath_NoMergedToast_CommittedListenersStillRun()
+        {
+            // L14: an interrupted Re-Fly supersede used to be followed by the "Merged"
+            // success toast right after "Merge interrupted - will finish on next load".
+            var origin = MakeRecording("rec-origin-l14", "tree-refly-l14", 100.0, 200.0);
+            var provisional = MakeRecording("rec-provisional-l14", "tree-refly-l14", 100.0, 220.0);
+            provisional.MergeState = MergeState.NotCommitted;
+            provisional.SupersedeTargetId = origin.RecordingId;
+            provisional.TerminalStateValue = TerminalState.Landed;
+
+            var tree = MakeTree("tree-refly-l14", provisional.RecordingId, origin, provisional);
+            PendingTreeSlot.StashPendingTree(tree);
+
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = MakeMarker(
+                    "sess-refly-l14", "tree-refly-l14", provisional.RecordingId, origin.RecordingId),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            var screenMessages = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (m, d) => screenMessages.Add(m);
+            int committedEvents = 0;
+            System.Action<RecordingTree> onCommitted = t => committedEvents++;
+            MergeDialog.OnTreeCommitted += onCommitted;
+            MergeJournalOrchestrator.FaultInjectionPoint = MergeJournalOrchestrator.Phase.Finalize;
+            MergeJournalOrchestrator.DurableSaveForTesting = _ => { };
+
+            try
+            {
+                MergeDialog.MergeCommit(
+                    tree,
+                    new Dictionary<string, bool>
+                    {
+                        { origin.RecordingId, false },
+                        { provisional.RecordingId, false },
+                    },
+                    spawnCount: 1);
+            }
+            finally
+            {
+                MergeJournalOrchestrator.FaultInjectionPoint = null;
+                MergeDialog.OnTreeCommitted -= onCommitted;
+            }
+
+            Assert.Contains(screenMessages, m => m.Contains("Merge interrupted"));
+            Assert.DoesNotContain(screenMessages, m => m.StartsWith("Merged"));
+            Assert.Equal(1, committedEvents);
+            Assert.Contains(logLines, l => l.Contains("[MergeDialog]")
+                && l.Contains("Re-Fly supersede interrupted")
+                && l.Contains("route prompt and the merged toast suppressed"));
+        }
+
         // ================================================================
         // 6. Null-tree safety on both branches
         // ================================================================

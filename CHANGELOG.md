@@ -28,6 +28,9 @@ Not released yet.
 
 ### Fixed
 
+- **An interrupted Re-Fly merge no longer also says "Merged".** After "Merge interrupted - will
+  finish on next load" the game also showed the success message; it now shows only the first.
+  (REFLY-INTERRUPTED-MERGE-TOASTS-MERGED)
 - **A Re-Fly merge that keeps failing no longer blocks the save.** Every load retried it and failed,
   and Discard stayed refused for good. Parsek now retries once, then hides the whole old flight
   instead of cutting it; if that fails too it keeps the old flight as it was and lets you discard

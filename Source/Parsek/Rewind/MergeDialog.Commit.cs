@@ -170,7 +170,21 @@ namespace Parsek
             }
 
             ClearPendingFlag("merge dialog commit button");
+            // The tree is committed either way, so the committed listeners (ghost chain
+            // re-evaluation) always run.
             OnTreeCommitted?.Invoke(tree);
+            if (reFlyResult == ReFlyMergeCommitResult.Interrupted)
+            {
+                // The Re-Fly supersede did not finish: the "Merge interrupted" toast already
+                // told the player, and the journal (when one exists) finishes on the next
+                // load. A route prompt or a "Merged" toast would announce a merge that has
+                // not happened.
+                ParsekLog.Warn("MergeDialog",
+                    $"User chose: Tree Merge (tree='{tree.TreeName}', " +
+                    $"recordings={tree.Recordings.Count}) - Re-Fly supersede interrupted; " +
+                    "route prompt and the merged toast suppressed");
+                return;
+            }
             // M6 Record-Supply-Run helper: one-time non-blocking prompt when
             // this commit produced an eligible route candidate. After
             // OnTreeCommitted so downstream state (ghost chains) is settled;
