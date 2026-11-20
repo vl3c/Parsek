@@ -59,9 +59,27 @@ namespace Parsek
         /// a kerbal under a given name is a roster write stock never makes (its offer draws a
         /// fresh random name), and the contract's text and parameters would still name him.</summary>
         KerbalNotInRoster,
+        /// <summary>The kerbal to rescue is in the roster but no longer the Unowned stranded
+        /// kerbal the offer made (crew, applicant, tourist): stock's generators would seat
+        /// whoever the name resolves to, so a roster kerbal would be placed in a second spot.</summary>
+        KerbalNotUnowned,
         /// <summary>A target is missing and nothing above holds it: stock's accept-side
-        /// generation would have to run once.</summary>
+        /// generation runs once.</summary>
         Regenerate
+    }
+
+    /// <summary>What the contract patch does about a rebuilt contract's missing accept-side
+    /// world effect.</summary>
+    internal enum ContractAcceptRepair
+    {
+        /// <summary>Nothing: no effect, nothing missing, a guard holds it, or the scene.</summary>
+        None,
+        /// <summary>Run the RecoverAsset's own stock generator once
+        /// (<c>GenerateLandRecovery</c> / <c>GenerateOrbitalRecovery</c>).</summary>
+        RegenerateStrandedAsset,
+        /// <summary>Apply <c>TourismContract.OnAccepted</c>'s roster change to the tourists
+        /// whose decision is <see cref="TouristConversion.Convert"/>.</summary>
+        ConvertTourists
     }
 
     /// <summary>What the roster holds for one listed tourist.</summary>
@@ -105,6 +123,9 @@ namespace Parsek
         internal Func<uint, bool> PartInAnyVessel;
         internal Func<string, bool> KerbalAboardAnyVessel;
         internal Func<string, bool> KerbalInRoster;
+        /// <summary>The roster holds the kerbal as <c>KerbalType.Unowned</c> (what the offer
+        /// made him; stock turns him Crew only when the rescue parameter completes).</summary>
+        internal Func<string, bool> KerbalUnowned;
         /// <summary>Named by a committed flight, managed by Parsek, or in the crew swap map.</summary>
         internal Func<string, bool> KerbalReserved;
         internal bool CommittedResolution;
@@ -120,6 +141,14 @@ namespace Parsek
         internal string Detail;
         /// <summary>True when the world lacks what stock's accept would have made.</summary>
         internal bool WorldEffectMissing;
+        /// <summary>What the patch does about it.</summary>
+        internal ContractAcceptRepair Repair;
+        /// <summary>Grep-stable reason a missing effect is NOT repaired, else null.</summary>
+        internal string RepairSkipReason;
+        /// <summary>The RecoverAsset target the snapshot names (StrandedAsset only).</summary>
+        internal RecoverAssetTarget Target;
+        /// <summary>Per listed tourist, in order (TouristRoster only).</summary>
+        internal List<KeyValuePair<string, TouristConversion>> Tourists;
     }
 
     /// <summary>
@@ -210,7 +239,22 @@ namespace Parsek
             if (target.RecoveringKerbal
                 && (facts.KerbalInRoster == null || !facts.KerbalInRoster(target.KerbalName)))
                 return StrandedAssetDecision.KerbalNotInRoster;
+            if (target.RecoveringKerbal
+                && (facts.KerbalUnowned == null || !facts.KerbalUnowned(target.KerbalName)))
+                return StrandedAssetDecision.KerbalNotUnowned;
             return StrandedAssetDecision.Regenerate;
+        }
+
+        /// <summary>
+        /// The scenes a stranded vessel is regenerated in: Space Center (where stock's own
+        /// Mission Control accept runs <c>OnAccepted</c>) and the Tracking Station, both with
+        /// every vessel unloaded and packed. Flight and the editors are refused: a flight
+        /// scene has a loaded physics bubble and Parsek's recorders listening, an editor has
+        /// no planetarium.
+        /// </summary>
+        internal static bool IsRegenerationScene(GameScenes scene)
+        {
+            return scene == GameScenes.SPACECENTER || scene == GameScenes.TRACKSTATION;
         }
 
         /// <summary>
@@ -242,19 +286,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The plan for one rebuilt contract. <paramref name="kerbalIsTourist"/> answers
-        /// whether the roster holds that kerbal as a Tourist (what TourismContract.OnAccepted
-        /// makes him).
+        /// The plan for one rebuilt contract: what its accept-side world effect is, whether
+        /// the world lacks it, and what the patch does about it. <paramref name="touristFactOf"/>
+        /// answers what the roster holds for one listed tourist; <paramref name="scene"/> is the
+        /// scene the patch runs in.
         /// </summary>
         internal static ContractAcceptWorldEffectPlan Plan(
             string contractTypeName, ConfigNode snapshot,
-            StrandedAssetWorldFacts strandedFacts, Func<string, bool> kerbalIsTourist)
+            StrandedAssetWorldFacts strandedFacts, Func<string, TouristRosterFact> touristFactOf,
+            GameScenes scene)
         {
             var plan = new ContractAcceptWorldEffectPlan
             {
                 Effect = Classify(contractTypeName),
                 Outcome = "none",
-                Detail = ""
+                Detail = "",
+                Repair = ContractAcceptRepair.None
             };
             switch (plan.Effect)
             {
@@ -262,26 +309,52 @@ namespace Parsek
                 {
                     RecoverAssetTarget t = ReadRecoverAssetTarget(snapshot);
                     StrandedAssetDecision d = DecideStrandedAsset(t, strandedFacts);
+                    plan.Target = t;
                     plan.Outcome = d.ToString();
                     plan.WorldEffectMissing = d != StrandedAssetDecision.TargetPresent
                         && d != StrandedAssetDecision.NotReadable;
                     plan.Detail = DescribeTarget(t);
+                    if (d == StrandedAssetDecision.Regenerate)
+                    {
+                        if (IsRegenerationScene(scene))
+                            plan.Repair = ContractAcceptRepair.RegenerateStrandedAsset;
+                        else
+                            plan.RepairSkipReason = "scene=" + scene;
+                    }
+                    else if (plan.WorldEffectMissing)
+                    {
+                        plan.RepairSkipReason = d.ToString();
+                    }
                     break;
                 }
                 case ContractAcceptWorldEffect.TouristRoster:
                 {
-                    List<string> tourists = ReadTourists(snapshot);
+                    plan.Tourists = DecideTouristConversions(snapshot, touristFactOf);
                     var notTourist = new List<string>();
-                    for (int i = 0; i < tourists.Count; i++)
+                    var held = new List<string>();
+                    int convert = 0;
+                    for (int i = 0; i < plan.Tourists.Count; i++)
                     {
-                        if (kerbalIsTourist == null || !kerbalIsTourist(tourists[i]))
-                            notTourist.Add(tourists[i]);
+                        TouristConversion c = plan.Tourists[i].Value;
+                        if (c == TouristConversion.AlreadyTourist)
+                            continue;
+                        notTourist.Add(plan.Tourists[i].Key);
+                        if (c == TouristConversion.Convert)
+                            convert++;
+                        else
+                            held.Add(plan.Tourists[i].Key + ":" + c);
                     }
                     plan.WorldEffectMissing = notTourist.Count > 0;
-                    plan.Outcome = tourists.Count == 0 ? "unchecked" : (plan.WorldEffectMissing ? "missing" : "present");
+                    plan.Outcome = plan.Tourists.Count == 0
+                        ? "unchecked"
+                        : (plan.WorldEffectMissing ? "missing" : "present");
                     plan.Detail = notTourist.Count > 0
                         ? "not a Tourist in the roster: [" + string.Join(", ", notTourist.ToArray()) + "]"
-                        : "tourists=" + tourists.Count.ToString(IC);
+                        : "tourists=" + plan.Tourists.Count.ToString(IC);
+                    if (convert > 0)
+                        plan.Repair = ContractAcceptRepair.ConvertTourists;
+                    if (held.Count > 0)
+                        plan.RepairSkipReason = "[" + string.Join(", ", held.ToArray()) + "]";
                     break;
                 }
                 case ContractAcceptWorldEffect.PrebuiltShip:

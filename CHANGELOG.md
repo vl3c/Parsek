@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **A rescue or tourism contract still works after you go back in time.** If you go back to before
+  you accepted a rescue, the stranded kerbal or part now reappears when the clock reaches the accept
+  again, and a tourism contract's passengers become tourists again, so the contract can still be
+  completed instead of failing. (CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now

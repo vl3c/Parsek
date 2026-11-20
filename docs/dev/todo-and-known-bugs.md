@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; OPEN: the regeneration itself (fix plan below) and its PC lane; high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
+## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; OPEN: the PC lane (live proof), and the prebuilt-ship / experimental-part templates (measure first, item 4); high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
 
 **What happens.** The player accepts a rescue contract (`Contracts.Templates.RecoverAsset`) at UT
 T, rewinds to before T, and the clock reaches T again. `KspStatePatcher.PatchContractsCore`
@@ -55,39 +55,66 @@ the template's accept-side effect; `ReadRecoverAssetTarget` reads the snapshot's
 regeneration must pass, first match wins: `NotReadable`, `TargetPresent` (the kerbal aboard some
 vessel, the part in some vessel; also what keeps a regeneration from running twice, since the
 vessel it adds is saved with the game), `CommittedResolution` (the committed timeline completes,
-fails or cancels the contract at any UT), `KerbalHeldByCommittedFlight` (`KerbalsModule.IsNamedByCommittedFlight`),
-`KerbalNotInRoster`, `Regenerate`. `KspStatePatcher.ContractAcceptEffects.cs` builds the world facts
+fails or cancels the contract at any UT), `KerbalReserved` (`KerbalsModule.ShouldBlockDismissal`: managed or
+named by a committed flight; or either side of the crew swap map), `KerbalNotInRoster`, `KerbalNotUnowned`
+(the kerbal is no longer the offer's Unowned stranded kerbal), `Regenerate`. `KspStatePatcher.ContractAcceptEffects.cs` builds the world facts
 from `flightState.protoVessels` once per patch, only when a rebuilt contract has an effect, and logs
 `PatchContracts: accept-side world effect not run on rebuild: contractId=... effect=StrandedAsset
 outcome=Regenerate worldMissing=True (...)`, plus one summary line naming this id. Tests:
 `ContractAcceptWorldEffectsTests` (28 cases; 11 red with `Classify` stubbed to the rebuild's current
 "no effect" answer, e.g. `Assert.Equal() Failure` Expected `StrandedAsset`, Actual `None`).
 
-**Fix plan (not built).** Owner rules: never reduce earned value, no paradox, earliest outcome wins.
-1. RecoverAsset, on `Regenerate` only: after `Register`, reflect the private `recoveryLocation`
-   (`RecoveryLocation.SURFACE` = 3) and call the private `GenerateLandRecovery` or
-   `GenerateOrbitalRecovery` on the rebuilt contract (not `OnAccepted`: `AddKerbal` dedupes but
-   the generators re-roll `partID`). Read the private `partID` before and after; when it changed
-   and the contract recovers a part, `AcquirePart.RemovePart(old)` / `AddPart(new)` and
-   `RecoverPart.RemovePartToRecover(old)` / `AddPartToRecover(new)`. The orbit is seeded by
-   `MissionSeed` but its epoch is the current UT, so the vessel sits elsewhere on its orbit than in
-   the first timeline (no committed flight depends on it: `KerbalHeldByCommittedFlight` /
-   `CommittedResolution` skip that case). One Info line per spawn.
-2. `KerbalNotInRoster`: leave it (re-creating a named Unowned kerbal is a roster write of its own);
-   decide whether to recreate him through the roster or accept the gap.
-3. Tourism: set each listed tourist found Unowned to Tourist + Available
-   (`KerbalRoster.SetExperienceTrait(pcm, KerbalRoster.touristTrait)`), the three lines of
-   `TourismContract.OnAccepted`; a missing tourist goes through `VesselSpawner`'s tourist path.
-4. Prebuilt ship and experimental part: measure first (does `SpawnPreBuiltShip` finish for a
-   rebuilt contract with `waitingForVslSpawn = True`; does R&D keep the experimental part across
-   the rewind).
+**Fix (built 2026-11-20, rescue and tourism).** Owner rules: never reduce earned value, no paradox,
+earliest outcome wins. Nothing here touches funds, science, reputation or a ledger row. The pure
+`ContractAcceptWorldEffects.Plan` now also names the repair (`ContractAcceptRepair`) and, when a
+missing effect is left alone, a grep-stable `skip=` reason; `KspStatePatcher.ContractAcceptEffects.cs`
+applies it right after the rebuilt contract's `Register`, only for a contract the rebuild just
+re-Activated (a contract the loaded save already holds Active survives the patch and never reaches
+this; its vessel is in that save).
+1. RecoverAsset, on `Regenerate` only and only in SPACECENTER or TRACKSTATION
+   (`IsRegenerationScene`; stock's own accept runs at Mission Control, every vessel packed; FLIGHT
+   and the editors log `skip=scene=<scene>` and leave the gap): reflect and call the private
+   `GenerateLandRecovery` (surface) or `GenerateOrbitalRecovery` on the rebuilt contract (decompile
+   in `logs/decompile/rescuecontract-2026-11-20/`), under `SuppressionGuard.Crew()`. Not
+   `OnAccepted`: the snapshot already carries its parameter half. The private `partID` is read
+   before and after; when the generator re-drew it for a part recovery (`NeedsPartListRepair`),
+   `AcquirePart` / `RecoverPart` swap the old id for the new one. Double-spawn guards: the world
+   check reads `flightState.protoVessels` (`TargetPresent` when the kerbal is aboard any vessel or
+   the part is in any vessel, so a save already holding the stranded vessel is never added to), the
+   index is rebuilt after a spawn, and a regenerated contract is Active in the live list so later
+   patches skip it. The orbit is stock's (`ChooseOrbit`; low orbits are random), so the vessel
+   sits elsewhere than in the first timeline (no committed flight depends on it: `KerbalReserved` /
+   `CommittedResolution` skip that case). Lines: `PatchContracts: regenerated stranded asset for
+   rebuilt contract '<id>' through RecoverAsset.<generator>: added=N [...]` and, on a part swap,
+   `rebuilt rescue '<id>' part lists now name partID=...`.
+2. `KerbalNotInRoster`: left alone (re-creating a named Unowned kerbal is a roster write stock never
+   makes; its offer draws a fresh random name). Owner decision still open: recreate him or accept the
+   gap. `KerbalNotUnowned` is also left alone (stock's generator would seat a crew kerbal in a
+   second spot).
+3. Tourism, any scene: each listed tourist whose `TouristConversion` is `Convert` (in the roster,
+   Unowned, not reserved) gets `TourismContract.OnAccepted`'s three lines (type Tourist,
+   `SetExperienceTrait(touristTrait)`, Available) under `SuppressionGuard.Crew()`, one Info line per
+   tourist. `AlreadyTourist`, `Reserved` (a committed flight or the crew bookkeeping holds him),
+   `NotUnowned` and `NotInRoster` are never touched and are named in `skip=`. A missing tourist is
+   not recreated.
+4. Prebuilt ship and experimental part: still detection only; measure first (does
+   `SpawnPreBuiltShip` finish for a rebuilt contract with `waitingForVslSpawn = True`; does R&D keep
+   the experimental part across the rewind).
+
+Tests: `ContractAcceptWorldEffectsTests` (45 cases). Red before the fix with the repair assignments
+and the `KerbalNotUnowned` guard stubbed out: 5 failures, e.g.
+`RebuiltRescue_InTheRewindSaveWorld_AtTheSpaceCenter_RegeneratesTheStrandedVessel` (`Assert.Equal()
+Failure` Expected `RegenerateStrandedAsset`, Actual `None`) and
+`RebuiltTourism_InTheRewindSaveWorld_ConvertsTheOfferedTourists` (Expected `ConvertTourists`,
+Actual `None`). The reflection shell has no headless or in-game test; the PC lane below is its proof.
 
 **PC lane (owed).** On cs-career-mun4 (RecoverAsset `e8ba5ea6`, Rayvan Kerman, low Kerbin orbit,
 Offered, Rayvan Unowned in the roster), RW-10's shape: launch and commit a pad Flea, at the Space
 Center `KscAction action=accept-contract contract=e8ba5ea6-570c-4b7f-99b4-44c9dee51030` after the
-launch UT, `InvokeRewindToLaunch tree=latest`, `WarpToUT` past the accept UT. Today the log reads
-`contractId='e8ba5ea6-... effect=StrandedAsset outcome=Regenerate worldMissing=True`; after the fix
-it must read the spawn line and a vessel named for Rayvan's pod must exist (a `ListHandles` read or
+launch UT, `InvokeRewindToLaunch tree=latest`, `WarpToUT` past the accept UT, at the Space Center. Before the
+fix the log read `contractId='e8ba5ea6-... effect=StrandedAsset outcome=Regenerate worldMissing=True`;
+with it, the same line carries `repair=RegenerateStrandedAsset`, the `regenerated stranded asset`
+line must follow with `added=1`, a vessel named for Rayvan's pod must exist (a `ListHandles` read or
 a saveParse expectation), and a save / load and a second warp must not add a second one.
 
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]

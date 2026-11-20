@@ -503,6 +503,7 @@ namespace Parsek
             int registered = 0;
             var restoredIds = new List<string>();
             int acceptWorldEffectsMissing = 0;
+            int acceptWorldEffectsRepaired = 0;
             ContractAcceptWorldIndex acceptWorld = null;
 
             foreach (string contractId in activeIds)
@@ -614,9 +615,10 @@ namespace Parsek
                         restoredIds.Add(contractId);
 
                         // Contract.Load never runs the template's OnAccepted, so what it put
-                        // into the world (a rescue's stranded vessel, tourists) is not rebuilt.
+                        // into the world (a rescue's stranded vessel, tourists) is repaired here.
                         acceptWorldEffectsMissing += ReportRestoredContractAcceptWorldEffect(
-                            contractId, typeName, snapshot, ref acceptWorld);
+                            contractId, typeName, snapshot, contract, ref acceptWorld,
+                            ref acceptWorldEffectsRepaired);
                     }
                     else
                     {
@@ -635,7 +637,7 @@ namespace Parsek
                 }
             }
 
-            LogRestoredContractAcceptWorldEffectsSummary(acceptWorldEffectsMissing);
+            LogRestoredContractAcceptWorldEffectsSummary(acceptWorldEffectsMissing, acceptWorldEffectsRepaired);
 
             // 2b. A parameter reward the ledger credited at or before the clock must not be
             // payable again: mark that stock parameter Complete the way stock leaves it after
