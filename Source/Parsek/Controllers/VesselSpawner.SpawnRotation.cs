@@ -92,6 +92,62 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// The body name a spawn of <paramref name="rec"/> places the vessel in. A spawn on
+        /// the recorded terminal orbit (<see cref="ShouldUseRecordedTerminalOrbitSpawnState"/>)
+        /// reads the recording's preferred endpoint body first, as the end-of-recording spawn
+        /// does: the last trajectory point can sit in another sphere of influence than the
+        /// terminal orbit (tree mode adds no point at an on-rails sphere change), and the
+        /// orbit build refuses a body that is not the orbit's. Any other spawn reads the
+        /// point's body first (<see cref="ResolveSpawnRotationBody"/>). Falls back to the
+        /// other source when the preferred one has no body.
+        /// </summary>
+        internal static string ResolveSpawnBodyName(Recording rec, TrajectoryPoint? point)
+        {
+            string pointBody = point.HasValue && !string.IsNullOrEmpty(point.Value.bodyName)
+                ? point.Value.bodyName
+                : null;
+            string endpointBody = null;
+            if (rec != null)
+                RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out endpointBody);
+            if (string.IsNullOrEmpty(endpointBody))
+                endpointBody = null;
+
+            if (ShouldUseRecordedTerminalOrbitSpawnState(rec))
+            {
+                if (endpointBody != null
+                    && pointBody != null
+                    && !string.Equals(endpointBody, pointBody, StringComparison.Ordinal))
+                {
+                    ParsekLog.VerboseRateLimited("Spawner",
+                        "spawn-body-endpoint-over-point." + (rec?.RecordingId ?? "(null)"),
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Spawn body for orbit-route rec={0}: endpoint body {1} over last point body {2}",
+                            rec?.RecordingId ?? "(null)",
+                            endpointBody,
+                            pointBody),
+                        minIntervalSeconds: 30.0);
+                }
+                return endpointBody ?? pointBody;
+            }
+
+            return pointBody ?? endpointBody;
+        }
+
+        /// <summary>
+        /// The live body a chain-tip or Ready-reference spawn at <paramref name="ut"/> places
+        /// the vessel in: <see cref="ResolveSpawnBodyName"/>, then, for an escape trajectory,
+        /// the sphere its path has reached by then (<see cref="ResolveEscapeSpawnBody"/>).
+        /// </summary>
+        internal static CelestialBody ResolveSpawnBody(Recording rec, TrajectoryPoint? point, double ut)
+        {
+            string bodyName = ResolveSpawnBodyName(rec, point);
+            CelestialBody body = string.IsNullOrEmpty(bodyName)
+                ? null
+                : FlightGlobals.GetBodyByName(bodyName);
+            return ResolveEscapeSpawnBody(rec, body, ut);
+        }
+
         internal static CelestialBody ResolveSpawnRotationBody(
             Recording rec,
             TrajectoryPoint? point = null)

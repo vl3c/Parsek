@@ -584,8 +584,7 @@ namespace Parsek
                 && rec.TerminalStateValue.HasValue
                 && finalizeVesselFound)
             {
-                var ts = rec.TerminalStateValue.Value;
-                if (GhostPlaybackLogic.IsSpawnableTerminal(ts))
+                if (GhostPlaybackLogic.HasSpawnableTerminal(rec))
                     vesselAccess.TryRefreshStableTerminalSnapshot(
                         rec,
                         finalizeVessel,

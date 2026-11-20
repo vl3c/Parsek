@@ -98,6 +98,180 @@ A split that throws undoes these re-points with the rest of its rollback ledger.
 
 **Tests:** `RecordingOptimizerSplitAtUTTests.SplitAtUT_CrashedFlight_VesselDestroyedMovesWithTheTerminal`, `MergeInto_DestroyedTarget_RefusesAndCanAutoMergeRefusesUpFront`; `IdentityLossClassifierTests.RecordingOptimizer_MergeInto_SkipsDestroyedTarget` now expects null (its old expectation pinned the bug). All three red under a mutation that restores the old code.
 
+## ~~SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS~~: a probe left on an escape trajectory ended SubOrbital and never became real [FILED 2026-11-18 by the recording split / trim / merge review (design question 4), owner ruling Q10 "spawn on its path". FIXED 2026-11-20, branch `rsr-wp7-spawn-ends`; xUnit (`EscapeTrajectorySpawnTests`); no lane flies it yet; medium (a vessel the player left flying vanished at the end of its replay)]
+
+What the player saw: commit a flight with a probe on its way out of Kerbin (or the Mun), rewind,
+and watch the replay end: the probe's ghost disappears and no vessel is left on the path.
+
+Cause. KSP reports such a vessel ESCAPING (`Vessel.updateSituation`, decompiled 1.12.5: outside
+the atmosphere, `eccentricity >= 1` or `ApR >= sphereOfInfluence`, whatever the periapsis), and
+`RecordingTree.DetermineTerminalState` folds ESCAPING into `TerminalState.SubOrbital`, which
+`GhostPlaybackLogic.IsSpawnableTerminal` never admits (the #45 rule written for FLYING). The
+terminal orbit was captured (`ParsekFlight.CaptureTerminalOrbit` covers ESCAPING), but
+`VesselSpawner.HasRecordedTerminalOrbit` and the orbit seeds required `semiMajorAxis > 0`, so a
+hyperbolic orbit could not have been spawned anyway, and nothing carried an orbit across a sphere
+of influence change.
+
+Why no new `TerminalState` member (decided from the code). A dedicated `Escaping` member would be
+the cleaner label, but about 25 consumers switch on the terminal state, and the Re-Fly ones in
+`Rewind/` (`UnfinishedFlightClassifier`: an Orbiting / SubOrbital non-focus slot is an Unfinished
+Flight; `ReFlyAutoSealPreview`: Orbiting seals the focus slot) would silently change meaning for
+escaping vessels; `Orbiting` is wrong too (it means a stable bound orbit to the Re-Fly seal, the
+timeline "Ends orbiting X" text and route endpoints). A new member also could not reach recordings
+already committed. So the terminal state stays `SubOrbital` (in flight, unconcluded, labelled
+"Sub-orbital" as before) and only the spawn changes.
+
+Fix. `Recording.IsEscapeTrajectoryTerminal` / `EscapeTrajectoryTerminal.IsEscapeTerminal`: a
+`SubOrbital` terminal with a propagatable recorded terminal orbit and escape evidence (an open
+conic, or the snapshot's ESCAPING situation for a closed conic whose apoapsis is beyond the sphere)
+is admitted by `TryRejectSpawnForTerminalAndSituation` and deferred to the flight scene at the Space
+Center like an Orbiting one. It takes the orbit spawn route (`ShouldUseRecordedTerminalOrbitSpawnState`,
+`ShouldRouteThroughSpawnAtPosition`), seeded from the terminal orbit itself and carried from its
+epoch to the spawn UT by `EscapeTrajectoryTerminal.ResolveAtUT` (the scene-exit finalizer's
+two-body `BallisticExtrapolator` over the live bodies: sphere-of-influence exits and encounters);
+`VesselSpawner.ResolveEscapeSpawnBody` gives the end-of-recording, chain-tip and Ready-reference
+spawns the body the vessel is in at the spawn UT. A path that ends in an atmosphere or on a surface
+before the spawn UT, or cannot be followed, is refused (`Cannot spawn terminal orbit safely ...
+terminal-orbit-resolution-failed`, with the `escape path refused` line naming the reason). The
+terminal-orbit safety check runs on the spawn-UT orbit; for a conic that leaves the sphere and is
+past periapsis the periapsis it judges is the current altitude (`ResolveEscapeEffectivePeriapsisAltitude`),
+so a direct-ascent escape whose periapsis is inside the planet spawns, and the same conic flown
+inbound is refused. `ComputeSpawnMeanAnomaly` propagates a hyperbolic mean anomaly without wrapping.
+A spawned escape vessel that dies is abandoned like a terminal-orbit vessel (BUG-C path). Log lines:
+`Escape-trajectory terminal admitted for spawn`, `Escape spawn body resolved through patched conics`,
+`escape terminal orbit for rec=...`, `Escape spawn safety: ... judgedPeriapsis=`.
+
+Tests: `EscapeTrajectorySpawnTests` (evidence truth table, the spawn decision and KSC deferral
+(red on the old code), the spawn routes, the hyperbolic mean anomaly, the effective periapsis and
+the safety verdicts, `ResolveAtUT` in-sphere / after the sphere exit / diving into the atmosphere /
+unknown body).
+
+Review follow-ups (2026-11-20, same branch):
+- Chain tips. A chain tip that spawns on its recorded terminal orbit (Orbiting, or an escape)
+  and whose orbit cannot be resolved at the spawn UT fell back to the snapshot / last trajectory
+  point with no orbit override, so a refused escape path would have materialized mid-coast
+  (#45). Both chain-tip spawns (`VesselGhoster.SpawnAtChainTip`, `TrySpawnBlockedChain`) now
+  refuse through `StopChainTipForUnresolvedTerminalOrbit`, which stamps the end-of-recording
+  path's `terminal-orbit-resolution-failed` CannotSpawnSafely and releases the collision block
+  (`Chain tip spawn refused: recorded terminal orbit unresolved`). This also changes an Orbiting
+  tip whose orbit cannot be built: refused like the end-of-recording spawn, not placed at its
+  last point. To keep that refusal from catching good tips, the chain-tip, blocked-tip ghost and
+  Ready-reference spawns now pick the body as the end-of-recording spawn does
+  (`VesselSpawner.ResolveSpawnBodyName` / `ResolveSpawnBody`): an orbit-route spawn reads the
+  recording's preferred endpoint body before its last trajectory point, which can sit in another
+  sphere (a burn at the Mun, then a rails coast out to a Kerbin orbit adds no point).
+
+- Consumers. `GhostPlaybackLogic.HasSpawnableTerminal(Recording)` (a spawnable terminal or an
+  escape) is now the one "does this end in a vessel" test for the breakup-continuous effective
+  leaf (`TryRejectSpawnForTreeShape`, `IsFinalSpawnSegment`, `TimelineBuilder.IsBreakupContinuousSpawnLeaf`),
+  the stable-leaf snapshot refreshes (`ParsekFlight.Finalization`, `ShouldRefreshActiveEffectiveLeafSnapshot`),
+  the ghost CommNet continuation hold and the chain-tip route cargo scan; the lazy snapshot
+  re-hydration also reads a SubOrbital with a propagatable terminal orbit
+  (`Recording.IsEscapeTrajectoryTerminalCandidate`, since the closed-conic evidence is in the
+  snapshot); the auto-merge scene-exit release keeps an escape's snapshot
+  (`ShouldKeepVesselSnapshotForSpawnAtEnd`). Left Orbiting-only, noted: the terminal map-presence
+  retention (`ParsekPlaybackPolicy.ShouldRetainMapPresenceForTerminalRealSpawn`, whose map orbit
+  code assumes a closed conic in one sphere) and the optimizer's tail trim (`RecordingOptimizer`,
+  owned by another package; it refuses to trim a non-spawnable terminal, the safe side).
+
+- Patch-start epoch. A terminal orbit captured on rails carries the epoch of its patch start,
+  the last sphere-of-influence crossing, where the state sits on the boundary and the
+  extrapolator's immediate exit / entry tests are numerical noise (a Moon flyby could be carried
+  on the parent conic, or an escape bounced to the transition cap). `ResolveAtUT` now starts at the
+  recording's end UT when that is later than the epoch, and a start still at the epoch does not
+  take an immediate crossing of the boundary it sits on (`Extrapolate`'s new initial
+  suppressions, `EscapeTrajectoryTerminal.ResolveBoundarySuppressions`).
+
+Residue: (a) the label still reads Sub-orbital for an escaping vessel; (b) live-proven by no lane
+(recommended: a probe committed on a Kerbin escape, rewound, the end spawn read in flight before and
+after the sphere exit); (c) the extrapolator samples encounters at 3600 s, so a very short moon pass
+between the end and a much later spawn UT can be missed (the scene-exit finalizer shares the limit).
+
+## SPAWN-RESTING-ON-ROCK: a vessel that ends sitting on an asteroid or comet spawns on its own orbit, not on the rock [FILED 2026-11-18 by the recording split / trim / merge review (design question 5), owner ruling Q11 "on the rock". INVESTIGATED 2026-11-20, branch `rsr-wp7-spawn-ends`, by code reading and the KSP 1.12.5 decompile; NOT BUILT: it needs new recorded data and a player-visible choice, options below; low-medium (a lander parked on a rock can reappear beside it, inside it, or blocked)]
+
+What the ruling asks: a vessel that ends resting on (attached to, or landed on) an asteroid or comet
+spawns resting on the rock and moves with it, not on its own orbit.
+
+Findings.
+1. Klaw-attached is already one vessel, and already right. A Klaw grab couples the rock part
+   (PotatoRoid / PotatoComet) into the grabbing vessel, exactly like a dock (owner rulings
+   2026-11-15: a rock is recorded only from the grab on; `ConnectionProducerClassifier` names the
+   claw couple). The recording's vessel snapshot holds the rock part, the terminal orbit is the
+   combined vessel's, and the end spawn materializes ship and rock as one vessel on that orbit
+   (ROCK-GHOST-PREFAB-MESH / ROCK-SPAWN-BOUNDS-TOO-SMALL made the rock's shape and spawn bounds
+   right). The rock's own pre-grab vessel is hidden after a rewind by the claimed-vessel hold. A
+   vessel that ends gripping a rock therefore spawns gripping it and moves with it; nothing to do.
+2. "Landed on" a rock is not a KSP state. `Part.LandedCollisionChecks` (decompiled) sets
+   `GroundContact` / `Vessel.Landed` only for a collider on layer 15 (terrain / local scenery); a
+   rock is a part (part layer), so a vessel resting on one stays ORBITING (or SUB_ORBITAL /
+   ESCAPING, the rock's own situation) with its own `orbit`, and Parsek stamps `Orbiting` with the
+   vessel's own terminal orbit. The rock is a separate SpaceObject vessel that Parsek never records
+   unless grabbed. On rails the two follow their own conics; any relative velocity at the end
+   (contact jitter, the lander's push on the rock) separates them over time.
+3. What the spawn does today (code reading, not flown): the lander is placed at its own terminal
+   orbit propagated to the spawn UT. After a rewind the live rock follows its unperturbed orbit, so
+   the lander lands near the rock's recorded position, not necessarily on the rock. In flight with
+   the rock loaded, the overlap check (`CheckSpawnCollisions`, the rock's bounds from
+   ROCK-SPAWN-BOUNDS-TOO-SMALL) sees the lander touching the rock and walks the spawn back along the
+   recorded approach or blocks it; unloaded, it can appear inside or beside the rock.
+
+Why it is more than a day and needs a choice.
+- Detecting "resting on a rock" at the end needs new live capture: a contact between one of the
+  vessel's parts and a ModuleAsteroid / ModuleComet part of another vessel
+  (`Part.currentCollisions`), with a relative-speed threshold, at every terminal stamp site
+  (commit, scene exit, background).
+- The spawn needs new persisted data (additive keys, no format bump): the rock's identity (its
+  vessel guid and persistentId; a SpaceObject keeps both) and the lander's pose in the rock's frame
+  (position offset and rotation relative to the rock's root part).
+- The spawn needs the rock's state at the spawn UT: the live rock vessel (loaded or on rails),
+  or, for a rock a committed flight released (it records as its own branch and becomes real at its
+  tip), that recording's spawned vessel or trajectory. The lander then spawns at rock pose x
+  offset with the rock's velocity, through the orbit spawn route and its safety checks, with the
+  overlap check told the rock is expected contact.
+- Player-visible choices the ruling does not settle: what happens when the rock is not there at
+  the spawn UT (grabbed by another flight, released somewhere else, destroyed, a comet that was
+  never discovered in this timeline): spawn on the lander's own orbit (today), hold the spawn, or
+  never spawn; and whether a landing that was only brushing the rock counts.
+
+Options.
+- A (recommended): record rock contact at the end (identity + relative pose) and spawn relative to
+  the rock when it can be found at the spawn UT; fall back to today's own-orbit spawn, logged, when
+  it cannot. About 2-3 days with an in-game test (contact capture needs live physics) and a lane.
+- B: no recording change; at spawn, if a SpaceObject is within a few metres of the lander's
+  propagated position, take that rock's velocity and keep the lander's position. Cheap, but it
+  silently depends on the rock not having drifted and cannot place the lander on a rock that
+  drifted after a rewind.
+- C: keep today's behaviour and document that a lander must grip the rock with the Klaw to stay
+  with it (which is already exact, finding 1).
+
+Recommendation: A, with the fallback to the own-orbit spawn when the rock is missing (no new hold
+state). Needs owner sign-off on the missing-rock rule before building.
+
+## SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS: the end-spawn collision walkback for an orbit spawn tests positions the vessel is not placed at [FILED 2026-11-20 from the WP7 review (asteroid / comet second opinion), by code reading; NOT FIXED: needs a design choice; low-medium (an orbit spawn blocked by a loaded vessel can still appear inside it, or be abandoned)]
+
+What it is. When an end-of-recording spawn overlaps a loaded vessel,
+`VesselSpawner.CheckSpawnCollisions` walks back along the recorded trajectory
+(`SpawnCollisionDetector.ResolveWalkbackPointsOnBody`, `TryWalkbackForEndOfRecordingSpawn`)
+and tests each candidate with `body.GetWorldSurfacePosition(lat, lon, alt)`. For an orbit spawn
+(an Orbiting terminal with a recorded terminal orbit, or an escape trajectory) that is unsound twice:
+1. The recorded points are body-fixed samples of their OWN UTs. Read at the spawn UT they turn
+   with the planet, so a candidate sits where the vessel was relative to the ground, not along its
+   orbit (the error grows with spawn UT minus point UT, and with a deferred spawn it is unrelated
+   to the spawn place at all).
+2. The spawn then goes through `SpawnAtPosition` with the orbit override, and a non-landed
+   ProtoVessel is placed by its ORBIT node, not by the lat / lon / alt the walkback wrote. So a
+   "clear" walked position does not move the vessel: it still appears at the propagated orbit
+   point, inside the blocker (`CheckSpawnCollisions: walkback rewrote spawn position` is logged
+   anyway). If the walk exhausts, the spawn is abandoned for a blocker that would have drifted away.
+The chain-tip walkback (`VesselGhoster`, around the blocked-tip handling) shares the shape.
+
+Options. (a) Orbit spawns skip the walkback and wait for the blocker to clear (the retry /
+`CollisionBlockCount` path, or the chain tip's blocked-and-retry hold), with a bound long enough
+for orbital separation; (b) walk the ORBIT instead (try the orbit at spawn UT plus or minus small
+offsets in time) and spawn on the chosen phase; (c) leave it. (a) is the smaller change but needs
+a rule for a station parked next to the spawn point (it never clears). Needs an owner pick; not
+built. Relevant to SPAWN-RESTING-ON-ROCK: a lander resting on a loaded rock hits exactly this path.
+
 ## ~~DEBRIS-LIFETIME-LOST-ON-PROMOTION~~: a debris piece the player switched to lost its 60 s limit [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a promoted booster recorded until it crashed; GS-11 measured it)]
 
 Cause: the debris time limit lived only in `BackgroundRecorder.debrisTTLExpiry`. A promotion to the
