@@ -393,6 +393,12 @@ namespace Parsek.Logistics
             {
                 if (string.Equals(committedRoutes[i].Id, id, System.StringComparison.Ordinal))
                 {
+                    // A route deleted between a window that took cargo and the window that
+                    // delivers it abandons that cycle: nothing returns the taken cargo and
+                    // the undelivered windows never fire. Say so before the route is gone.
+                    string abandoned = DescribeAbandonedCycle(committedRoutes[i], RouteEventLog.Events);
+                    if (abandoned != null)
+                        ParsekLog.Info(Tag, $"RemoveRoute: route {ShortId(id)} removed mid-cycle: {abandoned}");
                     committedRoutes.RemoveAt(i);
                     // M4b Phase B2: a removed / tombstoned route drops its whole
                     // escrow reservation so a competing route's available amount
@@ -430,6 +436,67 @@ namespace Parsek.Logistics
 
             ParsekLog.Warn(Tag, $"RemoveRoute: route {ShortId(id)} not found (full={id})");
             return false;
+        }
+
+        /// <summary>
+        /// True when the route's open cycle (<see cref="DescribeAbandonedCycle"/>'s rule) has
+        /// taken cargo from a source (an origin debit or a pickup row): a removal now loses
+        /// whatever of it is not yet delivered. The Logistics delete confirm reads it to name
+        /// that loss (owner ruling 2026-11-20). Pure over its inputs.
+        /// </summary>
+        internal static bool HasUndeliveredCargoInOpenCycle(Route route, IReadOnlyList<RouteEvent> events)
+        {
+            return TryReadOpenCycle(route, events, out _, out int debits, out int pickups, out _)
+                && debits + pickups > 0;
+        }
+
+        /// <summary>
+        /// The open cycle a route removal abandons, or null when none is open. A cycle is
+        /// open when its id (<c>cycle-{Completed+Skipped}</c>, the id every emitter stamps)
+        /// carries a <see cref="RouteEventType.RouteDispatched"/> row: completion or a skip
+        /// advances the counters, so a finished cycle's id is never the current one. The
+        /// summary counts the cycle's origin debits, pickups and deliveries so the log
+        /// shows how much cargo had left its sources undelivered. Pure over its inputs.
+        /// </summary>
+        internal static string DescribeAbandonedCycle(Route route, IReadOnlyList<RouteEvent> events)
+        {
+            if (!TryReadOpenCycle(route, events, out string cycleId, out int debits, out int pickups, out int deliveries))
+                return null;
+            var ic = CultureInfo.InvariantCulture;
+            return $"cycle={cycleId} originDebits={debits.ToString(ic)} pickups={pickups.ToString(ic)} " +
+                   $"deliveries={deliveries.ToString(ic)}; cargo already taken is not returned and the " +
+                   "undelivered windows never fire";
+        }
+
+        // The route's current cycle and its row counts; false when it has no dispatch row.
+        private static bool TryReadOpenCycle(Route route, IReadOnlyList<RouteEvent> events,
+            out string cycleId, out int debits, out int pickups, out int deliveries)
+        {
+            cycleId = null;
+            debits = 0;
+            pickups = 0;
+            deliveries = 0;
+            if (route == null || string.IsNullOrEmpty(route.Id) || events == null)
+                return false;
+            var ic = CultureInfo.InvariantCulture;
+            cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(ic);
+            bool dispatched = false;
+            for (int i = 0; i < events.Count; i++)
+            {
+                RouteEvent e = events[i];
+                if (e == null
+                    || !string.Equals(e.RouteId, route.Id, StringComparison.Ordinal)
+                    || !string.Equals(e.RouteCycleId, cycleId, StringComparison.Ordinal))
+                    continue;
+                switch (e.Type)
+                {
+                    case RouteEventType.RouteDispatched: dispatched = true; break;
+                    case RouteEventType.RouteCargoDebited: debits++; break;
+                    case RouteEventType.RouteCargoPickedUp: pickups++; break;
+                    case RouteEventType.RouteCargoDelivered: deliveries++; break;
+                }
+            }
+            return dispatched;
         }
 
         /// <summary>

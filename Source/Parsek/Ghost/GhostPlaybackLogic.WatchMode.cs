@@ -281,6 +281,10 @@ namespace Parsek
         /// <param name="trees">All committed trees (for branch point lookup).</param>
         /// <param name="isGhostActive">Predicate: is there an active ghost at index j?</param>
         /// <param name="supersedes">RecordingSupersede relations (nullable; live callers pass <c>ParsekScenario.RecordingSupersedes</c>).</param>
+        /// <param name="watchedIdentityGuid">Launch guid of the vessel the watch session started on
+        /// (nullable). At an Undock branch point the child that continues it
+        /// (<see cref="FindWatchedIdentityChild"/>) replaces the same-PID child as the preferred
+        /// continuation (owner ruling 2026-11-20: follow the ship I was watching).</param>
         /// <param name="depth">Internal recursion depth.</param>
         /// <returns>Index into committed, or -1 if no target found.</returns>
         internal static int FindNextWatchTarget(
@@ -289,6 +293,7 @@ namespace Parsek
             IReadOnlyList<RecordingTree> trees,
             Func<int, bool> isGhostActive,
             IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
+            string watchedIdentityGuid = null,
             int depth = 0)
         {
             const int MaxRecursionDepth = 10;
@@ -336,6 +341,8 @@ namespace Parsek
 
                 if (bp != null)
                 {
+                    int identityIdx = FindWatchedIdentityChild(
+                        "FindNextWatchTarget", currentRec, bp, committed, supersedes, watchedIdentityGuid);
                     int fallbackIdx = -1;
                     bool pidMatchFound = false;
                     bool allowDifferentPidFallback = bp.Type != BranchPointType.Breakup;
@@ -361,7 +368,11 @@ namespace Parsek
                             // the new-recording re-fly path may carry a different
                             // PID, and only the resolved id reflects what is
                             // actually rendering.
-                            bool isPidMatch = resolved.VesselPersistentId == currentRec.VesselPersistentId;
+                            // At an undock the child continuing the watched identity, when one
+                            // does, is the preferred continuation instead of the same-PID child.
+                            bool isPidMatch = identityIdx >= 0
+                                ? resolvedIdx == identityIdx
+                                : resolved.VesselPersistentId == currentRec.VesselPersistentId;
 
                             if (isGhostActive(resolvedIdx))
                             {
@@ -391,7 +402,7 @@ namespace Parsek
                                 // children to find a deeper target with an active ghost.
                                 pidMatchFound = true;
                                 int deeper = FindNextWatchTarget(
-                                    resolved, committed, trees, isGhostActive, supersedes, depth + 1);
+                                    resolved, committed, trees, isGhostActive, supersedes, watchedIdentityGuid, depth + 1);
                                 if (deeper >= 0)
                                     return deeper;
                             }
@@ -421,6 +432,75 @@ namespace Parsek
                 }
             }
 
+            return -1;
+        }
+
+        /// <summary>
+        /// The child of an Undock branch point that continues the vessel the watch session
+        /// started on: the one child (resolved through the supersede graph) whose launch guid is
+        /// <paramref name="watchedIdentityGuid"/> or continues it through a link row
+        /// (<see cref="VesselLaunchIdentity.GuidsPositivelySameIdentity"/>; KSP gives the ship
+        /// that leaves a dock a fresh guid, which the undock-return link joins back). Returns its
+        /// committed index, or -1 (keep the same-PID rule) when the branch is not an Undock, the
+        /// identity is unknown, no child continues it, or more than one does. Logs the decision.
+        /// </summary>
+        internal static int FindWatchedIdentityChild(
+            string site,
+            Recording currentRec,
+            BranchPoint bp,
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            string watchedIdentityGuid)
+        {
+            if (bp == null || bp.Type != BranchPointType.Undock || committed == null
+                || bp.ChildRecordingIds == null)
+                return -1;
+            string recName = currentRec != null ? currentRec.VesselName : "?";
+            if (string.IsNullOrEmpty(VesselLaunchIdentity.NormalizeGuid(watchedIdentityGuid)))
+            {
+                ParsekLog.VerboseRateLimited("Watch",
+                    "watch-identity-unknown-" + site + "-" + bp.Id,
+                    site + ": undock " + bp.Id + " for rec '" + recName
+                        + "': watched identity unknown - keeping the same-PID rule");
+                return -1;
+            }
+
+            int matchIdx = -1;
+            int matches = 0;
+            for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+            {
+                int rawIdx = FindRecordingIndexById(committed, bp.ChildRecordingIds[c]);
+                if (rawIdx < 0) continue;
+                int resolvedIdx = ResolveSupersedeIndex(rawIdx, committed, supersedes);
+                if (resolvedIdx < 0 || resolvedIdx >= committed.Count) continue;
+                Recording child = committed[resolvedIdx];
+                if (child == null) continue;
+                if (!VesselLaunchIdentity.GuidsPositivelySameIdentity(child.RecordedVesselGuid, watchedIdentityGuid))
+                    continue;
+                if (resolvedIdx == matchIdx) continue;
+                matches++;
+                if (matchIdx < 0) matchIdx = resolvedIdx;
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+            if (matches == 1)
+            {
+                ParsekLog.VerboseRateLimited("Watch",
+                    "watch-identity-follow-" + site + "-" + bp.Id,
+                    site + ": undock " + bp.Id + " for rec '" + recName + "': following the watched vessel identity="
+                        + VesselLaunchIdentity.NormalizeGuid(watchedIdentityGuid)
+                        + " -> child '" + committed[matchIdx].VesselName + "' (#" + matchIdx.ToString(ic)
+                        + ", id=" + committed[matchIdx].RecordingId + ") over the same-PID rule");
+                return matchIdx;
+            }
+
+            ParsekLog.VerboseRateLimited("Watch",
+                "watch-identity-nomatch-" + site + "-" + bp.Id,
+                site + ": undock " + bp.Id + " for rec '" + recName + "': "
+                    + (matches == 0 ? "no child continues" : matches.ToString(ic) + " children continue")
+                    + " the watched vessel identity="
+                    + VesselLaunchIdentity.NormalizeGuid(watchedIdentityGuid)
+                    + " - keeping the same-PID rule");
             return -1;
         }
 
@@ -474,7 +554,8 @@ namespace Parsek
         /// starts later than the parent branch boundary. When <paramref name="supersedes"/>
         /// is non-null, candidates are resolved through the supersede graph before the
         /// activity / activation-UT check so re-fly forks extend the hold timer until
-        /// the canonical fork ghost becomes active.
+        /// the canonical fork ghost becomes active. <paramref name="watchedIdentityGuid"/> picks the
+        /// preferred continuation at an Undock exactly as in <see cref="FindNextWatchTarget"/>.
         /// </summary>
         internal static bool TryGetPendingWatchActivationUT(
             Recording currentRec,
@@ -483,6 +564,7 @@ namespace Parsek
             Func<int, bool> isGhostActive,
             out double activationUT,
             IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
+            string watchedIdentityGuid = null,
             int depth = 0)
         {
             activationUT = double.NaN;
@@ -552,6 +634,8 @@ namespace Parsek
                     bool sawSamePidContinuation = false;
                     bool sawActiveFallback = false;
                     bool allowDifferentPidFallback = bp.Type != BranchPointType.Breakup;
+                    int identityIdx = FindWatchedIdentityChild(
+                        "TryGetPendingWatchActivationUT", currentRec, bp, committed, supersedes, watchedIdentityGuid);
                     for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
                     {
                         string childId = bp.ChildRecordingIds[c];
@@ -570,7 +654,9 @@ namespace Parsek
                             if (candidate == null)
                                 continue;
 
-                            bool isPidMatch = candidate.VesselPersistentId == currentRec.VesselPersistentId;
+                            bool isPidMatch = identityIdx >= 0
+                                ? resolvedIdx == identityIdx
+                                : candidate.VesselPersistentId == currentRec.VesselPersistentId;
                             bool isAllowedFallback = allowDifferentPidFallback && !candidate.IsDebris;
                             if (!isPidMatch && !isAllowedFallback)
                                 continue;
@@ -586,7 +672,7 @@ namespace Parsek
                                     samePidActivationUT = MinPendingActivationUT(samePidActivationUT, candidateActivationUT);
 
                                 if (TryGetPendingWatchActivationUT(
-                                        candidate, committed, trees, isGhostActive, out double deeperActivationUT, supersedes, depth + 1))
+                                        candidate, committed, trees, isGhostActive, out double deeperActivationUT, supersedes, watchedIdentityGuid, depth + 1))
                                 {
                                     samePidActivationUT = MinPendingActivationUT(samePidActivationUT, deeperActivationUT);
                                 }

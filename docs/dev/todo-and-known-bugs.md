@@ -131,6 +131,58 @@ step pinned to Measure and the SOI block off (today's behavior) three cells fail
 Residual, not this finding: other passive changes still trigger for an outsider, notably
 `ResourceChange` from solar panels charging a battery and `LandedMotion` from a vessel settling.
 
+## ~~ROUTE-DELETED-MID-CYCLE-LOSES-CARGO~~: deleting a route between a window that took cargo and the window that delivers it loses that cargo [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit through the production tick. OWNER RULING 2026-11-20 (V): "lost, but warn in the dialog". DONE 2026-11-20, same branch; xUnit only, no lane flies it yet; low (cargo only, on a player action behind a confirm)]
+
+No design document said what a route removal does to a cycle in flight: the supply-routes
+design covered a deleted SOURCE RECORDING during transit (section 1.3, "current cycle aborts
+before delivery"), not a deleted route. Behavior (`RouteRemovedMidCycleTests`, a two-window
+shuttle driven through `RouteOrchestrator.Tick`), kept by the ruling: the cargo the pickup
+window took from its source stays taken, the delivery window never fires, nothing refunds it,
+the `RouteCargoPickedUp` row stays in the route event log, and the cycle's escrow is dropped
+(`DropRouteEscrow`). A single-stop loop route has no such gap (its debit and delivery fire in
+one `EmitLoopCycle`). The removal logs it: `RemoveRoute: route <id> removed mid-cycle:
+cycle=cycle-N originDebits=a pickups=b deliveries=c; cargo already taken is not returned ...`
+(`RouteStore.DescribeAbandonedCycle`), and the seam has `RouteCommand action=delete` (payload
+`midCycle=`).
+
+Done: the existing Logistics delete confirm (`ParsekLogisticsDeleteRouteConfirm`, no new
+surface) adds one sentence, "Cargo already taken on this trip and not yet delivered will be
+lost.", before "This cannot be undone." while the route's open cycle has an origin debit or a
+pickup row (`RouteStore.HasUndeliveredCargoInOpenCycle`, the same open-cycle rule as
+`DescribeAbandonedCycle`; body from the pure `LogisticsWindowUI.BuildDeleteConfirmBody(route,
+cargoInTransit)`); the spawn line now reads `Logistics: Delete route=<id> confirm dialog spawned
+cargoInTransit=<bool>`. The dormant-route delete confirm is unchanged (a dormant route has no
+cycle in flight). Design table row added (supply-routes design section 1.3). Owed: a lane that
+raises the confirm mid-cycle (`UiAction raise popup=deleteroute` after a pickup window) and
+reads `cargoInTransit=True`.
+
+## ~~WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION~~: after a watched ship docks and undocks, watch follows the vessel that kept the merge's pid, not the ship [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit (`WatchAcrossDockTests`). OWNER RULING 2026-11-20 (V): "follow the ship I was watching". FIXED 2026-11-20, same branch; xUnit only, no lane flies a watch across a dock and undock; low (camera choice, the player can pick the ship again)]
+
+At the dock itself watch was right in every shape and is unchanged: the merged vessel is the
+only child, so it is followed whether the merge kept the watched ship's pid (same-pid rule) or
+the partner's (the different-pid fallback, allowed for Dock), and from the passive partner too;
+with the merged ghost not spawned yet it holds (-1). The step after was the defect: when the
+merged vessel later undocked, `GhostPlaybackLogic.FindNextWatchTarget` preferred the child with
+the MERGED recording's pid, so a ship that docked into a station whose pid the merge kept was
+followed by the station, not by the ship that leaves.
+
+Fix: a watch session now remembers the launch guid of the vessel it started on
+(`WatchModeController.watchedIdentityGuid`, set in `TryCommitWatchSessionStart`, kept across
+`TransferWatchToNextSegment`, cleared with the session). At an Undock branch point
+`GhostPlaybackLogic.FindWatchedIdentityChild` picks the one child whose `RecordedVesselGuid` is
+that guid or continues it through a link row (`VesselLaunchIdentity.GuidsPositivelySameIdentity`;
+KSP gives the ship that leaves a dock a fresh guid, which the UndockReturn link joins back), and
+that child replaces the same-pid child as the preferred continuation in both
+`FindNextWatchTarget` and `TryGetPendingWatchActivationUT`: followed when its ghost is active,
+otherwise the watch holds for it (the hold timer retries) rather than jumping to the station.
+With the identity unknown, no child continuing it, or two children continuing it, the same-pid
+rule stays. Never a bare pid. Logs (`[Watch]`, rate-limited Verbose): `undock <bp>: following the
+watched vessel identity=<guid> -> child ...` / `no child continues the watched vessel identity=...
+- keeping the same-PID rule` / `watched identity unknown - keeping the same-PID rule`, plus
+`Watch session identity: #i ... identity=<guid|unknown>` at session start. Not covered: an undock
+recorded before dock-absorb rows existed, whose ship child carries a fresh guid with no link
+(VesselIdentity's edge 6, part-pid overlap, is not consulted here); it keeps the same-pid rule.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the

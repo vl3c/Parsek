@@ -20,6 +20,10 @@ Not released yet.
 
 ### Changed
 
+- **Deleting a supply route mid-trip now warns that its cargo will be lost.** When a route has
+  already taken cargo on its current trip, the delete confirmation adds "Cargo already taken on
+  this trip and not yet delivered will be lost." The cargo is still lost on delete, as before.
+  (ROUTE-DELETED-MID-CYCLE-LOSES-CARGO)
 - **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
   makes no rewind point of its own and never shows it in Unfinished Flights. The rock still gets
   its own replay from the release and becomes real at its end. (ROCK-RELEASE-REFLY-SLOT)
@@ -37,6 +41,10 @@ Not released yet.
   that just tumbles, turns with its orbit or drifts into another body's sphere of influence is not
   treated as changed. Turning it yourself, firing an engine or any other change still starts one.
   (POST-SWITCH-PASSIVE-MOTION-TRIGGERS)
+- **Watching a ship that docks and later undocks keeps the camera on that ship.** When the ship
+  you were watching docked to a station and then left it, the camera could stay with the station
+  instead. Watch now follows the ship you started watching through the undock.
+  (WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now

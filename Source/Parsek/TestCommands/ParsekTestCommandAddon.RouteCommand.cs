@@ -40,11 +40,17 @@ namespace Parsek.TestCommands
     /// driven link picks a partner the UI would have OFFERED rather than any route the
     /// store happens to hold.</para>
     ///
-    /// <para><b>What this verb still leaves for later:</b> <c>delete</c> and
-    /// <c>dismiss</c>. Each is a separate production surface behind its own confirmation
-    /// dialog (which <c>UiAction op=raise</c> now RAISES but deliberately cannot confirm -
-    /// its press policy admits only Cancel), and neither is on the create-and-run path this
-    /// verb exists to unblock. They are additive under the seam's unknown-key rule.</para>
+    /// <para><b>The delete action.</b> <c>delete</c> drives <c>RouteStore.RemoveRoute</c>,
+    /// the one call the Logistics window's "Confirm: Delete Route" Delete callback makes
+    /// (<c>UiAction op=raise</c> raises that dialog but deliberately cannot press Delete).
+    /// Its payload reports whether the route had an open cycle (<c>midCycle</c>), so a lane
+    /// can delete a route between a window that took cargo and the one that delivers it and
+    /// read the outcome.</para>
+    ///
+    /// <para><b>What this verb still leaves for later:</b> <c>dismiss</c>, a separate
+    /// production surface behind its own confirmation dialog and not on the create-and-run
+    /// path this verb exists to unblock. It is additive under the seam's unknown-key
+    /// rule.</para>
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
@@ -247,7 +253,7 @@ namespace Parsek.TestCommands
             }
 
             // ONE resolution site for every route-addressed action, so the three-tier
-            // selector and its ambiguity refusals behave identically across all six.
+            // selector and its ambiguity refusals behave identically across all of them.
             if (!TestCommandRouteCommand.IsStatusOperation(action))
             {
                 switch (action)
@@ -260,6 +266,9 @@ namespace Parsek.TestCommands
                         return;
                     case TestCommandRouteCommand.ActionRescan:
                         RouteCommandRescan(sel);
+                        return;
+                    case TestCommandRouteCommand.ActionDelete:
+                        RouteCommandDelete(sel);
                         return;
                     default: // ActionSetCadence (IsKnownAction already filtered the rest)
                         RouteCommandSetCadence(cmd, sel);
@@ -316,6 +325,54 @@ namespace Parsek.TestCommands
                 "statusBefore={4} status={5}",
                 action, route.Id ?? string.Empty, route.Name ?? string.Empty,
                 sel.MatchKind ?? "<none>", before, route.Status));
+            SetExecResult("OK", payload, null);
+        }
+
+        // ----- action=delete -----
+
+        /// <summary>
+        /// The Logistics window's Delete button after its confirm:
+        /// <c>RouteStore.RemoveRoute</c>, then the window's legibility refresh. The open
+        /// cycle is read BEFORE the removal (<c>RouteStore.DescribeAbandonedCycle</c>, the
+        /// same read the store logs), so the payload says whether cargo was in transit. A
+        /// false from the store (the route vanished between resolve and remove) is the
+        /// post-act <c>route-action-refused delete</c>.
+        /// </summary>
+        private void RouteCommandDelete(RouteSelection sel)
+        {
+            Route route = sel.Route;
+            RouteStatus before = route.Status;
+            string routeId = route.Id ?? string.Empty;
+            string abandoned = RouteStore.DescribeAbandonedCycle(route, RouteEventLog.Events);
+
+            bool ok = RouteStore.RemoveRoute(routeId);
+            if (ok) DirtyRouteLegibilityCache();
+
+            var payload = Payload(
+                Kv("action", TestCommandRouteCommand.ActionDelete),
+                Kv("route", routeId),
+                Kv("name", route.Name ?? string.Empty),
+                Kv("match", sel.MatchKind ?? string.Empty),
+                Kv("applied", Bool(ok)),
+                Kv("statusBefore", before.ToString()),
+                Kv("midCycle", Bool(abandoned != null)),
+                Kv("remaining", Int(RouteStore.CommittedRoutes.Count)));
+
+            if (!ok)
+            {
+                ParsekLog.Warn(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "routecommand refused action=delete route={0} statusBefore={1}",
+                    routeId, before));
+                SetExecResult("ERROR", payload,
+                    TestCommandRouteCommand.ActionRefusedMsg(TestCommandRouteCommand.ActionDelete));
+                return;
+            }
+
+            ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                "routecommand complete action=delete route={0} name='{1}' match={2} " +
+                "statusBefore={3} midCycle={4} remaining={5}",
+                routeId, route.Name ?? string.Empty, sel.MatchKind ?? "<none>", before,
+                Bool(abandoned != null), RouteStore.CommittedRoutes.Count));
             SetExecResult("OK", payload, null);
         }
 
