@@ -68,6 +68,17 @@ Tests: `EscapeTrajectorySpawnTests` (evidence truth table, the spawn decision an
 the safety verdicts, `ResolveAtUT` in-sphere / after the sphere exit / diving into the atmosphere /
 unknown body).
 
+Review follow-ups (2026-11-20, same branch):
+- Chain tips. A chain tip that spawns on its recorded terminal orbit (Orbiting, or an escape)
+  and whose orbit cannot be resolved at the spawn UT fell back to the snapshot / last trajectory
+  point with no orbit override, so a refused escape path would have materialized mid-coast
+  (#45). Both chain-tip spawns (`VesselGhoster.SpawnAtChainTip`, `TrySpawnBlockedChain`) now
+  refuse through `StopChainTipForUnresolvedTerminalOrbit`, which stamps the end-of-recording
+  path's `terminal-orbit-resolution-failed` CannotSpawnSafely and releases the collision block
+  (`Chain tip spawn refused: recorded terminal orbit unresolved`). This also changes an Orbiting
+  tip whose orbit cannot be built: refused like the end-of-recording spawn, not placed at its
+  last point.
+
 Residue: (a) the label still reads Sub-orbital for an escaping vessel; (b) live-proven by no lane
 (recommended: a probe committed on a Kerbin escape, rewound, the end spawn read in flight before and
 after the sphere exit); (c) the extrapolator samples encounters at 3600 s, so a very short moon pass

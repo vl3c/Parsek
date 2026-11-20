@@ -303,6 +303,22 @@ namespace Parsek
                 haveOrbitalSpawnState = true;
             }
 
+            // A tip that spawns on its recorded terminal orbit never falls back to a trajectory
+            // point when that orbit cannot be resolved (the end-of-recording spawn refuses the
+            // same way): an escape path refused before the spawn UT would otherwise
+            // materialize mid-coast at the recording's end point (#45).
+            if (StopChainTipForUnresolvedTerminalOrbit(
+                    chain,
+                    tipRecording,
+                    spawnBody,
+                    tipPoint.HasValue
+                        && spawnBody != null
+                        && VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tipRecording),
+                    haveOrbitalSpawnState,
+                    spawnUT,
+                    "chain-tip"))
+                return 0;
+
             // Collision check: an orbital tip at its propagated position; otherwise the
             // snapshot lat/lon/alt (where RespawnVessel actually places the vessel), falling
             // back to trajectory/terminal position (#127).
@@ -580,6 +596,16 @@ namespace Parsek
                 }
                 else
                 {
+                    if (StopChainTipForUnresolvedTerminalOrbit(
+                            chain,
+                            tipRecording,
+                            spawnBody,
+                            useRecordedTerminalOrbit,
+                            orbitResolved: false,
+                            currentUT,
+                            "chain-tip-blocked"))
+                        return 0;
+
                     if (propagatedPos.sqrMagnitude > 0.0 && !double.IsNaN(propagatedPos.x))
                     {
                         spawnLat = spawnBody.GetLatitude(propagatedPos);
@@ -1626,6 +1652,54 @@ namespace Parsek
         }
 
         internal const string ChainTipTerminalOrbitRefusedReason = "terminal-orbit-cannot-spawn-safely";
+
+        /// <summary>
+        /// Pure: a tip that spawns on its recorded terminal orbit (an Orbiting terminal, or an
+        /// escape trajectory) whose orbit could not be resolved at the spawn UT is refused,
+        /// never placed at a trajectory point.
+        /// </summary>
+        internal static bool ShouldRefuseChainTipForUnresolvedTerminalOrbit(
+            bool usesRecordedTerminalOrbit,
+            bool orbitResolved)
+        {
+            return usesRecordedTerminalOrbit && !orbitResolved;
+        }
+
+        /// <summary>
+        /// Refuses a chain-tip spawn whose recorded terminal orbit could not be resolved
+        /// (<see cref="ShouldRefuseChainTipForUnresolvedTerminalOrbit"/>): stamps the same
+        /// CannotSpawnSafely verdict the end-of-recording spawn stamps
+        /// (<see cref="VesselSpawner.RejectUnresolvedTerminalOrbitSpawn"/>), so the next
+        /// attempt's entry check stops it and the held ghost is released, and ends a
+        /// collision block. Returns true when it refused.
+        /// </summary>
+        internal static bool StopChainTipForUnresolvedTerminalOrbit(
+            GhostChain chain,
+            Recording tip,
+            CelestialBody body,
+            bool usesRecordedTerminalOrbit,
+            bool orbitResolved,
+            double spawnUT,
+            string site)
+        {
+            if (!ShouldRefuseChainTipForUnresolvedTerminalOrbit(usesRecordedTerminalOrbit, orbitResolved))
+                return false;
+
+            VesselSpawner.RejectUnresolvedTerminalOrbitSpawn(tip, -1, body, spawnUT, double.NaN);
+            ParsekLog.Info(Tag, string.Format(ic,
+                "Chain tip spawn refused: recorded terminal orbit unresolved at spawn UT: site={0} " +
+                "tip={1} vessel={2} originalPid={3} terminal={4} escape={5} spawnUT={6:F2} reason={7}",
+                site,
+                tip?.RecordingId ?? "(null)",
+                tip?.VesselName ?? "(unknown)",
+                chain != null ? chain.OriginalVesselPid : 0u,
+                tip?.TerminalStateValue?.ToString() ?? "(none)",
+                Recording.IsEscapeTrajectoryTerminal(tip),
+                spawnUT,
+                tip?.TerminalSpawnSafetyReasonCode ?? "(none)"));
+            EndCollisionBlockForNonCollisionFailure(chain, ChainTipTerminalOrbitRefusedReason);
+            return true;
+        }
 
         /// <summary>
         /// Pure: does the tip already carry a terminal-orbit safety verdict that stops this

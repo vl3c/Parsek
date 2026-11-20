@@ -392,5 +392,60 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region chain tip: an unresolved terminal orbit is refused, never a point spawn
+
+        [Theory]
+        [InlineData(true, false, true)]
+        [InlineData(true, true, false)]
+        [InlineData(false, false, false)]
+        [InlineData(false, true, false)]
+        public void ShouldRefuseChainTipForUnresolvedTerminalOrbit_Cases(
+            bool usesOrbit, bool resolved, bool expected)
+        {
+            Assert.Equal(expected,
+                VesselGhoster.ShouldRefuseChainTipForUnresolvedTerminalOrbit(usesOrbit, resolved));
+        }
+
+        [Fact]
+        public void StopChainTipForUnresolvedTerminalOrbit_EscapeTip_LatchesCannotSpawnSafely()
+        {
+            Recording tip = HyperbolicEscapeProbe("rec-escape-tip");
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 777u,
+                TipRecordingId = tip.RecordingId,
+                SpawnBlocked = true,
+            };
+
+            bool stopped = VesselGhoster.StopChainTipForUnresolvedTerminalOrbit(
+                chain, tip, body: null, usesRecordedTerminalOrbit: true, orbitResolved: false,
+                spawnUT: 5000.0, site: "chain-tip");
+
+            Assert.True(stopped);
+            Assert.True(tip.TerminalSpawnCannotSpawnSafely);
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonTerminalOrbitResolutionFailed,
+                tip.TerminalSpawnSafetyReasonCode);
+            Assert.False(chain.SpawnBlocked);
+            Assert.True(VesselGhoster.ShouldStopChainTipSpawnForTerminalOrbitVerdict(
+                tip, 5001.0, out TerminalOrbitDeferredSpawnState state, out _));
+            Assert.Equal(TerminalOrbitDeferredSpawnState.Refused, state);
+            Assert.Contains(logLines, l => l.Contains("Chain tip spawn refused: recorded terminal orbit unresolved")
+                && l.Contains("escape=True"));
+        }
+
+        [Fact]
+        public void StopChainTipForUnresolvedTerminalOrbit_Resolved_DoesNothing()
+        {
+            Recording tip = HyperbolicEscapeProbe("rec-escape-tip-ok");
+
+            Assert.False(VesselGhoster.StopChainTipForUnresolvedTerminalOrbit(
+                null, tip, null, usesRecordedTerminalOrbit: true, orbitResolved: true,
+                spawnUT: 5000.0, site: "chain-tip"));
+            Assert.False(tip.TerminalSpawnCannotSpawnSafely);
+        }
+
+        #endregion
+
     }
 }
