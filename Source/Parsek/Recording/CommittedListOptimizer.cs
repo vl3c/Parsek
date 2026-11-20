@@ -504,15 +504,30 @@ namespace Parsek
             // "skipped (too-short)" lines per scenario load.
             int trimCount = 0;
             Dictionary<string, int> skipCounts = null;
+            // Mirror of the split and merge holds: a superseded recording is not played and its
+            // supersede row names its whole range, and a recording a live Re-Fly names (its
+            // provisional, the origin, the supersede target) belongs to the merge in flight.
+            var scenario = ParsekScenario.Instance;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                !object.ReferenceEquals(null, scenario) ? scenario.RecordingSupersedes : null;
+            string activeReFlyId = !object.ReferenceEquals(null, scenario)
+                ? scenario.ActiveReFlySessionMarker?.ActiveReFlyRecordingId
+                : null;
             for (int i = 0; i < recordings.Count; i++)
             {
                 double endBeforeTrim = recordings[i] != null ? recordings[i].EndUT : double.NaN;
                 bool trimmed;
                 string skipCategory;
+                string heldBy = DescribeTrimHold(recordings[i], supersedes, activeReFlyId, scenario);
                 if (IsRouteSource(recordings[i], routeSourceIds))
                 {
                     trimmed = false;
                     skipCategory = "route-source";
+                }
+                else if (heldBy != null)
+                {
+                    trimmed = false;
+                    skipCategory = heldBy;
                 }
                 else
                 {
@@ -548,6 +563,30 @@ namespace Parsek
                     $"Optimization pass: TrimBoringTail skipped {totalSkipped} recording(s) — " +
                     counts);
             }
+        }
+
+        /// <summary>
+        /// The trim hold for <paramref name="rec"/>, or null: <c>superseded</c> when a supersede
+        /// row names it (<see cref="EffectiveState.IsSupersededByRelation"/>), <c>active-refly</c>
+        /// when it is the live Re-Fly's provisional or a recording the live session or merge
+        /// journal names (<see cref="RecordingOptimizer.IsNamedByLiveReFlyMerge"/>).
+        /// </summary>
+        internal static string DescribeTrimHold(
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            string activeReFlyId,
+            ParsekScenario scenario)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return null;
+            if (supersedes != null && supersedes.Count > 0
+                && EffectiveState.IsSupersededByRelation(rec, supersedes))
+                return "superseded";
+            if (!string.IsNullOrEmpty(activeReFlyId)
+                && string.Equals(rec.RecordingId, activeReFlyId, StringComparison.Ordinal))
+                return "active-refly";
+            if (RecordingOptimizer.IsNamedByLiveReFlyMerge(rec, scenario, out _))
+                return "active-refly";
+            return null;
         }
 
         /// <summary>

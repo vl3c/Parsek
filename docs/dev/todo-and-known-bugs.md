@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TRIM-IGNORES-SUPERSEDE-AND-REFLY~~: the boring-tail trim cut superseded recordings and the recordings of a live Re-Fly [FILED 2026-11-18 by the recording split / trim / merge review (finding L7), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a superseded or in-merge recording lost its tail behind the merge's back)]
+
+**Cause:** the split pass skips superseded recordings and defers the live Re-Fly provisional, and the merge pass refuses both and the recordings the live session names, but `CommittedListOptimizer.TrimBoringTailsForOptimization` held only supply route sources.
+
+**Fix:** `DescribeTrimHold` adds two skip categories to the trim pass: `superseded` (a supersede row names the recording) and `active-refly` (the live Re-Fly's provisional, or a recording `RecordingOptimizer.IsNamedByLiveReFlyMerge` names). They are counted in the existing `TrimBoringTail skipped N recording(s)` summary.
+
+**Tests:** `CommittedListOptimizerUnitTests.TrimHolds_SupersededAndLiveReFlyRecordings` (red before the fix).
+
 ## ~~SPLIT-LEAVES-END-FIELDS-ON-HEAD~~: an optimizer split left the end situation, dock partner and route windows on the first half [FILED 2026-11-18 by the recording split / trim / merge review (finding L6), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (the timeline's spawn wording for the real end fell back to generic text)]
 
 **Cause:** `RecordingOptimizer.TransferTerminalFieldsToSecondHalf` moved the terminal state, snapshot and terminal orbit to the second half but left `VesselSituation`, `DockTargetVesselPid`, `TransferTargetVesselPid` / `TransferKind` and `RouteConnectionWindows` on the first half.
