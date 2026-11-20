@@ -336,6 +336,48 @@ namespace Parsek.Tests
                 TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=KscAction action=" + args), ready).Decision);
         }
 
+        // A crash into a KSC building during a recorded flight fires the same
+        // OnKSCStructureCollapsing a Demolish() does, so demolish-building also runs in FLIGHT
+        // (PADX-1 / PADX-2). The repair stays Space-Center-only, and no other scene widens.
+        [Fact]
+        public void KscAction_DemolishBuilding_RunsInFlight_RepairDoesNot()
+        {
+            var flight = new DispatchState { Scene = TestCommandScene.Flight, CareerPresent = true, AtSpaceCenter = false };
+            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=KscAction action=demolish-building building=LaunchPad/Facility/Flag"), flight).Decision);
+            AssertDefer(TestCommandDispatcher.DecideDispatch(
+                    Cmd("id=1 cmd=KscAction action=repair-facility facility=SpaceCenter/LaunchPad"), flight),
+                "not-at-space-center");
+            AssertDefer(TestCommandDispatcher.DecideDispatch(
+                    Cmd("id=1 cmd=KscAction action=upgrade-facility facility=SpaceCenter/Runway"), flight),
+                "not-at-space-center");
+
+            var flightSettling = new DispatchState { Scene = TestCommandScene.Flight, CareerPresent = true,
+                AtSpaceCenter = false, KscStructuresSettling = true };
+            AssertDefer(TestCommandDispatcher.DecideDispatch(
+                    Cmd("id=1 cmd=KscAction action=demolish-building building=LaunchPad/Facility/Flag"), flightSettling),
+                "structures-settling");
+
+            var tracking = new DispatchState { Scene = TestCommandScene.TrackingStation, CareerPresent = true, AtSpaceCenter = false };
+            AssertDefer(TestCommandDispatcher.DecideDispatch(
+                    Cmd("id=1 cmd=KscAction action=demolish-building building=LaunchPad/Facility/Flag"), tracking),
+                "not-at-space-center");
+        }
+
+        [Theory]
+        [InlineData("demolish-building", "Flight", true)]
+        [InlineData("demolish-building", "SpaceCenter", false)]
+        [InlineData("demolish-building", "TrackingStation", false)]
+        [InlineData("demolish-building", "Editor", false)]
+        [InlineData("repair-facility", "Flight", false)]
+        [InlineData("upgrade-facility", "Flight", false)]
+        [InlineData("accept-contract", "Flight", false)]
+        public void IsKscActionAllowedInFlight_OnlyDemolishInFlight(string action, string sceneName, bool expected)
+        {
+            var scene = (TestCommandScene)System.Enum.Parse(typeof(TestCommandScene), sceneName);
+            Assert.Equal(expected, TestCommandDispatcher.IsKscActionAllowedInFlight(action, scene));
+        }
+
         [Fact]
         public void KscAction_UpgradeFacility_IgnoresSettlingStructures()
         {

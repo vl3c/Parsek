@@ -777,6 +777,14 @@ and `activate-strategy` / `deactivate-strategy`, below.)
   real debit, so the verb must resolve a LIVE building instance (below), and
   `DecideDispatch` defers `not-at-space-center` while `!AtSpaceCenter` (on top of the
   `career-not-ready` defer).
+- `demolish-building` runs at the Space Center AND in FLIGHT
+  (`TestCommandDispatcher.IsKscActionAllowedInFlight`), where the KSC
+  `DestructibleBuilding`s are live too. A collapse there fires the same
+  `OnKSCStructureCollapsing` a crash into the building fires
+  (`DestructibleBuilding.AddDamage -> Demolish()`), so a collapse during a live recording is
+  tagged to it as a flight-caused destruction is (lanes PADX-1 / PADX-2). `repair-facility`
+  stays SPACECENTER-only (its debit is a `SpaceCenterBuilding` call). Both defer
+  `structures-settling` while any building is mid-collapse or mid-repair, in either scene.
 
 A never-career game (or, for `upgrade-facility`, a never-SPACECENTER run) deferring here
 converts to TIMEOUT and the orchestrator reconciles.

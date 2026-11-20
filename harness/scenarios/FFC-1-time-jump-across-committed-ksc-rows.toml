@@ -1,0 +1,216 @@
+schema = 1
+id = "FFC-1-time-jump-across-committed-ksc-rows"
+# =====================================================================================
+# FFC-1: A TIME JUMP ACROSS COMMITTED SPACE CENTER ROWS (test-gaps doc 2026-11-18, Batch 3:
+# "Fast-forward or Warp-to across committed career actions: ledger recalculation after a jump
+# is unit-tested only").
+#
+# NOT A DUPLICATE OF RW-18 / RW-1 / QL-14. Each of those crosses committed rows with a WARP
+# (`WarpToUT`, stock's rate ladder): RW-1 / RW-18 at the Space Center through the clock cursor,
+# QL-14 in flight and then through the Space Center reload. No committed spec moves the clock
+# across committed Space Center rows with a JUMP (grep 2026-11-20: of the specs that fly
+# `TimeJump`, none also runs a `KscAction`; the one that also rewinds on a career, H79, pins
+# no clock crossing and has no Space Center row). A jump is a different path:
+# the clock is set in one frame (Planetarium.SetUniversalTime) and the ledger is recalculated
+# by TimeJumpManager.RecalculateLedgerAfterTimeJump -> LedgerOrchestrator.
+# RecalculateAndPatchForTimeJump, which runs the walk as a clock advance (RunAsClockAdvance),
+# so the reached committed-future rows are a crossing (ComputeClockCrossing) and apply once.
+#
+# WHICH JUMP. The seam's `TimeJump` drives ParsekFlight.TimeJumpTo -> TimeJumpManager.
+# ExecuteJump (the epoch-shift jump, `jump=epoch-shift`), FLIGHT only. The other jump kind,
+# ExecuteForwardJump (`jump=forward`: the Timeline Warp-to button, the Recordings / Missions
+# / Tracking Station fast-forward), has no seam press (the `fastforward` raisable dialog is
+# Cancel-only); both kinds call the SAME RecalculateLedgerAfterTimeJump, so this lane proves
+# the ledger half of both. The press of those buttons is the gap doc's separate "Timeline
+# Warp to time button" item (FFC-2 is left for it).
+#
+# THE ROUTE: QL-14's verbatim (career-pad-craft, L8's host) with the crossing changed from a
+# flight warp plus a return to the Space Center into ONE time jump, and the lane stays in
+# flight after it, so nothing but the jump's own recalculation can apply the rows:
+#   flight A   warp the pad to 60, record the Flea, warp to 1000 in flight, stop, CommitTree,
+#              Recover.
+#   KSC        at ~1000: upgrade the Tracking Station, research basicRocketry, hire Verhat.
+#   rewind     Rewind-to-Launch A: clock ~45, the three rows committed future.
+#   flight B   VAB launch of the Settings Probe (unrecorded), TimeJump to 1100 (past every
+#              row), save in flight.
+#
+# THE GATES:
+#   - between the jump's start and its completion: `Time jump ledger recalculation started:
+#     jump=epoch-shift`, `Clock-crossing reached committed-future rows` and
+#     `PromoteReachedCommittedHires: rows=1 promoted=1` (the hire crossed in the jump);
+#   - no guard clamp, no take-back, no recalculation failure;
+#   - the rewind-aware ledger oracle (QL-14's manifest): every row past at the end clock, so
+#     the produced save's funds are the seed minus the upgrade and the hire, plus the
+#     recovery, minus the check rollout, and science the seed minus the research, charged
+#     once. The oracle reads KSP's own save, never a Parsek number.
+#
+# PREDICTED: PASS. RecalculateAndPatchForTimeJump is unit-tested for the crossing; the patch is
+# not deferred (flight B is unrecorded, no live or pending tree), and the flight scene's own
+# load recalculation re-captures the committed-future snapshot the in-session load cleared.
+#
+# PRE-REGISTERED READINGS:
+#   - `Time jump ledger recalculation started` with no crossing line: the snapshot was not
+#     valid at the jump (read `Committed-future snapshot cleared:` and whether the flight's
+#     load recalc patched); the oracle then says whether the pools still came out right.
+#   - `PromoteReachedCommittedHires` missing: the hire crossed in flight was not promoted;
+#     Verhat's roster state in the produced save says which.
+#   - `PatchFacilities: 'SpaceCenter/TrackingStation' level 0 -> 1` is NOT pinned (whether
+#     flight holds the facility refs to patch is unmeasured); read it off the first flight.
+#   - `timejump refused` / `TimeJumpTo declined`: the clock was already past 1100 (it is not:
+#     the rewind lands at ~45).
+#
+# STATUS: AUTHORED 2026-11-20 (branch `test-gaps-b3-career-jumps`), never flown.
+#
+# FAST-LANE CHECKLIST: (1) reuse: QL-14's route and ledger manifest verbatim; (2) explicit-UT
+# warps and one explicit-UT jump; (3)-(5) no dwell, burn or coast; (6) retry `once`;
+# (7) recordings exactly 1; (8) operator until measured, QL-14 is nightly at ~8 min;
+# (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "FFC-1: on career-pad-craft, record and recover a pad flight, buy a facility upgrade, a tech and a hire at the Space Center at UT ~1000, rewind to that flight's launch (the rows stay committed future), launch an unrecorded probe and TIME-JUMP past the rows in flight. The jump's own ledger recalculation crosses the rows once: no guard clamp, the hire promoted, the ledger oracle exact."
+instanceProfile = "stock-minimal"
+tags = ["FFC-1", "career", "ledger", "rewind", "time-jump", "timeline-ops", "editor",
+        "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 2 x 120 warps + 180 StartRecording + 120 CommitTree
+# + 120 Recover + 3 x 60 KscAction + 300 rewind + 120 GoToEditor + 180 LaunchFromEditor
+# + 120 TimeJump + 120 SaveGame = 2000; runtime 2600 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- flight A: QL-14's (record on the pad, commit, recover) ----
+  { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "1000" },                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+
+  # ---- the Space Center purchases at ~1000 ----
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "research-node", node = "basicRocketry" },   expect = "OK", budget = 60 },
+  { cmd = "KscAction",      args = { action = "hire-kerbal", kerbal = "Verhat Kerman" },   expect = "OK", budget = 60 },
+
+  # ---- the rewind: the three rows stay committed future ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "ffc1-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+
+  # ---- flight B: the jump past the rows, and the lane stays in flight ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "ffc1-before-jump" },                         expect = "OK" },
+  { cmd = "TimeJump",       args = { ut = "1100" },                                        expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ffc1-jumped" },                              expect = "OK" },
+
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "science", "kerbals", "facilities", "recalc-engine", "ksp-state-patcher", "action-blocking"]
+D9  = ["rewind-to-launch", "fast-forward"]
+D14 = ["career", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Flight A only; flight B is unrecorded.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+# Source of each literal (Source/Parsek/...):
+#   timejump start / complete              TestCommands/ParsekTestCommandAddon.TimeJumpKscAction.cs
+#   Time jump ledger recalculation         Controllers/TimeJumpManager.cs RecalculateLedgerAfterTimeJump
+#   Clock-crossing reached                 GameActions/LedgerOrchestrator.Recalculate.cs ComputeClockCrossing
+#   PromoteReachedCommittedHires:          Crew/KerbalsModule.Roster.cs
+required = [
+  "kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true",
+  "kscaction action=research-node target=basicRocketry applied=true",
+  "kscaction action=hire-kerbal target=Verhat Kerman applied=true",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=ffc1-rewound ut=[0-9]{2}\\.",
+  # ---- the jump, an epoch-shift jump from before the rows to past them ----
+  "MISSIONMARK label=ffc1-before-jump ut=[0-9]{2}\\.[\\s\\S]*?timejump start target=1100 ",
+  # ---- the jump's own recalculation crosses the rows, before any scene change ----
+  # The crossing line labels at most its first ten rows, and QL-14's crossing measured
+  # crossed=13 with the Space Center rows last, so which rows crossed is read off the hire
+  # promotion inside the same recalculation and off the oracle, not off the labels.
+  "MISSIONMARK label=ffc1-before-jump ut=(?:(?!MISSIONMARK label=ffc1-jumped )[\\s\\S])*?Time jump ledger recalculation started: jump=epoch-shift cutoffUT=1100(?:(?!Time jump ledger recalculation complete)[\\s\\S])*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* (?:(?!Time jump ledger recalculation complete)[\\s\\S])*?PromoteReachedCommittedHires: rows=1 promoted=1 [\\s\\S]*?Time jump ledger recalculation complete: jump=epoch-shift cutoffUT=1100[\\s\\S]*?MISSIONMARK label=ffc1-jumped ut=(?:1099|11[0-9]{2})\\.",
+  "timejump complete reachedUT=1(?:099|100)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "GUARDED (UPLIFT|DRAWDOWN) clamped",
+  "invokerewindtolaunch refused",
+  "timejump refused",
+  "Time jump ledger recalculation failed",
+  "ABORTING rewind ledger patch",
+  "\\[TakeBack\\] Took back ",
+  # Each row charged once.
+  "kscaction action=hire-kerbal target=Verhat Kerman applied=true[\\s\\S]*kscaction action=hire-kerbal target=Verhat Kerman applied=true",
+  "kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true[\\s\\S]*kscaction action=upgrade-facility target=SpaceCenter/TrackingStation applied=true",
+  # The hire is reached once after the rewind.
+  "MISSIONMARK label=ffc1-rewound ut=[\\s\\S]*PromoteReachedCommittedHires: rows=[1-9][\\s\\S]*PromoteReachedCommittedHires: rows=[1-9]",
+]
+
+# The rewind-aware ledger oracle, QL-14's manifest verbatim. The end clock (~1100) is past
+# every row.
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+timeline     = "rewind-aware"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [44.0, 60.0]
+  kind       = "vessel-build-cost"
+  # Flight B's rollout: the Settings Probe's Stayputnik (HC-2's measured 300).
+  funds      = -300.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "vessel-recovery"
+  # Flight A's pad recovery of the Jumping Flea (L2's measured payout).
+  funds      = 4182.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "facility-upgrade"
+  # Tracking Station 0 -> 1 (L1-upgrade-facility-career, QL-1, L8).
+  funds      = -150000.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "tech-unlock"
+  # basicRocketry (L1-research-node-career, L8).
+  science    = -5.0
+  provenance = "seam-declared"
+
+[[expectations.ledger.manifest]]
+  utWindow   = [1000.0, 1010.0]
+  kind       = "kerbal-hire"
+  # L8's measured recruit cost on this roster.
+  funds      = -62113.0
+  provenance = "seam-declared"
+
+[runtime]
+budgetSeconds = 2600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

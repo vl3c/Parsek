@@ -680,6 +680,51 @@ the ghost's travel)) is counted `unresolved`. A cell that compared nothing skips
   no vessel near Laythe exists after LAY-1's rewind. A Space Center cell over `ParsekKSC`'s ghosts (the
   gap AIR-2's header names, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3) is separate work.
 
+## TEST-GAPS-B3-PAD-AND-JUMP-LANES: no lane destroys a KSC building in a recorded flight, and none jumps the clock across committed career rows [FILED 2026-11-20 from the test-gaps doc 2026-11-18, Batch 3; AUTHORED 2026-11-20, branch `test-gaps-b3-career-jumps`: PADX-1, PADX-2, FFC-1 (operator, never flown) plus one seam change; OPEN: the three first flights]
+
+Two Batch 3 gaps, each read from the code first, then given a lane. No defect found: every lane
+is predicted PASS.
+
+**A recorded flight destroys the launch pad, then a rewind or an F9.** What the code does
+(origin/main e57f75d87): a collapse during a recording is captured at its own moment from stock's
+`OnKSCStructureCollapsing`, tagged to the live recording, and becomes a `FacilityDestruction` row
+at that UT on commit. `FacilityStatePatcher.PatchLiveDestructionState` reads the ledger at the
+ledger's now (the held window included) and acts only when the last destruction / repair row at
+or before now contradicts the live building. A Rewind-to-Launch lands in the rewind save's world
+(#2181), written before the crash, so the pad comes back standing and the row is future; at the
+Space Center the clock cursor recalculates when the clock reaches the row and the patch demolishes
+the pad once. An F9 is a save-file load: the quicksave's world and ledger, so the same. The pure
+decisions were already pinned (`KscBuildingLivePatchTests`); a Re-Fly that does not crash is
+covered by `TombstoneEligibility` (a `FacilityDestruction` row is retirable).
+- Seam: no verb steers a craft into a building, so `KscAction demolish-building` now also runs in
+  FLIGHT (`TestCommandDispatcher.IsKscActionAllowedInFlight`; `structures-settling` is computed
+  there too). Stock's crash path is `DestructibleBuilding.AddDamage -> Demolish()`, the same event,
+  so Parsek's capture and replay are exercised exactly; only the physical impact is not.
+  xUnit: `TestCommandC1DispatchTests.KscAction_DemolishBuilding_RunsInFlight_RepairDoesNot`,
+  `IsKscActionAllowedInFlight_OnlyDemolishInFlight`.
+- `PADX-1-pad-destroyed-by-flight-rewind` (career-pad-craft, stock-minimal): the level-0 pad flag
+  collapsed at ~120 in recorded flight A, rewind, pad stands (repair probes refused
+  `facility-intact` at ~45 and 100), a Space Center warp to 160 brings it down once.
+- `PADX-2-pad-destroyed-by-flight-f9`: the same crash and rewind, then F5 at ~45 in flight, a flight
+  warp past the crash (falls once), F9, a second warp (stands, then falls again once).
+- **Owner decision (not a defect by the current contract):** in FLIGHT nothing runs a recalculation
+  when the clock passes a committed building row at 1x, so the pad falls at the next recalculation
+  (a warp exit, a commit, a spend), not at the crash UT itself; at the Space Center and in the
+  Tracking Station the clock cursor makes it fall at the crash UT. PADX-2 pins the warp-exit fall.
+  If the pad must fall at the exact UT in flight too, the flight scene needs the cursor.
+
+**A jump across committed career rows.** RW-1 / RW-18 / QL-14 cross committed Space Center rows
+with WARPS; no spec jumped the clock across them (grep: of the specs that fly `TimeJump`, none runs
+a `KscAction`; H79 rewinds on a career but pins no crossing). `FFC-1-time-jump-across-committed-ksc-rows`
+is QL-14's route with the crossing made one `TimeJump ut=1100` in flight (`jump=epoch-shift`), the
+lane staying in flight so only `TimeJumpManager.RecalculateLedgerAfterTimeJump` can apply the rows,
+gated on the crossing and the hire promotion inside that recalculation plus QL-14's rewind-aware
+ledger oracle. The `jump=forward` kind (the Timeline Warp-to button, the Recordings / Missions /
+Tracking Station fast-forward) runs the same recalculation but has no seam press: `FFC-2` is left
+for it, with the gap doc's "Timeline Warp to time button" item.
+
+Owed: the first flight of each lane (key tokens in each spec header), then the tier call.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
