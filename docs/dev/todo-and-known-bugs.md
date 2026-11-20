@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~LAUNCH-HEAD-LABELLED-SURFACE~~: every launch's first row was labelled "surface" [FILED 2026-11-18 by the recording split / trim / merge review (finding M10), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a wrong label in the Recordings table and the map)]
+
+**Cause:** since the launch-site rule (step 5b, owner ruling 2026-10-07) keeps the pad or runway time with the ascent, a split's first half starts on the pad, and `SplitAtSection` took its `SegmentPhase` from section 0, so the ascent row read "Kerbin surface".
+
+**Fix:** `RecordingOptimizer.ResolveHeadPhaseSection` labels a launch-site start's first half by the section where it leaves the site (`FindLaunchSiteDepartureSection`); any other first half keeps section 0. Verbose `Split: head <id> labelled by its launch-site departure section N (...)`. Rows split earlier keep their label.
+
+**Tests:** `OptimizerLaunchSiteLeadingRunTests.PadLaunch_Split_HeadIsLabelledByItsAscentNotThePad` (red before the fix) and `NonLaunchSurfaceStart_Split_HeadKeepsTheSurfaceLabel`.
+
 ## ~~SPLIT-DROPS-PLAYER-ROW-SETTINGS~~: an optimizer split dropped the player's hide / disable / loop settings on the new piece [FILED 2026-11-18 by the recording split / trim / merge review (finding H6), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; high (a hidden flight's second half reappears; a loop replays only the first half)]
 
 **Cause:** the merge pass refuses recordings with player settings (`CanAutoMerge`: loop, `PlaybackEnabled`, `Hidden`), but the split pass checked none and `SplitAtSection` / `CopySplitIdentityFields` copied none of them, so a recording the player hid, disabled or looped while its split was postponed (a live Re-Fly, a supply route hold) came apart on the next cold load with the new piece visible, enabled and not looping. The tail trim also cut looped recordings.

@@ -1719,7 +1719,8 @@ namespace Parsek
             }
             if (original.TrackSections.Count > 0)
             {
-                var env = original.TrackSections[0].environment;
+                int labelSection = ResolveHeadPhaseSection(original);
+                var env = original.TrackSections[labelSection].environment;
                 original.SegmentPhase = SegmentPhaseClassifier.EnvironmentToPhase(env);
             }
 
@@ -1882,6 +1883,26 @@ namespace Parsek
                     ? " (crew death respawn stamp moved: respawn=" + second.CrewDeathRespawns.Value +
                       " timer=" + second.CrewDeathRespawnSeconds.ToString("R", CultureInfo.InvariantCulture) + ")"
                     : ""));
+        }
+
+        /// <summary>
+        /// The section a split's first half takes its <see cref="Recording.SegmentPhase"/>
+        /// from: its first section, except for a launch-site start, whose leading pad or runway
+        /// run stays with the flight (step 5b) and so must not name the row; that half is
+        /// labelled by the section where the vessel leaves the site
+        /// (<see cref="FindLaunchSiteDepartureSection"/>). A launch that never leaves its site
+        /// inside the half keeps section 0.
+        /// </summary>
+        internal static int ResolveHeadPhaseSection(Recording head)
+        {
+            if (head?.TrackSections == null || head.TrackSections.Count == 0) return 0;
+            int departure = FindLaunchSiteDepartureSection(head);
+            if (departure <= 0) return 0;
+            ParsekLog.Verbose("Optimizer",
+                $"Split: head {head.RecordingId ?? "<no-id>"} labelled by its launch-site departure " +
+                $"section {departure.ToString(CultureInfo.InvariantCulture)} " +
+                $"({head.TrackSections[departure].environment}), not its pad run");
+            return departure;
         }
 
         /// <summary>

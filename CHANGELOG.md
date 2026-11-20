@@ -28,6 +28,8 @@ Not released yet.
 
 ### Fixed
 
+- **A launch's first row is labelled by its ascent, not "surface".** The pad time stays with the
+  ascent, and the row used to be named after it. (LAUNCH-HEAD-LABELLED-SURFACE)
 - **A flight you hid, disabled or looped keeps that setting when Parsek splits it.** The new
   piece used to come back visible, enabled and not looping. A flight with a loop range is now
   never split or shortened. (SPLIT-DROPS-PLAYER-ROW-SETTINGS)
