@@ -90,22 +90,38 @@ namespace Parsek
                 return;
             }
 
-            // Cascade depth cap (#284): if the parent recording is already at the
-            // generation cap, do not create any branch, child recordings, or parent
+            // Cascade depth cap (#284): if a plain-debris parent recording is already at
+            // the generation cap, do not create any branch, child recordings, or parent
             // continuation. The parent stays in BackgroundMap/loadedStates and keeps
             // accumulating samples into its existing recording until destruction.
             // The new fragment vessels remain alive in KSP but become Parsek-orphans.
+            // A controllable parent (crew or a probe core) records every breakup.
             // Logged at Info because it represents a real recording-policy decision
             // visible in the user-facing recording count, and only fires for
             // secondary/tertiary breakups (not per frame).
-            if (ShouldSkipForCascadeCap(parentRec.Generation))
+            Vessel liveParentForCap = FlightRecorder.FindVesselByPid(parentPid);
+            bool liveParentOwnBranch = liveParentForCap != null
+                && ParsekFlight.ShouldRecordAsOwnBranch(liveParentForCap);
+            bool parentControllable = IsCascadeCapControllableParent(
+                parentRec.IsDebris, liveParentOwnBranch);
+            if (ShouldSkipForCascadeCap(parentRec.Generation, parentControllable))
             {
                 ParsekLog.Info("BgRecorder",
                     $"Cascade depth cap fired: skipping background split — " +
                     $"parentRec={parentRec.DebugName} gen={parentRec.Generation} " +
-                    $"parentPid={parentPid} skippedChildren={newVesselInfos.Count} " +
+                    $"parentPid={parentPid} parentIsDebris={parentRec.IsDebris} " +
+                    $"liveParentOwnBranch={liveParentOwnBranch} skippedChildren={newVesselInfos.Count} " +
                     $"branchUT={branchUT:F1}");
                 return;
+            }
+            if (parentRec.Generation >= MaxRecordingGeneration)
+            {
+                ParsekLog.Info("BgRecorder",
+                    $"Cascade depth cap lifted for a controllable parent: " +
+                    $"parentRec={parentRec.DebugName} gen={parentRec.Generation} " +
+                    $"parentPid={parentPid} parentIsDebris={parentRec.IsDebris} " +
+                    $"liveParentOwnBranch={liveParentOwnBranch} children={newVesselInfos.Count} " +
+                    $"branchUT={branchUT:F1}");
             }
 
             // A split occurred. Build the branch structure.
@@ -879,10 +895,9 @@ namespace Parsek
             // The continuation stays at the same Generation as the parent - it's
             // the same logical vessel, just with fewer parts. Only spinoff children
             // get parentGeneration + 1.
-            // NOTE: with MaxRecordingGeneration=1 the cap above this point already
-            // returned for any parentRec.Generation >= 1, so today this assignment
-            // is always Generation=0. Kept explicit so future cap bumps (e.g.
-            // MaxRecordingGeneration=2) just work without re-auditing this site.
+            // NOTE: the cap above this point returns for a plain-debris parent at
+            // Generation >= MaxRecordingGeneration; a controllable parent records every
+            // breakup, so its continuation keeps whatever generation it has.
             var parentContRec = new Recording
             {
                 RecordingId = continuationRecordingId,
@@ -1499,10 +1514,25 @@ namespace Parsek
         /// the parent recording's generation already meets the cascade-depth cap?
         /// True means HandleBackgroundVesselSplit returns without creating any
         /// branch, child recordings, or parent continuation; the parent's
-        /// existing recording continues sampling unchanged.
+        /// existing recording continues sampling unchanged. The cap applies to plain
+        /// debris only: a controllable parent (crew or a probe core, see
+        /// <see cref="IsCascadeCapControllableParent"/>) records every breakup
+        /// (owner ruling Q14, 2026-11-18).
         /// </summary>
-        internal static bool ShouldSkipForCascadeCap(int parentGeneration)
-            => parentGeneration >= MaxRecordingGeneration;
+        internal static bool ShouldSkipForCascadeCap(int parentGeneration, bool parentControllable)
+            => !parentControllable && parentGeneration >= MaxRecordingGeneration;
+
+        /// <summary>
+        /// Pure: is the parent of a background split exempt from the cascade cap? A recording
+        /// that is not debris was created for a vessel with crew or a command module (a
+        /// separated child that <c>ParsekFlight.ShouldRecordAsOwnBranch</c> accepted, an EVA
+        /// kerbal, a launched vessel), and keeps the exemption when the breakup took its
+        /// controller away; a debris recording whose live vessel now records as its own branch
+        /// (crew boarded it) is exempt too.
+        /// </summary>
+        internal static bool IsCascadeCapControllableParent(
+            bool parentRecordingIsDebris, bool liveParentRecordsAsOwnBranch)
+            => !parentRecordingIsDebris || liveParentRecordsAsOwnBranch;
 
         #endregion
     }

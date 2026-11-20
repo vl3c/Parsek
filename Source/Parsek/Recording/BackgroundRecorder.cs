@@ -144,10 +144,11 @@ namespace Parsek
         internal const double DebrisHalfFidelityProximityRangeMeters = 500.0;
         internal const double DebrisRelativeSectionExitMeters = 550.0;
 
-        // Cascade depth cap. Background vessel splits whose parent recording is at
-        // Generation >= MaxRecordingGeneration are skipped entirely — the parent's
-        // existing recording continues sampling, the new fragments are not tracked.
-        // Currently 1 = "only record primary debris (decoupled boosters)". See #284.
+        // Cascade depth cap. Background vessel splits whose parent recording is plain
+        // debris at Generation >= MaxRecordingGeneration are skipped entirely - the
+        // parent's existing recording continues sampling, the new fragments are not
+        // tracked. A parent with crew or a probe core records every breakup (owner
+        // ruling Q14, ShouldSkipForCascadeCap). See #284.
         internal const int MaxRecordingGeneration = 1;
 
         // Per-vessel debris TTL tracking (vesselPid -> UT at which to stop recording)

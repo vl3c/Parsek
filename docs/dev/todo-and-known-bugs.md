@@ -20,6 +20,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~BG-BREAKUP-GENERATION-CAP~~: a background vessel never recorded its own breakup after its first split [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `BackgroundSplitTests`; medium (a second separation of a probe or crewed vessel left its pieces unrecorded)]
+
+Cause: `BackgroundRecorder.HandleBackgroundVesselSplit` skipped every split whose parent recording
+was at `Generation >= MaxRecordingGeneration` (1), so a probe or crewed vessel that had come off
+the launched vessel (generation 1) never recorded its own later separations while in the
+background (draft review question 9; the cap was undocumented).
+
+Fix: owner ruling Q14 (2026-11-18), "Yes, for controllable ones". `ShouldSkipForCascadeCap` takes
+whether the parent is controllable (`IsCascadeCapControllableParent`: a recording that is not
+debris, or a live parent that `ParsekFlight.ShouldRecordAsOwnBranch` accepts) and caps plain debris
+only. A lifted cap logs `Cascade depth cap lifted for a controllable parent`; the cap line gains
+`parentIsDebris` and `liveParentOwnBranch`. The flight-recorder design doc now states the rule.
+
+Tests: `BackgroundSplitTests.ShouldSkipForCascadeCap_ControllableParent_NeverSkips` (red before the
+fix), `IsCascadeCapControllableParent_PlainDebrisOnlyIsCapped`; the existing cap cells pass
+`parentControllable: false` and keep their expectations.
+
 ## ~~DEBRIS-ENDS-WHEN-PARENT-GOES-ON-RAILS~~: time warp ended every parent-anchored debris recording [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a booster's fall was cut off whenever the player warped)]
 
 Cause: `BackgroundRecorder.CheckDebrisTTL` ended a parent-anchored debris recording when its parent

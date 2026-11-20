@@ -834,28 +834,57 @@ namespace Parsek.Tests
         public void ShouldSkipForCascadeCap_Gen0_ReturnsFalse()
         {
             // gen 0 = primary recording (active vessel) — splits allowed
-            Assert.False(BackgroundRecorder.ShouldSkipForCascadeCap(0));
+            Assert.False(BackgroundRecorder.ShouldSkipForCascadeCap(0, parentControllable: false));
         }
 
         [Fact]
         public void ShouldSkipForCascadeCap_Gen1_ReturnsTrue()
         {
             // gen 1 = primary debris (booster) — its splits are skipped
-            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(1));
+            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(1, parentControllable: false));
         }
 
         [Fact]
         public void ShouldSkipForCascadeCap_Gen2_ReturnsTrue()
         {
             // gen 2 = fragment-of-fragment — splits are skipped
-            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(2));
+            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(2, parentControllable: false));
         }
 
         [Fact]
         public void ShouldSkipForCascadeCap_LargeGen_ReturnsTrue()
         {
             // sanity check: any positive gen >= cap is gated
-            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(99));
+            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(99, parentControllable: false));
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(99)]
+        public void ShouldSkipForCascadeCap_ControllableParent_NeverSkips(int generation)
+        {
+            // BG-BREAKUP-GENERATION-CAP (owner ruling Q14): a background vessel with crew or a
+            // probe core records every breakup, whatever its generation.
+            Assert.False(BackgroundRecorder.ShouldSkipForCascadeCap(generation, parentControllable: true));
+        }
+
+        [Theory]
+        [InlineData(false, false, true)]
+        [InlineData(false, true, true)]
+        [InlineData(true, true, true)]
+        [InlineData(true, false, false)]
+        public void IsCascadeCapControllableParent_PlainDebrisOnlyIsCapped(
+            bool parentIsDebris, bool liveOwnBranch, bool expected)
+        {
+            Assert.Equal(expected,
+                BackgroundRecorder.IsCascadeCapControllableParent(parentIsDebris, liveOwnBranch));
+        }
+
+        [Fact]
+        public void ShouldSkipForCascadeCap_ControllableGen0Parent_DoesNotSkip()
+        {
+            Assert.False(BackgroundRecorder.ShouldSkipForCascadeCap(0, parentControllable: true));
         }
 
         [Fact]

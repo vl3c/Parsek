@@ -867,7 +867,7 @@ High-frequency continuous events (engine gimbal angles, control surface deflecti
 
 ### 7.4 Structural Events for All Physics-Bubble Vessels
 
-Events that affect the DAG structure (staging, decoupling, docking, undocking) are captured for all vessels in the physics bubble. A background vessel that stages while the player is focused elsewhere produces a proper SPLIT event in the recording tree. Debris children from intentional splits get a TTL: recording stops after `BackgroundRecorder.DebrisTTLSeconds` (60 seconds), or on crash/destruction, or when leaving the physics bubble. Rapid-fire crash fragments are coalesced into BREAKUP events and not individually tracked.
+Events that affect the DAG structure (staging, decoupling, docking, undocking) are captured for all vessels in the physics bubble. A background vessel that stages while the player is focused elsewhere produces a proper SPLIT event in the recording tree. Debris children from intentional splits get a TTL: recording stops after `BackgroundRecorder.DebrisTTLSeconds` (60 seconds), or on crash/destruction, or when leaving the physics bubble. A background vessel with crew or a probe core records every one of its separations (owner ruling Q14, 2026-11-18); plain debris records only the separation that made it, so a fragment of a fragment is not tracked (`BackgroundRecorder.ShouldSkipForCascadeCap`, cap `MaxRecordingGeneration = 1` on `Recording.Generation`, which counts separations from the launched vessel: the vessel that keeps the parent's identity keeps its generation, the piece that comes off gets one more). Rapid-fire crash fragments are coalesced into BREAKUP events and not individually tracked.
 
 ---
 

@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **A crewed or probe-controlled vessel you are not flying records every breakup.** A vessel
+  that had already separated once from your rocket no longer ignored its own later separations
+  while in the background. Plain debris still records only the separation that made it.
+  (BG-BREAKUP-GENERATION-CAP)
 - **Time warp no longer cuts off a falling booster's replay.** Warping right after staging ended
   the recording of every dropped stage at once. A dropped stage now keeps recording through the
   warp until its usual 60 seconds are up. (DEBRIS-ENDS-WHEN-PARENT-GOES-ON-RAILS)
