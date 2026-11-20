@@ -75,6 +75,7 @@ namespace Parsek.TestCommands
             "only-refused",
             "switched",
             "set-active-fallback",
+            "pre-switch-handoff",
             "inert",
         };
 
