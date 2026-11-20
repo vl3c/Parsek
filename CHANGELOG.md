@@ -37,6 +37,10 @@ Not released yet.
   vessel Parsek was not recording yet, undocking or staging it at once recorded only the part you
   kept; the piece that came off had no replay. Both now get their own recording.
   (POST-SWITCH-WATCH-SPLIT-NOT-RECORDED)
+- **A crewed ship undocking from an uncrewed depot is recorded under the right vessel.** When
+  control moved to the ship leaving a probe-less depot, its flight was written into the depot's
+  recording and its replay followed the wrong vessel. Each now gets its own recording.
+  (UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now

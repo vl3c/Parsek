@@ -1467,6 +1467,28 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Pure: true when an undock whose background half is debris must still branch because
+        /// resuming would record under the wrong vessel: focus moved to the NEW vessel (the
+        /// departing half) and the half left behind is the vessel the recorder was recording.
+        /// <c>ResumeAfterFalseAlarm</c> binds to the active vessel, while the tree recording keeps
+        /// the recorded vessel's pid, so the departing vessel's flight would be written into the
+        /// left-behind vessel's recording. The decoupler twin of this case resumes on the recorded
+        /// vessel and hands focus over (VN8); an undock has its own branch type, so it branches.
+        /// </summary>
+        internal static bool ShouldBranchUndockWhenFocusLeftTheRecordedDebrisHalf(
+            uint recordedPid,
+            uint backgroundPid,
+            uint activePid,
+            uint newVesselPid)
+        {
+            return recordedPid != 0u
+                && backgroundPid == recordedPid
+                && activePid != 0u
+                && activePid == newVesselPid
+                && activePid != recordedPid;
+        }
+
         internal IEnumerator DeferredUndockBranch(
             uint oldVesselPid,
             uint newVesselPid,
@@ -1526,7 +1548,23 @@ namespace Parsek
 
                 // Debris filter: a crewed vessel with no command module still gets its own
                 // branch (ShouldRecordAsOwnBranch); only crewless commandless halves are debris.
-                if (!ShouldRecordAsOwnBranch(backgroundVessel))
+                // When focus moved to the departing half and the debris half is the vessel the
+                // recorder was recording (a crewed tug leaving a probe-less depot that kept the
+                // root part), resuming would rebind the recorder to the focused vessel while the
+                // tree recording keeps the depot's pid: branch instead, so each half is recorded
+                // under its own vessel (todo UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL).
+                bool backgroundIsOwnBranch = ShouldRecordAsOwnBranch(backgroundVessel);
+                uint recordedPid = pendingSplitRecorder.RecordingVesselId;
+                if (!backgroundIsOwnBranch
+                    && ShouldBranchUndockWhenFocusLeftTheRecordedDebrisHalf(
+                        recordedPid, backgroundPid, activePid, newVesselPid))
+                {
+                    ParsekLog.Info("Flight",
+                        $"DeferredUndockBranch: focus moved to the departing vessel pid={activePid} and the " +
+                        $"half left behind (pid={backgroundPid}) is the recorded vessel; branching instead of " +
+                        $"resuming on the focused vessel (recordedPid={recordedPid})");
+                }
+                else if (!backgroundIsOwnBranch)
                 {
                     ParsekLog.Verbose("Flight",
                         $"DeferredUndockBranch: vessel pid={backgroundPid} is not trackable (debris), resuming recording " +

@@ -93,6 +93,28 @@ Tests. `PostSwitchStructuralSplitTests` (the decision table, the undock routing,
 ahead of the baseline gate). Lane owed: `]` to an untracked docked pair, undock at once; expect a
 recording for each half.
 
+## ~~UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL~~: an undock where control moves to the departing half wrote that flight under the left-behind vessel [FILED 2026-11-18 by the recording split / trim / merge review (draft H3), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit + source gate; no lane yet; high (a recording keyed to one vessel holding another vessel's flight; after the next switch the background recorder samples the depot into it)]
+
+Cause. A crewed tug undocks from a probe-less depot that kept the root part (KSP's `oldVessel`,
+the recorded pid). Stock moves focus to the tug (`Vessel.WaitAndSwitchFocus`), so
+`DeferredUndockBranch` backgrounds the depot, finds it is debris (`ShouldRecordAsOwnBranch`
+false) and resumed the split recorder ("undocked vessel is debris"). `ResumeAfterFalseAlarm`
+without `keepRecordedVessel` rebinds to `FlightGlobals.ActiveVessel` (the tug) and re-stamps
+`RecordingVesselId`, while the tree recording keeps the depot's pid. Confirmed against
+`FlightRecorder.StopAndFinalize.cs` (`ResumeAfterFalseAlarm`) before fixing.
+
+Fix. The decoupler twin (VN8) resumes on the recorded vessel and hands focus over through the
+coalescer; an undock has its own branch type and route-window handling, so it branches instead:
+when the debris half is the recorded vessel and focus is on the new vessel
+(`ShouldBranchUndockWhenFocusLeftTheRecordedDebrisHalf`), `DeferredUndockBranch` runs
+`CreateSplitBranch(Undock, tug, depot)` and logs it. The ordinary debris undock (focus stays on
+the recorded vessel) still resumes. Not changed: the dedup-skip and "undocked vessel not found"
+resumes (the latter only when the recorded vessel itself vanished within the frame).
+
+Tests. `UndockFocusMoveBranchTests` (the decision table and the guard's order in
+`DeferredUndockBranch`). Lane owed: like VN-8, a crewed pod with Control From Here undocking from
+a probe-less tank that holds the root part; expect an Undock branch with one recording per half.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
