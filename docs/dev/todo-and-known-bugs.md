@@ -72,6 +72,13 @@ Fix. `ParsekScenario.SaveActiveTreeIfAny` calls `ParsekFlight.FlushPendingSplits
 serializes the tree; `OnSceneChangeRequested`, `FinalizeTreeOnSceneChangeForCallback` and
 `FinalizeTreeOnSceneChangeCore` flush before the transient reset and the commit.
 
+Not covered (left open on purpose): an F5 or scene exit in the single frame between
+`HandleJointBreakDeferredCheck` parking the recorder and the deferred check feeding the coalescer.
+The flush skips decouple captures while that check is in flight, because feeding them early
+would leave the check with no new vessel: it would classify the staging as within-segment and
+skip its focus hand-off (VN8). Closing it needs the deferred scan to run synchronously at save,
+which is not built.
+
 Tests. `PendingSplitFlushWiringTests` (save, scene exit, merge-flow finalize order).
 
 ## ~~POST-SWITCH-WATCH-SPLIT-NOT-RECORDED~~: undocking right after a `]` switch to an untracked vessel dropped the separated piece [FILED 2026-11-18 by the recording split / trim / merge review follow-up (WP1 M4), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit + source gates; no lane yet; high (a vessel with no recording and no ghost)]
@@ -92,9 +99,15 @@ active tree already tracks in the background (`ArmTrackedBackgroundMember`, or i
 `BackgroundMap`) is declined (`BackgroundRecorderOwns`, logged): the background recorder's own
 split check (`HandleBackgroundVesselSplit`) records that split, and a capture would record the
 child twice.
+When stock moves focus to the vessel that came off, `OnVesselSwitchComplete` re-arms the watch
+on it; `ArmPostSwitchAutoRecord` now carries the captures across (`CarryStructuralSplitsAcrossRearm`:
+the capture turns around, so the previously watched vessel becomes the separated one with its
+own split-time snapshot and pose, taken at the capture) and warns whenever it replaces a watch
+holding captures. A re-arm on an unrelated vessel keeps none.
 
-Tests. `PostSwitchStructuralSplitTests` (the decision table, the undock routing, start-then-feed
-ahead of the baseline gate). Lane owed: `]` to an untracked docked pair, undock at once; expect a
+Tests. `PostSwitchStructuralSplitTests` (the decision table including the tracked-member decline,
+the undock routing, start-then-feed ahead of the baseline gate, the carry across a focus-move
+re-arm and its Warn). Lane owed: `]` to an untracked docked pair, undock at once; expect a
 recording for each half.
 
 ## ~~UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL~~: an undock where control moves to the departing half wrote that flight under the left-behind vessel [FILED 2026-11-18 by the recording split / trim / merge review (draft H3), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit + source gate; no lane yet; high (a recording keyed to one vessel holding another vessel's flight; after the next switch the background recorder samples the depot into it)]

@@ -2924,6 +2924,13 @@ namespace Parsek
             public ConfigNode PreSnapshot;
             public TrajectoryPoint? PrePoint;
             public string Source;
+            // The watched side at the split, used when focus moves to the separated vessel and
+            // the watched vessel becomes the one that came off.
+            public uint OriginalPid;
+            public bool OriginalHasController;
+            public uint OriginalRootPartPid;
+            public ConfigNode OriginalPreSnapshot;
+            public TrajectoryPoint? OriginalPrePoint;
         }
 
         // Vessel spawning from playback: chain-tip spawn, tree-leaf spawn, chain ghosting at flight

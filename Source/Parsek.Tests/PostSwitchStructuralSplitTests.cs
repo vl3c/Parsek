@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Xunit;
 using Decision = Parsek.ParsekFlightPostSwitchAutoRecord.PostSwitchStructuralSplitDecision;
@@ -101,6 +102,66 @@ namespace Parsek.Tests
             string body = MethodBody("ParsekFlightPostSwitchAutoRecord.cs", "bool TryCapturePostSwitchStructuralSplit(");
             Assert.Contains("state.TrackedInActiveTree", body);
             Assert.Contains("BackgroundMap.ContainsKey(state.VesselPid)", body);
+        }
+
+        // ---- focus moves to the separated vessel: the captures follow the re-arm ----
+
+        private static ParsekFlight.PostSwitchStructuralSplit Capture(uint watched, uint child)
+        {
+            return new ParsekFlight.PostSwitchStructuralSplit
+            {
+                ChildPid = child, HasController = true, Cause = "UNDOCK", UT = 50.0,
+                ChildRootPartPid = child + 1u, Source = "OnVesselsUndocking",
+                OriginalPid = watched, OriginalHasController = false, OriginalRootPartPid = watched + 1u,
+            };
+        }
+
+        [Fact]
+        public void Rearm_OnTheSeparatedVessel_TurnsTheCaptureAround()
+        {
+            // Undock, then stock moves focus to the departing tug (200): the watch re-arms on
+            // it, and the depot (100) becomes the separated vessel of the tug's recording.
+            var carried = ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(
+                new List<ParsekFlight.PostSwitchStructuralSplit> { Capture(100u, 200u) }, 100u, 200u);
+
+            Assert.Single(carried);
+            Assert.Equal(100u, carried[0].ChildPid);
+            Assert.False(carried[0].HasController);
+            Assert.Equal(101u, carried[0].ChildRootPartPid);
+            Assert.Equal(200u, carried[0].OriginalPid);
+            Assert.Equal("UNDOCK", carried[0].Cause);
+            Assert.Equal(50.0, carried[0].UT);
+        }
+
+        [Fact]
+        public void Rearm_OnTheSeparatedVessel_KeepsTheOtherSeparations()
+        {
+            var carried = ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(
+                new List<ParsekFlight.PostSwitchStructuralSplit> { Capture(100u, 200u), Capture(100u, 300u) },
+                100u, 200u);
+
+            Assert.Equal(new[] { 100u, 300u }, new[] { carried[0].ChildPid, carried[1].ChildPid });
+        }
+
+        [Fact]
+        public void Rearm_OnTheSameVessel_KeepsEverything_OnAnUnrelatedVessel_KeepsNothing()
+        {
+            var captures = new List<ParsekFlight.PostSwitchStructuralSplit> { Capture(100u, 200u) };
+            Assert.Equal(200u, Assert.Single(
+                ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(captures, 100u, 100u)).ChildPid);
+            Assert.Empty(ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(captures, 100u, 999u));
+        }
+
+        [Fact]
+        public void Arm_CarriesTheCapturesAndWarnsWhenItReplacesAWatchHoldingThem()
+        {
+            string body = MethodBody("ParsekFlightPostSwitchAutoRecord.cs", "void ArmPostSwitchAutoRecord(");
+            int carry = body.IndexOf("CarryStructuralSplitsAcrossRearm(", StringComparison.Ordinal);
+            int warn = body.IndexOf("ParsekLog.Warn(", StringComparison.Ordinal);
+            int replace = body.IndexOf("host.postSwitchAutoRecord = new", StringComparison.Ordinal);
+            int add = body.IndexOf("PendingStructuralSplits.AddRange(carried)", StringComparison.Ordinal);
+            Assert.True(carry >= 0 && warn > carry && replace > warn && add > replace,
+                "ArmPostSwitchAutoRecord must carry the captures and warn before it replaces the watch");
         }
 
         private static string MethodBody(string file, string signature)

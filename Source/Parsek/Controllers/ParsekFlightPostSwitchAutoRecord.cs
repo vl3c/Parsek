@@ -346,6 +346,19 @@ namespace Parsek
             if (vessel == null)
                 return;
 
+            ParsekFlight.PostSwitchAutoRecordState previous = host.postSwitchAutoRecord;
+            List<ParsekFlight.PostSwitchStructuralSplit> carried = null;
+            if (previous != null && previous.PendingStructuralSplits != null
+                && previous.PendingStructuralSplits.Count > 0)
+            {
+                carried = CarryStructuralSplitsAcrossRearm(
+                    previous.PendingStructuralSplits, previous.VesselPid, vessel.persistentId);
+                ParsekLog.Warn("Flight",
+                    $"Post-switch watch replaced while holding {previous.PendingStructuralSplits.Count} captured " +
+                    $"separation(s): oldPid={previous.VesselPid} newPid={vessel.persistentId} " +
+                    $"carried={carried.Count} reason={armReason}");
+            }
+
             host.postSwitchAutoRecord = new ParsekFlight.PostSwitchAutoRecordState
             {
                 VesselPid = vessel.persistentId,
@@ -355,6 +368,8 @@ namespace Parsek
                 TrackedInActiveTree = trackedInActiveTree,
                 FreshStartParentRecordingId = freshStartParentRecordingId
             };
+            if (carried != null)
+                host.postSwitchAutoRecord.PendingStructuralSplits.AddRange(carried);
 
             ParsekLog.Info("Flight",
                 $"Post-switch auto-record armed: vessel='{host.postSwitchAutoRecord.VesselName}' " +
@@ -1069,6 +1084,9 @@ namespace Parsek
                 ?? BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
                     newVessel, ut, preferRootPartSurfacePose: true);
             bool hasController = ParsekFlight.ShouldRecordAsOwnBranch(newVessel);
+            // The watched side too: when stock moves focus to the vessel that came off, the
+            // watch re-arms on it and the watched side becomes the separated vessel
+            // (CarryStructuralSplitsAcrossRearm).
             state.PendingStructuralSplits.Add(new ParsekFlight.PostSwitchStructuralSplit
             {
                 ChildPid = newPid,
@@ -1079,6 +1097,12 @@ namespace Parsek
                 PreSnapshot = preSnapshot,
                 PrePoint = prePoint,
                 Source = source,
+                OriginalPid = originalPid,
+                OriginalHasController = ParsekFlight.ShouldRecordAsOwnBranch(originalVessel),
+                OriginalRootPartPid = originalVessel.rootPart != null ? originalVessel.rootPart.persistentId : 0u,
+                OriginalPreSnapshot = FlightRecorder.TryBackupSnapshot(originalVessel),
+                OriginalPrePoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                    originalVessel, ut, preferRootPartSurfacePose: true),
             });
             ParsekLog.Info("Flight",
                 $"Post-switch watch: separation of the watched vessel captured ({source}): " +
@@ -1086,6 +1110,69 @@ namespace Parsek
                 $"hasController={hasController} preSnapshot={preSnapshot != null} " +
                 $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} pending={state.PendingStructuralSplits.Count}");
             return true;
+        }
+
+        /// <summary>
+        /// Pure: the captured separations a watch re-armed from
+        /// <paramref name="previousWatchedPid"/> to <paramref name="newWatchedPid"/> keeps. Stock
+        /// moves focus to the vessel that came off when the control part left on it: the new
+        /// watch is then on a captured child, and that capture turns around (the previously
+        /// watched vessel becomes the separated one, with its own split-time snapshot and pose)
+        /// so both halves are recorded when the new watch starts. A re-arm on the same vessel
+        /// keeps every capture. A re-arm on an unrelated vessel keeps none: the separations
+        /// belong to a vessel no watch follows any more.
+        /// </summary>
+        internal static List<ParsekFlight.PostSwitchStructuralSplit> CarryStructuralSplitsAcrossRearm(
+            IReadOnlyList<ParsekFlight.PostSwitchStructuralSplit> captures,
+            uint previousWatchedPid,
+            uint newWatchedPid)
+        {
+            var result = new List<ParsekFlight.PostSwitchStructuralSplit>();
+            if (captures == null || captures.Count == 0 || newWatchedPid == 0u)
+                return result;
+
+            bool sameVessel = newWatchedPid == previousWatchedPid;
+            bool focusMovedToChild = false;
+            for (int i = 0; i < captures.Count; i++)
+            {
+                if (captures[i] != null && captures[i].ChildPid == newWatchedPid)
+                    focusMovedToChild = true;
+            }
+            if (!sameVessel && !focusMovedToChild)
+                return result;
+
+            for (int i = 0; i < captures.Count; i++)
+            {
+                var c = captures[i];
+                if (c == null)
+                    continue;
+                if (!sameVessel && c.ChildPid == newWatchedPid)
+                {
+                    if (c.OriginalPid == 0u || c.OriginalPid == newWatchedPid)
+                        continue;
+                    result.Add(new ParsekFlight.PostSwitchStructuralSplit
+                    {
+                        ChildPid = c.OriginalPid,
+                        HasController = c.OriginalHasController,
+                        Cause = c.Cause,
+                        UT = c.UT,
+                        ChildRootPartPid = c.OriginalRootPartPid,
+                        PreSnapshot = c.OriginalPreSnapshot,
+                        PrePoint = c.OriginalPrePoint,
+                        Source = c.Source + "+focus-moved",
+                        OriginalPid = c.ChildPid,
+                        OriginalHasController = c.HasController,
+                        OriginalRootPartPid = c.ChildRootPartPid,
+                        OriginalPreSnapshot = c.PreSnapshot,
+                        OriginalPrePoint = c.PrePoint,
+                    });
+                }
+                else
+                {
+                    result.Add(c);
+                }
+            }
+            return result;
         }
 
         internal void OnDecoupleNewVesselForPostSwitchWatch(Vessel originalVessel, Vessel newVessel)
