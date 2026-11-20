@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **A merge that adds nothing no longer says "Merged" and throws your flight away.** When the
+  flight was skipped as a copy of one already on the timeline, the merge reported success and
+  dropped it. It now keeps the flight waiting and shows no success message.
+  (MERGE-DUPLICATE-SKIP-TOASTS-MERGED)
 - **An interrupted Re-Fly merge no longer also says "Merged".** After "Merge interrupted - will
   finish on next load" the game also showed the success message; it now shows only the first.
   (REFLY-INTERRUPTED-MERGE-TOASTS-MERGED)

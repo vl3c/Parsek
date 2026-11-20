@@ -785,6 +785,52 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MergeCommit_DuplicateSkip_NoMergedToast_TreeKeptPending()
+        {
+            // M13: a duplicate-commit skip used to empty the pending slot (dropping the
+            // flight) and toast "Merged" although nothing reached the timeline.
+            var a1 = MakeRecording("rec-dup-1", "tree-dup", 100.0, 200.0);
+            var a2 = MakeRecording("rec-dup-2", "tree-dup", 150.0, 250.0);
+            var committedTree = MakeTree("tree-dup", "rec-dup-1", a1, a2);
+            PendingTreeSlot.StashPendingTree(committedTree);
+            MergeDialog.MergeCommit(committedTree,
+                new Dictionary<string, bool> { { "rec-dup-1", false }, { "rec-dup-2", false } },
+                spawnCount: 0);
+            Assert.Contains(RecordingStore.CommittedTrees, t => ReferenceEquals(t, committedTree));
+
+            // A different object with the same id and less in it: not a richer topology.
+            var b1 = MakeRecording("rec-dup-1", "tree-dup", 100.0, 200.0);
+            var staleTree = MakeTree("tree-dup", "rec-dup-1", b1);
+            PendingTreeSlot.StashPendingTree(staleTree);
+            var screenMessages = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (m, d) => screenMessages.Add(m);
+            int committedEvents = 0;
+            System.Action<RecordingTree> onCommitted = t => committedEvents++;
+            MergeDialog.OnTreeCommitted += onCommitted;
+            try
+            {
+                MergeDialog.MergeCommit(staleTree,
+                    new Dictionary<string, bool> { { "rec-dup-1", false } }, spawnCount: 0);
+            }
+            finally
+            {
+                MergeDialog.OnTreeCommitted -= onCommitted;
+            }
+
+            Assert.Same(staleTree, PendingTreeSlot.PendingTree);
+            Assert.DoesNotContain(screenMessages, m => m.StartsWith("Merged"));
+            Assert.Equal(0, committedEvents);
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("CommitPendingTree: tree id='tree-dup'")
+                && l.Contains("skipped as a duplicate"));
+            Assert.Contains(logLines, l => l.Contains("[MergeDialog]")
+                && l.Contains("commit skipped as a duplicate")
+                && l.Contains("no success toast"));
+            Assert.False(TreeCommitService.CommitPendingTree());
+            Assert.Same(staleTree, PendingTreeSlot.PendingTree);
+        }
+
+        [Fact]
         public void MergeCommit_InterruptedReFlyPath_NoMergedToast_CommittedListenersStillRun()
         {
             // L14: an interrupted Re-Fly supersede used to be followed by the "Merged"

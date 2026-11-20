@@ -266,6 +266,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AutoCommit_DuplicateSkip_ReturnsFalse_NothingMarked_TreeKeptPending()
+        {
+            // M13: a pending tree CommitTree skips as a duplicate reached no timeline; the
+            // seam must not mark it applied or let its caller report a commit.
+            var committedRec = MakeRecording("rec-dup-a", "tree-dup-seam", 100.0, 200.0);
+            var otherRec = MakeRecording("rec-dup-b", "tree-dup-seam", 120.0, 220.0);
+            var committedTree = MakeTree("tree-dup-seam", "rec-dup-a", committedRec, otherRec);
+            PendingTreeSlot.StashPendingTree(committedTree);
+            Assert.True(ParsekScenario.CommitPendingTreeAsApplied(committedTree));
+
+            var staleRec = MakeRecording("rec-dup-a", "tree-dup-seam", 100.0, 200.0);
+            var staleTree = MakeTree("tree-dup-seam", "rec-dup-a", staleRec);
+            PendingTreeSlot.StashPendingTree(staleTree);
+
+            Assert.False(ParsekScenario.CommitPendingTreeAsApplied(staleTree));
+            Assert.Equal(-1, staleRec.LastAppliedResourceIndex);
+            Assert.Same(staleTree, PendingTreeSlot.PendingTree);
+        }
+
+        [Fact]
         public void DiscardPendingTreeAndRecalculate_RemovesPendingTreeAndRunsPatch()
         {
             LedgerOrchestrator.Initialize();
@@ -347,7 +367,7 @@ namespace Parsek.Tests
             Assert.True(File.Exists(path), $"ParsekScenario.cs not found at {path}");
 
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
-            const string signature = "void CommitPendingTreeAsApplied(RecordingTree tree)";
+            const string signature = "bool CommitPendingTreeAsApplied(RecordingTree tree)";
             int sigIdx = prepared.IndexOf(signature, StringComparison.Ordinal);
             Assert.True(sigIdx >= 0, "CommitPendingTreeAsApplied(RecordingTree) no longer exists");
             Assert.Equal(sigIdx, prepared.LastIndexOf(signature, StringComparison.Ordinal));
@@ -356,7 +376,7 @@ namespace Parsek.Tests
             Assert.True(bodyStart > 0, "the seam has no body");
             string body = SourceScanText.BraceMatchedBlock(prepared, bodyStart);
 
-            int commitIdx = body.IndexOf("TreeCommitService.CommitPendingTree();", StringComparison.Ordinal);
+            int commitIdx = body.IndexOf("TreeCommitService.CommitPendingTree()", StringComparison.Ordinal);
             int markIdx = body.IndexOf("RecordingStore.MarkTreeAsApplied(tree);", StringComparison.Ordinal);
             Assert.True(commitIdx >= 0, "the seam no longer calls TreeCommitService.CommitPendingTree()");
             Assert.True(markIdx >= 0, "the seam no longer calls RecordingStore.MarkTreeAsApplied(tree)");

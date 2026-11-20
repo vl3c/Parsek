@@ -30,7 +30,13 @@ namespace Parsek
                     // disarms the lump-sum replay path so the next FLIGHT entry does
                     // not re-credit the already-live income — same rationale as
                     // MergeDialog.MergeCommit (Phase C).
-                    CommitPendingTreeAsApplied(treeToCommit);
+                    if (!CommitPendingTreeAsApplied(treeToCommit))
+                    {
+                        ParsekLog.Warn("Scenario",
+                            "Safety net: pending tree skipped as a duplicate of a committed tree " +
+                            "on save outside Flight - nothing committed");
+                        return;
+                    }
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
                     ParsekLog.Warn("Scenario",
                         "Safety net: committed pending tree on save outside Flight");
@@ -60,11 +66,20 @@ namespace Parsek
         /// the pending tree instead of committing it. None of the current callers are on
         /// that path — the revert branch runs <see cref="TreeDiscardService.DiscardPendingTree"/>
         /// (or <see cref="PendingTreeSlot.UnstashPendingTreeOnRevert"/>) instead (#434).</para>
+        ///
+        /// <para>Returns false when the pending tree was skipped as a duplicate of a committed
+        /// tree (nothing committed, nothing marked, tree kept pending); callers then report no
+        /// commit.</para>
         /// </summary>
-        internal static void CommitPendingTreeAsApplied(RecordingTree tree)
+        internal static bool CommitPendingTreeAsApplied(RecordingTree tree)
         {
-            TreeCommitService.CommitPendingTree();
+            // False only for a duplicate skip (a pending tree that did not reach the timeline);
+            // with no pending tree at all the commit is a no-op and the mark still runs.
+            bool hadPendingTree = PendingTreeSlot.HasPendingTree;
+            if (!TreeCommitService.CommitPendingTree() && hadPendingTree)
+                return false;
             RecordingStore.MarkTreeAsApplied(tree);
+            return true;
         }
 
         /// <summary>
@@ -392,18 +407,26 @@ namespace Parsek
                 {
                     string reason = ghostOnlyReason;
                     int snapshotsNulled = AutoCommitTreeGhostOnly(pt);
-                    CommitPendingTreeAsApplied(pt);
-                    LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
-                    ScreenMessages.PostScreenMessage("[Parsek] Tree recording merged to timeline", 5f);
-                    CommittedListOptimizer.RunOptimizationPass();
-                    // snapshotsNulled is the fidelity fact this line exists to carry: it
-                    // is the number of full-fidelity VesselSnapshots this branch DESTROYED
-                    // (spawn-at-end eligibility lost). Zero means the tree was already
-                    // ghost-only and nothing was given up; nonzero is the measurement the
-                    // AUTOMERGE-ON-BY-DEFAULT question turns on.
-                    ParsekLog.Info("Scenario",
-                        $"Ghost-only auto-commit ({context}, reason={reason}): tree='{pt.TreeName}' " +
-                        $"recordings={pt.Recordings.Count} snapshotsNulled={snapshotsNulled}");
+                    if (!CommitPendingTreeAsApplied(pt))
+                    {
+                        ParsekLog.Warn("Scenario",
+                            $"Ghost-only auto-commit ({context}, reason={reason}): tree='{pt.TreeName}' " +
+                            "skipped as a duplicate of a committed tree - nothing committed, no toast");
+                    }
+                    else
+                    {
+                        LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
+                        ScreenMessages.PostScreenMessage("[Parsek] Tree recording merged to timeline", 5f);
+                        CommittedListOptimizer.RunOptimizationPass();
+                        // snapshotsNulled is the fidelity fact this line exists to carry: it
+                        // is the number of full-fidelity VesselSnapshots this branch DESTROYED
+                        // (spawn-at-end eligibility lost). Zero means the tree was already
+                        // ghost-only and nothing was given up; nonzero is the measurement the
+                        // AUTOMERGE-ON-BY-DEFAULT question turns on.
+                        ParsekLog.Info("Scenario",
+                            $"Ghost-only auto-commit ({context}, reason={reason}): tree='{pt.TreeName}' " +
+                            $"recordings={pt.Recordings.Count} snapshotsNulled={snapshotsNulled}");
+                    }
                 }
             }
             catch (System.Exception ex)

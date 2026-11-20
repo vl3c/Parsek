@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~MERGE-DUPLICATE-SKIP-TOASTS-MERGED~~: a duplicate-commit skip dropped the pending flight while toasting "Merged" [FILED 2026-11-18 by the recording split / trim / merge review (finding M13), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; medium (a flight silently lost). The commit side of owner RULE 3 ("my live flight wins") is a later package; this entry only makes the skip honest]
+
+**Cause:** `TreeCommitService.CommitTreeCore` returns early when a different tree object with the same id is committed and the incoming tree is not a richer topology (`ShouldReplaceCommittedTree`), but `CommitPendingTree` still emptied the pending slot and `MergeDialog.MergeCommit` went on to notify the ledger, run the Re-Fly supersede and toast "Merged".
+
+**Fix:** `CommitTree` / `CommitPendingTree` return whether the tree reached the timeline (a reference-equal tree already committed counts as committed). On a skip the pending tree stays in the slot (Warn `CommitPendingTree: tree id=... was skipped as a duplicate of the committed tree - nothing committed, kept in the pending slot`), `MergeCommit` stops before the ledger notify with no toast (Warn `... commit skipped as a duplicate; nothing merged, tree kept pending, no success toast`), and the outside-flight auto-commit seam `CommitPendingTreeAsApplied` returns false so the safety net and the ghost-only auto-commit skip their notify and toast (a call with no pending tree still marks the tree applied, as before).
+
+**Tests:** `MergeDialogResourcesAppliedTests.MergeCommit_DuplicateSkip_NoMergedToast_TreeKeptPending`, `ScenarioAutoCommitResourcesAppliedTests.AutoCommit_DuplicateSkip_ReturnsFalse_NothingMarked_TreeKeptPending`, both red under a mutation that clears the slot on a skip; the source gate `CommitPendingTreeAsApplied_CommitsBeforeMarkingApplied` follows the new `bool` signature.
+
 ## ~~REFLY-INTERRUPTED-MERGE-TOASTS-MERGED~~: an interrupted Re-Fly merge toasted "Merged" and offered the route prompt [FILED 2026-11-18 by the recording split / trim / merge review (part of finding H4), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; low (a wrong message)]
 
 **Cause:** `MergeDialog.MergeCommit` ran its success tail (route prompt, "Merged - N vessel(s) ..." toast) whatever `TryCommitReFlySupersede` returned, so an `Interrupted` result showed "Merge interrupted - will finish on next load" and then "Merged".

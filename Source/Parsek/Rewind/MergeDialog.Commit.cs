@@ -114,7 +114,17 @@ namespace Parsek
             var retainedParentChainTipCandidates =
                 CollectRetainedParentChainTipAdoptionCandidates(
                     tree, decisions, activeReFlyTargetId);
-            TreeCommitService.CommitPendingTree();
+            if (!TreeCommitService.CommitPendingTree())
+            {
+                // The commit added nothing (a duplicate of a committed tree): no ledger
+                // notify, no Re-Fly supersede, no "Merged" toast. The tree stays pending.
+                ParsekLog.Warn("MergeDialog",
+                    $"User chose: Tree Merge (tree='{tree.TreeName}', " +
+                    $"recordings={tree.Recordings.Count}) - commit skipped as a duplicate; " +
+                    "nothing merged, tree kept pending, no success toast");
+                ClearPendingFlag("merge dialog commit skipped as duplicate");
+                return;
+            }
             // Phase C/F: mark recordings fully applied after the tree moves
             // from pending to committed state.
             RecordingStore.MarkTreeAsApplied(tree);
