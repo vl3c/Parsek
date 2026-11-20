@@ -147,14 +147,17 @@ namespace Parsek.Tests
             Assert.Equal(-1, route.TargetIndex);
         }
 
-        // catches: the switch-call rule. The cycle switches with ForceSetActiveVessel, which
-        // skips ClearToSave, so only a packed target in a game that is not clear to save is
-        // refused; the map Switch-To's SetActiveVessel is refused whenever it is not clear.
+        // catches: a pre-switch case decided (a recording committed mid-burn, in atmosphere,
+        // driving or on a ladder) for a cycle press because the cycle's ForceSetActiveVessel
+        // skips ClearToSave. A press that needs a case is refused like the map Switch-To's
+        // SetActiveVessel whenever the game is not clear to save, packed target or not.
         [Theory]
         [InlineData(false, false, "CLEAR", false)]
         [InlineData(false, false, "NOT_UNDER_ACCELERATION", true)]
         [InlineData(false, false, null, false)]
-        [InlineData(true, false, "NOT_UNDER_ACCELERATION", false)]
+        [InlineData(true, false, "NOT_UNDER_ACCELERATION", true)]
+        [InlineData(true, false, "NOT_IN_ATMOSPHERE", true)]
+        [InlineData(true, false, "CLEAR", false)]
         [InlineData(true, true, "NOT_UNDER_ACCELERATION", true)]
         [InlineData(true, true, "CLEAR", false)]
         public void SwitchWillBeRefused_Matrix(bool cycleSwitch, bool targetPacked, string clear, bool expected)
@@ -186,6 +189,45 @@ namespace Parsek.Tests
             string cycBody = map.Substring(cyc, map.IndexOf("static void Postfix(", cyc, StringComparison.Ordinal) - cyc);
             Assert.Contains("FlightGlobals.ForceSetActiveVessel(target);", cycBody);
             Assert.Contains("FlightInputHandler.ResumeVesselCtrlState(target);", cycBody);
+        }
+
+        // catches: a cycle press that needs a case falling through to the cycle's own
+        // ForceSetActiveVessel when stock is not clear to save (a switch with no commit), while
+        // the map Switch-To keeps its plain path that stock refuses.
+        [Fact]
+        public void StockWillRefuse_RefusesTheCyclePress_LeavesTheMapPathToStock()
+        {
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchTake.RefusedNotClearToSave,
+                MapFocusObjectOnSelectPatch.TakeForStockWillRefuse(cycleSwitch: true));
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchTake.NotTaken,
+                MapFocusObjectOnSelectPatch.TakeForStockWillRefuse(cycleSwitch: false));
+        }
+
+        // catches: the refusal not wired into the StockWillRefuse branch, or refusing with the
+        // cycle's forced switch (which skips ClearToSave and would switch with no commit).
+        [Fact]
+        public void TryTakePreSwitch_RefusesTheCyclePressBeforeItsPlainPath()
+        {
+            string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+            string map = File.ReadAllText(Path.Combine(root, "Source", "Parsek", "Patches", "MapFocusObjectOnSelectPatch.cs"));
+            int take = map.IndexOf("internal static PreSwitchTake TryTakePreSwitch(", StringComparison.Ordinal);
+            Assert.True(take >= 0);
+            int branch = map.IndexOf("if (autoResolution == PreSwitchAutoResolution.StockWillRefuse)", take, StringComparison.Ordinal);
+            Assert.True(branch > take);
+            int decide = map.IndexOf("TakeForStockWillRefuse(cycleSwitch)", branch, StringComparison.Ordinal);
+            int refuse = map.IndexOf("RefuseCycleSwitchLikeStock(vessel,", branch, StringComparison.Ordinal);
+            int ret = map.IndexOf("return refusedTake;", branch, StringComparison.Ordinal);
+            int brk = map.IndexOf("break;", branch, StringComparison.Ordinal);
+            Assert.True(decide > branch && refuse > decide && ret > refuse && brk > ret,
+                "the StockWillRefuse branch must refuse a cycle press before the plain path");
+
+            int r = map.IndexOf("private static void RefuseCycleSwitchLikeStock(", StringComparison.Ordinal);
+            Assert.True(r >= 0);
+            int rEnd = map.IndexOf("private static string ReadClearToSaveStatus()", r, StringComparison.Ordinal);
+            string body = map.Substring(r, rEnd - r);
+            Assert.Contains("FlightGlobals.SetActiveVessel(target);", body);
+            Assert.DoesNotContain("ForceSetActiveVessel", body);
+            Assert.DoesNotContain("Merge", body);
         }
     }
 }

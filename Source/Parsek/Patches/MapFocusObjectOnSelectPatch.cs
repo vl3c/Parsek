@@ -285,6 +285,9 @@ namespace Parsek.Patches
             AutoResolved = 1,
             /// <summary>The Merge / Discard dialog is open; its buttons switch.</summary>
             DialogOpened = 2,
+            /// <summary>A vessel cycle press that needs a case while stock is not clear to save:
+            /// refused like the map Switch-To, with no commit and no switch.</summary>
+            RefusedNotClearToSave = 3,
         }
 
         /// <summary>
@@ -435,7 +438,18 @@ namespace Parsek.Patches
                                 out PreSwitchAutoResolution autoResolution, cycleSwitch))
                             return PreSwitchTake.AutoResolved;
                         if (autoResolution == PreSwitchAutoResolution.StockWillRefuse)
+                        {
+                            PreSwitchTake refusedTake = TakeForStockWillRefuse(cycleSwitch);
+                            if (refusedTake == PreSwitchTake.RefusedNotClearToSave)
+                            {
+                                RefuseCycleSwitchLikeStock(vessel, existingSession != null
+                                    ? "A-session"
+                                    : (targetIsSeparateCommittedVessel ? "C-loaded-separate-committed"
+                                                                       : "B-unloaded"));
+                                return refusedTake;
+                            }
                             break;
+                        }
 
                         // Distinguish the three OpenDialog routes in KSP.log so
                         // a reader can tell Case A (session) from the two
@@ -709,21 +723,64 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// Pure: whether stock refuses the switch the caller makes, from stock's
+        /// Pure: whether a switch that needs a pre-switch case is refused, from stock's
         /// <c>FlightGlobals.ClearToSave()</c> status name (null: unread, not refused). The map
         /// Switch-To and the alarm Jump switch with <c>SetActiveVessel</c>, which refuses
-        /// whenever the status is not CLEAR; the vessel cycle (<paramref name="cycleSwitch"/>)
-        /// switches an unpacked target with <c>ForceSetActiveVessel</c>, which skips the check,
-        /// and a packed one with it only when the game is clear to save (decompiled
-        /// <c>VesselSwitching.Update</c> / <c>FlightGlobals.setActiveVessel</c>).
+        /// whenever the status is not CLEAR, so no recording is committed under acceleration, in
+        /// atmosphere, driving or on a ladder. The vessel cycle (<paramref name="cycleSwitch"/>)
+        /// would switch an unpacked target with <c>ForceSetActiveVessel</c>, which skips the
+        /// check, but a press that needs a case behaves exactly like the map Switch-To (owner
+        /// ruling Q16) and is refused the same way, packed target or not
+        /// (<paramref name="targetPacked"/> does not change the answer). A cycle press that needs
+        /// no case never reaches this and keeps stock's own switch.
         /// </summary>
         internal static bool SwitchWillBeRefused(bool cycleSwitch, bool targetPacked, string clearToSaveStatus)
         {
-            bool notClear = clearToSaveStatus != null
+            return clearToSaveStatus != null
                 && !string.Equals(clearToSaveStatus, "CLEAR", StringComparison.Ordinal);
-            if (cycleSwitch && !targetPacked)
-                return false;
-            return notClear;
+        }
+
+        /// <summary>
+        /// Pure: what <see cref="TryTakePreSwitch"/> answers when a pre-switch case applies and
+        /// stock is not clear to save. The map Switch-To / alarm Jump take their plain path and
+        /// stock's own <c>SetActiveVessel</c> refuses it (<see cref="PreSwitchTake.NotTaken"/>);
+        /// the vessel cycle would otherwise switch with <c>ForceSetActiveVessel</c> without the
+        /// case, so the press is refused here
+        /// (<see cref="PreSwitchTake.RefusedNotClearToSave"/>).
+        /// </summary>
+        internal static PreSwitchTake TakeForStockWillRefuse(bool cycleSwitch)
+        {
+            return cycleSwitch ? PreSwitchTake.RefusedNotClearToSave : PreSwitchTake.NotTaken;
+        }
+
+        /// <summary>
+        /// Refuses a vessel cycle press that needs a pre-switch case while stock is not clear to
+        /// save, the way stock refuses the map Switch-To: nothing is committed and the active
+        /// vessel stays; stock's own <c>SetActiveVessel</c> refusal posts its not-clear-to-save
+        /// message (decompiled <c>FlightGlobals.setActiveVessel</c> checks <c>ClearToSave</c>
+        /// before switching). The status is re-read first; a status that became CLEAR in between
+        /// switches nothing here.
+        /// </summary>
+        private static void RefuseCycleSwitchLikeStock(Vessel target, string caseToken)
+        {
+            string status = ReadClearToSaveStatus();
+            bool stillRefused = SwitchWillBeRefused(true, target.packed, status);
+            ParsekLog.Info("SwitchIntentPatch",
+                $"pre-switch refused: vessel cycle press needs case={caseToken} and stock is not " +
+                $"clear to save status={status ?? "<unread>"} targetPid={target.persistentId} " +
+                $"stockRefusalShown={stillRefused} - no commit, no switch");
+            if (!stillRefused)
+                return;
+            try
+            {
+                FlightGlobals.SetActiveVessel(target);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    $"pre-switch refused: stock refusal call threw {ex.GetType().Name}: {ex.Message} " +
+                    $"targetPid={target.persistentId}");
+            }
         }
 
         /// <summary>

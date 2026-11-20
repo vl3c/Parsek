@@ -43,8 +43,10 @@ namespace Parsek.Patches
     /// and a loaded, separately committed target (Case C), the recording the player leaves is
     /// merged or discarded first and the switch is made by that handler (or the dialog's
     /// buttons) with the cycle's own call, so the target picks up its own committed mission
-    /// through the committed-clone path. Any other press (GC-4's cycle between members of one
-    /// tree) routes exactly as before and arms no intent.
+    /// through the committed-clone path. While stock is not clear to save such a press is refused
+    /// as the map Switch-To is, with no commit and no switch. Any other press (GC-4's cycle
+    /// between members of one tree, with no switch session armed) routes exactly as before and
+    /// arms no intent.
     /// </para>
     ///
     /// <para>
@@ -190,8 +192,10 @@ namespace Parsek.Patches
             SetActiveFallback,
             /// <summary>The press landed on a vessel that needs the map Switch-To's
             /// pre-switch handling (Case A / Case C), which took the switch: its Merge /
-            /// Discard handler switched (<see cref="CycleReport.Detail"/> <c>auto-resolved</c>)
-            /// or its dialog is open and its buttons switch (<c>dialog-open</c>).</summary>
+            /// Discard handler switched (<see cref="CycleReport.Detail"/> <c>auto-resolved</c>),
+            /// its dialog is open and its buttons switch (<c>dialog-open</c>), or stock was not
+            /// clear to save and the press was refused like the map Switch-To, with no commit and
+            /// no switch (<c>refused-not-clear-to-save</c>).</summary>
             PreSwitchHandoff,
         }
 
@@ -314,7 +318,9 @@ namespace Parsek.Patches
             {
                 Vessel target = candidates[routing.TargetIndex];
                 string detail = take == MapFocusObjectOnSelectPatch.PreSwitchTake.DialogOpened
-                    ? "dialog-open" : "auto-resolved";
+                    ? "dialog-open"
+                    : take == MapFocusObjectOnSelectPatch.PreSwitchTake.RefusedNotClearToSave
+                        ? "refused-not-clear-to-save" : "auto-resolved";
                 ParsekLog.Info("SwitchIntentPatch",
                     $"Vessel cycle handed to pre-switch handling: targetPid={target.persistentId} " +
                     $"take={take} directRoute={routing.DirectRoute} ghostsDropped={filter.GhostsDropped} " +

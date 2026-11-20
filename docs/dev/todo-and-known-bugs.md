@@ -44,17 +44,22 @@ walk, the ghost drop and the Re-Fly gate, picks the candidate stock's own final 
 `TryTakePreSwitch(target, cycleSwitch: true)`. When a case applies the auto-resolved handler (or the
 dialog's buttons) merges or discards, arms the intent and switches with the cycle's own call
 (`SwitchLikeTheVesselCycle`: `ForceSetActiveVessel` + `ResumeVesselCtrlState`, `SetActiveVessel`
-only for a packed target in a game not clear to save); `SwitchWillBeRefused` encodes that the
-cycle's call is not refused by `ClearToSave` for an unpacked target. Any other press routes exactly
+only for a packed target in a game not clear to save). When a case applies and stock is not clear
+to save, the press is refused like the map Switch-To (`SwitchWillBeRefused`,
+`TakeForStockWillRefuse`, `RefuseCycleSwitchLikeStock`): no commit, no switch, stock's own
+`SetActiveVessel` refusal message, log `pre-switch refused: vessel cycle press needs case=`; the
+cycle's forced switch would otherwise commit a recording mid-burn or in atmosphere (found by the
+branch review). A press that needs no case (no switch session armed) routes exactly
 as before. Log: `[SwitchIntentPatch] Vessel cycle handed to pre-switch handling: targetPid= take=
 directRoute=`; the `CycleVessel` seam verb answers `outcome=pre-switch-handoff` with
-`detail=auto-resolved|dialog-open`.
+`detail=auto-resolved|dialog-open|refused-not-clear-to-save`.
 
 Tests. `VesselCyclePreSwitchRoutingTests` (Case C with nothing dropped, Case A after a ghost drop,
 same-tree and same-target presses unchanged, a refused switch never asks, only the target is asked,
-the switch-call matrix, the RunCycle wiring); `TestCommandCycleVesselTests` (the new outcome token).
-Red first: with `AskPreSwitch` not calling the pre-switch core (today's routing) the Case A and C
-cells fail.
+the refusal matrix, the cycle refusal take and its wiring, the RunCycle wiring);
+`TestCommandCycleVesselTests` (the new outcome token). Red first: with `AskPreSwitch` not calling
+the pre-switch core (today's routing) the Case A and C cells fail; with the first version's
+unpacked-cycle exception in `SwitchWillBeRefused` the cycle rows of the refusal matrix fail.
 
 Lane owed: a `CycleVessel` press from a live recording onto a loaded vessel of another committed
 tree, asserting `outcome=pre-switch-handoff`, the prior tree committed, and

@@ -30,8 +30,9 @@ Not released yet.
 
 - **The `[` and `]` keys now switch to a vessel of another mission like Switch-To does.** The
   flight you leave is merged (or dropped if nothing changed) first, and the vessel you switch to
-  continues its own mission. Before, it could be attached to the flight you left as if launched
-  from it; that no longer happens on any switch. (CYCLE-SWITCH-PRESWITCH-BYPASS)
+  continues its own mission; while the game refuses switching (under thrust, in the air) that
+  switch is refused too. Before, the vessel could be attached to the flight you left as if
+  launched from it; that no longer happens on any switch. (CYCLE-SWITCH-PRESWITCH-BYPASS)
 - **Switching to a vessel and only watching it no longer starts a recording for it.** A vessel
   that just tumbles, turns with its orbit or drifts into another body's sphere of influence is not
   treated as changed. Turning it yourself, firing an engine or any other change still starts one.

@@ -5158,8 +5158,10 @@ vessel needing the map Switch-To's pre-switch handling (an armed switch segment 
 vessel, or a live recording and a loaded, separately committed target; owner ruling 2026-11-18)
 answers `outcome=pre-switch-handoff`, `picked=` that vessel and `detail=auto-resolved` (the Merge /
 Discard handler already merged or discarded the recording and switched, so `after=` is the target
-unless the handler refused) or `detail=dialog-open` (the dialog's buttons switch; `after=` is
-`before=`), logging `Vessel cycle handed to pre-switch handling: targetPid= take= directRoute=`.
+unless the handler refused), `detail=dialog-open` (the dialog's buttons switch; `after=` is
+`before=`) or `detail=refused-not-clear-to-save` (stock was not clear to save: refused like the map
+Switch-To, nothing committed, `after=` is `before=`, plus `pre-switch refused: vessel cycle press
+needs case=`), logging `Vessel cycle handed to pre-switch handling: targetPid= take= directRoute=`.
 
 **Phases.** SINGLE-PHASE (decompiled `FlightGlobals.setActiveVessel` sets `activeVessel` inside the
 call for a loaded target), `RequiresFlight`, default 60 s budget, world-mutating tail role,
