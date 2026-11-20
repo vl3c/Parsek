@@ -945,6 +945,33 @@ fresh fork id, and the load sweep drops self rows), so it needs hand-edited rows
 `SupersedeCycleThroughAnOutsideRecording_ReadsWhatTheSlotWalkReads`. A fix belongs in the walk
 or the row loader, for every consumer at once.
 
+## BG-ON-RAILS-SOI-LANE-OWED: no flight has shown a background vessel crossing an SOI boundary on rails [FILED 2026-11-20 from test gap batch 3 (`logs/test-gaps-doc-2026-11-18.md`), branch `test-gaps-b3-bg-soi`; xUnit green, lane SOI-3 AUTHORED, NEVER FLOWN; low (no known defect: the code authors the expected shape headlessly)]
+
+SOI-2 flew only the LOADED background SOI change. The on-rails route of
+`BackgroundRecorder.OnBackgroundVesselSOIChanged` closes the old body's open OrbitSegment at the
+event UT (an OrbitalCheckpoint section through `OrbitSegmentCheckpointBridge`) and opens one on the
+new body from the vessel's re-based orbit. Read from the code and driven end to end headless by
+`BackgroundOnRailsSoiCrossingTests` (9 cases, green): the Mun section ends and the Kerbin section
+starts at the same UT, the flat OrbitSegment cache carries exactly one Mun -> Kerbin seam, and
+`TrajectoryMath.FindOrbitSegment` (playback) and `FindOrbitSegmentForMapDisplay` (the map line)
+answer the Mun before the seam and Kerbin from the seam to the recording's end. No defect found;
+the vessel-free close half was already covered by `BackgroundRailsEventRouteTests`.
+
+Finding while authoring: SOI-1's host cannot produce the subject. `mun-park-kerbalx` has one
+command part, so anything it decouples is debris, and `CheckDebrisTTL` ends a parent-anchored debris
+recording when its parent packs (`ParentOnRailsOrDestroyed`), when it unloads, or after 60 s. Any
+rails warp packs the parent, so a recorded DEBRIS piece never crosses an SOI on rails; only a
+controlled child (or a vessel switched away from) does. By design, not a defect.
+
+Owed: the first flight of `SOI-3-bg-probe-mun-exit-on-rails` (operator, stock-minimal, seam only)
+on the new by-construction fixture `mun-escape-probe-stack` (`gs2-orbital-stack`'s Kerbal X stack
+on a Mun escape hyperbola, SOI exit at about UT 1316.9; `harness/tools/build_mun_escape_probe_stack.py`).
+It decouples the probe core, rails-warps to UT 1500, commits and runs the new FLIGHT category
+`BgSoiCrossingPlayback` (3 cells: one seam with touching checkpoint sections and a Kerbin terminal,
+seam continuity within 5 km on live bodies, playback and map segment on Kerbin outside the Mun's SOI
+after the seam). Provision with a DLL from this branch first (the category is new C#). After a
+green reading run: pin the batch split whole, leave `INTERIM_PIN_IDS`, tighten the count.
+
 ## SEAL-SPLIT-CHAIN-LANE-OWED: no lane flies a split chain that is sealed and then made a route [FILED 2026-11-17 from PR #2714's proof batch (run `item31-proof`); harness only, no lane yet; low (the fix is proven headless and the 36 seal / route lanes read no regression)]
 
 The fix for SEAL-LEAVES-SPLIT-CHAIN-HEAD-PROVISIONAL is proven only by xUnit. Every committed lane

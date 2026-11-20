@@ -5037,6 +5037,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # recorded Breaking Ground hinge swing replayed on the ghost, then the ServoFollowers
     # category's one FLIGHT cell, `total=1` literal with the split regexed). Not an H-series
     # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
+    # SOI-3-bg-probe-mun-exit-on-rails ENTERED on 2026-11-20 (test gap batch 3: a background
+    # probe crossing the Mun SOI exit on rails, read by the BgSoiCrossingPlayback category's
+    # three cells, `total=3` literal with the split regexed). It leaves on its first flight.
     INTERIM_PIN_IDS: set = {
         "GPOS-1-kerbalx-ascent-ghost-position",
         "V23M-mun-landing-player-loop",
@@ -5049,6 +5052,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "TSS-3-two-deliveries-same-spot-ts",
         "KSS-2-orbit-deferred-ksc-then-ts",
         "SS-1-spawn-safety-corrections",
+        "SOI-3-bg-probe-mun-exit-on-rails",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -11563,6 +11567,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Priority register C4 (2026-09-23, `d5-debris`): the two D5 debris lanes on
         # the kx machine's close-cut opt-in.
         "GS-10-kerbalx-debris-ttl.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-ttl: GS-7's crash lane with round 1's close cut, the kx machine's impactCutAtLastBoosterDrop opt-in); operator tier is GS-7's cadence (a 12-minute crash + rewind + watch flight), and the discipline is recorded in its status row, not a debt",
+        "SOI-3-bg-probe-mun-exit-on-rails.toml": "tier=operator by the calibration discipline (whether the decoupled probe is packed when it crosses and how many recordings the commit leaves are stock physics and Parsek behaviour nobody has measured on this by-construction host, first run is a reading), NOT debt; test gap batch 3 (2026-11-20): a BACKGROUND vessel crossing the Mun SOI exit ON RAILS, the probe core decoupled off the Kerbal X stack on `mun-escape-probe-stack` and rails-warped across, gated on the on-rails background SOI line, the same pid's Mun and Kerbin checkpoint closes touching at one UT, and the BgSoiCrossingPlayback batch; AUTHORED 2026-11-20, NEVER FLOWN; owed: the first flight, then the ordinary promotion call",
         "SOI-2-mun-exit-formation-wingman.toml": "tier=operator by the calibration discipline (whether the dropped stack stays inside the pack distance through the crossing and which frame its section holds are stock physics and Parsek behaviour nobody has measured, first run is a reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9 (2026-11-17), the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT residue: SOI-1's Mun escape on `mun-park-kerbalx` with the new formation opt-in, the pod dropping its lander stack 25 s before the SOI exit so a LOADED background wingman crosses in physics, gated on the background off-rails SOI line and the background section-split line for the same pid; LIVE-PROVEN 2026-11-17 (run 2026-11-17_1422, PASS attempt 1, 291 s, first flight); owed: the ordinary promotion call",
         "SOI-1-mun-exit-physics-burn.toml": "tier=operator by the calibration discipline, NOT debt; AUTHORED 2026-11-04, LIVE-PROVEN 2026-11-04_1851 - R3 of the replay-theory audit (an off-rails SOI change splits the open TrackSection), a 1x burn through the Mun SOI exit on `mun-park-kerbalx` with its outcomes pre-registered in the header; its pre-fix negative control flew red 2026-11-04_2231, nothing open",
         "BAY-1-runway-cargo-bays.toml": "calibration-discipline - AUTHORED 2026-09-26 (coverage wave 7, D7 `bays`: the stock Mallard staged in place on the Runway, its three Mk3 cargo bays cycled, committed, Rewound-to-Launch and replayed as a Space Center ghost); operator tier is the calibration discipline for a new lane (reading 1 `2026-09-25_2214` red on the filed deploy-limit gap, reading 2 `_2218` PASS, armed `_2230` PASS, negative controls offline; the stock 44/45/51 deploy limits restored 2026-09-27 with the fix, per-bay limit tokens read PASS on `2026-09-27_1029`), and its status row records what has flown, not a debt",

@@ -1013,6 +1013,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # carries the same node.
         "career-gs1-leadership-pad": True,
         "gs2-orbital-stack": True,
+        # mun-escape-probe-stack is gs2-orbital-stack with the Kerbal X stack moved onto a
+        # Mun escape hyperbola (harness/tools/build_mun_escape_probe_stack.py), so it
+        # carries gs2's inert node.
+        "mun-escape-probe-stack": True,
         # The LABX-1 harvest (`2026-10-17_1957`, situation gate ORBITING): the LABX
         # Orbital Lab parked in LKO, SANDBOX, with the forge base's inert node (two
         # dead MILESTONE_STATE rows, the eva2 / gs2 shape) and zero recording state.
