@@ -20,6 +20,200 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
+
+Cause: `RecordingEndpointResolver.TryGetCoordinatesForPhase`'s `TrajectoryPoint` phase took the last
+flat `Recording.Points` entry's latitude / longitude / altitude as body-fixed coordinates. Inside a
+Relative section those fields hold anchor-local metres, so an EVA kerbal or controlled child that
+ended near its anchor with no terminal position resolved to a point far below the surface, against
+the CLAUDE.md flat-points rule (draft review L2). Callers: the end-of-recording spawn
+(`VesselSpawner.EndOfRecording` / `.Validation`) and `VesselGhoster`.
+
+Fix: the last point goes through `FlatPointFrameDispatch.Classify` against the recording's track
+sections: a body-fixed point reads as before, a Relative offset reads its section's body-fixed
+shadow, and a Relative offset with no shadow refuses the coordinates (logged on `EndpointDecision`)
+so the caller falls back instead of placing from metres.
+
+Tests: `RecordingEndingTests.EndpointCoordinates_RelativeLastPointWithShadow_ReadsTheShadow` and
+`EndpointCoordinates_RelativeLastPointWithoutShadow_Refuses` (both red before the fix),
+`EndpointCoordinates_AbsoluteLastPoint_Unchanged`.
+
+## ~~TERMINAL-DESTROYED-PAYLOAD-DIVERGES~~: the destroyed paths stored different terminal-orbit data [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `TerminalEventTests`; low]
+
+Cause: `ParsekFlight.ApplyTerminalDestruction` (the background `DeferredDestructionCheck` fallback
+when no finalization cache applies) stamped Destroyed and copied the captured orbit and surface
+position onto the recording, and left `VesselDestroyed` unset, while
+`Recording.MarkDestroyedAtTerminal` (identity loss) and the finalization-cache applier
+(`RecordingFinalizationCacheApplier.ApplyTerminalMetadata`, a Destroyed cache) both write no
+terminal orbit and no terminal position (draft review L3). The same ending had two payloads.
+
+Fix: `ApplyTerminalDestruction` seals through `MarkDestroyedAtTerminal` at the captured UT (logged
+with what was dropped). The phantom-terrain-crash and Disassembled branches still attach the
+captured data (their endings are not Destroyed). Remaining difference, deliberately kept: the
+commit-time `MarkMissingVesselDestroyed` (a leaf whose vessel is gone at a commit) still fills the
+terminal orbit from the last orbit segment (#219, chain ghosts of orbital debris).
+
+Tests: `TerminalEventTests.ApplyTerminalDestruction_WithOrbitalData_KeepsNoTerminalOrbit`,
+`ApplyTerminalDestruction_WithSurfaceData_KeepsNoTerminalPosition` and
+`ApplyTerminalDestruction_OverwritesExistingData` (expectations changed: the old ones pinned the
+divergence; red before the fix).
+
+## ~~BREAKUP-REMNANT-ENDING-DEPENDS-ON-DISTANCE~~: breakup remnants got different endings depending on distance [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `EffectiveLeafFinalizationTests`; medium (a wreck could respawn at the end of its replay)]
+
+Cause: the identity-loss override (`IdentityLossClassifier.IsRecordedIdentityLost`: a remnant that
+kept none of the recorded controller parts and is not trackable on its own is a wreck, whatever
+situation KSP gives it) ran only in `BackgroundRecorder.OnBackgroundVesselGoOnRails`, so only a
+remnant that went on rails (far from the focus) was sealed Destroyed. The same remnant still loaded
+at the commit, or flown as the active vessel, took its live situation (KSP sets LANDED from terrain
+proximity) in `FinalizeIndividualRecording` and could spawn back as a wreck (draft review M8).
+
+Fix: `ParsekFlight.StampTerminalStateFromLiveVessel` (the finalization branch every live leaf goes
+through: the loaded background remnant and the active vessel, scene exit or commit) asks the same
+classifier first, through a new `FinalizationLiveVesselAccess.IsRecordedIdentityLost` seam (default
+`IsRecordedIdentityLostAtFinalization`, which short-circuits debris and recordings with no recorded
+controllers before any live read), and on a positive verdict seals the recording with
+`Recording.MarkDestroyedAtTerminal` at its current end, logged
+(`recorded controllable identity lost for ...`). All three paths now give the same ending.
+
+Tests: `EffectiveLeafFinalizationTests.FinalizeIndividualRecording_LiveRemnantLostItsControllers_IsDestroyed`
+(commit and scene exit, both red before the fix),
+`FinalizeIndividualRecording_LiveRemnantKeptItsControllers_TakesItsSituation`,
+`IsRecordedIdentityLostAtFinalization_NoControllersOrDebris_IsFalseWithoutALiveRead`.
+
+## ~~CRASH-HANDOFF-LOSES-DESTROYED~~: a crash where KSP moved control to a surviving piece lost the destroyed ending [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `EffectiveLeafFinalizationTests`; medium (a crashed craft respawned intact at its end)]
+
+Cause: `FlightRecorder.VesselDestroyedDuringRecording` reached the recording only on two paths: the
+vessel-switch stop's capture (`HandleVesselSwitchDuringRecording` step 4) and the commit's
+active-recorder destruction override (`FinalizeTreeRecordings` names `tree.ActiveRecordingId`).
+When the craft died and KSP handed control to a surviving piece of the same tree, the recorder went
+through `TransitionToBackground` and `HandleTreeBackgroundFlush`, which flushed it into the tree,
+added the dead craft to the BackgroundMap and dropped the recorder with the flag. At commit the
+crashed recording was a plain background leaf: a scene exit inferred its ending from the last point
+(Landed at the impact), and the background commit moved its end to the commit UT (draft review M1).
+
+Fix: `FlushRecorderToTreeRecording` (every flush path) calls
+`ParsekFlight.PropagateRecorderDestructionToTreeRecording`, which sets `Recording.VesselDestroyed`
+on the tree recording (logged); `FinalizeTreeRecordingsAfterFlush` treats a leaf whose
+`VesselDestroyed` is set (and whose ending `CanOverwriteTerminalState` allows) like the active
+recorder's destroyed leaf (`ApplyDestroyedFallback`), and `BackgroundRecorder.FinalizeAllForCommit`
+already leaves a destroyed recording's end alone. The terminal stamp stays with finalization, as for
+the active recorder, so the finalization cache is consulted in the same order.
+A recording the flight resumes clears the flag again: the quickload resume
+(`IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume`, called by
+`RestoreActiveTreeFromPending`) always, because the Limbo stash on F9 flushes the recorder into the
+same Recording object the resume continues; promotion from the background and a resumed committed
+recording through `ParsekFlight.ClearFlushedDestructionFlagForResume`, only while no Destroyed
+terminal is sealed. Each clear is logged.
+
+Tests: `EffectiveLeafFinalizationTests.FinalizeTreeRecordingsAfterFlush_CrashedRecordingFlushedToBackground_SceneExitIsDestroyed`
+(red before the fix), `..._IsDestroyed`, `PropagateRecorderDestruction_NotDestroyedOrAlreadyMarked_DoesNothing`,
+`LimboFlushThenResume_LandedVessel_IsNotStampedDestroyed` (the resume regression, red before the clear),
+`ClearFlushedDestructionFlagForResume_ClearsOnlyTheUnsealedFlag`.
+
+## ~~NEWER-ENDING-ERASED-BY-OLDER-BUILD~~: an ending a newer build wrote was erased on save and the tail trim then cut the trajectory [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; high (permanent data loss on a save opened in an older build)]
+
+Cause: `RecordingTreeRecordCodec.LoadRecordingFrom` read a `terminalState` number this build does
+not define (a newer build's new ending kind, the way `Disassembled` once was) as null, and the
+writer writes nothing for null, so the ending was gone for good after the next save. With a null
+ending, `RecordingOptimizer.TailPreservesTerminalSpawnStateInternal` allows the boring-tail trim,
+which then cut trajectory data its own doc comment says must be preserved for an unclassified
+ending (draft review H6). Against the save-format policy ("newer data held verbatim, written back").
+
+Fix: the codec holds the undefined number in `TerminalStateValue` as is (one `Codec` Warn) and the
+writer writes it back unchanged. No new key, no format bump. Every consumer reads an undefined value
+as a final, non-spawnable ending: `GhostPlaybackLogic.IsSpawnableTerminal`'s default refuses the
+end spawn and the tail trim (`unstable-terminal`, so `RecordingOptimizer*.cs` is unchanged and
+`TailPreservesTerminalSpawnState_NullTerminal_AllowsTrim` keeps its expectation: a truly null
+ending still trims), and `ParsekScenario.CanOverwriteTerminalState` refuses to overwrite it. Audited
+for unsafe uses of an undefined value: no array is indexed by a terminal state, no switch throws on
+its default, and the one `Dictionary<TerminalState, int>` (the prune breakdown) only skips it.
+`design-save-format-policy.md` section 4 and the CLAUDE.md save-format paragraph updated.
+
+Tests: `RecordingEndingTests.Codec_UnknownTerminalState_IsHeldAndWrittenBackVerbatim` and
+`TailTrim_UnknownTerminalState_RefusesTrim` (both red before the fix),
+`Codec_KnownTerminalState_LoadsWithoutWarning`, `CanOverwriteTerminalState_UnknownEndingIsFinal`.
+
+## ~~DOCKED-ENDING-OVERWRITTEN-BY-RECOVERY~~: a Docked / Boarded ending could be overwritten by a later recovery [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low]
+
+Cause: `ParsekScenario.CanOverwriteTerminalState` treated Docked and Boarded like the situation
+endings (Landed, Orbiting...), so a recovery or destruction event that matched the recording (the
+name fallback when a launch guid is unknown, or the absorbed craft's baked pid) could stamp a dock
+or a boarding as Recovered / Destroyed, drop its snapshot and pair recovery funds with it at commit
+(draft review L10). Both endings mean the vessel merged into another one; what is recovered later
+is that other vessel.
+
+Fix: Docked and Boarded are final, like Recovered, Destroyed and Disassembled; a refused overwrite
+is logged (`CanOverwriteTerminalState: refused existing=...`). The pending-tree stamp
+(`UpdateRecordingsForTerminalEvent`) and the in-flight Recover path (`InFlightRecoveryRequest`)
+both read this predicate.
+
+Tests: `RecordingEndingTests.CanOverwriteTerminalState_MergedEndingIsFinal` (red before the fix),
+`CanOverwriteTerminalState_SituationEndingStillYields`.
+
+## ~~DEBRIS-END-LEAVES-ENGINES-LIT~~: a debris recording ended by its TTL kept its engines lit [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `BackgroundRecorderTests`; low]
+
+Cause: `BackgroundRecorder.EndDebrisRecording` (debris TTL, parent closed, parent on rails, vessel
+gone) closed the recording through `OnVesselRemovedFromBackground`, which drops the loaded state
+that tracks running engines, RCS and robotics without emitting their terminal events. Every other
+recording end (rails transition, commit, active stops) emits them (draft review L9).
+
+Fix: `EndDebrisRecording` calls `EmitDebrisEndTerminalEvents` before the removal: the terminal
+events at the end UT from the loaded state, logged with their count. A recording already sealed as
+destroyed is left alone (`reason=destroyed-sealed`, as `FinalizeAllForCommit` does), and on-rails
+debris has no tracking state (its rails transition emitted them). The finalization-cache refresh
+in `EndDebrisRecording` is unchanged.
+
+Tests: `BackgroundRecorderTests.CheckDebrisTTL_EnginesStillBurning_EmitsTerminalShutdownsAtTheEndUT`
+and `CheckDebrisTTL_DestroyedSealedDebris_EmitsNoTerminalEvents` (both red before the fix).
+
+## ~~STOP-TAKES-NO-FINAL-SAMPLE~~: a physics-mode stop ended the recording at the last adaptive sample [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecorderStopEndingTests`; low (the real data ended up to 1-8 s before the stop)]
+
+Cause: the active recorder's stops (`StopRecording`, `ForceStop`) sampled a boundary point only when
+on rails (and then from the ACTIVE vessel, which can already be another one), the background
+commit (`BackgroundRecorder.FinalizeAllForCommit`) and the background destroy
+(`OnBackgroundVesselWillDestroy`) took none. The adaptive sampler can be seconds behind, so the
+recording ended short of where the vessel was (draft review L1).
+
+Fix: `FinalizeRecordingState` takes a final sample at the stop UT from the RECORDED vessel
+(`RecordingVesselId`, never the active one), before the open section closes, gated by the pure
+`FlightRecorder.DecideFinalPhysicsSample` (skip reasons `recorded-vessel-not-found`,
+`vessel-destroyed`, `vessel-unloaded`, `vessel-packed`, `already-sampled-at-stop`, each logged).
+`StopRecording` and `ForceStop` sample; a chain-boundary stop does not (the dock / undock / split
+has already moved the vessel, the next leg seeds that boundary); the scene teardown
+(`ParsekFlight.OnDestroy`) and the two discard paths in `ParsekFlightMergeFlow` pass
+`sampleFinalPoint: false`. The on-rails boundary sample reads the recorded vessel at the stop UT.
+The background commit and destroy paths append the same final sample through
+`BackgroundRecorder.SampleBackgroundEndPoint` (loaded, unpacked vessels only) and normalize a
+parent-anchored Relative tail after it, as the on-rails flush does. The commit-path call sits in
+`FinalizeAllForCommit` after the flush and changes nothing `ResolveBackgroundEndTerminalUT` /
+`ScopeFinalizationCacheToBackgroundEnd` read.
+
+Tests: `RecorderStopEndingTests.DecideFinalPhysicsSample_TruthTable`,
+`DecideFinalPhysicsSample_LastSampleAtOrPastStop_Skips`,
+`ForceStop_RecordedVesselGone_LogsTheSkippedFinalSample` (red before the fix),
+`ForceStop_SampleNotRequested_TakesNoSample`. A live vessel cannot be built headless, so the
+sampled branch is proven only by a lane.
+
+## ~~FORCESTOP-LEAVES-ENGINES-LIT~~: leaving the scene mid-burn left the ghost's engines lit [FIXED 2026-11-18, branch `wp3-recording-ends`; xUnit `RecorderStopEndingTests`; no lane gates it yet; medium (a replay with a plume burning to its end)]
+
+Cause: the scene exit and every tree commit stop the active recorder with `FlightRecorder.ForceStop`,
+which ran `FinalizeRecordingState(emitTerminalEvents: false)`, so an engine, RCS thruster or robotic
+part still running at that moment had no closing event. The background half of the same commit
+(`BackgroundRecorder.FinalizeAllForCommit`) did emit them, and done todo #108 promised a shutdown at
+every recording boundary.
+
+Fix: `ForceStop` emits the terminal EngineShutdown / RCSStopped / RoboticMotionStopped /
+EvaJetpackThrustStopped events at the stop UT. They come from the recorder's own tracking sets, so
+no live vessel is read. Every caller checked for double emission: `ForceStop` runs only while
+`IsRecording`, a backgrounded recorder is stopped by `IsRecording = false` (its vessel's background
+state emits), and no stop runs after a ForceStop on the same recorder. The discard callers drop the
+data, so the events there are harmless. `FinalizeRecordingState` now reads its UT once through
+`ReadStopUT` (test seam `StopUTProviderForTesting`), so the stop runs headless (the recorded vessel
+is read through `FindVesselByPid`, see STOP-TAKES-NO-FINAL-SAMPLE).
+
+Tests: `RecorderStopEndingTests.ForceStop_EnginesStillBurning_EmitsTerminalShutdownsAtTheStopUT`
+(red before the fix), `ForceStop_NothingRunning_EmitsNothing`.
+
 ## ~~SPLIT-WINDOW-DROPPED-ON-RECORDER-START~~: staging then undocking / EVA / docking within half a second lost the booster [FILED 2026-11-18 by the recording split / trim / merge review (draft H1), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit + a mutation-checked source gate; no lane flies the shape yet; high (a vessel with no recording, no ghost and no rewind point; the real booster stays untracked)]
 
 Cause. Separations are collected by the crash coalescer for 0.5 s before they become one branch

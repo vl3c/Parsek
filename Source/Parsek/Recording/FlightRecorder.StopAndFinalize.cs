@@ -130,26 +130,64 @@ namespace Parsek
         /// to preserve current behavior — it did not have RELATIVE cleanup before extraction).</param>
         /// <param name="sampleBoundaryOnRails">True to sample a boundary point if on rails at stop time.</param>
         /// <param name="logTag">Tag for the RELATIVE mode cleared log message.</param>
+        /// <param name="recordedVessel">The live vessel this recorder records
+        /// (<see cref="RecordingVesselId"/>), or null. The only vessel a final sample is taken
+        /// from: the active vessel can already be another one.</param>
+        /// <param name="sampleFinalPhysicsPoint">True to take a final sample at the stop UT when
+        /// the recorder is in physics mode (see <see cref="DecideFinalPhysicsSample"/>).</param>
         private void FinalizeRecordingState(bool emitTerminalEvents, bool clearRelativeMode,
-            bool sampleBoundaryOnRails, string logTag)
+            bool sampleBoundaryOnRails, string logTag,
+            Vessel recordedVessel = null, bool sampleFinalPhysicsPoint = false)
         {
+            double stopUT = ReadStopUT();
+
             // Finalize in-progress orbit segment
             if (isOnRails)
             {
-                currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+                currentOrbitSegment.endUT = stopUT;
                 OrbitSegments.Add(currentOrbitSegment);
                 AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
                 isOnRails = false;
 
                 if (sampleBoundaryOnRails)
                 {
-                    Vessel v = FlightGlobals.ActiveVessel;
-                    if (v != null) SamplePosition(v);
+                    if (recordedVessel != null)
+                        SamplePositionAtUT(recordedVessel, stopUT);
+                    else
+                        ParsekLog.Verbose("Recorder",
+                            $"FinalizeRecordingState ({logTag}): on-rails boundary sample skipped " +
+                            $"(recorded vessel pid={RecordingVesselId} not found)");
+                }
+            }
+            else if (sampleFinalPhysicsPoint)
+            {
+                // The last adaptive sample can be seconds old; without this the recording ends
+                // short of where the vessel was at the stop. Taken before the section closes so
+                // it lands in the open section (Relative-aware through the normal commit path).
+                string skipReason = DecideFinalPhysicsSample(
+                    hasVessel: recordedVessel != null,
+                    destroyed: VesselDestroyedDuringRecording,
+                    loaded: recordedVessel != null && recordedVessel.loaded,
+                    packed: recordedVessel != null && recordedVessel.packed,
+                    lastSampleUT: Recording.Count > 0 ? Recording[Recording.Count - 1].ut : double.NaN,
+                    stopUT: stopUT);
+                if (skipReason == null)
+                {
+                    SamplePositionAtUT(recordedVessel, stopUT);
+                    ParsekLog.Verbose("Recorder",
+                        $"FinalizeRecordingState ({logTag}): final physics sample taken at " +
+                        $"UT={stopUT.ToString("F2", CultureInfo.InvariantCulture)} pid={RecordingVesselId}");
+                }
+                else
+                {
+                    ParsekLog.Verbose("Recorder",
+                        $"FinalizeRecordingState ({logTag}): final physics sample skipped " +
+                        $"reason={skipReason} pid={RecordingVesselId}");
                 }
             }
 
             // Close final TrackSection
-            CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+            CloseCurrentTrackSection(stopUT);
 
             // Clear RELATIVE mode state
             if (clearRelativeMode)
@@ -177,22 +215,30 @@ namespace Parsek
                 DiagnosticsState.hasActiveGrowthRate = false;
             }
 
-            // Optionally emit terminal shutdown events for engines/RCS/robotics still active (bug #108)
+            // Optionally emit terminal shutdown events for engines/RCS/robotics still active (bug #108).
+            // Read from the recorder's own tracking sets, so no live vessel is needed: this is
+            // why the forced stop (scene exit, every tree commit) can emit them too.
             if (emitTerminalEvents)
             {
-                double terminalUT = Planetarium.GetUniversalTime();
                 var terminalEvts = EmitTerminalEngineAndRcsEvents(
                     activeEngineKeys, activeRcsKeys, activeRoboticKeys,
-                    lastRoboticPosition, terminalUT, "Recorder", thrustingJetpackParts);
+                    lastRoboticPosition, stopUT, "Recorder", thrustingJetpackParts);
                 PartEvents.AddRange(terminalEvts);
                 // Save the exact terminal events so ResumeAfterFalseAlarm can remove them
                 // by content-match (#287). Index-based RemoveRange is brittle across unstable
                 // sort paths and any code path that appends events between stop and resume.
                 lastEmittedTerminalEvents = terminalEvts;
+                ParsekLog.Verbose("Recorder",
+                    $"FinalizeRecordingState ({logTag}): emitted {terminalEvts.Count} terminal event(s) " +
+                    $"at UT={stopUT.ToString("F2", CultureInfo.InvariantCulture)} pid={RecordingVesselId}");
             }
             else
             {
                 lastEmittedTerminalEvents = null;
+                ParsekLog.Verbose("Recorder",
+                    $"FinalizeRecordingState ({logTag}): terminal events not emitted " +
+                    $"(engines={activeEngineKeys?.Count ?? 0} rcs={activeRcsKeys?.Count ?? 0} " +
+                    $"robotics={activeRoboticKeys?.Count ?? 0}) pid={RecordingVesselId}");
             }
 
             // Sort part/flag events chronologically with STABLE semantics so same-UT
@@ -207,6 +253,56 @@ namespace Parsek
             var sortedFlags = StableSortByUT(FlagEvents, e => e.ut);
             FlagEvents.Clear();
             FlagEvents.AddRange(sortedFlags);
+        }
+
+        /// <summary>
+        /// Pure gate for the final physics-mode sample a stop takes from the recorded vessel.
+        /// Returns null to sample, or the skip reason: no recorded vessel (gone, or the stop has
+        /// none to read), destroyed (<see cref="OnVesselWillDestroy"/> already took the impact
+        /// sample and the object is dying), unloaded or packed (no physics pose to read), or
+        /// already sampled (the last sample is at or past the stop UT, so a new one adds nothing).
+        /// </summary>
+        internal static string DecideFinalPhysicsSample(
+            bool hasVessel, bool destroyed, bool loaded, bool packed,
+            double lastSampleUT = double.NaN, double stopUT = double.NaN)
+        {
+            if (!hasVessel) return "recorded-vessel-not-found";
+            if (destroyed) return "vessel-destroyed";
+            if (!loaded) return "vessel-unloaded";
+            if (packed) return "vessel-packed";
+            if (!double.IsNaN(lastSampleUT) && !double.IsNaN(stopUT) && lastSampleUT >= stopUT)
+                return "already-sampled-at-stop";
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves the live vessel this recorder records (<see cref="RecordingVesselId"/>), or
+        /// null. A stop samples only this vessel: the active vessel can already be another one.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private Vessel ResolveRecordedVesselForStop(string logTag)
+        {
+            Vessel recordedVessel = RecordingVesselId != 0 ? FindVesselByPid(RecordingVesselId) : null;
+            ParsekLog.Verbose("Recorder",
+                $"{logTag}: recorded vessel pid={RecordingVesselId} found={(recordedVessel != null)}");
+            return recordedVessel;
+        }
+
+        /// <summary>
+        /// Test seam for the stop UT <see cref="FinalizeRecordingState"/> reads once and uses for
+        /// the orbit segment end, the section close and the terminal events. Null in every
+        /// player build.
+        /// </summary>
+        internal static Func<double> StopUTProviderForTesting;
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadStopUT()
+        {
+            if (StopUTProviderForTesting != null)
+                return StopUTProviderForTesting();
+            return Planetarium.GetUniversalTime();
         }
 
         /// <summary>
@@ -385,11 +481,14 @@ namespace Parsek
 
         public void StopRecording()
         {
+            Vessel recordedVessel = ResolveRecordedVesselForStop("StopRecording");
             FinalizeRecordingState(
                 emitTerminalEvents: true,
                 clearRelativeMode: true,
                 sampleBoundaryOnRails: true,
-                logTag: "recording stop");
+                logTag: "recording stop",
+                recordedVessel: recordedVessel,
+                sampleFinalPhysicsPoint: true);
 
             // Capture persistence artifacts at stop-time so later scene changes
             // don't depend on whatever vessel is currently active.
@@ -417,11 +516,16 @@ namespace Parsek
             // FinalizeRecordingState stashes the exact terminal events it emits in
             // lastEmittedTerminalEvents; ResumeAfterFalseAlarm uses that list to remove
             // them by content-match if this stop turns out to be a false alarm (#287).
+            // No final physics sample here: a chain boundary stops after the dock, undock or
+            // split already changed the vessel (its centre of mass moved), so a sample now would
+            // put the end of this leg where the new vessel is; the next leg seeds that boundary.
+            Vessel recordedVessel = ResolveRecordedVesselForStop("StopRecordingForChainBoundary");
             FinalizeRecordingState(
                 emitTerminalEvents: true,
                 clearRelativeMode: true,
                 sampleBoundaryOnRails: true,
-                logTag: "chain boundary stop");
+                logTag: "chain boundary stop",
+                recordedVessel: recordedVessel);
 
             CaptureAtStop = BuildCaptureRecording(
                 FlightGlobals.ActiveVessel != null

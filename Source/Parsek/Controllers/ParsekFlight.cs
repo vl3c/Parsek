@@ -1585,7 +1585,8 @@ namespace Parsek
             if (IsRecording)
             {
                 ParsekLog.Info("Flight", "OnDestroy: force-stopping active recording");
-                recorder.ForceStop();
+                // Scene teardown: the vessel may already be half destroyed, so no final sample.
+                recorder.ForceStop(sampleFinalPoint: false);
             }
             PlaybackHost.StopPlayback();
             watchMode.ExitWatchMode();

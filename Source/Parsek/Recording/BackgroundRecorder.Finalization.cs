@@ -138,6 +138,9 @@ namespace Parsek
                 if (tree.Recordings.TryGetValue(state.recordingId, out flushRec))
                 {
                     FlushTrackSectionsToRecording(state, flushRec);
+                    // A loaded vessel's last adaptive sample can be seconds old at the commit.
+                    // closeUT is commitUT whenever the vessel is live (ResolveBackgroundCommitTrackCloseUT).
+                    SampleBackgroundEndPoint(v, flushRec, closeUT, "background_commit_loaded");
 
                     var terminalEvents = FlightRecorder.EmitTerminalEngineAndRcsEvents(
                         state.activeEngineKeys, state.activeRcsKeys, state.activeRoboticKeys,
