@@ -208,8 +208,8 @@ no live vessel is read. Every caller checked for double emission: `ForceStop` ru
 `IsRecording`, a backgrounded recorder is stopped by `IsRecording = false` (its vessel's background
 state emits), and no stop runs after a ForceStop on the same recorder. The discard callers drop the
 data, so the events there are harmless. `FinalizeRecordingState` now reads its UT once through
-`ReadStopUT` (test seam `StopUTProviderForTesting`) and the active vessel through a NoInlining
-wrapper, so the stop runs headless.
+`ReadStopUT` (test seam `StopUTProviderForTesting`), so the stop runs headless (the recorded vessel
+is read through `FindVesselByPid`, see STOP-TAKES-NO-FINAL-SAMPLE).
 
 Tests: `RecorderStopEndingTests.ForceStop_EnginesStillBurning_EmitsTerminalShutdownsAtTheStopUT`
 (red before the fix), `ForceStop_NothingRunning_EmitsNothing`.

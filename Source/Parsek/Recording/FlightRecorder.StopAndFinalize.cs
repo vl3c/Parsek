@@ -305,23 +305,6 @@ namespace Parsek
             return Planetarium.GetUniversalTime();
         }
 
-        // FlightGlobals' static initializer fails headless (mono runs it at JIT of the CALLING
-        // method), so the stop path reads the active vessel only through this wrapper.
-        [System.Runtime.CompilerServices.MethodImpl(
-            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static Vessel TryGetFlightGlobalsActiveVessel()
-        {
-            try { return ReadFlightGlobalsActiveVesselCore(); }
-            catch (TypeInitializationException) { return null; }
-        }
-
-        [System.Runtime.CompilerServices.MethodImpl(
-            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static Vessel ReadFlightGlobalsActiveVesselCore()
-        {
-            return FlightGlobals.ActiveVessel;
-        }
-
         /// <summary>
         /// Sorts <see cref="PartEvents"/> by UT with stable semantics (equal-UT events
         /// keep their insertion order). Uses LINQ <c>OrderBy</c> which is documented as
