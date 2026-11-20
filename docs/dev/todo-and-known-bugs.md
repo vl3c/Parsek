@@ -733,6 +733,42 @@ for it, with the gap doc's "Timeline Warp to time button" item.
 
 Owed: the first flight of each lane (key tokens in each spec header), then the tier call.
 
+## TIMELINE-WARP-TO-TIME-LANES-OWED-FLIGHT: the Timeline "Warp to time" button now has a seam form and two lanes, neither flown [FILED 2026-11-20 from the test-gaps doc 2026-11-18 Batch 3 ("nothing ever presses it"), branch `test-gaps-b3-warp-button`; seam form + xUnit + two lanes AUTHORED; NO defect found by code reading; OPEN: the two first flights]
+
+Nothing pressed the Timeline window's "Warp to time" button, including its warp to Year 1 Day 1
+(the career-start reset through `RewindLauncher.InitiateRewindToCareerStart`). Added:
+
+- Seam form `UiAction op=warp window=timeline year= day= hour= minute= confirm=warp|cancel`
+  (`ParsekTestCommandAddon.UiWarp.cs`, pure `TestCommandUiWarpTime`). It commits the four boxes,
+  resolves the button state through the draw's own resolver
+  (`TimelineWindowUI.ResolveWarpToTimeButtonState`, extracted from `DrawWarpRow`), refuses a greyed
+  button (`warp-button-disabled`), runs the drawn button's own click body
+  (`ExecuteWarpToTimeClick`), then answers the `ParsekWarpToTimeConfirm` dialog through the chosen
+  button's own `OptionSelected`. The post-confirm verdict (`DecideConfirmOutcome`) reds a rewind that
+  did not launch, a forward jump that did not reach its target, or a flight warp not deferred.
+  xUnit `TestCommandUiWarpTimeTests`; harness mirror `hlib.UIWARP_*` / `UIACTION_WARP_WINDOWS`
+  (`GuiCensusSeamVerbTests`).
+- `WTT-1-timeline-warp-across-committed-rows` (stock-tree, `cs-career-mun4`): RW-18's host and rows
+  cut to two; press 1 back to Y1 D9 3:37 (rewinds onto the recorded Flea's launch, the consumer jumps
+  to 185820, nothing crossed), press 2 forward to Y1 D9 3:41 (one jump crosses the recovery, the
+  Runway upgrade and the accept; pools equal R2's; the recovered Flea is not spawned again);
+  LedgerGroundTruth.
+- `WTT-2-timeline-warp-to-career-start` (stock-tree, `cs-career-new`): the first Space Center
+  arrival captures `parsek_career_start`; an accept and a committed pad Flea; press 1 to Y1 D1 0:00
+  resolves `CareerStart`, `Warp-to-game-start` carries the rewind points and staged lists and
+  reloads the snapshot at UT ~0.4, the consumer jumps nowhere; press 2 forward to 900 crosses every
+  row in one jump and the pools equal the career's before the reset; LedgerGroundTruth.
+
+Owed: the first flight of each, then pin the LedgerGroundTruth split whole and the recording count
+of WTT-2 exactly. Both assume the Kerbin calendar (`KERBIN_TIME = True`, as on the stock-tree
+install): the date-to-UT tokens (`targetUT=185820.0`, `186060.0`, `900.0`) are Kerbin-day values.
+Pre-registered readings for a red first flight: `uiaction rejected reason=warp-button-disabled`
+(the plan resolved AtTarget / Unreachable or a warp was already pending: read the `disabledReason`
+and the `RequestWarp` line); `warp-confirm-not-shown` (the confirm popup was not found synchronously
+after the click); WTT-1's forbidden early crossing (the consumer's jump to 185820 reached a row:
+read the `Clock-crossing` labels); WTT-2's capture pin (no `Captured career-start snapshot` means
+the LoadGame did not raise a Space Center `onLevelWasLoaded` on the fresh career).
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the

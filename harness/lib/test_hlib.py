@@ -10967,6 +10967,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RW-13-tech-research-across-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's tech research lane on `cs-career-mun2` (CS-5's produced save, stock-tree, not in the nightly instance set; mun4 cannot afford a node): a Jumping Flea recorded on the pad, committed and recovered, advRocketry researched with 45 science at the Space Center, a Rewind-to-Launch to before the research, the second research refused as committed future, and the crossing that unlocks it with the science spent once; LIVE-PROVEN 2026-10-28 (`2026-10-28_2114`); owed: the ordinary promotion call",
         "RW-21-earlier-science.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea recovers its pad crew report, a Rewind-to-Launch onto it, a second Flea recovers the same report first, and the walk gives the earlier recovery the full value and the committed one the remainder. LIVE-PROVEN 2026-10-31 (`2026-10-31_0318`); owed: the ordinary promotion call",
         "RW-19-tight-funds-launch.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, three accepts and a VAB upgrade above the funds held, a Rewind-to-Launch before them, the Mun Lander's Launch button greyed for its own cost, the cheaper Flea launched, and the committed upgrade paid in full at the crossing. LIVE-PROVEN 2026-10-31 (`2026-10-31_0248`); owed: the ordinary promotion call",
+        "WTT-1-timeline-warp-across-committed-rows.toml": "tier=operator by the calibration discipline, NOT debt: the Timeline Warp to time button's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): RW-18's rows, a press back to the Flea's launch and a press forward across the rows in one jump. AUTHORED 2026-11-20, NEVER FLOWN (todo TIMELINE-WARP-TO-TIME-LANES-OWED-FLIGHT); owed: the first flight, then the ordinary promotion call",
+        "WTT-2-timeline-warp-to-career-start.toml": "tier=operator by the calibration discipline, NOT debt: the Timeline Warp to time button's career-start reset on `cs-career-new` (stock-tree, not in the nightly instance set): the snapshot captured on the first Space Center arrival, a press to Y1 D1 0:00 and a press forward across the committed rows. AUTHORED 2026-11-20, NEVER FLOWN (todo TIMELINE-WARP-TO-TIME-LANES-OWED-FLIGHT); owed: the first flight, then the ordinary promotion call",
         "RW-18-ksc-warp-across-committed-future.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a Runway upgrade and three contract accepts at the Space Center, a Rewind-to-Launch before them, and a warp at the Space Center in three stops, each reading the pools the career held at that row. LIVE-PROVEN 2026-10-31 (`2026-10-31_0232`); owed: the ordinary promotion call",
         "RW-17-contract-completed-earlier.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun1` (stock-tree, not in the nightly instance set): a committed pad flight completes a part test contract, a Rewind-to-Launch onto it, a second flight completes it before that row, and the walk pays the completion once at the earlier UT. LIVE-PROVEN 2026-10-31 (`2026-10-31_0227`); owed: the ordinary promotion call",
         "RW-16-transmit-then-recover-earlier.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Flea Antenna hop transmits its pad crew report, a Rewind-to-Launch onto it, a second Flea recovers the same report before the transmission, and the walk gives the recovery the full value and the transmission the remainder. LIVE-PROVEN 2026-10-31 (`2026-10-31_0217`); owed: the ordinary promotion call",
@@ -20250,8 +20252,8 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
             text = fh.read()
         self.assertIn('WarpOpToken = "warp"', text)
         self.assertIn('WarpUnsupportedWindowReason = "warp-unsupported-window"', text)
-        self.assertIn("=> window == SpawnControlWindow;", text)
-        self.assertEqual(("spawncontrol",), hlib.UIACTION_WARP_WINDOWS)
+        self.assertIn("=> window == SpawnControlWindow || window == TimelineWindow;", text)
+        self.assertEqual(("spawncontrol", "timeline"), hlib.UIACTION_WARP_WINDOWS)
         ui_path = os.path.join(PARSEK_SOURCE_DIR, "UI", "SpawnControlUI.cs")
         with open(ui_path, encoding="utf-8-sig") as fh:
             ui_text = fh.read()
@@ -20268,6 +20270,57 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         errors = hlib.validate_ui_action_step(
             3, {"op": "warp", "window": "spawncontrol", "tab": "missions"})
         self.assertTrue(any("only op=tab reads it" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            4, {"op": "warp", "window": "spawncontrol", "day": "3"})
+        self.assertTrue(any("warp-arg-unsupported" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            5, {"op": "open", "window": "timeline", "confirm": "warp"})
+        self.assertTrue(any("only op=warp window=timeline reads it" in e for e in errors),
+                        errors)
+
+    # ---- op=warp window=timeline: the "Warp to time" button ----
+
+    def test_the_timeline_warp_vocabulary_mirrors_the_c_sharp(self):
+        """Reads OUTSIDE harness/. The four date keys, the confirm key and its two tokens,
+        and every refusal reason of TestCommandUiWarpTime, read off its const declarations
+        as SETS (comment-stripped): a key or token renamed on one side alone validates here
+        and is a typed REJECTED after a whole KSP boot."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiWarpTime.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# timeline warp half moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = "\n".join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+        consts = dict(re.findall(r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', text))
+        self.assertEqual(hlib.UIWARP_DATE_KEYS,
+                         tuple(consts[k] for k in ("YearArg", "DayArg", "HourArg", "MinuteArg")))
+        self.assertEqual(hlib.UIWARP_CONFIRM_KEY, consts["ConfirmArg"])
+        self.assertEqual(hlib.UIWARP_CONFIRM_VALUES,
+                         (consts["ConfirmWarpToken"], consts["ConfirmCancelToken"]))
+        reasons = {v for k, v in consts.items() if k.endswith("Reason")}
+        self.assertEqual({"warp-date-arg-missing", "warp-date-arg-invalid",
+                          "warp-confirm-arg-missing", "warp-confirm-arg-invalid",
+                          "warp-arg-unsupported", "warp-confirm-not-shown",
+                          "warp-confirm-button-missing", "warp-rewind-not-launched",
+                          "warp-forward-not-applied", "warp-not-deferred"}, reasons)
+        ui_path = os.path.join(PARSEK_SOURCE_DIR, "UI", "TimelineWindowUI.cs")
+        with open(ui_path, encoding="utf-8-sig") as fh:
+            self.assertIn('WarpToTimeRefusalButtonDisabled = "warp-button-disabled"', fh.read())
+
+    def test_timeline_warp_requires_the_date_and_the_confirm(self):
+        ok = {"op": "warp", "window": "timeline", "year": "1", "day": "9",
+              "hour": "3", "minute": "41", "confirm": "warp"}
+        self.assertEqual([], hlib.validate_ui_action_step(0, ok))
+        self.assertEqual([], hlib.validate_ui_action_step(1, dict(ok, confirm="cancel")))
+        no_minute = {k: v for k, v in ok.items() if k != "minute"}
+        errors = hlib.validate_ui_action_step(2, no_minute)
+        self.assertTrue(any("warp-date-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(3, dict(ok, day="1.5"))
+        self.assertTrue(any("warp-date-arg-invalid" in e for e in errors), errors)
+        no_confirm = {k: v for k, v in ok.items() if k != "confirm"}
+        errors = hlib.validate_ui_action_step(4, no_confirm)
+        self.assertTrue(any("warp-confirm-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(5, dict(ok, confirm="Warp"))
+        self.assertTrue(any("warp-confirm-arg-invalid" in e for e in errors), errors)
 
     # ---- op=mock: the GUI state gallery primitive (P1) ----
 

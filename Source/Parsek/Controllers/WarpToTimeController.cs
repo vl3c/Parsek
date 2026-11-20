@@ -22,6 +22,14 @@ namespace Parsek
         private const string Tag = "WarpTime";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
+        /// <summary>The confirm dialog's <c>MultiOptionDialog</c> name. The
+        /// <c>UiAction op=warp window=timeline</c> seam op finds the live popup by it.</summary>
+        internal const string ConfirmDialogName = "ParsekWarpToTimeConfirm";
+
+        /// <summary>The confirm dialog's two button labels, in layout order.</summary>
+        internal const string ConfirmWarpButtonText = "Warp";
+        internal const string ConfirmCancelButtonText = "Cancel";
+
         internal enum RewindTargetKind { None, CareerStart, Launch }
 
         internal readonly struct RewindTarget
@@ -224,18 +232,18 @@ namespace Parsek
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),
                 new MultiOptionDialog(
-                    "ParsekWarpToTimeConfirm",
+                    ConfirmDialogName,
                     message,
                     "Confirm: Warp to Time",
                     HighLogic.UISkin,
-                    new DialogGUIButton("Warp", () =>
+                    new DialogGUIButton(ConfirmWarpButtonText, () =>
                     {
                         ParsekLog.Info(Tag, string.Format(IC,
                             "User confirmed warp: plan={0} targetUT={1:F1} rewindKind={2}",
                             plan.Kind, targetUT, target.Kind));
                         onConfirm?.Invoke();
                     }),
-                    new DialogGUIButton("Cancel", () =>
+                    new DialogGUIButton(ConfirmCancelButtonText, () =>
                     {
                         ParsekLog.Info(Tag, "User cancelled warp confirmation");
                     })
