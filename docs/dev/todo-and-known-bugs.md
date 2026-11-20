@@ -95,19 +95,23 @@ split-time snapshot and pose. The next watch frame starts the recording past the
 settle gates (trigger `StructuralSplit`) and feeds the captures to the crash coalescer, so each
 separated vessel becomes a child of the new recording. A refused start drops the captures with a
 Warn (it refuses every frame); a watch disarmed with captures pending warns. A watched vessel the
-active tree already tracks in the background (`ArmTrackedBackgroundMember`, or its pid in
-`BackgroundMap`) is declined (`BackgroundRecorderOwns`, logged): the background recorder's own
-split check (`HandleBackgroundVesselSplit`) records that split, and a capture would record the
-child twice.
+active tree tracks in the background at the moment of the split (its pid in the LIVE
+`BackgroundMap`, `IsWatchedVesselTrackedInBackground`; the arm-time `TrackedInActiveTree` flag goes
+stale when the background recorder drops a debris vessel at its TTL) is declined
+(`BackgroundRecorderOwns`, logged): the background recorder's own split check
+(`HandleBackgroundVesselSplit`) records that split, and a capture would record the child twice.
 When stock moves focus to the vessel that came off, `OnVesselSwitchComplete` re-arms the watch
-on it; `ArmPostSwitchAutoRecord` now carries the captures across (`CarryStructuralSplitsAcrossRearm`:
-the capture turns around, so the previously watched vessel becomes the separated one with its
-own split-time snapshot and pose, taken at the capture) and warns whenever it replaces a watch
-holding captures. A re-arm on an unrelated vessel keeps none.
+on it; `ArmPostSwitchAutoRecord` carries the captures across (`CarryStructuralSplitsAcrossRearm`).
+Every capture keeps both vessels of its split with their own split-time snapshot and pose, so
+the carried set is every vessel of the split except the newly watched one, once each, however
+many re-arms come before the watch starts (a `]` to C1 then to C2 under warp). Duplicate
+children are collapsed and counted, the capture refuses a child it already holds, and the feed
+refuses a repeated child or the recorded vessel itself. The designed carry logs at Info; a
+re-arm on an unrelated vessel keeps none and warns.
 
 Tests. `PostSwitchStructuralSplitTests` (the decision table including the tracked-member decline,
-the undock routing, start-then-feed ahead of the baseline gate, the carry across a focus-move
-re-arm and its Warn). Lane owed: `]` to an untracked docked pair, undock at once; expect a
+the undock routing, start-then-feed ahead of the baseline gate, the live background-map decline,
+the carry across one and two focus-move re-arms, duplicate collapse, the drop-only Warn). Lane owed: `]` to an untracked docked pair, undock at once; expect a
 recording for each half.
 
 ## ~~UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL~~: an undock where control moves to the departing half wrote that flight under the left-behind vessel [FILED 2026-11-18 by the recording split / trim / merge review (draft H3), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit + source gate; no lane yet; high (a recording keyed to one vessel holding another vessel's flight; after the next switch the background recorder samples the depot into it)]

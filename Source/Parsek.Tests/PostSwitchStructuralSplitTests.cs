@@ -97,11 +97,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Capture_ReadsTheTrackedFlagAndTheBackgroundMap()
+        public void Capture_DecidesOnTheLiveBackgroundMapOnly()
         {
+            // The arm-time flag goes stale when the background recorder drops the vessel (debris
+            // TTL): a later split would be declined and nobody would record it.
             string body = MethodBody("ParsekFlightPostSwitchAutoRecord.cs", "bool TryCapturePostSwitchStructuralSplit(");
-            Assert.Contains("state.TrackedInActiveTree", body);
-            Assert.Contains("BackgroundMap.ContainsKey(state.VesselPid)", body);
+            Assert.DoesNotContain("state.TrackedInActiveTree", body);
+            Assert.Contains("IsWatchedVesselTrackedInBackground(", body);
+        }
+
+        [Fact]
+        public void TrackedAtArm_ButDroppedFromTheBackgroundMap_IsCapturedAgain()
+        {
+            var map = new Dictionary<uint, string> { { 555u, "rec-other" } };
+            Assert.False(ParsekFlightPostSwitchAutoRecord.IsWatchedVesselTrackedInBackground(map, 100u));
+            map[100u] = "rec-w";
+            Assert.True(ParsekFlightPostSwitchAutoRecord.IsWatchedVesselTrackedInBackground(map, 100u));
+            Assert.False(ParsekFlightPostSwitchAutoRecord.IsWatchedVesselTrackedInBackground(null, 100u));
         }
 
         // ---- focus moves to the separated vessel: the captures follow the re-arm ----
@@ -153,15 +165,61 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Arm_CarriesTheCapturesAndWarnsWhenItReplacesAWatchHoldingThem()
+        public void TwoRearmsBeforeTheStart_CarryEveryOtherVesselOnce()
+        {
+            // W (100) lost C1 (200) and C2 (300); `]` to C1, then `]` to C2 before the watch
+            // started (suppressed under warp). The C2 watch must record W and C1, once each.
+            var hop1 = ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(
+                new List<ParsekFlight.PostSwitchStructuralSplit> { Capture(100u, 200u), Capture(100u, 300u) },
+                100u, 200u);
+            Assert.Equal(new[] { 100u, 300u }, ChildPids(hop1));
+
+            var hop2 = ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(hop1, 200u, 300u);
+            Assert.Equal(new[] { 100u, 200u }, ChildPids(hop2));
+            ParsekFlight.PostSwitchStructuralSplit c1 = hop2.Find(c => c.ChildPid == 200u);
+            Assert.True(c1.HasController);              // C1's own split-time data
+            Assert.Equal(201u, c1.ChildRootPartPid);
+            ParsekFlight.PostSwitchStructuralSplit w = hop2.Find(c => c.ChildPid == 100u);
+            Assert.False(w.HasController);
+            Assert.Equal(101u, w.ChildRootPartPid);
+        }
+
+        [Fact]
+        public void DuplicateCaptures_CollapseByChild_AndAreCounted()
+        {
+            var carried = ParsekFlightPostSwitchAutoRecord.CarryStructuralSplitsAcrossRearm(
+                new List<ParsekFlight.PostSwitchStructuralSplit> { Capture(100u, 200u), Capture(100u, 200u) },
+                100u, 100u, out int refused);
+            Assert.Equal(new[] { 200u }, ChildPids(carried));
+            Assert.Equal(1, refused);
+        }
+
+        [Fact]
+        public void WatchReplace_WarnsOnlyWhenItDropsCaptures()
+        {
+            Assert.False(ParsekFlightPostSwitchAutoRecord.WatchReplaceDropsCaptures(capturedCount: 2, carriedCount: 2));
+            Assert.False(ParsekFlightPostSwitchAutoRecord.WatchReplaceDropsCaptures(capturedCount: 0, carriedCount: 0));
+            Assert.True(ParsekFlightPostSwitchAutoRecord.WatchReplaceDropsCaptures(capturedCount: 2, carriedCount: 0));
+        }
+
+        [Fact]
+        public void Arm_CarriesTheCapturesBeforeItReplacesTheWatch()
         {
             string body = MethodBody("ParsekFlightPostSwitchAutoRecord.cs", "void ArmPostSwitchAutoRecord(");
             int carry = body.IndexOf("CarryStructuralSplitsAcrossRearm(", StringComparison.Ordinal);
-            int warn = body.IndexOf("ParsekLog.Warn(", StringComparison.Ordinal);
+            int drops = body.IndexOf("WatchReplaceDropsCaptures(", StringComparison.Ordinal);
             int replace = body.IndexOf("host.postSwitchAutoRecord = new", StringComparison.Ordinal);
             int add = body.IndexOf("PendingStructuralSplits.AddRange(carried)", StringComparison.Ordinal);
-            Assert.True(carry >= 0 && warn > carry && replace > warn && add > replace,
-                "ArmPostSwitchAutoRecord must carry the captures and warn before it replaces the watch");
+            Assert.True(carry >= 0 && drops > carry && replace > drops && add > replace,
+                "ArmPostSwitchAutoRecord must carry the captures (and log the drop decision) before it replaces the watch");
+        }
+
+        private static uint[] ChildPids(List<ParsekFlight.PostSwitchStructuralSplit> splits)
+        {
+            var pids = new List<uint>();
+            foreach (var s in splits) pids.Add(s.ChildPid);
+            pids.Sort();
+            return pids.ToArray();
         }
 
         private static string MethodBody(string file, string signature)
