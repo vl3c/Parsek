@@ -1007,11 +1007,16 @@ namespace Parsek
         /// Checks debris TTL expiry for all tracked debris vessels.
         /// Called once per frame from Update(). When a debris vessel's TTL has expired,
         /// its recording is finalized and tracking state is cleaned up.
-        /// Also checks for destroyed/out-of-bubble vessels.
+        /// Also checks for destroyed/out-of-bubble vessels. The verdict per entry is
+        /// <see cref="ClassifyDebrisTtlEntry"/>; this method gathers its live inputs, logs
+        /// the reason and ends the recording. Returns the vessel pids whose recordings it
+        /// ended this call (empty when none), so the flight host can drop state that still
+        /// points at them.
         /// </summary>
-        internal void CheckDebrisTTL(double currentUT)
+        internal List<uint> CheckDebrisTTL(double currentUT)
         {
-            if (debrisTTLExpiry.Count == 0) return;
+            var endedPids = new List<uint>();
+            if (debrisTTLExpiry.Count == 0) return endedPids;
 
             // Collect expired entries (can't modify dict during iteration)
             List<(uint vesselPid, BackgroundRecordingEndReason reason)> expired = null;
@@ -1023,131 +1028,178 @@ namespace Parsek
 
                 if (double.IsNaN(expiry)) continue; // no TTL
 
-                // Check if vessel is destroyed or out of bubble
                 Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
-                if (v == null)
-                {
-                    // Vessel gone (destroyed or despawned)
-                    if (expired == null)
-                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
-                    expired.Add((vesselPid, BackgroundRecordingEndReason.VesselDestroyedOrDespawned));
 
-                    ParsekLog.Info("BgRecorder",
-                        $"Debris TTL: vessel destroyed/despawned, ending recording: " +
-                        $"vesselPid={vesselPid}");
+                // Parent-anchor inputs (PR 3b, Decision section 10). Legacy debris with no
+                // ParentAnchorRecordingId keeps the debris-only checks.
+                bool hasParentAnchor = false;
+                bool parentRecordingFound = false;
+                bool parentRecordingClosed = false;
+                bool parentVesselFound = false;
+                bool parentVesselLoaded = false;
+                bool parentVesselPacked = false;
+                Recording childRec = null;
+                Recording parentRec = null;
+                string childRecId;
+                if (v != null
+                    && tree != null
+                    && tree.BackgroundMap != null
+                    && tree.BackgroundMap.TryGetValue(vesselPid, out childRecId)
+                    && tree.Recordings != null
+                    && tree.Recordings.TryGetValue(childRecId, out childRec)
+                    && !string.IsNullOrEmpty(childRec.ParentAnchorRecordingId))
+                {
+                    hasParentAnchor = true;
+                    parentRecordingFound = tree.Recordings.TryGetValue(
+                        childRec.ParentAnchorRecordingId, out parentRec);
+                    if (parentRecordingFound)
+                    {
+                        // Do NOT regress to parentRec.ExplicitEndUT < currentUT: active
+                        // background recordings update ExplicitEndUT only at sample
+                        // boundaries, so that signal lags by the sample interval (see
+                        // DebrisParentStateGate).
+                        parentRecordingClosed =
+                            DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(parentRec, tree);
+                        if (!parentRecordingClosed)
+                        {
+                            // Launch-matched lookup: a preserved relaunch of the same craft
+                            // carries the craft-baked pid of the parent, and treating it as the
+                            // live parent would keep a debris recording anchored to a stranger.
+                            Vessel parentVessel = FlightRecorder.FindLaunchMatchedVesselForRecording(parentRec);
+                            parentVesselFound = parentVessel != null;
+                            parentVesselLoaded = parentVessel != null && parentVessel.loaded;
+                            parentVesselPacked = parentVessel != null && parentVessel.packed;
+                        }
+                    }
+                }
+
+                BackgroundRecordingEndReason? verdict = ClassifyDebrisTtlEntry(
+                    currentUT, expiry,
+                    vesselFound: v != null,
+                    vesselLoaded: v != null && v.loaded,
+                    hasParentAnchor: hasParentAnchor,
+                    parentRecordingFound: parentRecordingFound,
+                    parentRecordingClosed: parentRecordingClosed,
+                    parentVesselFound: parentVesselFound,
+                    parentVesselLoaded: parentVesselLoaded,
+                    parentVesselPacked: parentVesselPacked);
+
+                if (!verdict.HasValue)
+                {
+                    if (hasParentAnchor && parentVesselFound
+                        && (parentVesselPacked || !parentVesselLoaded))
+                    {
+                        // Owner ruling Q12 (2026-11-18): time warp puts the parent on rails,
+                        // and the debris keeps recording until its own time limit.
+                        ParsekLog.VerboseRateLimited("BgRecorder",
+                            "debris-ttl-parent-on-rails|" + vesselPid.ToString(CultureInfo.InvariantCulture),
+                            $"Debris TTL: parent on rails, debris keeps recording to its time limit: " +
+                            $"parentRecId={childRec?.ParentAnchorRecordingId ?? "(none)"} " +
+                            $"parentLoaded={parentVesselLoaded} parentPacked={parentVesselPacked} " +
+                            $"childPid={vesselPid} " +
+                            $"expiry={expiry.ToString("F1", CultureInfo.InvariantCulture)} " +
+                            $"currentUT={currentUT.ToString("F1", CultureInfo.InvariantCulture)}",
+                            5.0);
+                    }
                     continue;
                 }
 
-                // Check if TTL expired
-                if (currentUT >= expiry)
-                {
-                    if (expired == null)
-                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
-                    expired.Add((vesselPid, BackgroundRecordingEndReason.TtlExpired));
-
-                    ParsekLog.Info("BgRecorder",
-                        $"Debris TTL expired, ending recording: " +
-                        $"vesselPid={vesselPid} expiry={expiry:F1} currentUT={currentUT:F1}");
-                    continue;
-                }
-
-                // Check if vessel went out of physics bubble (packed + on rails)
-                if (!v.loaded)
-                {
-                    if (expired == null)
-                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
-                    expired.Add((vesselPid, BackgroundRecordingEndReason.LeftPhysicsBubble));
-
-                    ParsekLog.Info("BgRecorder",
-                        $"Debris TTL: vessel left physics bubble, ending recording: " +
-                        $"vesselPid={vesselPid}");
-                    continue;
-                }
-
-                // PR 3b §"Parent on-rails hook" (Decision §10): for debris
-                // carrying the parent-anchor contract, end the debris recording when
-                // the parent's recorded data is gone or the parent vessel is no
-                // longer live. Three end-conditions, one for each failure mode.
-                // Legacy v11 debris (no ParentAnchorRecordingId) keeps original lifetime.
-                if (tree == null
-                    || tree.BackgroundMap == null
-                    || !tree.BackgroundMap.TryGetValue(vesselPid, out string childRecId))
-                {
-                    continue;
-                }
-                Recording childRec;
-                if (tree.Recordings == null
-                    || !tree.Recordings.TryGetValue(childRecId, out childRec))
-                {
-                    continue;
-                }
-                if (string.IsNullOrEmpty(childRec.ParentAnchorRecordingId))
-                    continue; // legacy v11 — keep original behavior
-
-                Recording parentRec;
-                if (!tree.Recordings.TryGetValue(childRec.ParentAnchorRecordingId, out parentRec))
-                {
-                    if (expired == null)
-                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
-                    expired.Add((vesselPid, BackgroundRecordingEndReason.ParentRecordingMissing));
-                    ParsekLog.Info("BgRecorder",
-                        $"Debris TTL: parent recording missing from tree, ending: " +
-                        $"parentRecId={childRec.ParentAnchorRecordingId} childPid={vesselPid}");
-                    continue;
-                }
-
-                // Parent recording closed/superseded while the vessel may still be
-                // loaded (the §"Bug evidence" closed-coverage-hole case at UT
-                // 1213.398/1228.435): end the debris too — its Relative samples
-                // beyond the parent's recorded UT range cannot resolve at playback.
-                //
-                // PR 3b review follow-up: predicate extracted to
-                // DebrisParentStateGate.IsParentRecordingClosedOrSuperseded so xUnit
-                // can validate the truth table. Do NOT regress to
-                // parentRec.ExplicitEndUT < currentUT — active background recordings
-                // update ExplicitEndUT only at sample boundaries, so that signal
-                // lags by the sample interval and would end every parent-anchored debris on
-                // the next TTL tick.
-                if (DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(parentRec, tree))
-                {
-                    if (expired == null)
-                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
-                    expired.Add((vesselPid, BackgroundRecordingEndReason.ParentRecordingClosedOrSuperseded));
-                    bool parentClosedAtSplit = !string.IsNullOrEmpty(parentRec.ChildBranchPointId);
-                    ParsekLog.Info("BgRecorder",
-                        $"Debris TTL: parent recording closed/superseded, ending recording: " +
-                        $"parentRecId={childRec.ParentAnchorRecordingId} " +
-                        $"parentClosedAtSplit={parentClosedAtSplit} " +
-                        $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)} " +
-                        $"childPid={vesselPid}");
-                    continue;
-                }
-
-                // Launch-matched lookup: a preserved relaunch of the same craft carries the
-                // parent's craft-baked pid, and treating it as the live parent would keep a
-                // debris recording anchored to a stranger instead of ending it here.
-                Vessel parentVessel = FlightRecorder.FindLaunchMatchedVesselForRecording(parentRec);
-                if (parentVessel == null || parentVessel.packed || !parentVessel.loaded)
-                {
-                    if (expired == null)
-                        expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
-                    expired.Add((vesselPid, BackgroundRecordingEndReason.ParentOnRailsOrDestroyed));
-                    ParsekLog.Info("BgRecorder",
-                        $"Debris TTL: parent on-rails or destroyed, ending recording: " +
-                        $"parentRecId={childRec.ParentAnchorRecordingId} " +
-                        $"parentPid={parentRec.VesselPersistentId} " +
-                        $"parentLoaded={parentVessel?.loaded ?? false} " +
-                        $"parentPacked={parentVessel?.packed ?? false} " +
-                        $"childPid={vesselPid}");
-                    continue;
-                }
+                if (expired == null)
+                    expired = new List<(uint vesselPid, BackgroundRecordingEndReason reason)>();
+                expired.Add((vesselPid, verdict.Value));
+                LogDebrisTtlEnd(verdict.Value, vesselPid, expiry, currentUT, childRec, parentRec);
             }
 
-            if (expired == null) return;
+            if (expired == null) return endedPids;
 
             for (int i = 0; i < expired.Count; i++)
             {
                 EndDebrisRecording(expired[i].vesselPid, currentUT, expired[i].reason);
+                endedPids.Add(expired[i].vesselPid);
+            }
+            return endedPids;
+        }
+
+        /// <summary>
+        /// Pure verdict for one debris TTL entry, checked in this order: a vessel that is gone
+        /// ends (destroyed or despawned); the time limit ends it; a debris vessel that left the
+        /// physics bubble ends; then, for debris carrying the parent-anchor contract, a parent
+        /// recording missing from the tree, a parent recording that is no longer being written
+        /// (<see cref="DebrisParentStateGate"/>), and a parent vessel that is gone end it. A
+        /// parent vessel on rails (packed by time warp, or unloaded) does NOT end it: owner
+        /// ruling Q12 (2026-11-18) keeps debris recording to its time limit while the player
+        /// warps, and an on-rails debris records through the background on-rails state.
+        /// Null means keep recording.
+        /// </summary>
+        internal static BackgroundRecordingEndReason? ClassifyDebrisTtlEntry(
+            double currentUT,
+            double expiryUT,
+            bool vesselFound,
+            bool vesselLoaded,
+            bool hasParentAnchor,
+            bool parentRecordingFound,
+            bool parentRecordingClosed,
+            bool parentVesselFound,
+            bool parentVesselLoaded,
+            bool parentVesselPacked)
+        {
+            if (double.IsNaN(expiryUT)) return null;
+            if (!vesselFound) return BackgroundRecordingEndReason.VesselDestroyedOrDespawned;
+            if (currentUT >= expiryUT) return BackgroundRecordingEndReason.TtlExpired;
+            if (!vesselLoaded) return BackgroundRecordingEndReason.LeftPhysicsBubble;
+            if (!hasParentAnchor) return null;
+            if (!parentRecordingFound) return BackgroundRecordingEndReason.ParentRecordingMissing;
+            if (parentRecordingClosed) return BackgroundRecordingEndReason.ParentRecordingClosedOrSuperseded;
+            if (!parentVesselFound) return BackgroundRecordingEndReason.ParentVesselDestroyed;
+            return null;
+        }
+
+        private static void LogDebrisTtlEnd(
+            BackgroundRecordingEndReason reason,
+            uint vesselPid,
+            double expiry,
+            double currentUT,
+            Recording childRec,
+            Recording parentRec)
+        {
+            switch (reason)
+            {
+                case BackgroundRecordingEndReason.VesselDestroyedOrDespawned:
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL: vessel destroyed/despawned, ending recording: " +
+                        $"vesselPid={vesselPid}");
+                    break;
+                case BackgroundRecordingEndReason.TtlExpired:
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL expired, ending recording: " +
+                        $"vesselPid={vesselPid} expiry={expiry:F1} currentUT={currentUT:F1}");
+                    break;
+                case BackgroundRecordingEndReason.LeftPhysicsBubble:
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL: vessel left physics bubble, ending recording: " +
+                        $"vesselPid={vesselPid}");
+                    break;
+                case BackgroundRecordingEndReason.ParentRecordingMissing:
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL: parent recording missing from tree, ending: " +
+                        $"parentRecId={childRec?.ParentAnchorRecordingId} childPid={vesselPid}");
+                    break;
+                case BackgroundRecordingEndReason.ParentRecordingClosedOrSuperseded:
+                    bool parentClosedAtSplit = !string.IsNullOrEmpty(parentRec?.ChildBranchPointId);
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL: parent recording closed/superseded, ending recording: " +
+                        $"parentRecId={childRec?.ParentAnchorRecordingId} " +
+                        $"parentClosedAtSplit={parentClosedAtSplit} " +
+                        $"currentUT={currentUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                        $"childPid={vesselPid}");
+                    break;
+                default:
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL: parent vessel gone, ending recording: " +
+                        $"parentRecId={childRec?.ParentAnchorRecordingId} " +
+                        $"parentPid={parentRec?.VesselPersistentId ?? 0u} " +
+                        $"reason={reason} childPid={vesselPid}");
+                    break;
             }
         }
 

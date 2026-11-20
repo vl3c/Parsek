@@ -20,6 +20,24 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~DEBRIS-ENDS-WHEN-PARENT-GOES-ON-RAILS~~: time warp ended every parent-anchored debris recording [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a booster's fall was cut off whenever the player warped)]
+
+Cause: `BackgroundRecorder.CheckDebrisTTL` ended a parent-anchored debris recording when its parent
+vessel was packed or unloaded (`ParentOnRailsOrDestroyed`, plan Decision section 10). Time warp
+packs every loaded vessel, so warping right after staging ended every dropped stage's recording at
+once (draft review question 6). Owner ruling Q12 (2026-11-18): keep to the time limit.
+
+Fix: the per-entry verdict is the pure `BackgroundRecorder.ClassifyDebrisTtlEntry`. A parent that
+is on rails (packed or unloaded) no longer ends the debris; only a parent vessel that is gone does
+(`ParentVesselDestroyed`, log `Debris TTL: parent vessel gone, ending recording`). The debris keeps
+its 60 s limit and its other ends (vessel gone, left the physics bubble, parent recording missing
+or no longer written). While on rails it records through the existing background on-rails state
+(orbit checkpoints); no section is added to that state. A kept entry logs, rate-limited,
+`Debris TTL: parent on rails, debris keeps recording to its time limit`.
+
+Tests: `DebrisLifetimeTests` (the verdict table; `ParentPackedByTimeWarp_DebrisKeepsRecording` and
+`ParentUnloaded_DebrisKeepsRecording` red before the fix).
+
 ## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
 
 Cause: `RecordingEndpointResolver.TryGetCoordinatesForPhase`'s `TrajectoryPoint` phase took the last

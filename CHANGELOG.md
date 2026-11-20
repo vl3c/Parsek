@@ -28,6 +28,9 @@ Not released yet.
 
 ### Fixed
 
+- **Time warp no longer cuts off a falling booster's replay.** Warping right after staging ended
+  the recording of every dropped stage at once. A dropped stage now keeps recording through the
+  warp until its usual 60 seconds are up. (DEBRIS-ENDS-WHEN-PARENT-GOES-ON-RAILS)
 - **Leaving the scene during a burn no longer leaves the replay's engines lit.** Going to the
   Space Center, or committing the flight, while an engine or thruster was firing kept its plume
   burning in the replay until the end. It now shuts off at the moment you left.

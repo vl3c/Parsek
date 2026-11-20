@@ -71,7 +71,7 @@ namespace Parsek
     /// </summary>
     internal partial class BackgroundRecorder
     {
-        private enum BackgroundRecordingEndReason
+        internal enum BackgroundRecordingEndReason
         {
             Unknown = 0,
             VesselDestroyedOrDespawned = 1,
@@ -79,7 +79,7 @@ namespace Parsek
             LeftPhysicsBubble = 3,
             ParentRecordingMissing = 4,
             ParentRecordingClosedOrSuperseded = 5,
-            ParentOnRailsOrDestroyed = 6
+            ParentVesselDestroyed = 6
         }
 
         private RecordingTree tree;
