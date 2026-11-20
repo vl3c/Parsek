@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **Timeline cuts never fall inside a time jump or a cheat teleport.** A Re-Fly whose rewind point
+  falls inside a time jump cuts the old flight just before the jump, and the timeline cleanup
+  moves a split out of a jump or a teleport (or skips it), so no replay slides across one.
+  (CUT-INSIDE-TIME-JUMP-OR-TELEPORT)
 - **Vessels recorded close to a re-flown ship keep replaying.** A ghost recorded relative to the
   old flight after the rewind point (one docking with it, say) lost its reference when the merge
   cut the old flight and vanished early; it now follows the cut-off part of the old flight.

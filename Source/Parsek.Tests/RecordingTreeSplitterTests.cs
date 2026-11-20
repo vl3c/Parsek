@@ -740,6 +740,40 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
+        // 6a'. The cut never lands inside a time jump (owner ruling Q18)
+        // =====================================================================
+
+        [Fact]
+        public void SplitOriginAtRewindUT_RewindInsideATimeJump_CutsAtTheJumpStart_AndReentryIsIdempotent()
+        {
+            var origin = BuildRecording("rec_origin", 8.0, 53.0, midUT: 30.0,
+                treeId: "tree_q18", terminal: TerminalState.Orbiting);
+            origin.SegmentEvents.Add(TimeJumpManager.CreateTimeJumpEvent(
+                30.0, 40.0, 0, 0, 0, 0f, 0f, 0f));
+            InstallOriginInTree(origin, "tree_q18");
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.False(result.Skipped);
+            var tip = FindCommitted(result.TipRecordingId);
+            Assert.NotNull(tip);
+            Assert.Equal(30.0, origin.EndUT, 6);
+            Assert.Equal(30.0, tip.StartUT, 6);
+            Assert.Contains(tip.SegmentEvents, e => e.type == SegmentEventType.TimeJump);
+            Assert.Contains(logLines, l => l.Contains("Re-Fly cut moved out of time-jump")
+                && l.Contains("rewindUT=34.00") && l.Contains("cutUT=30.00"));
+
+            // A finisher re-run after the marker names TIP resolves the same cut.
+            int committedBefore = RecordingStore.CommittedRecordings.Count;
+            Assert.Equal(tip.RecordingId, marker.SupersedeTargetId);
+            var again = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+            Assert.Equal(committedBefore, RecordingStore.CommittedRecordings.Count);
+            Assert.Equal(tip.RecordingId, again.TipRecordingId);
+            Assert.Contains(logLines, l => l.Contains("idempotent re-entry"));
+        }
+
+        // =====================================================================
         // 6b. Continuation-parented redo debris is NOT reparented to TIP
         // =====================================================================
 

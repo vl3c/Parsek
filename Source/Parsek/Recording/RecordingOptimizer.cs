@@ -797,6 +797,78 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Owner ruling Q18: an optimizer split never lands inside a time jump or a teleport.
+        /// When section <paramref name="s"/>'s start lies strictly inside one of
+        /// <paramref name="windows"/>, the split moves to the section boundary at the nearest
+        /// edge outside it (the window's start on a tie, then the other edge); with no such
+        /// boundary (or only one beside a seam, or one the split guard refuses) the split is
+        /// refused. Returns false on refusal; <paramref name="placed"/> is the section index
+        /// to split at otherwise. Logs every move and refusal.
+        /// </summary>
+        private static int PlaceSplitOutsideDiscontinuity(
+            Recording rec, int s, ref List<DiscontinuityWindow> windows)
+        {
+            if (windows == null)
+                windows = RecordingDiscontinuities.Collect(new[] { (rec.SegmentEvents, rec.TrackSections) });
+            int placed;
+            return TryPlaceSplitOutsideDiscontinuity(rec, s, windows, out placed) ? placed : -1;
+        }
+
+        internal static bool TryPlaceSplitOutsideDiscontinuity(
+            Recording rec, int s, IReadOnlyList<DiscontinuityWindow> windows, out int placed)
+        {
+            placed = s;
+            if (rec == null || rec.TrackSections == null || s < 1 || s >= rec.TrackSections.Count)
+                return true;
+            double boundaryUT = rec.TrackSections[s].startUT;
+            string movedOutOf;
+            double nearest = RecordingDiscontinuities.MoveCutOutside(
+                windows, boundaryUT, earlierEdgeOnly: false, out movedOutOf);
+            if (movedOutOf == null)
+                return true;
+
+            var ic = CultureInfo.InvariantCulture;
+            double other = double.NaN;
+            for (int w = 0; w < windows.Count; w++)
+            {
+                if (!windows[w].StrictlyContains(boundaryUT)) continue;
+                other = nearest == windows[w].StartUT ? windows[w].EndUT : windows[w].StartUT;
+                break;
+            }
+            int k = FindUsableSplitSectionAt(rec, nearest);
+            if (k < 0 && !double.IsNaN(other)
+                && RecordingDiscontinuities.MoveCutOutside(windows, other, false, out _) == other)
+                k = FindUsableSplitSectionAt(rec, other);
+            if (k < 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"Split refused: rec={rec.RecordingId} sec={s} " +
+                    $"splitUT={boundaryUT.ToString("F2", ic)} lies inside {movedOutOf} and no " +
+                    "section boundary sits at its edges");
+                return false;
+            }
+            placed = k;
+            ParsekLog.Verbose("Optimizer",
+                $"Split moved out of {movedOutOf}: rec={rec.RecordingId} sec={s}->{k} " +
+                $"splitUT={boundaryUT.ToString("F2", ic)}->" +
+                $"{rec.TrackSections[k].startUT.ToString("F2", ic)}");
+            return true;
+        }
+
+        private static int FindUsableSplitSectionAt(Recording rec, double ut)
+        {
+            const double edgeEpsilon = 1e-3;
+            for (int k = 1; k < rec.TrackSections.Count; k++)
+            {
+                if (Math.Abs(rec.TrackSections[k].startUT - ut) > edgeEpsilon) continue;
+                if (rec.TrackSections[k].isBoundarySeam || rec.TrackSections[k - 1].isBoundarySeam)
+                    return -1;
+                return CanAutoSplitIgnoringGhostTriggers(rec, k) ? k : -1;
+            }
+            return -1;
+        }
+
+        /// <summary>
         /// Same as FindSplitCandidates but uses CanAutoSplitIgnoringGhostTriggers and applies
         /// the §3 / §3.1 boundary predicate (seam short-circuit, body hard split,
         /// Surface default split with surface-graze suppression, ExoPropulsive short-circuit,
@@ -881,6 +953,8 @@ namespace Parsek
                 int suppressedExoCoastBodyChange = 0;
                 int splittableButRejected = 0;
                 int suppressedLaunchSiteLeadingRun = 0;
+                int suppressedDiscontinuity = 0;
+                List<DiscontinuityWindow> discontinuities = null;
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
@@ -891,14 +965,21 @@ namespace Parsek
                     {
                         if (CanAutoSplitIgnoringGhostTriggers(rec, s))
                         {
+                            int placed = PlaceSplitOutsideDiscontinuity(rec, s, ref discontinuities);
+                            if (placed < 0)
+                            {
+                                evaluatedBoundaries++;
+                                suppressedDiscontinuity++;
+                                continue;
+                            }
                             // Per-candidate accept log — bounded by the `break` after one
                             // split per recording per pass × the maxSplitsPerPass cap from
                             // RunOptimizationSplitPass.
                             ParsekLog.Verbose("Optimizer",
-                                $"Split candidate ({reason}): rec={rec.RecordingId} sec={s} " +
-                                $"splitUT={rec.TrackSections[s].startUT.ToString("F2", CultureInfo.InvariantCulture)} " +
-                                $"prev={rec.TrackSections[s - 1].environment} next={rec.TrackSections[s].environment}");
-                            candidates.Add((i, s));
+                                $"Split candidate ({reason}): rec={rec.RecordingId} sec={placed} " +
+                                $"splitUT={rec.TrackSections[placed].startUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                                $"prev={rec.TrackSections[placed - 1].environment} next={rec.TrackSections[placed].environment}");
+                            candidates.Add((i, placed));
                             break; // One split per recording per pass (re-scan after split).
                         }
                         // Splittable boundary that CanAutoSplit rejects (e.g. too-short halves,
@@ -953,7 +1034,8 @@ namespace Parsek
                 if (suppressedGrazeForward > 0 || suppressedGrazeBackward > 0
                     || suppressedSurfaceGrazeForward > 0 || suppressedSurfaceGrazeBackward > 0
                     || suppressedBoundarySeam > 0 || suppressedExoCoastBodyChange > 0
-                    || splittableButRejected > 0 || suppressedLaunchSiteLeadingRun > 0)
+                    || splittableButRejected > 0 || suppressedLaunchSiteLeadingRun > 0
+                    || suppressedDiscontinuity > 0)
                 {
                     ParsekLog.Verbose("Optimizer",
                         $"Split summary: rec={rec.RecordingId} " +
@@ -965,7 +1047,8 @@ namespace Parsek
                         $"seamSkipped={suppressedBoundarySeam} " +
                         $"exoCoastBodyChangeKept={suppressedExoCoastBodyChange} " +
                         $"splittableButRejected={splittableButRejected} " +
-                        $"launchSiteRunKept={suppressedLaunchSiteLeadingRun}");
+                        $"launchSiteRunKept={suppressedLaunchSiteLeadingRun} " +
+                        $"discontinuityKept={suppressedDiscontinuity}");
                 }
             }
 

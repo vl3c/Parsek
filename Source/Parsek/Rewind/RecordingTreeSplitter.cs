@@ -465,13 +465,17 @@ namespace Parsek
 
             double rewindUT = marker.RewindPointUT;
             const double epsilon = EffectiveState.PidPeerStartUtEpsilonSeconds;
+            // Owner ruling Q18: the cut never lands inside a time jump or a teleport. The
+            // windows are read over the vessel's chain neighbourhood so a re-entry after a
+            // moved cut (HEAD and TIP already split there) resolves the same cut.
+            double cutUT = ResolveDiscontinuitySafeCutUT(origin, rewindUT);
 
             // Step 2.3a: idempotency-after-marker-mutation pass. If the closure
             // root already names a TIP (its StartUT ≈ rewindUT and it has a
             // chain predecessor at ChainIndex-1), this is a partial-resume
             // re-entry. Resolve the chain predecessor as "origin" and re-run
             // steps 6-13 idempotently.
-            if (LooksLikeAlreadyMutatedClosureRoot(origin, rewindUT, epsilon))
+            if (LooksLikeAlreadyMutatedClosureRoot(origin, cutUT, epsilon))
             {
                 Recording predecessor = TryFindChainPredecessor(origin);
                 // Pass 5 review M5: TryFindChainPredecessor matches purely on
@@ -483,7 +487,7 @@ namespace Parsek
                 // idempotent re-entry (falls through to the strict-span check
                 // below, which either runs a fresh split or skips).
                 if (predecessor != null
-                    && Math.Abs(predecessor.EndUT - rewindUT) >= epsilon)
+                    && Math.Abs(predecessor.EndUT - cutUT) >= epsilon)
                 {
                     ParsekLog.Warn(Tag,
                         $"SplitOriginAtRewindUT: idempotent re-entry aborted — chain " +
@@ -524,7 +528,7 @@ namespace Parsek
                     try
                     {
                         return RunPostSplitSteps(
-                            marker, predecessor, origin, rewindUT, snapshotReplay,
+                            marker, predecessor, origin, cutUT, snapshotReplay,
                             addedTipThisCall: false);
                     }
                     catch
@@ -554,6 +558,7 @@ namespace Parsek
                     $"ancestor '{stretchSpanning.RecordingId}' that does " +
                     $"(slotOrigin={marker.OriginChildRecordingId ?? "<none>"})");
                 origin = stretchSpanning;
+                cutUT = ResolveDiscontinuitySafeCutUT(origin, rewindUT);
             }
 
             // Pass 5 review M3: env-homogeneous-origin invariant check.
@@ -639,8 +644,8 @@ namespace Parsek
             bool hasActualBounds = origin.TryGetActualTrajectoryBounds(
                 out actualStartUT, out actualEndUT);
             if (!hasActualBounds
-                || !(actualStartUT < rewindUT - epsilon)
-                || !(actualEndUT > rewindUT + epsilon))
+                || !(actualStartUT < cutUT - epsilon)
+                || !(actualEndUT > cutUT + epsilon))
             {
                 // Pass 5 review L5: this skip means the splitter is falling
                 // back to whole-recording supersede. For most paths through
@@ -680,7 +685,7 @@ namespace Parsek
             // All three predicates must match to avoid false-positive on an
             // env-class chain sibling that happens to sit at ChainIndex+1 but
             // with a different StartUT.
-            Recording existingTip = TryFindExistingTip(origin, rewindUT, epsilon);
+            Recording existingTip = TryFindExistingTip(origin, cutUT, epsilon);
             if (existingTip != null)
             {
                 ParsekLog.Info(Tag,
@@ -710,7 +715,7 @@ namespace Parsek
                 try
                 {
                     return RunPostSplitSteps(
-                        marker, origin, existingTip, rewindUT, snapshot,
+                        marker, origin, existingTip, cutUT, snapshot,
                         addedTipThisCall: false);
                 }
                 catch
@@ -736,7 +741,7 @@ namespace Parsek
                 freshSnapshot.OriginClone = Recording.DeepClone(origin);
                 CaptureChainSiblingsBefore(origin, freshSnapshot.ChainSiblingsBefore);
 
-                Recording tip = RecordingOptimizer.SplitAtUT(origin, rewindUT);
+                Recording tip = RecordingOptimizer.SplitAtUT(origin, cutUT);
                 if (tip == null)
                 {
                     // SplitAtUT's remaining guards (debris contract
@@ -757,7 +762,7 @@ namespace Parsek
                     return new SplitOriginResult
                     {
                         HeadRecordingId = origin.RecordingId,
-                        SplitUT = rewindUT,
+                        SplitUT = cutUT,
                         Skipped = true,
                         SkipReason = "SplitAtUT_Guarded",
                     };
@@ -873,7 +878,7 @@ namespace Parsek
                 // Steps 2.6 - 2.13 are encapsulated so the idempotent re-run path
                 // can share the same code.
                 var result = RunPostSplitSteps(
-                    marker, origin, tip, rewindUT, freshSnapshot, addedTipThisCall: true);
+                    marker, origin, tip, cutUT, freshSnapshot, addedTipThisCall: true);
                 return result;
             }
             catch (Exception ex)
@@ -1492,6 +1497,55 @@ namespace Parsek
                 if (t == null) continue;
                 if (string.Equals(t.Id, treeId, StringComparison.Ordinal))
                     return t;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The UT the Re-Fly cut uses (owner ruling Q18): <paramref name="rewindUT"/>, or,
+        /// when it falls strictly inside a time jump or a teleport of the vessel's recording,
+        /// the start of that stretch (the last recorded point before it), so HEAD still ends
+        /// at or before the rewind and no cut interpolates across the jump. The windows come
+        /// from <paramref name="rec"/> and its chain neighbours, so a split already made at
+        /// the moved cut resolves to the same UT on re-entry.
+        /// </summary>
+        internal static double ResolveDiscontinuitySafeCutUT(Recording rec, double rewindUT)
+        {
+            if (rec == null || double.IsNaN(rewindUT)) return rewindUT;
+            var pieces = new List<(List<SegmentEvent>, List<TrackSection>)>(3);
+            Recording predecessor = TryFindChainPredecessor(rec);
+            if (predecessor != null) pieces.Add((predecessor.SegmentEvents, predecessor.TrackSections));
+            pieces.Add((rec.SegmentEvents, rec.TrackSections));
+            Recording successor = TryFindChainSuccessor(rec);
+            if (successor != null) pieces.Add((successor.SegmentEvents, successor.TrackSections));
+            var windows = RecordingDiscontinuities.Collect(pieces);
+            string movedOutOf;
+            double cut = RecordingDiscontinuities.MoveCutOutside(
+                windows, rewindUT, earlierEdgeOnly: true, out movedOutOf);
+            if (movedOutOf != null)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Info(Tag,
+                    $"Re-Fly cut moved out of {movedOutOf}: rec={rec.RecordingId ?? "<no-id>"} " +
+                    $"rewindUT={rewindUT.ToString("F2", ic)} cutUT={cut.ToString("F2", ic)}");
+            }
+            return cut;
+        }
+
+        private static Recording TryFindChainSuccessor(Recording current)
+        {
+            if (current == null || string.IsNullOrEmpty(current.ChainId) || current.ChainIndex < 0)
+                return null;
+            var src = RecordingStore.CommittedRecordings;
+            if (src == null) return null;
+            for (int i = 0; i < src.Count; i++)
+            {
+                var r = src[i];
+                if (r == null || ReferenceEquals(r, current)) continue;
+                if (string.Equals(r.ChainId, current.ChainId, StringComparison.Ordinal)
+                    && r.ChainBranch == current.ChainBranch
+                    && r.ChainIndex == current.ChainIndex + 1)
+                    return r;
             }
             return null;
         }
