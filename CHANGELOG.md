@@ -37,6 +37,17 @@ Not released yet.
 
 ### Fixed
 
+- **Switching to a falling booster no longer records it forever.** A dropped stage you switched to
+  kept recording until it crashed, unlike every other dropped stage. It now stays a dropped stage
+  and its recording ends 60 seconds after it separated, while you keep watching it.
+  (DEBRIS-LIFETIME-LOST-ON-PROMOTION)
+- **A crewed or probe-controlled vessel you are not flying records every breakup.** A vessel
+  that had already separated once from your rocket no longer ignored its own later separations
+  while in the background. Plain debris still records only the separation that made it.
+  (BG-BREAKUP-GENERATION-CAP)
+- **Time warp no longer cuts off a falling booster's replay.** Warping right after staging ended
+  the recording of every dropped stage at once. A dropped stage now keeps recording through the
+  warp until its usual 60 seconds are up. (DEBRIS-ENDS-WHEN-PARENT-GOES-ON-RAILS)
 - **Leaving the scene during a burn no longer leaves the replay's engines lit.** Going to the
   Space Center, or committing the flight, while an engine or thruster was firing kept its plume
   burning in the replay until the end. It now shuts off at the moment you left.

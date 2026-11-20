@@ -1331,8 +1331,10 @@ namespace Parsek
                 double bgUT = Planetarium.GetUniversalTime();
                 backgroundRecorder.UpdateOnRails(bgUT);
                 backgroundRecorder.ProcessPendingSplitChecks();
-                backgroundRecorder.CheckDebrisTTL(bgUT);
+                List<uint> endedDebrisPids = backgroundRecorder.CheckDebrisTTL(bgUT);
+                DisarmPostSwitchWatchForEndedDebris(endedDebrisPids);
             }
+            CheckActiveDebrisLifetime(Planetarium.GetUniversalTime());
 
             SplitBrancher.HandleJointBreakDeferredCheck();
             SplitBrancher.TickCrashCoalescer();
