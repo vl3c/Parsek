@@ -116,6 +116,46 @@ fix the log read `contractId='e8ba5ea6-... effect=StrandedAsset outcome=Regenera
 with it, the same line carries `repair=RegenerateStrandedAsset`, the `regenerated stranded asset`
 line must follow with `added=1`, a vessel named for Rayvan's pod must exist (a `ListHandles` read or
 a saveParse expectation), and a save / load and a second warp must not add a second one.
+## ~~SAVE-FREEZE-ON-MISSING-SIDECAR~~: one recording whose sidecar cannot be written froze its whole tree in every later save [FILED 2026-11-18 by code reading (test-gap pass, branch `test-gaps-savefreeze`); CONFIRMED 2026-11-20 by two red xUnit cells on the pre-fix code. FIXED 2026-11-20, same branch; xUnit; ST-4 re-pinned by code read, re-flight owed; high (silent loss of every later change to the tree; the sidecars of recordings the save no longer named were left as orphans on disk)]
+
+What happened. `ParsekScenario.SaveTreeRecordings` (`Controllers/ParsekScenario.Save.cs`) writes a
+committed tree only when every recording's sidecars are current. When one is not (a `.prec`
+missing or unreadable at load, so `SidecarLoadFailed` stays set, or a sidecar write that fails),
+the save-must-not-delete fix of QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE
+carried the tree's last-known-good RECORDING_TREE node forward from the on-disk persistent.sfs,
+reconciled to recordings the live tree still had (`TryCarryForwardCommittedTreeNodeFromLoadedSave`).
+The skip condition is sticky, so that old node was written on every save until the fault cleared:
+a recording added to the tree since (a Re-Fly fork, a switch continuation segment, a new branch)
+was missing from every save, every edit to a healthy member (a rename, a group move, a terminal
+state) was replaced by its old value, and the branch-point topology stayed the old one. The two
+red cells on the pre-fix production files: a recording added after the disk save was absent from
+the written tree (`Assert.Contains() Failure`), and a healthy member renamed in memory was written
+with its disk name (`Expected: Renamed In Memory, Actual: Old Name On Disk`).
+
+Fix. The tree is always written from memory. For each recording whose files could not be written,
+`SpliceLastKnownGoodRecordingNodes` (`Controllers/ParsekScenario.CommittedTreeCarry.cs`) replaces
+only the keys that name its sidecar files (`CarriedSidecarIdentityKeys`: `sidecarEpoch`,
+`precHash`, `vesselHash`, `ghostHash`, `ghostSnapshotMode`, `pointCount`) with the values of its
+node in the on-disk save; a key the disk node lacks is removed, and a recording the disk save does
+not hold keeps memory's node. The rest of that recording's node stays memory's on purpose: its
+`childBranchPointId` must agree with memory's BRANCH_POINT nodes, or a recording a branch was
+added under reloads as a leaf. Nothing is added from disk, so a recording the player deleted is
+never resurrected, and the reconcile / root-refusal / branch-point prune of the old carry are
+gone with it. A tree with no on-disk node is now written from memory instead of dropped at Error.
+Logs: one Warn per affected tree (`OnSave: tree '<name>' id=<id> written from memory with N
+unwritable recording(s) [ids]: recordings= splicedFromDisk= unwritableWithoutDiskNode= source=
+diskTreeNode=`, ids capped at 10) and one Info summary per save.
+
+Load side (mirror). The spliced node loads as the same tree: the recording with the missing
+`.prec` hydrates as `trajectory-missing` with no points, which `DropFailedSidecarHydrationRecordings`
+keeps (`IsSyntheticFixtureSidecarMarker`), and keeps its branch-point link; the next save takes the
+same path. Not changed here: a root whose sidecar is unreadable (not missing) still drops its
+whole tree at load, which is the load-side policy, not this save path.
+
+Tests: `UnserializableTreeCarryForwardTests`
+(`SaveTreeRecordings_UnwritableMember_DoesNotFreezeTheRestOfTheTree` is the red cell, plus the
+load-back mirror, the key-set pin against the codec and the splice units). ST-4 pins the reworded
+Warn line; re-flight owed.
 
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
