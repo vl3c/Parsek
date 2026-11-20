@@ -203,13 +203,39 @@ namespace Parsek.Tests
             SettingsPresent = true,
         };
 
-        [Fact]
-        public void Dispatch_OutsideFlight_Defers()
+        [Theory]
+        [InlineData("MainMenu")]
+        [InlineData("Editor")]
+        public void Dispatch_OutsideAVesselListScene_Defers(string sceneName)
         {
+            var scene = (TestCommandScene)Enum.Parse(typeof(TestCommandScene), sceneName);
             var r = TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=AlarmJump pid=5"),
-                new DispatchState { Scene = TestCommandScene.MainMenu });
+                new DispatchState { Scene = scene, GameLoaded = true, SettingsPresent = true });
             Assert.Equal(DispatchDecision.Defer, r.Decision);
-            Assert.Equal("not-in-flight", r.Reason);
+            Assert.Equal(TestCommandDispatcher.NotInVesselListSceneReason, r.Reason);
+        }
+
+        [Theory]
+        [InlineData("SpaceCenter")]
+        [InlineData("TrackingStation")]
+        public void Dispatch_SpaceCenterAndTrackingStation_Execute(string sceneName)
+        {
+            var scene = (TestCommandScene)Enum.Parse(typeof(TestCommandScene), sceneName);
+            // The stock alarm dialog's Jump exists in both; its non-FLIGHT branch saves and
+            // requests the FLIGHT load the scene's Fly intent rides (GC-13).
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=AlarmJump pid=5"),
+                new DispatchState { Scene = scene, GameLoaded = true, SettingsPresent = true });
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Theory]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        public void DeletesAlarmBeforePress_OnlyOutsideFlight(bool inFlight, bool expected)
+        {
+            // Outside FLIGHT stock's Jump saves persistent before it loads FLIGHT, so a seam
+            // alarm still listed would ride into that save.
+            Assert.Equal(expected, TestCommandAlarmJump.DeletesAlarmBeforePress(inFlight));
         }
 
         [Fact]

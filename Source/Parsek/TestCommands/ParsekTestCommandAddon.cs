@@ -1080,6 +1080,14 @@ namespace Parsek.TestCommands
                 TryCompleteTrackingStationRecover(now);
                 return;
             }
+            // SimulateStockSwitchClick site=ts / site=ksc, in the .SimulateSwitchClickFly.cs
+            // partial: a stock Fly pressed in its own scene, answered once the FLIGHT load
+            // settled and the armed intent was spent. site=map never reaches here (single-phase).
+            if (completionVerb == "SimulateStockSwitchClick")
+            {
+                TryCompleteSwitchClickFly(now);
+                return;
+            }
             // KscMarkerRecover, in the .KscMarkerRecover.cs partial: the vessel's Space
             // Center marker, opened and its Recover pressed, with no scene change.
             if (completionVerb == TestCommandKscMarkerRecover.Verb)
@@ -1359,6 +1367,8 @@ namespace Parsek.TestCommands
             recoverIntoReFlyDialog = false;
             RemoveTsRecoverListeners();
             RemoveKscRecoverListeners();
+            // A fly-site click's scene-load listener must never outlive its command either.
+            RemoveFlyClickListener();
             // A DriveVessel callback must never outlive its command either: a stale one
             // would keep a vessel's wheels driven.
             RemoveDriveVesselCallback();

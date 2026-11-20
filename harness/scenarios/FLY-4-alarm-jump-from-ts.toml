@@ -1,0 +1,88 @@
+schema = 1
+id = "FLY-4-alarm-jump-from-ts"
+# =====================================================================================
+# WHAT THIS LANE PROVES (test-gaps Batch 3, "alarm Jump from those scenes", Tracking
+# Station half; GC-13). A stock Alarm Clock alarm on the orbiting Kerbal X Probe fires its
+# message dialog in the TRACKING STATION and its Jump is pressed through stock's own
+# `OnJump` (`AlarmJump`, now valid outside FLIGHT). Outside FLIGHT stock's Jump saves
+# persistent and calls StartAndFocusVessel, and AlarmJumpSwitchPatch's non-FLIGHT branch
+# strips the ghosts and arms the scene's Fly intent (TrackingStationFly / TrackingStation)
+# first, so the FLIGHT load consumes it like a TS Fly: a standalone segment
+# (`created ... reason=TrackingStationFly`, `route=standalone`). Until now AJ-1 and S0.14
+# pressed Jump only in FLIGHT.
+#
+# THE SEAM ALARM. The verb deletes its own scaffold alarm before the press here
+# (`alarmjump deleted the seam alarm before the press`), so stock's save does not carry it
+# into the flight; the dialog keeps its own alarm reference and OnJump reads only the
+# vessel, so the press is the player's.
+#
+# THE WAIT. AlarmJump is single-phase: it answers `sceneLoadRequested=true` with the load
+# only requested. `ListHandles kind=chains` (S0.14's pattern) defers `ghost-chains-pending`
+# until the new flight's OnFlightReady ran, and the consume runs at the top of
+# OnFlightReady, so every step after it reads the consumed state.
+#
+# HOST. `eva2-lko-crewed` (no trees; "Kerbal X Probe", pid 2614652043, orbiting).
+#
+# FAST-LANE CHECKLIST: as FLY-1; no dwell (the alarm is added an hour ahead and fired at
+# once by the verb).
+# =====================================================================================
+tier = "nightly"
+description = "FLY-4: on eva2-lko-crewed, load the Tracking Station, fire a stock alarm on the orbiting Kerbal X Probe and press its Jump; stock saves and loads FLIGHT, AlarmJumpSwitchPatch arms the TrackingStationFly intent first, and the consume opens a standalone segment on the probe."
+instanceProfile = "stock-minimal"
+tags = ["FLY-4", "switch-segment", "alarm-jump", "GC-13", "scene-trackstation", "D1", "test-gaps-b3"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "AlarmJump",      args = { vessel = "Kerbal X Probe", jump = "shown" },     expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "chains" },                               expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["switch-segment"]
+D14 = ["kerbin", "sandbox", "scene-ts", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# AUTHORED, NEVER FLOWN: the standalone tree's segment. Re-pin after the first flight.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "alarmjump start targetPid=2614652043 vessel='Kerbal X Probe' targetIsGhost=false .*decision=leave-to-stock jump=shown",
+  "alarmjump deleted the seam alarm before the press alarmId=[0-9]+ scene=TRACKSTATION removed=true",
+  "\\[AlarmJump\\] Alarm Jump intent armed: intentId=\\S+ action=TrackingStationFly targetPid=2614652043 sourceScene=TrackingStation",
+  "alarmjump result targetPid=2614652043 targetIsGhost=false .*decision=leave-to-stock jump=shown pressed=true .*sceneLoadRequested=true alarmRemoved=true",
+  "\\[SwitchIntent\\] intent kept-armed on OnLoad: intentId=\\S+ action=TrackingStationFly targetPid=2614652043",
+  "\\[SwitchSegment\\] created intentId=\\S+ .*focusedPid=2614652043 focusedName='Kerbal X Probe' reason=TrackingStationFly",
+  "\\[SwitchSegment\\] route=standalone intentId=\\S+ .*focusedPid=2614652043",
+  "\\[SwitchIntent\\] cleared: intentId=\\S+ action=TrackingStationFly targetPid=2614652043 reason=consumed-into-segment",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "alarmjump rejected",
+  "alarmjump failed",
+  "Jump refused",
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

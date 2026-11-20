@@ -87,12 +87,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RequiresVesselListScene_IsExactlyReadVesselResources()
+        public void RequiresVesselListScene_IsExactlyReadVesselResourcesAndAlarmJump()
         {
+            // AlarmJump joined it: the stock alarm dialog's Jump exists in FLIGHT, at the Space
+            // Center and in the Tracking Station, the three scenes holding the vessel list.
             var verbs = TestCommandDispatcher.PreconditionTable
                 .Where(kv => kv.Value == VerbSceneRequirement.RequiresVesselListScene)
-                .Select(kv => kv.Key).ToList();
-            Assert.Equal(new[] { Verb }, verbs);
+                .Select(kv => kv.Key).OrderBy(v => v, System.StringComparer.Ordinal).ToList();
+            Assert.Equal(new[] { "AlarmJump", Verb }, verbs);
         }
 
         // ----- arg parsing -----

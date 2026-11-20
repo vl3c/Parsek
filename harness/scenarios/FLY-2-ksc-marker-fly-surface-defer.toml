@@ -1,0 +1,96 @@
+schema = 1
+id = "FLY-2-ksc-marker-fly-surface-defer"
+# =====================================================================================
+# WHAT THIS LANE PROVES (test-gaps Batch 3, "Fly from a KSC marker"). The Space Center's
+# vessel-marker Fly on a COMMITTED vessel, pressed through stock's own controls
+# (`SimulateStockSwitchClick site=ksc`: the marker's `Marker` button expands it, its
+# `FlyButton` dismisses with Fly, and stock runs `KSCVesselMarkers.FlyVessel` one frame
+# later), so the patched FlyVessel (KscVesselMarkerFlyPatch) arms the KscMarkerFly intent
+# before stock's save + StartAndFocusVessel, exactly as for a click.
+#
+# THE CONSUME OUTCOME IS THE ON-SURFACE DEFER, AND THAT IS THE ONLY ONE A KSC MARKER CAN
+# REACH. Stock spawns a marker only for a vessel landed or splashed on the home world
+# (`KSCVesselMarkers.SpawnVesselMarkers`), and the consume declines every surface target by
+# design (`StockActionIntentConsumeDecision`: `OnSurfaceDeferToTrigger`, clear reason
+# `on-surface-defer-to-trigger`), leaving the start to the normal auto-record triggers. So
+# this lane pins the refusal and forbids the segment; the KSC SOURCE SCENE with a started
+# segment is FLY-5 (an alarm Jump from the Space Center to an orbiting vessel arms the same
+# KscMarkerFly intent).
+#
+# HOST. `kerbin-splashdown-recorded`: the committed Kerbal X (pid 2708531065, LANDED on
+# Kerbin after the splashdown recording, a Ship, so it carries a stock marker). The pid is
+# the selector because the vessel's saved name is a localization token.
+#
+# AFTER THE CONSUME. The committed-tree restore runs after the consume in OnFlightReady and
+# may resume recording into a clone of the committed tree; RecordingState records whether it
+# did, and StopRecording (OK either way) keeps a live recorder from reaching the quit.
+#
+# FAST-LANE CHECKLIST: (1) no lane flies a KSC marker Fly; the KscMarkerRecover lanes press
+# Recover on the same control and stay at the Space Center. (2) no idle waits: the verb waits
+# for the marker (stock spawns them 15 frames after the scene wakes), the FLIGHT load and
+# the consume. (3)-(5) n/a. (6) retry once. (7) the window is a range until measured. (8)
+# nightly pending a measured p50. (9) flight_efficiency.py owed after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "FLY-2: on kerbin-splashdown-recorded, load the Space Center and press the committed, landed Kerbal X's vessel marker Fly through stock's own controls; the patched KSCVesselMarkers.FlyVessel arms the KscMarkerFly intent, it survives the FLIGHT load, and the consume declines the surface target (on-surface-defer-to-trigger) with no segment."
+instanceProfile = "stock-minimal"
+tags = ["FLY-2", "switch-segment", "stock-click", "ksc-marker-fly", "D1", "test-gaps-b3"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",               args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { site = "ksc", pid = "2708531065" },              expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                     expect = "OK" },
+  { cmd = "StopRecording",                                                                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# D1 switch-segment: the consume's surface refusal for the KSC marker entry, the branch
+# point the switch-segment design defers to the normal trigger.
+D1  = ["switch-segment"]
+D14 = ["kerbin", "sandbox", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# AUTHORED, NEVER FLOWN: the fixture's 7 committed recordings; one more only if the
+# committed-tree restore resumed recording. Re-pin after the first flight.
+count = { min = 7, max = 8 }
+
+[expectations.logContracts]
+required = [
+  "switchclick fly gate site=ksc targetPid=2708531065 .*situation=(LANDED|SPLASHED) scenarioReady=true .*homeWorld=true kscMarker=true decision=proceed",
+  "switchclick fly pressed site=ksc targetPid=2708531065 .*control=ksc-marker-fly",
+  "\\[SwitchIntentPatch\\] KSC marker Fly intent armed: intentId=\\S+ action=KscMarkerFly targetPid=2708531065 sourceScene=SpaceCenter",
+  "switchclick fly observed FLIGHT load request site=ksc targetPid=2708531065 intentArmed=true intentId=\\S+ action=KscMarkerFly markerTargetPid=2708531065",
+  "\\[SwitchIntent\\] intent kept-armed on OnLoad: intentId=\\S+ action=KscMarkerFly targetPid=2708531065",
+  "\\[SwitchIntent\\] refused: reason=on-surface-defer-to-trigger intentId=\\S+ action=KscMarkerFly markerTargetPid=2708531065 newVesselPid=2708531065",
+  "\\[SwitchIntent\\] cleared: intentId=\\S+ action=KscMarkerFly targetPid=2708531065 reason=on-surface-defer-to-trigger",
+  "switchclick complete site=ksc targetPid=2708531065 .*route=stock-fly-control activeVesselPid=2708531065 switched=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "switchclick refused",
+  "switchclick failed",
+  "\\[SwitchIntent\\] cleared: intentId=\\S+ action=KscMarkerFly targetPid=2708531065 reason=consumed-into-segment",
+  "\\[SwitchSegment\\] created intentId=\\S+ .*reason=KscMarkerFly",
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

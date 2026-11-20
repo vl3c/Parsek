@@ -1,0 +1,77 @@
+schema = 1
+id = "FLY-5-alarm-jump-from-ksc"
+# =====================================================================================
+# WHAT THIS LANE PROVES (test-gaps Batch 3, "alarm Jump from those scenes", Space Center
+# half; GC-13). FLY-4's alarm Jump pressed at the SPACE CENTER: AlarmJumpSwitchPatch's
+# non-FLIGHT branch arms the scene's Fly intent, which at the Space Center is the KSC
+# marker's (KscMarkerFly / SpaceCenter), before stock's save + StartAndFocusVessel. Unlike
+# a KSC marker (FLY-2, landed vessels only, always the on-surface defer), an alarm can name
+# an ORBITING vessel, so this is the lane where a KscMarkerFly intent reaches an AUTHORIZED
+# consume: a standalone segment with `reason=KscMarkerFly`.
+#
+# HOST, WAIT AND SEAM ALARM: as FLY-4 (eva2-lko-crewed, "Kerbal X Probe", pid 2614652043,
+# orbiting; `ListHandles kind=chains` waits for OnFlightReady; the scaffold alarm is deleted
+# before the press).
+#
+# FAST-LANE CHECKLIST: as FLY-1.
+# =====================================================================================
+tier = "nightly"
+description = "FLY-5: on eva2-lko-crewed, load the Space Center, fire a stock alarm on the orbiting Kerbal X Probe and press its Jump; stock saves and loads FLIGHT, AlarmJumpSwitchPatch arms the KscMarkerFly intent first, and the consume opens a standalone segment on the probe (the KSC source scene's authorized consume)."
+instanceProfile = "stock-minimal"
+tags = ["FLY-5", "switch-segment", "alarm-jump", "GC-13", "scene-ksc", "D1", "test-gaps-b3"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "AlarmJump",      args = { vessel = "Kerbal X Probe", jump = "shown" },     expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "chains" },                               expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["switch-segment"]
+D14 = ["kerbin", "sandbox", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# AUTHORED, NEVER FLOWN: the standalone tree's segment. Re-pin after the first flight.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "alarmjump start targetPid=2614652043 vessel='Kerbal X Probe' targetIsGhost=false .*decision=leave-to-stock jump=shown",
+  "alarmjump deleted the seam alarm before the press alarmId=[0-9]+ scene=SPACECENTER removed=true",
+  "\\[AlarmJump\\] Alarm Jump intent armed: intentId=\\S+ action=KscMarkerFly targetPid=2614652043 sourceScene=SpaceCenter",
+  "alarmjump result targetPid=2614652043 targetIsGhost=false .*decision=leave-to-stock jump=shown pressed=true .*sceneLoadRequested=true alarmRemoved=true",
+  "\\[SwitchIntent\\] intent kept-armed on OnLoad: intentId=\\S+ action=KscMarkerFly targetPid=2614652043",
+  "\\[SwitchSegment\\] created intentId=\\S+ .*focusedPid=2614652043 focusedName='Kerbal X Probe' reason=KscMarkerFly",
+  "\\[SwitchSegment\\] route=standalone intentId=\\S+ .*focusedPid=2614652043",
+  "\\[SwitchIntent\\] cleared: intentId=\\S+ action=KscMarkerFly targetPid=2614652043 reason=consumed-into-segment",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "alarmjump rejected",
+  "alarmjump failed",
+  "Jump refused",
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

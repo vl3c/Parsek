@@ -1159,14 +1159,20 @@ performs. It is the first PROMOTION out of the reserved list since M-C1 (impleme
 20 -> 21, reserved 11 -> 10); the wire token is byte-identical before and after, only the
 response changes.
 
-**Contract.** FLIGHT-only (dispatch precondition `RequiresFlight`; the map view is a FLIGHT
-overlay). SINGLE-phase: after the unloaded-target refusal below the whole path is
+**Contract.** The site picks the scene: the dispatch row is `AnyScene` and a per-site
+sub-gate (`TestCommandSimulateSwitchClick.DecideDispatchScene`) DEFERS the wrong scene with
+the site's own token: `site=map` (or absent) `not-in-flight` (the map view is a FLIGHT
+overlay), `site=ts` `not-in-trackstation`, `site=ksc` `not-at-space-center`; an unparseable
+`site=` executes so the executor rejects it at once. The two cross-scene sites are
+two-phase and have their own contract below (`site=ts` / `site=ksc`); the rest of this
+paragraph is the map site's. SINGLE-phase: after the unloaded-target refusal below the whole path is
 synchronous - `SetActiveVessel` fires `onVesselSwitching` -> `MakeActive` ->
 `onVesselChange` (hence Parsek's consume) INSIDE the call - so there is nothing left to
 wait for and a two-phase terminal would hold the FIFO head polling for an event that
 already happened. At-most-once is unaffected: the pump journals CLAIMED before invoking ANY
-executor, so a crash mid-switch replays as INTERRUPTED and never re-switches. It rides the
-default 60 s budget, which therefore only ever bounds the `not-in-flight` DEFER. Two
+executor, so a crash mid-switch replays as INTERRUPTED and never re-switches. Its budget
+(`DeferralBudget.SimulateStockSwitchClickSeconds`, 300 s, one per verb and sized for the fly
+sites' FLIGHT load) therefore only ever bounds the map site's `not-in-flight` DEFER. Two
 dispatch-level rejects mirror `ExitToSpaceCenter`: `load-in-flight` and
 `merge-journal-in-flight`. There is deliberately NO `recording-active` reject - a live
 recorder is the PRECONDITION for the switch-segment cases the verb exists to exercise.
@@ -1175,7 +1181,7 @@ recorder is the PRECONDITION for the switch-segment cases the verb exists to exe
 
 | arg | values | meaning |
 |---|---|---|
-| `site` | `map` \| `ts` \| `ksc` | absent = `map`. v1 drives `map` only. |
+| `site` | `map` \| `ts` \| `ksc` | absent = `map`. `ts` = the Tracking Station's Fly, `ksc` = a Space Center vessel marker's Fly (two-phase, below). |
 | `vessel` | exact vessel name (percent-encoded ON THE WIRE; a spec carries the RAW name - `run.py` encodes) | target by name. |
 | `pid` | `persistentId` (uint) | target by pid. WINS when both are given. |
 
@@ -1200,7 +1206,6 @@ post-arm outcomes.
 | verdict | `msg` | when |
 |---|---|---|
 | REJECTED | `site-arg-invalid site=<raw>` | `site=` present and not one of the three spellings (incl. empty, `MAP`, `trackstation`) |
-| REJECTED | `site-not-implemented site=<ts\|ksc>` | a known site v1 does not drive |
 | REJECTED | `target-arg-missing` | neither `vessel=` nor `pid=` |
 | REJECTED | `pid-arg-invalid pid=<raw>` | `pid=` present and not a uint |
 | REJECTED | `vessel-arg-invalid vessel=` | `vessel=` present but empty |
@@ -1216,7 +1221,48 @@ post-arm outcomes.
 | ERROR | `switch-threw` | `SetActiveVessel` threw |
 | ERROR | `switch-refused-by-stock` | the call returned but the active vessel is not the target |
 
-Three of those deserve their reasons stated:
+**`site=ts` / `site=ksc` (two-phase, test-gaps Batch 3, lanes FLY-1..FLY-3).** Both stock
+handlers (`SpaceTracking.FlyVessel`, `KSCVesselMarkers.FlyVessel`) save `persistent` and call
+`FlightDriver.StartAndFocusVessel("persistent", FlightGlobals.Vessels.IndexOf(v))`, and
+Parsek's patches on them arm the intent (`TrackingStationFly` / `KscMarkerFly`) and strip the
+ghost map vessels from the live list BEFORE that save. So the verb arms nothing and loads
+nothing itself: it PRESSES the stock control in a player's order - Tracking Station:
+`SpaceTracking.SetVessel(v, true)` (a list-row click), then the public `FlyButton`'s own
+`onClick`; Space Center: the vessel's `KSCVesselMarker`, its `Marker` button (expand) and its
+`FlyButton` (`Dismiss(Fly)`, stock's `FlyVessel` one frame later). Target resolution and the
+Re-Fly switch block are the map site's (with the `tsFly` / `kscMarkerFly` path token). The
+pre-press gate, in order: `scenario-not-ready`; Tracking Station only `cannot-fly-vessel`
+(the game's `TrackingStation.CanFlyVessel` is off, stock locks Fly) and `target-not-owned`
+(stock's FlyVessel refuses a non-Owned discovery); Space Center only
+`target-has-no-ksc-marker` (stock marks only a vessel landed or splashed on the home world
+that is not a deployed science part or dropped part). It logs `switchclick fly gate site=
+targetPid= targetName= situation= scenarioReady= canFlyVessel= owned= homeWorld= kscMarker=
+decision=` and answers PENDING. The completion polls: it waits up to 300 frames for the
+control (`fly-control-missing`, REJECTED; the KSC markers spawn 15 frames after the scene
+wakes), selects (TS; `fly-select-failed`, ERROR, after 120 frames), refuses a
+non-interactable Fly (`fly-button-locked`, REJECTED), presses (`switchclick fly pressed
+site= targetPid= targetName= control=trackingstation-fly|ksc-marker-fly framesWaited=`),
+then LISTENS to `onGameSceneLoadRequested` (FLIGHT): GameEvents fire the newest listener
+first, so it reads the intent the patch armed before stock's `ScenarioRunner` destroys the
+scenario (`switchclick fly observed FLIGHT load request site= targetPid= intentArmed=
+intentId= action= markerTargetPid=`). No load within 120 frames of the press is ERROR
+`fly-no-scene-load` (stock refused); a load with no intent of the site's action, source scene
+and target is ERROR `fly-intent-not-armed`. Then it waits for the NEW flight to settle (its
+`ParsekFlight` saw `onFlightReady`, the active vessel unpacked) and for the armed intent to be
+SPENT (cleared by the consume or a refusal): OK, payload as the map site's with
+`route=stock-fly-control` and the OBSERVED `activeVesselPid` / `switched`; a different active
+vessel is ERROR `fly-wrong-vessel` (the ghost-index desync the strip prevents), an intent still
+armed 600 frames after the settle ERROR `fly-intent-not-consumed`, a fall back to the main
+menu ERROR `fly-returned-to-menu`, the budget ERROR `fly-timeout`. As for the map site, the
+consume ROUTE (committed clone, standalone, the on-surface defer) stays in the
+`[SwitchSegment]` / `[SwitchIntent]` lines. A KSC marker can only name a landed or splashed
+vessel, so its consume always takes the on-surface defer (FLY-2); the BG-member branch is
+not reachable from either site, because a fresh FLIGHT load has no live tree. Pure half
+`TestCommandSimulateSwitchClick.FlySites.cs`, applier
+`ParsekTestCommandAddon.SimulateSwitchClickFly.cs`, mirrored by
+`SwitchClickFlySourceSyncTests` (`hlib.SWITCHCLICK_FLY_*`).
+
+Three of the map site's refusals deserve their reasons stated:
 
 - **The dialog cases are refusals, never driven dialogs.** The real Prefix has three dialog
   branches - Case A (armed `SwitchSegmentSession`, different target), Case B (no session, an
@@ -5326,7 +5372,7 @@ button's listener, `OnJump`, is added in `Start`, a frame later. `OnDeleteOnClos
 button) sets `deleteWhenDone`, runs `ActionAlarm` (which deletes the alarm) and destroys the dialog.
 
 **Grammar.** `cmd=AlarmJump vessel=<exact name>|pid=<persistentId> [jump=shown|always|never]`,
-issued in FLIGHT. Exactly one of `vessel=` / `pid=` (`alarmjump-target-arg-missing`,
+issued in FLIGHT, at the Space Center or in the Tracking Station. Exactly one of `vessel=` / `pid=` (`alarmjump-target-arg-missing`,
 `-target-arg-conflict`; a pid is a positive base-10 uint, `-pid-arg-invalid`); `jump=` exact and
 lower-case (`-jump-arg-invalid`), absent means `shown`. All deterministic, arg-class.
 
@@ -5347,11 +5393,17 @@ invokes `OnJump` directly (the listener is not attached yet in the spawn frame),
 Prefix runs as on a click; `onGameSceneLoadRequested` is watched during the call (a far switch
 REQUESTS a scene load, which `after=` alone cannot see); a throw is ERROR `-jump-threw`. Every
 path then closes the dialog through `OnDeleteOnClose` and deletes the alarm if it is still listed.
-The verb never calls `SetActiveVessel` itself.
+Outside FLIGHT stock's Jump saves `persistent` before it loads FLIGHT, so the verb deletes its own
+alarm BEFORE the press there (`alarmjump deleted the seam alarm before the press alarmId= scene=
+removed=`; the dialog keeps its alarm reference and `OnJump` reads only the vessel) and afterwards
+only closes the dialog (`CloseDialog`, no second delete). The verb never calls `SetActiveVessel`
+itself.
 
-**Phases.** SINGLE-PHASE, `RequiresFlight` (v1 drives the FLIGHT branch; the Tracking Station and
-Space Center branch saves and loads a new scene, which needs a two-phase answer and its own scene
-gate), default 60 s budget, `load-in-flight` / `merge-journal-in-flight` refused at dispatch as for
+**Phases.** SINGLE-PHASE, `RequiresVesselListScene` (FLIGHT, the Space Center, the Tracking
+Station; 2026-11-20, lanes FLY-4 / FLY-5). Outside FLIGHT the press only REQUESTS the FLIGHT load
+(`sceneLoadRequested=true`), AlarmJumpSwitchPatch having armed the scene's Fly intent first; the
+next step waits for FLIGHT on its own gate (`ListHandles kind=chains` holds until OnFlightReady,
+where the consume runs). Default 60 s budget, `load-in-flight` / `merge-journal-in-flight` refused at dispatch as for
 `SimulateStockSwitchClick`, world-mutating tail role, `recording` post-mission role. OK payload in
 this order: `targetPid targetIsGhost targetLoaded alarmId stockWouldShowJump jumpShown decision
 jump pressed before after switched sceneLoadRequested alarmRemoved`. Line `alarmjump result` plus
@@ -5696,7 +5748,8 @@ wall-clock. Some verbs need a different bound and override the default:
 | `DriveVessel` | (default) 60 s | TWO-PHASE, at most 30 game seconds of drive; the completion ends ERROR `drivevessel-timeout` rather than letting the pump convert it |
 | `CrewTransfer` | (default) 60 s | TWO-PHASE: stock moves the kerbal synchronously and dismisses one frame later; the completion ends ERROR `crewtransfer-timeout` rather than letting the pump convert it |
 | `CycleVessel` | (default) 60 s | SINGLE-PHASE: the press and a switch between loaded vessels run inside the call; the budget only bounds the not-in-flight dispatch defer |
-| `AlarmJump` | (default) 60 s | SINGLE-PHASE: the alarm is added, fired, its Jump pressed and its dialog closed inside the call; a far switch only requests its scene load there |
+| `AlarmJump` | (default) 60 s | SINGLE-PHASE: the alarm is added, fired, its Jump pressed and its dialog closed inside the call; a far switch, or any Jump from the Space Center or the Tracking Station, only requests its scene load there |
+| `SimulateStockSwitchClick` | 300 s | the LoadGame size, for its TWO-PHASE `site=ts` / `site=ksc`: stock's Fly saves `persistent` and loads FLIGHT from it, then the completion waits for the consume to spend the intent; the single-phase map site only spends it on a `not-in-flight` defer |
 | `EvaSeatBoard` / `EvaSeatLeave` | (default) 60 s | TWO-PHASE: stock's board and leave land within a frame and the completion holds 10 polls past Parsek's dock merge; each ends ERROR `-timeout` rather than letting the pump convert it |
 | `NewGame` | 300 s | TWO-PHASE, the `ReFlyRevert` size: the pause menu's save and the main menu load, a 5-poll menu settle, the delete and stock's create, then the Space Center load from the new `persistent.sfs`; a `DEFERRED_SEAM_VERB` |
 | `LaunchSiteProbe` | (default) 60 s | TWO-PHASE: no scene load on the designed path; the picker list wait, the dialog wait (each up to 10 s) and a 1 s settle; a settle that never ends is ERROR `-not-settled` |

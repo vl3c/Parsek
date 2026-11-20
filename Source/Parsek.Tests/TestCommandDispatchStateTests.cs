@@ -118,7 +118,9 @@ namespace Parsek.Tests
         [InlineData("EvaChuteDeploy", "RequiresFlight")]
         [InlineData("EvaGroundScience", "RequiresFlight")]
         [InlineData("ExitToSpaceCenter", "RequiresFlight")]
-        [InlineData("SimulateStockSwitchClick", "RequiresFlight")]
+        // SimulateStockSwitchClick: AnyScene plus the per-site scene sub-gate (map FLIGHT,
+        // ts TRACKSTATION, ksc SPACECENTER), pinned in TestCommandDispatchTests.
+        [InlineData("SimulateStockSwitchClick", "AnyScene")]
         // The arrival-validation lane's promotion arms mission loop state on a
         // committed tree from FLIGHT (this row was missing when MissionConfig landed).
         [InlineData("MissionConfig", "RequiresFlight")]
@@ -218,8 +220,9 @@ namespace Parsek.Tests
         [InlineData("EvaSeatLeave", "RequiresFlight")]
         // NewGame: Space Center only, the wrong scene its own typed REJECTED.
         [InlineData("NewGame", "RequiresGameLoaded")]
-        // AlarmJump: v1 drives the FLIGHT branch of stock's OnJump.
-        [InlineData("AlarmJump", "RequiresFlight")]
+        // AlarmJump: the stock alarm dialog's Jump exists in FLIGHT, at the Space Center and
+        // in the Tracking Station (the non-FLIGHT branch saves and requests a FLIGHT load).
+        [InlineData("AlarmJump", "RequiresVesselListScene")]
         // LaunchSiteProbe: the editor-route row (EDITOR or SPACECENTER, checked by the executor).
         [InlineData("LaunchSiteProbe", "RequiresGameLoaded")]
         // PickUpFlag: a live kerbal and a live flag vessel (the EVA family row).

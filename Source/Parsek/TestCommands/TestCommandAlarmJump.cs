@@ -32,7 +32,13 @@ namespace Parsek.TestCommands
     /// has not run in the frame the dialog was spawned.</para>
     ///
     /// <para><b>Grammar.</b> <c>cmd=AlarmJump vessel=&lt;exact name&gt;|pid=&lt;persistentId&gt;
-    /// [jump=shown|always|never]</c>, issued in FLIGHT. Exactly one of <c>vessel=</c> /
+    /// [jump=shown|always|never]</c>, issued in FLIGHT, at the Space Center or in the Tracking
+    /// Station. Outside FLIGHT stock's Jump saves persistent and requests a FLIGHT load
+    /// (<c>sceneLoadRequested=true</c>), and Parsek's <c>AlarmJumpSwitchPatch</c> strips the
+    /// ghosts and arms the scene's Fly intent (<c>TrackingStationFly</c> /
+    /// <c>KscMarkerFly</c>) first; the seam deletes its own alarm before that press
+    /// (<see cref="DeletesAlarmBeforePress"/>). The next step waits for FLIGHT on its own
+    /// scene gate. Exactly one of <c>vessel=</c> /
     /// <c>pid=</c>. A ghost map vessel is a legal target (an alarm set on a ghost's orbit node is
     /// one of the cases the fix refuses). <c>jump=shown</c> (the default) presses Jump only when
     /// the button is shown, as a player can; <c>jump=always</c> presses it even when hidden
@@ -170,6 +176,13 @@ namespace Parsek.TestCommands
             if (alarmVesselId == 0u || !pidIsLive) return false;
             return activePid == 0u || activePid != alarmVesselId;
         }
+
+        /// <summary>
+        /// True when the seam deletes its own alarm before pressing Jump: outside FLIGHT, where
+        /// stock's Jump saves persistent before it loads FLIGHT, so a scaffold alarm still
+        /// listed would ride into that save and fire an hour later in the new flight.
+        /// </summary>
+        internal static bool DeletesAlarmBeforePress(bool inFlight) => !inFlight;
 
         /// <summary>Whether the verb presses Jump for <paramref name="press"/> given the button state.</summary>
         internal static bool ShouldPress(string press, bool jumpShown)

@@ -1,0 +1,109 @@
+schema = 1
+id = "FLY-1-ts-fly-committed-clone"
+# =====================================================================================
+# WHAT THIS LANE PROVES (test-gaps Batch 3, "Fly from the Tracking Station"). The
+# Tracking Station's Fly button on a COMMITTED vessel, pressed through stock's own control
+# (`SimulateStockSwitchClick site=ts`: `SpaceTracking.SetVessel` then the `FlyButton`'s own
+# onClick), so the patched `SpaceTracking.FlyVessel` (GhostTrackingFlyPatch +
+# SwitchIntentTrackingStationFlyPatch) arms the TrackingStationFly intent and strips the
+# ghosts BEFORE stock's save + StartAndFocusVessel, exactly as for a click. The intent rides
+# persistent.sfs into the FLIGHT load (`intent kept-armed on OnLoad`) and the consume at the
+# top of OnFlightReady takes the FIRST of its three branches, the committed-tree clone
+# (`route=committed-spawned-clone`), and spends the intent (`consumed-into-segment`).
+# Before this lane the TS / KSC Fly consume was unit-tested only: the seam answered
+# `site-not-implemented` for both scenes.
+#
+# HOST. `kerbin-return-recorded`: one committed tree of one recording ("Duna Rocket", pid
+# 807470910, recordedVesselGuid 5384d5f4... equal to the live vessel's guid) whose vessel is
+# live and ORBITING Kerbin. Orbiting is load-bearing: the consume refuses a surface target
+# by design (`on-surface-defer-to-trigger`, FLY-2), so a landed host would certify the
+# refusal, not the branch. The guid match is what TryFindCommittedTreeMatchingVessel needs.
+#
+# THE ADOPT VARIANT. If the 1 Hz committed-tree restore retry ran before OnFlightReady and
+# already continued in a segment, the consume adopts it
+# (`route=committed-spawned-clone adopted-resumed-spawn-segment`) and logs no `created`
+# line of its own; the route pattern below matches both, and the `created ...
+# reason=TrackingStationFly` token is therefore NOT required here (FLY-3 requires it).
+#
+# FAST-LANE CHECKLIST: (1) no existing lane flies a TS Fly, so there is no host flight to
+# reuse; V20T loads this fixture in the TS but drives a loop, not a Fly. (2) no idle waits:
+# the verb's own completion waits for the FLIGHT load and the consume. (3)-(5) no dwell,
+# burn or coast. (6) `retry = once` stays (the TS -> FLIGHT load is the only variable). (7)
+# the recording window is a range until the first flight measures it. (8) tier nightly
+# pending the first measured p50 (S0.8, the map-site sibling, flies in 48 s; this one adds a
+# second scene load). (9) flight_efficiency.py owed after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "FLY-1: on kerbin-return-recorded, load the Tracking Station and press its Fly button on the committed, orbiting Duna Rocket through the stock control; the patched FlyVessel arms the TrackingStationFly intent, it survives the FLIGHT load, and the consume opens a continuation segment through the committed-tree clone branch."
+instanceProfile = "stock-minimal"
+tags = ["FLY-1", "switch-segment", "stock-click", "tracking-station-fly", "D1", "test-gaps-b3"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-return-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# verboseLogging: the consume's `[SwitchSegment] route=` lines are Info, but the phase
+# trace of the verb is Verbose and helps a red. autoRecordOnLaunch off so nothing but the
+# consume starts a recording. StopRecording: the clone route binds a live recorder, and
+# quitting from FLIGHT with it live reds REC-003 (S0.8's first attempt).
+steps = [
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",               args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { site = "ts", pid = "807470910" },                expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                     expect = "OK" },
+  { cmd = "StopRecording",                                                                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# D1 switch-segment: gated by `route=committed-spawned-clone` and `consumed-into-segment`
+# for the target pid. NOT claimed: D5 chain-continuation-switch (whether the clone parents
+# the segment under the recording's terminal leaf is not pinned until the first flight).
+D1  = ["switch-segment"]
+D14 = ["kerbin", "sandbox", "scene-ts", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# AUTHORED, NEVER FLOWN: the committed recording plus the continuation segment. Re-pin to
+# the measured value after the first flight.
+count = { min = 2, max = 3 }
+
+[expectations.logContracts]
+# Ordered as the mechanism runs: verb gate -> stock press -> patch arms -> the verb sees the
+# FLIGHT load request with that intent -> OnLoad keeps it -> consume clone route -> intent
+# spent -> verb terminal (switched=true is OBSERVED, the active vessel after the load).
+required = [
+  "switchclick fly gate site=ts targetPid=807470910 targetName=Duna Rocket situation=ORBITING scenarioReady=true canFlyVessel=true owned=true homeWorld=true kscMarker=false decision=proceed",
+  "switchclick fly pressed site=ts targetPid=807470910 targetName=Duna Rocket control=trackingstation-fly",
+  "\\[SwitchIntentPatch\\] TS Fly intent armed: intentId=\\S+ action=TrackingStationFly targetPid=807470910 sourceScene=TrackingStation",
+  "switchclick fly observed FLIGHT load request site=ts targetPid=807470910 intentArmed=true intentId=\\S+ action=TrackingStationFly markerTargetPid=807470910",
+  "\\[SwitchIntent\\] intent kept-armed on OnLoad: intentId=\\S+ action=TrackingStationFly targetPid=807470910",
+  "\\[SwitchSegment\\] route=committed-spawned-clone .*focusedPid=807470910",
+  "\\[SwitchIntent\\] cleared: intentId=\\S+ action=TrackingStationFly targetPid=807470910 reason=consumed-into-segment",
+  "switchclick complete site=ts targetPid=807470910 targetName=Duna Rocket intentId=\\S+ route=stock-fly-control activeVesselPid=807470910 switched=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "switchclick refused",
+  "switchclick failed",
+  "committed-spawned-clone-restore-failed-start-standalone",
+  "committed-clone-creation-refused-start-standalone",
+  "\\[SwitchIntent\\] cleared: intentId=\\S+ action=TrackingStationFly targetPid=807470910 reason=stale",
+]
+
+[runtime]
+# 300 LoadGame (TS) + 360 SimulateStockSwitchClick step-wait (300 budget + margin) + the
+# fast steps + margin.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

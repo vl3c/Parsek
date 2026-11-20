@@ -9,20 +9,22 @@ namespace Parsek.TestCommands
     /// Which stock-UI click site <c>SimulateStockSwitchClick</c> reproduces. The three
     /// values mirror the three arming patches one-for-one
     /// (<c>MapFocusObjectOnSelectPatch</c>, <c>SwitchIntentTrackingStationFlyPatch</c>,
-    /// <c>KscVesselMarkerFlyPatch</c>); v1 implements <see cref="Map"/> only.
+    /// <c>KscVesselMarkerFlyPatch</c>). <see cref="Map"/> is single-phase in FLIGHT;
+    /// <see cref="TrackingStation"/> and <see cref="Ksc"/> are two-phase, pressed from their own
+    /// scenes and answered after the FLIGHT load they start (TestCommandSimulateSwitchClick.FlySites.cs).
     /// </summary>
     internal enum SwitchClickSite
     {
         /// <summary>Map-view context menu "Switch To" (arms <c>StockActionType.MapSwitchTo</c>
-        /// from FLIGHT). The only site implemented in v1.</summary>
+        /// from FLIGHT).</summary>
         Map,
 
         /// <summary>Tracking Station "Fly" (arms <c>StockActionType.TrackingStationFly</c>
-        /// from TRACKSTATION). Reserved: <c>site-not-implemented</c>.</summary>
+        /// from TRACKSTATION): the Tracking Station's own Fly button on the selected vessel.</summary>
         TrackingStation,
 
         /// <summary>KSC vessel-marker "Fly" (arms <c>StockActionType.KscMarkerFly</c> from
-        /// SPACECENTER). Reserved: <c>site-not-implemented</c>.</summary>
+        /// SPACECENTER): the vessel's own Space Center marker, expanded, then its Fly button.</summary>
         Ksc,
     }
 
@@ -137,13 +139,13 @@ namespace Parsek.TestCommands
     /// contract - the marker, with the map site's fields and its 2 s TTL - and then performs
     /// the same <c>SetActiveVessel</c> the patched handler performs.</para>
     ///
-    /// <para>V1 SCOPE (deliberately narrow):
+    /// <para>SITE SCOPE. <c>site=ts</c> / <c>site=ksc</c> never arm a marker themselves: they
+    /// press the stock control (the Tracking Station's Fly button, the KSC marker's Fly button)
+    /// so the patched stock handler arms it, strips the ghosts
+    /// (<c>RemoveAllGhostVesselsBeforeStockFly</c>) and starts the FLIGHT load exactly as for a
+    /// click; the contract is on the FlySites partial. The rest of this comment is the map
+    /// site's:
     /// <list type="bullet">
-    /// <item><c>site=map</c> only. <c>ts</c> / <c>ksc</c> parse but return
-    ///   <c>site-not-implemented</c>: both cross scenes into a fresh FLIGHT load and must go
-    ///   through their own patched handlers (the TS one runs
-    ///   <c>RemoveAllGhostVesselsBeforeStockFly</c>, a live-list/saved-file index desync fix
-    ///   a hand-rolled call would reintroduce), so they belong with their own consumers.</item>
     /// <item>The PLAIN arm-and-switch path, plus the pre-switch auto-resolution: a dialog
     ///   case is handed to the same <c>TryAutoResolvePreSwitch</c> the Prefix calls (routes
     ///   <see cref="AutoDiscardRoute"/> / <see cref="AutoMergeRoute"/>), and only a case it
@@ -163,15 +165,12 @@ namespace Parsek.TestCommands
     /// still happens, the SEGMENT does not arm - so a live proof of segment-arming must target
     /// a genuinely FLYING / ORBITING vessel, not one on the pad.</para>
     /// </summary>
-    internal static class TestCommandSimulateSwitchClick
+    internal static partial class TestCommandSimulateSwitchClick
     {
         // ----- Terminal msg tokens (grep-stable; the wire contract) -----
 
         /// <summary><c>site=</c> was present but is not one of the three known spellings.</summary>
         internal const string SiteArgInvalidReason = "site-arg-invalid";
-
-        /// <summary>A known site that v1 does not drive (<c>ts</c> / <c>ksc</c>).</summary>
-        internal const string SiteNotImplementedReason = "site-not-implemented";
 
         /// <summary>Neither <c>vessel=</c> nor <c>pid=</c> was supplied.</summary>
         internal const string TargetArgMissingReason = "target-arg-missing";
@@ -249,10 +248,9 @@ namespace Parsek.TestCommands
         /// silently-defaulted site is the B10-shaped fail-open (the spec believes it drove a
         /// TS Fly, the run drove a map click, the batch reads green).
         ///
-        /// <para>ABSENT defaults to <see cref="SwitchClickSite.Map"/> - the only implemented
-        /// site, and the one every v1 consumer wants - so a spec need not restate it and
-        /// keeps meaning "map" verbatim once <c>ts</c> / <c>ksc</c> land. An EMPTY value is a
-        /// typo, not an omission, so it is rejected.</para>
+        /// <para>ABSENT defaults to <see cref="SwitchClickSite.Map"/>, the site every map-click
+        /// spec wants, so a spec need not restate it. An EMPTY value is a typo, not an
+        /// omission, so it is rejected.</para>
         /// </summary>
         internal static bool TryParseSite(string raw, out SwitchClickSite site)
         {
@@ -286,17 +284,9 @@ namespace Parsek.TestCommands
             }
         }
 
-        /// <summary>True for the sites v1 actually drives.</summary>
-        internal static bool IsSiteImplemented(SwitchClickSite site)
-            => site == SwitchClickSite.Map;
-
         /// <summary>Terminal msg for an unparseable <c>site=</c>.</summary>
         internal static string SiteArgInvalidMsg(string raw)
             => SiteArgInvalidReason + " site=" + (raw ?? string.Empty);
-
-        /// <summary>Terminal msg for a known-but-undriven site.</summary>
-        internal static string SiteNotImplementedMsg(SwitchClickSite site)
-            => SiteNotImplementedReason + " site=" + SiteToken(site);
 
         /// <summary>
         /// Decides how the caller addressed the target. <c>pid=</c> WINS when both are given:
