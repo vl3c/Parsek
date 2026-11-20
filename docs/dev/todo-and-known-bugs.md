@@ -165,6 +165,31 @@ Options.
 Recommendation: A, with the fallback to the own-orbit spawn when the rock is missing (no new hold
 state). Needs owner sign-off on the missing-rock rule before building.
 
+## SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS: the end-spawn collision walkback for an orbit spawn tests positions the vessel is not placed at [FILED 2026-11-20 from the WP7 review (asteroid / comet second opinion), by code reading; NOT FIXED: needs a design choice; low-medium (an orbit spawn blocked by a loaded vessel can still appear inside it, or be abandoned)]
+
+What it is. When an end-of-recording spawn overlaps a loaded vessel,
+`VesselSpawner.CheckSpawnCollisions` walks back along the recorded trajectory
+(`SpawnCollisionDetector.ResolveWalkbackPointsOnBody`, `TryWalkbackForEndOfRecordingSpawn`)
+and tests each candidate with `body.GetWorldSurfacePosition(lat, lon, alt)`. For an orbit spawn
+(an Orbiting terminal with a recorded terminal orbit, or an escape trajectory) that is unsound twice:
+1. The recorded points are body-fixed samples of their OWN UTs. Read at the spawn UT they turn
+   with the planet, so a candidate sits where the vessel was relative to the ground, not along its
+   orbit (the error grows with spawn UT minus point UT, and with a deferred spawn it is unrelated
+   to the spawn place at all).
+2. The spawn then goes through `SpawnAtPosition` with the orbit override, and a non-landed
+   ProtoVessel is placed by its ORBIT node, not by the lat / lon / alt the walkback wrote. So a
+   "clear" walked position does not move the vessel: it still appears at the propagated orbit
+   point, inside the blocker (`CheckSpawnCollisions: walkback rewrote spawn position` is logged
+   anyway). If the walk exhausts, the spawn is abandoned for a blocker that would have drifted away.
+The chain-tip walkback (`VesselGhoster`, around the blocked-tip handling) shares the shape.
+
+Options. (a) Orbit spawns skip the walkback and wait for the blocker to clear (the retry /
+`CollisionBlockCount` path, or the chain tip's blocked-and-retry hold), with a bound long enough
+for orbital separation; (b) walk the ORBIT instead (try the orbit at spawn UT plus or minus small
+offsets in time) and spawn on the chosen phase; (c) leave it. (a) is the smaller change but needs
+a rule for a station parked next to the spawn point (it never clears). Needs an owner pick; not
+built. Relevant to SPAWN-RESTING-ON-ROCK: a lander resting on a loaded rock hits exactly this path.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
