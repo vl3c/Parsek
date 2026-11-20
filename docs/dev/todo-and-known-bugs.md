@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-MERGE-OPTIMIZER-PASS-AFTER-MERGE~~: the optimizer pass right after a Re-Fly merge (owner ruling Q6) [FILED 2026-11-18 by the recording split / trim / merge review, ruled by the owner 2026-11-18 ("Yes, right after merge"). FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane]
+
+**Cause:** the merge dialog's optimizer pass runs before the supersede step while the Re-Fly marker is live, and `CommittedListOptimizer.RunOptimizationSplitPass` defers the active provisional while a marker is live, so the new attempt stayed one recording until the next commit or cold load.
+
+**Fix:** `MergeJournalOrchestrator.RunPostMergeOptimizationPass` runs one `CommittedListOptimizer.RunOptimizationPass` as soon as the journal and the marker are cleared: on the live merge before Durable Save #3 (so that save holds the split), and at the end of the load-time finisher. It never runs while a journal or a marker is live, and a throw is logged and the merge stands. Info `[MergeJournal] Post-merge optimization pass ran sess=<sid> route=<merge|finisher>`.
+
+**Tests:** `MergeJournalPostMergeOptimizationTests` (live merge, finisher, a throwing pass); all red under a mutation that skips the pass. `MergeJournalOrchestratorTests.CrashAtBegin_Finisher_KeepsOptimizerSplitTailOfTheFork` gives its optimizer-split tail a different phase from its head, the shape a real split leaves (with one phase the new pass rightly joins them).
+
 ## ~~REFLY-FALLBACK-SEALS-SUBORBITAL~~: the slot-less merge fallback sealed a sub-orbital Re-Fly that the normal path keeps open [FILED 2026-11-18 by the recording split / trim / merge review (finding M11), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; low (reached only when the slot lookup fails)]
 
 **Cause:** when `SupersedeCommit` cannot resolve the Re-Fly's slot it falls back to `TerminalKindClassifier` and flipped every outcome but a crash to `Immutable`. The tip's `MergeState` is the slot's open / closed bit (design section 6.24), and the slot-aware path keeps a `SubOrbital` ending open (`CommittedProvisional`, section 4.9: a sub-orbital arc is still in flight), so the fallback sealed a slot the main path leaves open. `Orbiting` never reaches the fallback (`RequiresSlotAwareMergeClassification` refuses to fall back for it).

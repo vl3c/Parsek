@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **A Re-Fly merge splits the new flight into its timeline rows at once.** The new attempt stayed
+  one long row until the next merge or game load; it is now split at atmosphere, landing and
+  sphere-of-influence changes as soon as the merge finishes.
+  (REFLY-MERGE-OPTIMIZER-PASS-AFTER-MERGE)
 - **A Re-Fly that ends still in flight stays open to fly again.** When the merge could not find
   the Re-Fly's slot, a flight that ended on a sub-orbital arc was sealed; it now stays open, as it
   does when the slot is found. (REFLY-FALLBACK-SEALS-SUBORBITAL)

@@ -144,6 +144,7 @@ namespace Parsek
             DurableSaveForTesting = null;
             SaveGameForTesting = null;
             RecalcAfterMarkerClearedForTesting = null;
+            PostMergeOptimizationPassForTesting = null;
         }
 
         /// <summary>
@@ -723,6 +724,7 @@ namespace Parsek
             if (persistSynchronously)
             {
                 scenario.ActiveMergeJournal = null;
+                RunPostMergeOptimizationPass(scenario, sessionId, "merge");
                 DurableSave("durable3", persistSynchronously: true);
             }
             else
@@ -731,10 +733,53 @@ namespace Parsek
                     scenario.ActiveMergeJournal.Phase = MergeJournal.Phases.Complete;
                 DurableSave("durable3", persistSynchronously: false);
                 scenario.ActiveMergeJournal = null;
+                RunPostMergeOptimizationPass(scenario, sessionId, "finisher");
             }
             ParsekLog.Verbose(Tag, $"sess={sessionId} cleared");
             ParsekLog.Info(Tag, $"Completed sess={sessionId}");
         }
+
+        /// <summary>
+        /// Owner ruling Q6 (2026-11-18, "Yes, right after merge"): once the merge is done
+        /// (journal cleared, marker cleared) one committed-list optimizer pass runs at once,
+        /// so the new attempt is split into its rows like a normal commit. The merge
+        /// dialog's own pass runs before the supersede step while the marker is live, which
+        /// defers the fork's split; without this pass the split waited for the next commit
+        /// or cold load. Runs before Durable Save #3 on the live merge, so that save holds
+        /// the split. Never while a journal or marker is live; never throws (the merge is
+        /// already final).
+        /// </summary>
+        private static void RunPostMergeOptimizationPass(
+            ParsekScenario scenario, string sessionId, string route)
+        {
+            if (!ReferenceEquals(null, scenario)
+                && (scenario.ActiveMergeJournal != null || scenario.ActiveReFlySessionMarker != null))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Post-merge optimization pass skipped sess={sessionId} route={route}: " +
+                    $"journal={(scenario.ActiveMergeJournal != null ? "live" : "none")} " +
+                    $"marker={(scenario.ActiveReFlySessionMarker != null ? "live" : "none")}");
+                return;
+            }
+            var hook = PostMergeOptimizationPassForTesting;
+            try
+            {
+                if (hook != null) hook(route);
+                else CommittedListOptimizer.RunOptimizationPass();
+                ParsekLog.Info(Tag,
+                    $"Post-merge optimization pass ran sess={sessionId} route={route}");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Post-merge optimization pass threw {ex.GetType().Name}: {ex.Message} " +
+                    $"sess={sessionId} route={route} - merge stands; the next pass splits the attempt");
+            }
+        }
+
+        /// <summary>Test seam for <see cref="RunPostMergeOptimizationPass"/>; receives the route.
+        /// Null = run the real pass.</summary>
+        internal static Action<string> PostMergeOptimizationPassForTesting;
 
         /// <summary>
         /// Phase 10 scope: tag the session-provisional RPs for reap (design
