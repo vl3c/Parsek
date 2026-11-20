@@ -2058,6 +2058,64 @@ namespace Parsek
 
             second.SurfacePos = original.SurfacePos;
             original.SurfacePos = null;
+
+            MoveEndOfFlightFieldsToSecondHalf(original, second);
+        }
+
+        /// <summary>
+        /// The end-of-flight fields that describe the recording's END go to the second half
+        /// with the terminal: the end situation text (<see cref="Recording.VesselSituation"/>,
+        /// read by the timeline's spawn wording), the dock and route-transfer partner at the
+        /// end boundary (<see cref="Recording.DockTargetVesselPid"/>,
+        /// <see cref="Recording.TransferTargetVesselPid"/> and its
+        /// <see cref="Recording.TransferKind"/>), and every route connection window that is
+        /// not complete before the cut (its undock at or after the split, or not undocked).
+        /// A window that closed inside the first half stays there.
+        /// </summary>
+        internal static void MoveEndOfFlightFieldsToSecondHalf(Recording original, Recording second)
+        {
+            if (original == null || second == null) return;
+            double splitUT = second.TrackSections != null && second.TrackSections.Count > 0
+                ? second.TrackSections[0].startUT
+                : double.NaN;
+
+            second.VesselSituation = original.VesselSituation;
+            original.VesselSituation = null;
+            second.DockTargetVesselPid = original.DockTargetVesselPid;
+            original.DockTargetVesselPid = 0;
+            second.TransferTargetVesselPid = original.TransferTargetVesselPid;
+            second.TransferKind = original.TransferKind;
+            original.TransferTargetVesselPid = 0;
+            original.TransferKind = default(RouteConnectionKind);
+
+            int windowsMoved = 0;
+            int windowsKept = 0;
+            if (original.RouteConnectionWindows != null && original.RouteConnectionWindows.Count > 0)
+            {
+                var kept = new List<RouteConnectionWindow>();
+                var moved = new List<RouteConnectionWindow>();
+                for (int i = 0; i < original.RouteConnectionWindows.Count; i++)
+                {
+                    var w = original.RouteConnectionWindows[i];
+                    bool closedBeforeCut = w != null && w.IsComplete
+                        && !double.IsNaN(splitUT) && w.UndockUT < splitUT;
+                    if (closedBeforeCut) kept.Add(w); else moved.Add(w);
+                }
+                windowsKept = kept.Count;
+                windowsMoved = moved.Count;
+                original.RouteConnectionWindows = kept.Count > 0 ? kept : null;
+                second.RouteConnectionWindows = moved.Count > 0 ? moved : null;
+            }
+
+            if (second.VesselSituation != null || second.DockTargetVesselPid != 0
+                || second.TransferTargetVesselPid != 0 || windowsMoved > 0 || windowsKept > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"Split: end-of-flight fields moved onto the second half (original={original.RecordingId ?? "<no-id>"} " +
+                    $"situation='{second.VesselSituation ?? "<none>"}' dockTarget={second.DockTargetVesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"transferTarget={second.TransferTargetVesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"windowsMoved={windowsMoved.ToString(CultureInfo.InvariantCulture)} windowsKept={windowsKept.ToString(CultureInfo.InvariantCulture)})");
+            }
         }
 
         /// <summary>

@@ -99,6 +99,45 @@ namespace Parsek.Tests
                 && l.Contains("recording(s) whole: the player set a loop range"));
         }
 
+        // SPLIT-LEAVES-END-FIELDS-ON-HEAD (review L6): the end situation, the dock / transfer
+        // partner and the route windows not closed before the cut go to the second half.
+        [Fact]
+        public void Split_MovesEndOfFlightFieldsToTheSecondHalf()
+        {
+            var rec = Ascent("end-fields"); // cut at UT 300
+            rec.VesselSituation = "Orbiting Kerbin";
+            rec.DockTargetVesselPid = 55;
+            rec.TransferTargetVesselPid = 66;
+            rec.TransferKind = RouteConnectionKind.DockingPort;
+            rec.RouteConnectionWindows = new List<RouteConnectionWindow>
+            {
+                new RouteConnectionWindow { WindowId = "early", DockUT = 120, UndockUT = 150 },
+                new RouteConnectionWindow { WindowId = "late", DockUT = 500, UndockUT = 600 },
+                new RouteConnectionWindow { WindowId = "open", DockUT = 650 },
+            };
+            CommitAlone(rec);
+
+            CommittedListOptimizer.RunOptimizationPass();
+
+            var chain = ChainOf(rec.TreeId);
+            Assert.Equal(2, chain.Count);
+            var head = chain[0];
+            var tail = chain[1];
+            Assert.Null(head.VesselSituation);
+            Assert.Equal(0u, head.DockTargetVesselPid);
+            Assert.Equal(0u, head.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.None, head.TransferKind);
+            Assert.Equal("Orbiting Kerbin", tail.VesselSituation);
+            Assert.Equal(55u, tail.DockTargetVesselPid);
+            Assert.Equal(66u, tail.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.DockingPort, tail.TransferKind);
+            Assert.Single(head.RouteConnectionWindows);
+            Assert.Equal("early", head.RouteConnectionWindows[0].WindowId);
+            Assert.Equal(2, tail.RouteConnectionWindows.Count);
+            Assert.Contains(logLines, l => l.Contains("end-of-flight fields moved onto the second half")
+                && l.Contains("windowsMoved=2 windowsKept=1"));
+        }
+
         [Fact]
         public void TailTrim_SkipsLoopedRecording()
         {

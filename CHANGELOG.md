@@ -28,6 +28,9 @@ Not released yet.
 
 ### Fixed
 
+- **The last row of a split flight keeps its ending details.** Its situation text, docking partner
+  and supply-route dock windows stayed on the first row, so the timeline showed generic wording.
+  (SPLIT-LEAVES-END-FIELDS-ON-HEAD)
 - **Looping debris follows its own rocket.** A looping debris ghost could follow the loop of
   another stage, or of an unrelated recording after one was removed from the list.
   (LOOP-SYNC-PARENT-LINK-WRONG)

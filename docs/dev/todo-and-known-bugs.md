@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SPLIT-LEAVES-END-FIELDS-ON-HEAD~~: an optimizer split left the end situation, dock partner and route windows on the first half [FILED 2026-11-18 by the recording split / trim / merge review (finding L6), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (the timeline's spawn wording for the real end fell back to generic text)]
+
+**Cause:** `RecordingOptimizer.TransferTerminalFieldsToSecondHalf` moved the terminal state, snapshot and terminal orbit to the second half but left `VesselSituation`, `DockTargetVesselPid`, `TransferTargetVesselPid` / `TransferKind` and `RouteConnectionWindows` on the first half.
+
+**Fix:** `MoveEndOfFlightFieldsToSecondHalf` moves them with the terminal; a route connection window that closed (undocked) before the cut stays on the first half, every other window moves (Verbose `Split: end-of-flight fields moved onto the second half (... windowsMoved=N windowsKept=M)`). The Re-Fly cut (`SplitAtUT`) goes through the same step, so TIP carries them. `SceneExitSituation` was not in the finding and is unchanged.
+
+**Tests:** `OptimizerSplitPlayerSettingsTests.Split_MovesEndOfFlightFieldsToTheSecondHalf` (red before the fix).
+
 ## ~~LOOP-SYNC-PARENT-LINK-WRONG~~: a debris piece's loop-sync parent link pointed at the wrong recording [FILED 2026-11-18 by the recording split / trim / merge review (findings L4 and L5), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a looping debris ghost follows another recording's loop clock)]
 
 **Cause:** (L4) `Recording.LoopSyncParentIdx` is a committed-list position the engine reads as an index into its trajectory list, but nothing shifted it on a mid-list removal or insertion between optimization passes, so after a discard or an insert it named whatever recording slid into that slot. (L5) `CommittedListOptimizer.PopulateLoopSyncParentIndices` picked the first non-debris recording of the tree whose range covered the debris's start, ignoring the debris's own parent (`ParentAnchorRecordingId`), so a sibling stage listed first won.
