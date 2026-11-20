@@ -40,6 +40,25 @@ tier = "operator"
 #   - `result: hardFailures=1` on reputation: the share's reputation leg (0.075) survived or
 #     the seed read the pre-revert pool; read the facet line.
 #
+# THE REVERTED FLIGHT'S REWIND POINT (added 2026-11-20, test-gaps Batch 2 item 1; never
+# flown with these tokens). The hop's staging is a two-controllable split, so it authors a
+# RewindPoint and writes its quicksave to `Parsek/RewindPoints/<rp>.sfs` before the revert.
+# Stock's Revert to Launch must take that point back with the flight:
+#   - in memory: the in-session staged-list handoff carries the point across the revert's
+#     scene change, and step B's owner partition drops it (`FollowSave:dropped-memory-only`:
+#     no committed tree owns it and the reverted save never listed it);
+#   - in the save: every OnSave after the revert writes `rewindPoints=0`;
+#   - on disk: the saveParse rewind block's two FILE facets (`rewindPointFiles`,
+#     `unlistedRewindPointFiles`, read from the folder beside the produced save) must both
+#     read 0. REPORT-ONLY until a reading run. The only Parsek code that deletes a rewind
+#     point file is `ParsekFileCollector` (Verbose `Rewind point file collected: rp=`), and on
+#     this host it never runs a full pass after the revert (the in-session load is
+#     rate-limited; the batch's cold loads refuse `zero-known-ids`). Yet the archived
+#     `2026-11-15_1537` produced save holds an EMPTY `Parsek/RewindPoints` with no deletion
+#     line in its KSP.log, so the first flight with these facets is a reading: a 1 there
+#     means the quicksave outlived the revert (design-load-restores-the-save.md 4.5 then
+#     keeps it until a collection that sees a named recording).
+#
 # FAST-LANE CHECKLIST: (1) reuse - QL-2c's flight verbatim up to MISSION-OK; (2) no waits but
 # the batch; (3)-(5) none beyond the hop; (6) retry `once`; (7) count pinned {2,2}: nothing
 # commits (the revert soft-unstashes the tree); (8) operator until
@@ -109,6 +128,14 @@ allowedAnomalies = []
 # Measured 2 on `2026-10-25_1148` (the revert soft-unstashes the tree; nothing commits).
 count = { min = 2, max = 2 }
 
+# REPORT-ONLY (no `gating` key) until a reading run. The reverted flight's rewind point is
+# gone from the save (`rewindPoints`) and its quicksave from `Parsek/RewindPoints`
+# (`rewindPointFiles`, `unlistedRewindPointFiles`: the folder beside the produced save).
+[expectations.rewind]
+rewindPoints             = 0
+rewindPointFiles         = 0
+unlistedRewindPointFiles = 0
+
 [expectations.logContracts]
 required = [
   # --- THE FLIGHT: the strategy's shares, tagged to the live recording ---
@@ -120,6 +147,12 @@ required = [
   "(?s)MISSIONMARK label=str3-revert .*?Load classified: early=\\w+ refined=StockRevert scene=FLIGHT",
   # THE GATE: the reverted flight's shares go with it.
   "(?s)MISSIONMARK label=str3-revert .*?Revert: pruned 5 strategy conversion row\\(s\\) of the reverted flight after UT ",
+  # THE REWIND POINT: the staging authored one and wrote its quicksave; the revert's
+  # handoff dropped that same point (backreference) from memory, and no save after the
+  # revert lists a point.
+  "(?s)RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 .*?RewindSave. Wrote rp=\\1 path=Parsek/RewindPoints.\\1\\.sfs bytes=[0-9]+ .*?MISSIONMARK label=str3-revert .*?In-session RP owner partition decisions: \\1:FollowSave:dropped-memory-only",
+  "(?s)MISSIONMARK label=str3-revert .*?In-session RP owner partition: installed=0 memory=1 [^\\r\\n]*followSave kept=0 memoryOnlyDropped=1 ",
+  "(?s)MISSIONMARK label=str3-revert .*?OnSave: Re-Fly subsystem state persisted [^\\r\\n]*rewindPoints=0 ",
   "reverttolaunch complete pid=[0-9]+ name='[^']+' situation=PRELAUNCH elapsed=",
   # --- THE CHECK: the save against the walk ---
   "(?s)MISSIONMARK label=str3-check .*?BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
@@ -131,6 +164,8 @@ forbidden = [
   "reverttolaunch error",
   "result: hardFailures=[1-9]",
   "GUARDED (?:UPLIFT|DRAWDOWN) clamped resource=(?:Funds|Reputation)",
+  # The reverted flight's rewind point listed again after the revert.
+  "(?s)MISSIONMARK label=str3-revert .*?\\[Rewind\\] RewindPoints (?:saved|loaded): [1-9]",
   # A share left in the walk after the revert lifts KSP's pool back up.
   "(?s)MISSIONMARK label=str3-revert .*?\\[KspStatePatcher\\] PatchFunds: [0-9.]+ -> [0-9.]+ \\(delta=[0-9]",
   # A revert is never a quickload, and nothing commits.

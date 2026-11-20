@@ -37,12 +37,25 @@ id = "KB-5-flight-eva-block-held-kerbal"
 # the gallery is anchored ~75 px from the right edge and ~90 px from the bottom, so at the
 # harness's default 1280x720 frame it sits near 1205,630) and a capture follows; whether the hover lands is REPORT-ONLY
 # (the `Portrait EVA greyed for 'Jebediah Kerman'` line). The hatch dialog opens only from
-# a click on the hatch collider, which no seam verb drives, and no seam verb calls
-# `CrewTransfer.Create` either, so the transfer half of K2 stays headless-proven here.
+# a click on the hatch collider, which no seam verb drives, so its greyed Transfer button
+# stays headless-proven.
+#
+# THE REFUSED TRANSFER (added 2026-11-20, test-gaps Batch 2 item 2; never flown with this
+# step). The `CrewTransfer` seam verb opens stock's own transfer through
+# `CrewTransfer.Create(srcPart, crew, onDismiss)`, the one entry point the K2 transfer
+# backstop (`CrewTransferCreateBackstopPatch`) guards. `CrewTransfer kerbal="Jebediah
+# Kerman" part=parachuteSingle` meets it: the backstop refuses (`[CrewMove] Blocked crew
+# transfer of 'Jebediah Kerman' via CrewTransfer.Create`), shows the blocked dialog, and
+# returns no transfer host, so the verb reads no valid destination and answers REJECTED
+# `crewtransfer-transfer-unavailable` with `valid=[]`. The pad craft has one crewed part,
+# so that REJECTED alone would also follow an unrefused transfer with nowhere to go: the
+# `[CrewMove]` line and the dialog are the gates, the reason is only the verb's read.
+# `parachuteSingle` is a part of the pad craft other than Jeb's pod (a name the vessel
+# carries, so the verb does not answer part-not-found first).
 #
 # A POINTER LANE. The portrait step moves the operator's cursor machine-wide.
 tier = "nightly"
-description = "Career save whose committed flight holds Jebediah Kerman, with Jeb aboard a live pad craft that continues no committed flight and the save focused on a crewless runway rover: a stock map Switch-To onto the pad craft, then an EVA of Jeb through the real FlightEVA.spawnEVA is refused by the K2 backstop with the blocked dialog carrying the reservation sentence, and no EVA vessel spawns."
+description = "Career save whose committed flight holds Jebediah Kerman, with Jeb aboard a live pad craft that continues no committed flight and the save focused on a crewless runway rover: a stock map Switch-To onto the pad craft, then an EVA of Jeb through the real FlightEVA.spawnEVA is refused by the K2 backstop with the blocked dialog carrying the reservation sentence, and no EVA vessel spawns; a crew transfer of Jeb through the real CrewTransfer.Create is refused the same way and moves no one."
 instanceProfile = "stock-minimal"
 tags = ["stock-ui", "action-blocking", "career", "crew", "eva", "KB-5"]
 
@@ -78,6 +91,12 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "kb5-eva-refused" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
 
+  # (b2) the refused crew transfer through the real CrewTransfer.Create
+  { cmd = "MissionMark", args = { label = "kb5-transfer" }, expect = "OK" },
+  { cmd = "CrewTransfer", args = { kerbal = "Jebediah Kerman", part = "parachuteSingle" }, expect = "REJECTED", budget = 120 },
+  { cmd = "CaptureScreenshot", args = { label = "kb5-transfer-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -105,12 +124,21 @@ required = [
   "evaexit refused reason=eva-refused \\(spawnEVA returned null\\)",
   "\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot EVA \"Jebediah Kerman\" - Reserved by timeline for 'Jumping Flea'[^\\r\\n]*",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",
+  # (b2) the backstop on the real CrewTransfer.Create, its dialog, the seam's empty read,
+  # and the second dialog dismissed.
+  "(?s)MISSIONMARK label=kb5-transfer .*?\\[Parsek\\]\\[INFO\\]\\[CrewMove\\] Blocked crew transfer of 'Jebediah Kerman' via CrewTransfer\\.Create - held by the committed timeline \\(kind=\\S+ vesselPid=1846203977\\)",
+  "(?s)MISSIONMARK label=kb5-transfer .*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot transfer \"Jebediah Kerman\" - Reserved by timeline for 'Jumping Flea'",
+  "(?s)MISSIONMARK label=kb5-transfer .*?crewtransfer rejected reason=crewtransfer-transfer-unavailable kerbal=Jebediah Kerman part=parachuteSingle valid=\\[\\]",
+  "(?s)MISSIONMARK label=kb5-transfer .*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",
 ]
 forbidden = [
   # (c) nothing moved: no crew swap on the switch, no status change, no EVA kerbal.
   "Swapped 'Jebediah Kerman'",
   "Game state: CrewStatusChanged 'Jebediah Kerman'",
   "evaexit ok ",
+  # No transfer opened or moved Jeb.
+  "crewtransfer start ",
+  "crewtransfer applied ",
   "Re-Fly session active: EVA and crew transfer are not blocked",
 ]
 
