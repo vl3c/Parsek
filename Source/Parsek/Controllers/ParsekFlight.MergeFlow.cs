@@ -451,9 +451,15 @@ namespace Parsek
                     activeFinalizationCache = finalizationCache;
                 }
 
+                // A recording whose recorder saw the vessel destroyed but was flushed before the
+                // commit (a crash where control moved to a surviving piece) carries it as
+                // VesselDestroyed (PropagateRecorderDestructionToTreeRecording).
                 bool vesselDestroyedDuringRecording =
-                    resolveDestroyedDuringRecording != null
-                    && resolveDestroyedDuringRecording(recording);
+                    (resolveDestroyedDuringRecording != null
+                        && resolveDestroyedDuringRecording(recording))
+                    || (recording != null && recording.VesselDestroyed
+                        && ParsekScenario.CanOverwriteTerminalState(
+                            recording.TerminalStateValue, TerminalState.Destroyed));
 
                 if (FinalizeIndividualRecording(
                         recording,

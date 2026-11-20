@@ -32,6 +32,9 @@ Not released yet.
   Space Center, or committing the flight, while an engine or thruster was firing kept its plume
   burning in the replay until the end. It now shuts off at the moment you left.
   (FORCESTOP-LEAVES-ENGINES-LIT)
+- **A crash stays a crash when the game hands you a surviving piece.** When a craft crashed and
+  the game switched to a piece that survived, the crashed craft could be saved as landed at the
+  impact point and come back intact at the end of its replay. (CRASH-HANDOFF-LOSES-DESTROYED)
 - **A save from a newer Parsek keeps its flights' endings.** A flight that ended in a way this
   version does not know was saved back with no ending, and its end could then be cut away. The
   ending is now kept as it was and the trajectory is left whole. (NEWER-ENDING-ERASED-BY-OLDER-BUILD)

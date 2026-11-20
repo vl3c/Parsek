@@ -233,6 +233,95 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FinalizeTreeRecordingsAfterFlush_CrashedRecordingFlushedToBackground_IsDestroyed()
+        {
+            // CRASH-HANDOFF-LOSES-DESTROYED: the crashed craft's recorder was flushed through
+            // the background transition when KSP moved control to a surviving piece, so the
+            // commit's active-recorder override no longer named it. The flush now leaves
+            // VesselDestroyed on the tree recording and finalization reads it.
+            var tree = new RecordingTree
+            {
+                Id = "tree-crash-handoff",
+                TreeName = "Kerbal X",
+                RootRecordingId = "crashed",
+                ActiveRecordingId = "survivor"
+            };
+            var crashed = new Recording
+            {
+                RecordingId = "crashed",
+                TreeId = tree.Id,
+                VesselName = "Kerbal X",
+                VesselPersistentId = 111u
+            };
+            crashed.Points.Add(new TrajectoryPoint { ut = 60.0, altitude = 40.0, bodyName = "Kerbin" });
+            crashed.Points.Add(new TrajectoryPoint { ut = 61.0, altitude = 2.0, bodyName = "Kerbin" });
+            tree.Recordings[crashed.RecordingId] = crashed;
+            tree.BackgroundMap[111u] = crashed.RecordingId;
+
+            Assert.True(ParsekFlight.PropagateRecorderDestructionToTreeRecording(
+                recorderVesselDestroyed: true, crashed, "test-flush"));
+
+            ParsekFlight.FinalizeTreeRecordingsAfterFlush(
+                tree,
+                commitUT: 90.0,
+                isSceneExit: false,
+                resolveFinalizationCache: null,
+                resolveDestroyedDuringRecording: r => false,
+                findVesselByPid: pid => null,
+                liveVesselAccess: TestLiveVesselAccess);
+
+            Assert.Equal(TerminalState.Destroyed, crashed.TerminalStateValue);
+            Assert.Contains(logLines, l => l.Contains("[Flight]")
+                && l.Contains("test-flush: recorder saw the vessel destroyed; marked tree recording 'crashed' destroyed"));
+        }
+
+        [Fact]
+        public void FinalizeTreeRecordingsAfterFlush_CrashedRecordingFlushedToBackground_SceneExitIsDestroyed()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-crash-handoff-exit",
+                TreeName = "Kerbal X",
+                RootRecordingId = "crashed",
+                ActiveRecordingId = "survivor"
+            };
+            var crashed = new Recording
+            {
+                RecordingId = "crashed",
+                TreeId = tree.Id,
+                VesselName = "Kerbal X",
+                VesselPersistentId = 111u,
+                VesselDestroyed = true
+            };
+            crashed.Points.Add(new TrajectoryPoint { ut = 60.0, altitude = 40.0, bodyName = "Kerbin" });
+            crashed.Points.Add(new TrajectoryPoint { ut = 61.0, altitude = 2.0, bodyName = "Kerbin" });
+            tree.Recordings[crashed.RecordingId] = crashed;
+            tree.BackgroundMap[111u] = crashed.RecordingId;
+
+            ParsekFlight.FinalizeTreeRecordingsAfterFlush(
+                tree,
+                commitUT: 90.0,
+                isSceneExit: true,
+                resolveFinalizationCache: null,
+                resolveDestroyedDuringRecording: r => false,
+                findVesselByPid: pid => null,
+                liveVesselAccess: TestLiveVesselAccess);
+
+            Assert.Equal(TerminalState.Destroyed, crashed.TerminalStateValue);
+        }
+
+        [Fact]
+        public void PropagateRecorderDestruction_NotDestroyedOrAlreadyMarked_DoesNothing()
+        {
+            var rec = new Recording { RecordingId = "r" };
+            Assert.False(ParsekFlight.PropagateRecorderDestructionToTreeRecording(false, rec, "t"));
+            Assert.False(rec.VesselDestroyed);
+            rec.VesselDestroyed = true;
+            Assert.False(ParsekFlight.PropagateRecorderDestructionToTreeRecording(true, rec, "t"));
+            Assert.False(ParsekFlight.PropagateRecorderDestructionToTreeRecording(true, null, "t"));
+        }
+
+        [Fact]
         public void PendingSplitDestroyedCapture_AppendedActiveLeafBeatsLiveSplashedSceneExit()
         {
             var tree = new RecordingTree

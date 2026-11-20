@@ -20,6 +20,28 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CRASH-HANDOFF-LOSES-DESTROYED~~: a crash where KSP moved control to a surviving piece lost the destroyed ending [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `EffectiveLeafFinalizationTests`; medium (a crashed craft respawned intact at its end)]
+
+Cause: `FlightRecorder.VesselDestroyedDuringRecording` reached the recording only on two paths: the
+vessel-switch stop's capture (`HandleVesselSwitchDuringRecording` step 4) and the commit's
+active-recorder destruction override (`FinalizeTreeRecordings` names `tree.ActiveRecordingId`).
+When the craft died and KSP handed control to a surviving piece of the same tree, the recorder went
+through `TransitionToBackground` and `HandleTreeBackgroundFlush`, which flushed it into the tree,
+added the dead craft to the BackgroundMap and dropped the recorder with the flag. At commit the
+crashed recording was a plain background leaf: a scene exit inferred its ending from the last point
+(Landed at the impact), and the background commit moved its end to the commit UT (draft review M1).
+
+Fix: `FlushRecorderToTreeRecording` (every flush path) calls
+`ParsekFlight.PropagateRecorderDestructionToTreeRecording`, which sets `Recording.VesselDestroyed`
+on the tree recording (logged); `FinalizeTreeRecordingsAfterFlush` treats a leaf whose
+`VesselDestroyed` is set (and whose ending `CanOverwriteTerminalState` allows) like the active
+recorder's destroyed leaf (`ApplyDestroyedFallback`), and `BackgroundRecorder.FinalizeAllForCommit`
+already leaves a destroyed recording's end alone. The terminal stamp stays with finalization, as for
+the active recorder, so the finalization cache is consulted in the same order.
+
+Tests: `EffectiveLeafFinalizationTests.FinalizeTreeRecordingsAfterFlush_CrashedRecordingFlushedToBackground_SceneExitIsDestroyed`
+(red before the fix), `..._IsDestroyed`, `PropagateRecorderDestruction_NotDestroyedOrAlreadyMarked_DoesNothing`.
+
 ## ~~NEWER-ENDING-ERASED-BY-OLDER-BUILD~~: an ending a newer build wrote was erased on save and the tail trim then cut the trajectory [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; high (permanent data loss on a save opened in an older build)]
 
 Cause: `RecordingTreeRecordCodec.LoadRecordingFrom` read a `terminalState` number this build does

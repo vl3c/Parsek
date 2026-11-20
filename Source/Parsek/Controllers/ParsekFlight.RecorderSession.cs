@@ -68,6 +68,9 @@ namespace Parsek
 
             LiftStampedExplicitEndToTrajectoryEnd(treeRec, "FlushRecorderToTreeRecording");
 
+            PropagateRecorderDestructionToTreeRecording(
+                rec.VesselDestroyedDuringRecording, treeRec, "FlushRecorderToTreeRecording");
+
             // Mark dirty so the next OnSave persists the flushed data to disk.
             // Without this, the in-memory points are lost on scene reload.
             treeRec.MarkFilesDirty();
@@ -118,6 +121,29 @@ namespace Parsek
             ParsekLog.Info("Flight", $"Flushed recorder to tree recording '{recId}': " +
                 $"{rec.Recording.Count} points, {rec.OrbitSegments.Count} orbit segments, " +
                 $"{rec.PartEvents.Count} part events");
+        }
+
+        /// <summary>
+        /// Carries the recorder's "vessel destroyed while recorded" knowledge onto the tree
+        /// recording it flushes into. Every flush path needs it, not only the commit: a crash where
+        /// KSP hands control to a surviving piece flushes the recorder through the background
+        /// transition (<see cref="HandleTreeBackgroundFlush"/>) and drops the recorder, so the
+        /// commit's active-recorder destruction override never sees it. The commit then reads
+        /// <see cref="Recording.VesselDestroyed"/> (<see cref="FinalizeTreeRecordingsAfterFlush"/>),
+        /// and the background commit keeps the end at the crash. The terminal stamp itself is left
+        /// to finalization, as for the active recorder. Returns true when the flag was set.
+        /// </summary>
+        internal static bool PropagateRecorderDestructionToTreeRecording(
+            bool recorderVesselDestroyed, Recording treeRec, string context)
+        {
+            if (!recorderVesselDestroyed || treeRec == null || treeRec.VesselDestroyed)
+                return false;
+            treeRec.VesselDestroyed = true;
+            ParsekLog.Info("Flight",
+                $"{context}: recorder saw the vessel destroyed; marked tree recording " +
+                $"'{treeRec.RecordingId ?? "(null)"}' destroyed " +
+                $"(terminal={treeRec.TerminalStateValue?.ToString() ?? "null"}, finalization stamps it)");
+            return true;
         }
 
         /// <summary>
