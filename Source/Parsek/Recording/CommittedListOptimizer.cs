@@ -452,16 +452,16 @@ namespace Parsek
 
         /// <summary>
         /// Names the two rows a version-2 split made (<see cref="Recording.SegmentRole"/>): the
-        /// first half keeps its role, or gets the role of how it starts when it had none; the
-        /// second half gets the role of the cut that started it. Version-1 and EVA recordings
+        /// first half's role is read again from its own content
+        /// (<see cref="RecordingOptimizer.ResolveHeadRoleAfterCut"/>); the second half gets the
+        /// role of the cut that started it. Version-1 and EVA recordings
         /// get no role. Logs the pair.
         /// </summary>
         internal static void AssignSplitRoles(
             Recording original, Recording second, RecordingOptimizer.SplitBoundaryReason reason)
         {
             if (!RecordingOptimizer.UsesCurrentSplitRules(original)) return;
-            if (string.IsNullOrEmpty(original.SegmentRole))
-                original.SegmentRole = RecordingOptimizer.ResolveStartRole(original);
+            original.SegmentRole = RecordingOptimizer.ResolveHeadRoleAfterCut(original);
             second.SegmentRole = RecordingOptimizer.ResolveCutRole(reason, second);
             ParsekLog.Verbose("Optimizer",
                 $"Split roles: '{original.RecordingId}'={original.SegmentRole ?? "<none>"} " +

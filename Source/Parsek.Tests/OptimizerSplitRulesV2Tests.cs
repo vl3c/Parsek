@@ -237,6 +237,111 @@ namespace Parsek.Tests
             Assert.All(rows, r => Assert.Null(r.role));
         }
 
+        // ------------------------------------------------------------ review follow-ups
+
+        // B1: a takeoff with a short bounce (a brief touchdown inside the launch-site leading
+        // run) keeps the pad time with the ascent, as version 1 does (ruling 5b).
+        [Fact]
+        public void LaunchWithAShortBounce_KeepsThePadWithTheAscent()
+        {
+            Func<string, Recording> launch = id =>
+            {
+                var rec = Make(id, 0, Pad(60), Atmo(3), Ground(8), Atmo(600), Exo(600));
+                rec.StartBodyName = "Kerbin";
+                rec.LaunchSiteName = "Launch Pad";
+                return rec;
+            };
+            var v2 = Optimize(V2(launch("bounce-v2")));
+            RecordingStore.ResetForTesting();
+            var v1 = Optimize(V1(launch("bounce-v1")));
+            Assert.Equal(Starts(v1), Starts(v2));
+            Assert.Equal(new[] { 0.0, 671.0 }, Starts(v2));
+        }
+
+        private static void Append(Recording rec, params (SegmentEnvironment, double, string)[] sections)
+        {
+            var extra = Make("tmp", rec.TrackSections[rec.TrackSections.Count - 1].endUT, sections);
+            rec.TrackSections.AddRange(extra.TrackSections);
+            rec.Points.AddRange(extra.Points);
+            rec.CachedStats = null;
+            rec.CachedStatsPointCount = 0;
+        }
+
+        // B2: a committed row that grows (a resumed tip) and is cut again must not leave equal
+        // roles on two halves the merge pass would glue and the split pass cut again on every
+        // load: the second and third passes after the growth leave the same rows and ids.
+        [Fact]
+        public void GrownTip_CutAgain_NoMergeSplitPingPong()
+        {
+            var rec = V2(Make("grown", 0, Exo(2000), Atmo(100))); // ends in the air
+            CommitAlone(rec);
+            CommittedListOptimizer.RunOptimizationPass();
+            var rows = ChainOf(rec.TreeId);
+            Assert.Equal(new[] { "space", "reentry" }, rows.Select(r => r.SegmentRole).ToArray());
+
+            Append(rows[1], Exo(3000), Atmo(300), Ground(100));
+            CommittedListOptimizer.RunOptimizationPass();
+            string afterGrowth = Snapshot(rec.TreeId);
+            CommittedListOptimizer.RunOptimizationPass();
+            Assert.Equal(afterGrowth, Snapshot(rec.TreeId));
+            CommittedListOptimizer.RunOptimizationPass();
+            Assert.Equal(afterGrowth, Snapshot(rec.TreeId));
+            Assert.Equal(new[] { "space", "aerobraking", "reentry", "surface" },
+                ChainOf(rec.TreeId).Select(r => r.SegmentRole).ToArray());
+        }
+
+        // B2, the merge side: two version-2 rows with equal role, phase and body whose join the
+        // version-2 split predicate would cut again never merge.
+        [Fact]
+        public void CanAutoMerge_RefusesAJoinTheSplitRulesWouldCutAgain()
+        {
+            var a = V2(Make("j-a", 0, Atmo(100), Exo(3000)));
+            var b = V2(Make("j-b", 3100, Atmo(300), Ground(100)));
+            a.ChainId = b.ChainId = "chain-j";
+            a.ChainIndex = 0;
+            b.ChainIndex = 1;
+            a.SegmentPhase = b.SegmentPhase = "atmo";
+            a.SegmentBodyName = b.SegmentBodyName = "Kerbin";
+            a.SegmentRole = b.SegmentRole = "reentry";
+
+            Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
+            Assert.Contains(logLines, l => l.Contains("the split rules would cut the join again"));
+
+            // Control: a join with nothing to cut still merges.
+            var c = V2(Make("j-c", 0, Exo(100)));
+            var d = V2(Make("j-d", 100, Exo(100)));
+            c.ChainId = d.ChainId = "chain-k";
+            c.ChainIndex = 0;
+            d.ChainIndex = 1;
+            c.SegmentPhase = d.SegmentPhase = "exo";
+            c.SegmentBodyName = d.SegmentBodyName = "Kerbin";
+            c.SegmentRole = d.SegmentRole = "space";
+            Assert.True(RecordingOptimizer.CanAutoMerge(c, d));
+        }
+
+        // S1: an aerobraking row's "first touch" resets at a body change: a Duna aerocapture
+        // after a Kerbin aerobrake opens its own row.
+        [Fact]
+        public void AerobrakingRow_ABrakingPassAtAnotherBody_OpensItsOwnRow()
+        {
+            var rows = Optimize(V2(Make("two-bodies", 0,
+                Exo(2000, "Kerbin"), Atmo(150, "Kerbin"), Exo(3000, "Kerbin"),
+                Exo(5000, "Duna"), Atmo(100, "Duna"), Exo(4000, "Duna"))));
+            Assert.Equal(new[] { 0.0, 2000.0, 10150.0 }, Starts(rows));
+            Assert.Equal(new[] { "space", "aerobraking", "aerobraking" }, Roles(rows));
+        }
+
+        // S2: the table's phase sort keeps reading the phase, not the role label.
+        [Fact]
+        public void PhaseSort_ReadsThePhaseNotTheRole()
+        {
+            var exoRow = new Recording { SegmentPhase = "exo", SegmentRole = "aerobraking", SegmentBodyName = "Kerbin" };
+            var atmoRow = new Recording { SegmentPhase = "atmo", SegmentRole = "space", SegmentBodyName = "Kerbin" };
+            int cmp = RecordingsTableUI.CompareRecordings(atmoRow, exoRow,
+                RecordingsTableUI.SortColumn.Phase, ascending: true, now: 0);
+            Assert.True(cmp < 0, "atmo sorts before exo by phase");
+        }
+
         // ------------------------------------------------------------ Q8 / Q9
 
         [Fact]

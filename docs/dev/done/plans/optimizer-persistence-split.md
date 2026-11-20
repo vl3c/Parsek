@@ -925,10 +925,14 @@ the version-1 rules.
 **Row roles.** Version-2 splits stamp `Recording.SegmentRole` on both halves: `ascent`, `space`,
 `aerobraking`, `reentry`, `approach`, `surface`, `atmosphere` (`RecordingOptimizer.SegmentRoles`;
 the orbit-kind cuts of a later version add more). The first half keeps its role or gets the role
-of how it starts; the second half gets the role of the cut. `CanAutoMerge` refuses different
-roles: the merge pass runs before the split pass on every pass and would otherwise glue, for
-example, an aerobraking row and the reentry row after it (both phase `atmo`, same body) and
-cut them again on the next load. `SegmentPhase` keeps its four values.
+of how it starts (a pass role is read again from the head's content at every cut, so a grown
+reentry row whose first pass now ends back in space becomes an aerobraking row); the second
+half gets the role of the cut. `CanAutoMerge` refuses different roles, and for two version-2
+rows any join the version-2 split predicate would cut again (`WouldSplitRulesCutJoin`): the
+merge pass runs before the split pass on every pass and would otherwise glue, for example, an
+aerobraking row and the reentry row after it (both phase `atmo`, same body) and cut them again
+on the next load, with a fresh id each time. `SegmentPhase` keeps its four values; the row
+label reads the role, the table's phase sort still reads the phase.
 
 **Version-2 predicate**, the section 3 steps with these changes:
 
@@ -937,7 +941,8 @@ cut them again on the next load. `SegmentPhase` keeps its four values.
 - Brief touchdown (ruling Q8): a Surface run shorter than 30 s
   (`BriefTouchdownMaxSeconds`) between Atmospheric / Approach runs is never cut
   (`SuppressedBriefTouchdown`) and reads as the air around it for every other rule, so the
-  later real landing still splits.
+  later real landing still splits. Not inside a launch-site start's leading run: rule 5b keeps
+  a bounce off the pad with the ascent there, and the two must agree on where the run ends.
 - Atmosphere passes (rulings Q7, A1, B1). An atmosphere stretch is an Atmospheric run with
   every brief Exo hop (under 120 s) back into the atmosphere folded in. It is entered from
   space when the run before it is Exo (or, for a row's first stretch, when the row's role is
@@ -945,7 +950,8 @@ cut them again on the next load. `SegmentPhase` keeps its four values.
   recording still in the air is the FINAL DESCENT: cut at its first entry
   (`FinalDescentEntry`, role `reentry`). One that ends back in space is a BRAKING pass: cut at
   its first entry (`BrakingPassEntry`, role `aerobraking`) unless the row already is an
-  aerobraking row (`SuppressedLaterBrakingPass`); "first" is the first accepted cut, since the
+  aerobraking row whose first pass was at the same body (`SuppressedLaterBrakingPass`; the
+  first touch resets at a body change); "first" is the first accepted cut, since the
   scan moves on when `CanAutoSplit` refuses one. Nothing inside a pass is cut
   (`SuppressedInsidePass`), the exit of a braking pass is not cut
   (`SuppressedBrakingPassExit`), and the entry of a row's own pass is not cut again

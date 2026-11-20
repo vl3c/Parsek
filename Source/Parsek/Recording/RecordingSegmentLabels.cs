@@ -21,7 +21,22 @@ namespace Parsek
             return GetSegmentPhaseLabel(rec, GetSegmentBodyDisplayLabel(rec));
         }
 
+        /// <summary>
+        /// The phase label the Recordings table SORTS by: always the phase ("Kerbin atmo"),
+        /// never the role, so a version-2 role does not move rows in the table order.
+        /// </summary>
+        internal static string GetSegmentPhaseSortLabel(Recording rec)
+        {
+            if (rec == null) return "";
+            return GetSegmentPhaseLabel(rec, GetSegmentBodyDisplayLabel(rec), preferRole: false);
+        }
+
         internal static string GetSegmentPhaseLabel(Recording rec, string displayBody)
+        {
+            return GetSegmentPhaseLabel(rec, displayBody, preferRole: true);
+        }
+
+        private static string GetSegmentPhaseLabel(Recording rec, string displayBody, bool preferRole)
         {
             if (rec == null) return "";
             if (ShouldSuppressEvaBoundaryPhaseLabel(rec))
@@ -29,7 +44,8 @@ namespace Parsek
                 return displayBody ?? "";
             }
 
-            string phase = !string.IsNullOrEmpty(rec.SegmentRole) ? rec.SegmentRole : rec.SegmentPhase;
+            string phase = preferRole && !string.IsNullOrEmpty(rec.SegmentRole)
+                ? rec.SegmentRole : rec.SegmentPhase;
             if (string.IsNullOrEmpty(phase)) return "";
             if (!string.IsNullOrEmpty(displayBody))
                 return displayBody + " " + phase;

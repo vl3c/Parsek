@@ -77,7 +77,14 @@ namespace Parsek
             int va = EffectiveSplitRuleVersion(a);
             int vb = EffectiveSplitRuleVersion(b);
             if (va == vb && string.Equals(a.SegmentRole, b.SegmentRole, StringComparison.Ordinal))
-                return false;
+            {
+                if (!UsesCurrentSplitRules(a) || !UsesCurrentSplitRules(b) || !WouldSplitRulesCutJoin(a, b))
+                    return false;
+                ParsekLog.Verbose("Optimizer",
+                    $"CanAutoMerge: rejecting merge of '{a.RecordingId}' + '{b.RecordingId}' " +
+                    "- the split rules would cut the join again");
+                return true;
+            }
             ParsekLog.Verbose("Optimizer",
                 $"CanAutoMerge: rejecting merge of '{a.RecordingId}' + '{b.RecordingId}' " +
                 $"- split rules v{va.ToString(CultureInfo.InvariantCulture)}/v{vb.ToString(CultureInfo.InvariantCulture)} " +
@@ -253,11 +260,19 @@ namespace Parsek
             }
 
             // Q8: a brief Surface run bracketed by Atmospheric / Approach reads as the air.
+            // Not inside a launch-site start's leading run: rule 5b already keeps a bounce off
+            // the pad with the ascent (FindLaunchSiteDepartureSection reads the raw classes, and
+            // the two must agree on where the leading run ends). A launch-site start that never
+            // departs keeps every touchdown, as version 1 does.
+            int launchDeparture = FindLaunchSiteDepartureSection(rec);
+            bool launchNeverDeparts = launchDeparture < 0 && IsLaunchSiteStart(rec)
+                && n > 0 && map.RawClass[0] == SurfaceSplitClass;
             var rawRuns = BuildRuns(sections, map.RawClass);
             for (int r = 1; r + 1 < rawRuns.Count; r++)
             {
                 var run = rawRuns[r];
                 if (run.Class != SurfaceSplitClass || run.Duration >= BriefTouchdownMaxSeconds) continue;
+                if (launchNeverDeparts || run.First < launchDeparture) continue;
                 int before = rawRuns[r - 1].Class;
                 int after = rawRuns[r + 1].Class;
                 if (!IsSurfaceGrazeBriefClass(before) || !IsSurfaceGrazeBriefClass(after)) continue;
@@ -481,7 +496,8 @@ namespace Parsek
                     split = true;
                     return true;
                 }
-                if (string.Equals(rec.SegmentRole, SegmentRoles.Aerobraking, StringComparison.Ordinal))
+                if (string.Equals(rec.SegmentRole, SegmentRoles.Aerobraking, StringComparison.Ordinal)
+                    && IsSameBodyAsRowFirstPass(rec, map, stretchIdx, s))
                 {
                     reason = SplitBoundaryReason.SuppressedLaterBrakingPass;
                     return true;
@@ -496,6 +512,87 @@ namespace Parsek
                 ? SplitBoundaryReason.SuppressedInsidePass
                 : SplitBoundaryReason.SuppressedBrakingPassExit;
             return true;
+        }
+
+        /// <summary>
+        /// The "first touch of the row" resets at a body change: a later braking pass stays
+        /// inside an aerobraking row only when it is at the body of the row's first pass from
+        /// space (a Duna aerocapture after a Kerbin aerobrake opens its own row). True when the
+        /// row has no earlier pass from space or a body is unknown.
+        /// </summary>
+        private static bool IsSameBodyAsRowFirstPass(Recording rec, PassMap map, int stretchIdx, int s)
+        {
+            for (int i = 0; i < stretchIdx; i++)
+            {
+                var first = map.Stretches[i];
+                if (!first.FromSpace) continue;
+                string rowBody = GetSectionBody(rec, rec.TrackSections[map.Runs[first.FirstRun].First]);
+                string entryBody = GetSectionBody(rec, rec.TrackSections[s]);
+                return string.IsNullOrEmpty(rowBody) || string.IsNullOrEmpty(entryBody)
+                    || string.Equals(rowBody, entryBody, StringComparison.Ordinal);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Review B2: the role a first half with a pass role keeps after a cut, read from its own
+        /// content. A committed pass row that grew (a resumed tip) and was cut again can now end
+        /// back in space: its first pass is then a braking pass, not the final descent, so the
+        /// head becomes an aerobraking row (and the reentry row the cut made does not share its
+        /// role). A head with another role keeps it; one with no pass from space left falls
+        /// back to <see cref="ResolveStartRole"/>.
+        /// </summary>
+        internal static string ResolveHeadRoleAfterCut(Recording head)
+        {
+            if (head == null) return null;
+            if (string.IsNullOrEmpty(head.SegmentRole)) return ResolveStartRole(head);
+            if (!IsPassRole(head.SegmentRole)) return head.SegmentRole;
+            if (head.TrackSections == null || head.TrackSections.Count == 0) return head.SegmentRole;
+            var map = BuildPassMap(head);
+            for (int i = 0; i < map.Stretches.Count; i++)
+            {
+                var st = map.Stretches[i];
+                if (!st.FromSpace) continue;
+                return st.Kind == PassKind.Final ? SegmentRoles.Reentry : SegmentRoles.Aerobraking;
+            }
+            return ResolveStartRole(head);
+        }
+
+        /// <summary>
+        /// Review B2, the merge side of the version gate: true when the version-2 split rules
+        /// would cut the joined recording of <paramref name="a"/> and <paramref name="b"/> again
+        /// (any boundary the predicate splits and the split guard accepts). Such a join is never
+        /// made, so a merge pass and a split pass can never undo each other on every load. The
+        /// join is a read-only view carrying <paramref name="a"/>'s identity, role and start.
+        /// </summary>
+        internal static bool WouldSplitRulesCutJoin(Recording a, Recording b)
+        {
+            if (a?.TrackSections == null || b?.TrackSections == null) return false;
+            var joined = new Recording
+            {
+                RecordingId = a.RecordingId,
+                SplitRuleVersion = a.SplitRuleVersion,
+                SegmentRole = a.SegmentRole,
+                EvaCrewName = a.EvaCrewName,
+                LaunchSiteName = a.LaunchSiteName,
+                StartSituation = a.StartSituation,
+                StartBodyName = a.StartBodyName,
+            };
+            joined.TrackSections.AddRange(a.TrackSections);
+            joined.TrackSections.AddRange(b.TrackSections);
+            if (a.Points != null) joined.Points.AddRange(a.Points);
+            if (b.Points != null) joined.Points.AddRange(b.Points);
+            if (a.OrbitSegments != null) joined.OrbitSegments.AddRange(a.OrbitSegments);
+            if (b.OrbitSegments != null) joined.OrbitSegments.AddRange(b.OrbitSegments);
+            if (joined.TrackSections.Count < 2) return false;
+            var map = BuildPassMap(joined);
+            for (int s = 1; s < joined.TrackSections.Count; s++)
+            {
+                if (IsSplittableBoundaryV2(joined, s, map, out _)
+                    && CanAutoSplitIgnoringGhostTriggers(joined, s))
+                    return true;
+            }
+            return false;
         }
 
         private static bool IsGrazeOverRuns(PassMap map, int s, out SplitBoundaryReason direction)
