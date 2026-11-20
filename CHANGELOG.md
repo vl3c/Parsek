@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **Watching a ship that docks and later undocks keeps the camera on that ship.** When the ship
+  you were watching docked to a station and then left it, the camera could stay with the station
+  instead. Watch now follows the ship you started watching through the undock.
+  (WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now

@@ -36,19 +36,32 @@ cycle=cycle-N originDebits=a pickups=b deliveries=c; cargo already taken is not 
 undone." Owner question: keep the loss (and maybe name it in that existing confirm text), or
 return the taken cargo to its source on delete. No lane flies it yet.
 
-## WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION: after a watched ship docks and undocks, watch follows the vessel that kept the merge's pid, not the ship [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit (`WatchAcrossDockTests`). PINNED, owner question; low (camera choice, the player can pick the ship again)]
+## ~~WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION~~: after a watched ship docks and undocks, watch follows the vessel that kept the merge's pid, not the ship [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit (`WatchAcrossDockTests`). OWNER RULING 2026-11-20 (V): "follow the ship I was watching". FIXED 2026-11-20, same branch; xUnit only, no lane flies a watch across a dock and undock; low (camera choice, the player can pick the ship again)]
 
-At the dock itself watch is right in every shape: the merged vessel is the only child, so it is
-followed whether the merge kept the watched ship's pid (same-pid rule) or the partner's (the
-different-pid fallback, allowed for Dock), and from the passive partner too; with the merged
-ghost not spawned yet it holds (-1). The step after is the question: when the merged vessel
-later undocks, `GhostPlaybackLogic.FindNextWatchTarget` prefers the child with the MERGED
-recording's pid, so a ship that docked into a station whose pid the merge kept is followed by
-the station when it undocks, not by the ship that leaves (whenever the ship's undock child
-carries a pid other than the merge's). Watch keeps no memory of the vessel it started on.
-Which pid KSP gives each side at a real dock and undock is not checked here; a watch step on a
-BDOCK replay would read it. Owner question: should watch carry the originally watched
-vessel's identity (`VesselIdentity`) across a dock-undock pair?
+At the dock itself watch was right in every shape and is unchanged: the merged vessel is the
+only child, so it is followed whether the merge kept the watched ship's pid (same-pid rule) or
+the partner's (the different-pid fallback, allowed for Dock), and from the passive partner too;
+with the merged ghost not spawned yet it holds (-1). The step after was the defect: when the
+merged vessel later undocked, `GhostPlaybackLogic.FindNextWatchTarget` preferred the child with
+the MERGED recording's pid, so a ship that docked into a station whose pid the merge kept was
+followed by the station, not by the ship that leaves.
+
+Fix: a watch session now remembers the launch guid of the vessel it started on
+(`WatchModeController.watchedIdentityGuid`, set in `TryCommitWatchSessionStart`, kept across
+`TransferWatchToNextSegment`, cleared with the session). At an Undock branch point
+`GhostPlaybackLogic.FindWatchedIdentityChild` picks the one child whose `RecordedVesselGuid` is
+that guid or continues it through a link row (`VesselLaunchIdentity.GuidsPositivelySameIdentity`;
+KSP gives the ship that leaves a dock a fresh guid, which the UndockReturn link joins back), and
+that child replaces the same-pid child as the preferred continuation in both
+`FindNextWatchTarget` and `TryGetPendingWatchActivationUT`: followed when its ghost is active,
+otherwise the watch holds for it (the hold timer retries) rather than jumping to the station.
+With the identity unknown, no child continuing it, or two children continuing it, the same-pid
+rule stays. Never a bare pid. Logs (`[Watch]`, rate-limited Verbose): `undock <bp>: following the
+watched vessel identity=<guid> -> child ...` / `no child continues the watched vessel identity=...
+- keeping the same-PID rule` / `watched identity unknown - keeping the same-PID rule`, plus
+`Watch session identity: #i ... identity=<guid|unknown>` at session start. Not covered: an undock
+recorded before dock-absorb rows existed, whose ship child carries a fresh guid with no link
+(VesselIdentity's edge 6, part-pid overlap, is not consulted here); it keeps the same-pid rule.
 
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
