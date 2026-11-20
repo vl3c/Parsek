@@ -17,7 +17,7 @@ namespace Parsek.Tests
     /// save after it. The tree is now written from memory, and only an unwritable
     /// recording takes its last-known-good RECORDING node from the on-disk save (carrying
     /// the whole disk node froze every recording added since; todo
-    /// SAVE-FREEZE-ONE-UNWRITABLE-SIDECAR).</para>
+    /// SAVE-FREEZE-ON-MISSING-SIDECAR).</para>
     ///
     /// <para><b>The trigger (fix C): the committed-overlap discard guard was answered
     /// against an empty store.</b> <c>DiscardPendingTree</c> refuses to delete sidecars
@@ -58,6 +58,7 @@ namespace Parsek.Tests
             HighLogic.LoadedScene = originalScene;
             ParsekScenario.PersistentSavePathOverrideForTesting = null;
             RecordingPaths.SaveRootOverrideForTesting = null;
+            RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = null;
             RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             RecordingStore.ClearDurableCommittedRecordingIdHint();
             for (int i = 0; i < cleanupFiles.Count; i++)
@@ -84,9 +85,9 @@ namespace Parsek.Tests
         // THE INVARIANT, end to end through the real SaveTreeRecordings: a committed
         // tree whose recording cannot be written (SidecarLoadFailed + empty in-memory
         // state, the shape the bug-#585 guard refuses to clobber) keeps its node in the
-        // written save, carried forward from the on-disk one.
+        // written save, with the unwritable recording's sidecar keys taken from disk.
         [Fact]
-        public void SaveTreeRecordings_UnserializableTree_KeepsItsNodeFromTheOnDiskSave()
+        public void SaveTreeRecordings_UnserializableTree_StaysInTheSave()
         {
             RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
             PrepareSaveFolder("carry-forward");
@@ -102,23 +103,18 @@ namespace Parsek.Tests
             ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
             Assert.Single(treeNodes);
             Assert.Equal("tree-x", treeNodes[0].GetValue("id"));
-            // Carried forward WITH its payload, not as a hollow stub.
             Assert.Equal("Mun Program", treeNodes[0].GetValue("treeName"));
-            Assert.Single(treeNodes[0].GetNodes("RECORDING"));
-            Assert.Equal("rec-x", treeNodes[0].GetNodes("RECORDING")[0].GetValue("recordingId"));
-            // The disk node (recordingId only), not memory's.
-            Assert.Null(treeNodes[0].GetNodes("RECORDING")[0].GetValue("vesselName"));
+            ConfigNode rec = Assert.Single(treeNodes[0].GetNodes("RECORDING"));
+            Assert.Equal("rec-x", rec.GetValue("recordingId"));
+            // Memory's metadata, not a hollow stub.
+            Assert.Equal("Mun Program Vessel", rec.GetValue("vesselName"));
             Assert.Contains(logLines, l =>
-                l.Contains("[Scenario]") && l.Contains("carried forward last-known-good"));
+                l.Contains("[WARN][Scenario]") && l.Contains("id=tree-x written from memory")
+                && l.Contains("[rec-x]") && l.Contains("splicedFromDisk=1"));
             // THE H5 REGRESSION (2026-09-06): rec-x is the ROOT and has no sidecar on disk
-            // (it was never written - the exact shape of the synthetic corpus's 34
-            // metadata-only tree recordings, and of any real recording whose .prec is
-            // lost). Reconciliation used to require the sidecar, drop rec-x, refuse the
-            // carry for its dangling root and delete the tree at Error. The tree now comes
-            // from memory and rec-x takes its on-disk node, through the real predicate with
-            // no testing seam: there is no sidecar override left to declare.
+            // (the shape of the synthetic corpus's metadata-only tree recordings, and of any
+            // real recording whose .prec is lost). The tree must never be dropped at Error.
             Assert.DoesNotContain(logLines, l => l.Contains("[ERROR]"));
-            Assert.DoesNotContain(logLines, l => l.Contains("resurrect deleted data"));
         }
 
         // Nothing on disk to carry forward (the tree was never saved, or the save was
@@ -145,14 +141,14 @@ namespace Parsek.Tests
             Assert.Equal("rec-y", rec.GetValue("recordingId"));
             Assert.Equal("Minmus Program Vessel", rec.GetValue("vesselName"));
             Assert.Single(logLines, l =>
-                l.Contains("[WARN][Scenario]") && l.Contains("no last-known-good node on disk")
-                && l.Contains("'Minmus Program'") && l.Contains("unwritable=[rec-y]")
-                && l.Contains("spliced=0") && l.Contains("unwritableKeptFromMemory=1"));
+                l.Contains("[WARN][Scenario]") && l.Contains("'Minmus Program' id=tree-y written from memory")
+                && l.Contains("[rec-y]") && l.Contains("splicedFromDisk=0")
+                && l.Contains("unwritableWithoutDiskNode=1") && l.Contains("diskTreeNode=False"));
             Assert.DoesNotContain(logLines, l => l.Contains("[ERROR]"));
         }
 
         // A tree that CAN be serialized is untouched by the new branch (no carry-forward,
-        // no duplicate node).
+        // no duplicate node, no warning).
         [Fact]
         public void SaveTreeRecordings_SerializableTree_WritesFromMemoryOnce()
         {
@@ -168,54 +164,20 @@ namespace Parsek.Tests
             ParsekScenario.SaveTreeRecordings(node);
 
             Assert.Single(node.GetNodes("RECORDING_TREE"));
-            Assert.DoesNotContain(logLines, l => l.Contains("carried forward last-known-good"));
+            Assert.DoesNotContain(logLines, l => l.Contains("unwritable recording(s)"));
         }
 
-        // catches: SAVE-FREEZE-ONE-UNWRITABLE-SIDECAR. The tree used to be carried forward
+        // catches: SAVE-FREEZE-ON-MISSING-SIDECAR. The tree used to be carried forward
         // WHOLE from the on-disk save whenever one member could not be written, keeping
-        // only the recordings that old node already listed. Anything added to the tree in
-        // memory after the disk save (a Re-Fly fork, a continuation segment, a new branch)
-        // was missing from this save and every later one while the fault lasted, and the
-        // next cold load quarantined its sidecars. The tree is now written from memory and
-        // only the unwritable member keeps its last-known-good RECORDING node.
+        // only the recordings that old node already listed, with their old metadata.
+        // Anything added to the tree after the disk save (a Re-Fly fork, a continuation
+        // segment, a new branch) and every edit to a healthy member was missing from this
+        // save and every later one while the fault lasted. The rec-new and rec-b
+        // assertions both failed on the pre-fix code.
         [Fact]
-        public void SaveTreeRecordings_UnwritableMember_StillWritesRecordingsAddedSinceTheDiskSave()
+        public void SaveTreeRecordings_UnwritableMember_DoesNotFreezeTheRestOfTheTree()
         {
-            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
-            string recordingsDir = PrepareSaveFolder("carry-forward-new-member");
-            RecordingPaths.SaveRootOverrideForTesting = Directory.GetParent(
-                Directory.GetParent(recordingsDir).FullName).FullName;
-
-            // rec-root: loaded with its .prec missing (the save was copied without its
-            // Parsek folder), so it cannot be written. rec-new: flown in memory after the
-            // disk save, healthy, linked to the root by a branch point.
-            RecordingTree tree = MakeUnserializableTree("tree-f", "Duna Program", "rec-root");
-            var fresh = new Recording
-            {
-                RecordingId = "rec-new",
-                VesselName = "Duna Lander",
-                TreeId = "tree-f",
-                ParentBranchPointId = "bp-new",
-            };
-            fresh.Points.Add(new TrajectoryPoint { ut = 120.0, bodyName = "Kerbin" });
-            fresh.Points.Add(new TrajectoryPoint { ut = 121.0, bodyName = "Kerbin" });
-            fresh.MarkFilesDirty();
-            tree.AddOrReplaceRecording(fresh);
-            var bp = new BranchPoint { Id = "bp-new", UT = 115.0, Type = BranchPointType.Undock };
-            bp.ParentRecordingIds.Add("rec-root");
-            bp.ChildRecordingIds.Add("rec-new");
-            tree.BranchPoints.Add(bp);
-            RecordingStore.AddCommittedTreeForTesting(tree);
-
-            // The on-disk save predates rec-new and holds rec-root's last-known-good node.
-            var diskTree = new ConfigNode("RECORDING_TREE");
-            diskTree.AddValue("id", "tree-f");
-            diskTree.AddValue("treeName", "Duna Program");
-            diskTree.AddValue("rootRecordingId", "rec-root");
-            ConfigNode diskRoot = diskTree.AddNode("RECORDING");
-            diskRoot.AddValue("recordingId", "rec-root");
-            diskRoot.AddValue("vesselName", "Last Known Good");
-            diskRoot.AddValue("sidecarEpoch", "3");
+            string recordingsDir = BuildFrozenTreeScenario(out ConfigNode diskTree);
             ParsekScenario.PersistentSavePathOverrideForTesting = WriteTempPersistentSfsTree(diskTree);
 
             var node = new ConfigNode("ParsekScenario");
@@ -224,25 +186,73 @@ namespace Parsek.Tests
             ConfigNode written = Assert.Single(node.GetNodes("RECORDING_TREE"));
             Assert.Equal("tree-f", written.GetValue("id"));
             ConfigNode[] recs = written.GetNodes("RECORDING");
+            Assert.Equal(3, recs.Length);
+
+            // A recording added after the disk save is written, sidecar included.
             ConfigNode newRec = Array.Find(recs, r => r.GetValue("recordingId") == "rec-new");
             Assert.True(newRec != null, "the recording added after the disk save was dropped from the save");
             Assert.Equal("Duna Lander", newRec.GetValue("vesselName"));
             Assert.Equal("2", newRec.GetValue("pointCount"));
             Assert.True(File.Exists(Path.Combine(recordingsDir, "rec-new.prec")));
-            // The unwritable member keeps its last-known-good node, which names the
-            // sidecar epoch the files on disk actually carry.
+
+            // An edit to a healthy member the disk save already held is written.
+            ConfigNode healthy = Assert.Single(recs, r => r.GetValue("recordingId") == "rec-b");
+            Assert.Equal("Renamed In Memory", healthy.GetValue("vesselName"));
+
+            // The unwritable member: memory's metadata and topology, disk's sidecar keys.
             ConfigNode rootRec = Assert.Single(recs, r => r.GetValue("recordingId") == "rec-root");
-            Assert.Equal("Last Known Good", rootRec.GetValue("vesselName"));
+            Assert.Equal("Duna Program Vessel", rootRec.GetValue("vesselName"));
+            Assert.Equal("bp-new", rootRec.GetValue("childBranchPointId"));
             Assert.Equal("3", rootRec.GetValue("sidecarEpoch"));
-            Assert.Equal(2, recs.Length);
+            Assert.Equal("disk-prec-hash", rootRec.GetValue("precHash"));
+            Assert.Equal("7", rootRec.GetValue("pointCount"));
+            // Memory named a vessel hash the disk node does not: the disk's absence wins.
+            Assert.Null(rootRec.GetValue("vesselHash"));
+            Assert.Single(rootRec.GetValues("sidecarEpoch"));
+
             ConfigNode writtenBp = Assert.Single(written.GetNodes("BRANCH_POINT"));
             Assert.Equal("bp-new", writtenBp.GetValue("id"));
 
             Assert.Single(logLines, l =>
-                l.Contains("[WARN][Scenario]") && l.Contains("carried forward last-known-good")
-                && l.Contains("'Duna Program'") && l.Contains("unwritable=[rec-root]")
-                && l.Contains("fromMemory=1") && l.Contains("spliced=1"));
+                l.Contains("[WARN][Scenario]") && l.Contains("'Duna Program' id=tree-f written from memory")
+                && l.Contains("1 unwritable recording(s) [rec-root]") && l.Contains("recordings=3")
+                && l.Contains("splicedFromDisk=1") && l.Contains("unwritableWithoutDiskNode=0"));
+            Assert.Single(logLines, l =>
+                l.Contains("[INFO][Scenario]") && l.Contains("1 committed tree(s) held 1 unwritable recording(s)")
+                && l.Contains("1 kept their on-disk sidecar keys"));
             Assert.DoesNotContain(logLines, l => l.Contains("[ERROR]"));
+        }
+
+        // The mirror direction: the node the save wrote must load back as the same tree.
+        // The spliced root still has no .prec, so it hydrates as trajectory-missing with
+        // no points (the metadata-only shape the load keeps) and keeps its branch-point
+        // link, so it does not read as a leaf; the next save takes the same path again.
+        [Fact]
+        public void SaveTreeRecordings_UnwritableMember_LoadsBackAsTheSameTree()
+        {
+            BuildFrozenTreeScenario(out ConfigNode diskTree);
+            ParsekScenario.PersistentSavePathOverrideForTesting = WriteTempPersistentSfsTree(diskTree);
+            var node = new ConfigNode("ParsekScenario");
+            ParsekScenario.SaveTreeRecordings(node);
+            ConfigNode written = Assert.Single(node.GetNodes("RECORDING_TREE"));
+
+            RecordingTree loaded = RecordingTree.Load(written);
+            Assert.Equal(3, loaded.Recordings.Count);
+            Recording root = loaded.Recordings["rec-root"];
+            Assert.Equal("bp-new", root.ChildBranchPointId);
+            Assert.Equal(3, root.SidecarEpoch);
+            Assert.Equal("bp-new", loaded.Recordings["rec-new"].ParentBranchPointId);
+
+            foreach (Recording rec in loaded.Recordings.Values)
+                RecordingSidecarStore.LoadRecordingFiles(rec);
+            Assert.True(root.SidecarLoadFailed);
+            Assert.Equal("trajectory-missing", root.SidecarLoadFailureReason);
+            Assert.True(ParsekScenario.IsSyntheticFixtureSidecarMarker(root));
+            Assert.False(loaded.Recordings["rec-new"].SidecarLoadFailed);
+            Assert.Equal(2, loaded.Recordings["rec-new"].Points.Count);
+
+            Assert.Equal(0, ParsekScenario.DropFailedSidecarHydrationRecordings(loaded, "test"));
+            Assert.Equal(3, loaded.Recordings.Count);
         }
 
         [Fact]
@@ -270,27 +280,36 @@ namespace Parsek.Tests
         public void Splice_NullOrEmptyInputs_ReturnZeroAndLeaveTheNodeAlone()
         {
             ConfigNode written = BuildTreeNode("tree-n", "rec-a");
+            written.GetNodes("RECORDING")[0].AddValue("sidecarEpoch", "9");
             ConfigNode disk = BuildTreeNode("tree-n", "rec-a");
             var ids = new List<string> { "rec-a" };
             Assert.Equal(0, ParsekScenario.SpliceLastKnownGoodRecordingNodes(null, disk, ids));
             Assert.Equal(0, ParsekScenario.SpliceLastKnownGoodRecordingNodes(written, null, ids));
             Assert.Equal(0, ParsekScenario.SpliceLastKnownGoodRecordingNodes(written, disk, null));
             Assert.Equal(0, ParsekScenario.SpliceLastKnownGoodRecordingNodes(written, disk, new List<string>()));
-            Assert.Single(written.GetNodes("RECORDING"));
+            Assert.Equal("9", Assert.Single(written.GetNodes("RECORDING")).GetValue("sidecarEpoch"));
         }
 
-        // Only the unwritable member takes its disk node; the others and their order stay
-        // memory's.
+        // Only the unwritable member takes disk values, and only its sidecar keys; every
+        // other key, every other recording and the order stay memory's.
         [Fact]
-        public void Splice_ReplacesOnlyTheUnwritableMembers_AndKeepsOrder()
+        public void Splice_TakesOnlyTheSidecarKeysOfTheUnwritableMembers()
         {
             ConfigNode written = BuildTreeNode("tree-s", "rec-a", "rec-b", "rec-c");
             foreach (ConfigNode r in written.GetNodes("RECORDING"))
+            {
                 r.AddValue("vesselName", "memory");
+                r.AddValue("sidecarEpoch", "5");
+                r.AddValue("ghostHash", "memory-ghost");
+            }
             written.AddNode("BRANCH_POINT").AddValue("id", "bp-1");
             ConfigNode disk = BuildTreeNode("tree-s", "rec-a", "rec-b");
             foreach (ConfigNode r in disk.GetNodes("RECORDING"))
+            {
                 r.AddValue("vesselName", "disk");
+                r.AddValue("sidecarEpoch", "2");
+                r.AddValue("ghostSnapshotMode", "Separate");
+            }
 
             Assert.Equal(1, ParsekScenario.SpliceLastKnownGoodRecordingNodes(
                 written, disk, new List<string> { "rec-b" }));
@@ -298,9 +317,41 @@ namespace Parsek.Tests
             ConfigNode[] recs = written.GetNodes("RECORDING");
             Assert.Equal(new[] { "rec-a", "rec-b", "rec-c" },
                 Array.ConvertAll(recs, r => r.GetValue("recordingId")));
-            Assert.Equal(new[] { "memory", "disk", "memory" },
+            Assert.Equal(new[] { "memory", "memory", "memory" },
                 Array.ConvertAll(recs, r => r.GetValue("vesselName")));
+            Assert.Equal(new[] { "5", "2", "5" },
+                Array.ConvertAll(recs, r => r.GetValue("sidecarEpoch")));
+            Assert.Equal(new[] { "memory-ghost", null, "memory-ghost" },
+                Array.ConvertAll(recs, r => r.GetValue("ghostHash")));
+            Assert.Equal(new[] { null, "Separate", null },
+                Array.ConvertAll(recs, r => r.GetValue("ghostSnapshotMode")));
             Assert.Single(written.GetNodes("BRANCH_POINT"));
+        }
+
+        // The carried keys are ones the codec writes for the files: pin them to the codec
+        // so a renamed key cannot silently stop being carried, and keep the topology and
+        // metadata keys out.
+        [Fact]
+        public void CarriedSidecarIdentityKeys_AreKeysTheRecordingCodecWrites()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-keys",
+                SidecarEpoch = 4,
+                PrecHash = "p",
+                VesselSnapshotHash = "v",
+                GhostSnapshotHash = "g",
+                GhostSnapshotMode = GhostSnapshotMode.Separate,
+            };
+            var recNode = new ConfigNode("RECORDING");
+            RecordingTreeRecordCodec.SaveRecordingInto(recNode, rec);
+
+            string[] keys = ParsekScenario.CarriedSidecarIdentityKeys();
+            foreach (string key in keys)
+                Assert.True(recNode.HasValue(key), "codec does not write carried key " + key);
+            Assert.DoesNotContain("childBranchPointId", keys);
+            Assert.DoesNotContain("parentBranchPointId", keys);
+            Assert.DoesNotContain("vesselName", keys);
         }
 
         // catches: THE RESURRECTION. The on-disk node is older than memory and can still
@@ -320,20 +371,33 @@ namespace Parsek.Tests
         }
 
         // An unwritable recording the disk save does not hold (flown since that save) keeps
-        // memory's metadata rather than vanishing.
+        // memory's node rather than vanishing.
         [Fact]
         public void Splice_UnwritableMemberMissingFromDisk_KeepsMemorysNode()
         {
             ConfigNode written = BuildTreeNode("tree-m", "rec-old", "rec-new");
+            written.GetNodes("RECORDING")[1].AddValue("sidecarEpoch", "6");
             ConfigNode disk = BuildTreeNode("tree-m", "rec-old");
 
             Assert.Equal(0, ParsekScenario.SpliceLastKnownGoodRecordingNodes(
                 written, disk, new List<string> { "rec-new" }));
 
+            ConfigNode[] recs = written.GetNodes("RECORDING");
             Assert.Equal(new[] { "rec-old", "rec-new" },
-                Array.ConvertAll(written.GetNodes("RECORDING"), r => r.GetValue("recordingId")));
+                Array.ConvertAll(recs, r => r.GetValue("recordingId")));
+            Assert.Equal("6", recs[1].GetValue("sidecarEpoch"));
         }
 
+        [Fact]
+        public void FormatUnwritableIds_ListsUpToTenAndCountsTheRest()
+        {
+            Assert.Equal("", ParsekScenario.FormatUnwritableIds(null));
+            Assert.Equal("a,<none>", ParsekScenario.FormatUnwritableIds(new List<string> { "a", null }));
+            var many = new List<string>();
+            for (int i = 0; i < 12; i++)
+                many.Add("r" + i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Equal("r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,+2 more", ParsekScenario.FormatUnwritableIds(many));
+        }
 
         // C1: the carry-forward source is ALWAYS the campaign persistent.sfs. The earlier
         // "target file name hint" was never set by any production call site, so this pins
@@ -537,6 +601,71 @@ namespace Parsek.Tests
             Directory.CreateDirectory(recordingsDir);
             RecordingFileJanitor.CleanOrphanFilesDirectoryOverrideForTesting = recordingsDir;
             cleanupRoots.Add(root);
+            return recordingsDir;
+        }
+
+        /// <summary>
+        /// The frozen-tree shape: rec-root loaded with its .prec missing (unwritable, with a
+        /// branch added under it since the disk save), rec-b healthy and renamed in memory
+        /// since the disk save, rec-new flown after the disk save. Returns the recordings
+        /// directory; <paramref name="diskTree"/> is the older on-disk tree node.
+        /// </summary>
+        private string BuildFrozenTreeScenario(out ConfigNode diskTree)
+        {
+            RecordingSidecarStore.SkipSidecarCurrencyCheckForTesting = false;
+            string recordingsDir = PrepareSaveFolder("carry-forward-frozen");
+            RecordingPaths.SaveRootOverrideForTesting = Directory.GetParent(
+                Directory.GetParent(recordingsDir).FullName).FullName;
+
+            RecordingTree tree = MakeUnserializableTree("tree-f", "Duna Program", "rec-root");
+            Recording root = tree.Recordings["rec-root"];
+            root.ChildBranchPointId = "bp-new";
+            root.SidecarEpoch = 3;
+            root.PrecHash = "disk-prec-hash";
+            root.VesselSnapshotHash = "memory-only-vessel-hash";
+
+            var healthy = new Recording
+            {
+                RecordingId = "rec-b",
+                VesselName = "Renamed In Memory",
+                TreeId = "tree-f",
+            };
+            healthy.Points.Add(new TrajectoryPoint { ut = 101.0, bodyName = "Kerbin" });
+            healthy.Points.Add(new TrajectoryPoint { ut = 102.0, bodyName = "Kerbin" });
+            healthy.MarkFilesDirty();
+            tree.AddOrReplaceRecording(healthy);
+
+            var fresh = new Recording
+            {
+                RecordingId = "rec-new",
+                VesselName = "Duna Lander",
+                TreeId = "tree-f",
+                ParentBranchPointId = "bp-new",
+            };
+            fresh.Points.Add(new TrajectoryPoint { ut = 120.0, bodyName = "Kerbin" });
+            fresh.Points.Add(new TrajectoryPoint { ut = 121.0, bodyName = "Kerbin" });
+            fresh.MarkFilesDirty();
+            tree.AddOrReplaceRecording(fresh);
+            var bp = new BranchPoint { Id = "bp-new", UT = 115.0, Type = BranchPointType.Undock };
+            bp.ParentRecordingIds.Add("rec-root");
+            bp.ChildRecordingIds.Add("rec-new");
+            tree.BranchPoints.Add(bp);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            // The on-disk save predates rec-new, the branch and the rename.
+            diskTree = new ConfigNode("RECORDING_TREE");
+            diskTree.AddValue("id", "tree-f");
+            diskTree.AddValue("treeName", "Duna Program");
+            diskTree.AddValue("rootRecordingId", "rec-root");
+            ConfigNode diskRoot = diskTree.AddNode("RECORDING");
+            diskRoot.AddValue("recordingId", "rec-root");
+            diskRoot.AddValue("vesselName", "Last Known Good");
+            diskRoot.AddValue("sidecarEpoch", "3");
+            diskRoot.AddValue("precHash", "disk-prec-hash");
+            diskRoot.AddValue("pointCount", "7");
+            ConfigNode diskB = diskTree.AddNode("RECORDING");
+            diskB.AddValue("recordingId", "rec-b");
+            diskB.AddValue("vesselName", "Old Name On Disk");
             return recordingsDir;
         }
 

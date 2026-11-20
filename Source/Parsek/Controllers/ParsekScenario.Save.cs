@@ -77,6 +77,7 @@ namespace Parsek
             bool carrySourceLoaded = false;
             ConfigNode carrySourceParsekNode = null;
             string carrySourcePath = null;
+            int treesWithUnwritable = 0, unwritableTotal = 0, splicedTotal = 0;
             for (int t = 0; t < committedTrees.Count; t++)
             {
                 var tree = committedTrees[t];
@@ -108,12 +109,11 @@ namespace Parsek
                 // recording must not freeze the rest of it. The skip condition (a recording
                 // whose sidecars are missing / unwritable) is STICKY, so whatever this branch
                 // writes repeats on every save until the fault clears. The tree therefore
-                // comes from memory (topology, scalars and every recording added since the
-                // disk save), and only the unwritable members take their last-known-good
-                // RECORDING node from the on-disk save: that node names the sidecar epoch and
-                // hashes the files on disk actually carry, which the failed write did not
-                // change. An unwritable member the disk save does not hold keeps its memory
-                // metadata (it loads as trajectory-missing and plays nothing).
+                // comes from memory (topology, metadata and every recording added since the
+                // disk save), and each unwritable member takes only the keys that name its
+                // sidecar files from its last-known-good node in the on-disk save (the files
+                // the failed write left untouched). An unwritable member the disk save does
+                // not hold keeps memory's node (it loads as trajectory-missing).
                 // One ConfigNode.Load per OnSave at most, shared across every failing tree.
                 if (!carrySourceLoaded)
                 {
@@ -122,20 +122,19 @@ namespace Parsek
                 }
                 ConfigNode diskTree = FindCommittedTreeNodeById(carrySourceParsekNode, tree.Id);
                 int spliced = SpliceLastKnownGoodRecordingNodes(treeNode, diskTree, unwritableIds);
-                int fromMemory = tree.Recordings.Count - spliced;
-                int unwritableFromMemory = unwritableIds.Count - spliced;
-                string lead = spliced > 0
-                    ? "OnSave: carried forward last-known-good RECORDING_TREE node for"
-                    : "OnSave: no last-known-good node on disk for the unwritable recording(s) of tree";
+                treesWithUnwritable++;
+                unwritableTotal += unwritableIds.Count;
+                splicedTotal += spliced;
                 ParsekLog.Warn("Scenario",
-                    $"{lead} '{tree.TreeName}' " +
-                    $"id={tree.Id ?? "<none>"}: unwritable=[{string.Join(",", unwritableIds.ConvertAll(id => id ?? "<none>").ToArray())}] " +
-                    $"fromMemory={fromMemory.ToString(CultureInfo.InvariantCulture)} " +
-                    $"spliced={spliced.ToString(CultureInfo.InvariantCulture)} " +
-                    $"unwritableKeptFromMemory={unwritableFromMemory.ToString(CultureInfo.InvariantCulture)} " +
+                    $"OnSave: tree '{tree.TreeName}' id={tree.Id ?? "<none>"} written from memory with " +
+                    $"{unwritableIds.Count.ToString(CultureInfo.InvariantCulture)} unwritable recording(s) " +
+                    $"[{FormatUnwritableIds(unwritableIds)}]: " +
+                    $"recordings={tree.Recordings.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"splicedFromDisk={spliced.ToString(CultureInfo.InvariantCulture)} " +
+                    $"unwritableWithoutDiskNode={(unwritableIds.Count - spliced).ToString(CultureInfo.InvariantCulture)} " +
                     $"source='{carrySourcePath ?? "<none>"}' diskTreeNode={(diskTree != null)}. " +
-                    "The tree is written from memory; each unwritable recording keeps its on-disk " +
-                    "node when there is one. Investigate the sidecar fault above");
+                    "Each spliced recording keeps the sidecar epoch and hashes of its on-disk node; " +
+                    "investigate the sidecar fault above");
             }
             // GC-3: committed trees the schema gate rejected at load, written back verbatim.
             InertRecordingTrees.AppendTo(node, committedTrees);
@@ -145,6 +144,12 @@ namespace Parsek
                     $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
                     $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots, " +
                     $"{treeTotalBranchPoints} branch points");
+            if (treesWithUnwritable > 0)
+                ParsekLog.Info("Scenario",
+                    $"OnSave: {treesWithUnwritable.ToString(CultureInfo.InvariantCulture)} committed tree(s) " +
+                    $"held {unwritableTotal.ToString(CultureInfo.InvariantCulture)} unwritable recording(s); " +
+                    $"{splicedTotal.ToString(CultureInfo.InvariantCulture)} kept their on-disk sidecar keys, " +
+                    "every tree and every other recording was written from memory");
 
             SaveActiveTreeIfAny(node);
             SavePendingTreeIfAny(node);
@@ -153,6 +158,24 @@ namespace Parsek
             // state" fingerprint; it is handled protectively (not just diagnosed) by
             // PreserveRecordingStateIfLoadFault, which OnSave invokes AFTER the mission
             // section so it can re-hydrate both trees and missions. See that method.
+        }
+
+        /// <summary>
+        /// Lists unwritable recording ids for the per-tree save warning, capped so a tree
+        /// with many failing members does not print an unbounded line.
+        /// </summary>
+        internal static string FormatUnwritableIds(List<string> ids)
+        {
+            if (ids == null || ids.Count == 0)
+                return "";
+            const int MaxListed = 10;
+            var listed = new List<string>(Math.Min(ids.Count, MaxListed));
+            for (int i = 0; i < ids.Count && i < MaxListed; i++)
+                listed.Add(ids[i] ?? "<none>");
+            string text = string.Join(",", listed.ToArray());
+            if (ids.Count > MaxListed)
+                text += ",+" + (ids.Count - MaxListed).ToString(CultureInfo.InvariantCulture) + " more";
+            return text;
         }
 
         internal static bool EnsureRecordingFilesCurrentForSave(Recording rec, string treeKind)

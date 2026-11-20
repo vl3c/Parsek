@@ -9,7 +9,8 @@ using UnityEngine;
 namespace Parsek
 {
     // Keeping committed trees across a load fault: preserve the loaded state, carry an
-    // unwritable recording's node forward from the loaded save, rehydrate from the disk save.
+    // unwritable recording's sidecar keys forward from the loaded save, rehydrate from the
+    // disk save.
     public partial class ParsekScenario
     {
         /// <summary>
@@ -163,12 +164,12 @@ namespace Parsek
         /// described an intention rather than the shipped behaviour.</para>
         ///
         /// <para><b>Why reading the campaign save is nonetheless safe.</b> The save reads
-        /// only the RECORDING nodes of recordings it cannot write out of it, by id, through
+        /// only the sidecar keys of recordings it cannot write out of it, by id, through
         /// <see cref="SpliceLastKnownGoodRecordingNodes"/>; the tree, its topology and every
-        /// other recording come from memory. So a save targeting a quicksave slot cannot
+        /// recording's metadata come from memory. So a save targeting a quicksave slot cannot
         /// acquire recordings this game does not have. What an unwritable member can still
-        /// inherit is the campaign's copy of its own node - strictly better than dropping
-        /// it.</para>
+        /// inherit is the campaign's naming of its own files, which is what the files on disk
+        /// carry unless another save rewrote them since.</para>
         /// </summary>
         internal static ConfigNode TryLoadCarryForwardSourceParsekNode(out string sourcePath)
         {
@@ -193,25 +194,33 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Replaces, in a tree node just written from memory, the RECORDING node of each
-        /// recording in <paramref name="unwritableIds"/> with that recording's
-        /// last-known-good RECORDING node from <paramref name="diskTree"/> (the same tree in
-        /// the on-disk save). Returns how many were replaced.
+        /// For each recording in <paramref name="unwritableIds"/>, replaces in the tree node
+        /// just written from memory the keys that name that recording's sidecar files
+        /// (<see cref="CarriedSidecarIdentityKeys"/>) with the values its last-known-good
+        /// RECORDING node in <paramref name="diskTree"/> (the same tree in the on-disk save)
+        /// holds. A key the disk node lacks is removed. Returns how many recordings were
+        /// spliced.
         ///
-        /// <para><b>Why only those nodes.</b> The tree itself comes from memory: its
-        /// topology, its scalars and every recording added since the disk save (a Re-Fly
-        /// fork, a continuation segment, a new branch). Carrying the whole disk node instead
-        /// dropped all of those on every save while the fault lasted, and the next cold load
-        /// quarantined their sidecars. An unwritable member's on-disk node names the sidecar
-        /// epoch and hashes the files on disk carry, which the failed write did not change,
-        /// so the next load reads that member's previous content rather than a stale-epoch
-        /// mismatch.</para>
+        /// <para><b>Why the tree comes from memory.</b> The skip condition (a recording whose
+        /// sidecars are missing or unwritable) is sticky, so whatever this save writes repeats
+        /// on every save until the fault clears. Anything taken from the older on-disk tree
+        /// node instead of memory (a recording added since, such as a Re-Fly fork, a
+        /// continuation segment or a new branch, or an edit to a healthy recording) would be
+        /// missing from every save while the fault lasts (todo
+        /// SAVE-FREEZE-ON-MISSING-SIDECAR).</para>
+        ///
+        /// <para><b>Why only the sidecar keys come from disk.</b> They are what the next load
+        /// resolves the files by, and the files on disk are the last ones that save named:
+        /// the failed write changed nothing there. The rest of the node is metadata memory
+        /// loaded from that same node and has edited since; in particular the branch-point
+        /// links must stay memory's, or a recording a branch was added under would reload
+        /// with no <c>childBranchPointId</c> and read as a leaf while memory's BRANCH_POINT
+        /// still names it as the parent.</para>
         ///
         /// <para><b>Nothing is added.</b> The walk runs over the nodes memory wrote, so a
         /// recording the disk save still lists but the live tree has deleted is never
-        /// resurrected, and no branch point can dangle (they are memory's, over memory's
-        /// recordings). An unwritable id the disk tree does not hold keeps memory's node.
-        /// Order is kept. Pure over the ConfigNodes; never throws on null inputs.</para>
+        /// resurrected. An unwritable id the disk tree does not hold keeps memory's node.
+        /// Pure over the ConfigNodes; never throws on null inputs.</para>
         /// </summary>
         internal static int SpliceLastKnownGoodRecordingNodes(
             ConfigNode writtenTree, ConfigNode diskTree, ICollection<string> unwritableIds)
@@ -227,30 +236,41 @@ namespace Parsek
                     diskById[id] = diskRec;
             }
 
-            ConfigNode[] written = writtenTree.GetNodes("RECORDING");
-            var rebuilt = new List<ConfigNode>(written.Length);
+            string[] keys = CarriedSidecarIdentityKeys();
             int spliced = 0;
-            for (int i = 0; i < written.Length; i++)
+            foreach (ConfigNode writtenRec in writtenTree.GetNodes("RECORDING"))
             {
-                string id = written[i]?.GetValue("recordingId");
-                if (!string.IsNullOrEmpty(id) && unwritableIds.Contains(id)
-                    && diskById.TryGetValue(id, out ConfigNode lastKnownGood))
+                string id = writtenRec?.GetValue("recordingId");
+                if (string.IsNullOrEmpty(id) || !unwritableIds.Contains(id)
+                    || !diskById.TryGetValue(id, out ConfigNode lastKnownGood))
+                    continue;
+                for (int k = 0; k < keys.Length; k++)
                 {
-                    rebuilt.Add(lastKnownGood.CreateCopy());
-                    spliced++;
+                    writtenRec.RemoveValues(keys[k]);
+                    string[] diskValues = lastKnownGood.GetValues(keys[k]);
+                    if (diskValues == null)
+                        continue;
+                    for (int v = 0; v < diskValues.Length; v++)
+                        writtenRec.AddValue(keys[k], diskValues[v]);
                 }
-                else if (written[i] != null)
-                {
-                    rebuilt.Add(written[i].CreateCopy());
-                }
+                spliced++;
             }
-            if (spliced == 0)
-                return 0;
-
-            writtenTree.RemoveNodes("RECORDING");
-            for (int i = 0; i < rebuilt.Count; i++)
-                writtenTree.AddNode(rebuilt[i]);
             return spliced;
+        }
+
+        /// <summary>
+        /// The RECORDING keys that describe a recording's sidecar files rather than the
+        /// recording: the epoch and content hashes the loader resolves the files by, the
+        /// ghost snapshot mode that picks the ghost file, and the trajectory point count.
+        /// The format stamps are not here: every recording this build loaded is at the
+        /// current format and generation, which memory writes.
+        /// </summary>
+        internal static string[] CarriedSidecarIdentityKeys()
+        {
+            return new[]
+            {
+                "sidecarEpoch", "precHash", "vesselHash", "ghostHash", "ghostSnapshotMode", "pointCount",
+            };
         }
 
         internal static int TryRehydrateCommittedTreesAndMissionsFromDiskSave(
