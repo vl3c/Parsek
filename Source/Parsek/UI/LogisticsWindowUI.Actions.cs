@@ -273,16 +273,12 @@ namespace Parsek
         /// route's display name when present, falling back to its short id so the
         /// player always sees an identifier (never the literal "null"). Pure and
         /// Unity-free for unit testing.
-        /// </summary>
-        internal static string BuildDeleteConfirmBody(Route route) => BuildDeleteConfirmBody(route, false);
-
-        /// <summary>
         /// The delete confirm body. <paramref name="cargoInTransit"/>
         /// (<see cref="RouteStore.HasUndeliveredCargoInOpenCycle"/>) adds the one loss
         /// sentence: a route deleted mid-cycle loses the cargo it already took (owner ruling
         /// 2026-11-20, todo ROUTE-DELETED-MID-CYCLE-LOSES-CARGO). Pure.
         /// </summary>
-        internal static string BuildDeleteConfirmBody(Route route, bool cargoInTransit)
+        internal static string BuildDeleteConfirmBody(Route route, bool cargoInTransit = false)
         {
             string name = route != null && !string.IsNullOrEmpty(route.Name)
                 ? route.Name
