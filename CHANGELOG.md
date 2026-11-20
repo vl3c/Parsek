@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **A crash in the middle of a Re-Fly merge no longer brings the old flight back.** If the game
+  stopped right after the merge cut the old recording in two, the next load could join the two
+  halves again before the merge finished, so the old flight played beside the new one.
+  (REFLY-HEAD-TIP-REGLUED-BEFORE-MERGE-ROWS)
 - **Tidying the timeline no longer deletes a recording it could not join.** The cleanup that joins
   pieces of one flight skipped joining onto a destroyed vessel's recording but still deleted the
   other piece and its files. It now leaves both alone, and a crashed flight that was cut in two

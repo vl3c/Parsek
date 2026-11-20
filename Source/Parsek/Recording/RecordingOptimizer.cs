@@ -81,6 +81,15 @@ namespace Parsek
                 }
             }
 
+            // A merge in flight (journal) or a live Re-Fly session (marker) has not
+            // written the supersede rows above yet when the cold OnLoad's pass runs ahead of
+            // the journal finisher (a crash between the split save and Durable Save #1), so
+            // the HEAD + TIP the split produced would be glued back. Refuse any pair naming
+            // a recording the session owns: TIP is the marker's SupersedeTargetId, so this
+            // also covers HEAD + TIP.
+            if (PairIsHeldByLiveReFlyMerge(a, b, scenario))
+                return false;
+
             // Must be in the same chain, consecutive, primary branch
             if (string.IsNullOrEmpty(a.ChainId) || a.ChainId != b.ChainId) return false;
             if (a.ChainIndex < 0 || b.ChainIndex < 0) return false;
@@ -161,6 +170,51 @@ namespace Parsek
             // Different recording groups = user organized them differently
             if (!GroupsEqual(a.RecordingGroups, b.RecordingGroups)) return false;
 
+            return true;
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> is a recording a live Re-Fly session names: the
+        /// marker's supersede target (TIP once the split ran) and its origin (HEAD), and
+        /// while a merge journal is active also the provisional. The provisional alone is
+        /// left out without a journal: a live session's own commit pass may merge the
+        /// attempt, which <c>MergeDialog.ResolveOptimizedRecordingSurvivor</c> follows.
+        /// </summary>
+        private static bool PairIsHeldByLiveReFlyMerge(Recording a, Recording b, ParsekScenario scenario)
+        {
+            if (object.ReferenceEquals(null, scenario)) return false;
+            string namedBy;
+            if (!IsNamedByLiveReFlyMerge(a, scenario, out namedBy)
+                && !IsNamedByLiveReFlyMerge(b, scenario, out namedBy))
+                return false;
+            ParsekLog.Verbose("Optimizer",
+                $"CanAutoMerge: rejecting merge of '{a.RecordingId}' + '{b.RecordingId}' " +
+                $"- {namedBy} (Re-Fly merge not finished)");
+            return true;
+        }
+
+        internal static bool IsNamedByLiveReFlyMerge(
+            Recording rec, ParsekScenario scenario, out string namedBy)
+        {
+            namedBy = null;
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
+                || object.ReferenceEquals(null, scenario)) return false;
+            var marker = scenario.ActiveReFlySessionMarker;
+            if (marker == null) return false;
+            bool journalActive = scenario.ActiveMergeJournal != null;
+            string id = rec.RecordingId;
+            if (string.Equals(id, marker.SupersedeTargetId, StringComparison.Ordinal))
+                namedBy = "marker supersede target";
+            else if (string.Equals(id, marker.OriginChildRecordingId, StringComparison.Ordinal)
+                && (journalActive
+                    || !string.Equals(id, marker.ActiveReFlyRecordingId, StringComparison.Ordinal)))
+                namedBy = "marker origin";
+            else if (journalActive
+                && string.Equals(id, marker.ActiveReFlyRecordingId, StringComparison.Ordinal))
+                namedBy = "merge journal provisional";
+            if (namedBy == null) return false;
+            namedBy = namedBy + " sess=" + (marker.SessionId ?? "<no-id>")
+                + " journal=" + (journalActive ? "active" : "none");
             return true;
         }
 

@@ -744,6 +744,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CanAutoMerge_JournalActive_RejectsHeadPlusTipBeforeTheRowsExist()
+        {
+            // M8: a crash between the split save and Durable Save #1 leaves HEAD + TIP on
+            // disk with no supersede row yet; the cold OnLoad's pass runs before the
+            // finisher and must not glue them back.
+            EnableLogCapture();
+            var scenario = InstallScenarioWithSupersedes();
+            scenario.ActiveReFlySessionMarker = new ReFlySessionMarker
+            {
+                SessionId = "sess_m8",
+                OriginChildRecordingId = "head_id",
+                ActiveReFlyRecordingId = "fork_id",
+                SupersedeTargetId = "tip_id",
+            };
+            scenario.ActiveMergeJournal = new MergeJournal { SessionId = "sess_m8", Phase = MergeJournal.Phases.Split };
+
+            var head = MakeChainSegment("chain1", 0);
+            head.RecordingId = "head_id";
+            var tip = MakeChainSegment("chain1", 1);
+            tip.RecordingId = "tip_id";
+
+            Assert.False(RecordingOptimizer.CanAutoMerge(head, tip));
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("rejecting merge of 'head_id' + 'tip_id'")
+                && l.Contains("Re-Fly merge not finished"));
+
+            // The provisional is protected only while the journal is active.
+            var forkA = MakeChainSegment("chain2", 0);
+            forkA.RecordingId = "fork_id";
+            var forkB = MakeChainSegment("chain2", 1);
+            forkB.RecordingId = "fork_tail_id";
+            Assert.False(RecordingOptimizer.CanAutoMerge(forkA, forkB));
+            scenario.ActiveMergeJournal = null;
+            Assert.True(RecordingOptimizer.CanAutoMerge(forkA, forkB));
+            // The marker alone still protects its supersede target.
+            Assert.False(RecordingOptimizer.CanAutoMerge(head, tip));
+
+            scenario.ActiveReFlySessionMarker = null;
+            Assert.True(RecordingOptimizer.CanAutoMerge(head, tip));
+        }
+
+        [Fact]
         public void CanAutoMerge_NoScenario_AllowsAsBefore()
         {
             // Defensive: with no scenario installed (unit-test fixtures

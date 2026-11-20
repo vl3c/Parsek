@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-HEAD-TIP-REGLUED-BEFORE-MERGE-ROWS~~: the optimizer could join a Re-Fly merge's HEAD and TIP back together before the merge finished [FILED 2026-11-18 by the recording split / trim / merge review (finding M8), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; medium (the old flight stays whole beside the new attempt: a duplicate ghost and untombstoned ledger rows)]
+
+**Cause:** the cold `ParsekScenario.OnLoad` runs the committed-list optimizer (phase `optimization`) before the merge journal finisher (phase `merge-journal`). Between the merge's `split` save and Durable Save #1 the supersede rows that keep `CanAutoMerge` off HEAD + TIP do not exist yet, so a HEAD and TIP with no ghosting-trigger event were offered as a merge candidate and glued back.
+
+**Fix:** `CanAutoMerge` refuses a pair naming a recording a live Re-Fly session names (`RecordingOptimizer.IsNamedByLiveReFlyMerge`): the marker's supersede target (TIP once the split ran) and its origin (HEAD), and while a merge journal is active also the provisional. The marker and journal load in the OnLoad prologue, before the optimizer. Without a journal the provisional stays mergeable (a live commit pass may merge the attempt and `MergeDialog.ResolveOptimizedRecordingSurvivor` follows it), as does an in-place continuation whose provisional is the origin. Verbose `CanAutoMerge: rejecting merge of '<a>' + '<b>' - <marker supersede target|marker origin|merge journal provisional> sess=... journal=... (Re-Fly merge not finished)`.
+
+**Tests:** `RecordingOptimizerTests.CanAutoMerge_JournalActive_RejectsHeadPlusTipBeforeTheRowsExist` (red under a mutation that disables the check).
+
 ## ~~OPTIMIZER-MERGE-INTO-DESTROYED-DELETES-RECORDING~~: the optimizer deleted a recording it "merged" into a destroyed one [FILED 2026-11-18 by the recording split / trim / merge review (finding M9), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; low reachability, high impact (a recording, its ledger tags and its sidecars deleted)]
 
 **Cause:** `RecordingOptimizer.MergeInto` skips a merge into a target with `VesselDestroyed` (a destroyed recording is sealed at its terminal UT) but returned the absorbed id as if it had merged, so `CommittedListOptimizer.RunOptimizationMergePass` retagged the absorbed recording's ledger rows, removed it from the committed list and deleted its sidecars. Reachable because a split moved the terminal state onto the second half but left `VesselDestroyed` on the first, so a split crashed flight had a head reading destroyed with no terminal, and `CanAutoMerge` offered it as a merge target.
