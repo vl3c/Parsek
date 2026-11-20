@@ -73,6 +73,66 @@ Residue: (a) the label still reads Sub-orbital for an escaping vessel; (b) live-
 after the sphere exit); (c) the extrapolator samples encounters at 3600 s, so a very short moon pass
 between the end and a much later spawn UT can be missed (the scene-exit finalizer shares the limit).
 
+## SPAWN-RESTING-ON-ROCK: a vessel that ends sitting on an asteroid or comet spawns on its own orbit, not on the rock [FILED 2026-11-18 by the recording split / trim / merge review (design question 5), owner ruling Q11 "on the rock". INVESTIGATED 2026-11-20, branch `rsr-wp7-spawn-ends`, by code reading and the KSP 1.12.5 decompile; NOT BUILT: it needs new recorded data and a player-visible choice, options below; low-medium (a lander parked on a rock can reappear beside it, inside it, or blocked)]
+
+What the ruling asks: a vessel that ends resting on (attached to, or landed on) an asteroid or comet
+spawns resting on the rock and moves with it, not on its own orbit.
+
+Findings.
+1. Klaw-attached is already one vessel, and already right. A Klaw grab couples the rock part
+   (PotatoRoid / PotatoComet) into the grabbing vessel, exactly like a dock (owner rulings
+   2026-11-15: a rock is recorded only from the grab on; `ConnectionProducerClassifier` names the
+   claw couple). The recording's vessel snapshot holds the rock part, the terminal orbit is the
+   combined vessel's, and the end spawn materializes ship and rock as one vessel on that orbit
+   (ROCK-GHOST-PREFAB-MESH / ROCK-SPAWN-BOUNDS-TOO-SMALL made the rock's shape and spawn bounds
+   right). The rock's own pre-grab vessel is hidden after a rewind by the claimed-vessel hold. A
+   vessel that ends gripping a rock therefore spawns gripping it and moves with it; nothing to do.
+2. "Landed on" a rock is not a KSP state. `Part.LandedCollisionChecks` (decompiled) sets
+   `GroundContact` / `Vessel.Landed` only for a collider on layer 15 (terrain / local scenery); a
+   rock is a part (part layer), so a vessel resting on one stays ORBITING (or SUB_ORBITAL /
+   ESCAPING, the rock's own situation) with its own `orbit`, and Parsek stamps `Orbiting` with the
+   vessel's own terminal orbit. The rock is a separate SpaceObject vessel that Parsek never records
+   unless grabbed. On rails the two follow their own conics; any relative velocity at the end
+   (contact jitter, the lander's push on the rock) separates them over time.
+3. What the spawn does today (code reading, not flown): the lander is placed at its own terminal
+   orbit propagated to the spawn UT. After a rewind the live rock follows its unperturbed orbit, so
+   the lander lands near the rock's recorded position, not necessarily on the rock. In flight with
+   the rock loaded, the overlap check (`CheckSpawnCollisions`, the rock's bounds from
+   ROCK-SPAWN-BOUNDS-TOO-SMALL) sees the lander touching the rock and walks the spawn back along the
+   recorded approach or blocks it; unloaded, it can appear inside or beside the rock.
+
+Why it is more than a day and needs a choice.
+- Detecting "resting on a rock" at the end needs new live capture: a contact between one of the
+  vessel's parts and a ModuleAsteroid / ModuleComet part of another vessel
+  (`Part.currentCollisions`), with a relative-speed threshold, at every terminal stamp site
+  (commit, scene exit, background).
+- The spawn needs new persisted data (additive keys, no format bump): the rock's identity (its
+  vessel guid and persistentId; a SpaceObject keeps both) and the lander's pose in the rock's frame
+  (position offset and rotation relative to the rock's root part).
+- The spawn needs the rock's state at the spawn UT: the live rock vessel (loaded or on rails),
+  or, for a rock a committed flight released (it records as its own branch and becomes real at its
+  tip), that recording's spawned vessel or trajectory. The lander then spawns at rock pose x
+  offset with the rock's velocity, through the orbit spawn route and its safety checks, with the
+  overlap check told the rock is expected contact.
+- Player-visible choices the ruling does not settle: what happens when the rock is not there at
+  the spawn UT (grabbed by another flight, released somewhere else, destroyed, a comet that was
+  never discovered in this timeline): spawn on the lander's own orbit (today), hold the spawn, or
+  never spawn; and whether a landing that was only brushing the rock counts.
+
+Options.
+- A (recommended): record rock contact at the end (identity + relative pose) and spawn relative to
+  the rock when it can be found at the spawn UT; fall back to today's own-orbit spawn, logged, when
+  it cannot. About 2-3 days with an in-game test (contact capture needs live physics) and a lane.
+- B: no recording change; at spawn, if a SpaceObject is within a few metres of the lander's
+  propagated position, take that rock's velocity and keep the lander's position. Cheap, but it
+  silently depends on the rock not having drifted and cannot place the lander on a rock that
+  drifted after a rewind.
+- C: keep today's behaviour and document that a lander must grip the rock with the Klaw to stay
+  with it (which is already exact, finding 1).
+
+Recommendation: A, with the fallback to the own-orbit spawn when the rock is missing (no new hold
+state). Needs owner sign-off on the missing-rock rule before building.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
