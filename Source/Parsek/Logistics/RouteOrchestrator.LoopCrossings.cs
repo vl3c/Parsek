@@ -186,8 +186,10 @@ namespace Parsek.Logistics
             if (!crossing)
             {
                 skipped++;
+                // The common per-route, per-tick path (one tick per frame under warp): the
+                // message (ten round-trip double formats) is built only when the line emits.
                 ParsekLog.VerboseRateLimited(Tag, "loop-noncross-" + route.Id,
-                    $"LoopRoute: route {ShortIdForLog(route)} no dock crossing " +
+                    () => $"LoopRoute: route {ShortIdForLog(route)} no dock crossing " +
                     $"(dockCycleIdx={dockCycleIndex.ToString(IC)}) — " +
                     RouteLoopClock.DescribeState(unit, currentUT, loopUT, cycleIndex,
                         isInInterCycleTail, route.RecordedDockUT, route.LastObservedLoopCycleIndex),

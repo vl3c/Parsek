@@ -183,6 +183,47 @@ watched vessel identity=<guid> -> child ...` / `no child continues the watched v
 recorded before dock-absorb rows existed, whose ship child carries a fresh guid with no link
 (VesselIdentity's edge 6, part-pid overlap, is not consulted here); it keeps the same-pid rule.
 
+## ROUTE-TICK-EVENT-LOG-SCANS: every route cycle walks the whole route event log several times, so a warp tick with many routes slows as the career grows [FILED 2026-11-20 from the test-gap list's "many routes at once" measurement (branch `test-gaps-b2-cloud-b`, `RouteTickScalingTests`); headless; OPEN; low-medium (frame time under high warp in a long career with many routes, no wrong result)]
+
+Measured headlessly (`RouteTickScalingTests`, test fake environment, so the live endpoint
+resolution is not in it; Windows .NET 4.7.2 test host on a shared, noisy machine, so read the
+numbers as orders of magnitude). Single-stop loop routes, half from the Space Center and half from
+their own depot, production delivery and origin-debit writers:
+
+| routes | 1x tick, fresh log | warp tick (all fire), fresh log | 1x tick, long log | warp tick (all fire), long log |
+| --- | --- | --- | --- | --- |
+| 10 | ~20 us | ~0.6-0.9 ms | ~50 us (38k rows) | ~7-12 ms (43k rows) |
+| 20 | ~45 us | ~1.7-3 ms | ~130-160 us (76k rows) | ~28-40 ms (86k rows) |
+| 30 | ~50-90 us | ~3.7-6 ms | ~260-630 us (113k rows) | ~90-96 ms (128k rows) |
+
+The route count alone scales linearly (no walk over route pairs). What grows is the per-cycle cost:
+each fire scans the whole `RouteEventLog.Events` list with ordinal string compares, so a warp tick
+that fires every route costs routes x rows, and the rows grow with routes x time. The scans on one
+single-stop cycle: `IsDispatchAlreadyLogged` (`RouteOrchestrator.Delivery.cs:747`, called from
+`EmitLoopCycle`, `RouteOrchestrator.Debits.cs:67`), `IsDeliveryAlreadyLogged`
+(`RouteOrchestrator.Delivery.cs:701`, called from `ApplyDelivery`, line 65) and
+`ComputeCycleSupplyDeficit` (`RouteOrchestrator.SupplyDeficit.cs:53`, called from `ApplyDelivery`,
+line 239); a blocked cycle adds `IsHoldReasonRecordedInOpenEpisode` (`RouteOrchestrator.Holds.cs:167`),
+and a multi-stop cycle adds `RouteOrchestrator.LoopCrossings.cs:685`. The tick runs once per game
+second, so at 1x this is small; under high warp it runs every frame, and a frame where many routes
+cross a dock pays it in full.
+
+Fix (not done, needs care): a per-(route id, cycle id) index of the log, kept in step with every
+mutator of the list (`Add`, `ReplaceAll`, the rewind retire, the window-row removal, load), or keyed
+on `RouteEventLog.StateVersion` with an append-only fast path. Every mutator must be covered or the
+replay backstop silently stops guarding, and a new mutable static needs `scripts/arch/lifetimes.toml`.
+Re-measure with `ManyRoutes_LongEventLog_Benchmark` (`PARSEK_ROUTE_TICK_BENCH=1`, about two minutes).
+
+Done on the same branch: the per-route, per-tick "no dock crossing" Verbose line in
+`ProcessLoopRoute` and the tick summary line built their messages (ten round-trip double formats)
+on every route every tick even when the rate limiter dropped them; both now build the message only
+when the line emits, which halved the 1x tick's garbage (about 2.9 KB to 1.4 KB per route per tick;
+`ManyRoutes_TickCostStaysSmall` pins it under 2 KB, and reds on the eager form). The rest of that
+garbage is the rate-limit key strings (`"loop-noncross-" + route.Id`,
+`"route-loop-clock-args-" + route.Id`, `RouteOrchestrator.LoopCrossings.cs:191` and `:61`, plus
+`ParsekLog`'s composite `subsystem|key`) and the per-call closure and delegate objects; caching the
+key strings per route would remove most of it.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
