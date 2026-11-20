@@ -614,8 +614,7 @@ namespace Parsek
             return rec != null
                 && !string.IsNullOrEmpty(rec.ChildBranchPointId)
                 && !rec.IsDebris
-                && rec.TerminalStateValue.HasValue
-                && GhostPlaybackLogic.IsSpawnableTerminal(rec.TerminalStateValue.Value);
+                && GhostPlaybackLogic.HasSpawnableTerminal(rec);
         }
 
         // ---- Game Action Collector ----

@@ -888,7 +888,7 @@ namespace Parsek
                     if (chainTipRecordingIds != null && chainTipRecordingIds.Contains(rec.RecordingId))
                         continue;
                     if (rec.TerminalStateValue.HasValue
-                        && !GhostPlaybackLogic.IsSpawnableTerminal(rec.TerminalStateValue.Value))
+                        && !GhostPlaybackLogic.HasSpawnableTerminal(rec))
                         continue;
                     if (!GhostPlaybackLogic.IsFinalSpawnSegment(rec, tree))
                         continue;

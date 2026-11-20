@@ -356,6 +356,9 @@ namespace Parsek
             Orbit orbitalSpawnOrbit = null;
             if (useRecordedTerminalOrbit)
             {
+                // An escape trajectory may have left the endpoint body's sphere of influence
+                // by the spawn UT: it spawns in the body it is in then.
+                body = ResolveEscapeSpawnBody(rec, body, spawnUT);
                 if (TryResolveRecordedTerminalOrbitSpawnState(
                     rec, body, spawnUT, out double orbitLat, out double orbitLon,
                     out double orbitAlt, out orbitalSpawnVelocity, out orbitalSpawnOrbit))
