@@ -1445,7 +1445,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// True when the origin recording proves a KSC origin: launched from a
-        /// named Kerbin launch site. Mirrors <c>RouteBuilder.BuildRoute</c>'s
+        /// named launch site on the home world (<see cref="HomeWorld"/>). Mirrors <c>RouteBuilder.BuildRoute</c>'s
         /// KSC branch and is shared with
         /// <see cref="RouteCreationFormatters.ResolveOriginIdentity"/> so the
         /// analysis gate and the display classification cannot diverge.
@@ -1454,7 +1454,7 @@ namespace Parsek.Logistics
         {
             return originRec != null
                 && !string.IsNullOrEmpty(originRec.LaunchSiteName)
-                && string.Equals(originRec.StartBodyName, "Kerbin", StringComparison.Ordinal);
+                && HomeWorld.IsHomeBodyName(originRec.StartBodyName);
         }
 
         /// <summary>

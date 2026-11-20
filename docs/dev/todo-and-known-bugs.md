@@ -20,6 +20,65 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SAVE-WIDE-STAMP-NEWER-WRITEBACK: a save from a newer Parsek gets this build's save-wide stamp on its next save [FILED 2026-11-20 from the test-gap list (Batch 2 item 8), by code reading and a headless round trip, branch `test-gaps-b2-cloud-c`. OWNER QUESTION, no code change; low (only a downgrade then upgrade sequence reaches it)]
+
+What happens. Loading a PARSEK node stamped `parsekSaveFormat` above `SaveFormat.CurrentSaveFormat`
+logs the one Warn the policy names (`save written by a newer Parsek: parsekSaveFormat=N > current=1
+(writtenBy=...)`), and the unstamped stores load best effort. The next `OnSave` writes every store
+fresh in this build's shape and `SaveFormat.StampScenarioNode` (`ParsekScenario.cs`, phase
+`save-format`) stamps this build's own number, so the newer stamp is lowered. In the same round trip
+the stores drop what they cannot read: a `ROUTE` node's unknown values and child nodes, a
+`VESSEL_NAMES` node's and `DECISION` node's unknown keys, and an unknown `VesselNameSource` value is
+coerced to `ParsekRename`. Pinned as today's behaviour by
+`SaveFormatNewerSaveWideStampTests.NewerSaveWideStamp_LoadSave_WarnsOnce_RewritesStoresInThisBuildsShape_AndStampsCurrent`.
+
+Why it is a question, not a bug. `docs/dev/design-save-format-policy.md` section 4 ("Save-wide
+stamp") and section 7 ("the stores under the save-wide stamp have no hold") accept the best-effort
+read and say nothing about the number written back. Lowering the stamp is consistent with what is
+written (the stores ARE in this build's shape after the rewrite); keeping the newer number would make
+the newer build read this build's shape as its own and skip its upgrade step. The general rule
+("data newer than the build is held verbatim and written back, never coerced") points the other way
+only if the unstamped stores also get a hold.
+
+Owner decision needed: (a) keep today's behaviour and add one sentence to policy section 4 saying the
+stamp is rewritten as current because the stores are; or (b) give the unstamped stores a hold
+(write the loaded PARSEK node's unknown values and child nodes back, keep unknown enum names raw) and
+then keep the newer stamp. (b) is a feature, not a fix.
+
+## ~~PLANET-PACK-HOME-WORLD-LITERAL~~: Space Center ghosts and Space Center routes only recognized a home world named "Kerbin" [FILED 2026-11-20 from the test-gap list (Batch 2), by code reading. FIXED 2026-11-20, branch `test-gaps-b2-cloud-c`; xUnit (`HomeWorldTests`, two `RouteBuilderTests` cells, one mutation checked); no lane (no planet-pack install profile); medium for planet-pack players (no KSC ghosts, no Space Center routes), none on stock. OPEN: the residue below, low]
+
+Cause. `ParsekKSC.ClassifyKscStructuralRoute` and the two KSC pose resolvers compared point body names
+with the literal "Kerbin", and `RouteAnalysisEngine.IsKscOriginRecording` / `RouteBuilder`'s KSC origin
+compared `StartBodyName` with it and wrote `Origin.BodyName = "Kerbin"`. With a Kopernicus pack whose
+home is another body (GPP's Gael, RSS's Earth) the Space Center drew no ghost of a home launch and no
+route was ever a Space Center route.
+
+Fix. One helper, `Recording/HomeWorld.cs`: `HomeWorld.HomeBodyName` reads `FlightGlobals.GetHomeBody()`
+in a NoInlining core, falls back to "Kerbin" (silently headless, `WarnRateLimited` on any other read
+failure), logs a non-stock home world (`VerboseRateLimited`, tag `HomeWorld`), and has the test seam
+`HomeBodyNameOverrideForTesting`. Sites changed (7 literals on 6 lines): `ParsekKSC.cs`
+`ClassifyKscStructuralRoute`; `ParsekKSC.Playback.cs` `TryResolveKscPointPose` and
+`TryResolveKscSegmentPose` (2); `RouteAnalysisEngine.IsKscOriginRecording`; `RouteBuilder.TryResolveRouteOrigin`
+(the KSC test, and the origin endpoint now takes `originRec.StartBodyName`, which the test proved is the
+home world). The skip reason token `off-kerbin` and the `non-kerbin` pose failure are unchanged.
+
+Residue (not changed, 35 production lines left; 204 in in-game tests and 12 in the GUI gallery's
+synthetic mocks are fixtures). None is a home-world check; each is a default for a missing body name,
+a stock table or a comment:
+- Decode defaults when a persisted body is absent (writers always write it): `TrajectorySidecarBinary`
+  (3), `TrajectoryTextSidecarCodec` (4), `SurfacePosition` (1).
+- Null-body fallbacks in playback and spawn: the ghost positioner `Loop` / `RecordedRelative` (4),
+  `VesselGhoster` walkback, `ParsekFlight.MergeFlow` terminal position, `ParsekFlight.PadEvidence`,
+  `RecordingStatsCalculator` (3), `TrajectoryMath.Stats`, `RecordingEndpointResolver.GetPreferredEndpointBodyName`
+  (only a test calls it). Could default to `HomeWorld.HomeBodyName`; no evidence a recording lacks a body.
+- Live `v.mainBody?.name ?? "Kerbin"` fallbacks (`ParsekFlight.TerminalEvents` 2, `ParsekFlight.TerminalOrbit`,
+  `BackgroundRecorder.StateInitialization` 2): a live vessel always has a main body.
+- Stock radius tables with a live lookup first or diagnostic only (`ParsekFlight.PadHeuristicBodyRadii`,
+  `SessionMerger.BodyRadii`).
+- Ledger: `KspStatePatcher.Milestones.LegacyBareIdBodyName` (pre-1.0 bare milestone ids; the save-format
+  policy forbids new repair paths for pre-1.0 data).
+- Comments (7) and the `ParsekKSC.Decisions` log text "off Kerbin".
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
