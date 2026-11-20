@@ -576,8 +576,7 @@ namespace Parsek
                 return false;
             if (string.IsNullOrEmpty(activeRec.ChildBranchPointId))
                 return false;
-            if (!activeRec.TerminalStateValue.HasValue
-                || !GhostPlaybackLogic.IsSpawnableTerminal(activeRec.TerminalStateValue.Value))
+            if (!GhostPlaybackLogic.HasSpawnableTerminal(activeRec))
                 return false;
 
             return GhostPlaybackLogic.IsEffectiveLeafForVessel(activeRec, tree);

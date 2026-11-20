@@ -169,6 +169,180 @@ A split that throws undoes these re-points with the rest of its rollback ledger.
 
 **Tests:** `RecordingOptimizerSplitAtUTTests.SplitAtUT_CrashedFlight_VesselDestroyedMovesWithTheTerminal`, `MergeInto_DestroyedTarget_RefusesAndCanAutoMergeRefusesUpFront`; `IdentityLossClassifierTests.RecordingOptimizer_MergeInto_SkipsDestroyedTarget` now expects null (its old expectation pinned the bug). All three red under a mutation that restores the old code.
 
+## ~~SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS~~: a probe left on an escape trajectory ended SubOrbital and never became real [FILED 2026-11-18 by the recording split / trim / merge review (design question 4), owner ruling Q10 "spawn on its path". FIXED 2026-11-20, branch `rsr-wp7-spawn-ends`; xUnit (`EscapeTrajectorySpawnTests`); no lane flies it yet; medium (a vessel the player left flying vanished at the end of its replay)]
+
+What the player saw: commit a flight with a probe on its way out of Kerbin (or the Mun), rewind,
+and watch the replay end: the probe's ghost disappears and no vessel is left on the path.
+
+Cause. KSP reports such a vessel ESCAPING (`Vessel.updateSituation`, decompiled 1.12.5: outside
+the atmosphere, `eccentricity >= 1` or `ApR >= sphereOfInfluence`, whatever the periapsis), and
+`RecordingTree.DetermineTerminalState` folds ESCAPING into `TerminalState.SubOrbital`, which
+`GhostPlaybackLogic.IsSpawnableTerminal` never admits (the #45 rule written for FLYING). The
+terminal orbit was captured (`ParsekFlight.CaptureTerminalOrbit` covers ESCAPING), but
+`VesselSpawner.HasRecordedTerminalOrbit` and the orbit seeds required `semiMajorAxis > 0`, so a
+hyperbolic orbit could not have been spawned anyway, and nothing carried an orbit across a sphere
+of influence change.
+
+Why no new `TerminalState` member (decided from the code). A dedicated `Escaping` member would be
+the cleaner label, but about 25 consumers switch on the terminal state, and the Re-Fly ones in
+`Rewind/` (`UnfinishedFlightClassifier`: an Orbiting / SubOrbital non-focus slot is an Unfinished
+Flight; `ReFlyAutoSealPreview`: Orbiting seals the focus slot) would silently change meaning for
+escaping vessels; `Orbiting` is wrong too (it means a stable bound orbit to the Re-Fly seal, the
+timeline "Ends orbiting X" text and route endpoints). A new member also could not reach recordings
+already committed. So the terminal state stays `SubOrbital` (in flight, unconcluded, labelled
+"Sub-orbital" as before) and only the spawn changes.
+
+Fix. `Recording.IsEscapeTrajectoryTerminal` / `EscapeTrajectoryTerminal.IsEscapeTerminal`: a
+`SubOrbital` terminal with a propagatable recorded terminal orbit and escape evidence (an open
+conic, or the snapshot's ESCAPING situation for a closed conic whose apoapsis is beyond the sphere)
+is admitted by `TryRejectSpawnForTerminalAndSituation` and deferred to the flight scene at the Space
+Center like an Orbiting one. It takes the orbit spawn route (`ShouldUseRecordedTerminalOrbitSpawnState`,
+`ShouldRouteThroughSpawnAtPosition`), seeded from the terminal orbit itself and carried from its
+epoch to the spawn UT by `EscapeTrajectoryTerminal.ResolveAtUT` (the scene-exit finalizer's
+two-body `BallisticExtrapolator` over the live bodies: sphere-of-influence exits and encounters);
+`VesselSpawner.ResolveEscapeSpawnBody` gives the end-of-recording, chain-tip and Ready-reference
+spawns the body the vessel is in at the spawn UT. A path that ends in an atmosphere or on a surface
+before the spawn UT, or cannot be followed, is refused (`Cannot spawn terminal orbit safely ...
+terminal-orbit-resolution-failed`, with the `escape path refused` line naming the reason). The
+terminal-orbit safety check runs on the spawn-UT orbit; for a conic that leaves the sphere and is
+past periapsis the periapsis it judges is the current altitude (`ResolveEscapeEffectivePeriapsisAltitude`),
+so a direct-ascent escape whose periapsis is inside the planet spawns, and the same conic flown
+inbound is refused. `ComputeSpawnMeanAnomaly` propagates a hyperbolic mean anomaly without wrapping.
+A spawned escape vessel that dies is abandoned like a terminal-orbit vessel (BUG-C path). Log lines:
+`Escape-trajectory terminal admitted for spawn`, `Escape spawn body resolved through patched conics`,
+`escape terminal orbit for rec=...`, `Escape spawn safety: ... judgedPeriapsis=`.
+
+Tests: `EscapeTrajectorySpawnTests` (evidence truth table, the spawn decision and KSC deferral
+(red on the old code), the spawn routes, the hyperbolic mean anomaly, the effective periapsis and
+the safety verdicts, `ResolveAtUT` in-sphere / after the sphere exit / diving into the atmosphere /
+unknown body).
+
+Review follow-ups (2026-11-20, same branch):
+- Chain tips. A chain tip that spawns on its recorded terminal orbit (Orbiting, or an escape)
+  and whose orbit cannot be resolved at the spawn UT fell back to the snapshot / last trajectory
+  point with no orbit override, so a refused escape path would have materialized mid-coast
+  (#45). Both chain-tip spawns (`VesselGhoster.SpawnAtChainTip`, `TrySpawnBlockedChain`) now
+  refuse through `StopChainTipForUnresolvedTerminalOrbit`, which stamps the end-of-recording
+  path's `terminal-orbit-resolution-failed` CannotSpawnSafely and releases the collision block
+  (`Chain tip spawn refused: recorded terminal orbit unresolved`). This also changes an Orbiting
+  tip whose orbit cannot be built: refused like the end-of-recording spawn, not placed at its
+  last point. To keep that refusal from catching good tips, the chain-tip, blocked-tip ghost and
+  Ready-reference spawns now pick the body as the end-of-recording spawn does
+  (`VesselSpawner.ResolveSpawnBodyName` / `ResolveSpawnBody`): an orbit-route spawn reads the
+  recording's preferred endpoint body before its last trajectory point, which can sit in another
+  sphere (a burn at the Mun, then a rails coast out to a Kerbin orbit adds no point).
+
+- Consumers. `GhostPlaybackLogic.HasSpawnableTerminal(Recording)` (a spawnable terminal or an
+  escape) is now the one "does this end in a vessel" test for the breakup-continuous effective
+  leaf (`TryRejectSpawnForTreeShape`, `IsFinalSpawnSegment`, `TimelineBuilder.IsBreakupContinuousSpawnLeaf`),
+  the stable-leaf snapshot refreshes (`ParsekFlight.Finalization`, `ShouldRefreshActiveEffectiveLeafSnapshot`),
+  the ghost CommNet continuation hold and the chain-tip route cargo scan; the lazy snapshot
+  re-hydration also reads a SubOrbital with a propagatable terminal orbit
+  (`Recording.IsEscapeTrajectoryTerminalCandidate`, since the closed-conic evidence is in the
+  snapshot); the auto-merge scene-exit release keeps an escape's snapshot
+  (`ShouldKeepVesselSnapshotForSpawnAtEnd`). Left Orbiting-only, noted: the terminal map-presence
+  retention (`ParsekPlaybackPolicy.ShouldRetainMapPresenceForTerminalRealSpawn`, whose map orbit
+  code assumes a closed conic in one sphere) and the optimizer's tail trim (`RecordingOptimizer`,
+  owned by another package; it refuses to trim a non-spawnable terminal, the safe side).
+
+- Patch-start epoch. A terminal orbit captured on rails carries the epoch of its patch start,
+  the last sphere-of-influence crossing, where the state sits on the boundary and the
+  extrapolator's immediate exit / entry tests are numerical noise (a Moon flyby could be carried
+  on the parent conic, or an escape bounced to the transition cap). `ResolveAtUT` now starts at the
+  recording's end UT when that is later than the epoch, and a start still at the epoch does not
+  take an immediate crossing of the boundary it sits on (`Extrapolate`'s new initial
+  suppressions, `EscapeTrajectoryTerminal.ResolveBoundarySuppressions`).
+
+Residue: (a) the label still reads Sub-orbital for an escaping vessel; (b) live-proven by no lane
+(recommended: a probe committed on a Kerbin escape, rewound, the end spawn read in flight before and
+after the sphere exit); (c) the extrapolator samples encounters at 3600 s, so a very short moon pass
+between the end and a much later spawn UT can be missed (the scene-exit finalizer shares the limit).
+
+## SPAWN-RESTING-ON-ROCK: a vessel that ends sitting on an asteroid or comet spawns on its own orbit, not on the rock [FILED 2026-11-18 by the recording split / trim / merge review (design question 5), owner ruling Q11 "on the rock". INVESTIGATED 2026-11-20, branch `rsr-wp7-spawn-ends`, by code reading and the KSP 1.12.5 decompile; NOT BUILT: it needs new recorded data and a player-visible choice, options below; low-medium (a lander parked on a rock can reappear beside it, inside it, or blocked)]
+
+What the ruling asks: a vessel that ends resting on (attached to, or landed on) an asteroid or comet
+spawns resting on the rock and moves with it, not on its own orbit.
+
+Findings.
+1. Klaw-attached is already one vessel, and already right. A Klaw grab couples the rock part
+   (PotatoRoid / PotatoComet) into the grabbing vessel, exactly like a dock (owner rulings
+   2026-11-15: a rock is recorded only from the grab on; `ConnectionProducerClassifier` names the
+   claw couple). The recording's vessel snapshot holds the rock part, the terminal orbit is the
+   combined vessel's, and the end spawn materializes ship and rock as one vessel on that orbit
+   (ROCK-GHOST-PREFAB-MESH / ROCK-SPAWN-BOUNDS-TOO-SMALL made the rock's shape and spawn bounds
+   right). The rock's own pre-grab vessel is hidden after a rewind by the claimed-vessel hold. A
+   vessel that ends gripping a rock therefore spawns gripping it and moves with it; nothing to do.
+2. "Landed on" a rock is not a KSP state. `Part.LandedCollisionChecks` (decompiled) sets
+   `GroundContact` / `Vessel.Landed` only for a collider on layer 15 (terrain / local scenery); a
+   rock is a part (part layer), so a vessel resting on one stays ORBITING (or SUB_ORBITAL /
+   ESCAPING, the rock's own situation) with its own `orbit`, and Parsek stamps `Orbiting` with the
+   vessel's own terminal orbit. The rock is a separate SpaceObject vessel that Parsek never records
+   unless grabbed. On rails the two follow their own conics; any relative velocity at the end
+   (contact jitter, the lander's push on the rock) separates them over time.
+3. What the spawn does today (code reading, not flown): the lander is placed at its own terminal
+   orbit propagated to the spawn UT. After a rewind the live rock follows its unperturbed orbit, so
+   the lander lands near the rock's recorded position, not necessarily on the rock. In flight with
+   the rock loaded, the overlap check (`CheckSpawnCollisions`, the rock's bounds from
+   ROCK-SPAWN-BOUNDS-TOO-SMALL) sees the lander touching the rock and walks the spawn back along the
+   recorded approach or blocks it; unloaded, it can appear inside or beside the rock.
+
+Why it is more than a day and needs a choice.
+- Detecting "resting on a rock" at the end needs new live capture: a contact between one of the
+  vessel's parts and a ModuleAsteroid / ModuleComet part of another vessel
+  (`Part.currentCollisions`), with a relative-speed threshold, at every terminal stamp site
+  (commit, scene exit, background).
+- The spawn needs new persisted data (additive keys, no format bump): the rock's identity (its
+  vessel guid and persistentId; a SpaceObject keeps both) and the lander's pose in the rock's frame
+  (position offset and rotation relative to the rock's root part).
+- The spawn needs the rock's state at the spawn UT: the live rock vessel (loaded or on rails),
+  or, for a rock a committed flight released (it records as its own branch and becomes real at its
+  tip), that recording's spawned vessel or trajectory. The lander then spawns at rock pose x
+  offset with the rock's velocity, through the orbit spawn route and its safety checks, with the
+  overlap check told the rock is expected contact.
+- Player-visible choices the ruling does not settle: what happens when the rock is not there at
+  the spawn UT (grabbed by another flight, released somewhere else, destroyed, a comet that was
+  never discovered in this timeline): spawn on the lander's own orbit (today), hold the spawn, or
+  never spawn; and whether a landing that was only brushing the rock counts.
+
+Options.
+- A (recommended): record rock contact at the end (identity + relative pose) and spawn relative to
+  the rock when it can be found at the spawn UT; fall back to today's own-orbit spawn, logged, when
+  it cannot. About 2-3 days with an in-game test (contact capture needs live physics) and a lane.
+- B: no recording change; at spawn, if a SpaceObject is within a few metres of the lander's
+  propagated position, take that rock's velocity and keep the lander's position. Cheap, but it
+  silently depends on the rock not having drifted and cannot place the lander on a rock that
+  drifted after a rewind.
+- C: keep today's behaviour and document that a lander must grip the rock with the Klaw to stay
+  with it (which is already exact, finding 1).
+
+Recommendation: A, with the fallback to the own-orbit spawn when the rock is missing (no new hold
+state). Needs owner sign-off on the missing-rock rule before building.
+
+## SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS: the end-spawn collision walkback for an orbit spawn tests positions the vessel is not placed at [FILED 2026-11-20 from the WP7 review (asteroid / comet second opinion), by code reading; NOT FIXED: needs a design choice; low-medium (an orbit spawn blocked by a loaded vessel can still appear inside it, or be abandoned)]
+
+What it is. When an end-of-recording spawn overlaps a loaded vessel,
+`VesselSpawner.CheckSpawnCollisions` walks back along the recorded trajectory
+(`SpawnCollisionDetector.ResolveWalkbackPointsOnBody`, `TryWalkbackForEndOfRecordingSpawn`)
+and tests each candidate with `body.GetWorldSurfacePosition(lat, lon, alt)`. For an orbit spawn
+(an Orbiting terminal with a recorded terminal orbit, or an escape trajectory) that is unsound twice:
+1. The recorded points are body-fixed samples of their OWN UTs. Read at the spawn UT they turn
+   with the planet, so a candidate sits where the vessel was relative to the ground, not along its
+   orbit (the error grows with spawn UT minus point UT, and with a deferred spawn it is unrelated
+   to the spawn place at all).
+2. The spawn then goes through `SpawnAtPosition` with the orbit override, and a non-landed
+   ProtoVessel is placed by its ORBIT node, not by the lat / lon / alt the walkback wrote. So a
+   "clear" walked position does not move the vessel: it still appears at the propagated orbit
+   point, inside the blocker (`CheckSpawnCollisions: walkback rewrote spawn position` is logged
+   anyway). If the walk exhausts, the spawn is abandoned for a blocker that would have drifted away.
+The chain-tip walkback (`VesselGhoster`, around the blocked-tip handling) shares the shape.
+
+Options. (a) Orbit spawns skip the walkback and wait for the blocker to clear (the retry /
+`CollisionBlockCount` path, or the chain tip's blocked-and-retry hold), with a bound long enough
+for orbital separation; (b) walk the ORBIT instead (try the orbit at spawn UT plus or minus small
+offsets in time) and spawn on the chosen phase; (c) leave it. (a) is the smaller change but needs
+a rule for a station parked next to the spawn point (it never clears). Needs an owner pick; not
+built. Relevant to SPAWN-RESTING-ON-ROCK: a lander resting on a loaded rock hits exactly this path.
+
 ## ~~DEBRIS-LIFETIME-LOST-ON-PROMOTION~~: a debris piece the player switched to lost its 60 s limit [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a promoted booster recorded until it crashed; GS-11 measured it)]
 
 Cause: the debris time limit lived only in `BackgroundRecorder.debrisTTLExpiry`. A promotion to the
@@ -856,7 +1030,7 @@ From the 2026-11-18 test-gaps list (Batch 2, the cheap lane items). All stock-mi
 - `S0.16-switch-segment-across-f5-f9-scoped-discard` (daily, new): S0.13's twin with an F5 / F9 between the arming switch and the scoped auto-discard; one session id by backreference from `armed` through `session saved` / `session loaded` to the auto-resolve and the prune (`ownedRecordingIds=1 removedRecordings=1`), one committed tree at the exit. The F9 needs `StopRecording` first (the seam refuses a load over a live recorder outside a Re-Fly).
 - `VN-14-refly-rename-merge` (nightly, new): VN-2's twin ending in Merge; both name decisions survive into the save and load back (`decisions=2`), the cold apply pass renames no leg, no `Revert undo` runs; report-only census of the merged legs' names.
 
-## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
+## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; RE-FLOWN 2026-11-20 (run 2026-11-20_2149) PASS, LIVE-PROVEN; OPEN: SUB-3's gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
 `LeafPlacement height:` depth check have no live subject below sea level: BOAT-1's Mallard floats.
@@ -931,7 +1105,14 @@ THE HAND-OVER, in order (PC; the forge is operator tier):
      the flight's frames (the old machine settles at 66.24, the fix clicks ballast at 66.74, 78 m
      above the guard) and flies a model fitted to both flights at the pessimistic k = 0.67: the
      fixed rise turns at 98.5 m and surfaces; with the first-ballast rule alone it still reaches
-     164.8 m. OPEN: re-fly SUB-3, then decide which decouple / debris / section facts to gate.
+     164.8 m. ~~OPEN: re-fly SUB-3~~, then decide which decouple / debris / section facts to gate.
+   - SUB-3 RE-FLOWN 2026-11-20 `2026-11-20_2149` PASS attempt 1 (245 s, runner run
+     `tip-spawn-reflight-2026-11-20`, Debug DLL 72189e6d from main c11d6cde2), MISSION-OK: the
+     fixed rise turned at 88.9 m (one `rise-cut` at 88.0 m) and surfaced at UT 204.4 after five
+     separations (three floats, two ballast pairs). READ for the gate decision (nothing armed):
+     five `DECOUPLE emitted: ... controlledChildren=0 debris=2`, five JointBreak branch points,
+     recordings 5 (PSUB-1 1, PSUB-1 Debris 4, all Splashed) against ten debris vessels live,
+     rewindPoints 0. Tag `flown`, status row Live-proven. OPEN: which of these to gate.
 
 What the first flights check (build_psub_craft.py C1-C5, and the host): the craft loads whole on
 the pad (C1); each stage click drops exactly one pair, floats first (C2); the sub sinks inside three
@@ -1120,7 +1301,7 @@ leaves a past-end unspawned recording owed, and the scene's own end-spawn path m
 (recorded terminal orbit for Orbiting ends). Whether the crew unreserve should still run for a
 recording that will spawn is part of the design question.
 
-## END-SPAWN-LANES-2026-11-17: harness lanes for end spawns at far bodies, under high warp and with a busy player [FILED 2026-11-17, branch `wip/spawnlanes2`, harness only; eleven lanes AUTHORED; FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): eight LIVE-PROVEN, three re-pinned on spec errors; OPEN: the three re-flights, and two seam proposals]
+## END-SPAWN-LANES-2026-11-17: harness lanes for end spawns at far bodies, under high warp and with a busy player [FILED 2026-11-17, branch `wip/spawnlanes2`, harness only; eleven lanes AUTHORED; FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): eight LIVE-PROVEN, three re-pinned on spec errors; RE-FLOWN GREEN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20`): SPW-4 / SPW-6 / SPW-11 LIVE-PROVEN, all eleven green; OPEN: the two seam proposals]
 
 The lanes (each `tier = "operator"` until measured; rows in `docs/dev/autotest-status.md`):
 - `SPW-1` / `SPW-3` / `SPW-10`: a segment of a parked orbit at Laythe / Tylo / the Mun is recorded,
@@ -1166,8 +1347,14 @@ NOT GREEN, every one a SPEC error (no product defect; the deciding line is in ea
 Observation, not a defect: the same declutter removes `eva2-lko-crewed`'s four pad debris on
 every reload that does not turn it off, so a header that says a lane "flies the pad debris"
 (EVA-15, SPW-7, SPW-9) describes the authored intent; those lanes passed with whatever focus
-stock gave them. Re-fly order: SPW-11, then SPW-6 and SPW-4 (each ~20 min if the warp still
-crawls, ~3 min if the fix holds).
+stock gave them. ~~Re-fly order: SPW-11, then SPW-6 and SPW-4 (each ~20 min if the warp still
+crawls, ~3 min if the fix holds).~~
+RE-FLOWN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20`, 2 slots, Debug DLL sha256 prefix
+72189e6d from main c11d6cde2; read on branch `tip-spawn-flights`), each PASS attempt 1: `SPW-11`
+`2026-11-20_2152` (84 s; the target spawned again, so the collision branch is still unread),
+`SPW-6` `_2200` (231 s) and `SPW-4` `_2203` (233 s), both at `maxRate=100000` with DECLUTTER_KSC
+off (the fix held, ~4 min each). SPW-4 / SPW-6 batches pinned whole (`passed=1 failed=0
+skipped=0`), out of `INTERIM_PIN_IDS`; tags `flown`, status rows Live-proven.
 ## ~~SPAWN-TS-STACK-NO-DE-OVERLAP~~: two landed deliveries that end on one spot while the player is in the Tracking Station are spawned inside each other [FILED 2026-11-17 by the end-of-recording spawn audit (END-SPAWN-SCENE-LANES-2026-11-17), by code reading; lane `TSS-3-two-deliveries-same-spot-ts` authored to red on it, NEVER FLOWN. ~~done~~ 2026-11-17, branch `wip/spawnfix3`; NOT YET FLOWN (TSS-3 is its regression lane)]
 
 What the code does. The Space Center end spawn nudges a Landed / Splashed spawn clear of every
@@ -1212,7 +1399,7 @@ nudge patterns cover both sites. TSS-3 re-pinned: no longer an expected red, its
 pins kept, plus the de-overlap line. Tests: `TipSpawnPlacementTests` (`EndOfRecordingDeOverlap_*`,
 `Wiring_EndOfRecordingSpawn_DeOverlapsAgainstUnloadedLandedVesselsBeforeTheCollisionCheck`).
 
-## END-SPAWN-SCENE-LANES-2026-11-17: lanes for end-of-recording spawns in the Tracking Station and at the Space Center, and a placement check on the existing end-spawn lanes [FILED 2026-11-17 (the end-of-recording spawn audit). FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): KSS-1 LIVE-PROVEN, EVA-15 / SEAT-2 re-flown green, TSS-1..3, KSS-2 and SS-1 re-pinned on spec errors, re-flights owed. AUTHORED 2026-11-17, branch `wip/spawnlanes1`, harness and test-generator code only; NEVER FLOWN; OPEN for the first flights]
+## END-SPAWN-SCENE-LANES-2026-11-17: lanes for end-of-recording spawns in the Tracking Station and at the Space Center, and a placement check on the existing end-spawn lanes [FILED 2026-11-17 (the end-of-recording spawn audit). FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): KSS-1 LIVE-PROVEN, EVA-15 / SEAT-2 re-flown green, TSS-1..3, KSS-2 and SS-1 re-pinned on spec errors; ~~re-flights owed~~ RE-FLOWN GREEN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20` + TSS-1 serially after a re-host): all five LIVE-PROVEN, every batch pinned whole. AUTHORED 2026-11-17, branch `wip/spawnlanes1`, harness and test-generator code only; first flights done 2026-11-17, re-flights done 2026-11-20]
 
 Five new lanes, all `tier = "operator"`, tag `pending-flight`, one `RunTests LeafVesselPlacement`
 step each (loose interim batch pin, `INTERIM_PIN_IDS`):
@@ -1290,7 +1477,29 @@ prefix bd950021 from main 64c68379; read on branch `wip/spawnread`):
 - `KSS-2` `_2336` PARSEK-FAIL on one token, SPEC: the Tracking Station paid the spawn on its
   first handoff tick inside the load, 0.12 s before the `kss2-ts` mark the token was anchored
   on; re-anchored on the load's `loadgame start ... requestedScene=TrackingStation` line.
-Re-fly order: SS-1, TSS-2, KSS-2, TSS-3, TSS-1 (all short), each re-pin read off its own log.
+~~Re-fly order: SS-1, TSS-2, KSS-2, TSS-3, TSS-1 (all short), each re-pin read off its own log.~~
+RE-FLOWN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20`, 2 slots, Debug DLL sha256 prefix
+72189e6d from main c11d6cde2; read on branch `tip-spawn-flights`), each PASS attempt 1, each
+LeafVesselPlacement batch `total=1 passed=1 failed=0 skipped=0`, pinned whole, out of
+`INTERIM_PIN_IDS`, tag `flown` (SS-1 is nightly, untagged), status rows Live-proven:
+- `SS-1` `2026-11-20_2149` (153 s): both spawns, the census green after the new `SaveGame`.
+- `TSS-2` `_2153` (193 s): the handoff pid on the mark's rec0, placement ok at the Mun.
+- `KSS-2` `_2154` (205 s): deferred at the Space Center, paid in the Tracking Station.
+- `TSS-3` `_2157` (173 s): both probes >= 10 m from anything (2852 m / 2845 m), placement 2/2
+  in FLIGHT (distM 0.1 / 14.9), the live proof of SPAWN-TS-STACK-NO-DE-OVERLAP.
+- `TSS-1` `2026-11-20_2240` (227 s, serial `run.py`), its fifth flight. Flights 2-4 were
+  INVALID(driver-verdict-mismatch), each with its retry, the recorded drive moving nothing:
+  `_2157` / `_2159_a2` on `pad-runway-pair` (4.6 m; that rover, commanded from a stack probe
+  core, never drove in any lane), re-hosted on `miner-rover-landed` (RVC-1's rover);
+  `_2232` / `_2234_a2` 0.0 m (no reference part in the save, so `PartAction controlfrom` on
+  the probe core, as RVC-1 does); `_2236` / `_2237_a2` still 0.0 m with the control point
+  applied. The fifth flight added a 1x `WarpToUT` to UT 60 before the drive and moved 518.3 m.
+OBSERVATION, no product change: a DriveVessel issued ~1.5-2 s after a FLIGHT load did not move
+on two hosts (`pad-runway-pair`'s rover 4.6 m at 0.19 m/s, `miner-rover-landed`'s 0.0 m with
+its control point set, startUT 32.62); on `miner-rover-landed` a 1x wait to UT 60 (RVC-1's first
+drive time) fixed it (518.3 m at up to 25.09 m/s); `pad-runway-pair` was not re-tried with the
+wait. Not explained; a drive lane waits first (TSS-1 header). Filed here as an observation,
+not a defect.
 
 ---
 
@@ -4023,7 +4232,7 @@ in parallel in the cloud):
    commit `recordings=4`, both leaves Landed, the replay hid `pid=4129919072` on rec=2 and
    `pid=2576286852` on rec=3; ghost lifecycle 4 / 4 balanced (report-only). Recordings 4 now pinned
    exactly (count, commit line, mark); tag `flown`.
-3b. [ ] (AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
+3b. [x] ~~(AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
    re-tuned on branch `air3tune`; RE-FLOWN TWICE 2026-11-17 INVALID (no release), the release
    fixed on branch `air3tune`; FLOWN A FIFTH TIME 2026-11-17, the collision flown, PARSEK-FAIL on
    one spec error, re-pinned on branch `wip/air3read`; FLOWN A SIXTH TIME 2026-11-17 (run
@@ -4032,7 +4241,10 @@ in parallel in the cloud):
    pid=839797731`) before its part deaths arrived, so no `Part death on background vessel` line
    for it (OnBackgroundPartDie skips a destroyed recording by design); the pin now also accepts
    the drone's `[Flight] Background vessel destroyed: pid=<drone> recId=` line, re-pinned on
-   branch `wip/spawnread`, re-flight owed.)
+   branch `wip/spawnread`; FLOWN A SEVENTH TIME 2026-11-20 (run `2026-11-20_2206`, runner run
+   `tip-spawn-reflight-2026-11-20`, 783 s) PASS attempt 1, LIVE-PROVEN: the drone destroyed
+   whole again, matched by that destruction branch; tag `flown`.)~~ Done 2026-11-20: LIVE-PROVEN
+   on its seventh flight, `2026-11-20_2206` PASS attempt 1 (783 s).
    Two airplanes flying into each other (owner request 2026-11-16): two recorded aircraft collide
    in the air; checks both recordings end at the impact and both ghosts replay it.
    Shape: the craft `AIR Drone Carrier` (`harness/tools/build_air_drone_carrier.py`, in
