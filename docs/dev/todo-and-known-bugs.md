@@ -545,6 +545,41 @@ From the 2026-11-18 test-gaps list (Batch 2, the cheap lane items). All stock-mi
 - `S0.16-switch-segment-across-f5-f9-scoped-discard` (daily, new): S0.13's twin with an F5 / F9 between the arming switch and the scoped auto-discard; one session id by backreference from `armed` through `session saved` / `session loaded` to the auto-resolve and the prune (`ownedRecordingIds=1 removedRecordings=1`), one committed tree at the exit. The F9 needs `StopRecording` first (the seam refuses a load over a live recorder outside a Re-Fly).
 - `VN-14-refly-rename-merge` (nightly, new): VN-2's twin ending in Merge; both name decisions survive into the save and load back (`decisions=2`), the cold apply pass renames no leg, no `Revert undo` runs; report-only census of the merged legs' names.
 
+## TEST-GAPS-B3-REFLY-F5-AND-CRASH-SURVIVOR: four lanes for an F5 inside a Re-Fly and for a crash that leaves a second controllable piece [FILED 2026-11-20 from the test-gap list of 2026-11-18 (Batch 3, two high-priority rows), branch `test-gaps-b3-refly-f5`, harness only, no C# change; four lanes AUTHORED, NEVER FLOWN; no defect predicted by code reading; OPEN: the first flights and one owner question]
+
+Lanes (all `stock-minimal`, tier nightly, rewind / structure blocks report-only until a reading run):
+
+- `QL-15-f5-in-refly-merge-then-f9` (design S4 on `refly-split-crewed-recorded`, slot 0): F5 inside
+  the Re-Fly, merge, F9 back. Must read the attempt unmerged after the F9 (`reFlyInProgress=True ...
+  supersedes=0 ... tombstones=0 marker=True journal=False`, same session id, `Marker valid=True ...
+  missingQuicksaveRps=0`, a version-sourced sidecar read) and a second merge leaving the same saved
+  supersede / tombstone counts as the first (regex back-references). Not QL-5c's host: its booster
+  sits PRELAUNCH, so a merge there writes 0 rows and a no-stacking count would read 0 = 0.
+- `QL-16-f5-in-refly-discard-then-f9` (QL-5c's host): F5, Discard Re-Fly, F9 back; the attempt and
+  the rewind point (and its file) back, then the resumed attempt merges.
+- `SURV-1-explode-between-cores-both-live` (`gs2-orbital-stack`): stock `Part.explode` on the
+  decoupler between the crewed stack and the probe-cored stage; the survivor's own recording and a
+  two-slot rewind point.
+- `SURV-2-recorded-half-destroyed-survivor-recorded` (`gs2-orbital-stack`): the root crewed pod
+  explodes; the probe-cored rest gets its own recording, the in-flight finalize waits for it, the
+  scene exit commits both.
+
+Code reading behind the predictions: the save-file F9 resets every save-scoped static and reads the
+Re-Fly lists from the quicksave (design 4.7); merge and discard no longer write quicksave.sfs (4.6);
+a rewind point file stays while any save lists it (4.5). For a crash, `Part.Die` decouples each child
+before the part dies, so the survivor is a controlled child (cause `DECOUPLE`, a JointBreak branch
+point, not a Breakup), and `ShowPostDestructionTreeMergeDialog` waits for the crash coalescer before
+it reads the leaves (RW-7's `2026-11-15_1300` log shows the same sequence for a pod explode).
+
+Owner question: SURV-2 predicts NO rewind point when the recorded half is destroyed at the split
+instant (the dead parent has no parts, so `Single-controllable split: no RP`). The destroyed half
+could not be re-flown out of its own death, so this reads as correct; a crash where the halves part
+first and one dies after the 0.5 s window authors a two-slot point and an Unfinished Flight as usual.
+If the owner wants a point there, SURV-2's `Single-controllable` pin flips with the fix.
+
+A red reading on any lane is filed as its own entry; each spec header lists its pre-registered
+readings.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the

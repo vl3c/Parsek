@@ -1,0 +1,179 @@
+schema = 1
+id = "SURV-2-recorded-half-destroyed-survivor-recorded"
+# =====================================================================================
+# SURV-2: A CRASH DESTROYS THE RECORDED (ACTIVE) HALF; THE PROBE-CORED REST SURVIVES. THE
+# SURVIVOR GETS ITS OWN RECORDING AND THE FLIGHT IS NOT FINALIZED UNDER IT.
+# Test-gap list 2026-11-18, Batch 3 "A crash that leaves a second controllable piece alive".
+# AUTHORED 2026-11-20 (branch `test-gaps-b3-refly-f5`), NOT FLOWN. Twin: SURV-1 (both halves
+# survive).
+#
+# In gameplay terms: an orbiting Kerbal X's crewed pod is destroyed (a crash's part death,
+# stock `Part.explode`), killing its crew; everything below it, which carries a probe core,
+# flies on as a new vessel. Parsek must record that survivor as its own branch, must not
+# finalize the tree as "everything died" while it is alive, and must commit it with the
+# flight at the scene exit.
+#
+# THE CRASH IS STOCK'S OWN. Decompiled `Part.Die` (KSP 1.12.5): the dying ROOT part first
+# `decouple()`s each child (one new vessel holding the whole lower stack), then
+# `vessel.Die()`; the active vessel object stays FlightGlobals.ActiveVessel, dead, with no
+# parts (Vessel.Die keeps the active vessel in the list). RW-7's measured log
+# (`2026-11-15_1300`, the same explode on a pod) is the shape: `Active vessel destroyed in tree
+# mode`, `ShowPostDestructionTreeMergeDialog: waiting for pending split/coalescer resolution`,
+# `ResumeSplitRecorder: vessel was destroyed ... committing instead of resuming`, the
+# coalescer's window, `ProcessBreakupEvent: refreshed VesselSnapshot post-breakup (parts=0`,
+# then `not all leaves terminal - other vessels still alive`.
+#
+# WHAT THE CODE SAYS (read 2026-11-20, no defect predicted):
+#   - the survivor carries probeStackLarge, so it is a CONTROLLED child: ProcessBreakupEvent
+#     creates its recording and hands it to the background recorder (alive=True);
+#   - ShowPostDestructionTreeMergeDialog waits for the coalescer (up to 5 s) before reading
+#     the leaves, so the survivor's leaf is in the tree and alive: the tree is NOT finalized
+#     in flight (`not all leaves terminal`);
+#   - NO REWIND POINT, by design: TryAuthorRewindPointForBreakup counts the dead parent (no
+#     parts, no ModuleCommand) as not controllable, so one controllable output reads
+#     `Single-controllable split: no RP`. The destroyed half died AT the split instant, so a
+#     Re-Fly from that moment could not avoid the death; a crash where the halves separate
+#     first and one dies LATER (after the 0.5 s window) authors a two-slot point (GS-1's
+#     shape) and the crashed slot is an Unfinished Flight. Owner question in the report: is
+#     no-RP the wanted answer for "destroyed at the split instant"?
+#   - the scene exit (`ExitToSpaceCenter`, autoMerge) finalizes the pod Destroyed and the
+#     survivor Orbiting and commits both.
+#
+# HOST: `gs2-orbital-stack` (see SURV-1). The lane explodes the ROOT `mk1-3pod`
+# (persistentId 57152010; Valentina and Bob die, a sandbox crew loss). Its one child,
+# HeatShield2, carries the whole lower stack (both decouplers, the middle stage, the probe
+# core and the Mainsail stage) into the survivor vessel.
+#
+# NOT DONE HERE, and why: switching to the survivor. `CycleVessel` only switches when Parsek's
+# cycle Prefix handles the press (a ghost or a refused candidate dropped); with neither it
+# answers `leftToStock=true` and moves nothing (TestCommandCycleVessel), so the survivor
+# stays background-recorded until the scene exit, which is the shape that must commit.
+#
+# THE GATE: the explode; the active vessel destroyed with the split pending; the survivor
+# created alive as a controlled child; the in-flight finalize refused because a leaf is alive;
+# the readback `surv2-after-crash-1` (one background member); the commit with two recordings,
+# the pod Destroyed and the survivor Orbiting (report-only structure until a reading run).
+#
+# PRE-REGISTERED RED READINGS:
+#   - `ProcessBreakupEvent: no active tree` / `active tree has no active recording`: the
+#     breakup was dropped after the fallback commit cleared the active recording; the
+#     survivor has no recording (THE defect the gap names);
+#   - `pending split/coalescer wait timed out` then `all leaves terminal - finalizing tree`:
+#     the in-flight finalize ran before the survivor's leaf existed and stashed the tree
+#     without it;
+#   - `dead on arrival` skip line for the survivor's pid: the survivor broke up within the
+#     window (physics), a fixture finding;
+#   - `Controllable split children: \[[0-9]+,[0-9]+\]` with a RewindPoint begin: the dead
+#     parent read as controllable (the pod part still listed); not a crash, but it would make
+#     the destroyed pod an Unfinished Flight re-flown from its own death instant.
+#
+# FAST-LANE CHECKLIST: as SURV-1 (a new spec on GS-2's host, two explicit-UT 1x waits, the
+# 10 s after the crash covers the coalescer window and the 5 s finalize wait, nightly, retry
+# once, windows pinned after the first flight, flight_efficiency.py after it).
+# =====================================================================================
+tier = "nightly"
+description = "SURV-2: an orbiting Kerbal X's root crewed pod is destroyed by stock Part.explode (the crash's own part death, crew lost); the probe-cored lower stack flies on as a new vessel. The survivor gets its own background recording, the tree is not finalized in flight while it lives, no rewind point is authored for a half destroyed at the split instant, and the scene exit commits the pod Destroyed and the survivor Orbiting."
+instanceProfile = "stock-minimal"
+tags = ["SURV-2", "crash", "crash-coalescing", "controlled-decoupled-child", "explode",
+        "crew-death-in-flight", "commit-scene-exit", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs2-orbital-stack"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },        expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },    expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },              expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },         expect = "OK" },
+  { cmd = "StartRecording",                                                                expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "422", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "surv2-before-explode" },                  expect = "OK" },
+  # THE CRASH: the root pod.
+  { cmd = "PartAction",        args = { button = "explode", part = "mk1-3pod", partPid = "57152010" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "432", maxRate = "1" },                       expect = "OK", budget = 120 },
+  # The pod is gone (fail fast if the explode did not take).
+  { cmd = "PartAction",        args = { button = "inspect", part = "mk1-3pod" },           expect = "REJECTED" },
+  { cmd = "ListHandles",       args = { kind = "active" }, label = "a",                     expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "r",               expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "surv2-after-crash-${a.bg}-${r.count}" },  expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "ListHandles",       args = { kind = "committed" }, label = "c",                  expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "surv2-committed-${c.count}" },            expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["commit-scene-exit", "auto-merge"]
+D5  = ["controlled-decoupled-child", "crash-coalescing"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2 }
+
+# REPORT-ONLY until a reading run.
+[expectations.rewind]
+gating        = false
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2 }
+terminalStates = { Destroyed = { min = 1, max = 1 }, Orbiting = { min = 1 } }
+branchPoints   = { JointBreak = { min = 1 } }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  "MISSIONMARK label=surv2-before-explode [\\s\\S]*partaction applied button=explode pid=3620499050 part='mk1-3pod' partId=[0-9]+ event=explode ",
+  "MISSIONMARK label=surv2-before-explode [\\s\\S]*Decouple created vessel during recording: pid=[0-9]+ name='[^']*' type=\\S+ parts=[0-9]+ hasController=True",
+  "MISSIONMARK label=surv2-before-explode [\\s\\S]*Active vessel destroyed in tree mode",
+  "ShowPostDestructionTreeMergeDialog: waiting for pending split/coalescer resolution before finalizing tree",
+  "Deferred split classified: source=\\S+, result=StructuralSplit, newVessels=[1-9][0-9]*, hasController=True, recordedPid=3620499050",
+  "ResumeSplitRecorder: vessel was destroyed \\(joint break fed to coalescer \\(classification=StructuralSplit\\)\\) \\S+ committing instead of resuming",
+  # THE GATE: the survivor's own recording, and no in-flight finalize while it lives.
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+, name='[^']*', recId=\\S+, alive=True",
+  "ProcessBreakupEvent: \\S+ attached to tree=\\S+, parentRec=\\S+",
+  "ShowPostDestructionTreeMergeDialog: not all leaves terminal \\S+ other vessels still alive",
+  # The design's answer for a half destroyed at the split instant (see header).
+  "Controllable split children: \\[[0-9]+\\] \\(orig=3620499050, ",
+  "Single-controllable split: no RP \\(bp=\\S+ type=\\S+ controllable=1\\)",
+  "MISSIONMARK label=surv2-after-crash-1-0 ut=",
+  # The commit carries the survivor.
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[2-9][0-9]*",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+  "MISSIONMARK label=surv2-committed-[2-9][0-9]* ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "ProcessBreakupEvent: no active tree",
+  "ProcessBreakupEvent: active tree has no active recording",
+  "pending split/coalescer wait timed out",
+  "ShowPostDestructionTreeMergeDialog: all leaves terminal",
+  "ShowPostDestructionTreeMergeDialog: stashed pending tree",
+  "RewindPoint begin: rp=",
+  "MISSIONMARK label=surv2-after-crash-(?!1-0 )",
+]
+
+[runtime]
+# LoadGame 660, WarpToUT x2 1320, ExitToSpaceCenter 180, the rest (SetSetting x3,
+# StartRecording, MissionMark x3, PartAction x2, ListHandles x3, FlushAndQuit) 13 x 120 =
+# 1560. Sum 3720; +180 margin.
+budgetSeconds = 3900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
