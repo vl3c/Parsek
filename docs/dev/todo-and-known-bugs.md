@@ -74,6 +74,25 @@ serializes the tree; `OnSceneChangeRequested`, `FinalizeTreeOnSceneChangeForCall
 
 Tests. `PendingSplitFlushWiringTests` (save, scene exit, merge-flow finalize order).
 
+## ~~POST-SWITCH-WATCH-SPLIT-NOT-RECORDED~~: undocking right after a `]` switch to an untracked vessel dropped the separated piece [FILED 2026-11-18 by the recording split / trim / merge review follow-up (WP1 M4), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit + source gates; no lane yet; high (a vessel with no recording and no ghost)]
+
+Cause. A `]` switch to a vessel with no recording context arms the post-switch watch and binds no
+recorder. `OnVesselsUndocking` returned "not recording, ignoring", and the decouple capture keys on
+the recorded vessel, so nothing kept the separated vessel; the watch later started recording on
+the changed vessel, but the piece that came off stayed untracked.
+
+Fix. `ParsekFlightPostSwitchAutoRecord.TryCapturePostSwitchStructuralSplit` (pure decision
+`EvaluatePostSwitchStructuralSplit`) captures an undock (from `OnVesselsUndocking`) or decouple
+(an always-subscribed `onPartDeCoupleNewVesselComplete` forwarder) of the watched vessel with its
+split-time snapshot and pose. The next watch frame starts the recording past the baseline and
+settle gates (trigger `StructuralSplit`) and feeds the captures to the crash coalescer, so each
+separated vessel becomes a child of the new recording. A refused start drops the captures with a
+Warn (it refuses every frame); a watch disarmed with captures pending warns.
+
+Tests. `PostSwitchStructuralSplitTests` (the decision table, the undock routing, start-then-feed
+ahead of the baseline gate). Lane owed: `]` to an untracked docked pair, undock at once; expect a
+recording for each half.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the

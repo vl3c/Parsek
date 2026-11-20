@@ -3079,6 +3079,11 @@ namespace Parsek
             }
             if (host.recorder == null || !host.recorder.IsRecording)
             {
+                // A ] switch to a vessel Parsek is not recording yet arms the post-switch watch;
+                // an undock of the watched vessel starts its recording with both halves.
+                if (host.PostSwitchAutoRecorder.TryCapturePostSwitchStructuralSplit(
+                        oldVessel, newVessel, "UNDOCK", "OnVesselsUndocking", undockRootPartSeed))
+                    return;
                 ParsekLog.Verbose("Flight",
                     "OnVesselsUndocking: not recording, ignoring");
                 return;

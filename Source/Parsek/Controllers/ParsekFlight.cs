@@ -1008,6 +1008,9 @@ namespace Parsek
         void OnPartUndock(Part undockedPart) => SplitBrancher.OnPartUndock(undockedPart);
         void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel) =>
             SplitBrancher.OnVesselsUndocking(oldVessel, newVessel);
+        // Always subscribed: a decouple of the post-switch watched vessel while nothing records.
+        private void OnDecoupleNewVesselForPostSwitchWatch(Vessel originalVessel, Vessel newVessel) =>
+            PostSwitchAutoRecorder.OnDecoupleNewVesselForPostSwitchWatch(originalVessel, newVessel);
         private void OnDecoupleNewVesselDuringSplitCheck(Vessel originalVessel, Vessel newVessel) =>
             SplitBrancher.OnDecoupleNewVesselDuringSplitCheck(originalVessel, newVessel);
 
@@ -1201,6 +1204,7 @@ namespace Parsek
             GameEvents.onPartCouple.Add(OnPartCouple);
             GameEvents.onPartUndock.Add(OnPartUndock);
             GameEvents.onVesselsUndocking.Add(OnVesselsUndocking);
+            GameEvents.onPartDeCoupleNewVesselComplete.Add(OnDecoupleNewVesselForPostSwitchWatch);
             GameEvents.onGroundSciencePartDeployed.Add(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onNewVesselCreated.Add(OnNewVesselCreatedForGroundPart);
@@ -1644,6 +1648,7 @@ namespace Parsek
             GameEvents.onPartCouple.Remove(OnPartCouple);
             GameEvents.onPartUndock.Remove(OnPartUndock);
             GameEvents.onVesselsUndocking.Remove(OnVesselsUndocking);
+            GameEvents.onPartDeCoupleNewVesselComplete.Remove(OnDecoupleNewVesselForPostSwitchWatch);
             GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onNewVesselCreated.Remove(OnNewVesselCreatedForGroundPart);
@@ -2837,7 +2842,10 @@ namespace Parsek
             ResourceChange,
             PartStateChange,
             LandedMotion,
-            OrbitChange
+            OrbitChange,
+            // An undock or decouple of the watched vessel (owner ruling 2026-11-18): the
+            // recording starts and the separated vessel gets its own child recording.
+            StructuralSplit
         }
 
         internal enum PostSwitchAutoRecordSuppressionReason
@@ -2897,6 +2905,25 @@ namespace Parsek
             public Dictionary<ulong, int> RcsFrameCountMap = new Dictionary<ulong, int>();
             public HashSet<ulong> ActiveRcsKeys = new HashSet<ulong>();
             public Dictionary<ulong, float> RcsThrottleMap = new Dictionary<ulong, float>();
+            // Separations of the watched vessel seen while nothing recorded it; the next watch
+            // frame starts the recording and feeds them to the crash coalescer.
+            public List<PostSwitchStructuralSplit> PendingStructuralSplits = new List<PostSwitchStructuralSplit>();
+        }
+
+        /// <summary>
+        /// One separation of the post-switch watched vessel, captured at the split (snapshot and
+        /// pose of the vessel that came off) for the recording the watch is about to start.
+        /// </summary>
+        internal sealed class PostSwitchStructuralSplit
+        {
+            public uint ChildPid;
+            public bool HasController;
+            public string Cause;
+            public double UT;
+            public uint ChildRootPartPid;
+            public ConfigNode PreSnapshot;
+            public TrajectoryPoint? PrePoint;
+            public string Source;
         }
 
         // Vessel spawning from playback: chain-tip spawn, tree-leaf spawn, chain ghosting at flight

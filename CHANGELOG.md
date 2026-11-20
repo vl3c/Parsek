@@ -33,6 +33,10 @@ Not released yet.
   frame, or a quicksave right after staging could leave a booster or satellite with no replay
   and no ghost. Every separated vessel now gets its own recording.
   (SPLIT-WINDOW-DROPPED-ON-RECORDER-START)
+- **Undocking a vessel you just switched to records both halves.** After switching with `]` to a
+  vessel Parsek was not recording yet, undocking or staging it at once recorded only the part you
+  kept; the piece that came off had no replay. Both now get their own recording.
+  (POST-SWITCH-WATCH-SPLIT-NOT-RECORDED)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now
