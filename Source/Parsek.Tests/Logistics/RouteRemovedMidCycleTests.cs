@@ -173,6 +173,12 @@ namespace Parsek.Tests.Logistics
             Assert.Single(Rows(RouteEventType.RouteCargoPickedUp));
             Assert.Equal(0, seams.Deliveries);
 
+            // The delete confirm names the loss: cargo is on its way.
+            Assert.True(RouteStore.HasUndeliveredCargoInOpenCycle(route, RouteEventLog.Events));
+            Assert.Contains("will be lost",
+                LogisticsWindowUI.BuildDeleteConfirmBody(route,
+                    RouteStore.HasUndeliveredCargoInOpenCycle(route, RouteEventLog.Events)));
+
             // The player deletes the route mid-transit.
             logLines.Clear();
             Assert.True(RouteStore.RemoveRoute(route.Id));
@@ -212,6 +218,7 @@ namespace Parsek.Tests.Logistics
             RouteOrchestrator.Tick(1350.0, env);
             Assert.Equal(1, seams.Deliveries);
             Assert.Equal(1, route.CompletedCycles);
+            Assert.False(RouteStore.HasUndeliveredCargoInOpenCycle(route, RouteEventLog.Events));
 
             logLines.Clear();
             Assert.True(RouteStore.RemoveRoute(route.Id));
@@ -241,6 +248,39 @@ namespace Parsek.Tests.Logistics
             Assert.Null(RouteStore.DescribeAbandonedCycle(route, new List<RouteEvent>()));
             Assert.Null(RouteStore.DescribeAbandonedCycle(null, events));
             Assert.Null(RouteStore.DescribeAbandonedCycle(route, null));
+        }
+
+        // Fails if: the confirm's loss sentence shows for a cycle with nothing taken yet, for
+        // a finished cycle, or for another route's rows.
+        [Fact]
+        public void HasUndeliveredCargoInOpenCycle_Truths()
+        {
+            var route = new Route { Id = "r1", CompletedCycles = 2, SkippedCycles = 1 };
+            Assert.False(RouteStore.HasUndeliveredCargoInOpenCycle(null, new List<RouteEvent>()));
+            Assert.False(RouteStore.HasUndeliveredCargoInOpenCycle(route, null));
+
+            // Dispatched, nothing taken yet.
+            var events = new List<RouteEvent> { Ev(RouteEventType.RouteDispatched, "r1", "cycle-3") };
+            Assert.False(RouteStore.HasUndeliveredCargoInOpenCycle(route, events));
+
+            // Taken on a finished cycle or by another route: not this trip.
+            events.Add(Ev(RouteEventType.RouteCargoPickedUp, "r1", "cycle-2"));
+            events.Add(Ev(RouteEventType.RouteCargoDebited, "r2", "cycle-3"));
+            Assert.False(RouteStore.HasUndeliveredCargoInOpenCycle(route, events));
+
+            // An origin debit or a pickup on the open cycle: cargo on its way.
+            events.Add(Ev(RouteEventType.RouteCargoDebited, "r1", "cycle-3"));
+            Assert.True(RouteStore.HasUndeliveredCargoInOpenCycle(route, events));
+            var pickupOnly = new List<RouteEvent>
+            {
+                Ev(RouteEventType.RouteDispatched, "r1", "cycle-3"),
+                Ev(RouteEventType.RouteCargoPickedUp, "r1", "cycle-3"),
+            };
+            Assert.True(RouteStore.HasUndeliveredCargoInOpenCycle(route, pickupOnly));
+
+            // Taken but not dispatched on the open cycle: no open cycle, nothing to lose.
+            var noDispatch = new List<RouteEvent> { Ev(RouteEventType.RouteCargoPickedUp, "r1", "cycle-3") };
+            Assert.False(RouteStore.HasUndeliveredCargoInOpenCycle(route, noDispatch));
         }
 
         [Fact]

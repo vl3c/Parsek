@@ -20,6 +20,10 @@ Not released yet.
 
 ### Changed
 
+- **Deleting a supply route mid-trip now warns that its cargo will be lost.** When a route has
+  already taken cargo on its current trip, the delete confirmation adds "Cargo already taken on
+  this trip and not yet delivered will be lost." The cargo is still lost on delete, as before.
+  (ROUTE-DELETED-MID-CYCLE-LOSES-CARGO)
 - **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
   makes no rewind point of its own and never shows it in Unfinished Flights. The rock still gets
   its own replay from the release and becomes real at its end. (ROCK-RELEASE-REFLY-SLOT)

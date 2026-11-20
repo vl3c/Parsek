@@ -439,6 +439,18 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// True when the route's open cycle (<see cref="DescribeAbandonedCycle"/>'s rule) has
+        /// taken cargo from a source (an origin debit or a pickup row): a removal now loses
+        /// whatever of it is not yet delivered. The Logistics delete confirm reads it to name
+        /// that loss (owner ruling 2026-11-20). Pure over its inputs.
+        /// </summary>
+        internal static bool HasUndeliveredCargoInOpenCycle(Route route, IReadOnlyList<RouteEvent> events)
+        {
+            return TryReadOpenCycle(route, events, out _, out int debits, out int pickups, out _)
+                && debits + pickups > 0;
+        }
+
+        /// <summary>
         /// The open cycle a route removal abandons, or null when none is open. A cycle is
         /// open when its id (<c>cycle-{Completed+Skipped}</c>, the id every emitter stamps)
         /// carries a <see cref="RouteEventType.RouteDispatched"/> row: completion or a skip
@@ -448,12 +460,27 @@ namespace Parsek.Logistics
         /// </summary>
         internal static string DescribeAbandonedCycle(Route route, IReadOnlyList<RouteEvent> events)
         {
-            if (route == null || string.IsNullOrEmpty(route.Id) || events == null)
+            if (!TryReadOpenCycle(route, events, out string cycleId, out int debits, out int pickups, out int deliveries))
                 return null;
             var ic = CultureInfo.InvariantCulture;
-            string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(ic);
+            return $"cycle={cycleId} originDebits={debits.ToString(ic)} pickups={pickups.ToString(ic)} " +
+                   $"deliveries={deliveries.ToString(ic)}; cargo already taken is not returned and the " +
+                   "undelivered windows never fire";
+        }
+
+        // The route's current cycle and its row counts; false when it has no dispatch row.
+        private static bool TryReadOpenCycle(Route route, IReadOnlyList<RouteEvent> events,
+            out string cycleId, out int debits, out int pickups, out int deliveries)
+        {
+            cycleId = null;
+            debits = 0;
+            pickups = 0;
+            deliveries = 0;
+            if (route == null || string.IsNullOrEmpty(route.Id) || events == null)
+                return false;
+            var ic = CultureInfo.InvariantCulture;
+            cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(ic);
             bool dispatched = false;
-            int debits = 0, pickups = 0, deliveries = 0;
             for (int i = 0; i < events.Count; i++)
             {
                 RouteEvent e = events[i];
@@ -469,11 +496,7 @@ namespace Parsek.Logistics
                     case RouteEventType.RouteCargoDelivered: deliveries++; break;
                 }
             }
-            if (!dispatched)
-                return null;
-            return $"cycle={cycleId} originDebits={debits.ToString(ic)} pickups={pickups.ToString(ic)} " +
-                   $"deliveries={deliveries.ToString(ic)}; cargo already taken is not returned and the " +
-                   "undelivered windows never fire";
+            return dispatched;
         }
 
         /// <summary>

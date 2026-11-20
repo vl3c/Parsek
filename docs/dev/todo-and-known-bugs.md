@@ -20,21 +20,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ROUTE-DELETED-MID-CYCLE-LOSES-CARGO: deleting a route between a window that took cargo and the window that delivers it loses that cargo [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit through the production tick. PINNED, owner question; low (cargo only, on a player action behind a "cannot be undone" confirm)]
+## ~~ROUTE-DELETED-MID-CYCLE-LOSES-CARGO~~: deleting a route between a window that took cargo and the window that delivers it loses that cargo [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit through the production tick. OWNER RULING 2026-11-20 (V): "lost, but warn in the dialog". DONE 2026-11-20, same branch; xUnit only, no lane flies it yet; low (cargo only, on a player action behind a confirm)]
 
-No design document says what a route removal does to a cycle in flight: the supply-routes
-design covers a deleted SOURCE RECORDING during transit (section 1.3, "current cycle aborts
-before delivery"), not a deleted route. Today (`RouteRemovedMidCycleTests`, a two-window
-shuttle driven through `RouteOrchestrator.Tick`): the cargo the pickup window took from its
-source stays taken, the delivery window never fires, nothing refunds it, the
-`RouteCargoPickedUp` row stays in the route event log, and the cycle's escrow is dropped
+No design document said what a route removal does to a cycle in flight: the supply-routes
+design covered a deleted SOURCE RECORDING during transit (section 1.3, "current cycle aborts
+before delivery"), not a deleted route. Behavior (`RouteRemovedMidCycleTests`, a two-window
+shuttle driven through `RouteOrchestrator.Tick`), kept by the ruling: the cargo the pickup
+window took from its source stays taken, the delivery window never fires, nothing refunds it,
+the `RouteCargoPickedUp` row stays in the route event log, and the cycle's escrow is dropped
 (`DropRouteEscrow`). A single-stop loop route has no such gap (its debit and delivery fire in
-one `EmitLoopCycle`). The removal now logs it: `RemoveRoute: route <id> removed mid-cycle:
+one `EmitLoopCycle`). The removal logs it: `RemoveRoute: route <id> removed mid-cycle:
 cycle=cycle-N originDebits=a pickups=b deliveries=c; cargo already taken is not returned ...`
-(`RouteStore.DescribeAbandonedCycle`), and the seam gained `RouteCommand action=delete`
-(payload `midCycle=`), so a lane can drive it. The confirm dialog says only "This cannot be
-undone." Owner question: keep the loss (and maybe name it in that existing confirm text), or
-return the taken cargo to its source on delete. No lane flies it yet.
+(`RouteStore.DescribeAbandonedCycle`), and the seam has `RouteCommand action=delete` (payload
+`midCycle=`).
+
+Done: the existing Logistics delete confirm (`ParsekLogisticsDeleteRouteConfirm`, no new
+surface) adds one sentence, "Cargo already taken on this trip and not yet delivered will be
+lost.", before "This cannot be undone." while the route's open cycle has an origin debit or a
+pickup row (`RouteStore.HasUndeliveredCargoInOpenCycle`, the same open-cycle rule as
+`DescribeAbandonedCycle`; body from the pure `LogisticsWindowUI.BuildDeleteConfirmBody(route,
+cargoInTransit)`); the spawn line now reads `Logistics: Delete route=<id> confirm dialog spawned
+cargoInTransit=<bool>`. The dormant-route delete confirm is unchanged (a dormant route has no
+cycle in flight). Design table row added (supply-routes design section 1.3). Owed: a lane that
+raises the confirm mid-cycle (`UiAction raise popup=deleteroute` after a pickup window) and
+reads `cargoInTransit=True`.
 
 ## ~~WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION~~: after a watched ship docks and undocks, watch follows the vessel that kept the merge's pid, not the ship [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit (`WatchAcrossDockTests`). OWNER RULING 2026-11-20 (V): "follow the ship I was watching". FIXED 2026-11-20, same branch; xUnit only, no lane flies a watch across a dock and undock; low (camera choice, the player can pick the ship again)]
 

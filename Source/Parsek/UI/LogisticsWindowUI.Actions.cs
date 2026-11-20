@@ -157,6 +157,9 @@ namespace Parsek
             pendingRestoreLabel = null;
         }
 
+        internal const string DeleteConfirmCargoLossSentence =
+            "Cargo already taken on this trip and not yet delivered will be lost.";
+
         /// <summary>
         /// Spawns the modal "Delete route '...'? This cannot be undone." confirm.
         /// The Delete button calls <see cref="RouteStore.RemoveRoute"/> directly in
@@ -174,10 +177,11 @@ namespace Parsek
             // Capture the id locally so the Delete closure does not depend on a
             // mutable instance field that ApplyPendingActions nulls this frame.
             string routeId = route.Id;
-            string body = BuildDeleteConfirmBody(route);
+            bool cargoInTransit = RouteStore.HasUndeliveredCargoInOpenCycle(route, RouteEventLog.Events);
+            string body = BuildDeleteConfirmBody(route, cargoInTransit);
 
             ParsekLog.Info("UI",
-                $"Logistics: Delete route={ShortId(routeId)} confirm dialog spawned");
+                $"Logistics: Delete route={ShortId(routeId)} confirm dialog spawned cargoInTransit={cargoInTransit}");
 
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
@@ -270,13 +274,24 @@ namespace Parsek
         /// player always sees an identifier (never the literal "null"). Pure and
         /// Unity-free for unit testing.
         /// </summary>
-        internal static string BuildDeleteConfirmBody(Route route)
+        internal static string BuildDeleteConfirmBody(Route route) => BuildDeleteConfirmBody(route, false);
+
+        /// <summary>
+        /// The delete confirm body. <paramref name="cargoInTransit"/>
+        /// (<see cref="RouteStore.HasUndeliveredCargoInOpenCycle"/>) adds the one loss
+        /// sentence: a route deleted mid-cycle loses the cargo it already took (owner ruling
+        /// 2026-11-20, todo ROUTE-DELETED-MID-CYCLE-LOSES-CARGO). Pure.
+        /// </summary>
+        internal static string BuildDeleteConfirmBody(Route route, bool cargoInTransit)
         {
             string name = route != null && !string.IsNullOrEmpty(route.Name)
                 ? route.Name
                 : ShortId(route?.Id);
             // A PopupDialog body: the stock TMP font has no route-name arrow glyph.
-            return StockFontText.ForStockUi($"Delete route '{name}'?\n\nThis cannot be undone.");
+            string loss = cargoInTransit
+                ? DeleteConfirmCargoLossSentence + " "
+                : string.Empty;
+            return StockFontText.ForStockUi($"Delete route '{name}'?\n\n{loss}This cannot be undone.");
         }
 
         /// <summary>

@@ -27,6 +27,30 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("Delete route 'Mun Fuel Run'?\n\nThis cannot be undone.", body);
         }
 
+        // Owner ruling 2026-11-20 (ROUTE-DELETED-MID-CYCLE-LOSES-CARGO): the loss stays, and
+        // the existing confirm names it when the route has cargo on its way.
+        // Fails if: the mid-cycle body drops the loss sentence, or the idle body gains it.
+        [Fact]
+        public void CargoInTransit_BodyNamesTheLoss_OnlyThen()
+        {
+            Route route = new RouteFixtureBuilder()
+                .WithId("del-test")
+                .WithName("Mun Fuel Run")
+                .Build();
+
+            Assert.Equal(
+                "Delete route 'Mun Fuel Run'?\n\n" +
+                "Cargo already taken on this trip and not yet delivered will be lost. " +
+                "This cannot be undone.",
+                LogisticsWindowUI.BuildDeleteConfirmBody(route, cargoInTransit: true));
+            Assert.Equal(
+                "Delete route 'Mun Fuel Run'?\n\nThis cannot be undone.",
+                LogisticsWindowUI.BuildDeleteConfirmBody(route, cargoInTransit: false));
+            Assert.Equal(
+                LogisticsWindowUI.BuildDeleteConfirmBody(route, cargoInTransit: false),
+                LogisticsWindowUI.BuildDeleteConfirmBody(route));
+        }
+
         [Fact]
         public void DefaultRouteNameArrow_IsAsciiInTheStockDialogBody()
         {
