@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~OPTIMIZER-MERGE-INTO-DESTROYED-DELETES-RECORDING~~: the optimizer deleted a recording it "merged" into a destroyed one [FILED 2026-11-18 by the recording split / trim / merge review (finding M9), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; low reachability, high impact (a recording, its ledger tags and its sidecars deleted)]
+
+**Cause:** `RecordingOptimizer.MergeInto` skips a merge into a target with `VesselDestroyed` (a destroyed recording is sealed at its terminal UT) but returned the absorbed id as if it had merged, so `CommittedListOptimizer.RunOptimizationMergePass` retagged the absorbed recording's ledger rows, removed it from the committed list and deleted its sidecars. Reachable because a split moved the terminal state onto the second half but left `VesselDestroyed` on the first, so a split crashed flight had a head reading destroyed with no terminal, and `CanAutoMerge` offered it as a merge target.
+
+**Fix:** `MergeInto` returns null on that skip (Warn `MergeInto: refused - target is already destroyed ... nothing merged, nothing removed`) and the merge pass stops without touching either recording (Warn `Optimization: merge of ... refused - nothing removed`); `CanAutoMerge` refuses a destroyed target up front; the split moves `VesselDestroyed` with the terminal onto the second half (Verbose `Split: VesselDestroyed moved with the terminal onto the second half`).
+
+**Tests:** `RecordingOptimizerSplitAtUTTests.SplitAtUT_CrashedFlight_VesselDestroyedMovesWithTheTerminal`, `MergeInto_DestroyedTarget_RefusesAndCanAutoMergeRefusesUpFront`; `IdentityLossClassifierTests.RecordingOptimizer_MergeInto_SkipsDestroyedTarget` now expects null (its old expectation pinned the bug). All three red under a mutation that restores the old code.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the

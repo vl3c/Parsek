@@ -90,6 +90,16 @@ namespace Parsek
             // No branch point between them
             if (!string.IsNullOrEmpty(a.ChildBranchPointId)) return false;
 
+            // A destroyed recording is sealed at its terminal UT: nothing can be absorbed
+            // into it (MergeInto refuses), so it is never a merge target.
+            if (a.VesselDestroyed)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"CanAutoMerge: rejecting merge of '{a.RecordingId}' + '{b.RecordingId}' " +
+                    "- the target is destroyed (sealed at its terminal)");
+                return false;
+            }
+
             bool samePhase = a.SegmentPhase == b.SegmentPhase;
             if (samePhase)
             {
@@ -1065,14 +1075,16 @@ namespace Parsek
             // method would break the seal, and the per-event/section concatenations
             // would extend Recording.EndUT past the destruction UT. Skip the merge
             // entirely — there is nothing to absorb into a sealed recording.
+            // Returns null, never the absorbed id: the caller deletes whatever id comes back
+            // (the recording, its ledger tags and its sidecars), and nothing was absorbed.
+            // CanAutoMerge refuses this pair up front.
             if (target != null && target.VesselDestroyed)
             {
-                ParsekLog.VerboseRateLimited("Optimizer",
-                    $"merge-into-destroyed.{target.RecordingId}",
-                    $"MergeInto: skipping — target is already destroyed " +
-                    $"(target={target.RecordingId}, absorbed={absorbed?.RecordingId ?? "(null)"})",
-                    60.0);
-                return absorbed?.RecordingId;
+                ParsekLog.Warn("Optimizer",
+                    $"MergeInto: refused - target is already destroyed " +
+                    $"(target={target.RecordingId}, absorbed={absorbed?.RecordingId ?? "(null)"}); " +
+                    "nothing merged, nothing removed");
+                return null;
             }
 
             bool normalizeEvaBoundaryMerge = CanMergeContinuousEvaAtmoSurfaceBoundary(target, absorbed);
@@ -1770,6 +1782,18 @@ namespace Parsek
             TerminalState? carriedTerminal = original.TerminalStateValue;
             second.TerminalStateValue = original.TerminalStateValue;
             original.TerminalStateValue = null;
+
+            // The destroyed flag is part of the terminal verdict and travels with it: left on
+            // the first half it would read destroyed with no terminal, and the merge pass
+            // treats a destroyed recording as sealed (never a merge target).
+            if (original.VesselDestroyed)
+            {
+                second.VesselDestroyed = true;
+                original.VesselDestroyed = false;
+                ParsekLog.Verbose("Optimizer",
+                    $"Split: VesselDestroyed moved with the terminal onto the second half " +
+                    $"(original={original.RecordingId ?? "<no-id>"})");
+            }
 
             // A Re-Fly slot's open/closed bit is read from the slot's effective chain
             // TIP (UnfinishedFlightClassifier.IsSlotEffectiveTipOpen), and the terminal

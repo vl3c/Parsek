@@ -120,6 +120,16 @@ namespace Parsek
                 var absorbed = recordings[idxB];
 
                 string absorbedId = RecordingOptimizer.MergeInto(target, absorbed);
+                if (absorbedId == null)
+                {
+                    // A refused merge changes nothing: the absorbed recording, its ledger
+                    // tags and its files all stay. Stop this pass; the refusal is a
+                    // pair CanAutoMerge should not have offered.
+                    ParsekLog.Warn("RecordingStore",
+                        $"Optimization: merge of '{absorbed.RecordingId}' into '{target.RecordingId}' " +
+                        "refused - nothing removed; stopping the merge pass");
+                    break;
+                }
                 target.FilesDirty = true;
                 string chainId = target.ChainId;
                 RetagLedgerActionsAfterOptimizationMerge(target, absorbed);

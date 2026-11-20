@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **Tidying the timeline no longer deletes a recording it could not join.** The cleanup that joins
+  pieces of one flight skipped joining onto a destroyed vessel's recording but still deleted the
+  other piece and its files. It now leaves both alone, and a crashed flight that was cut in two
+  keeps its crash on the later piece. (OPTIMIZER-MERGE-INTO-DESTROYED-DELETES-RECORDING)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now
