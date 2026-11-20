@@ -102,7 +102,8 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 2 }
+# Measured 2 on `2026-11-20_2312` (the stack and the decoupled probe core).
+count = { min = 2, max = 2 }
 
 # REPORT-ONLY until a reading run.
 [expectations.rewind]

@@ -63,9 +63,11 @@ D14 = ["kerbin", "sandbox", "scene-ksc", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# AUTHORED, NEVER FLOWN: the fixture's 7 committed recordings; one more only if the
-# committed-tree restore resumed recording. Re-pin after the first flight.
-count = { min = 7, max = 8 }
+# Measured 9 on `2026-11-20_2300`: the fixture's 7 committed recordings become 9 at the
+# first load (the optimizer's two PersistedPhaseChange splits of the ascent recording, at
+# UT 212.2 and 853.7), and the committed-tree restore resumes the split tail in place
+# (no new recording).
+count = { min = 9, max = 9 }
 
 [expectations.logContracts]
 required = [

@@ -120,8 +120,9 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# RF-1's window reasons: pod and booster legs, touchdown debris, optimizer splits.
-count = { min = 2, max = 14 }
+# Measured 3 on `2026-11-20_2314` (RF-1's window reasons, pod and booster legs, touchdown
+# debris and optimizer splits, gave 2..14 before the first flight).
+count = { min = 3, max = 3 }
 
 # REPORT-ONLY until a reading run. The merge wrote a supersede row (RF-1 measured 1).
 [expectations.rewind]

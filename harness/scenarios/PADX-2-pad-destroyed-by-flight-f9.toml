@@ -131,8 +131,9 @@ required = [
   "MISSIONMARK label=padx2-f5 ut=[0-9]{2}\\.",
   # ---- crossing 1: the flag falls once, at the warp exit ----
   "MISSIONMARK label=padx2-f5 ut=(?:(?!MISSIONMARK label=padx2-crossed-1 )[\\s\\S])*?PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag' \\(ledger: destroyed at or before UT 1[1-6][0-9]\\.[0-9]\\)[\\s\\S]*?MISSIONMARK label=padx2-crossed-1 ut=",
-  # ---- the F9 is an in-flight quickload back before the crash ----
-  "MISSIONMARK label=padx2-crossed-1 ut=[\\s\\S]*?Load classified: [^\\r\\n]*refined=QuickloadFlight [\\s\\S]*?MISSIONMARK label=padx2-f9 ut=[0-9]{2}\\.",
+  # ---- the F9 is the player's quickload back before the crash: a save-file load, so it
+  # classifies Cold (design-load-restores-the-save.md 4.1; measured `2026-11-20_2305`) ----
+  "MISSIONMARK label=padx2-crossed-1 ut=(?:(?!MISSIONMARK label=padx2-f9 )[\\s\\S])*?Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b[\\s\\S]*?MISSIONMARK label=padx2-f9 ut=[0-9]{2}\\.",
   # ---- crossing 2: the flag stood after the F9 (Demolish acts on an intact building only)
   # and falls again ----
   "MISSIONMARK label=padx2-f9 ut=(?:(?!MISSIONMARK label=padx2-crossed-2 )[\\s\\S])*?PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag' \\(ledger: destroyed at or before UT 1[1-6][0-9]\\.[0-9]\\)[\\s\\S]*?MISSIONMARK label=padx2-crossed-2 ut=",

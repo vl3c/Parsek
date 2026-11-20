@@ -808,6 +808,66 @@
         "2026-10-11T15:19:29Z": 98.0
       }
     },
+    "FFC-1-time-jump-across-committed-ksc-rows": {
+      "last": 143.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 143.0,
+      "p95": 143.0,
+      "samples": {
+        "2026-11-20T22:58:40Z": 143.0
+      }
+    },
+    "FLY-1-ts-fly-committed-clone": {
+      "last": 66.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 66.0,
+      "p95": 66.0,
+      "samples": {
+        "2026-11-20T23:00:40Z": 66.0
+      }
+    },
+    "FLY-2-ksc-marker-fly-surface-defer": {
+      "last": 61.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 61.0,
+      "p95": 61.0,
+      "samples": {
+        "2026-11-20T23:39:42Z": 61.0
+      }
+    },
+    "FLY-3-ts-fly-standalone": {
+      "last": 79.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 79.0,
+      "p95": 79.0,
+      "samples": {
+        "2026-11-20T23:01:55Z": 79.0
+      }
+    },
+    "FLY-4-alarm-jump-from-ts": {
+      "last": 85.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 85.0,
+      "p95": 85.0,
+      "samples": {
+        "2026-11-20T23:02:51Z": 85.0
+      }
+    },
+    "FLY-5-alarm-jump-from-ksc": {
+      "last": 67.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 67.0,
+      "p95": 67.0,
+      "samples": {
+        "2026-11-20T23:03:01Z": 67.0
+      }
+    },
     "FORGE-b17-duna-pad": {
       "last": 51.0,
       "lastVsP50": 1.0,
@@ -893,6 +953,16 @@
       "samples": {
         "2026-08-28T17:35:27Z": 64.0,
         "2026-10-12T18:30:43Z": 51.0
+      }
+    },
+    "GPOS-1-kerbalx-ascent-ghost-position": {
+      "last": 269.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 269.0,
+      "p95": 269.0,
+      "samples": {
+        "2026-11-20T23:07:16Z": 269.0
       }
     },
     "GS-1-auto-chute-booster": {
@@ -2281,15 +2351,16 @@
       }
     },
     "KB-5-flight-eva-block-held-kerbal": {
-      "last": 44.0,
-      "lastVsP50": 0.815,
-      "n": 3,
+      "last": 60.0,
+      "lastVsP50": 1.111,
+      "n": 4,
       "p50": 54.0,
-      "p95": 57.0,
+      "p95": 60.0,
       "samples": {
         "2026-09-28T20:34:07Z": 54.0,
         "2026-09-29T15:09:59Z": 57.0,
-        "2026-10-12T06:54:24Z": 44.0
+        "2026-10-12T06:54:24Z": 44.0,
+        "2026-11-20T23:24:29Z": 60.0
       }
     },
     "L1-dismiss-kerbal-career": {
@@ -2694,6 +2765,26 @@
         "2026-10-12T07:36:59Z": 44.0
       }
     },
+    "PADX-1-pad-destroyed-by-flight-rewind": {
+      "last": 139.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 139.0,
+      "p95": 139.0,
+      "samples": {
+        "2026-11-20T23:05:19Z": 139.0
+      }
+    },
+    "PADX-2-pad-destroyed-by-flight-f9": {
+      "last": 146.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 146.0,
+      "p95": 146.0,
+      "samples": {
+        "2026-11-20T23:41:24Z": 146.0
+      }
+    },
     "PPB-1-untouched-career-backup": {
       "last": 49.0,
       "lastVsP50": 1.0,
@@ -2746,6 +2837,26 @@
       "samples": {
         "2026-10-03T13:34:52Z": 303.0,
         "2026-10-12T07:51:43Z": 294.0
+      }
+    },
+    "QL-15-f5-in-refly-merge-then-f9": {
+      "last": 97.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 97.0,
+      "p95": 97.0,
+      "samples": {
+        "2026-11-20T23:41:05Z": 97.0
+      }
+    },
+    "QL-16-f5-in-refly-discard-then-f9": {
+      "last": 82.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 82.0,
+      "p95": 82.0,
+      "samples": {
+        "2026-11-20T23:41:46Z": 82.0
       }
     },
     "QL-2-quickload-career-recovery-not-paid": {
@@ -3433,6 +3544,16 @@
         "2026-10-12T21:24:47Z": 56.0
       }
     },
+    "S0.16-switch-segment-across-f5-f9-scoped-discard": {
+      "last": 68.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 68.0,
+      "p95": 68.0,
+      "samples": {
+        "2026-11-20T23:42:18Z": 68.0
+      }
+    },
     "S0.5-live-record-discard": {
       "last": 43.0,
       "lastVsP50": 0.935,
@@ -3697,13 +3818,44 @@
       }
     },
     "ST-4-safe-write-crash-after-temp": {
-      "last": 43.0,
+      "last": 67.0,
+      "lastVsP50": 1.558,
+      "n": 2,
+      "p50": 43.0,
+      "p95": 67.0,
+      "samples": {
+        "2026-10-12T08:59:39Z": 43.0,
+        "2026-11-20T23:18:35Z": 67.0
+      }
+    },
+    "STR-3-revert-takes-back-strategy-share": {
+      "last": 183.0,
       "lastVsP50": 1.0,
       "n": 1,
-      "p50": 43.0,
-      "p95": 43.0,
+      "p50": 183.0,
+      "p95": 183.0,
       "samples": {
-        "2026-10-12T08:59:39Z": 43.0
+        "2026-11-20T22:59:03Z": 183.0
+      }
+    },
+    "SURV-1-explode-between-cores-both-live": {
+      "last": 81.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 81.0,
+      "p95": 81.0,
+      "samples": {
+        "2026-11-20T23:13:28Z": 81.0
+      }
+    },
+    "SURV-2-recorded-half-destroyed-survivor-recorded": {
+      "last": 86.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 86.0,
+      "p95": 86.0,
+      "samples": {
+        "2026-11-20T23:14:50Z": 86.0
       }
     },
     "V1-map-dwell-mun-orbit": {
@@ -4424,6 +4576,16 @@
         "2026-10-12T09:43:16Z": 50.0
       }
     },
+    "VN-14-refly-rename-merge": {
+      "last": 190.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 190.0,
+      "p95": 190.0,
+      "samples": {
+        "2026-11-20T23:17:18Z": 190.0
+      }
+    },
     "W1-watch-distance-cutoff": {
       "last": 147.0,
       "lastVsP50": 1.0,
@@ -4432,6 +4594,26 @@
       "p95": 147.0,
       "samples": {
         "2026-08-28T16:26:42Z": 147.0
+      }
+    },
+    "WTT-1-timeline-warp-across-committed-rows": {
+      "last": 151.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 151.0,
+      "p95": 151.0,
+      "samples": {
+        "2026-11-20T23:20:59Z": 151.0
+      }
+    },
+    "WTT-2-timeline-warp-to-career-start": {
+      "last": 144.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 144.0,
+      "p95": 144.0,
+      "samples": {
+        "2026-11-20T23:23:27Z": 144.0
       }
     },
     "ZF-1-zero-funds-career": {

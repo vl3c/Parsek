@@ -70,9 +70,9 @@ D14 = ["kerbin", "sandbox", "scene-ts", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# AUTHORED, NEVER FLOWN: the committed recording plus the continuation segment. Re-pin to
-# the measured value after the first flight.
-count = { min = 2, max = 3 }
+# The committed recording plus the continuation segment (measured 2 on
+# `2026-11-20_2259_FLY-1-ts-fly-committed-clone_run2`).
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 # Ordered as the mechanism runs: verb gate -> stock press -> patch arms -> the verb sees the

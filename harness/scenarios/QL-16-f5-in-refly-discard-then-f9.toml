@@ -30,10 +30,14 @@ id = "QL-16-f5-in-refly-discard-then-f9"
 #     TreeDiscardService's per-session discarded-tree set, lifetime `save`), and the
 #     quicksave's staging nodes bring the marker back (QL-5c's measured F9 lines);
 #   - the rewind point is never reaped by a discard (QL-5c forbids every reap / purge line);
-#   - on this host the booster sits PRELAUNCH, so the attempt records no flown trajectory and
-#     the merge after the F9 completes with 0 supersede rows
-#     (`AppendRelations outcome=refused-unflown-provisional`, S4.1's pinned outcome). The
-#     row-stacking count is QL-15's (a host whose merge writes rows).
+#   - MEASURED on the first flight (`2026-11-20_2307`; the authoring prediction of an
+#     unflown merge with 0 rows was wrong): after the F9 the rebound Re-Fly recorder records
+#     the booster (terminal Landed), so the merge adds ONE supersede row (`Added 1 supersede
+#     relations for subtree rooted at b9-booster-a`), auto-seals slot 1 (`Auto-sealed re-fly
+#     slot=1 ... terminal=Landed reason=classifierClosed:stableTerminalFocusSlot`), and with
+#     both slots closed the next load reaps the point (`Reaped rp=rp_b9_root bp=bp_b9_root
+#     slots=2`), so the post-merge readback is `ql16-merged-0`. That is the ordinary
+#     all-slots-closed reap; the discard and the F9 must still never reap the point.
 #
 # HOST: QL-5c's (`gloops-airshow` + the injected `rewind-b9` corpus): rp_b9_root (UT 81.16),
 # slot 1 the crashed booster `b9-booster-a` (CommittedProvisional, open).
@@ -56,7 +60,7 @@ id = "QL-16-f5-in-refly-discard-then-f9"
 #     `missingQuicksaveRps=0`, the recorder live with `reFlyMarker=true`, and the readback
 #     `ql16-after-f9-1-rp_b9_root-true`;
 #   - the merge completes (`answermergedialog choice=merge result=committed`) with at most one
-#     supersede row, and the point is still listed after it.
+#     supersede row, seals slot 1, and the point reaps (both slots closed).
 #
 # PRE-REGISTERED RED READINGS:
 #   - `Load classified: early=InSession` after the F9: the F9 was not a save-file load;
@@ -128,15 +132,19 @@ D14 = ["scene-flight", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 1 }
+# Measured 4 on both flights (`2026-11-20_2307`, `2026-11-20_2340`): the B9 corpus's three
+# plus the merged attempt.
+count = { min = 4, max = 4 }
 
-# REPORT-ONLY until a reading run. Predicted: the unflown merge writes no row and no
-# tombstone (S4.1), and rp_b9_root stays listed (slot 1 still open).
+# REPORT-ONLY. Read on `2026-11-20_2307`: supersedeRows=1 tombstones=0 rewindPoints=0 (the
+# merge sealed the last open slot and the point reaped), rewindPointFiles=1
+# unlistedRewindPointFiles=1 (the reaped point's quicksave is released for a later
+# collection, design-load-restores-the-save.md 4.5).
 [expectations.rewind]
 gating        = false
 supersedeRows = { max = 1 }
 tombstones    = { max = 0 }
-rewindPoints  = { min = 1, max = 1 }
+rewindPoints  = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
@@ -171,18 +179,22 @@ required = [
   # GROUP 4 - THE RESUMED ATTEMPT MERGES (S4.1's pre-transition route).
   "MISSIONMARK label=ql16-after-f9-1-rp_b9_root-true [\\s\\S]*Pre-transition tree merge dialog: .* labels=ReFlyAttempt",
   "MISSIONMARK label=ql16-after-f9-1-rp_b9_root-true [\\s\\S]*answermergedialog choice=merge result=committed",
-  "MISSIONMARK label=ql16-merged-1 ut=",
+  "MISSIONMARK label=ql16-after-f9-1-rp_b9_root-true [\\s\\S]*Auto-sealed re-fly slot=1 rec=\\S+ rp=rp_b9_root mergeState=Immutable terminal=Landed ",
+  "answermergedialog choice=merge result=committed[\\s\\S]*Reaped rp=rp_b9_root bp=bp_b9_root slots=2",
+  "MISSIONMARK label=ql16-merged-0 ut=",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
-  "loadgame player-load: firing [\\s\\S]*Re-Fly subsystem state loaded [^\\r\\n]*marker=False",
+  # Bounded to the F9's own load: the merge clears the marker afterwards by design.
+  "loadgame player-load: firing (?:(?!MISSIONMARK label=ql16-after-f9-)[\\s\\S])*Re-Fly subsystem state loaded [^\\r\\n]*marker=False",
   "DiscardReFly load intent dropped as stale",
   "landedAtRewindPoint=false",
   "Rewind point file collected: rp=rp_b9_root",
   "\\[LoadSweep\\] Marker valid=[^\\r\\n]*\\bmissingQuicksaveRps=[1-9]",
   "Sidecar version unresolved",
-  "Reaped rp=rp_b9_root",
+  # The discard and the F9 never reap the point; the post-merge reap is required above.
+  "^(?:(?!answermergedialog choice=merge result=committed)[\\s\\S])*Reaped rp=rp_b9_root",
   "Purged rp=rp_b9_root",
   "Added [2-9][0-9]* supersede relations",
   "MISSIONMARK label=ql16-after-f9-(?!1-rp_b9_root-true )",

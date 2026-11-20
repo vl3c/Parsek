@@ -121,9 +121,9 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# GS-4's measured 8 (parent, six boosters, the probe core), widened by one each way until
-# the reading run: this lane commits in flight where GS-9 commits at scene exit.
-count = { min = 7, max = 9 }
+# GS-4's 8 (parent, six boosters, the probe core), measured 8 here too on
+# `2026-11-20_2302` (this lane commits in flight where GS-9 commits at scene exit).
+count = { min = 8, max = 8 }
 
 [expectations.logContracts]
 required = [
@@ -136,7 +136,7 @@ required = [
   "MISSIONMARK label=gpos1-sampling ut=[\\s\\S]*?FlightGhostPosition summary: kind=parent-anchored scene=FLIGHT frames=[0-9]+ ghosts=[1-9][0-9]* compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 [^\\r\\n]*bodies=\\[Kerbin\\]",
   # Interim pin (INTERIM_PIN_IDS): total literal, split regexed until the reading run
   # (pre-registered P1: passed=2 skipped=1).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=FlightGhostPosition scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=FlightGhostPosition scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

@@ -146,8 +146,9 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The host's tree plus the merged attempt and its TIP; no ceiling until a reading run.
-count = { min = 2 }
+# The host's tree plus the merged attempt and its TIP: measured 11 on both flights
+# (`2026-11-20_2307`, `2026-11-20_2339`).
+count = { min = 11, max = 11 }
 
 # REPORT-ONLY until a reading run. Predicted from RF-13's measured merge: one supersede row,
 # two tombstones (TIP's two Dead rows), the rewind point still listed (slot 0 open).
@@ -201,9 +202,11 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   # The F9 took the in-session route (design 8) instead of the save-file load.
   "loadgame player-load: firing (?:(?!Load classified: )[\\s\\S])*Load classified: early=InSession",
-  # Memory's rows survived the F9.
-  "loadgame player-load: firing [\\s\\S]*Re-Fly subsystem state loaded [^\\r\\n]*supersedes=[1-9]",
-  "loadgame player-load: firing [\\s\\S]*Re-Fly subsystem state loaded [^\\r\\n]*tombstones=[1-9]",
+  # Memory's rows survived the F9. Bounded to the F9's own load (up to the after-F9 mark):
+  # the second merge writes rows again and its scene-exit load reads them, by design
+  # (measured `2026-11-20_2307`: supersedes=1 tombstones=2 after `ql15-merged-2`).
+  "loadgame player-load: firing (?:(?!MISSIONMARK label=ql15-after-f9-)[\\s\\S])*Re-Fly subsystem state loaded [^\\r\\n]*supersedes=[1-9]",
+  "loadgame player-load: firing (?:(?!MISSIONMARK label=ql15-after-f9-)[\\s\\S])*Re-Fly subsystem state loaded [^\\r\\n]*tombstones=[1-9]",
   # The point's file collected or missing while quicksave.sfs names it.
   "Rewind point file collected: rp=",
   "\\[LoadSweep\\] Marker valid=[^\\r\\n]*\\bmissingQuicksaveRps=[1-9]",
