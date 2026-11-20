@@ -321,6 +321,7 @@ namespace Parsek
             private readonly Func<Vessel, ConfigNode> tryBackupSnapshot;
             private readonly Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot;
             private readonly Func<Recording, Vessel, Recording> findLaterSpawnOwner;
+            private readonly Func<Recording, Vessel, bool> isRecordedIdentityLost;
 
             internal FinalizationLiveVesselAccess(
                 Func<Vessel, bool> isFound = null,
@@ -329,8 +330,11 @@ namespace Parsek
                 Action<Recording, Vessel> captureTerminalPosition = null,
                 Func<Vessel, ConfigNode> tryBackupSnapshot = null,
                 Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot = null,
-                Func<Recording, Vessel, Recording> findLaterSpawnOwner = null)
+                Func<Recording, Vessel, Recording> findLaterSpawnOwner = null,
+                Func<Recording, Vessel, bool> isRecordedIdentityLost = null)
             {
+                this.isRecordedIdentityLost = isRecordedIdentityLost
+                    ?? ParsekFlight.IsRecordedIdentityLostAtFinalization;
                 this.findLaterSpawnOwner = findLaterSpawnOwner
                     ?? ParsekFlight.FindLaterCommittedSpawnOwnerOfLiveVessel;
                 this.isFound = isFound ?? (vessel => vessel != null);
@@ -366,6 +370,23 @@ namespace Parsek
 
             internal Recording FindLaterSpawnOwner(Recording rec, Vessel vessel) =>
                 findLaterSpawnOwner(rec, vessel);
+
+            internal bool IsRecordedIdentityLost(Recording rec, Vessel vessel) =>
+                isRecordedIdentityLost(rec, vessel);
+        }
+
+        /// <summary>
+        /// The default identity-loss read for finalization: the same
+        /// <see cref="IdentityLossClassifier"/> verdict the background go-on-rails seam applies,
+        /// short-circuited before any live read when the recording carries no controller identity
+        /// or is debris (the classifier's own opt-outs).
+        /// </summary>
+        internal static bool IsRecordedIdentityLostAtFinalization(Recording rec, Vessel vessel)
+        {
+            if (rec == null || ReferenceEquals(vessel, null) || rec.IsDebris
+                || rec.Controllers == null || rec.Controllers.Count == 0)
+                return false;
+            return IdentityLossClassifier.IsRecordedIdentityLost(rec, vessel);
         }
 
         private static Recording FindLaterCommittedSpawnOwnerOfLiveVessel(Recording rec, Vessel vessel)
@@ -741,6 +762,24 @@ namespace Parsek
         {
             if (isSceneExit)
                 rec.SceneExitSituation = (int)finalizeVessel.situation;
+
+            // A breakup remnant that kept none of the recorded controllers is a wreck, whatever
+            // situation KSP gives it (LANDED is terrain proximity). The background go-on-rails
+            // seam has always classified it Destroyed; this is the same verdict for a remnant
+            // still loaded at the commit or flown as the active vessel, so the ending no longer
+            // depends on how far the wreck was from the focus.
+            if (vesselAccess.IsRecordedIdentityLost(rec, finalizeVessel))
+            {
+                double terminalUT = rec.EndUT;
+                ParsekLog.Info("Flight",
+                    $"FinalizeTreeRecordings: recorded controllable identity lost for " +
+                    $"'{rec.RecordingId ?? "(null)"}' pid={rec.VesselPersistentId} " +
+                    $"recordedControllers={rec.Controllers?.Count ?? 0} sceneExit={isSceneExit} " +
+                    $"- classifying as Destroyed at UT={terminalUT.ToString("F2", CultureInfo.InvariantCulture)}");
+                rec.MarkDestroyedAtTerminal(terminalUT, "FinalizeTreeRecordings.identityLost");
+                return;
+            }
+
             rec.StampTerminalState(
                 vesselAccess.DetermineTerminalState(finalizeVessel),
                 "FinalizeTreeRecordings.liveVessel");

@@ -627,6 +627,27 @@ namespace Parsek
                     if (rec.Points != null && rec.Points.Count > 0)
                     {
                         var lastPoint = rec.Points[rec.Points.Count - 1];
+                        // Inside a Relative section the flat point holds anchor-local metres in
+                        // its lat / lon / alt fields; read the section's body-fixed shadow
+                        // instead, or refuse (placing from metres puts the vessel deep inside
+                        // the planet).
+                        FlatPointFrame frame = FlatPointFrameDispatch.Classify(
+                            rec.TrackSections, lastPoint, out TrajectoryPoint bodyFixedPoint);
+                        if (frame == FlatPointFrame.RelativeNoShadow)
+                        {
+                            ParsekLog.Verbose("EndpointDecision",
+                                $"TryGetCoordinatesForPhase: refused last point of '{rec.RecordingId ?? "(null)"}' " +
+                                $"ut={lastPoint.ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                                "(Relative-frame offset with no body-fixed shadow)");
+                            return false;
+                        }
+                        if (frame == FlatPointFrame.RelativeWithShadow)
+                        {
+                            ParsekLog.Verbose("EndpointDecision",
+                                $"TryGetCoordinatesForPhase: last point of '{rec.RecordingId ?? "(null)"}' is a " +
+                                "Relative-frame offset; using its body-fixed shadow");
+                            lastPoint = bodyFixedPoint;
+                        }
                         bodyName = !string.IsNullOrEmpty(lastPoint.bodyName)
                             ? lastPoint.bodyName
                             : resolvedBodyName;
