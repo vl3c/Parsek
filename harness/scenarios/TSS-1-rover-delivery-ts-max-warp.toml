@@ -12,7 +12,7 @@ tier = "operator"
 # faces) are left open.
 #
 # HOST: `miner-rover-landed` (MINE-2's): the probe rover "Mining Rover RC" (pid 110406740,
-# the save's active vessel) LANDED on open ground about 8.7 km north of the runway's west end
+# the save's active vessel) LANDED on open ground about 0.8 km north of the runway's west end
 # (0.0296163, -74.72474), plus "Observer Probe" in orbit. No committed trees. The same rover
 # drives in RVC-1 (rover-crash-watched is a derived copy of this save). `LoadGame
 # focusPid=110406740` flies the rover.
@@ -21,7 +21,7 @@ tier = "operator"
 #   (a) the rover settles after the load (DriveVessel settle mode, RVR-21's), recording
 #       starts, the rover drives at full throttle for 30 s (RVC-1 measured 365 m in 30 s at
 #       20 m/s on KSC ground) and brakes to a stop (settle, ~8 s measured). It ends 300+ m
-#       from where it started, kilometres from both KSC exclusion circles whichever way
+#       from where it started, hundreds of metres clear of both KSC exclusion circles whichever way
 #       it faces.
 #   (b) commit in flight; the commit's optimizer trims the stationary tail to 10 s after
 #       the last movement (RecordingOptimizer.TailTrim.cs), so EndUT is ~start + 50.
