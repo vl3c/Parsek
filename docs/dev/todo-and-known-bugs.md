@@ -20,6 +20,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ROUTE-DELETED-MID-CYCLE-LOSES-CARGO: deleting a route between a window that took cargo and the window that delivers it loses that cargo [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit through the production tick. PINNED, owner question; low (cargo only, on a player action behind a "cannot be undone" confirm)]
+
+No design document says what a route removal does to a cycle in flight: the supply-routes
+design covers a deleted SOURCE RECORDING during transit (section 1.3, "current cycle aborts
+before delivery"), not a deleted route. Today (`RouteRemovedMidCycleTests`, a two-window
+shuttle driven through `RouteOrchestrator.Tick`): the cargo the pickup window took from its
+source stays taken, the delivery window never fires, nothing refunds it, the
+`RouteCargoPickedUp` row stays in the route event log, and the cycle's escrow is dropped
+(`DropRouteEscrow`). A single-stop loop route has no such gap (its debit and delivery fire in
+one `EmitLoopCycle`). The removal now logs it: `RemoveRoute: route <id> removed mid-cycle:
+cycle=cycle-N originDebits=a pickups=b deliveries=c; cargo already taken is not returned ...`
+(`RouteStore.DescribeAbandonedCycle`), and the seam gained `RouteCommand action=delete`
+(payload `midCycle=`), so a lane can drive it. The confirm dialog says only "This cannot be
+undone." Owner question: keep the loss (and maybe name it in that existing confirm text), or
+return the taken cargo to its source on delete. No lane flies it yet.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the

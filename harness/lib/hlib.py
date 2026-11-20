@@ -588,7 +588,8 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #   RouteCommand is the Logistics window's Create Route button (through the shared
     #     RouteCreationService funnel) plus the three row operations, dispatched by an
     #     `action=` arg the way KscAction dispatches its sub-actions:
-    #     create / send-once / pause / activate / link / unlink / set-cadence / rescan
+    #     create / send-once / pause / activate / link / unlink / set-cadence / rescan /
+    #     delete
     #     (ROUTECOMMAND_ACTIONS is the mirrored tuple, pinned against the C# KnownActions).
     # Both SINGLE-PHASE (synchronous state mutation, read-back is a final answer), so
     # neither joins DEFERRED_SEAM_VERBS and both ride the 60 s default budget - which
@@ -3426,12 +3427,13 @@ UIACTION_AWAIT_VALUES: Tuple[str, ...] = ("true", "false")
 # only when Unity's focused control name ALREADY matches, so writing their two fields
 # would draw an unfocused text box - a picture no click can produce. Filed in
 # docs/dev/todo-and-known-bugs.md rather than faked.
-# `RouteCommand action=`: the eight the C# KnownActions carries, in its order. NOT a
+# `RouteCommand action=`: the nine the C# KnownActions carries, in its order. NOT a
 # VERB_SCOPED_CLOSED_ARGS row - that table admits one owner verb per arg key and `action`
 # is also KscAction's - so nothing else would catch a spec naming an action the seam does
 # not know. Mirrored here so a cell can compare the two mechanically.
 ROUTECOMMAND_ACTIONS: Tuple[str, ...] = (
-    "create", "send-once", "pause", "activate", "link", "unlink", "set-cadence", "rescan")
+    "create", "send-once", "pause", "activate", "link", "unlink", "set-cadence", "rescan",
+    "delete")
 
 UIACTION_EDIT_FIELD_KEY = "field"
 UIACTION_EDIT_FIELDS: Dict[str, Tuple[str, ...]] = {
