@@ -1,0 +1,85 @@
+ship = SRV1 Watcher
+version = 1.12.5
+description = SRV1 Watcher. An OKTO2 on an FL-T100: the live vessel the SRV-1 lane watches the hinge rig's replay from after the rewind. Built by construction by harness/tools/build_srv_hinge_pad.py.
+type = VAB
+size = 1.25,0.747124,1.25
+steamPublishedFileId = 0
+persistentId = 2200250021
+rot = 0,0,0,1
+missionFlag = Squad/Flags/default
+vesselType = Probe
+PART
+{
+	part = probeCoreOcto2.v2_4260100011
+	partName = Part
+	persistentId = 1700250011
+	pos = 0,15,0
+	attPos = 0,0,0
+	attPos0 = 0,15,0
+	rot = 0,0,0,1
+	attRot = 0,0,0,1
+	attRot0 = 0,0,0,1
+	mir = 1,1,1
+	symMethod = Radial
+	autostrutMode = Off
+	rigidAttachment = False
+	istg = -1
+	resPri = 0
+	dstg = 0
+	sidx = -1
+	sqor = -1
+	sepI = -1
+	attm = 0
+	sameVesselCollision = False
+	modCost = 0
+	modMass = 0
+	modSize = 0,0,0
+	link = fuelTankSmallFlat_4260100012
+	attN = bottom,fuelTankSmallFlat_4260100012_0|-0.0610621|0
+	EVENTS
+	{
+	}
+	ACTIONS
+	{
+	}
+	PARTDATA
+	{
+	}
+}
+PART
+{
+	part = fuelTankSmallFlat_4260100012
+	partName = Part
+	persistentId = 1700250012
+	pos = 0,14.6264379,0
+	attPos = 0,0,0
+	attPos0 = 0,-0.3735621,0
+	rot = 0,0,0,1
+	attRot = 0,0,0,1
+	attRot0 = 0,0,0,1
+	mir = 1,1,1
+	symMethod = Radial
+	autostrutMode = Off
+	rigidAttachment = False
+	istg = -1
+	resPri = 0
+	dstg = 0
+	sidx = -1
+	sqor = -1
+	sepI = -1
+	attm = 0
+	sameVesselCollision = False
+	modCost = 0
+	modMass = 0
+	modSize = 0,0,0
+	attN = top,probeCoreOcto2.v2_4260100011_0|0.3125|0
+	EVENTS
+	{
+	}
+	ACTIONS
+	{
+	}
+	PARTDATA
+	{
+	}
+}

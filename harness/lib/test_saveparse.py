@@ -916,6 +916,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "hitchhiker-pad": False,
         # `fresh-sandbox` plus the SEAT1 Seat Pod craft in the VAB (SEAT-1).
         "seat-pad": False,
+        # `fresh-sandbox` plus the SRV1 Hinge Rig and SRV1 Watcher craft in the VAB (SRV-1,
+        # harness/tools/build_srv_hinge_pad.py).
+        "srv-hinge-pad": False,
         "fresh-science": False,
         # The scripted campaign's genuine stock new games (CS-0 harvests): stock's
         # CreateNewGame writes every AddToAllGames module, ParsekScenario among them.

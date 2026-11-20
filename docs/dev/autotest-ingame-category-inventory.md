@@ -198,7 +198,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | H53 (FLIGHT slice, flown 2026-08-28, executes **2 of 7** - two residual skips are DRIVER-state, see below) + LT-2-long-tail-spacecenter (MULTI, SPACECENTER slice appended 2026-09-10; reading run `2026-09-10_1734` executes **3 of 7**, all three attribute-eligible cells PASSED, including `ParsekKscRelativePlaybackUsesRecordedAnchor`'s first execution anywhere; pinned whole `total=7 passed=3 failed=0 skipped=4`). Union 4 of 7 distinct cells (`PreTransitionForVesselSwitch_LiveTreeShape_Bug266` is scene-agnostic and executes on both lanes, so the two slices make 5 cell-scene executions over 4 cells) | B |
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
-| `ServoFollowers` | 1 | 1 | 0 | 0 | 0 | 1 | NOT DRIVEN (GHOST-SERVO-CHILDREN-STATIC, 2026-11-20, branch `test-gaps-servoghost`). One FLIGHT cell: a three-part snapshot over a stock Breaking Ground hinge, rotation servo or piston (part on the servo's moving node, part surface-attached on its base side) is built through the real ghost pipeline, a recorded robotic event moves the servo, and the moving-side part must follow while the base-side part holds; a return to the spawn value must put the follower back at its snapshot pose. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips without Breaking Ground. NEVER RUN | C |
+| `ServoFollowers` | 1 | 1 | 0 | 0 | 0 | 1 | SRV-1-hinge-followers-ghost (FLIGHT, operator tier, stock-tree), authored 2026-11-20 (branch `test-gaps-b3-servo-lane`), NEVER FLOWN: `total=1` literal with the split regexed, run after the lane's recorded hinge swing has replayed on the ghost in the same FLIGHT scene, and the cell's own pass line required. Bucket **A** on the interim standing. Was NOT DRIVEN (GHOST-SERVO-CHILDREN-STATIC, 2026-11-20, branch `test-gaps-servoghost`). One FLIGHT cell: a three-part snapshot over a stock Breaking Ground hinge, rotation servo or piston (part on the servo's moving node, part surface-attached on its base side) is built through the real ghost pipeline, a recorded robotic event moves the servo, and the moving-side part must follow while the base-side part holds; a return to the spawn value must put the follower back at its snapshot pose. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips without Breaking Ground. NEVER RUN | A |
 | `Settings` | 5 | 4 | 3 | 4 | 0 | 2 | H46 (flown 2026-08-28, executes 4 of 5; the 5th is TRACKSTATION-scoped) | B |
 | `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
 | `SnapshotSidecars` | 2 | 2 | 2 | 2 | 0 | 2 | ST-3-snapshot-sidecars-bdock (single-category, authored 2026-09-26 by coverage wave 5 on `bdock-recorded`, the one committed Storage-shaped host with a committed AliasVessel recording: every snapshot sidecar probed as DeflateV1 and decoded, a live vessel snapshot round-tripped through the product writer and reader, and an AliasVessel copy run through the product save (no `_ghost.craft`) and load (ghost restored from the vessel). LIVE-PROVEN: reading `2026-09-25_2158` and armed `2026-09-25_2203`, both PASS attempt 1, executes 2 of 2 - the whole category at FLIGHT with zero skips, `total=2 passed=2 failed=0 skipped=0` pinned whole. Its own category so `Storage`'s whole-pinned tally on ST-1 / ST-2 does not move) | A |
@@ -270,6 +270,8 @@ ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW): A stays 112 categories, 409 -> 411 declarat
 On 2026-11-20 the new FLIGHT category `ServoFollowers` 1 (todo GHOST-SERVO-CHILDREN-STATIC) opened
 with no lane: C 1 -> 2 categories, 4 -> 5 declarations, so
 **145 categories / 705 declarations**.
+The same day it was wired into the new operator lane `SRV-1-hinge-followers-ghost` on the
+interim standing: A 112 -> 113 categories, 411 -> 412 declarations; C 2 -> 1, 5 -> 4.
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
 the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it; both flew green the
 same day and it stays **B** (each lane is a scene slice, 4 of 9).
@@ -824,7 +826,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (111 categories, 406 declarations)
+### Bucket A - wired now (113 categories, 412 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.
@@ -1814,9 +1816,9 @@ time verbatim and was taken WHOLE, `GUI-1-census-ksc` left
 `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, and the row moved to bucket **A** - which
 empties this sub-reason.
 
-### Bucket C - not batch-runnable (2 categories, 5 declarations)
+### Bucket C - not batch-runnable (1 category, 4 declarations)
 
-The rows here are not batch-UNRUNNABLE; they are the categories with no lane yet: `ServoFollowers` (1, the ghost servo follower cell, 2026-11-20; it needs Breaking Ground and a FLIGHT host), `GuiMock` (4, P1 of the GUI state gallery; the test gap audit B11 appended it to AH-1 on 2026-11-16 and took it out the same day, because the Space Center draws no Parsek window unless `ParsekKSC.showUI` is raised and its cells would fail there), and, until the moon lanes, `MoonArrivalHold` (1, the lone-moon arrival hold, 2026-11-07), whose table row the moon arrival lanes had already moved to **A**. `GhostCommNet` sat here from its opening on 2026-09-26 until CN-1 / CN-1T drove it the same day (now B7). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
+The rows here are not batch-UNRUNNABLE; they are the categories with no lane yet: `GuiMock` (4, P1 of the GUI state gallery; the test gap audit B11 appended it to AH-1 on 2026-11-16 and took it out the same day, because the Space Center draws no Parsek window unless `ParsekKSC.showUI` is raised and its cells would fail there), and, until the moon lanes, `MoonArrivalHold` (1, the lone-moon arrival hold, 2026-11-07), whose table row the moon arrival lanes had already moved to **A**, and `ServoFollowers` (1, 2026-11-20) until SRV-1 wired it the same day. `GhostCommNet` sat here from its opening on 2026-09-26 until CN-1 / CN-1T drove it the same day (now B7). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
 
 The sub-reasons below were EMPTY since R12 closed C2 on 2026-07-30 - the header said
 "1 category, 10 declarations" until 2026-09-06 because it was never re-derived after

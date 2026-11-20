@@ -626,6 +626,16 @@ the updates below record how each verb arrived.
 > parts (as for `inspect`); an unknown part refuses `partaction-part-not-found` and no active vessel
 > `partaction-no-active-vessel`, both before anything is destroyed; `event=explode`, `state=` empty.
 
+> Update (PartAction servomax / servomin, 2026-11-20): no new verb. `PartAction` gains
+> `button=servomax` / `button=servomin` (REQUIRE `part=`): a Breaking Ground hinge's or rotation
+> servo's "Maximum Angle" / "Minimum Angle", the `MaximumAngleAction` / `MinimumAngleAction`
+> `KSPAction` of `ModuleRoboticServoHinge` / `ModuleRoboticRotationServo` (KSP 1.12.5 decompiled),
+> invoked as an action group fires it (`KSPActionParam(None, Activate)`); the PAW has no such
+> button (its target-angle slider is a field). The servo then drives itself to the soft limit over
+> later frames, so `state=` reads the commanded `servo:target=<F2>`. Candidates come from those two
+> modules only; a named part carrying neither refuses `partaction-servo-not-found`. It moves a servo
+> during a recording so the ghost's servo followers can be read on the replay (SRV-1).
+
 > Update (CrewTransfer, 2026-10-17): one ADDITIVE verb, taking the table to **53 implemented / 4 reserved**,
 > for the crew-across-vessels coverage (crew moved between two pods of a docked pair):
 > `CrewTransfer kerbal= part=` runs stock's own crew transfer inside the active vessel. Full contract
@@ -4751,7 +4761,7 @@ way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
 stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode|chute|
-transfer> [part=<part name>]
+transfer|servomax|servomin> [part=<part name>]
 [converter=<ConverterName>] [all=true] [pid=<persistentId>] [partPid=<part persistentId>]
 [resource=<R>] [expectSnapshot=true|false rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,
 case-sensitive (`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime
@@ -4786,6 +4796,16 @@ one is `partaction-part-ambiguous`, so `partPid=` picks the destination. The tra
 before anything changes, and a plan that moves nothing (the destination full, or no other part
 holding any) is `partaction-transfer-nothing-moved`, gate-class. The applied line adds
 `resource= moved= sources= destBefore= destAfter= destMax=` (F4), and so does the payload.
+
+**Servo (2026-11-20, lane SRV-1).** `button=servomax|servomin part=<name>` invokes the named
+part's `ModuleRoboticServoHinge` / `ModuleRoboticRotationServo` `MaximumAngleAction` /
+`MinimumAngleAction` (a `KSPAction`, not a `KSPEvent`: `module.Actions[name].Invoke(new
+KSPActionParam(KSPActionGroup.None, KSPActionType.Activate))`, what a bound action group does),
+setting `targetAngle` to the upper / lower soft limit; candidates are those modules whose action
+is `active`, `all=true` presses every one, and named parts carrying neither module refuse
+`partaction-servo-not-found` (driver-arg). The servo moves over later frames at its
+`traverseVelocity`; `state=` reads `servo:target=<F2>`, the commanded angle. A locked servo
+ignores the action and stock posts its own message.
 
 **Behavior.** Resolves a LOADED, non-ghost vessel (`-no-active-vessel`, `-vessel-not-found`,
 `-target-is-ghost`, `-vessel-unloaded`), then collects the candidate buttons: every module on the

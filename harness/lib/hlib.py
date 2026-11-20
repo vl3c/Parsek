@@ -786,7 +786,7 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # (design-vessel-and-mission-names.md 15.3).
     #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
     #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    #     activate|explode|chute|runtest|transfer [part=<part name>]
+    #     activate|explode|chute|runtest|transfer|servomax|servomin [part=<part name>]
     #     [converter=<ConverterName>] [all=true] [pid=<pid>] [partPid=<part persistentId>]
     #     [resource=<R>] (transfer only: moves R from every other part of the vessel into
     #     the one named part, the vessel total unchanged; OK adds `resource= moved=
@@ -4077,7 +4077,8 @@ PARTACTION_BUTTONS_ACCEPTING_SNAPSHOT: Tuple[str, ...] = ("inspect",)
 PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
     "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
     "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-    "radiatoroff", "activate", "explode", "chute", "runtest", "transfer",
+    "radiatoroff", "activate", "explode", "chute", "runtest", "transfer", "servomax",
+    "servomin",
 )
 PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
     b for b in PARTACTION_BUTTON_VALUES if b != "undock")
@@ -4105,7 +4106,7 @@ PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-lab-page-missing", "partaction-lab-value-zero", "partaction-lab-unavailable",
     "partaction-radiator-not-found", "partaction-engine-not-found",
     "partaction-parachute-not-found", "partaction-resource-not-found",
-    "partaction-transfer-nothing-moved",
+    "partaction-transfer-nothing-moved", "partaction-servo-not-found",
 )
 
 
@@ -12726,6 +12727,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # that moves nothing (destination full, no other part holding it) is a live state.
     "partaction-resource-not-found": "driver-arg",
     "partaction-transfer-nothing-moved": "driver-gate",
+    # The servo buttons on a part carrying no hinge / rotation servo: the same spec typo.
+    "partaction-servo-not-found": "driver-arg",
     # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-target-arg-invalid": "driver-arg",
