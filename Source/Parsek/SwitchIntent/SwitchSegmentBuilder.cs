@@ -623,7 +623,7 @@ namespace Parsek
         /// Owner ruling Q13 (2026-11-18): switching to a falling debris piece changes nothing,
         /// so a continuation segment of a debris recording whose time limit still runs at
         /// <paramref name="switchUT"/> stays debris: it keeps <c>IsDebris</c> and
-        /// <c>ParentAnchorRecordingId</c>, and its time limit (read through the
+        /// <c>ParentAnchorRecordingId</c> and its <c>Generation</c>, and its time limit (read through the
         /// <see cref="BranchPointType.VesselSwitchContinuation"/> point by
         /// <see cref="BackgroundRecorder.TryResolveDebrisExpiryUT"/>) is still 60 s from the separation, which the active
         /// recorder honours. A debris parent past its lifetime (a piece of an older flight)
@@ -652,6 +652,9 @@ namespace Parsek
 
             newRec.IsDebris = true;
             newRec.ParentAnchorRecordingId = parentRec.ParentAnchorRecordingId;
+            // Same piece, same generation: a breakup inside its limit stays capped like the
+            // background debris it continues (BackgroundRecorder.ShouldSkipForCascadeCap).
+            newRec.Generation = parentRec.Generation;
             ParsekLog.Info("SwitchSegment",
                 string.Format(CultureInfo.InvariantCulture,
                     "continuation keeps debris identity: parentRecId={0} segmentRecId={1} " +

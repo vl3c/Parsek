@@ -37,8 +37,9 @@ deferred while a split, dock merge, restore or hand-off is in progress) hands th
 background recorder the way a vessel switch does and ends it there
 (`BackgroundRecorder.EndDebrisRecordingForLifetime`, a background time-limit end); the vessel stays
 focused, unrecorded. `OnVesselBackgrounded` re-arms the same limit for a debris piece with none
-(`Debris lifetime re-armed from the tree`). `SwitchSegmentBuilder.InheritDebrisIdentityFromParent`
-keeps `IsDebris` and `ParentAnchorRecordingId` on a continuation of a debris piece whose limit still
+(`Debris lifetime re-armed from the tree`, Info for a hand-back, Verbose for a recording created this
+frame; a background split child sets its own deadline before the hand-off). `SwitchSegmentBuilder.InheritDebrisIdentityFromParent`
+keeps `IsDebris`, `ParentAnchorRecordingId` and `Generation` on a continuation of a debris piece whose limit still
 runs (a piece past its limit, from an older flight, continues as a plain segment, as before).
 `CheckDebrisTTL` returns the pids it ended and the flight host disarms a post-switch watch armed on
 one (`reason=debris-recording-ended`). Promotion already kept `IsDebris` and

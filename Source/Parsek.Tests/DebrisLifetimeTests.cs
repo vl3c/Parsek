@@ -150,6 +150,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 100.0,
                 IsDebris = debris,
                 ParentAnchorRecordingId = "rec_root",
+                Generation = 1,
             };
             return tree;
         }
@@ -284,6 +285,7 @@ namespace Parsek.Tests
             var bg = new BackgroundRecorder(tree);
             bg.InjectDebrisTTLForTesting(DebrisPid, 160.0);
 
+            tree.Recordings["rec_debris"].Points.Add(new TrajectoryPoint { ut = 110.0, bodyName = "Kerbin" });
             bg.OnVesselRemovedFromBackground(DebrisPid);
             Assert.True(double.IsNaN(bg.GetDebrisTTLExpiryForTesting(DebrisPid)));
 
@@ -291,9 +293,32 @@ namespace Parsek.Tests
             bg.OnVesselBackgrounded(DebrisPid);
 
             Assert.Equal(160.0, bg.GetDebrisTTLExpiryForTesting(DebrisPid));
-            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+            Assert.Contains(logLines, l => l.Contains("[INFO][BgRecorder]")
                 && l.Contains("Debris lifetime re-armed from the tree: pid=4242 rec=rec_debris")
                 && l.Contains("expiryUT=160.0 separationBp=bp_stage context=backgrounded"));
+        }
+
+        [Fact]
+        public void HandBackToBackground_NewDebrisRecording_ArmsWithoutAnInfoLine()
+        {
+            // A debris recording created this frame (no trajectory yet) is armed quietly: its
+            // creator sets the same deadline right after, so an Info "re-armed" line per new
+            // child would be noise.
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+
+            var tree = MakeStagingTree();
+            tree.BackgroundMap[DebrisPid] = "rec_debris";
+            var bg = new BackgroundRecorder(tree);
+            bg.OnVesselBackgrounded(DebrisPid);
+
+            Assert.Equal(160.0, bg.GetDebrisTTLExpiryForTesting(DebrisPid));
+            Assert.DoesNotContain(logLines, l => l.Contains("[INFO]")
+                && l.Contains("Debris lifetime re-armed from the tree"));
+            Assert.Contains(logLines, l => l.Contains("[VERBOSE][BgRecorder]")
+                && l.Contains("Debris lifetime re-armed from the tree: pid=4242")
+                && l.Contains("(new recording)"));
         }
 
         [Fact]
@@ -359,6 +384,7 @@ namespace Parsek.Tests
             Recording cont = tree.Recordings["rec_cont"];
             Assert.True(cont.IsDebris);
             Assert.Equal("rec_root", cont.ParentAnchorRecordingId);
+            Assert.Equal(1, cont.Generation);
             Assert.True(BackgroundRecorder.TryResolveDebrisExpiryUT(cont, tree, out double expiry, out _, out _));
             Assert.Equal(160.0, expiry);
         }

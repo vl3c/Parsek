@@ -810,13 +810,15 @@ namespace Parsek
                     ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(
                         childVessel, sampleUT, preferRootPartSurfacePose: true)
                     : null;
+                // Debris child: TTL keyed on branch UT, set before the hand-off so
+                // OnVesselBackgrounded finds it and does not re-arm it from the tree.
+                if (!hasController)
+                    debrisTTLExpiry[child.VesselPersistentId] = branchUT + DebrisTTLSeconds;
                 OnVesselBackgrounded(child.VesselPersistentId, inherited,
                     initialTrajectoryPoint: childInitialPoint);
 
                 if (!hasController)
                 {
-                    // Debris child: TTL keyed on branch UT, distinct logging
-                    debrisTTLExpiry[child.VesselPersistentId] = branchUT + DebrisTTLSeconds;
                     ParsekLog.Info("BgRecorder",
                         $"Child recording created (debris, TTL={DebrisTTLSeconds:F0}s): " +
                         $"recId={child.RecordingId} vesselPid={child.VesselPersistentId} " +
@@ -1357,11 +1359,22 @@ namespace Parsek
             }
 
             debrisTTLExpiry[vesselPid] = expiryUT;
-            ParsekLog.Info("BgRecorder",
-                $"Debris lifetime re-armed from the tree: pid={vesselPid} rec={recordingId} " +
+            string line = $"Debris lifetime re-armed from the tree: pid={vesselPid} rec={recordingId} " +
                 $"expiryUT={FormatDebrisUT(expiryUT)} separationBp={separationBpId} " +
-                $"context={context}");
+                $"context={context}";
+            // A recording with no trajectory yet is a debris piece being created right now
+            // (a focused breakup child, a background debris parent continuation): its creator
+            // sets the same deadline next, so this arm is not a hand-back worth an Info line.
+            if (HasRecordedTrajectory(rec))
+                ParsekLog.Info("BgRecorder", line);
+            else
+                ParsekLog.Verbose("BgRecorder", line + " (new recording)");
         }
+
+        private static bool HasRecordedTrajectory(Recording rec)
+            => (rec.Points != null && rec.Points.Count > 0)
+                || (rec.TrackSections != null && rec.TrackSections.Count > 0)
+                || (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0);
 
         /// <summary>
         /// Ends a debris recording whose time limit ran out while the ACTIVE recorder held it:
