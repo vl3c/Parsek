@@ -60,6 +60,37 @@ Lane owed: a `CycleVessel` press from a live recording onto a loaded vessel of a
 tree, asserting `outcome=pre-switch-handoff`, the prior tree committed, and
 `route=committed-spawned-clone` for the target.
 
+## ~~POST-SWITCH-GRAFTS-COMMITTED-VESSEL~~: the post-switch watcher attaches a vessel of another committed mission to the live flight as a "launch" [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; no lane gates it yet; medium (the vessel gets a second history; the Missions view shows it launched from the player's ship)]
+
+Cause. `ParsekFlightPostSwitchAutoRecord.TryStartPostSwitchAutoRecord` had no committed-vessel
+check: for any vessel not tracked in the live tree's BackgroundMap it chose
+`StartFreshRecording`, and `PrepareActiveTreeForFreshPostSwitchRecording` added a recording to the
+live tree under a `Launch` branch point of the recording the player left, setting that parent's
+single `ChildBranchPointId`. A station of another committed mission switched to while recording
+(the `[` / `]` keys before CYCLE-SWITCH-PRESWITCH-BYPASS, a press while another merge dialog is
+open, or the switch stock makes itself after the active vessel is destroyed) became part of the
+player's flight and lost its own mission (owner ruling Q16: it continues its own mission).
+
+Fix (defence in depth behind the Q16 routing). The pure
+`IsPostSwitchGraftOfSeparateCommittedVessel(decision, hasActiveTree, matched, matchedTreeId,
+activeTreeId)` is true for a fresh start under a live tree of a vessel that
+`TryFindCommittedTreeMatchingVessel` (pid plus launch guid) matches to a committed tree other than
+the live one. The watcher then logs `[Flight] Post-switch fresh start refused: vessel= pid=
+trigger= reason=separate-committed-vessel matchedTreeId= activeTreeId=` (Info) and disarms; the
+vessel stays idle until the live tree is committed, after which the 1 Hz committed-tree restore
+continues its mission. Ordinary outsiders, vessels of the live tree's own committed original,
+promotions of tracked members and a start with no live tree are unchanged.
+
+Tests. `PostSwitchCommittedGraftGuardTests` (the graft refused, an uncommitted outsider and the
+live tree's own committed tree not refused, only a fresh start under a live tree is a graft, the
+refusal line invariant, and a source gate that the guard and its disarm run before
+`PrepareActiveTreeForFreshPostSwitchRecording`). Red first: the cells do not compile against the
+old code (no guard) and the source gate reds with the guard block removed.
+
+Not changed. `PrepareActiveTreeForFreshPostSwitchRecording` still overwrites the parent's single
+child link for an ordinary outsider when the parent already has one; that is the archived
+CHILD-BRANCH-SINGLE-SLOT-OVERWRITE limitation, out of scope here.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the

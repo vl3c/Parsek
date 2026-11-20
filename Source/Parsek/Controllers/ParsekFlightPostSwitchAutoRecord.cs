@@ -981,6 +981,24 @@ namespace Parsek
                 $"Post-switch trigger accepted: vessel='{v.vesselName}' pid={v.persistentId} " +
                 $"trigger={trigger} decision={decision}");
 
+            if (decision == ParsekFlight.PostSwitchAutoRecordStartDecision.StartFreshRecording
+                && host.activeTree != null)
+            {
+                RecordingTree matchedTree;
+                bool matched = ParsekFlight.TryFindCommittedTreeMatchingVessel(
+                    v.persistentId,
+                    v.id != Guid.Empty ? v.id.ToString("N") : null,
+                    out matchedTree);
+                if (IsPostSwitchGraftOfSeparateCommittedVessel(
+                        decision, hasActiveTree: true, matched, matchedTree?.Id, host.activeTree.Id))
+                {
+                    ParsekLog.Info("Flight", FormatPostSwitchGraftRefusal(
+                        v.vesselName, v.persistentId, trigger, matchedTree?.Id, host.activeTree.Id));
+                    DisarmPostSwitchAutoRecord("separate-committed-vessel");
+                    return false;
+                }
+            }
+
             switch (decision)
             {
                 case ParsekFlight.PostSwitchAutoRecordStartDecision.PromoteTrackedRecording:
@@ -1367,6 +1385,42 @@ namespace Parsek
             if (canRestorePendingTrackedTree)
                 return ParsekFlight.PostSwitchAutoRecordStartDecision.RestoreAndPromoteTrackedRecording;
             return ParsekFlight.PostSwitchAutoRecordStartDecision.StartFreshRecording;
+        }
+
+        /// <summary>
+        /// Pure: a fresh post-switch recording under a live tree attaches the vessel to that
+        /// tree (a <c>Launch</c> child of the recording the player left). For a vessel of a
+        /// separately committed tree that is a second history for it and ends its own mission
+        /// (owner ruling Q16: it continues its own mission through the committed-tree clone, which
+        /// needs the live tree committed first, the pre-switch Case C). The vessel cycle and the
+        /// map Switch-To take Case C before switching; this refuses the graft for any switch that
+        /// still reaches the watcher (a press while another merge dialog is open, a switch stock
+        /// makes itself after a crash). A vessel of the live tree's own committed original is not
+        /// separate.
+        /// </summary>
+        internal static bool IsPostSwitchGraftOfSeparateCommittedVessel(
+            ParsekFlight.PostSwitchAutoRecordStartDecision decision,
+            bool hasActiveTree,
+            bool matchedCommittedTree,
+            string matchedTreeId,
+            string activeTreeId)
+        {
+            if (decision != ParsekFlight.PostSwitchAutoRecordStartDecision.StartFreshRecording
+                || !hasActiveTree || !matchedCommittedTree || string.IsNullOrEmpty(matchedTreeId))
+                return false;
+            return !string.Equals(matchedTreeId, activeTreeId, StringComparison.Ordinal);
+        }
+
+        internal static string FormatPostSwitchGraftRefusal(
+            string vesselName, uint pid, ParsekFlight.PostSwitchAutoRecordTrigger trigger,
+            string matchedTreeId, string activeTreeId)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Post-switch fresh start refused: vessel='{0}' pid={1} trigger={2} " +
+                "reason=separate-committed-vessel matchedTreeId={3} activeTreeId={4} - " +
+                "not attached to the live tree; it continues its own mission once the live tree is committed",
+                vesselName ?? "<unnamed>", pid, trigger,
+                matchedTreeId ?? "<null>", activeTreeId ?? "<null>");
         }
     }
 }
