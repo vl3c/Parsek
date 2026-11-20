@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## SAVE-WIDE-STAMP-NEWER-WRITEBACK: a save from a newer Parsek gets this build's save-wide stamp on its next save [FILED 2026-11-20 from the test-gap list (Batch 2 item 8), by code reading and a headless round trip, branch `test-gaps-b2-cloud-c`. OWNER QUESTION, no code change; low (only a downgrade then upgrade sequence reaches it)]
+## ~~SAVE-WIDE-STAMP-NEWER-WRITEBACK~~: a save from a newer Parsek gets this build's save-wide stamp on its next save [CLOSED 2026-11-20 by owner ruling: keep today's behavior, documented in `design-save-format-policy.md` section 7 ("Keep today, document it"); FILED 2026-11-20 from the test-gap list (Batch 2 item 8), by code reading and a headless round trip, branch `test-gaps-b2-cloud-c`. OWNER QUESTION, no code change; low (only a downgrade then upgrade sequence reaches it)]
 
 What happens. Loading a PARSEK node stamped `parsekSaveFormat` above `SaveFormat.CurrentSaveFormat`
 logs the one Warn the policy names (`save written by a newer Parsek: parsekSaveFormat=N > current=1
