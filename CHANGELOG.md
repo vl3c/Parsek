@@ -51,6 +51,49 @@ Not released yet.
   servo itself, so a panel, arm or wheel mounted on a hinge stayed frozen while the hinge swung.
   Everything on the moving side of a servo now moves with it, servos on servos included, and
   parts on the fixed side stay put. (GHOST-SERVO-CHILDREN-STATIC)
+- **Leaving the scene during a burn no longer leaves the replay's engines lit.** Going to the
+  Space Center, or committing the flight, while an engine or thruster was firing kept its plume
+  burning in the replay until the end. It now shuts off at the moment you left.
+  (FORCESTOP-LEAVES-ENGINES-LIT)
+- **A kerbal or probe that ended its flight right next to another vessel no longer ends up inside
+  the planet.** The end position could be read from a position measured from the nearby vessel,
+  which placed it far below the ground. (ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON)
+- **Destroyed flights all end the same way.** A craft destroyed far from you could keep the orbit
+  or landing spot it had when it died, unlike every other destroyed flight. All destroyed endings
+  now carry the same data. (TERMINAL-DESTROYED-PAYLOAD-DIVERGES)
+- **A wreck is a wreck however close you were.** When a crash broke a craft so that no command
+  part survived, what was left was recorded as destroyed only if you had flown far away from it;
+  nearby it could be saved as landed and come back as a wreck at the end of its replay.
+  (BREAKUP-REMNANT-ENDING-DEPENDS-ON-DISTANCE)
+- **A crash stays a crash when the game hands you a surviving piece.** When a craft crashed and
+  the game switched to a piece that survived, the crashed craft could be saved as landed at the
+  impact point and come back intact at the end of its replay. (CRASH-HANDOFF-LOSES-DESTROYED)
+- **A save from a newer Parsek keeps its flights' endings.** A flight that ended in a way this
+  version does not know was saved back with no ending, and its end could then be cut away. The
+  ending is now kept as it was and the trajectory is left whole. (NEWER-ENDING-ERASED-BY-OLDER-BUILD)
+- **A docked or boarded flight keeps its ending.** Recovering the ship it docked with, or the ship
+  a kerbal boarded, could rewrite the earlier flight as recovered and pay its recovery a second
+  time. (DOCKED-ENDING-OVERWRITTEN-BY-RECOVERY)
+- **Dropped boosters that were still burning stop their flame when their replay ends.** A spent
+  stage or booster whose recording ended while its engine still fired kept the flame lit to the
+  end of its replay. (DEBRIS-END-LEAVES-ENGINES-LIT)
+- **A recording now ends where the vessel was when it stopped.** Stopping, leaving the scene or
+  committing could end the replay a few seconds short of the vessel's real last position, and a
+  crash watched from another vessel could end the wreck in the air above the impact. The final
+  position is now sampled at the stop. (STOP-TAKES-NO-FINAL-SAMPLE)
+- **A separated vessel is never lost when two separations come close together.** Staging and
+  then undocking, going on EVA or docking within half a second, two separations in the same
+  frame, or a quicksave right after staging could leave a booster or satellite with no replay
+  and no ghost. Every separated vessel now gets its own recording.
+  (SPLIT-WINDOW-DROPPED-ON-RECORDER-START)
+- **Undocking a vessel you just switched to records both halves.** After switching with `]` to a
+  vessel Parsek was not recording yet, undocking or staging it at once recorded only the part you
+  kept; the piece that came off had no replay. Both now get their own recording.
+  (POST-SWITCH-WATCH-SPLIT-NOT-RECORDED)
+- **A crewed ship undocking from an uncrewed depot is recorded under the right vessel.** When
+  control moved to the ship leaving a probe-less depot, its flight was written into the depot's
+  recording and its replay followed the wrong vessel. Each now gets its own recording.
+  (UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL)
 - **The `[` and `]` keys now switch to a vessel of another mission like Switch-To does.** The
   flight you leave is merged (or dropped if nothing changed) first, and the vessel you switch to
   continues its own mission; while the game refuses switching (under thrust, in the air) that

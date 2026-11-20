@@ -194,7 +194,7 @@ namespace Parsek.Tests
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
                 ParsekFlightSourceFiles.ReadText(path).Replace(CrLf, Lf));
 
-            const string decl = "void ProcessBreakupEvent(BranchPoint breakupBp)";
+            const string decl = "void ProcessBreakupEvent(BranchPoint breakupBp, FlightRecorder parentRecorderHint";
             int declIdx = prepared.IndexOf(decl, StringComparison.Ordinal);
             Assert.True(declIdx >= 0, "ProcessBreakupEvent declaration not found");
             Assert.Equal(declIdx, prepared.LastIndexOf(decl, StringComparison.Ordinal));

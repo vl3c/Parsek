@@ -381,6 +381,8 @@ Crashes, overheating, and structural failures can produce many fragments across 
 
 The BREAKUP event records the parent segment, all child segments that have controllers (these get proper segments with trajectory recording), and a count of debris fragments (not individually tracked).
 
+**Never drop a separation (owner ruling 2026-11-18).** A window that is still open when the active recording is about to change is emitted early, not reset: `ParsekFlightSplitBrancher.FlushPendingSplits` runs before every recorder session start (split / merge branch creation, background promotion, `StartRecording`, the switch-segment bind, both committed-tree resumes), on every save (`ParsekScenario.SaveActiveTreeIfAny`), on scene exit and revert (`OnSceneChangeRequested`, the merge-flow finalize). It first feeds decouple children captured since the last split check that no deferred check will process (a decoupler and a docking port fired in one frame), then emits the window as ONE branch point on the tree's active recording, seeded from the parent's recorder even while a split has it parked. A second undock in the same frame as a pending split joins the window as an `UNDOCK` separation instead of being dropped. `PrepareSessionStateForRecorderStart` still emits (with a warning) any window a caller failed to flush before it resets the coalescer. Source gate: `PendingSplitFlushWiringTests`.
+
 **Example — Mun crash with partial survival:**
 
 ```
@@ -782,6 +784,7 @@ The decision is `FlightRecorder.DecideOnVesselSwitch` (`TransitionToBackground` 
 7. During a Re-Fly, switching between the re-flown vessel and its own crew is the one case that still asks, because the Re-Fly decides how its flight is merged.
 8. A kept recording loses its idle end. At every merge the latest recording of each vessel is cut to about ten seconds after its last real activity, so its ghost does not sit still longer than it needs to before the real vessel takes over (a recording too short to cut, or whose end still changes its resources or its resting state, keeps its end). This applies whenever the recording was added in the vessel's life. An idle stretch at the start of a later recording is kept: the vessel is a ghost until its last recording ends either way, so cutting it would change nothing the player sees.
 9. Dropping a recording never takes away anything already earned. Contracts, milestones, lab science and other earnings the game already paid stay in the career (the discard re-homes them), and a merge only adds.
+10. A separation of a vessel you switched to but Parsek does not record yet (an undock or a decoupler firing) is a change: the watched vessel starts recording on the next frame, ahead of the settle wait, and the piece that came off gets its own recording from the separation (owner ruling 2026-11-18, never drop a separation). The watch captures the separated vessel at the split (`ParsekFlightPostSwitchAutoRecord.TryCapturePostSwitchStructuralSplit`) and feeds it to the crash coalescer once the recording runs.
 
 ### 5.5 Scene Changes
 

@@ -117,9 +117,12 @@ An older build opening a save from a newer one keeps what it cannot read and wri
   loaded; a `MISSION` node's unknown values and child nodes round-trip verbatim.
 - **Save-wide stamp.** A newer `parsekSaveFormat` logs one Warn naming both numbers and the
   writer; the unstamped stores load best effort.
-- **Additive enum members** read as unknown on an older build (for example a new `TerminalState`
-  leaves `TerminalStateValue` null through the codec's `Enum.IsDefined` guard): degraded
-  metadata, never corrupt data.
+- **Additive enum members** read as unknown on an older build: degraded metadata, never corrupt
+  data. A recording's `terminalState` is held verbatim (todo NEWER-ENDING-ERASED-BY-OLDER-BUILD):
+  `RecordingTreeRecordCodec` keeps an undefined number in `TerminalStateValue` as is (one `Codec`
+  Warn) and writes it back, and every consumer reads it as a final, non-spawnable ending (no end
+  spawn, no tail trim, no overwrite by a later recovery). Builds before that fix dropped it to
+  null on load, so the ending was lost once they saved and the tail trim could cut the trajectory.
 
 ## 5. How to bump a format
 

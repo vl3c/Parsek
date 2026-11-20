@@ -34,6 +34,9 @@ namespace Parsek
         void StashActiveTreeForVesselSwitch(double commitUT);
         void StashActiveTreeAsPendingLimbo(double commitUT);
         void ClearSceneChangeTransientState();
+        // Branches every separation the host has seen but not yet written into the tree
+        // (owner ruling 2026-11-18, never drop one).
+        void FlushPendingSplits(string reason);
 
         // Host state and services.
         int lastPlaybackIndex { get; set; }
@@ -99,6 +102,9 @@ namespace Parsek
         /// </summary>
         internal void FinalizeTreeOnSceneChangeForCallback(GameScenes scene)
         {
+            // Before the transient reset clears a parked split recorder.
+            if (!ParsekFlight.restoringActiveTree && host.activeTree != null)
+                host.FlushPendingSplits("FinalizeTreeOnSceneChangeForCallback:" + scene);
             host.ClearSceneChangeTransientState();
             FinalizeTreeOnSceneChangeCore(
                 scene,
@@ -426,8 +432,9 @@ namespace Parsek
             // PhysicsFramePatch_ActiveRecorder_NullWhenNotRecording).
             if (host.recorder != null)
             {
+                // The tree is dropped, so no final sample is taken.
                 if (host.recorder.IsRecording)
-                    host.recorder.ForceStop();
+                    host.recorder.ForceStop(sampleFinalPoint: false);
                 Patches.PhysicsFramePatch.ActiveRecorder = null;
                 host.recorder = null;
             }
@@ -529,6 +536,11 @@ namespace Parsek
 
             if (logRecorderState)
                 RecorderStateLog.RecState("FinalizeTreeOnSceneChange:entry", host.CaptureRecorderState());
+
+            // Never drop one (owner ruling 2026-11-18): a separation still in the coalescing
+            // window branches into the tree before it is committed or stashed, and its new
+            // background children are checkpointed below with the rest.
+            host.FlushPendingSplits("FinalizeTreeOnSceneChange:" + scene);
 
             // Checkpoint all background vessels before finalization.
             // This captures clean orbital reference points at the scene-change boundary.
@@ -686,8 +698,9 @@ namespace Parsek
 
             if (host.recorder != null)
             {
+                // The tree is dropped, so no final sample is taken.
                 if (host.recorder.IsRecording)
-                    host.recorder.ForceStop();
+                    host.recorder.ForceStop(sampleFinalPoint: false);
                 Patches.PhysicsFramePatch.ActiveRecorder = null;
                 host.recorder = null;
             }

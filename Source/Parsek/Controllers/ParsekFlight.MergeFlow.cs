@@ -36,6 +36,7 @@ namespace Parsek
         void IMergeFlowHost.StashActiveTreeAsPendingLimbo(double commitUT) =>
             StashActiveTreeAsPendingLimbo(commitUT);
         void IMergeFlowHost.ClearSceneChangeTransientState() => ClearSceneChangeTransientState();
+        void IMergeFlowHost.FlushPendingSplits(string reason) => SplitBrancher.FlushPendingSplits(reason);
         int IMergeFlowHost.lastPlaybackIndex { get => lastPlaybackIndex; set => lastPlaybackIndex = value; }
         void IMergeFlowHost.ScreenMessage(string message, float duration) => ScreenMessage(message, duration);
         void IMergeFlowHost.Log(string message) => Log(message);
@@ -451,9 +452,15 @@ namespace Parsek
                     activeFinalizationCache = finalizationCache;
                 }
 
+                // A recording whose recorder saw the vessel destroyed but was flushed before the
+                // commit (a crash where control moved to a surviving piece) carries it as
+                // VesselDestroyed (PropagateRecorderDestructionToTreeRecording).
                 bool vesselDestroyedDuringRecording =
-                    resolveDestroyedDuringRecording != null
-                    && resolveDestroyedDuringRecording(recording);
+                    (resolveDestroyedDuringRecording != null
+                        && resolveDestroyedDuringRecording(recording))
+                    || (recording != null && recording.VesselDestroyed
+                        && ParsekScenario.CanOverwriteTerminalState(
+                            recording.TerminalStateValue, TerminalState.Destroyed));
 
                 if (FinalizeIndividualRecording(
                         recording,

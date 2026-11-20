@@ -1217,6 +1217,11 @@ namespace Parsek
             RecordingFinalizationCache cacheForApply = null;
             finalizationCaches.TryGetValue(vesselPid, out cacheForApply);
 
+            // Close any burn still open on the debris (an SRB, a dropped stage at throttle):
+            // every other recording end emits these, and the loaded state that tracks them is
+            // dropped by OnVesselRemovedFromBackground below.
+            EmitDebrisEndTerminalEvents(vesselPid, rec, endUT);
+
             // Clean up tracking state — also flushes any accumulated TrackSections
             // to rec via OnVesselRemovedFromBackground → FlushTrackSectionsToRecording.
             OnVesselRemovedFromBackground(vesselPid, endUT);
@@ -1277,6 +1282,44 @@ namespace Parsek
             ParsekLog.Info("BgRecorder",
                 $"Debris recording ended: vesselPid={vesselPid} recId={recordingId} " +
                 $"terminal={rec?.TerminalStateValue?.ToString() ?? "null"}");
+        }
+
+        /// <summary>
+        /// Emits the terminal EngineShutdown / RCSStopped / RoboticMotionStopped events a loaded
+        /// debris vessel owes its recording when <see cref="EndDebrisRecording"/> closes it, at the
+        /// end UT. A recording already sealed as destroyed is left alone (its terminal payload is
+        /// sealed, as <see cref="FinalizeAllForCommit"/> does), and an on-rails debris has no
+        /// tracking state (its rails transition already emitted them).
+        /// </summary>
+        private void EmitDebrisEndTerminalEvents(uint vesselPid, Recording rec, double endUT)
+        {
+            BackgroundVesselState loadedState;
+            if (rec == null || !loadedStates.TryGetValue(vesselPid, out loadedState))
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"EndDebrisRecording: terminal events skipped pid={vesselPid} " +
+                    $"reason={(rec == null ? "no-recording" : "no-loaded-state")}");
+                return;
+            }
+            if (rec.VesselDestroyed)
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"EndDebrisRecording: terminal events skipped pid={vesselPid} " +
+                    $"rec={rec.RecordingId} reason=destroyed-sealed");
+                return;
+            }
+
+            var terminalEvents = FlightRecorder.EmitTerminalEngineAndRcsEvents(
+                loadedState.activeEngineKeys, loadedState.activeRcsKeys, loadedState.activeRoboticKeys,
+                loadedState.lastRoboticPosition, endUT, "BgRecorder");
+            if (terminalEvents.Count > 0)
+            {
+                rec.PartEvents.AddRange(terminalEvents);
+                rec.MarkFilesDirty();
+            }
+            ParsekLog.Verbose("BgRecorder",
+                $"EndDebrisRecording: emitted {terminalEvents.Count} terminal event(s) pid={vesselPid} " +
+                $"rec={rec.RecordingId} UT={endUT.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>

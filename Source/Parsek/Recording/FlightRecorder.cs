@@ -1983,16 +1983,32 @@ namespace Parsek
         /// <summary>
         /// Force-stop recording during scene change (no boundary point needed).
         /// </summary>
-        public void ForceStop()
+        /// <param name="sampleFinalPoint">False where the vessel can no longer be read (scene
+        /// teardown) or the data is discarded; otherwise the stop takes a final physics sample
+        /// from the recorded vessel.</param>
+        public void ForceStop(bool sampleFinalPoint = true)
         {
+            Vessel recordedVessel = sampleFinalPoint && RecordingVesselId != 0
+                ? FindVesselByPid(RecordingVesselId)
+                : null;
+            if (!sampleFinalPoint)
+                ParsekLog.Verbose("Recorder",
+                    $"ForceStop: final physics sample not requested pid={RecordingVesselId}");
             // Intentionally does not set CaptureAtStop. Forced stops happen during
             // scene transitions where vessel state may already be changing/unreliable;
             // ParsekFlight falls back to scene-change snapshot capture in that path.
+            // Terminal engine / RCS / robotic shutdowns ARE emitted (todo
+            // FORCESTOP-LEAVES-ENGINES-LIT): they come from the recorder's own tracking
+            // sets, need no live vessel, and are the only thing that ends a plume still
+            // lit at the scene exit or the commit, exactly as the background half of the
+            // same commit does (BackgroundRecorder.FinalizeAllForCommit).
             FinalizeRecordingState(
-                emitTerminalEvents: false,
+                emitTerminalEvents: true,
                 clearRelativeMode: false,
                 sampleBoundaryOnRails: false,
-                logTag: "force stop");
+                logTag: "force stop",
+                recordedVessel: recordedVessel,
+                sampleFinalPhysicsPoint: sampleFinalPoint);
             pendingJointChildPartOriginSeeds.Clear();
 
             double duration = Recording.Count > 0

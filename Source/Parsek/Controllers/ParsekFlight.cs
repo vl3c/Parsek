@@ -545,6 +545,22 @@ namespace Parsek
         internal FlightRecorder ParkedSplitRecorderForSerialization => pendingSplitRecorder;
 
         /// <summary>
+        /// For <c>ParsekScenario.SaveActiveTreeIfAny</c>: branches every separation Parsek has
+        /// seen but not yet written into the tree (the crash coalescer's open window, decouple
+        /// captures no split check will process) before the save serializes the tree, so an F5
+        /// right after staging keeps the separated vessels (owner ruling 2026-11-18).
+        /// </summary>
+        internal void FlushPendingSplitsForSave()
+        {
+            if (restoringActiveTree)
+            {
+                ParsekLog.Verbose("Coalescer", "FlushPendingSplitsForSave: skipped, restore coroutine in progress");
+                return;
+            }
+            SplitBrancher.FlushPendingSplits("OnSave");
+        }
+
+        /// <summary>
         /// Lays the parked split recorder's unflushed buffers over the active tree's current
         /// recording for one save (audit R6, <see cref="ParkedSplitSaveOverlay"/>), or returns null
         /// when no overlay applies (logged with the reason). The caller restores it after the write.
@@ -748,6 +764,9 @@ namespace Parsek
         internal bool pendingSplitInProgress;
         internal FlightRecorder pendingSplitRecorder;
         internal DeferredSplitCheckTrigger pendingDeferredSplitCheckTrigger;
+        // True from HandleJointBreakDeferredCheck's coroutine start until its finally: that
+        // coroutine owns the decouple captures, so no flush feeds them a second time.
+        internal bool deferredJointBreakCheckInFlight;
         internal double pendingSplitTriggerUT = double.NaN;
         // Vessel PIDs that existed before a joint break (for filtering pre-existing vessels)
         internal HashSet<uint> preBreakVesselPids;
@@ -989,6 +1008,9 @@ namespace Parsek
         void OnPartUndock(Part undockedPart) => SplitBrancher.OnPartUndock(undockedPart);
         void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel) =>
             SplitBrancher.OnVesselsUndocking(oldVessel, newVessel);
+        // Always subscribed: a decouple of the post-switch watched vessel while nothing records.
+        private void OnDecoupleNewVesselForPostSwitchWatch(Vessel originalVessel, Vessel newVessel) =>
+            PostSwitchAutoRecorder.OnDecoupleNewVesselForPostSwitchWatch(originalVessel, newVessel);
         private void OnDecoupleNewVesselDuringSplitCheck(Vessel originalVessel, Vessel newVessel) =>
             SplitBrancher.OnDecoupleNewVesselDuringSplitCheck(originalVessel, newVessel);
 
@@ -1182,6 +1204,7 @@ namespace Parsek
             GameEvents.onPartCouple.Add(OnPartCouple);
             GameEvents.onPartUndock.Add(OnPartUndock);
             GameEvents.onVesselsUndocking.Add(OnVesselsUndocking);
+            GameEvents.onPartDeCoupleNewVesselComplete.Add(OnDecoupleNewVesselForPostSwitchWatch);
             GameEvents.onGroundSciencePartDeployed.Add(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onNewVesselCreated.Add(OnNewVesselCreatedForGroundPart);
@@ -1562,7 +1585,8 @@ namespace Parsek
             if (IsRecording)
             {
                 ParsekLog.Info("Flight", "OnDestroy: force-stopping active recording");
-                recorder.ForceStop();
+                // Scene teardown: the vessel may already be half destroyed, so no final sample.
+                recorder.ForceStop(sampleFinalPoint: false);
             }
             PlaybackHost.StopPlayback();
             watchMode.ExitWatchMode();
@@ -1625,6 +1649,7 @@ namespace Parsek
             GameEvents.onPartCouple.Remove(OnPartCouple);
             GameEvents.onPartUndock.Remove(OnPartUndock);
             GameEvents.onVesselsUndocking.Remove(OnVesselsUndocking);
+            GameEvents.onPartDeCoupleNewVesselComplete.Remove(OnDecoupleNewVesselForPostSwitchWatch);
             GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onNewVesselCreated.Remove(OnNewVesselCreatedForGroundPart);
@@ -1677,6 +1702,12 @@ namespace Parsek
             // scenes may resolve different Texture2D instances for the same
             // logical atlas). See MapMarkerRenderer.ResetForSceneChange.
             MapMarkerRenderer.ResetForSceneChange();
+
+            // Never drop one (owner ruling 2026-11-18): a separation still in the coalescing
+            // window, or a decouple captured this frame, branches into the tree before the
+            // transient reset clears a parked split recorder and the tree is finalized.
+            if (activeTree != null && !restoringActiveTree)
+                SplitBrancher.FlushPendingSplits("OnSceneChangeRequested:" + scene);
 
             ClearSceneChangeTransientState();
 
@@ -2130,6 +2161,7 @@ namespace Parsek
             lastBranchUT = -1;
             lastBranchVesselPids.Clear();
             pendingSplitInProgress = false;
+            deferredJointBreakCheckInFlight = false;
             pendingSplitRecorder = null;
             preBreakVesselPids = null;
         }
@@ -2814,7 +2846,10 @@ namespace Parsek
             ResourceChange,
             PartStateChange,
             LandedMotion,
-            OrbitChange
+            OrbitChange,
+            // An undock or decouple of the watched vessel (owner ruling 2026-11-18): the
+            // recording starts and the separated vessel gets its own child recording.
+            StructuralSplit
         }
 
         internal enum PostSwitchAutoRecordSuppressionReason
@@ -2878,6 +2913,32 @@ namespace Parsek
             public Dictionary<ulong, int> RcsFrameCountMap = new Dictionary<ulong, int>();
             public HashSet<ulong> ActiveRcsKeys = new HashSet<ulong>();
             public Dictionary<ulong, float> RcsThrottleMap = new Dictionary<ulong, float>();
+            // Separations of the watched vessel seen while nothing recorded it; the next watch
+            // frame starts the recording and feeds them to the crash coalescer.
+            public List<PostSwitchStructuralSplit> PendingStructuralSplits = new List<PostSwitchStructuralSplit>();
+        }
+
+        /// <summary>
+        /// One separation of the post-switch watched vessel, captured at the split (snapshot and
+        /// pose of the vessel that came off) for the recording the watch is about to start.
+        /// </summary>
+        internal sealed class PostSwitchStructuralSplit
+        {
+            public uint ChildPid;
+            public bool HasController;
+            public string Cause;
+            public double UT;
+            public uint ChildRootPartPid;
+            public ConfigNode PreSnapshot;
+            public TrajectoryPoint? PrePoint;
+            public string Source;
+            // The watched side at the split, used when focus moves to the separated vessel and
+            // the watched vessel becomes the one that came off.
+            public uint OriginalPid;
+            public bool OriginalHasController;
+            public uint OriginalRootPartPid;
+            public ConfigNode OriginalPreSnapshot;
+            public TrajectoryPoint? OriginalPrePoint;
         }
 
         // Vessel spawning from playback: chain-tip spawn, tree-leaf spawn, chain ghosting at flight

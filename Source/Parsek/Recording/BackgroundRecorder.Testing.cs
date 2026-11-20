@@ -71,6 +71,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// For testing: marks an engine / RCS module as running on an injected loaded state.
+        /// </summary>
+        internal void InjectActiveEngineKeysForTesting(uint vesselPid, ulong engineKey, ulong rcsKey)
+        {
+            BackgroundVesselState state;
+            if (!loadedStates.TryGetValue(vesselPid, out state)) return;
+            state.activeEngineKeys.Add(engineKey);
+            state.activeRcsKeys.Add(rcsKey);
+        }
+
+        /// <summary>
         /// For testing: gets the decoupledPartIds set for a given vessel PID.
         /// Returns null if no loaded state exists.
         /// </summary>
