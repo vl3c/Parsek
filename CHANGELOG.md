@@ -32,6 +32,10 @@ Not released yet.
   looping, regrouping or turning off the ghost of another flight of the same mission while you
   re-fly one part of it was undone by the merge, and a sealed slot could come back open with no
   rewind point. These settings now always survive a merge. (MERGE-REVERTS-PLAYER-SETTINGS)
+- **Flying a finished vessel again keeps the new flight.** If the game reloaded while you flew
+  a vessel from an earlier flight again, Parsek could re-cut that earlier flight and then throw
+  your new flight away as a duplicate when you merged. The earlier flight now stays as it is
+  while you fly, and the merge keeps what you flew. (LIVE-FLOWN-TREE-RECUT-DROPS-NEW-LEG)
 - **A merge that adds nothing no longer says "Merged".** When the flight was already on the
   timeline, the merge still reported success. Clicking Merge now says "Nothing new to merge:
   this flight is already in the timeline", and an automatic merge says nothing.

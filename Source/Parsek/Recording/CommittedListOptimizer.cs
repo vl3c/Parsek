@@ -59,6 +59,12 @@ namespace Parsek
             // its id, a split or a trim moves its EndUT, and RouteStore.RevalidateSources would
             // pause the route for good (design 4.7, source immutability).
             HashSet<string> routeSourceIds = Logistics.RouteStore.CollectSourceRecordingIds();
+            // Owner RULE 3: a committed tree whose live copy is being flown is held the same way
+            // until that copy is committed or discarded.
+            routeSourceIds = TreeCommitService.HoldLiveCopiesForOptimizer(
+                routeSourceIds, RecordingStore.CommittedTrees, PendingTreeSlot.PendingTree,
+                PendingTreeSlot.SavedPendingTreeDuringActiveRestore,
+                CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId);
 
             int mergeCount = RunOptimizationMergePass(recordings, routeSourceIds);
             int splitCount = RunOptimizationSplitPass(recordings, routeSourceIds);

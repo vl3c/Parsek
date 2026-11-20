@@ -72,8 +72,10 @@ namespace Parsek
         /// (b) confirm their use case wants the union semantics.</para>
         /// </summary>
         /// <returns>
-        /// False only when a different tree object with the same id is already committed and
-        /// the incoming tree is not a richer topology to replace it with (the duplicate skip):
+        /// False only when a different tree object with the same id is already committed, the
+        /// incoming tree is not a richer topology to replace it with, and it carries no flight
+        /// the committed tree lacks (the duplicate skip; a copy that does is a committed vessel
+        /// flown again and is unioned in, owner RULE 3, <see cref="IsCommittedTreeFlownAgain"/>):
         /// nothing of <paramref name="tree"/> reached the timeline. True when the tree is on
         /// the timeline after the call, an already-committed reference-equal tree included.
         /// </returns>
@@ -172,9 +174,34 @@ namespace Parsek
                             break;
                         }
 
+                        // Owner RULE 3 ("my live flight wins"): a copy of this committed tree
+                        // that carries flight the committed tree does not have is a committed
+                        // vessel flown again, not a duplicate. The committed side may hold ids
+                        // the copy lacks (an optimizer pass re-cut it while the copy lived), so
+                        // the strict gate refuses; union instead, keeping those ids.
+                        if (IsCommittedTreeFlownAgain(
+                                RecordingStore.CommittedTrees[i], tree, out string flownEvidence)
+                            && TryUnionLiveCopyIntoCommitted(
+                                RecordingStore.CommittedTrees[i], tree, null,
+                                out int flownAddedRecs, out int flownAddedBps, out bool flownActiveSwapped))
+                        {
+                            int keptCommittedOnly = CountMissingRecordingIds(RecordingStore.CommittedTrees[i], tree);
+                            ParsekLog.Info("RecordingStore",
+                                $"CommitTree: committed vessel flown again - unioned the live copy of tree " +
+                                $"id='{tree.Id}' into the committed tree (strictGateReason={replaceReason}, " +
+                                $"evidence={flownEvidence}, addedRecordings={flownAddedRecs} " +
+                                $"addedBranchPoints={flownAddedBps} keptCommittedOnlyRecordings={keptCommittedOnly} " +
+                                $"activeRecordingIdSwapped={flownActiveSwapped} " +
+                                $"restoreAttemptArmed={CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(tree.Id)})");
+                            tree = RecordingStore.CommittedTrees[i];
+                            replaceCommittedTreeIndex = i;
+                            break;
+                        }
+
                         RecordingStore.Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
                         ParsekLog.Verbose("RecordingStore",
-                            $"CommitTree: duplicate tree id='{tree.Id}' skipped reason={replaceReason}");
+                            $"CommitTree: duplicate tree id='{tree.Id}' skipped reason={replaceReason} " +
+                            $"flownAgain=false evidence={flownEvidence}");
                         // Scoped-drop only the incoming duplicate tree's own pending science
                         // subjects (the helper skips committed ids), PRESERVING a DIFFERENT
                         // live recording's still-uncommitted tagged science. See the
@@ -1445,11 +1472,35 @@ namespace Parsek
             addedRecs = 0;
             addedBps = 0;
             activeIdSwapped = false;
-            if (existing == null || incoming == null || marker == null) return false;
+            if (marker == null) return false;
+            return TryUnionLiveCopyIntoCommitted(
+                existing, incoming, ReFlownSlotRecordingIds(marker, existing?.Id ?? incoming?.Id),
+                out addedRecs, out addedBps, out activeIdSwapped);
+        }
+
+        /// <summary>
+        /// The union both live-copy commits share (an active Re-Fly tree,
+        /// <see cref="TryUnionActiveReFlyTreeIntoCommitted"/>, and a committed vessel flown
+        /// again, owner RULE 3): incoming-only recordings and branch points are added, shared
+        /// recordings take the incoming instance with the player's settings kept
+        /// (<see cref="UnionRecordingsInto"/>), existing-only ids stay, the root id is adopted
+        /// only when missing and the incoming active id wins. False (outs zeroed) on null input.
+        /// </summary>
+        internal static bool TryUnionLiveCopyIntoCommitted(
+            RecordingTree existing,
+            RecordingTree incoming,
+            ICollection<string> mergeStateFromIncomingIds,
+            out int addedRecs,
+            out int addedBps,
+            out bool activeIdSwapped)
+        {
+            addedRecs = 0;
+            addedBps = 0;
+            activeIdSwapped = false;
+            if (existing == null || incoming == null) return false;
             if (existing.Recordings == null || incoming.Recordings == null) return false;
 
-            addedRecs = UnionRecordingsInto(existing, incoming,
-                ReFlownSlotRecordingIds(marker, existing.Id ?? incoming.Id));
+            addedRecs = UnionRecordingsInto(existing, incoming, mergeStateFromIncomingIds);
             addedBps = UnionBranchPointsInto(existing, incoming);
             AdoptMissingRootRecordingId(existing, incoming);
             activeIdSwapped = AdoptIncomingActiveRecordingId(existing, incoming);
