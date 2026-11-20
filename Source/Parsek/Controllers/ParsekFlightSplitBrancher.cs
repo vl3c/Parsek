@@ -33,6 +33,9 @@ namespace Parsek
         // call. We stash the pre-split seed here and let OnVesselsUndocking author the actual
         // Undock branch with the final pids.
         private TrajectoryPoint? pendingUndockRootPartSeed;
+        // The docking-port part onPartUndock reported in the same Part.Undock() call; the
+        // Undock branch point records it as its DecouplerPartId.
+        private uint pendingUndockPartPid;
 
         internal static int SafeCrewCount(Vessel v)
         {
@@ -267,7 +270,8 @@ namespace Parsek
         /// </summary>
         internal void CreateSplitBranch(BranchPointType branchType, Vessel activeVessel, Vessel backgroundVessel,
             double branchUT, string evaCrewName = null, uint evaVesselPid = 0,
-            TrajectoryPoint? backgroundInitialTrajectoryPoint = null)
+            TrajectoryPoint? backgroundInitialTrajectoryPoint = null,
+            uint undockedPartPid = 0u)
         {
             RecorderStateLog.RecState("CreateSplitBranch:entry", host.CaptureRecorderState());
             if (host.pendingSplitRecorder == null)
@@ -277,6 +281,15 @@ namespace Parsek
             }
 
             var splitRecorder = host.pendingSplitRecorder;
+
+            // Never drop one (owner ruling 2026-11-18): a separation still in the coalescing
+            // window, or a decouple captured in this same frame, branches off the parent
+            // before this split ends it and the recorder start below resets the window.
+            FlushPendingSplits(
+                "CreateSplitBranch:" + branchType,
+                activeVessel != null ? activeVessel.persistentId : 0u,
+                backgroundVessel != null ? backgroundVessel.persistentId : 0u,
+                splitRecorder);
 
             // Use the current active recording as parent
             string parentRecordingId = host.activeTree.ActiveRecordingId;
@@ -378,6 +391,13 @@ namespace Parsek
                 backgroundVessel != null ? Recording.ResolveLocalizedName(backgroundVessel.vesselName) : "Unknown",
                 evaCrewName, evaVesselPid,
                 parentGeneration: parentGen);
+            if (branchType == BranchPointType.Undock)
+            {
+                bp.DecouplerPartId = undockedPartPid;
+                ParsekLog.Verbose("Flight",
+                    $"CreateSplitBranch: Undock branch point bp={bp.Id} splitCause={bp.SplitCause ?? "(none)"} " +
+                    $"decouplerPartId={undockedPartPid}");
+            }
 
             // Set snapshots on child recordings
             activeChild.GhostVisualSnapshot = activeSnapshot;
@@ -583,6 +603,13 @@ namespace Parsek
                 ParsekLog.Warn("Flight", "CreateSplitBranchFromBackgroundParent: no active tree - aborting");
                 return;
             }
+
+            // Never drop one (owner ruling 2026-11-18): branch what is pending before the
+            // recorder start below.
+            FlushPendingSplits(
+                "CreateSplitBranchFromBackgroundParent",
+                activeVessel != null ? activeVessel.persistentId : 0u,
+                backgroundVessel != null ? backgroundVessel.persistentId : 0u);
 
             if (string.IsNullOrEmpty(parentRecordingId))
             {
@@ -1027,6 +1054,11 @@ namespace Parsek
             uint branchPartnerPid = 0,
             string branchPartnerGuid = null)
         {
+            // 0. Never drop one (owner ruling 2026-11-18): a separation still in the coalescing
+            // window, or a decouple captured this frame, branches off the parent before the
+            // merge ends it and the recorder start below resets the window.
+            FlushPendingSplits("CreateMergeBranch:" + branchType, 0u, 0u, stoppedRecorder);
+
             // 1. Build parent recording ID list
             var parentIds = new List<string>();
             parentIds.Add(activeParentRecordingId);
@@ -1693,30 +1725,70 @@ namespace Parsek
         /// <summary>
         /// Emits a split the crash coalescer is still holding, before the active recording
         /// stops being active (its vessel goes to the background recorder on a focus
-        /// change). <see cref="ProcessBreakupEvent"/> attaches the branch point to
-        /// <c>activeTree.ActiveRecordingId</c>, which a focus change clears, so a split
-        /// emitted after the hand-off would be dropped and the new vessel would get no
-        /// child recording. Emitting it early only shortens the coalescing window.
+        /// change), through <see cref="FlushPendingSplits"/>. <see cref="ProcessBreakupEvent"/>
+        /// attaches the branch point to <c>activeTree.ActiveRecordingId</c>, which a focus
+        /// change clears, so a split emitted after the hand-off would be dropped and the new
+        /// vessel would get no child recording.
         /// </summary>
         internal void EmitPendingSplitBeforeFocusLeaves(string reason)
         {
+            FlushPendingSplits("focus leaving the active recording, " + reason);
+        }
+
+        /// <summary>
+        /// Owner ruling 2026-11-18 ("never drop one"): writes every separation Parsek has seen
+        /// but not yet branched into the tree NOW, before the live recording changes (every
+        /// recorder start), the tree is saved, or the scene ends. First feeds decouple children
+        /// captured since the last split check that no deferred check will process
+        /// (<see cref="ParsekFlight.FeedUnprocessedDecoupleCapturesToCoalescer"/>), then emits
+        /// the crash coalescer's open window early: what it already collected still becomes ONE
+        /// branch point, only the 0.5 s window is cut short. The branch point attaches to the
+        /// tree's active recording, so every caller flushes BEFORE it changes that recording
+        /// (pinned by <c>PendingSplitFlushWiringTests</c>). <paramref name="excludePidA"/> / <paramref name="excludePidB"/>
+        /// name the vessels of the split the caller is about to branch (they get their own
+        /// branch); <paramref name="parentRecorderHint"/> is the stopped recorder of the
+        /// parent when the caller already took it off the host. Returns true when a branch
+        /// point was emitted.
+        /// </summary>
+        internal bool FlushPendingSplits(
+            string reason,
+            uint excludePidA = 0u,
+            uint excludePidB = 0u,
+            FlightRecorder parentRecorderHint = null)
+        {
+            int fed = host.FeedUnprocessedDecoupleCapturesToCoalescer(
+                reason, excludePidA, excludePidB, parentRecorderHint);
+            bool emitted = EmitPendingSplitNow(reason, parentRecorderHint);
+            if (fed > 0 || emitted)
+            {
+                ParsekLog.Info("Coalescer",
+                    $"Pending splits flushed ({reason}): fedDecoupleCaptures={fed} emitted={emitted}");
+            }
+            return emitted;
+        }
+
+        /// <summary>
+        /// Emits the coalescer's open window before it expires and processes it. False when
+        /// nothing is pending.
+        /// </summary>
+        internal bool EmitPendingSplitNow(string reason, FlightRecorder parentRecorderHint)
+        {
             if (host.crashCoalescer == null || !host.crashCoalescer.HasPendingBreakup)
-                return;
-            if (host.activeTree == null || string.IsNullOrEmpty(host.activeTree.ActiveRecordingId))
-                return;
+                return false;
 
             double windowStartUT = host.crashCoalescer.WindowStartUT;
             var breakupBp = host.crashCoalescer.EmitNow();
             if (breakupBp == null)
-                return;
+                return false;
 
             ParsekLog.Info("Coalescer",
-                $"Coalescer emitted split branch point early (focus leaving the active recording, {reason}): " +
+                $"Coalescer emitted split branch point early ({reason}): " +
                 $"ut={breakupBp.UT.ToString("F2", CultureInfo.InvariantCulture)}, type={breakupBp.Type}, " +
                 $"cause={breakupBp.BreakupCause ?? breakupBp.SplitCause ?? "?"}, debris={breakupBp.DebrisCount}, " +
                 $"windowAgeSeconds={(Planetarium.GetUniversalTime() - windowStartUT).ToString("F2", CultureInfo.InvariantCulture)}");
 
-            ProcessBreakupEvent(breakupBp);
+            ProcessBreakupEvent(breakupBp, parentRecorderHint);
+            return true;
         }
 
         internal static string DescribeBreakupChildSeedPose(
@@ -1887,6 +1959,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Which recorder wrote a breakup's parent recording (see <see cref="SelectBreakupParentRecorder"/>).
+        /// </summary>
+        internal enum BreakupParentRecorderChoice
+        {
+            None = 0,
+            Hint = 1,
+            Live = 2,
+            Parked = 3,
+        }
+
+        /// <summary>
+        /// Pure: the recorder whose state (engines, buffered samples) seeds a breakup's
+        /// children. The caller's hint (the parent's recorder a split or merge already took off
+        /// the host) when it records the parent's vessel; else the live recorder (the ordinary
+        /// case, VN8 included); else the parked split recorder when it records the parent's
+        /// vessel. An unknown parent vessel (pid 0) accepts any. None when no recorder exists.
+        /// </summary>
+        internal static BreakupParentRecorderChoice SelectBreakupParentRecorder(
+            uint parentVesselPid,
+            uint hintVesselPid, bool hasHint,
+            uint liveVesselPid, bool hasLive,
+            uint parkedVesselPid, bool hasParked)
+        {
+            if (hasHint && (parentVesselPid == 0u || hintVesselPid == parentVesselPid))
+                return BreakupParentRecorderChoice.Hint;
+            if (hasLive)
+                return BreakupParentRecorderChoice.Live;
+            if (hasParked && (parentVesselPid == 0u || parkedVesselPid == parentVesselPid))
+                return BreakupParentRecorderChoice.Parked;
+            return BreakupParentRecorderChoice.None;
+        }
+
+        /// <summary>
         /// The active tree's active recording a breakup attaches to. False (logged) when
         /// there is no active tree, it has no active recording id, or the id is not in it.
         /// </summary>
@@ -1930,13 +2035,33 @@ namespace Parsek
         /// creates child recordings for debris and controlled vessels.
         /// If no active tree exists, the breakup is not recorded.
         /// </summary>
-        internal void ProcessBreakupEvent(BranchPoint breakupBp)
+        internal void ProcessBreakupEvent(BranchPoint breakupBp, FlightRecorder parentRecorderHint = null)
         {
             if (!TryResolveBreakupActiveRecording(
                     host.activeTree, breakupBp, out string activeRecId, out Recording activeRec))
                 return;
 
             ParsekFlight.WireBreakupIntoTree(host.activeTree, activeRecId, activeRec, breakupBp);
+
+            // The recorder that wrote the parent recording: the live one in the ordinary case,
+            // else the caller's stopped recorder or the recorder a deferred split parked (a
+            // flush before a split / merge branch runs while the live recorder is parked).
+            var recorderChoice = SelectBreakupParentRecorder(
+                activeRec.VesselPersistentId,
+                parentRecorderHint != null ? parentRecorderHint.RecordingVesselId : 0u,
+                parentRecorderHint != null,
+                host.recorder != null ? host.recorder.RecordingVesselId : 0u,
+                host.recorder != null,
+                host.pendingSplitRecorder != null ? host.pendingSplitRecorder.RecordingVesselId : 0u,
+                host.pendingSplitRecorder != null);
+            FlightRecorder parentRecorder =
+                recorderChoice == BreakupParentRecorderChoice.Hint ? parentRecorderHint
+                : recorderChoice == BreakupParentRecorderChoice.Live ? host.recorder
+                : recorderChoice == BreakupParentRecorderChoice.Parked ? host.pendingSplitRecorder
+                : null;
+            ParsekLog.Verbose("Coalescer",
+                $"ProcessBreakupEvent: parent recorder={recorderChoice} parentRec={activeRecId} " +
+                $"parentVesselPid={activeRec.VesselPersistentId}");
 
             // Refresh the vessel snapshot to reflect post-breakup state.
             // The recording continues past breakup (breakup-continuous design), so the
@@ -1954,7 +2079,7 @@ namespace Parsek
             // before the hand-off to the background recorder (EmitPendingSplitBeforeFocusLeaves).
             Vessel activeVessel = FlightGlobals.ActiveVessel;
             uint parentVesselPid = ParsekFlight.ResolveBreakupParentVesselPid(
-                host.recorder != null ? host.recorder.RecordingVesselId : 0u,
+                parentRecorder != null ? parentRecorder.RecordingVesselId : 0u,
                 activeVessel != null ? activeVessel.persistentId : 0u);
             Vessel parentVessel = activeVessel != null && activeVessel.persistentId == parentVesselPid
                 ? activeVessel
@@ -1971,14 +2096,14 @@ namespace Parsek
 
             // Bug #298: snapshot active recorder's engine/RCS state for child recordings.
             // The recorder is still running (breakup-continuous design), so its state is live.
-            InheritedEngineState? breakupEngineState = host.recorder != null
-                ? InheritedEngineState.FromRecorder(host.recorder) : null;
+            InheritedEngineState? breakupEngineState = parentRecorder != null
+                ? InheritedEngineState.FromRecorder(parentRecorder) : null;
 
             TrajectoryPoint? focusedParentSeedAnchorPoint = null;
-            if (host.recorder != null
-                && !host.recorder.CurrentTrackSectionUsesRelativeFrame
+            if (parentRecorder != null
+                && !parentRecorder.CurrentTrackSectionUsesRelativeFrame
                 && FlightRecorder.TryFindStructuralEventSnapshotPointForUT(
-                    host.recorder?.Recording,
+                    parentRecorder.Recording,
                     breakupBp.UT,
                     out TrajectoryPoint parentSeedAnchorPoint))
             {
@@ -1993,8 +2118,8 @@ namespace Parsek
                 ParsekLog.Verbose("Coalescer",
                     $"ProcessBreakupEvent: focused parent seed anchor point unavailable: " +
                     $"parentRec={activeRecId} breakupUT={breakupBp.UT.ToString("F3", CultureInfo.InvariantCulture)} " +
-                    $"recorderPoints={host.recorder?.Recording?.Count ?? 0} " +
-                    $"currentSectionRelative={host.recorder?.CurrentTrackSectionUsesRelativeFrame ?? false}");
+                    $"recorderPoints={parentRecorder?.Recording?.Count ?? 0} " +
+                    $"currentSectionRelative={parentRecorder?.CurrentTrackSectionUsesRelativeFrame ?? false}");
             }
 
             // Create child recording segments for controlled children (vessels with probe
@@ -2878,6 +3003,7 @@ namespace Parsek
             host.backgroundRecorder?.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
 
             uint undockedPartPid = undockedPart.persistentId;
+            pendingUndockPartPid = undockedPartPid;
             uint undockedRootPartPid = undockedPart.vessel.rootPart?.persistentId ?? 0u;
             if (ParsekFlight.ShouldUseUndockPartOriginSeed(undockedPartPid, undockedRootPartPid)
                 && FlightRecorder.TryCreateAbsoluteTrajectoryPointFromPartOrigin(
@@ -2935,6 +3061,7 @@ namespace Parsek
 
             // Snapshot + clear the pre-split seed stashed by OnPartUndock this same frame.
             TrajectoryPoint? undockRootPartSeed = pendingUndockRootPartSeed;
+            uint undockPartPid = pendingUndockPartPid;
             ClearPendingUndockSeed();
 
             // A vehicle and a kerbal at the end is an EVA, never an Undock (owner ruling
@@ -2948,16 +3075,30 @@ namespace Parsek
                 return;
             }
 
-            if (host.recorder == null || !host.recorder.IsRecording)
-            {
-                ParsekLog.Verbose("Flight",
-                    "OnVesselsUndocking: not recording, ignoring");
-                return;
-            }
+            // A split already parked the recorder (a second undock in the same frame: one
+            // action group releasing two docked satellites, or a decoupler and a docking port).
+            // Checked before the not-recording guard, because the parked split nulled the live
+            // recorder: the leaving vessel joins the coalescing window under the parent, which
+            // the pending split's branch flushes first (owner ruling 2026-11-18).
             if (host.pendingSplitInProgress)
             {
+                if (!TryFeedConcurrentUndockToCoalescer(oldVessel, newVessel, undockRootPartSeed))
+                {
+                    ParsekLog.Verbose("Flight",
+                        "OnVesselsUndocking: another split is already being processed and this undock " +
+                        "does not involve its recorded vessel, ignoring");
+                }
+                return;
+            }
+            if (host.recorder == null || !host.recorder.IsRecording)
+            {
+                // A ] switch to a vessel Parsek is not recording yet arms the post-switch watch;
+                // an undock of the watched vessel starts its recording with both halves.
+                if (host.PostSwitchAutoRecorder.TryCapturePostSwitchStructuralSplit(
+                        oldVessel, newVessel, "UNDOCK", "OnVesselsUndocking", undockRootPartSeed))
+                    return;
                 ParsekLog.Verbose("Flight",
-                    "OnVesselsUndocking: another split is already being processed, ignoring");
+                    "OnVesselsUndocking: not recording, ignoring");
                 return;
             }
             if (oldVessel == null || newVessel == null)
@@ -3021,12 +3162,78 @@ namespace Parsek
             host.pendingSplitInProgress = true;
             host.Log($"onVesselsUndocking: vessel split off (recordedPid={recordedPid}, " +
                 $"oldPid={oldPid}, newPid={newPid}); starting deferred Undock branch");
-            host.StartCoroutine(host.DeferredUndockBranch(oldPid, newPid, undockRootPartSeed));
+            host.StartCoroutine(host.DeferredUndockBranch(oldPid, newPid, undockRootPartSeed, undockPartPid));
+        }
+
+        /// <summary>
+        /// Pure: the vessel a same-frame second undock separates from the parked split
+        /// recorder's vessel (<paramref name="parkedRecordedPid"/>), or 0 when the undock does
+        /// not involve that vessel. The recorded vessel is KSP's <c>oldVessel</c> (it keeps its
+        /// pid across an undock), so the leaving vessel is the new one.
+        /// </summary>
+        internal static uint ResolveConcurrentUndockChildPid(uint parkedRecordedPid, uint oldPid, uint newPid)
+        {
+            return SegmentBoundaryLogic.ClassifyUndockSplit(parkedRecordedPid, oldPid, newPid)
+                == UndockSplitDecision.SplitRecordedStaysActive
+                ? newPid
+                : 0u;
+        }
+
+        /// <summary>
+        /// A second undock while a split already parked the recorder: feeds the leaving vessel
+        /// to the crash coalescer as an UNDOCK separation of the parent (the tree's active
+        /// recording until the pending split branches), with its split-time snapshot and
+        /// pose. The pending split's branch (or the coalescer tick) emits it, so the vessel
+        /// gets its own recording instead of being dropped. False when the undock does not
+        /// involve the parked recorder's vessel.
+        /// </summary>
+        private bool TryFeedConcurrentUndockToCoalescer(
+            Vessel oldVessel, Vessel newVessel, TrajectoryPoint? undockRootPartSeed)
+        {
+            FlightRecorder parked = host.pendingSplitRecorder;
+            uint parkedPid = parked != null ? parked.RecordingVesselId : 0u;
+            uint childPid = ResolveConcurrentUndockChildPid(
+                parkedPid,
+                oldVessel != null ? oldVessel.persistentId : 0u,
+                newVessel != null ? newVessel.persistentId : 0u);
+            if (childPid == 0u || host.crashCoalescer == null || host.activeTree == null)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselsUndocking: concurrent undock not fed (parkedPid={parkedPid} " +
+                    $"oldPid={oldVessel?.persistentId ?? 0u} newPid={newVessel?.persistentId ?? 0u} " +
+                    $"childPid={childPid} tree={(host.activeTree != null)})");
+                return false;
+            }
+
+            Vessel child = newVessel;
+            double ut = Planetarium.GetUniversalTime();
+            ConfigNode preSnapshot = FlightRecorder.TryBackupSnapshot(child);
+            TrajectoryPoint? prePoint = undockRootPartSeed
+                ?? BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                    child, ut, preferRootPartSurfacePose: true);
+            bool hasController = ParsekFlight.ShouldRecordAsOwnBranch(child);
+            // The deferred joint-break scan of an in-flight check would see the leaving vessel
+            // as a new vessel of ITS break and feed it a second time: mark it as accounted for.
+            host.preBreakVesselPids?.Add(childPid);
+            ParsekLog.Info("Coalescer",
+                $"OnVesselsUndocking: second undock while a split is pending - feeding the leaving vessel " +
+                $"to the coalescer: childPid={childPid} name='{child.vesselName}' hasController={hasController} " +
+                $"parkedPid={parkedPid} parentRec={host.activeTree.ActiveRecordingId ?? "(none)"} " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} preSnapshot={preSnapshot != null} " +
+                $"seed={(undockRootPartSeed.HasValue ? "part-origin" : "live-sample")}");
+            host.crashCoalescer.OnSplitEvent(
+                ut, childPid, hasController,
+                splitCause: "UNDOCK",
+                preSnapshot: preSnapshot,
+                preTrajectoryPoint: prePoint);
+            parked?.RegisterHighFidelityProximityVessel(childPid, ut, "split-child-proximity");
+            return true;
         }
 
         private void ClearPendingUndockSeed()
         {
             pendingUndockRootPartSeed = null;
+            pendingUndockPartPid = 0u;
         }
 
         /// <summary>
@@ -3352,6 +3559,7 @@ namespace Parsek
             host.pendingSplitRecorder = host.recorder;
             host.recorder = null;
             host.pendingSplitInProgress = true;
+            host.deferredJointBreakCheckInFlight = true;
 
             if (trigger == ParsekFlight.DeferredSplitCheckTrigger.JointBreak)
                 host.Log("Joint break detected \u2014 starting deferred vessel split check");

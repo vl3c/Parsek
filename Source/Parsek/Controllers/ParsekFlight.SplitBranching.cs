@@ -680,7 +680,12 @@ namespace Parsek
                 UT = branchUT,
                 Type = branchType,
                 ParentRecordingIds = new List<string> { parentRecordingId },
-                ChildRecordingIds = new List<string> { activeChildId, backgroundChildId }
+                ChildRecordingIds = new List<string> { activeChildId, backgroundChildId },
+                // A docking-port undock carries the same cause the background recorder and the
+                // coalescer (pre-attached port) write, so every Undock reads alike in the
+                // Missions view and the saved tree. CreateSplitBranch stamps the undocked port's
+                // part id as DecouplerPartId (this factory has no part to name).
+                SplitCause = ForegroundSplitCauseFor(branchType)
             };
 
             // activeChild continues the same logical vessel — keep parent generation.
@@ -725,6 +730,16 @@ namespace Parsek
             }
 
             return (bp, activeChild, backgroundChild);
+        }
+
+        /// <summary>
+        /// Pure: the <see cref="BranchPoint.SplitCause"/> a focused split branch point of
+        /// <paramref name="branchType"/> carries: "UNDOCK" for an Undock (matching the background
+        /// recorder's undock), null for every other type (an EVA reads by its type).
+        /// </summary>
+        internal static string ForegroundSplitCauseFor(BranchPointType branchType)
+        {
+            return branchType == BranchPointType.Undock ? "UNDOCK" : null;
         }
 
         internal static SegmentEnvironment? GetEvaBackgroundInitialEnvironmentOverride(
@@ -1467,10 +1482,33 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Pure: true when an undock whose background half is debris must still branch because
+        /// resuming would record under the wrong vessel: focus moved to the NEW vessel (the
+        /// departing half) and the half left behind is the vessel the recorder was recording.
+        /// <c>ResumeAfterFalseAlarm</c> binds to the active vessel, while the tree recording keeps
+        /// the recorded vessel's pid, so the departing vessel's flight would be written into the
+        /// left-behind vessel's recording. The decoupler twin of this case resumes on the recorded
+        /// vessel and hands focus over (VN8); an undock has its own branch type, so it branches.
+        /// </summary>
+        internal static bool ShouldBranchUndockWhenFocusLeftTheRecordedDebrisHalf(
+            uint recordedPid,
+            uint backgroundPid,
+            uint activePid,
+            uint newVesselPid)
+        {
+            return recordedPid != 0u
+                && backgroundPid == recordedPid
+                && activePid != 0u
+                && activePid == newVesselPid
+                && activePid != recordedPid;
+        }
+
         internal IEnumerator DeferredUndockBranch(
             uint oldVesselPid,
             uint newVesselPid,
-            TrajectoryPoint? backgroundInitialTrajectoryPoint = null)
+            TrajectoryPoint? backgroundInitialTrajectoryPoint = null,
+            uint undockedPartPid = 0u)
         {
             yield return null; // defer one frame for KSP to finalize the split
 
@@ -1526,7 +1564,23 @@ namespace Parsek
 
                 // Debris filter: a crewed vessel with no command module still gets its own
                 // branch (ShouldRecordAsOwnBranch); only crewless commandless halves are debris.
-                if (!ShouldRecordAsOwnBranch(backgroundVessel))
+                // When focus moved to the departing half and the debris half is the vessel the
+                // recorder was recording (a crewed tug leaving a probe-less depot that kept the
+                // root part), resuming would rebind the recorder to the focused vessel while the
+                // tree recording keeps the depot's pid: branch instead, so each half is recorded
+                // under its own vessel (todo UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL).
+                bool backgroundIsOwnBranch = ShouldRecordAsOwnBranch(backgroundVessel);
+                uint recordedPid = pendingSplitRecorder.RecordingVesselId;
+                if (!backgroundIsOwnBranch
+                    && ShouldBranchUndockWhenFocusLeftTheRecordedDebrisHalf(
+                        recordedPid, backgroundPid, activePid, newVesselPid))
+                {
+                    ParsekLog.Info("Flight",
+                        $"DeferredUndockBranch: focus moved to the departing vessel pid={activePid} and the " +
+                        $"half left behind (pid={backgroundPid}) is the recorded vessel; branching instead of " +
+                        $"resuming on the focused vessel (recordedPid={recordedPid})");
+                }
+                else if (!backgroundIsOwnBranch)
                 {
                     ParsekLog.Verbose("Flight",
                         $"DeferredUndockBranch: vessel pid={backgroundPid} is not trackable (debris), resuming recording " +
@@ -1541,7 +1595,8 @@ namespace Parsek
                     activeVessel,
                     backgroundVessel,
                     branchUT,
-                    backgroundInitialTrajectoryPoint: backgroundInitialTrajectoryPoint);
+                    backgroundInitialTrajectoryPoint: backgroundInitialTrajectoryPoint,
+                    undockedPartPid: undockedPartPid);
             }
             finally
             {
@@ -1872,74 +1927,9 @@ namespace Parsek
                     foreach (var newPid in newVesselPids)
                     {
                         bool hasController = newVesselHasController.ContainsKey(newPid) && newVesselHasController[newPid];
-
-                        // Pre-capture snapshot while the vessel is still alive (#157).
-                        // By coalescer emission time (0.5s later), debris may be destroyed.
-                        ConfigNode preSnapshot = null;
-                        TrajectoryPoint? preTrajectoryPoint = null;
-                        string trajectoryPointSource = "none";
-                        Vessel childVessel = FlightRecorder.FindVesselByPid(newPid);
-                        if (childVessel != null)
-                            preSnapshot = FlightRecorder.TryBackupSnapshot(childVessel);
-                        TrajectoryPoint capturedPoint = default;
-                        bool hasCapturedPoint = decoupleCreatedTrajectoryPoints != null
-                            && decoupleCreatedTrajectoryPoints.TryGetValue(newPid, out capturedPoint);
-                        if (hasCapturedPoint)
-                        {
-                            preTrajectoryPoint = capturedPoint;
-                            trajectoryPointSource = "decouple-callback";
-                        }
-                        else if (childVessel != null)
-                        {
-                            preTrajectoryPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
-                                childVessel, currentUT, preferRootPartSurfacePose: true);
-                            trajectoryPointSource = "deferred-live-sample";
-                        }
-                        else if (childVessel == null)
-                        {
-                            trajectoryPointSource = "destroyed-before-capture";
-                        }
-
-                        uint childRootPartPid = childVessel?.rootPart?.persistentId ?? 0u;
-                        string childSplitCause = ResolveForegroundSplitChildCause(
-                            newPid,
-                            decoupleControllerStatus,
-                            pendingDeferredSplitCheckTrigger,
-                            pendingSplitRecorder,
-                            childRootPartPid,
-                            out bool childWasDecoupleCreated,
-                            out bool triggerWasDecoupleOnly);
-                        // Best-available proxy for BranchPoint.DecouplerPartId: the separated
-                        // child's root part (the part that came off through the decoupler). KSP's
-                        // decouple callback does not hand us the parent-side decoupler module, and
-                        // this field has no behavioral consumer (serialized / logged only), so the
-                        // child root PID is informative without being load-bearing. 0 when unknown,
-                        // matching the background-recorder decouple path.
-                        uint childDecouplerPartId = childWasDecoupleCreated
-                            ? (childVessel?.rootPart?.persistentId ?? 0u)
-                            : 0u;
-
-                        ParsekLog.Info("Coalescer", FormatCoalescerSplitFeedLine(
-                            newPid,
-                            hasController,
-                            childSplitCause,
-                            childWasDecoupleCreated,
-                            triggerWasDecoupleOnly,
-                            childDecouplerPartId,
-                            preSnapshot,
-                            preTrajectoryPoint,
-                            trajectoryPointSource,
-                            branchUT));
-                        crashCoalescer.OnSplitEvent(
-                            branchUT, newPid, hasController,
-                            splitCause: childSplitCause,
-                            preSnapshot: preSnapshot,
-                            preTrajectoryPoint: preTrajectoryPoint,
-                            decouplerPartId: childDecouplerPartId);
-                        pendingSplitRecorder?.RegisterHighFidelityProximityVessel(
-                            newPid,
-                            branchUT,
-                            "split-child-proximity");
+                        FeedSplitChildToCoalescer(
+                            newPid, hasController, branchUT, currentUT,
+                            pendingSplitRecorder, pendingDeferredSplitCheckTrigger);
                     }
 
                     // Stock may already have moved focus to a vessel that came off (the
@@ -2013,6 +2003,7 @@ namespace Parsek
             finally
             {
                 pendingSplitInProgress = false;
+                deferredJointBreakCheckInFlight = false;
                 pendingSplitRecorder = null;
                 pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
                 pendingSplitTriggerUT = double.NaN;
@@ -2023,6 +2014,184 @@ namespace Parsek
                 decoupleCreatedTrajectoryPoints?.Clear();
                 decoupleOriginByNewPid.Clear();
             }
+        }
+
+        /// <summary>
+        /// Feeds one new vessel of a split to the crash coalescer: pre-captures its snapshot and
+        /// split-time trajectory point while it is still alive (#157), classifies its split cause
+        /// and adds it to the coalescing window of the tree's active recording (the recording the
+        /// split came off). Shared by the deferred joint-break check and the flush of decouple
+        /// captures no deferred check will process (owner ruling 2026-11-18, never drop one).
+        /// </summary>
+        internal void FeedSplitChildToCoalescer(
+            uint newPid,
+            bool hasController,
+            double branchUT,
+            double currentUT,
+            FlightRecorder splitRecorder,
+            DeferredSplitCheckTrigger trigger)
+        {
+            // Pre-capture snapshot while the vessel is still alive (#157).
+            // By coalescer emission time (0.5s later), debris may be destroyed.
+            ConfigNode preSnapshot = null;
+            TrajectoryPoint? preTrajectoryPoint = null;
+            string trajectoryPointSource = "none";
+            Vessel childVessel = FlightRecorder.FindVesselByPid(newPid);
+            if (childVessel != null)
+                preSnapshot = FlightRecorder.TryBackupSnapshot(childVessel);
+            TrajectoryPoint capturedPoint = default;
+            bool hasCapturedPoint = decoupleCreatedTrajectoryPoints != null
+                && decoupleCreatedTrajectoryPoints.TryGetValue(newPid, out capturedPoint);
+            if (hasCapturedPoint)
+            {
+                preTrajectoryPoint = capturedPoint;
+                trajectoryPointSource = "decouple-callback";
+            }
+            else if (childVessel != null)
+            {
+                preTrajectoryPoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                    childVessel, currentUT, preferRootPartSurfacePose: true);
+                trajectoryPointSource = "deferred-live-sample";
+            }
+            else if (childVessel == null)
+            {
+                trajectoryPointSource = "destroyed-before-capture";
+            }
+
+            uint childRootPartPid = childVessel?.rootPart?.persistentId ?? 0u;
+            string childSplitCause = ResolveForegroundSplitChildCause(
+                newPid,
+                decoupleControllerStatus,
+                trigger,
+                splitRecorder,
+                childRootPartPid,
+                out bool childWasDecoupleCreated,
+                out bool triggerWasDecoupleOnly);
+            // Best-available proxy for BranchPoint.DecouplerPartId: the separated
+            // child's root part (the part that came off through the decoupler). KSP's
+            // decouple callback does not hand us the parent-side decoupler module, and
+            // this field has no behavioral consumer (serialized / logged only), so the
+            // child root PID is informative without being load-bearing. 0 when unknown,
+            // matching the background-recorder decouple path.
+            uint childDecouplerPartId = childWasDecoupleCreated
+                ? (childVessel?.rootPart?.persistentId ?? 0u)
+                : 0u;
+
+            ParsekLog.Info("Coalescer", FormatCoalescerSplitFeedLine(
+                newPid,
+                hasController,
+                childSplitCause,
+                childWasDecoupleCreated,
+                triggerWasDecoupleOnly,
+                childDecouplerPartId,
+                preSnapshot,
+                preTrajectoryPoint,
+                trajectoryPointSource,
+                branchUT));
+            crashCoalescer.OnSplitEvent(
+                branchUT, newPid, hasController,
+                splitCause: childSplitCause,
+                preSnapshot: preSnapshot,
+                preTrajectoryPoint: preTrajectoryPoint,
+                decouplerPartId: childDecouplerPartId);
+            splitRecorder?.RegisterHighFidelityProximityVessel(
+                newPid,
+                branchUT,
+                "split-child-proximity");
+        }
+
+        /// <summary>
+        /// Pure: the synchronously captured decouple children (onPartDeCoupleNewVesselComplete)
+        /// that no deferred joint-break check will process and that a recorder start, a save or
+        /// a scene exit would otherwise clear unseen: every captured pid except the recorded
+        /// vessel, a vessel the tree already tracks in the background, and the vessels of the
+        /// split being created (<paramref name="excludePidA"/> / <paramref name="excludePidB"/>).
+        /// Empty while a deferred joint-break check is in flight (it owns the captures) or when
+        /// the recorded vessel is unknown. Sorted, so the feed order is stable.
+        /// </summary>
+        internal static List<uint> SelectUnprocessedDecoupleCaptures(
+            uint recordedPid,
+            IReadOnlyDictionary<uint, bool> decoupleControllerStatus,
+            IReadOnlyDictionary<uint, string> backgroundMap,
+            bool deferredJointBreakCheckInFlight,
+            uint excludePidA,
+            uint excludePidB)
+        {
+            var result = new List<uint>();
+            if (deferredJointBreakCheckInFlight || recordedPid == 0u
+                || decoupleControllerStatus == null || decoupleControllerStatus.Count == 0)
+                return result;
+
+            foreach (var kvp in decoupleControllerStatus)
+            {
+                uint pid = kvp.Key;
+                if (pid == 0u || pid == recordedPid) continue;
+                if (pid == excludePidA || pid == excludePidB) continue;
+                if (backgroundMap != null && backgroundMap.ContainsKey(pid)) continue;
+                result.Add(pid);
+            }
+            result.Sort();
+            return result;
+        }
+
+        /// <summary>
+        /// Feeds decouple children captured since the last split check, which nothing else will
+        /// process, to the crash coalescer under the live recording (owner ruling 2026-11-18:
+        /// every separated vessel gets its own recording). A decoupler and a docking port fired
+        /// in one frame reach here: the undock owns the frame's split and the decouple's
+        /// captured booster used to be cleared by the next recorder start. Clears the capture
+        /// collections afterwards so no later path feeds them again. Returns how many vessels
+        /// were fed.
+        /// </summary>
+        internal int FeedUnprocessedDecoupleCapturesToCoalescer(
+            string reason,
+            uint excludePidA,
+            uint excludePidB,
+            FlightRecorder parentRecorderHint)
+        {
+            int captured = decoupleControllerStatus?.Count ?? 0;
+            if (captured == 0 || crashCoalescer == null)
+                return 0;
+
+            FlightRecorder splitRecorder = parentRecorderHint ?? recorder ?? pendingSplitRecorder;
+            uint recordedPid = splitRecorder != null ? splitRecorder.RecordingVesselId : 0u;
+            List<uint> pids = SelectUnprocessedDecoupleCaptures(
+                recordedPid,
+                decoupleControllerStatus,
+                activeTree?.BackgroundMap,
+                deferredJointBreakCheckInFlight,
+                excludePidA,
+                excludePidB);
+            if (pids.Count == 0)
+            {
+                ParsekLog.Verbose("Coalescer",
+                    $"Unprocessed decouple captures: none to feed ({reason}): captured={captured} " +
+                    $"recordedPid={recordedPid} deferredCheckInFlight={deferredJointBreakCheckInFlight}");
+                return 0;
+            }
+
+            double currentUT = Planetarium.GetUniversalTime();
+            double branchUT = ResolveDeferredSplitBranchUT(
+                currentUT, double.NaN, pids, decoupleCreatedTrajectoryPoints);
+            ParsekLog.Info("Coalescer",
+                $"Feeding {pids.Count} unprocessed decouple capture(s) to coalescer ({reason}): " +
+                $"recordedPid={recordedPid} parentRec={activeTree?.ActiveRecordingId ?? "(none)"} " +
+                $"branchUT={branchUT.ToString("F2", CultureInfo.InvariantCulture)} pids=[{string.Join(",", pids)}]");
+            for (int i = 0; i < pids.Count; i++)
+            {
+                uint pid = pids[i];
+                bool hasController = decoupleControllerStatus.TryGetValue(pid, out bool c) && c;
+                FeedSplitChildToCoalescer(
+                    pid, hasController, branchUT, currentUT,
+                    splitRecorder, DeferredSplitCheckTrigger.DecoupleCreatedVessel);
+            }
+
+            decoupleCreatedVessels?.Clear();
+            decoupleControllerStatus.Clear();
+            decoupleCreatedTrajectoryPoints?.Clear();
+            if (pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel)
+                pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
+            return pids.Count;
         }
 
         /// <summary>
@@ -2413,7 +2582,44 @@ namespace Parsek
         {
             breakupBp.ParentRecordingIds.Add(activeRecId);
             tree.BranchPoints.Add(breakupBp);
+            if (ShouldKeepLaterChildBranchLink(tree, activeRec, breakupBp, out double laterUT))
+            {
+                ParsekLog.Info("Coalescer",
+                    $"WireBreakupIntoTree: parent '{activeRecId}' keeps its later child branch " +
+                    $"'{activeRec.ChildBranchPointId}' (ut={laterUT.ToString("F2", CultureInfo.InvariantCulture)}); " +
+                    $"breakup bp={breakupBp.Id} at ut={breakupBp.UT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    "is linked through its parent list only");
+                return;
+            }
             activeRec.ChildBranchPointId = breakupBp.Id;
+        }
+
+        /// <summary>
+        /// Pure: true when <paramref name="parentRec"/> already links a child branch point of this
+        /// tree that sits LATER than <paramref name="breakupBp"/>. A pending split flushed after
+        /// the recording already ended at a later branch (the switch-continuation segment bind
+        /// flushes under the prior recording after the segment's branch point exists) must not
+        /// re-point the link: the later branch is where the recording ends.
+        /// </summary>
+        internal static bool ShouldKeepLaterChildBranchLink(
+            RecordingTree tree, Recording parentRec, BranchPoint breakupBp, out double laterUT)
+        {
+            laterUT = double.NaN;
+            if (tree == null || parentRec == null || breakupBp == null)
+                return false;
+            string existing = parentRec.ChildBranchPointId;
+            if (string.IsNullOrEmpty(existing) || string.Equals(existing, breakupBp.Id, StringComparison.Ordinal))
+                return false;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                BranchPoint bp = tree.BranchPoints[i];
+                if (bp != null && string.Equals(bp.Id, existing, StringComparison.Ordinal))
+                {
+                    laterUT = bp.UT;
+                    return bp.UT > breakupBp.UT;
+                }
+            }
+            return false;
         }
     }
 }

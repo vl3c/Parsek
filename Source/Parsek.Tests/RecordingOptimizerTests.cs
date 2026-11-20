@@ -765,7 +765,7 @@ namespace Parsek.Tests
             var tip = MakeChainSegment("chain1", 1);
             tip.RecordingId = "tip_id";
 
-            Assert.False(RecordingOptimizer.CanAutoMerge(head, tip));
+            Assert.False(RecordingOptimizer.CanAutoMerge(head, tip, CommittedListOptimizer.CollectLiveReFlyMergeHeldIds()));
             Assert.Contains(logLines, l => l.Contains("[Optimizer]")
                 && l.Contains("rejecting merge of 'head_id' + 'tip_id'")
                 && l.Contains("Re-Fly merge not finished"));
@@ -775,14 +775,14 @@ namespace Parsek.Tests
             forkA.RecordingId = "fork_id";
             var forkB = MakeChainSegment("chain2", 1);
             forkB.RecordingId = "fork_tail_id";
-            Assert.False(RecordingOptimizer.CanAutoMerge(forkA, forkB));
+            Assert.False(RecordingOptimizer.CanAutoMerge(forkA, forkB, CommittedListOptimizer.CollectLiveReFlyMergeHeldIds()));
             scenario.ActiveMergeJournal = null;
-            Assert.True(RecordingOptimizer.CanAutoMerge(forkA, forkB));
+            Assert.True(RecordingOptimizer.CanAutoMerge(forkA, forkB, CommittedListOptimizer.CollectLiveReFlyMergeHeldIds()));
             // The marker alone still protects its supersede target.
-            Assert.False(RecordingOptimizer.CanAutoMerge(head, tip));
+            Assert.False(RecordingOptimizer.CanAutoMerge(head, tip, CommittedListOptimizer.CollectLiveReFlyMergeHeldIds()));
 
             scenario.ActiveReFlySessionMarker = null;
-            Assert.True(RecordingOptimizer.CanAutoMerge(head, tip));
+            Assert.True(RecordingOptimizer.CanAutoMerge(head, tip, CommittedListOptimizer.CollectLiveReFlyMergeHeldIds()));
         }
 
         [Fact]

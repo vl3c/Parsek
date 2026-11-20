@@ -381,6 +381,15 @@ namespace Parsek
             if (activeTree == null || activeVessel == null || string.IsNullOrEmpty(recordingId))
                 return false;
 
+            // Never drop one (owner ruling 2026-11-18): an open coalescing window branches off
+            // the active recording before the recorder start resets it.
+            SplitBrancher.FlushPendingSplits("ResumeCommittedActiveRecording", activeVessel.persistentId);
+
+            Recording resumedRec;
+            if (activeTree.Recordings != null
+                && activeTree.Recordings.TryGetValue(recordingId, out resumedRec))
+                ClearFlushedDestructionFlagForResume(resumedRec, "ResumeCommittedActiveRecording");
+
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
             recorder.StartRecording(isPromotion: true);
@@ -622,6 +631,11 @@ namespace Parsek
             uint oldPid = activeRec.VesselPersistentId;
             uint newPid = matched.persistentId;
             RemapRestoredRecordingPid(tree, activeRec, activeRecId, oldPid, newPid, targetName);
+
+            // Never drop one (owner ruling 2026-11-18): an open coalescing window branches off
+            // the tree it belongs to before the restored tree replaces it and the recorder
+            // start resets the window.
+            SplitBrancher.FlushPendingSplits("RestoreActiveTreeFromPending");
 
             // Pop the tree out of pending-Limbo (non-destructive — preserves sidecar files)
             // and re-install as the live active tree.

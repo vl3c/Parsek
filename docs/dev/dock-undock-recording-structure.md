@@ -140,6 +140,7 @@ In the 2026-05-18 playtest, the undock didn't actually split the recording (we'l
 
 - The merged parent `Recording C` gets `ExplicitEndUT = undockUT` and `ChildBranchPointId = BP'.Id`. Its `TerminalStateValue` is left untouched (Docked / Recovered / etc. are merge-specific; undock just ends the merge).
 - Two new children are created. The recorder follows the active vessel into `Recording D`; the other half goes into the background recorder as `Recording E`.
+- A half with no command part and no crew is debris and gets no child: the recorder resumes on the merged recording. The one exception is a debris half that is the RECORDED vessel while focus moved to the departing half (a crewed tug leaving a probe-less depot that kept the root part): resuming would bind the recorder to the focused tug while the recording keeps the depot's pid, so `DeferredUndockBranch` branches instead (`ShouldBranchUndockWhenFocusLeftTheRecordedDebrisHalf`), the tug active and the depot in the background (todo UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL).
 - The `BranchPoint`'s `SplitCause = "UNDOCK"`, `DecouplerPartId = undockedPart.persistentId`.
 - The route window's `UndockUT` is written on `Recording C` (the parent) via `TryCompleteLatestRouteConnectionWindow`. See §6.4.
 

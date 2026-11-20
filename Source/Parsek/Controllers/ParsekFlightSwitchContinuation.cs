@@ -1357,6 +1357,27 @@ namespace Parsek
                 return false;
             }
 
+            // Never drop one (owner ruling 2026-11-18): branch what is pending off the prior
+            // recording before the new segment's recorder starts. CreateSwitchContinuationSegment
+            // already advanced tree.ActiveRecordingId to the new segment, so the flush runs
+            // under the same synchronous swap-back as the recorder flush below (the window's
+            // separations came off the prior recording, never off the new segment).
+            string activeIdBeforeSplitFlush = host.activeTree.ActiveRecordingId;
+            bool swapForSplitFlush = !string.IsNullOrEmpty(priorActiveRecordingId)
+                && !string.Equals(priorActiveRecordingId, activeIdBeforeSplitFlush, StringComparison.Ordinal);
+            try
+            {
+                if (swapForSplitFlush)
+                    host.activeTree.ActiveRecordingId = priorActiveRecordingId;
+                host.SplitBrancher.FlushPendingSplits(
+                    "BindLiveRecorderToSwitchSegment:" + routeTag, newVessel.persistentId);
+            }
+            finally
+            {
+                if (swapForSplitFlush)
+                    host.activeTree.ActiveRecordingId = activeIdBeforeSplitFlush;
+            }
+
             // If a prior recorder is live and bound to a different recording
             // (e.g. OnFlightReady's TryRestoreCommittedTreeForSpawnedActiveVessel
             // bound it to the parent leaf), flush it into the prior recording

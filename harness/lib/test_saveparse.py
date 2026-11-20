@@ -5059,6 +5059,84 @@ class EvaluateSaveStructureTests(unittest.TestCase):
         self.assertEqual(1, len(r.armed_mismatches))
 
 
+class RewindPointFileFacetTests(unittest.TestCase):
+    """The rewind block's two FILE facets: the `Parsek/RewindPoints/*.sfs`
+    listing the I/O shell reads beside the save, and the files of it no
+    REWIND_POINTS POINT lists (STR-3: a reverted flight's point and its
+    quicksave must both be gone)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.snap = saveparse.parse_parsek_scenario(B9_MERGED_SFS)  # lists rp_b9_root
+
+    def test_unmeasured_listing_leaves_the_facets_absent(self):
+        obs = saveparse.observed_structure_facets(self.snap)
+        self.assertNotIn("rewindPointFiles", obs["rewind"])
+        self.assertNotIn("unlistedRewindPointFiles", obs["rewind"])
+        self.assertEqual((), saveparse.unlisted_rewind_point_files(self.snap))
+
+    def test_listed_and_unlisted_files_are_counted(self):
+        snap = saveparse.with_rewind_point_files(
+            self.snap, ["rp_b9_root.sfs", "rp_gone.sfs", "notes.txt", "Parsek_TempRP_x.loadmeta"])
+        self.assertEqual(("rp_b9_root.sfs", "rp_gone.sfs"), snap.rewind_point_files)
+        self.assertEqual(("rp_gone.sfs",), saveparse.unlisted_rewind_point_files(snap))
+        obs = saveparse.observed_structure_facets(snap)
+        self.assertEqual(2, obs["rewind"]["rewindPointFiles"])
+        self.assertEqual(1, obs["rewind"]["unlistedRewindPointFiles"])
+
+    def test_empty_listing_is_a_measured_zero(self):
+        snap = saveparse.with_rewind_point_files(self.snap, [])
+        obs = saveparse.observed_structure_facets(snap)
+        self.assertEqual(0, obs["rewind"]["rewindPointFiles"])
+        self.assertEqual(0, obs["rewind"]["unlistedRewindPointFiles"])
+
+    def test_quicksave_filename_base_name_also_lists_a_file(self):
+        old_id = "rewindPointId = rp_b9_root\n\t\t\t\tbranchPointId"
+        text = B9_MERGED_SFS.replace(
+            old_id, old_id.replace("rp_b9_root", "rp_renamed"), 1)
+        self.assertNotEqual(text, B9_MERGED_SFS)
+        snap = saveparse.with_rewind_point_files(
+            saveparse.parse_parsek_scenario(text), ["rp_b9_root.sfs"])
+        # The POINT now carries id rp_renamed but still quicksaveFilename =
+        # rp_b9_root.sfs, so the file is listed through its file name alone.
+        self.assertEqual("rp_renamed", snap.rewind_points[0].rewind_point_id)
+        self.assertEqual((), saveparse.unlisted_rewind_point_files(snap))
+        snap = saveparse.with_rewind_point_files(
+            saveparse.parse_parsek_scenario(text.replace(
+                "quicksaveFilename = rp_b9_root.sfs",
+                "quicksaveFilename = Parsek/RewindPoints/rp_other.sfs", 1)),
+            ["rp_b9_root.sfs", "rp_other.sfs"])
+        self.assertEqual(("rp_b9_root.sfs",), saveparse.unlisted_rewind_point_files(snap))
+
+    def test_a_non_parsek_save_takes_no_listing(self):
+        snap = saveparse.parse_parsek_scenario("GAME { }")
+        self.assertIs(snap, saveparse.with_rewind_point_files(snap, ["rp_x.sfs"]))
+        self.assertIsNone(saveparse.with_rewind_point_files(None, ["rp_x.sfs"]))
+
+    def test_windows_evaluate_and_an_unmeasured_window_is_a_mismatch(self):
+        exp = {"rewind": {"rewindPointFiles": 0, "unlistedRewindPointFiles": {"max": 0}}}
+        snap = saveparse.with_rewind_point_files(self.snap, ["rp_b9_root.sfs", "rp_gone.sfs"])
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_REPORT, r.status)
+        self.assertIn("rewind.rewindPointFiles 2 != 0", r.mismatches)
+        self.assertIn("rewind.unlistedRewindPointFiles 1 > max 0", r.mismatches)
+        r = saveparse.evaluate_save_structure(exp, self.snap)
+        self.assertEqual(2, len(r.mismatches))
+        self.assertTrue(all("not measured" in m for m in r.mismatches), r.mismatches)
+        clean = saveparse.with_rewind_point_files(self.snap, ["rp_b9_root.sfs"])
+        r = saveparse.evaluate_save_structure(
+            {"rewind": {"gating": True, "rewindPointFiles": 1, "unlistedRewindPointFiles": 0}}, clean)
+        self.assertEqual(saveparse.STATUS_PASS, r.status)
+
+    def test_the_spec_surface_accepts_the_file_keys(self):
+        self.assertEqual([], saveparse.validate_rewind_expectations(
+            {"rewindPointFiles": {"max": 0}, "unlistedRewindPointFiles": 0}))
+        errs = saveparse.validate_rewind_expectations(
+            {"gating": True, "unlistedRewindPointFiles": {"min": 0}})
+        self.assertEqual(1, len(errs))
+        self.assertIn("can never red", errs[0])
+
+
 class PointsFacetTests(unittest.TestCase):
     """Gate 12: the recorded-POINTS distribution parsed off `pointCount`.
 

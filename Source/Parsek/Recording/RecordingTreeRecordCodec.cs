@@ -650,9 +650,21 @@ namespace Parsek
             if (terminalStateStr != null)
             {
                 int terminalInt;
-                if (int.TryParse(terminalStateStr, NumberStyles.Integer, ic, out terminalInt)
-                    && Enum.IsDefined(typeof(TerminalState), terminalInt))
+                if (int.TryParse(terminalStateStr, NumberStyles.Integer, ic, out terminalInt))
+                {
+                    // An ending this build does not know (a newer build's new kind) is held
+                    // verbatim as its number and written back by the writer above, never
+                    // dropped: a dropped ending is gone for good once the save is written, and
+                    // a null ending reads as never-terminated, which lets the tail trim cut the
+                    // trajectory. Every consumer treats an undefined value as a non-spawnable
+                    // final ending (GhostPlaybackLogic.IsSpawnableTerminal's default,
+                    // ParsekScenario.CanOverwriteTerminalState).
                     rec.TerminalStateValue = (TerminalState)terminalInt;
+                    if (!Enum.IsDefined(typeof(TerminalState), terminalInt))
+                        ParsekLog.Warn("Codec",
+                            $"Recording {rec.RecordingId ?? "(no id)"}: terminalState={terminalInt.ToString(ic)} " +
+                            "is unknown to this build (a newer ending kind); held verbatim and written back");
+                }
             }
 
             string endpointPhaseStr = recNode.GetValue("endpointPhase");
