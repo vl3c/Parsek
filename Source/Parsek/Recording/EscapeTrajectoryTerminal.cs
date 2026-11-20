@@ -122,29 +122,19 @@ namespace Parsek
         /// enters an atmosphere or reaches the surface before the spawn UT, or the chain
         /// cannot be followed. A spawn UT inside the terminal orbit's own sphere of influence
         /// with no encounter returns the terminal orbit unchanged.
-        /// </summary>
-        internal static EscapeSpawnConicResolution ResolveAtUT(
-            OrbitSegment terminal,
-            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
-            double spawnUT)
-        {
-            return ResolveAtUT(terminal, bodies, spawnUT, double.NaN);
-        }
-
-        /// <summary>
-        /// <see cref="ResolveAtUT(OrbitSegment, IReadOnlyDictionary{string, ExtrapolationBody}, double)"/>
-        /// starting at <paramref name="captureUT"/> (the recording's end, where the vessel was
-        /// known to be inside the terminal body's sphere) when that is later than the orbit's
-        /// epoch. A terminal orbit captured on rails carries the epoch of its patch start, the
-        /// last sphere-of-influence crossing, where the state sits on the boundary and the
-        /// extrapolator's immediate exit / entry tests are numerical noise; a start still at
-        /// that epoch does not take an immediate crossing of the boundary it sits on.
+        /// <para>The carry starts at <paramref name="captureUT"/> (the recording's end, where
+        /// the vessel was known to be inside the terminal body's sphere) when that is later
+        /// than the orbit's epoch. A terminal orbit captured on rails carries the epoch of its
+        /// patch start, the last sphere-of-influence crossing, where the state sits on the
+        /// boundary and the extrapolator's immediate exit / entry tests are numerical noise; a
+        /// start still at that epoch does not take an immediate crossing of the boundary it
+        /// sits on.</para>
         /// </summary>
         internal static EscapeSpawnConicResolution ResolveAtUT(
             OrbitSegment terminal,
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
             double spawnUT,
-            double captureUT)
+            double captureUT = double.NaN)
         {
             var resolution = new EscapeSpawnConicResolution
             {
