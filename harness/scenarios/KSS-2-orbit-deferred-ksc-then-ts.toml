@@ -6,8 +6,8 @@ tier = "operator"
 # VISIT, ON ITS RECORDED ORBIT.
 #
 # Authored 2026-11-17 for the end-of-recording spawn audit (todo
-# END-SPAWN-SCENE-LANES-2026-11-17, scope 2b). NEVER FLOWN: its first flight is a READING
-# run (tag `pending-flight`). Every regex below matches a literal found in C# source (file
+# END-SPAWN-SCENE-LANES-2026-11-17, scope 2b). LIVE-PROVEN 2026-11-20 on its re-flight
+# (below; tag `flown`). Every regex below matches a literal found in C# source (file
 # cited).
 #
 # THE RULE UNDER TEST: the Space Center never spawns an Orbiting end
@@ -55,7 +55,14 @@ tier = "operator"
 # subject token was anchored on that mark, so it could not match. Re-anchored on the
 # Space Center mark and the Tracking Station load's own start line (`loadgame start ...
 # scene=SPACECENTER requestedScene=TrackingStation`, ParsekTestCommandAddon.cs); the
-# placement cell and every other token matched. Not re-flown since.
+# placement cell and every other token matched.
+# RE-FLOWN 2026-11-20, LIVE-PROVEN: run 2026-11-20_2154, PASS attempt 1, 205 s
+# (parallel runner run tip-spawn-reflight-2026-11-20, main c11d6cde2, Debug DLL 72189e6d...).
+# The re-anchor held: the Space Center deferred (`Spawn not needed for #0 "Kerbal X":
+# orbital vessel deferred to flight scene`), the Tracking Station paid it (`Orbital vessel
+# spawn for #0 (Kerbal X) pid=3543533823`, the handoff line with the same pid);
+# LeafVesselPlacement `scene=TRACKSTATION compared=1 ok=1 ... bodies=[Kerbin]`, batch
+# `total=1 passed=1 failed=0 skipped=0`, now pinned whole; the id left INTERIM_PIN_IDS.
 #
 # FAST-LANE CHECKLIST (harness/README.md): (1) reuse: EVA-15's host and record / commit /
 # rewind chain without the EVA. (2) explicit-UT WarpToUT waits only. (3) no dwell keys. (4)
@@ -63,11 +70,11 @@ tier = "operator"
 # window 1-2 until the reading run. (8) tier operator by the calibration discipline until
 # flown. (9) flight_efficiency.py owed after the first green flight.
 # =============================================================================
-description = "NOT YET GREEN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 2b; the 2026-11-17 first flight showed the deferral and the Tracking Station spawn and failed only on a token anchored after the spawn, re-anchored): on eva2-lko-crewed Kerbal X coasts in LKO, recorded and committed; Rewind-to-Launch, then an uncapped warp past its end at the Space Center, which defers the Orbiting spawn (Verbose deferral line, nothing spawned), then the Tracking Station, whose handoff must spawn the owed Kerbal X on its recorded terminal orbit (Orbital route) where LeafVesselPlacement matches it."
+description = "LIVE-PROVEN 2026-11-20 (run 2026-11-20_2154, the re-flight; todo END-SPAWN-SCENE-LANES-2026-11-17, scope 2b; the 2026-11-17 first flight showed the deferral and the Tracking Station spawn and failed only on a token anchored after the spawn, re-anchored): on eva2-lko-crewed Kerbal X coasts in LKO, recorded and committed; Rewind-to-Launch, then an uncapped warp past its end at the Space Center, which defers the Orbiting spawn (Verbose deferral line, nothing spawned), then the Tracking Station, whose handoff must spawn the owed Kerbal X on its recorded terminal orbit (Orbital route) where LeafVesselPlacement matches it."
 instanceProfile = "stock-minimal"
 tags = ["KSS-2", "spawn", "end-spawn", "space-center", "ksc-deferral", "tracking-station",
         "ts-handoff", "orbital", "terminal-orbit", "warp", "rewind-to-launch",
-        "leaf-placement", "ingame-batch", "crewed", "kerbin", "sandbox", "pending-flight"]
+        "leaf-placement", "ingame-batch", "crewed", "kerbin", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"
@@ -159,7 +166,7 @@ required = [
   "MISSIONMARK label=kss2-ksc-past-end-false-0 [\\s\\S]*?loadgame start save=[^\\r\\n]* name=persistent scene=SPACECENTER requestedScene=TrackingStation [\\s\\S]*?\\[Spawner\\] Spawn #([0-9]+) \\(Kerbal X\\): using recorded terminal orbit propagated to current UT \\(ut=[0-9.]+, body=Kerbin, [\\s\\S]*?\\[Spawner\\] Orbital vessel spawn for #\\1 \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*?Tracking-station handoff spawned #\\1 \"Kerbal X\" pid=\\2 [\\s\\S]*?MISSIONMARK label=kss2-ts-spawned-true-\\2-end ",
   # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs.
   "MISSIONMARK label=kss2-ts-spawned-[\\s\\S]*?LeafPlacement summary: scene=TRACKSTATION compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=TRACKSTATION",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=TRACKSTATION",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [

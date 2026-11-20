@@ -834,28 +834,57 @@ namespace Parsek.Tests
         public void ShouldSkipForCascadeCap_Gen0_ReturnsFalse()
         {
             // gen 0 = primary recording (active vessel) — splits allowed
-            Assert.False(BackgroundRecorder.ShouldSkipForCascadeCap(0));
+            Assert.False(BackgroundRecorder.ShouldSkipForCascadeCap(0, parentControllable: false));
         }
 
         [Fact]
         public void ShouldSkipForCascadeCap_Gen1_ReturnsTrue()
         {
             // gen 1 = primary debris (booster) — its splits are skipped
-            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(1));
+            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(1, parentControllable: false));
         }
 
         [Fact]
         public void ShouldSkipForCascadeCap_Gen2_ReturnsTrue()
         {
             // gen 2 = fragment-of-fragment — splits are skipped
-            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(2));
+            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(2, parentControllable: false));
         }
 
         [Fact]
         public void ShouldSkipForCascadeCap_LargeGen_ReturnsTrue()
         {
             // sanity check: any positive gen >= cap is gated
-            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(99));
+            Assert.True(BackgroundRecorder.ShouldSkipForCascadeCap(99, parentControllable: false));
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(99)]
+        public void ShouldSkipForCascadeCap_ControllableParent_NeverSkips(int generation)
+        {
+            // BG-BREAKUP-GENERATION-CAP (owner ruling Q14): a background vessel with crew or a
+            // probe core records every breakup, whatever its generation.
+            Assert.False(BackgroundRecorder.ShouldSkipForCascadeCap(generation, parentControllable: true));
+        }
+
+        [Theory]
+        [InlineData(false, false, true)]
+        [InlineData(false, true, true)]
+        [InlineData(true, true, true)]
+        [InlineData(true, false, false)]
+        public void IsCascadeCapControllableParent_PlainDebrisOnlyIsCapped(
+            bool parentIsDebris, bool liveOwnBranch, bool expected)
+        {
+            Assert.Equal(expected,
+                BackgroundRecorder.IsCascadeCapControllableParent(parentIsDebris, liveOwnBranch));
+        }
+
+        [Fact]
+        public void ShouldSkipForCascadeCap_ControllableGen0Parent_DoesNotSkip()
+        {
+            Assert.False(BackgroundRecorder.ShouldSkipForCascadeCap(0, parentControllable: true));
         }
 
         [Fact]
@@ -949,6 +978,37 @@ namespace Parsek.Tests
                 42, "Active Booster", 99, "Fragment",
                 parentGeneration: 1);
 
+            Assert.Equal(1, activeChild.Generation);
+            Assert.Equal(2, bgChild.Generation);
+        }
+
+        [Fact]
+        public void BuildSplitBranchData_EvaFromActiveShip_ShipKeepsGeneration_KerbalIsSpinoff()
+        {
+            // EVA-MARKS-SHIP-AS-SPINOFF-GENERATION: KSP hands focus to the kerbal, so the kerbal
+            // is the ACTIVE child; the ship (background child) is the vessel that keeps the
+            // parent's identity and must keep its generation.
+            var (_, activeChild, bgChild) = ParsekFlight.BuildSplitBranchData(
+                "parent_rec", "tree_1", 100.0, BranchPointType.EVA,
+                77, "Jebediah Kerman", 42, "Lander",
+                evaCrewName: "Jebediah Kerman", evaVesselPid: 77,
+                parentGeneration: 0);
+
+            Assert.Equal("Jebediah Kerman", activeChild.EvaCrewName);
+            Assert.Equal(1, activeChild.Generation);
+            Assert.Equal(0, bgChild.Generation);
+        }
+
+        [Fact]
+        public void BuildSplitBranchData_EvaKerbalInBackground_ShipKeepsGeneration()
+        {
+            var (_, activeChild, bgChild) = ParsekFlight.BuildSplitBranchData(
+                "parent_rec", "tree_1", 100.0, BranchPointType.EVA,
+                42, "Lander", 77, "Jebediah Kerman",
+                evaCrewName: "Jebediah Kerman", evaVesselPid: 77,
+                parentGeneration: 1);
+
+            Assert.Equal("Jebediah Kerman", bgChild.EvaCrewName);
             Assert.Equal(1, activeChild.Generation);
             Assert.Equal(2, bgChild.Generation);
         }

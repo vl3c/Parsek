@@ -3,8 +3,8 @@ id = "SPW-11-rsc-warp-orbital-held-target"
 # =====================================================================================
 # SPW-11: REAL SPAWN CONTROL'S WARP, PRESSED BY AN ORBITING PLAYER, ON A TARGET WHOSE END
 # SPAWN IS BLOCKED; THEN THE SAME PRESS REFUSED ONCE NOTHING IS LEFT TO WARP TO.
-# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
-# tag `pending-flight`.)
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED; LIVE-PROVEN
+# 2026-11-20 on its re-flight, see below.)
 #
 # WHY. RSC-1 presses the row Warp for a LANDED target with a LANDED player (the
 # `epoch-shift` mode of `ParsekFlightSpawnHost.WarpToRecordingEnd`). An ORBITING player
@@ -53,17 +53,23 @@ id = "SPW-11-rsc-warp-orbital-held-target"
 # was refused `uiaction rejected reason=window-not-open op=warp window=spawncontrol`, not
 # with a row reason. That IS what the player sees (the window goes away), so the refusal
 # token now pins the auto-close followed by the window-not-open refusal. The spawn means the
-# collision branch was not read (pre-registered above). Not re-flown since.
+# collision branch was not read (pre-registered above).
+# RE-FLOWN 2026-11-20, LIVE-PROVEN: run 2026-11-20_2152, PASS attempt 1, 84 s
+# (parallel runner run tip-spawn-reflight-2026-11-20, main c11d6cde2, Debug DLL 72189e6d...).
+# The re-pin held: `Warp spawn outcome: ... outcome=Spawned cause=spawned`, then
+# `Real Spawn Control auto-close: reason=zero-candidates candidates=0` and the second press
+# `uiaction rejected reason=window-not-open`. No batch (no pin to move). The target
+# spawned again, so the collision branch is still unread.
 #
 # FAST-LANE CHECKLIST: (1) EX-2's host and preset, RSC-1's press. (2) explicit-UT waits.
 # (3)/(4)/(5) none. (6) retry once. (7) count exact 1 (EX-2's). (8) operator until
 # measured. (9) flight_efficiency.py after the first green flight.
 # =====================================================================================
 tier = "operator"
-description = "Real Spawn Control from orbit: on eva2-lko-crewed with the single-point-hold preset, the orbiting player opens Real Spawn Control and presses the row Warp for the in-progress Single Point Holder, whose end spawn is blocked by the co-orbiting probe. Pins the placement-mode jump, the armed warp spawn watch resolving to one named outcome (a collision cause when not spawned), at most one spawn, and a second press refused once the target's end has passed (the window has closed itself on zero candidates, so the refusal is window-not-open). First flight 2026-11-17 PARSEK-FAIL on that refusal token only, a spec error, re-pinned."
+description = "LIVE-PROVEN 2026-11-20 (run 2026-11-20_2152, the re-flight). Real Spawn Control from orbit: on eva2-lko-crewed with the single-point-hold preset, the orbiting player opens Real Spawn Control and presses the row Warp for the in-progress Single Point Holder, whose end spawn is blocked by the co-orbiting probe. Pins the placement-mode jump, the armed warp spawn watch resolving to one named outcome (a collision cause when not spawned), at most one spawn, and a second press refused once the target's end has passed (the window has closed itself on zero candidates, so the refusal is window-not-open). First flight 2026-11-17 PARSEK-FAIL on that refusal token only, a spec error, re-pinned."
 instanceProfile = "stock-minimal"
 tags = ["SPW-11", "real-spawn-control", "spawn", "end-spawn", "ui-seam", "spawn-blocked",
-        "single-point", "injected-recordings", "kerbin", "sandbox", "pending-flight"]
+        "single-point", "injected-recordings", "kerbin", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"

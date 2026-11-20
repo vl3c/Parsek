@@ -6,7 +6,8 @@ tier = "operator"
 # TRACKING STATION. THE REGRESSION LANE FOR A FIXED DEFECT.
 #
 # Authored 2026-11-17 for the end-of-recording spawn audit (todo
-# END-SPAWN-SCENE-LANES-2026-11-17, scope 1c). NEVER FLOWN (tag `pending-flight`).
+# END-SPAWN-SCENE-LANES-2026-11-17, scope 1c). LIVE-PROVEN 2026-11-20 on its re-flight
+# (below; tag `flown`).
 #
 # THE DEFECT (todo SPAWN-TS-STACK-NO-DE-OVERLAP, FIXED 2026-11-17, branch `wip/spawnfix3`):
 # the Space Center end spawn nudged a landed spawn away from an existing landed vessel
@@ -64,7 +65,13 @@ tier = "operator"
 #     vessel 'Stack Probe A' pid=3516968520 via PromoteFromBackground (continues in new
 #     segment ...)`, ParsekFlight.TreeRestore.cs, by design). Pinned exact 3, with that
 #     line required.
-# Not re-flown since.
+# RE-FLOWN 2026-11-20, LIVE-PROVEN: run 2026-11-20_2157, PASS attempt 1, 173 s
+# (parallel runner run tip-spawn-reflight-2026-11-20, main c11d6cde2, Debug DLL 72189e6d...).
+# The re-pin held, every defect token green: `Spawning vessel: "Stack Probe A" sit=LANDED,
+# nearest vessel=2852m` and `"Stack Probe B" ... nearest vessel=2845m`, both handed off in
+# one pass, the warp at `maxRate=10000`, count 3; in FLIGHT LeafVesselPlacement `compared=2
+# ok=2` (distM 0.1 and 14.9, height checked=2 ok=2), batch `total=1 passed=1 failed=0
+# skipped=0`, now pinned whole; the id left INTERIM_PIN_IDS.
 #
 # FIRST-FLIGHT RISKS: whether the handoff spawns both in one tick or two (the second sees
 # the first's proto vessel either way); how far apart the two probes really are (read the
@@ -76,11 +83,11 @@ tier = "operator"
 # (2, injected). (8) tier operator until flown. (9)
 # flight_efficiency.py owed after the first green flight.
 # =============================================================================
-description = "Regression lane for todo SPAWN-TS-STACK-NO-DE-OVERLAP (fixed 2026-11-17); NOT YET GREEN (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1c; the 2026-11-17 first flight matched every defect token and failed only on two spec pins, the warp's top rate and the recording count, re-pinned): gloops-airshow plus the spawn-stack preset (two committed Landed probes ending 20 s apart on the same KSC grass point, 30,000 s after the save). Boots into the Tracking Station, warps uncapped (10,000x for this span) across both ends, and pins that the two spawns are placed at least 10 m apart (the spawn-context nearest-vessel distance), then LeafVesselPlacement in FLIGHT on the spot with both probes loaded and no spawn-death."
+description = "Regression lane for todo SPAWN-TS-STACK-NO-DE-OVERLAP (fixed 2026-11-17); LIVE-PROVEN 2026-11-20 (run 2026-11-20_2157, the re-flight; todo END-SPAWN-SCENE-LANES-2026-11-17, scope 1c; the 2026-11-17 first flight matched every defect token and failed only on two spec pins, the warp's top rate and the recording count, re-pinned): gloops-airshow plus the spawn-stack preset (two committed Landed probes ending 20 s apart on the same KSC grass point, 30,000 s after the save). Boots into the Tracking Station, warps uncapped (10,000x for this span) across both ends, and pins that the two spawns are placed at least 10 m apart (the spawn-context nearest-vessel distance), then LeafVesselPlacement in FLIGHT on the spot with both probes loaded and no spawn-death."
 instanceProfile = "stock-minimal"
 tags = ["TSS-3", "spawn", "end-spawn", "tracking-station", "ts-handoff", "warp", "max-warp",
         "spawn-overlap", "landed-de-overlap", "leaf-placement", "ingame-batch", "kerbin",
-        "sandbox", "pending-flight"]
+        "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/gloops-airshow"
@@ -159,7 +166,7 @@ required = [
   # segment (the third recording).
   "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Stack Probe A' for vessel 'Stack Probe A' pid=[0-9]+ via [A-Za-z]+ \\(continues in new segment ",
   "MISSIONMARK label=tss3-flight [\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=2 ok=2 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [

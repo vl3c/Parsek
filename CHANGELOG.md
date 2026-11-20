@@ -35,6 +35,11 @@ Not released yet.
 - **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
   makes no rewind point of its own and never shows it in Unfinished Flights. The rock still gets
   its own replay from the release and becomes real at its end. (ROCK-RELEASE-REFLY-SLOT)
+- **A probe left on an escape trajectory becomes real at the end of its recording.** It used to
+  stay a replay that vanished. It now appears on its recorded path, in whichever planet's or the
+  Sun's reach it has got to by then, after the same orbit safety checks as an orbiting vessel.
+  A path that dips into an atmosphere or hits ground first still never spawns.
+  (SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS)
 - **Mining an asteroid on a supply route works like mining the ground.** A route that mines a
   rock never drains the real rock (owner ruling 2026-11-15).
 
@@ -82,6 +87,17 @@ Not released yet.
   pieces of one flight skipped joining onto a destroyed vessel's recording but still deleted the
   other piece and its files. It now leaves both alone, and a crashed flight that was cut in two
   keeps its crash on the later piece. (OPTIMIZER-MERGE-INTO-DESTROYED-DELETES-RECORDING)
+- **Switching to a falling booster no longer records it forever.** A dropped stage you switched to
+  kept recording until it crashed, unlike every other dropped stage. It now stays a dropped stage
+  and its recording ends 60 seconds after it separated, while you keep watching it.
+  (DEBRIS-LIFETIME-LOST-ON-PROMOTION)
+- **A crewed or probe-controlled vessel you are not flying records every breakup.** A vessel
+  that had already separated once from your rocket no longer ignored its own later separations
+  while in the background. Plain debris still records only the separation that made it.
+  (BG-BREAKUP-GENERATION-CAP)
+- **Time warp no longer cuts off a falling booster's replay.** Warping right after staging ended
+  the recording of every dropped stage at once. A dropped stage now keeps recording through the
+  warp until its usual 60 seconds are up. (DEBRIS-ENDS-WHEN-PARENT-GOES-ON-RAILS)
 - **Leaving the scene during a burn no longer leaves the replay's engines lit.** Going to the
   Space Center, or committing the flight, while an engine or thruster was firing kept its plume
   burning in the replay until the end. It now shuts off at the moment you left.

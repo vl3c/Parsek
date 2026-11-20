@@ -34,9 +34,10 @@ namespace Parsek
 
         // Cascade depth from primary recording. 0 = primary recording (active vessel),
         // 1 = primary debris (boosters/fairings decoupled by gen-0 vessel). Background
-        // splits whose parent is at Generation >= MaxRecordingGeneration are skipped
-        // entirely — fragments-of-fragments stay alive in KSP but Parsek does not
-        // track them. See bug #284 and BackgroundRecorder.HandleBackgroundVesselSplit.
+        // splits whose parent is plain debris at Generation >= MaxRecordingGeneration are
+        // skipped entirely - fragments-of-fragments stay alive in KSP but Parsek does not
+        // track them; a parent with crew or a probe core records every breakup. See bug
+        // #284 and BackgroundRecorder.HandleBackgroundVesselSplit.
         // Persisted in .sfs (RecordingTree.SaveRecordingInto/LoadRecordingFrom) so the
         // cascade cap remains correct after F5/F9 — without persistence, a gen-1 booster
         // would reload as gen-0 and a subsequent breakup would slip past the cap.
@@ -296,6 +297,59 @@ namespace Parsek
         public double TerminalOrbitMeanAnomalyAtEpoch;
         public double TerminalOrbitEpoch;
         public string TerminalOrbitBody;
+
+        /// <summary>The recorded terminal orbit as a zero-length segment at its epoch.</summary>
+        internal OrbitSegment TerminalOrbitAsSegment()
+        {
+            return new OrbitSegment
+            {
+                startUT = TerminalOrbitEpoch,
+                endUT = TerminalOrbitEpoch,
+                inclination = TerminalOrbitInclination,
+                eccentricity = TerminalOrbitEccentricity,
+                semiMajorAxis = TerminalOrbitSemiMajorAxis,
+                longitudeOfAscendingNode = TerminalOrbitLAN,
+                argumentOfPeriapsis = TerminalOrbitArgumentOfPeriapsis,
+                meanAnomalyAtEpoch = TerminalOrbitMeanAnomalyAtEpoch,
+                epoch = TerminalOrbitEpoch,
+                bodyName = TerminalOrbitBody,
+                isPredicted = true
+            };
+        }
+
+        /// <summary>
+        /// True when the recording ends on an escape trajectory that spawns on its recorded
+        /// path (owner ruling Q10, 2026-11-18): see <see cref="EscapeTrajectoryTerminal"/>.
+        /// </summary>
+        internal static bool IsEscapeTrajectoryTerminal(Recording rec)
+        {
+            return IsEscapeTrajectoryTerminal(rec, out _);
+        }
+
+        /// <summary>
+        /// True when the recording could be an escape-trajectory terminal once its vessel
+        /// snapshot is read: SubOrbital with a propagatable recorded terminal orbit. The
+        /// closed-conic escape evidence is the snapshot's own situation, so a consumer that
+        /// holds no snapshot (the lazy re-hydration) asks this, then the full test.
+        /// </summary>
+        internal static bool IsEscapeTrajectoryTerminalCandidate(Recording rec)
+        {
+            return rec != null
+                && rec.TerminalStateValue == TerminalState.SubOrbital
+                && EscapeTrajectoryTerminal.IsPropagatableTerminalOrbit(rec.TerminalOrbitAsSegment());
+        }
+
+        /// <inheritdoc cref="IsEscapeTrajectoryTerminal(Recording)"/>
+        internal static bool IsEscapeTrajectoryTerminal(Recording rec, out string evidence)
+        {
+            evidence = null;
+            return rec != null
+                && EscapeTrajectoryTerminal.IsEscapeTerminal(
+                    rec.TerminalStateValue,
+                    rec.TerminalOrbitAsSegment(),
+                    rec.VesselSnapshot?.GetValue("sit"),
+                    out evidence);
+        }
 
         // Terminal surface position (for Landed/Splashed terminal state)
         public SurfacePosition? TerminalPosition;      // null if not landed/splashed
