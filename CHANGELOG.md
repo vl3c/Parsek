@@ -32,6 +32,9 @@ Not released yet.
   Space Center, or committing the flight, while an engine or thruster was firing kept its plume
   burning in the replay until the end. It now shuts off at the moment you left.
   (FORCESTOP-LEAVES-ENGINES-LIT)
+- **A docked or boarded flight keeps its ending.** Recovering the ship it docked with, or the ship
+  a kerbal boarded, could rewrite the earlier flight as recovered and pay its recovery a second
+  time. (DOCKED-ENDING-OVERWRITTEN-BY-RECOVERY)
 - **Dropped boosters that were still burning stop their flame when their replay ends.** A spent
   stage or booster whose recording ended while its engine still fired kept the flame lit to the
   end of its replay. (DEBRIS-END-LEAVES-ENGINES-LIT)

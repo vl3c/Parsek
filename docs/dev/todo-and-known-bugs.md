@@ -20,6 +20,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~DOCKED-ENDING-OVERWRITTEN-BY-RECOVERY~~: a Docked / Boarded ending could be overwritten by a later recovery [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low]
+
+Cause: `ParsekScenario.CanOverwriteTerminalState` treated Docked and Boarded like the situation
+endings (Landed, Orbiting...), so a recovery or destruction event that matched the recording (the
+name fallback when a launch guid is unknown, or the absorbed craft's baked pid) could stamp a dock
+or a boarding as Recovered / Destroyed, drop its snapshot and pair recovery funds with it at commit
+(draft review L10). Both endings mean the vessel merged into another one; what is recovered later
+is that other vessel.
+
+Fix: Docked and Boarded are final, like Recovered, Destroyed and Disassembled; a refused overwrite
+is logged (`CanOverwriteTerminalState: refused existing=...`). The pending-tree stamp
+(`UpdateRecordingsForTerminalEvent`) and the in-flight Recover path (`InFlightRecoveryRequest`)
+both read this predicate.
+
+Tests: `RecordingEndingTests.CanOverwriteTerminalState_MergedEndingIsFinal` (red before the fix),
+`CanOverwriteTerminalState_SituationEndingStillYields`.
+
 ## ~~DEBRIS-END-LEAVES-ENGINES-LIT~~: a debris recording ended by its TTL kept its engines lit [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `BackgroundRecorderTests`; low]
 
 Cause: `BackgroundRecorder.EndDebrisRecording` (debris TTL, parent closed, parent on rails, vessel
