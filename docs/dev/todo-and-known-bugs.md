@@ -226,7 +226,7 @@ Tests: `UnserializableTreeCarryForwardTests`
 (`SaveTreeRecordings_UnwritableMember_DoesNotFreezeTheRestOfTheTree` is the red cell, plus the
 load-back mirror, the key-set pin against the codec and the splice units). ST-4 pins the reworded
 Warn line; re-flight owed.
-## ~~GHOST-SERVO-CHILDREN-STATIC~~: parts mounted on a Breaking Ground servo stay frozen on the ghost while the servo moves [FILED 2026-11-20 by code reading (test-gap pass). FIXED 2026-11-20, branch `test-gaps-servoghost`; xUnit + mutation; in-game cell `ServoFollowers` written, NEVER RUN; no lane flies a servo craft; low (visual only: a hinge arm, a rotor's blades or a piston's payload does not move on the replay)]
+## ~~GHOST-SERVO-CHILDREN-STATIC~~: parts mounted on a Breaking Ground servo stay frozen on the ghost while the servo moves [FILED 2026-11-20 by code reading (test-gap pass). FIXED 2026-11-20, branch `test-gaps-servoghost`; xUnit + mutation; in-game cell `ServoFollowers` written, NEVER RUN; lane SRV-1 AUTHORED 2026-11-20 (branch `test-gaps-b3-servo-lane`, stock-tree), NEVER FLOWN: its first flight is owed; low (visual only: a hinge arm, a rotor's blades or a piston's payload does not move on the replay)]
 
 What the code did: the ghost builder parents every part (`ghost_part_<pid>`) directly to the ghost's
 part container at its snapshot pose (`GhostVisualBuilder.AddPartVisuals`), and the robotic
@@ -251,7 +251,10 @@ visibility walks and the camera pivot all assume the flat hierarchy).
 - Per frame: `PropagateServoFollowers` runs only where a servo transform is written and the servo
   has followers: O(followers), no allocation; a ghost without a servo pays one null check per
   robotic write. Logs: `Servo follower plan for ...` and `Servo followers bound: ...` once per
-  build (rate-limited per ghost).
+  build (rate-limited per ghost), and `Servo followers re-posed in playback: servoPid= module=
+  followers= value= (first since bind)` once per servo per build, on the first playback re-pose
+  (`ConsumeFirstFollowerRepose`; the bind re-arms it after its own baseline re-pose), so a log can
+  tell "the servo moved and its followers were carried" from "the servo moved alone".
 - Recorder side (mirror check): nothing new to record. Servo motion is already recorded per module
   ordinal, the snapshot already carries the attach lines and stock's moving-transform pose, and the
   moving-side node and mesh names come from the prefab.
@@ -260,9 +263,25 @@ Proof: `ServoFollowerPlannerTests` (which parts follow, nested, base side, inver
 and `ServoFollowerPoseTests` (the pose math, nested composition, scale). Red against the pre-fix
 behaviour by mutation (planner yields nothing, follower pose ignores the servo): 9 of 21 cells red.
 
+Lane (2026-11-20, branch `test-gaps-b3-servo-lane`): `SRV-1-hinge-followers-ghost` (operator,
+stock-tree by owner approval 2026-11-20) on the derived fixture `srv-hinge-pad`
+(`harness/tools/build_srv_hinge_pad.py`: fresh-sandbox plus `SRV1 Hinge Rig`, an OKTO2 on an
+FL-T100 with a G-11 Hinge `hinge.01` whose moving (top) node carries a Z-200 `batteryBankMini`,
+and `SRV1 Watcher`). The rig records on the pad from UT 100 while the new seam buttons
+`PartAction button=servomax|servomin` (the hinge's own `MaximumAngleAction` / `MinimumAngleAction`
+KSPAction, what an action group fires; xUnit `TestCommandPartActionTests`, hlib
+`PartActionSourceSyncTests`) swing it +90 then -90, commits, is Rewound-to-Launch and replays
+beside the watcher; the plan / bind / re-pose lines are pinned (followers=1, geometryPosed=1),
+then the `ServoFollowers` cell runs in the same FLIGHT scene (interim batch pin). Requires
+Breaking Ground (`GameData/SquadExpansion/Serenity`) on the install.
+
 OPEN:
-- Live proof. Run the in-game category `ServoFollowers` (FLIGHT, needs Breaking Ground; skips
-  without it), or watch a hinge craft's replay.
+- Live proof: SRV-1's first flight (owed). Read its plan / bind / re-pose lines, then pin the
+  batch split whole and drop it from `INTERIM_PIN_IDS`. A rotor lane (SRV-2) was not authored:
+  a rotor's spin is driven by its motor engagement and RPM limit, which no seam button reaches
+  (the servo buttons press the angle actions only; a rotor's stock actions are motor power /
+  direction / brake toggles), so whether and how fast it would spin on the pad is unmeasured;
+  fly SRV-1 first, then decide whether a `MotorPowerAction` button is worth adding.
 - Known limits, not measured: a servo with an inverted mount keeps its base side still; a strut or
   fuel line spanning the servo keeps its snapshot endpoints; a servo locked in flight after moving
   with no save in between may have saved its children at an older pose (stock skips the

@@ -63,6 +63,14 @@ namespace Parsek.TestCommands
         /// two tanks of one vessel (two docked vessels are one), which stock drives through
         /// its transfer UI.</summary>
         Transfer,
+        /// <summary>A Breaking Ground hinge's or rotation servo's "Maximum Angle" action
+        /// (<c>MaximumAngleAction</c>, a <c>KSPAction</c> of <c>ModuleRoboticServoHinge</c> /
+        /// <c>ModuleRoboticRotationServo</c>, KSP 1.12.5 decompiled): it sets the servo's
+        /// <c>targetAngle</c> to its upper soft limit, as an action group bound to it does.</summary>
+        ServoMax,
+        /// <summary>The same servos' "Minimum Angle" action (<c>MinimumAngleAction</c>): the
+        /// lower soft limit.</summary>
+        ServoMin,
     }
 
     /// <summary>One module reading of the target part for the <c>state=</c> answer field: plain
@@ -70,7 +78,7 @@ namespace Parsek.TestCommands
     /// <see cref="TestCommandPartAction.FormatState"/>.</summary>
     internal struct PartActionModuleReading
     {
-        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup, Radiator, Engine }
+        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup, Radiator, Engine, Servo }
 
         internal ReadingKind Kind;
         internal string Name;
@@ -99,6 +107,10 @@ namespace Parsek.TestCommands
 
         internal static PartActionModuleReading Engine(bool ignited)
             => new PartActionModuleReading { Kind = ReadingKind.Engine, Flag = ignited };
+
+        /// <summary>A servo's commanded <c>targetAngle</c> (degrees), read after the press.</summary>
+        internal static PartActionModuleReading Servo(float targetAngle)
+            => new PartActionModuleReading { Kind = ReadingKind.Servo, StoredScience = targetAngle };
     }
 
     /// <summary>The warp context of a press, read right after it: the target vessel's
@@ -151,7 +163,7 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
     /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    /// activate|explode|chute|runtest|transfer [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
+    /// activate|explode|chute|runtest|transfer|servomax|servomin [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
     /// [partPid=&lt;part persistentId&gt;] [resource=&lt;resource name&gt;]
     /// [expectSnapshot=true|false rec=&lt;recordingId&gt; tolerance=&lt;abs&gt;]</c>. The three snapshot
     /// args are for <c>inspect</c> only (<c>snapshot-arg-unexpected</c> elsewhere, and for
@@ -206,6 +218,16 @@ namespace Parsek.TestCommands
     /// FX, then <c>Die()</c>, so <c>onPartDie</c> and, for a crewed part, <c>onCrewKilled</c>
     /// fire as on an impact); <c>all=true</c> is <c>all-arg-unexpected</c> and <c>state=</c> is
     /// empty (the part is gone).</para>
+    ///
+    /// <para><b>servomax / servomin</b> move a Breaking Ground hinge or rotation servo to its
+    /// upper / lower soft angle limit through the module's own <c>MaximumAngleAction</c> /
+    /// <c>MinimumAngleAction</c> <c>KSPAction</c> (the one an action group fires; the PAW has
+    /// no such button, its target-angle slider is a field). Candidates are the named parts'
+    /// <c>ModuleRoboticServoHinge</c> / <c>ModuleRoboticRotationServo</c> modules carrying that
+    /// action; named parts carrying neither refuse <c>servo-not-found</c>. The servo then
+    /// drives itself there over later frames at its <c>traverseVelocity</c>, so
+    /// <c>state=</c> reads the commanded <c>servo:target=</c>, not the reached angle. A locked
+    /// servo ignores the action (stock posts its own screen message).</para>
     ///
     /// <para><b>partPid=</b> (any button) keeps only the named part whose
     /// <c>Part.persistentId</c> it is, for a vessel that carries several parts of one name.
@@ -275,6 +297,16 @@ namespace Parsek.TestCommands
         internal const string ChuteToken = "chute";
         internal const string RunTestToken = "runtest";
         internal const string TransferToken = "transfer";
+        internal const string ServoMaxToken = "servomax";
+        internal const string ServoMinToken = "servomin";
+
+        /// <summary>The Breaking Ground servo modules the servo buttons press: the two posed
+        /// angular families that carry <c>MaximumAngleAction</c> / <c>MinimumAngleAction</c>
+        /// (a piston extends instead, a rotor spins by RPM).</summary>
+        internal static readonly string[] ServoModuleNames =
+        {
+            "ModuleRoboticServoHinge", "ModuleRoboticRotationServo",
+        };
 
         /// <summary>The <c>event=</c> of every transfer: the verb's own resource move.</summary>
         internal const string TransferEventName = "resourceTransfer";
@@ -292,7 +324,7 @@ namespace Parsek.TestCommands
             UndockToken, DecoupleToken, ControlFromToken, DeployToken, RetractToken,
             StartConverterToken, StopConverterToken, ExperimentToken, LabProcessToken,
             LabTransmitToken, InspectToken, RadiatorOnToken, RadiatorOffToken, ActivateToken,
-            ExplodeToken, ChuteToken, RunTestToken, TransferToken,
+            ExplodeToken, ChuteToken, RunTestToken, TransferToken, ServoMaxToken, ServoMinToken,
         };
 
         /// <summary>The <c>event=</c> of every labprocess: the results dialog page's own lab
@@ -347,6 +379,7 @@ namespace Parsek.TestCommands
         internal const string ParachuteNotFoundReason = "partaction-parachute-not-found";
         internal const string ResourceNotFoundReason = "partaction-resource-not-found";
         internal const string TransferNothingMovedReason = "partaction-transfer-nothing-moved";
+        internal const string ServoNotFoundReason = "partaction-servo-not-found";
 
         // Post-call ERROR terminal: the event was invoked and threw.
         internal const string EventThrewReason = "partaction-event-threw";
@@ -394,6 +427,7 @@ namespace Parsek.TestCommands
             "partaction-parachute-not-found",
             "partaction-resource-not-found",
             "partaction-transfer-nothing-moved",
+            "partaction-servo-not-found",
         };
 
         /// <summary>The post-call ERROR vocabulary.</summary>
@@ -429,6 +463,8 @@ namespace Parsek.TestCommands
                 case ChuteToken: kind = PartActionKind.ChuteDeploy; return null;
                 case RunTestToken: kind = PartActionKind.RunTest; return null;
                 case TransferToken: kind = PartActionKind.Transfer; return null;
+                case ServoMaxToken: kind = PartActionKind.ServoMax; return null;
+                case ServoMinToken: kind = PartActionKind.ServoMin; return null;
                 default: return ButtonArgInvalidReason;
             }
         }
@@ -456,6 +492,8 @@ namespace Parsek.TestCommands
                 case PartActionKind.ChuteDeploy: return ChuteToken;
                 case PartActionKind.RunTest: return RunTestToken;
                 case PartActionKind.Transfer: return TransferToken;
+                case PartActionKind.ServoMax: return ServoMaxToken;
+                case PartActionKind.ServoMin: return ServoMinToken;
                 default: return "unknown";
             }
         }
@@ -481,12 +519,42 @@ namespace Parsek.TestCommands
         internal static bool IsParachuteKind(PartActionKind kind)
             => kind == PartActionKind.ChuteDeploy;
 
+        /// <summary>True for the two servo buttons, whose candidates come from the
+        /// <see cref="ServoModuleNames"/> modules only and are pressed through a
+        /// <c>KSPAction</c> (<see cref="ServoActionNameFor"/>), not a part-menu event.</summary>
+        internal static bool IsServoKind(PartActionKind kind)
+            => kind == PartActionKind.ServoMax || kind == PartActionKind.ServoMin;
+
+        /// <summary>True when <paramref name="moduleName"/> is one of
+        /// <see cref="ServoModuleNames"/> (exact, ordinal).</summary>
+        internal static bool IsServoModuleName(string moduleName)
+        {
+            if (string.IsNullOrEmpty(moduleName)) return false;
+            for (int i = 0; i < ServoModuleNames.Length; i++)
+                if (string.Equals(ServoModuleNames[i], moduleName, StringComparison.Ordinal))
+                    return true;
+            return false;
+        }
+
+        /// <summary>The stock <c>KSPAction</c> a servo button invokes (KSP 1.12.5 decompiled:
+        /// <c>ModuleRoboticServoHinge</c> and <c>ModuleRoboticRotationServo</c> both declare
+        /// <c>MaximumAngleAction</c> / <c>MinimumAngleAction</c>), or null for any other kind.</summary>
+        internal static string ServoActionNameFor(PartActionKind kind)
+        {
+            switch (kind)
+            {
+                case PartActionKind.ServoMax: return "MaximumAngleAction";
+                case PartActionKind.ServoMin: return "MinimumAngleAction";
+                default: return null;
+            }
+        }
+
         /// <summary>True for the buttons whose candidates come from one module type only (the
-        /// radiator pair, the engine button, the chute button): the applier counts that type's
-        /// modules on the named parts for the <c>radiator-not-found</c> / <c>engine-not-found</c> /
-        /// <c>parachute-not-found</c> gate.</summary>
+        /// radiator pair, the engine button, the chute button, the servo pair): the applier
+        /// counts that type's modules on the named parts for the <c>radiator-not-found</c> /
+        /// <c>engine-not-found</c> / <c>parachute-not-found</c> / <c>servo-not-found</c> gate.</summary>
         internal static bool IsTypedModuleKind(PartActionKind kind)
-            => IsRadiatorKind(kind) || IsEngineKind(kind) || IsParachuteKind(kind);
+            => IsRadiatorKind(kind) || IsEngineKind(kind) || IsParachuteKind(kind) || IsServoKind(kind);
 
         /// <summary>True for the two buttons a <c>converter=</c> filter applies to.</summary>
         internal static bool AcceptsConverter(PartActionKind kind)
@@ -752,6 +820,7 @@ namespace Parsek.TestCommands
             if (IsEngineKind(kind) && typedModules == 0) return EngineNotFoundReason;
             if (IsParachuteKind(kind) && typedModules == 0) return ParachuteNotFoundReason;
             if (IsTransferKind(kind) && typedModules == 0) return ResourceNotFoundReason;
+            if (IsServoKind(kind) && typedModules == 0) return ServoNotFoundReason;
             if (candidates == 0)
                 return kind == PartActionKind.LabProcess && experimentModules > 0
                     ? ExperimentNoDataReason
@@ -790,7 +859,9 @@ namespace Parsek.TestCommands
         /// <c>lab:storedScience=&lt;F2&gt; dataStored=&lt;F2&gt;</c>; an experiment
         /// <c>exp:data=&lt;count&gt;</c>; an animation group <c>deployed=0|1</c>; an active
         /// radiator <c>radiator:cooling=0|1</c>; an engine <c>engine:ignited=0|1</c>
-        /// (<c>ModuleEngines.EngineIgnited</c>). Invariant culture; empty for no readings.
+        /// (<c>ModuleEngines.EngineIgnited</c>); a hinge or rotation servo
+        /// <c>servo:target=&lt;F2&gt;</c> (its commanded <c>targetAngle</c>, degrees). Invariant
+        /// culture; empty for no readings.
         /// </summary>
         internal static string FormatState(IList<PartActionModuleReading> readings)
         {
@@ -820,6 +891,9 @@ namespace Parsek.TestCommands
                         break;
                     case PartActionModuleReading.ReadingKind.Engine:
                         parts.Add("engine:ignited=" + (r.Flag ? "1" : "0"));
+                        break;
+                    case PartActionModuleReading.ReadingKind.Servo:
+                        parts.Add("servo:target=" + r.StoredScience.ToString("F2", ic));
                         break;
                 }
             }

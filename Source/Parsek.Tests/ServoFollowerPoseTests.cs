@@ -122,5 +122,41 @@ namespace Parsek.Tests
             AssertVec(new Vector3(1f, 2f, 3f),
                 GhostPlaybackLogic.UnitQuaternionInverse(q) * (q * new Vector3(1f, 2f, 3f)));
         }
+
+        [Fact]
+        public void FirstFollowerRepose_IsConsumedOncePerBind()
+        {
+            var servo = new RoboticGhostInfo { partPersistentId = 4242u };
+            Assert.True(GhostPlaybackLogic.ConsumeFirstFollowerRepose(servo));
+            Assert.False(GhostPlaybackLogic.ConsumeFirstFollowerRepose(servo));
+            Assert.False(GhostPlaybackLogic.ConsumeFirstFollowerRepose(servo));
+
+            // A re-bind re-arms the line (BindServoFollowersCore clears the flag last).
+            servo.followerReposeLogged = false;
+            Assert.True(GhostPlaybackLogic.ConsumeFirstFollowerRepose(servo));
+            Assert.False(GhostPlaybackLogic.ConsumeFirstFollowerRepose(null));
+        }
+
+        [Fact]
+        public void FollowerReposeLine_IsInvariantAndCarriesTheLaneTokens()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                string line = GhostPlaybackLogic.FormatFollowerReposeLine(
+                    1234567u, "ModuleRoboticServoHinge", 1, 45.5f);
+                // SRV-1 pins this shape (harness/scenarios/SRV-1-hinge-followers-ghost.toml).
+                Assert.Equal("Servo followers re-posed in playback: servoPid=1234567 " +
+                    "module=ModuleRoboticServoHinge followers=1 value=45.50 (first since bind)", line);
+                Assert.Contains("module=unknown",
+                    GhostPlaybackLogic.FormatFollowerReposeLine(1u, null, 2, 0f));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
     }
 }

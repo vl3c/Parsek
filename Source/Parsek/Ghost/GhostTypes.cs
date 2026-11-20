@@ -508,6 +508,11 @@ namespace Parsek
         /// own followers are re-posed after this servo's followers move. Null when none.
         /// </summary>
         public List<RoboticGhostInfo> nestedServos;
+        /// <summary>
+        /// False from each bind until the first time playback re-poses this servo's followers;
+        /// that first re-pose writes one Verbose line (GhostPlaybackLogic.ConsumeFirstFollowerRepose).
+        /// </summary>
+        public bool followerReposeLogged;
     }
 
     /// <summary>

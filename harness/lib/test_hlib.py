@@ -5033,10 +5033,15 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # the new FlightGhostPosition category's three FLIGHT cells, `total=3` literal with the
     # split regexed). Not H-series ids; CommittedBatchTallySourceSyncTests gates their
     # `total=`. Each leaves on its first flight with the step.
+    # SRV-1-hinge-followers-ghost ENTERED on 2026-11-20 (todo GHOST-SERVO-CHILDREN-STATIC: a
+    # recorded Breaking Ground hinge swing replayed on the ghost, then the ServoFollowers
+    # category's one FLIGHT cell, `total=1` literal with the split regexed). Not an H-series
+    # id; CommittedBatchTallySourceSyncTests gates its `total=`. It leaves on its first flight.
     INTERIM_PIN_IDS: set = {
         "GPOS-1-kerbalx-ascent-ghost-position",
         "V23M-mun-landing-player-loop",
         "FGV-1-fairing-ghost-visual",
+        "SRV-1-hinge-followers-ghost",
         "SPW-4-max-rails-warp-two-ends-flight",
         "SPW-6-map-view-end-spawn-max-warp",
         "TSS-1-rover-delivery-ts-max-warp",
@@ -10979,6 +10984,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "FAR-4-gilly-eva-switch-bg-member.toml": "tier=operator by the calibration discipline, NOT debt: CI-1's EVA and map Switch-To in Gilly orbit on `eve-gilly-recorded` (stock-minimal), where the switch target is both the live tree's background member and a committed tree's spawned leaf. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_2324`, third flight, after the Case C fix and a re-pin); owed: the ordinary promotion call",
         "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1639`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1641`, second flight after a spec re-pin); owed: the ordinary promotion call",
+        "SRV-1-hinge-followers-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo GHOST-SERVO-CHILDREN-STATIC's flight lane on the derived fixture `srv-hinge-pad` (stock-tree by owner approval 2026-11-20, not in the nightly instance set): a G-11 Hinge carrying a Z-200 on its moving node swung +90 / -90 by PartAction servomax / servomin while recording on the pad, committed, Rewound-to-Launch and replayed beside a watcher, the ghost's follower plan / bind / first playback re-pose pinned, then the ServoFollowers cell. AUTHORED 2026-11-20, NEVER FLOWN; owed: its first flight",
         "FGV-1-fairing-ghost-visual.toml": "tier=operator by PURPOSE, NOT debt: a visual-confirmation lane whose product is a set of PNGs for the owner's eyes (four stock procedural fairings, an engine plate and an engine shroud beside their Parsek ghosts in LKO on `eva2-lko-crewed`, intact / jettisoned / separated) and whose gates are that the cells passed, every image was written and the ghost shows the same truss, shroud and mount meshes as the real part. Flown green 2026-11-07 (one-cell shape twice; two-cell shape `2026-11-07_2342`)",
         "SLM-2-standalone-loop-map-pause.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), read in FLIGHT map view in the pause after its second run, where no map ghost may exist. LIVE-PROVEN 2026-11-01 (`2026-11-01_0036`, 104 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "RW-20-strategy-and-deadline-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a strategy activated at the Space Center and a real contract deadline passed by warp, a Rewind-to-Launch before both, the same strategy refused, and the committed fail applied once when the deadline passes again. LIVE-PROVEN 2026-10-31 (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`); owed: the ordinary promotion call",
@@ -18055,7 +18061,7 @@ class PartActionSourceSyncTests(unittest.TestCase):
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
                   "RadiatorOffToken", "ActivateToken", "ExplodeToken", "ChuteToken",
-                  "RunTestToken", "TransferToken")
+                  "RunTestToken", "TransferToken", "ServoMaxToken", "ServoMinToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
@@ -18114,7 +18120,13 @@ class PartActionSourceSyncTests(unittest.TestCase):
         # inherits it) and nothing else on the part, and counts the engine modules for its
         # engine-not-found gate.
         self.assertIn("if (!(module is ModuleEngines)) continue;", applier)
-        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : -1", applier)
+        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : servoKind ? servoModules : -1", applier)
+        # The servo buttons press the hinge / rotation servo's own KSPAction, the one an
+        # action group fires, on those two modules only.
+        self.assertIn("if (!TestCommandPartAction.IsServoModuleName(module.moduleName)) continue;",
+                      applier)
+        self.assertIn("c.Action.Invoke(new KSPActionParam(KSPActionGroup.None, KSPActionType.Activate));",
+                      applier)
         # The transfer: partPid filters before the name, a destination must hold the
         # resource, the plan is refused before anything changes, and the move conserves.
         self.assertIn("if (hasPartPid && p.persistentId != partPid) continue;", applier)
