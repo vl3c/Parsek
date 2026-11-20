@@ -651,6 +651,20 @@ namespace Parsek
             var activeTree = flight.ActiveTreeForSerialization;
             if (activeTree == null) return;
 
+            // Never drop one (owner ruling 2026-11-18): a separation still in the crash
+            // coalescer's 0.5 s window is branched into the tree before it is written, so an
+            // F5 right after staging keeps the separated vessels (they were not saved at all).
+            try
+            {
+                flight.FlushPendingSplitsForSave();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"SaveActiveTreeIfAny: pending split flush failed ({ex.Message}) - a separation still " +
+                    "in the coalescing window is not in this save");
+            }
+
             // Bug #266: the recorder may legitimately be null while activeTree is alive
             // — this is the "outsider" state, where the player switched (in-session or
             // via scene reload) to a vessel that has no recording context in the tree.

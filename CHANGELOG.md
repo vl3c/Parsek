@@ -42,6 +42,19 @@ Not released yet.
   servo itself, so a panel, arm or wheel mounted on a hinge stayed frozen while the hinge swung.
   Everything on the moving side of a servo now moves with it, servos on servos included, and
   parts on the fixed side stay put. (GHOST-SERVO-CHILDREN-STATIC)
+- **A separated vessel is never lost when two separations come close together.** Staging and
+  then undocking, going on EVA or docking within half a second, two separations in the same
+  frame, or a quicksave right after staging could leave a booster or satellite with no replay
+  and no ghost. Every separated vessel now gets its own recording.
+  (SPLIT-WINDOW-DROPPED-ON-RECORDER-START)
+- **Undocking a vessel you just switched to records both halves.** After switching with `]` to a
+  vessel Parsek was not recording yet, undocking or staging it at once recorded only the part you
+  kept; the piece that came off had no replay. Both now get their own recording.
+  (POST-SWITCH-WATCH-SPLIT-NOT-RECORDED)
+- **A crewed ship undocking from an uncrewed depot is recorded under the right vessel.** When
+  control moved to the ship leaving a probe-less depot, its flight was written into the depot's
+  recording and its replay followed the wrong vessel. Each now gets its own recording.
+  (UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL)
 - **The `[` and `]` keys now switch to a vessel of another mission like Switch-To does.** The
   flight you leave is merged (or dropped if nothing changed) first, and the vessel you switch to
   continues its own mission; while the game refuses switching (under thrust, in the air) that
