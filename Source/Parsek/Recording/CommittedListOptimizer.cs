@@ -101,13 +101,14 @@ namespace Parsek
         {
             int mergeCount = 0;
             HashSet<string> heldForRoutes = null;
+            Dictionary<string, string> heldByLiveReFlyMerge = CollectLiveReFlyMergeHeldIds();
             const int maxMergesPerPass = 50;
             // Iterate merge passes until no more candidates (merging may create new adjacent pairs)
             bool changed = true;
             while (changed && mergeCount < maxMergesPerPass)
             {
                 changed = false;
-                var candidates = RecordingOptimizer.FindMergeCandidates(recordings);
+                var candidates = RecordingOptimizer.FindMergeCandidates(recordings, heldByLiveReFlyMerge);
                 if (candidates.Count == 0) break;
 
                 // Process one candidate per pass (indices shift after removal): the first one
@@ -172,6 +173,40 @@ namespace Parsek
                     $"[{FormatSortedIds(heldForRoutes)}] - a supply route's source recordings stay whole");
 
             return mergeCount;
+        }
+
+        /// <summary>
+        /// The recordings a live Re-Fly session holds out of the merge pass (id -> why): the
+        /// marker's supersede target (TIP once the split ran) and its origin (HEAD), and while
+        /// a merge journal is active also the provisional. Their supersede rows do not exist
+        /// yet when the cold OnLoad's pass runs ahead of the journal finisher (a crash between
+        /// the split save and Durable Save #1), so a HEAD + TIP pair would be glued back. The
+        /// provisional alone is left out without a journal: a live session's own commit pass
+        /// may merge the attempt, which <c>MergeDialog.ResolveOptimizedRecordingSurvivor</c>
+        /// follows (an in-place continuation's provisional is the origin, likewise). Read here
+        /// and handed to <see cref="RecordingOptimizer.CanAutoMerge"/>, which must not name
+        /// Rewind types. Empty, never null.
+        /// </summary>
+        internal static Dictionary<string, string> CollectLiveReFlyMergeHeldIds()
+        {
+            var held = new Dictionary<string, string>(StringComparer.Ordinal);
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario)) return held;
+            var marker = scenario.ActiveReFlySessionMarker;
+            if (marker == null) return held;
+            bool journalActive = scenario.ActiveMergeJournal != null;
+            string suffix = " sess=" + (marker.SessionId ?? "<no-id>")
+                + " journal=" + (journalActive ? "active" : "none");
+            string provisional = marker.ActiveReFlyRecordingId;
+            if (journalActive && !string.IsNullOrEmpty(provisional))
+                held[provisional] = "merge journal provisional" + suffix;
+            string origin = marker.OriginChildRecordingId;
+            if (!string.IsNullOrEmpty(origin)
+                && (journalActive || !string.Equals(origin, provisional, StringComparison.Ordinal)))
+                held[origin] = "marker origin" + suffix;
+            if (!string.IsNullOrEmpty(marker.SupersedeTargetId))
+                held[marker.SupersedeTargetId] = "marker supersede target" + suffix;
+            return held;
         }
 
         /// <summary>
