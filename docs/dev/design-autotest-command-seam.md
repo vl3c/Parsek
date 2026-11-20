@@ -3700,8 +3700,29 @@ contracts), and refuses without pressing on `warp-no-candidate-row`, on
 `warp-button-disabled` (the row is drawn greyed - outside the 250 m / 2 m/s gates or past
 its UT - and a greyed button cannot be clicked; the refusal carries the button's own
 disabled-hover text), and on `warp-unsupported-window` for any other window
-(`TestCommandUiAction.WindowHasRowWarpButton`, mirrored by `hlib.UIACTION_WARP_WINDOWS`).
-It adds no arg key. First consumer: `RSC-1-real-spawn-control-warp`.
+(`TestCommandUiAction.WindowHasWarpButton`, mirrored by `hlib.UIACTION_WARP_WINDOWS`).
+The spawncontrol form adds no arg key (a Timeline-only arg on it is REJECTED `warp-arg-unsupported`). First consumer: `RSC-1-real-spawn-control-warp`.
+
+**`op=warp window=timeline` - the Timeline "Warp to time" button (2026-11-20).** `UiAction op=warp
+window=timeline year=<n> day=<n> hour=<n> minute=<n> confirm=warp|cancel` commits the four warp
+boxes through their own parse (`WarpToTimeMath.TryParseField`, same floors), resolves the button
+state through the draw's own resolver (`TimelineWindowUI.ResolveWarpToTimeButtonState`), refuses a
+greyed button (`warp-button-disabled` with its disabled-hover text), and otherwise runs the drawn
+button's own click body (`ExecuteWarpToTimeClick` -> `WarpToTimeController.RequestWarp`). That click
+spawns the `ParsekWarpToTimeConfirm` dialog synchronously; the op presses the button `confirm=` names
+through its own `OptionSelected` (callback plus dismiss-on-select). All five args are REQUIRED
+(`warp-date-arg-missing` / `-invalid`, `warp-confirm-arg-missing` / `-invalid`). Still one-phase: the
+pure verdict `TestCommandUiWarpTime.DecideConfirmOutcome` reads what the confirm left behind
+synchronously and answers ERROR `warp-rewind-not-launched` (a Space Center backward warp left no
+pending forward warp), `warp-forward-not-applied` (the clock missed the target) or
+`warp-not-deferred` (in flight, no deferred Space Center warp); `warp-confirm-not-shown` /
+`warp-confirm-button-missing` name a missing dialog or button. A rewind's Space Center load then
+holds the NEXT step at the safe point. The OK payload echoes the date, `targetUT`, `plan`
+(forward / rewind), `rewindKind` (none / launch / career-start), the confirm and the standing
+`pending` / `deferredKsc` requests. This confirm MUTATES the save, which `op=dismiss` deliberately
+never presses; this op exists to press it. Mirrors: `hlib.UIWARP_DATE_KEYS` / `UIWARP_CONFIRM_*`
+(`GuiCensusSeamVerbTests`). First consumers: `WTT-1-timeline-warp-across-committed-rows`,
+`WTT-2-timeline-warp-to-career-start`.
 
 **First consumers.** `GUI-1-census-ksc` (nine KSC windows, 22 captures across Advanced and
 Basic) and `GUI-2-census-flight` (the flight-only windows plus the flight form of the main

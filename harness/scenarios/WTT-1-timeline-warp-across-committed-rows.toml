@@ -1,0 +1,190 @@
+schema = 1
+id = "WTT-1-timeline-warp-across-committed-rows"
+# =====================================================================================
+# WTT-1: THE TIMELINE "WARP TO TIME" BUTTON, BACKWARD TO A LAUNCH AND FORWARD ACROSS
+# COMMITTED ROWS (test-gaps 2026-11-18, Batch 3: "Nothing ever presses it").
+#
+# THE BUTTON. The Timeline window's bottom row: Year / Day / Hour / Minute boxes and a
+# "Warp to time" button (TimelineWindowUI.DrawWarpRow). A click runs
+# WarpToTimeController.RequestWarp, which spawns the "Confirm: Warp to Time" dialog; its Warp
+# button runs the plan: a target AFTER now is a forward time jump
+# (TimeJumpManager.ExecuteForwardJump); a target BEFORE now rewinds to the nearest launch
+# whose rewind save starts at or before the target (InitiateRewind, a plain Rewind-to-Launch)
+# and arms a pending forward warp that WarpToTimeConsumer runs once the Space Center has
+# reloaded. Nothing drove either half before this lane: RW-18 crosses the same kind of rows
+# with WarpToUT stops after an InvokeRewindToLaunch.
+#
+# THE SEAM. `UiAction op=warp window=timeline year= day= hour= minute= confirm=warp`
+# commits the four boxes, resolves the button state through the draw's own resolver, runs
+# the drawn button's own click body (TimelineWindowUI.ExecuteWarpToTimeClick), then presses
+# the confirm dialog's Warp button through its own callback.
+#
+# THE HOST AND ITS ROWS are RW-18's (cs-career-mun4, stock-tree; the harvest prunes every
+# rewind save, so H is recorded in the run for its parsek_rw_* quicksave), cut to two rows.
+#
+# PLAN (cs-career-mun4, UT ~185734; UTs are the plan; Kerbin calendar, day 9 starts at 172800):
+#   boot       LoadGame persistent at the Space Center; warp to 185800.
+#   H          a Jumping Flea on the pad, recorded to 185840, committed, recovered at its marker.
+#   R1 185900  Runway upgrade (75000).
+#   R2 185940  accept f1fb89dc (+37500).
+#   press 1    Y1 D9 3:37 = 185820, Warp: plan=rewind onto H's launch (StartUT ~185800, the
+#              only launch with a rewind save; no career-start snapshot on this host). The
+#              rewind lands ~185785, the consumer jumps to 185820: nothing crossed yet (H's
+#              recovery rows sit at ~185840).
+#   press 2    Y1 D9 3:41 = 186060, Warp: plan=forward, ONE jump across H's recovery, R1 and
+#              R2: one clock-crossing line names them, the pools end equal to R2's, and H's
+#              end spawn is declined (recovered after commit) rather than spawning a second
+#              Flea.
+#   check      an unrecorded Flea onto the pad, the default save, LedgerGroundTruth.
+#
+# FAST-LANE CHECKLIST: (1) RW-18 is the host flight; not merged into it because RW-18 pins the
+# realtime WarpToUT stops and the seam rewind this lane replaces with the button. (2) every
+# wait is an explicit-UT WarpToUT. (6) the presses are deterministic, so retry once only for
+# the boot. (7) count pinned to RW-18's measured 34 + H.
+#
+# STATUS: AUTHORED 2026-11-20, NEVER FLOWN. The batch split is interim (total pinned exactly).
+# =====================================================================================
+tier = "operator"
+description = "Timeline Warp to time button, backward and forward: on cs-career-mun4 a committed pad Flea, a Runway upgrade and a contract accept at the Space Center; press Warp to time to a date just after the Flea's launch (rewinds to that launch and fast-forwards to the date, nothing crossed), then to a date after both rows (one forward jump crosses them; the pools equal the career's before the rewind; the recovered Flea is not spawned again); LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["WTT-1", "career", "ledger", "timeline", "warp-to-time", "rewind", "rewind-to-launch",
+        "fast-forward", "facility-upgrade", "contracts", "ksc-marker", "editor", "ground-truth",
+        "ingame-batch", "ui-action", "timeline-ops"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 4 x 120 warps + 2 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 180 StartRecording + 120 CommitTree + 120 ExitToSpaceCenter + 60 KscMarkerRecover + 2 x 60
+# KscAction + 2 x 300 post-press settles + 4 x 120 SaveGame + 540 RunTests = 3500; runtime 4200
+# adds the inert steps, the UiAction steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # ---- H: the Flea on the pad, recorded, committed, recovered at its marker ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185840" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "wtt1-h-committed" },                         expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${h.pid}" },                                 expect = "OK", budget = 60 },
+  # ---- the two committed Space Center rows, the spend first ----
+  { cmd = "WarpToUT",       args = { ut = "185900", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "upgrade-facility", facility = "SpaceCenter/Runway" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "wtt1-r1" },                                  expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185940", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "f1fb89dc-a471-42cf-94da-de4bb1080512" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "wtt1-r2" },                                  expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "wtt1-01-after-rows" },                       expect = "OK", budget = 120 },
+  # ---- press 1: Warp to time, back to Y1 D9 3:37 (rewind onto H's launch, then forward) ----
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                       expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "timeline" },                   expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "wtt1-before-rewind" },                       expect = "OK" },
+  { cmd = "UiAction",       args = { op = "warp", window = "timeline", year = "1", day = "9", hour = "3", minute = "37", confirm = "warp" }, expect = "OK" },
+  # The rewind's Space Center load holds this step at the safe point until it settles.
+  { cmd = "MissionMark",    args = { label = "wtt1-rewound" },                             expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "wtt1-02-after-rewind" },                     expect = "OK", budget = 120 },
+  # ---- press 2: Warp to time, forward to Y1 D9 3:41 across H's recovery, R1 and R2 ----
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                       expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "timeline" },                   expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "wtt1-before-forward" },                      expect = "OK" },
+  { cmd = "UiAction",       args = { op = "warp", window = "timeline", year = "1", day = "9", hour = "3", minute = "41", confirm = "warp" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "wtt1-warped" },                              expect = "OK", budget = 300 },
+  { cmd = "SaveGame",       args = { name = "wtt1-03-after-forward" },                    expect = "OK", budget = 120 },
+  # ---- the check: an unrecorded launch onto the pad, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "186090" },                                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "contracts", "facilities", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["rewind-to-launch", "fast-forward"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus H (RW-18 measured 35 on the same host and H); the check
+# launch is unrecorded.
+count = { min = 35, max = 35 }
+
+[expectations.logContracts]
+required = [
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+
+  # ---- press 1: the button, the backward plan, the confirm, the rewind onto H ----
+  "uiaction warp pressed window=timeline date=Y1 D9 3:37 targetUT=185820\\.0 plan=rewind rewindKind=launch inFlight=false",
+  "\\[WarpTime\\] RequestWarp: input Y1 D9 3:37 -> targetUT=185820\\.0 [^\\n]*plan=RewindThenForward [^\\n]*rewindKind=Launch rewindStartUT=1858[0-9]{2}\\.[0-9] rewindLabel=Jumping Flea",
+  "uiaction warp confirm press=Warp window=timeline date=Y1 D9 3:37 plan=rewind",
+  "User confirmed warp: plan=RewindThenForward targetUT=185820\\.0 rewindKind=Launch",
+  "Initiating rewind to \"Jumping Flea\" id=[0-9a-f]{32} StartUT=1858[0-9]{2}\\.[0-9] \\(pending forward warp targetUT=185820\\.0\\)",
+  "Pending warp armed: targetUT=185820\\.0 ",
+  "MISSIONMARK label=wtt1-before-rewind ut=[\\s\\S]*\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*MISSIONMARK label=wtt1-rewound ut=",
+  "uiaction warp window=timeline date=Y1 D9 3:37 targetUT=185820\\.0 plan=rewind rewindKind=launch confirm=warp pending=true deferredKsc=false",
+  # The consumer, after the reload, jumps from the lead-time UT to the entered date.
+  "Consuming pending warp: forward jump now=1857[0-9]{2}\\.[0-9] -> target=185820\\.0 ",
+  "MISSIONMARK label=wtt1-rewound ut=1858[2-3][0-9]\\.",
+  # H's end spawn is decided against its committed terminal: recovered, so no second Flea.
+  "MISSIONMARK label=wtt1-before-rewind ut=[\\s\\S]*Spawn not needed for #[0-9]+ \"Jumping Flea\": recovered after commit",
+
+  # ---- press 2: the forward plan, one jump across every row ----
+  "uiaction warp pressed window=timeline date=Y1 D9 3:41 targetUT=186060\\.0 plan=forward rewindKind=[a-z-]+ inFlight=false",
+  "User confirmed warp: plan=ForwardOnly targetUT=186060\\.0 ",
+  "MISSIONMARK label=wtt1-before-forward ut=[\\s\\S]*Forward warp: jumping to targetUT=186060\\.0[\\s\\S]*Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* \\[[^\\]\\n]*FacilityUpgrade@[^\\]\\n]*ContractAccept@[\\s\\S]*MISSIONMARK label=wtt1-warped ut=",
+  "uiaction warp window=timeline date=Y1 D9 3:41 targetUT=186060\\.0 plan=forward rewindKind=[a-z-]+ confirm=warp pending=false deferredKsc=false utAfter=1860[6-9][0-9]\\.",
+  "MISSIONMARK label=wtt1-warped ut=1860[6-9][0-9]\\.",
+  # The pools after the jump equal the pools the career held at R2, before the rewind.
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=wtt1-r2 ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=wtt1-warped ut=",
+
+  # ---- the ground truth (never flown: total exact, split regexed) ----
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=",
+  "\\[TakeBack\\] Took back ",
+  "take-back shortfall",
+  "Game state: ContractCompleted ",
+  "Game state: ContractFailed ",
+  "Pending warp dropped: ",
+  "Pending warp aborted: ",
+  "uiaction rejected reason=warp-",
+  # Press 1 lands before every committed row, so nothing may be crossed until press 2.
+  "MISSIONMARK label=wtt1-before-rewind ut=(?:(?!MISSIONMARK label=wtt1-before-forward )[\\s\\S])*?Clock-crossing reached committed-future rows",
+  # The recovered Flea is never spawned again.
+  "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"Jumping Flea\"",
+  # ---- nothing applies twice: after the rewind stock pays no accept of its own ----
+  "MISSIONMARK label=wtt1-rewound ut=[\\s\\S]*Game state: ContractAccepted ",
+]
+
+[runtime]
+budgetSeconds = 4200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

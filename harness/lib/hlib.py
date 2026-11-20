@@ -3555,10 +3555,18 @@ UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
     "open", "close", "tab", "rect", "find", "expand", "target", "picker", "run",
     "state", "sort", "select", "edit", "clone", "warp")
 
-# The windows `op=warp` is defined for, mirroring TestCommandUiAction.WindowHasRowWarpButton:
-# the one window whose table rows carry a warp button. Any other window answers
-# `warp-unsupported-window`.
-UIACTION_WARP_WINDOWS: Tuple[str, ...] = ("spawncontrol",)
+# The windows `op=warp` is defined for, mirroring TestCommandUiAction.WindowHasWarpButton:
+# the Real Spawn Control table (its first row's warp button) and the Timeline ("Warp to
+# time"). Any other window answers `warp-unsupported-window`.
+UIACTION_WARP_WINDOWS: Tuple[str, ...] = ("spawncontrol", "timeline")
+
+# `op=warp window=timeline`'s args, mirroring TestCommandUiWarpTime: the four date fields
+# (all REQUIRED, decimal integers, committed through the warp boxes' own parse) and the
+# REQUIRED confirm answer. `window=spawncontrol` reads none of them and the seam REJECTS a
+# step that names one (`warp-arg-unsupported`).
+UIWARP_DATE_KEYS: Tuple[str, ...] = ("year", "day", "hour", "minute")
+UIWARP_CONFIRM_KEY = "confirm"
+UIWARP_CONFIRM_VALUES: Tuple[str, ...] = ("warp", "cancel")
 
 # The four rect args, all REQUIRED together on `op=rect`: a partial rect mixes a
 # commanded position with a stale size, so the capture it produces is not reproducible.
@@ -5324,15 +5332,59 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
             "the same key, which is what makes this easy to misplace)"
             % (index, UIACTION_RUN_CATEGORY_KEY, op))
 
+    warp_keys = UIWARP_DATE_KEYS + (UIWARP_CONFIRM_KEY,)
     if op == "warp":
         window_name = str(window) if window is not None else None
         if (window_name in UIACTION_WINDOW_VALUES
                 and window_name not in UIACTION_WARP_WINDOWS):
             errors.append(
-                "driver.steps[%d].args.%s: window %r has no row warp button, so op=warp "
+                "driver.steps[%d].args.%s: window %r has no warp button, so op=warp "
                 "answers REJECTED warp-unsupported-window. The ones that do are %s"
                 % (index, UIACTION_WINDOW_KEY, window_name,
                    ", ".join(UIACTION_WARP_WINDOWS)))
+        if window_name == "timeline":
+            missing = [k for k in UIWARP_DATE_KEYS if step_args.get(k) is None]
+            if missing:
+                errors.append(
+                    "driver.steps[%d].args: op=warp window=timeline REQUIRES all of %s "
+                    "(missing %s); the seam answers REJECTED warp-date-arg-missing"
+                    % (index, ",".join(UIWARP_DATE_KEYS), ",".join(missing)))
+            for key in UIWARP_DATE_KEYS:
+                raw = step_args.get(key)
+                if raw is None or value_is_handle_templated(raw):
+                    continue
+                if not re.match(r"^[+-]?[0-9]+$", str(raw).strip()):
+                    errors.append(
+                        "driver.steps[%d].args.%s: %r is not an integer; the warp box's "
+                        "own parse refuses it, so the seam answers REJECTED "
+                        "warp-date-arg-invalid" % (index, key, raw))
+            confirm = step_args.get(UIWARP_CONFIRM_KEY)
+            if confirm is None:
+                errors.append(
+                    "driver.steps[%d].args.%s: op=warp window=timeline REQUIRES it (one of "
+                    "%s): the click only raises the confirm dialog, so the step names which "
+                    "button answers it; the seam answers REJECTED warp-confirm-arg-missing"
+                    % (index, UIWARP_CONFIRM_KEY, " or ".join(repr(v) for v in UIWARP_CONFIRM_VALUES)))
+            elif str(confirm) not in UIWARP_CONFIRM_VALUES:
+                errors.append(
+                    "driver.steps[%d].args.%s: %r must be one of %s (case-sensitive); the "
+                    "seam answers REJECTED warp-confirm-arg-invalid"
+                    % (index, UIWARP_CONFIRM_KEY, confirm,
+                       " or ".join(repr(v) for v in UIWARP_CONFIRM_VALUES)))
+        else:
+            for key in warp_keys:
+                if key in step_args:
+                    errors.append(
+                        "driver.steps[%d].args.%s: only op=warp window=timeline reads it, "
+                        "but this step is window=%s; the seam answers REJECTED "
+                        "warp-arg-unsupported" % (index, key, window_name))
+    else:
+        for key in warp_keys:
+            if key in step_args:
+                errors.append(
+                    "driver.steps[%d].args.%s: only op=warp window=timeline reads it, but "
+                    "this step is op=%s -- the arg would be silently ignored"
+                    % (index, key, op))
 
     if op not in ("expand", "playback", "state") and UIACTION_STATE_KEY in step_args:
         errors.append(

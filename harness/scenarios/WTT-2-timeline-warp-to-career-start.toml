@@ -1,0 +1,189 @@
+schema = 1
+id = "WTT-2-timeline-warp-to-career-start"
+# =====================================================================================
+# WTT-2: THE TIMELINE "WARP TO TIME" BUTTON TO YEAR 1 DAY 1 - THE CAREER-START RESET
+# (test-gaps 2026-11-18, Batch 3: "including a warp to the career start. Nothing ever presses
+# it").
+#
+# THE PATH. The first Space Center arrival of a brand-new career (no recordings, clock inside
+# day 1) captures `Parsek/Saves/parsek_career_start.sfs` (WarpToTimeConsumer ->
+# CareerStartSnapshot.Capture). A Warp to time to Y1 D1 0:00 then resolves its rewind target
+# to that snapshot (WarpToTimeController.ResolveRewindTarget: CareerStart at UT 0, offered
+# only while no supersede row exists) and its Warp button runs
+# RewindLauncher.InitiateRewindToCareerStart: the snapshot is reloaded through the shared
+# ExecuteRewindSaveLoad (label `Warp-to-game-start`), which carries the rewind points and the
+# staged lists across the load (RewindCarry) and keeps every in-memory recording as a future
+# ghost. The pending forward warp targets UT 0, so the consumer jumps nowhere. No committed
+# fixture carries the snapshot (every harvest prunes Parsek/Saves), so the lane boots
+# `cs-career-new` (UT 0.36, no Parsek footprint): its first Space Center load captures one.
+#
+# PLAN (cs-career-new, stock-tree; UTs are the plan; Kerbin calendar):
+#   boot       LoadGame persistent at the Space Center: the snapshot is captured.
+#   A  ~120    accept SCIENCE cae56da0 (an advance; CS-3's contract on this host).
+#   H  ~130    a Jumping Flea on the pad, recorded to ~200, committed, recovered at its marker.
+#   wait 600   clear of every row.
+#   press 1    Y1 D1 0:00, Warp: plan=rewind rewindKind=career-start; the snapshot reloads at
+#              UT ~0.4, the carries land, the recordings stay, the consumer has nothing to do.
+#   press 2    Y1 D1 0:15 = 900, Warp: plan=forward, ONE jump across A, H's rows and H's
+#              recovery; the pools end equal to the pools before the reset.
+#   check      an unrecorded Flea onto the pad, the default save, LedgerGroundTruth.
+#
+# FAST-LANE CHECKLIST: (1) no host flight exists with a career-start snapshot, so the subject
+# is recorded here, a pad-only Flea (no liftoff, so no world-first and no FIRSTLAUNCH). (2)
+# every wait is an explicit-UT WarpToUT. (7) count pinned to H (1 recording; window 1..2 until
+# the first flight measures whether the commit adds a continuation).
+#
+# STATUS: AUTHORED 2026-11-20, NEVER FLOWN. The batch split is interim (total pinned exactly).
+# =====================================================================================
+tier = "operator"
+description = "Timeline Warp to time to Year 1 Day 1: on a new Career save (its first Space Center visit captures the career-start snapshot) accept a contract and commit a pad Flea, then press Warp to time to Y1 D1 0:00: the game reloads the career-start snapshot through the Warp-to-game-start rewind, the rewind points and staged lists are carried, the recordings stay; a second press forward crosses the committed rows in one jump and the pools equal the career's before the reset; LedgerGroundTruth closes the career."
+instanceProfile = "stock-tree"
+tags = ["WTT-2", "career", "ledger", "timeline", "warp-to-time", "career-start", "rewind",
+        "fast-forward", "contracts", "ksc-marker", "editor", "ground-truth", "ingame-batch",
+        "ui-action", "timeline-ops"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-new"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 5 x 120 warps + 2 x (120 GoToEditor + 180 LaunchFromEditor)
+# + 180 StartRecording + 120 CommitTree + 120 ExitToSpaceCenter + 60 KscMarkerRecover + 60
+# KscAction + 2 x 300 post-press settles + 4 x 120 SaveGame + 540 RunTests = 3360; runtime 4000
+# adds the inert steps, the UiAction steps and FlushAndQuit.
+steps = [
+  # scene = "spacecenter": the host holds stock's asteroid (CS-1's first-flight trap), and the
+  # Space Center arrival is what captures the career-start snapshot.
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "wtt2-booted" },                              expect = "OK" },
+  # ---- A: a committed Space Center row ----
+  { cmd = "WarpToUT",       args = { ut = "120", maxRate = "100" },                        expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "cae56da0-8ac5-4381-9e41-7080bf9c0e1b" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "wtt2-a" },                                   expect = "OK" },
+  # ---- H: the Flea on the pad, recorded, committed, recovered at its marker ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "200" },                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "wtt2-h-committed" },                         expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${h.pid}" },                                 expect = "OK", budget = 60 },
+  { cmd = "WarpToUT",       args = { ut = "600", maxRate = "100" },                        expect = "OK", budget = 120 },
+  { cmd = "SaveGame",       args = { name = "wtt2-01-before-reset" },                     expect = "OK", budget = 120 },
+  # ---- press 1: Warp to time, Y1 D1 0:00 (the career-start reset) ----
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                       expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "timeline" },                   expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "wtt2-before-reset" },                        expect = "OK" },
+  { cmd = "UiAction",       args = { op = "warp", window = "timeline", year = "1", day = "1", hour = "0", minute = "0", confirm = "warp" }, expect = "OK" },
+  # The reset's Space Center load holds this step at the safe point until it settles.
+  { cmd = "MissionMark",    args = { label = "wtt2-reset" },                               expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "wtt2-02-after-reset" },                      expect = "OK", budget = 120 },
+  # ---- press 2: Warp to time, forward to Y1 D1 0:15 across every committed row ----
+  { cmd = "UiAction",       args = { op = "open", window = "main" },                       expect = "OK" },
+  { cmd = "UiAction",       args = { op = "open", window = "timeline" },                   expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "wtt2-before-forward" },                      expect = "OK" },
+  { cmd = "UiAction",       args = { op = "warp", window = "timeline", year = "1", day = "1", hour = "0", minute = "15", confirm = "warp" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "wtt2-crossed" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",       args = { name = "wtt2-03-after-forward" },                    expect = "OK", budget = 120 },
+  # ---- the check: an unrecorded launch onto the pad, the save, the ground truth ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "gt",            expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "960" },                                         expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },                     expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["funds", "contracts", "recalc-engine", "ksp-state-patcher", "ground-truth-harness"]
+D9  = ["fast-forward"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# H only; the check launch is unrecorded and the reset removes no recording.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # ---- the snapshot, captured on the new career's first Space Center arrival ----
+  "Capturing career-start snapshot for new career \\(recordings=0 now=[0-9]\\.[0-9]\\)[\\s\\S]*\\[CareerStart\\] Captured career-start snapshot: [^\\n]*parsek_career_start\\.sfs[\\s\\S]*MISSIONMARK label=wtt2-a ut=",
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=",
+  "kscaction action=accept-contract target=cae56da0-8ac5-4381-9e41-7080bf9c0e1b applied=true",
+
+  # ---- press 1: the button, the career-start plan, the confirm, the reset ----
+  "uiaction warp pressed window=timeline date=Y1 D1 0:00 targetUT=0\\.0 plan=rewind rewindKind=career-start inFlight=false",
+  "\\[WarpTime\\] RequestWarp: input Y1 D1 0:00 -> targetUT=0\\.0 [^\\n]*plan=RewindThenForward [^\\n]*rewindKind=CareerStart rewindStartUT=0\\.0 rewindLabel=the start of the game",
+  "uiaction warp confirm press=Warp window=timeline date=Y1 D1 0:00 plan=rewind",
+  "User confirmed warp: plan=RewindThenForward targetUT=0\\.0 rewindKind=CareerStart",
+  "Initiating career-start reset \\(pending forward warp targetUT=0\\.0\\)",
+  "Pending warp armed: targetUT=0\\.0 ",
+  "\\[Rewind\\] Warp-to-game-start initiated to UT 0 \\(snapshot: parsek_career_start\\)",
+  # The carries, captured before the load and reinstalled by the rewind OnLoad.
+  "Warp-to-game-start: carrying [0-9]+ rewind point\\(s\\) across the rewind load",
+  "Warp-to-game-start: carrying staged lists across the rewind load: supersedes=0 ",
+  "Warp-to-game-start: adjustedUT=[0-9]\\.[0-9]",
+  "Warp-to-game-start: loading save 'parsek_career_start' into SpaceCenter",
+  "uiaction warp window=timeline date=Y1 D1 0:00 targetUT=0\\.0 plan=rewind rewindKind=career-start confirm=warp pending=true deferredKsc=false",
+  "Warp-to-game-start: loading save 'parsek_career_start' into SpaceCenter[\\s\\S]*RewindPoints carried across rewind: installed=[\\s\\S]*MISSIONMARK label=wtt2-reset ut=",
+  "Warp-to-game-start: loading save 'parsek_career_start' into SpaceCenter[\\s\\S]*Staged lists carried across rewind: supersedes installed=0 [\\s\\S]*MISSIONMARK label=wtt2-reset ut=",
+  # The pending warp targets UT 0, so the consumer runs and jumps nowhere.
+  "Consuming pending warp: already at/after target \\(now=[0-9.]+ target=0\\.0, ",
+  "MISSIONMARK label=wtt2-reset ut=[0-9]{1,2}\\.",
+
+  # ---- press 2: one forward jump across A, H's rows and H's recovery ----
+  "uiaction warp pressed window=timeline date=Y1 D1 0:15 targetUT=900\\.0 plan=forward rewindKind=[a-z-]+ inFlight=false",
+  "User confirmed warp: plan=ForwardOnly targetUT=900\\.0 ",
+  "MISSIONMARK label=wtt2-before-forward ut=[\\s\\S]*Forward warp: jumping to targetUT=900\\.0[\\s\\S]*Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* \\[[^\\]\\n]*ContractAccept@[\\s\\S]*MISSIONMARK label=wtt2-crossed ut=",
+  "uiaction warp window=timeline date=Y1 D1 0:15 targetUT=900\\.0 plan=forward rewindKind=[a-z-]+ confirm=warp pending=false deferredKsc=false utAfter=9[0-5][0-9]\\.",
+  # The pools after the jump equal the pools the career held before the reset.
+  "\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=(\\S+) science=(\\S+) rep=(\\S+) (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=wtt2-before-reset ut=[\\s\\S]*\\[LedgerTrace\\] phase=Structural recalcSeq=[0-9]+ funds=\\1 science=\\2 rep=\\3 (?:(?!\\[LedgerTrace\\] phase=Structural )[\\s\\S])*?MISSIONMARK label=wtt2-crossed ut=",
+
+  # ---- the ground truth (never flown: total exact, split regexed) ----
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "result: hardFailures=[1-9]",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+  "GUARDED (?:UPLIFT|DRAWDOWN) clamped",
+  "filed StockPoolAdjustment amount=",
+  "\\[TakeBack\\] Took back ",
+  "take-back shortfall",
+  "InitiateRewindToCareerStart refused",
+  "Career-start reset aborted",
+  "Career-start reset refused",
+  "Pending warp dropped: ",
+  "Pending warp aborted: ",
+  "uiaction rejected reason=warp-",
+  # The snapshot is captured once and never overwritten.
+  "MISSIONMARK label=wtt2-a ut=[\\s\\S]*Captured career-start snapshot",
+  # The recovered Flea is never spawned again.
+  "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"Jumping Flea\"",
+  # ---- nothing applies twice: after the reset stock pays no accept of its own ----
+  "MISSIONMARK label=wtt2-reset ut=[\\s\\S]*Game state: ContractAccepted ",
+]
+
+[runtime]
+budgetSeconds = 4000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -134,7 +134,10 @@ namespace Parsek.TestCommands
         /// <summary><c>op=warp window=spawncontrol</c>: press the Real Spawn Control
         /// table's FIRST row "Warp" button (spawn or departure warp) through the
         /// button's own click body (<c>SpawnControlUI.ExecuteRowWarp</c>), refusing when the
-        /// table has no row or the button is drawn disabled. The one op in the family that
+        /// table has no row or the button is drawn disabled. With <c>window=timeline year=
+        /// day= hour= minute= confirm=warp|cancel</c> it enters the Timeline's warp date and
+        /// presses "Warp to time" through that button's own click body, then answers the
+        /// confirm dialog (<see cref="TestCommandUiWarpTime"/>). The one op in the family that
         /// presses a button whose action moves the clock.</summary>
         Warp = 23,
     }
@@ -524,14 +527,22 @@ namespace Parsek.TestCommands
         /// live-state touch THREW.</summary>
         internal const string ThrewReason = "ui-action-threw";
 
-        /// <summary><c>op=warp</c> named a window with no row warp button. Only
-        /// <c>spawncontrol</c> draws one.</summary>
+        /// <summary><c>op=warp</c> named a window with no warp button. Only
+        /// <c>spawncontrol</c> (its first row's button) and <c>timeline</c> (the
+        /// "Warp to time" button) draw one.</summary>
         internal const string WarpUnsupportedWindowReason = "warp-unsupported-window";
 
-        /// <summary>Whether <c>op=warp</c> is defined for this window: the one window whose
-        /// table rows carry a warp button.</summary>
-        internal static bool WindowHasRowWarpButton(string window)
-            => window == SpawnControlWindow;
+        /// <summary>Whether <c>op=warp</c> is defined for this window: the Real Spawn
+        /// Control table, whose rows carry a warp button, and the Timeline, whose bottom row
+        /// carries "Warp to time" (the Timeline form takes the date and the confirm answer,
+        /// <see cref="TestCommandUiWarpTime"/>).</summary>
+        internal static bool WindowHasWarpButton(string window)
+            => window == SpawnControlWindow || window == TimelineWindow;
+
+        /// <summary>The windows <c>op=warp</c> is defined for, comma-joined in the order
+        /// the predicate above names them. Carried by the
+        /// <see cref="WarpUnsupportedWindowReason"/> message.</summary>
+        internal static string WarpWindowNames => SpawnControlWindow + "," + TimelineWindow;
 
         /// <summary>
         /// OK payload for <c>warp</c>:

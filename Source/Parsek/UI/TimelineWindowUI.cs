@@ -850,49 +850,17 @@ namespace Parsek
             var flight = parentUI.Flight;
             bool inFlight = parentUI.InFlightMode && flight != null;
 
-            double targetUT = WarpToTimeMath.ComputeTargetUT(warpYear, warpDay, warpHour, warpMinute);
-            // Recompute the (expensive, ERS-enumerating) rewind-target resolution only when the
-            // entered date changes or the timeline cache is invalidated. It does not depend on
-            // current UT, so the cheap DecideWarpPlan below can run every frame.
-            if (warpResolveDirty || targetUT != warpCachedTargetUT)
-            {
-                var target = WarpToTimeController.ResolveRewindTarget(targetUT, out bool landsAtStart);
-                warpCachedTargetUT = targetUT;
-                warpCachedHasRewindTarget = target.Kind != WarpToTimeController.RewindTargetKind.None;
-                warpCachedLandsAtStart = landsAtStart;
-                warpResolveDirty = false;
-            }
-            double currentUT = 0;
-            try { currentUT = Planetarium.GetUniversalTime(); } catch { }
-            var plan = WarpToTimeMath.DecideWarpPlan(
-                targetUT, currentUT, inFlight, warpCachedHasRewindTarget, warpCachedLandsAtStart);
-
-            bool actionable = plan.Kind == WarpToTimeMath.WarpPlanKind.ForwardOnly
-                || plan.Kind == WarpToTimeMath.WarpPlanKind.RewindThenForward;
-            string tooltip = actionable
-                ? "Rewind or fast-forward the game clock to the entered date"
-                : plan.Reason;
-
-            // Disable while a warp is already in flight (pending forward jump) or a flight
-            // warp has been deferred to the Space Center, so a second click can't double-arm
-            // it during the one frame before the scene exit takes over.
-            bool warpPending = WarpToTimeRequest.HasPending;
-            bool warpDeferredKsc = WarpToTimeRequest.HasDeferredKscWarp;
-            bool warpButtonEnabled = actionable && !warpPending && !warpDeferredKsc;
+            bool warpButtonEnabled = ResolveWarpToTimeButtonState(inFlight,
+                out string tooltip, out string disabledReason, out _, out _);
             GUI.enabled = warpButtonEnabled;
             bool warpToTimeClicked = GUILayout.Button(new GUIContent("Warp to time", tooltip),
                 GUILayout.Width(FilterButtonWidth * 2f));
             // The GUIContent tooltip only covers the not-actionable case; the two
             // already-warping gates grey the button with the ENABLED wording still
             // attached, so the carrier has to resolve the reason itself.
-            DisabledHoverEcho.CarryLastControl(
-                warpButtonEnabled,
-                WarpToTimeDisabledReason(actionable, tooltip, warpPending, warpDeferredKsc));
+            DisabledHoverEcho.CarryLastControl(warpButtonEnabled, disabledReason);
             if (warpToTimeClicked)
-            {
-                CommitWarpField();
-                WarpToTimeController.RequestWarp(warpYear, warpDay, warpHour, warpMinute, flight, inFlight);
-            }
+                ExecuteWarpToTimeClick(flight, inFlight);
             GUI.enabled = true;
 
             GUILayout.Space(8f);
@@ -903,6 +871,114 @@ namespace Parsek
 
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// Resolves the "Warp to time" button's drawn state from the committed Year / Day /
+        /// Hour / Minute: returns whether it is clickable, with its hover text, the greyed
+        /// reason, the target UT and the plan a click would run. ONE resolver for the draw
+        /// and for the <c>UiAction op=warp window=timeline</c> seam op, so the seam presses
+        /// only a button the frame would have drawn enabled. The ERS-enumerating
+        /// rewind-target resolution is recomputed only when the entered date changes or the
+        /// timeline cache is invalidated (it does not depend on current UT); the cheap plan
+        /// decision runs every call. Out parameters rather than a result struct: a nested
+        /// type here would join the dependency knot with its host.
+        /// </summary>
+        private bool ResolveWarpToTimeButtonState(bool inFlight, out string tooltip,
+            out string disabledReason, out double targetUT, out WarpToTimeMath.WarpPlan plan)
+        {
+            targetUT = WarpToTimeMath.ComputeTargetUT(warpYear, warpDay, warpHour, warpMinute);
+            if (warpResolveDirty || targetUT != warpCachedTargetUT)
+            {
+                var target = WarpToTimeController.ResolveRewindTarget(targetUT, out bool landsAtStart);
+                warpCachedTargetUT = targetUT;
+                warpCachedHasRewindTarget = target.Kind != WarpToTimeController.RewindTargetKind.None;
+                warpCachedLandsAtStart = landsAtStart;
+                warpResolveDirty = false;
+            }
+            double currentUT = ReadCurrentUTForWarpRow();
+            plan = WarpToTimeMath.DecideWarpPlan(
+                targetUT, currentUT, inFlight, warpCachedHasRewindTarget, warpCachedLandsAtStart);
+
+            bool actionable = plan.Kind == WarpToTimeMath.WarpPlanKind.ForwardOnly
+                || plan.Kind == WarpToTimeMath.WarpPlanKind.RewindThenForward;
+            tooltip = actionable
+                ? "Rewind or fast-forward the game clock to the entered date"
+                : plan.Reason;
+
+            // Disabled while a warp is already in flight (pending forward jump) or a flight
+            // warp has been deferred to the Space Center, so a second click can't double-arm
+            // it during the one frame before the scene exit takes over.
+            bool warpPending = WarpToTimeRequest.HasPending;
+            bool warpDeferredKsc = WarpToTimeRequest.HasDeferredKscWarp;
+            disabledReason = WarpToTimeDisabledReason(actionable, tooltip, warpPending, warpDeferredKsc);
+            return actionable && !warpPending && !warpDeferredKsc;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadCurrentUTForWarpRow()
+        {
+            try { return Planetarium.GetUniversalTime(); }
+            catch { return 0; }
+        }
+
+        /// <summary>
+        /// The "Warp to time" button's click body: flush any in-progress field edit, then
+        /// hand the committed date to the controller (which shows the confirm dialog). The
+        /// drawn button and the seam op both call this one method.
+        /// </summary>
+        private void ExecuteWarpToTimeClick(ParsekFlight flight, bool inFlight)
+        {
+            CommitWarpField();
+            WarpToTimeController.RequestWarp(warpYear, warpDay, warpHour, warpMinute, flight, inFlight);
+        }
+
+        /// <summary>The seam press refusal: the button would be drawn greyed, so a player
+        /// could not click it. Same spelling as the Real Spawn Control row refusal.</summary>
+        internal const string WarpToTimeRefusalButtonDisabled = "warp-button-disabled";
+
+        /// <summary>
+        /// Automation-only (<c>UiAction op=warp window=timeline</c>): enter the four fields
+        /// the way a player commits them (Enter on each box: the same parse floors already
+        /// applied by the caller through <see cref="WarpToTimeMath.TryParseField"/>), then
+        /// press the button through <see cref="ExecuteWarpToTimeClick"/> when the resolved
+        /// state draws it enabled. A greyed button is not pressed: answers false with
+        /// <see cref="WarpToTimeRefusalButtonDisabled"/> and the button's own greyed reason.
+        /// </summary>
+        internal bool TryPressWarpToTimeForTesting(int year, int day, int hour, int minute,
+            out double targetUT, out WarpToTimeMath.WarpPlanKind planKind,
+            out string disabledReason, out bool inFlight, out string refusal)
+        {
+            refusal = null;
+            if (!warpValuesLoaded)
+                LoadWarpInputs();
+            // A field the player left mid-edit would be committed by the click itself and
+            // overwrite the date entered here; drop it the way Escape does first.
+            if (warpFocusedField != WarpField.None)
+                CancelWarpField();
+            warpYear = year;
+            warpDay = day;
+            warpHour = hour;
+            warpMinute = minute;
+            ParsekLog.Verbose("WarpTime", string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "Warp fields committed by automation: Y{0} D{1} {2}:{3:00}", year, day, hour, minute));
+
+            var flight = parentUI.Flight;
+            inFlight = parentUI.InFlightMode && flight != null;
+            bool enabled = ResolveWarpToTimeButtonState(inFlight,
+                out _, out disabledReason, out targetUT, out WarpToTimeMath.WarpPlan plan);
+            planKind = plan.Kind;
+            if (!enabled)
+            {
+                refusal = WarpToTimeRefusalButtonDisabled;
+                ParsekLog.Info("WarpTime", string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Warp to time not pressed: button disabled (plan={0} targetUT={1:F1} reason={2})",
+                    planKind, targetUT, disabledReason));
+                return false;
+            }
+            ExecuteWarpToTimeClick(flight, inFlight);
+            return true;
         }
 
         private void DrawWarpField(WarpField kind, string label, int committedValue)
