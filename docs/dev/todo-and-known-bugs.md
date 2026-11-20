@@ -36,6 +36,20 @@ cycle=cycle-N originDebits=a pickups=b deliveries=c; cargo already taken is not 
 undone." Owner question: keep the loss (and maybe name it in that existing confirm text), or
 return the taken cargo to its source on delete. No lane flies it yet.
 
+## WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION: after a watched ship docks and undocks, watch follows the vessel that kept the merge's pid, not the ship [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit (`WatchAcrossDockTests`). PINNED, owner question; low (camera choice, the player can pick the ship again)]
+
+At the dock itself watch is right in every shape: the merged vessel is the only child, so it is
+followed whether the merge kept the watched ship's pid (same-pid rule) or the partner's (the
+different-pid fallback, allowed for Dock), and from the passive partner too; with the merged
+ghost not spawned yet it holds (-1). The step after is the question: when the merged vessel
+later undocks, `GhostPlaybackLogic.FindNextWatchTarget` prefers the child with the MERGED
+recording's pid, so a ship that docked into a station whose pid the merge kept is followed by
+the station when it undocks, not by the ship that leaves (whenever the ship's undock child
+carries a pid other than the merge's). Watch keeps no memory of the vessel it started on.
+Which pid KSP gives each side at a real dock and undock is not checked here; a watch step on a
+BDOCK replay would read it. Owner question: should watch carry the originally watched
+vessel's identity (`VesselIdentity`) across a dock-undock pair?
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
