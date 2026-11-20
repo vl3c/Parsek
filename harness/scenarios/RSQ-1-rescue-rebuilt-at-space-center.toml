@@ -1,0 +1,181 @@
+schema = 1
+id = "RSQ-1-rescue-rebuilt-at-space-center"
+# =====================================================================================
+# RSQ-1: A RESCUE CONTRACT REBUILT AT THE SPACE CENTER AFTER A REWIND GETS ITS STRANDED POD
+# BACK, ONCE (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS, the owed PC lane; the live proof
+# of the reflection shell `KspStatePatcher.RegenerateRebuiltStrandedAsset`, which has no headless
+# or in-game test).
+#
+# THE DEFECT. Stock's accept of a rescue (`Contracts.Templates.RecoverAsset`) runs `OnAccepted`,
+# which adds the stranded vessel to the game. After a rewind to before the accept, the ledger
+# rebuilds the committed accept from its snapshot (`Contract.Load`), which never runs
+# `OnAccepted`: the rewind world has an Active rescue naming a kerbal no vessel holds, so it can
+# only fail at its deadline. THE FIX: right after the rebuild, in SPACECENTER / TRACKSTATION,
+# Parsek calls the contract's own private `GenerateOrbitalRecovery` (here: Rayvan is in low
+# Kerbin orbit), under the pure guard `ContractAcceptWorldEffects.Plan` (never twice: a target
+# already in `flightState` reads `TargetPresent`).
+#
+# PLAN (cs-career-mun4 = CS-6c's produced save, UT ~185734; RecoverAsset
+# e8ba5ea6-570c-4b7f-99b4-44c9dee51030 Offered, recoveryType=1 (kerbal) recoveryLocation=1
+# (orbit), Rayvan Kerman Unowned / Assigned in the roster, no vessel holds him):
+#   boot       LoadGame persistent at the Space Center; warp to 185800.
+#   H          a Jumping Flea on the pad, recorded to 185840, committed, recovered at its marker
+#              (RW-18's H, so a Rewind-to-Launch has a launch before the accept to go back to).
+#   accept     warp to 185900; accept-contract e8ba5ea6 at the Space Center. Stock's own
+#              OnAccepted spawns Rayvan's pod in THIS timeline (no Parsek line).
+#   rewind     InvokeRewindToLaunch tree=latest: clock ~185785, the rewind save (UT ~185800.3)
+#              holds the rescue Offered and no pod; the accept row is committed future.
+#   crossing   warp to 185920 at the Space Center: the clock cursor reaches the accept, the patch
+#              rebuilds the contract and plans `repair=RegenerateStrandedAsset`, and
+#              `RecoverAsset.GenerateOrbitalRecovery` adds ONE vessel (`added=1`).
+#   reload     SaveGame rsq1-01-after-crossing, LoadGame it with playerLoad=true (a Cold load at
+#              the Space Center): the save holds the contract Active and the pod, so nothing is
+#              rebuilt and nothing regenerated.
+#   warp 2     warp to 185980: no second pod.
+#   save       the default slot (persistent), read by saveParse: exactly one vessel carries
+#              Rayvan (`crewAboard`, report-only until the first green flight arms it).
+#
+# STEP SAVES (temporary analysis artifacts): rsq1-01-after-crossing.
+#
+# PINNED LITERALS (read 2026-11-20 on branch test-gaps-batch1 5512a178a):
+#   PatchContracts: accept-side world effect not run on rebuild: contractId='...' type='...'
+#     effect=... outcome=... worldMissing=... repair=... skip=... (<detail>; vessels=N scene=S)
+#                                                GameActions/KspStatePatcher.ContractAcceptEffects.cs:93
+#   PatchContracts: regenerated stranded asset for rebuilt contract '...' through
+#     RecoverAsset.<generator>: added=N [<names>] (<target>; partID a -> b)   same file:431
+#   PatchContracts: N rebuilt contract(s) name world objects ... repaired=N   same file:62
+#   PatchContracts: stranded asset not regenerated for '...'                 same file:370-400
+#   PatchContracts: RecoverAsset.<generator> threw for rebuilt contract '...' same file:415
+#   Rescue accept deferral listed: ...           GameActions/RescueAcceptDeferrals.cs:82
+#   detail "orbit kerbal='<name>'"                GameActions/ContractAcceptWorldEffects.cs:482
+#   Clock-crossing reached committed-future rows: crossed=N [<Type>@<UT>, ...]
+#                                                GameActions/LedgerOrchestrator.Recalculate.cs:389
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): 1 considered, not applied:
+# RW-18 flies the same prefix on the same fixture, but its stops pin the funds of three other
+# accepts, and a rescue accept moves the pools (advance) and the world (a pod) under each stop;
+# RSQ-2 shares this prefix too, but its rebuild must happen in FLIGHT, and a lane reaches a
+# given rebuild once per rewind (two rewinds in one lane would make the second rebuild read the
+# first one's leftovers). 2 applied: every wait is an explicit-UT WarpToUT. 3-5 n/a (no dwell,
+# no burn, no coast). 6: `[retry] policy = "once"` (the Space Center warps are deterministic but
+# the boot is not). 7: the recordings count pinned (34 host + H, RW-18's measured 35);
+# crewAboard pinned to the one claim. 8-9 owed on the first flight.
+#
+# STATUS: AUTHORED 2026-11-20 (branch `test-gaps-b3-rescue-lane`), NEVER FLOWN.
+# =====================================================================================
+tier = "operator"
+description = "Rescue contract rebuilt at the Space Center after a rewind (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS): on cs-career-mun4 a committed pad Flea, then the rescue of Rayvan Kerman (RecoverAsset e8ba5ea6, low Kerbin orbit) accepted at the Space Center after its launch; a Rewind-to-Launch goes back before the accept, and the Space Center warp that reaches it rebuilds the contract and regenerates the stranded pod through stock's own GenerateOrbitalRecovery, exactly once: a save, a Cold reload and a second warp add no second pod, and the produced save holds Rayvan aboard one vessel."
+instanceProfile = "stock-tree"
+tags = ["RSQ-1", "career", "ledger", "rewind", "rewind-to-launch", "contracts", "contract-accept",
+        "rescue", "pending-flight", "ksc-marker", "editor", "timeline-ops", "save-load"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 2 x 300 LoadGame + 5 x 120 warps + 120 GoToEditor + 180 LaunchFromEditor
+# + 180 StartRecording + 120 CommitTree + 120 ExitToSpaceCenter + 60 KscMarkerRecover + 60
+# KscAction + 300 rewind + 2 x 120 SaveGame = 2580; runtime 3300 adds the inert steps and
+# FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # ---- H: the Flea on the pad, recorded, committed, recovered at its marker ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185840" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rsq1-h-committed" },                         expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${h.pid}" },                                 expect = "OK", budget = 60 },
+  # ---- the accept, after H's launch: stock spawns Rayvan's pod in this timeline ----
+  { cmd = "WarpToUT",       args = { ut = "185900", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rsq1-before-accept" },                       expect = "OK" },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "e8ba5ea6-570c-4b7f-99b4-44c9dee51030" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rsq1-accepted" },                            expect = "OK" },
+  # ---- the rewind onto H's launch: the accept is committed future, no pod in the world ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rsq1-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  # ---- the crossing at the Space Center: the rebuild regenerates the pod ----
+  { cmd = "WarpToUT",       args = { ut = "185920", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rsq1-crossed" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rsq1-01-after-crossing" },                   expect = "OK", budget = 120 },
+  # ---- a Cold reload of that save and a second warp: no second pod ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "rsq1-01-after-crossing", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rsq1-reloaded" },                            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185980", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rsq1-second-warp" },                         expect = "OK" },
+  # The DEFAULT slot (persistent): the one saveParse reads.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["contracts", "recalc-engine", "ksp-state-patcher"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus H (RW-18's measured 35 on the same prefix).
+count = { min = 35, max = 35 }
+
+# Report-only until the first green flight reads it (then arm with `gating = true` and add the
+# id to ARMED_ALLOWLIST in harness/lib/test_hlib.py): Rayvan aboard exactly one vessel. Zero
+# means the pod was never regenerated; two means it was regenerated twice.
+[expectations.recordings.structure]
+crewAboard = { "Rayvan Kerman" = 1 }
+
+[expectations.logContracts]
+required = [
+  # ---- the live accept at the Space Center, after H's launch ----
+  "MISSIONMARK label=rsq1-before-accept ut=(?:(?!MISSIONMARK label=rsq1-accepted )[\\s\\S])*?kscaction action=accept-contract target=e8ba5ea6-570c-4b7f-99b4-44c9dee51030 applied=true",
+  "MISSIONMARK label=rsq1-accepted ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rsq1-rewound ut=1857[0-9]{2}\\.",
+
+  # ---- the crossing at the Space Center: the accept row reached, the contract rebuilt and
+  # its stranded pod regenerated through stock's own generator, one vessel ----
+  "MISSIONMARK label=rsq1-rewound ut=(?:(?!MISSIONMARK label=rsq1-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@(?:18589|18590)[0-9]\\.",
+  "MISSIONMARK label=rsq1-rewound ut=(?:(?!MISSIONMARK label=rsq1-crossed )[\\s\\S])*?PatchContracts: accept-side world effect not run on rebuild: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030' type='RecoverAsset' effect=StrandedAsset outcome=Regenerate worldMissing=True repair=RegenerateStrandedAsset skip=none \\(orbit kerbal='Rayvan Kerman'; vessels=[0-9]+ scene=SPACECENTER\\)",
+  "MISSIONMARK label=rsq1-rewound ut=(?:(?!MISSIONMARK label=rsq1-crossed )[\\s\\S])*?PatchContracts: regenerated stranded asset for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030' through RecoverAsset\\.GenerateOrbitalRecovery: added=1 \\[[^\\]\\r\\n]+\\] \\(orbit kerbal='Rayvan Kerman'; partID ",
+  "MISSIONMARK label=rsq1-rewound ut=(?:(?!MISSIONMARK label=rsq1-crossed )[\\s\\S])*?PatchContracts: [1-9][0-9]* rebuilt contract\\(s\\) name world objects their stock accept created and this world lacked; repaired=[1-9]",
+
+  # ---- the Cold reload: the player's load of the save written after the crossing ----
+  "MISSIONMARK label=rsq1-crossed ut=(?:(?!MISSIONMARK label=rsq1-reloaded )[\\s\\S])*?loadgame start save=\\S+ name=rsq1-01-after-crossing [^\\r\\n]*playerLoad=true",
+  "MISSIONMARK label=rsq1-reloaded ut=[\\s\\S]*?MISSIONMARK label=rsq1-second-warp ut=1859[0-9]{2}\\.",
+]
+forbidden = [
+  # The pod is regenerated once: a second regeneration of this contract anywhere is the
+  # double-spawn the TargetPresent guard exists to stop.
+  "regenerated stranded asset for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'[\\s\\S]*regenerated stranded asset for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'",
+  # After the regeneration the contract is never rebuilt-and-repaired again (the reload's
+  # save holds it Active, which the patch leaves alone).
+  "MISSIONMARK label=rsq1-crossed ut=[\\s\\S]*repair=RegenerateStrandedAsset",
+  # At the Space Center the rebuild regenerates at once, it never defers.
+  "Rescue accept deferral listed: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030'",
+  # The reflection shell's failure lines.
+  "stranded asset not regenerated for 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'",
+  "RecoverAsset\\.Generate\\w+ threw for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'",
+  "accept-side world effect check for 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030' threw",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 3300
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

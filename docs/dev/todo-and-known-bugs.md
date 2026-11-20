@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; OPEN: the PC lane (live proof), and the prebuilt-ship / experimental-part templates (measure first, item 4); high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
+## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; PC LANES AUTHORED 2026-11-20, branch `test-gaps-b3-rescue-lane`: RSQ-1 / RSQ-2, never flown; OPEN: their flights (live proof), and the prebuilt-ship / experimental-part templates (measure first, item 4); high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
 
 **What happens.** The player accepts a rescue contract (`Contracts.Templates.RecoverAsset`) at UT
 T, rewinds to before T, and the clock reaches T again. `KspStatePatcher.PatchContractsCore`
@@ -148,7 +148,7 @@ cells); 11 red before the follow-up, e.g. `RebuiltRescue_OutsideSpaceCenterAndTr
 (Expected `PartiallyPresent`, Actual `Regenerate`) and `RebuiltTourism_TheCommittedTimelineResolvesTheContract_ConvertsNobody`
 (Expected `None`, Actual `ConvertTourists`). The store joins `StoreSaveRoundTripTests`, the Cold
 loader cells of `SaveScopedSessionResetTests` and the OnLoad / OnSave characterization goldens.
-The reflection shell and the drain have no headless or in-game test; the PC lane below is their proof.
+The reflection shell and the drain have no headless or in-game test; the PC lanes RSQ-1 / RSQ-2 below are their proof.
 
 **Residual gaps (not fixed).** A compound rescue regenerated once and then rebuilt again from its
 accept snapshot names the snapshot's stale part id (the snapshot is never rewritten), so its part
@@ -157,20 +157,27 @@ vessel survived, which a rewind to before the accept does not produce (that worl
 targets and regenerates afresh). A Discard Re-fly clears the deferral list; a rescue the rewind
 point's own save had deferred and that is still Active in the landed world is not regenerated.
 
-**PC lane (owed).** On cs-career-mun4 (RecoverAsset `e8ba5ea6`, Rayvan Kerman, low Kerbin orbit,
-Offered, Rayvan Unowned in the roster), RW-10's shape: launch and commit a pad Flea, at the Space
-Center `KscAction action=accept-contract contract=e8ba5ea6-570c-4b7f-99b4-44c9dee51030` after the
-launch UT, `InvokeRewindToLaunch tree=latest`, `WarpToUT` past the accept UT, at the Space Center. Before the
-fix the log read `contractId='e8ba5ea6-... effect=StrandedAsset outcome=Regenerate worldMissing=True`;
-with it, the same line carries `repair=RegenerateStrandedAsset`, the `regenerated stranded asset`
-line must follow with `added=1`, a vessel named for Rayvan's pod must exist (a `ListHandles` read or
-a saveParse expectation), and a save / load and a second warp must not add a second one. Deferral
-leg: the same rebuild reached in FLIGHT must log `repair=DeferStrandedAsset skip=scene=FLIGHT` and
-`Rescue accept deferral listed`, survive a save / load (`Rescue accept deferrals installed (load
-Cold): pending=1`), and the next Space Center scene must log `Rescue accept deferral evaluated:
-contractId='e8ba5ea6-... outcome=Regenerate repair=RegenerateStrandedAsset`, the `regenerated
-stranded asset` line with `added=1` and `drained (onContractsLoaded, scene=SPACECENTER):
-evaluated=1 regenerated=1`; a second Space Center visit must add nothing (`pending=0`).
+**PC lanes (authored 2026-11-20, never flown; branch `test-gaps-b3-rescue-lane`).** Both on
+cs-career-mun4 (RecoverAsset `e8ba5ea6`, Rayvan Kerman, low Kerbin orbit, Offered, Rayvan Unowned
+in the roster; stock-tree, operator), RW-18's prefix: a pad Flea recorded, committed and recovered,
+`KscAction action=accept-contract contract=e8ba5ea6-570c-4b7f-99b4-44c9dee51030` at UT 185900,
+`InvokeRewindToLaunch tree=latest`. `RSQ-1-rescue-rebuilt-at-space-center` crosses the accept with a
+Space Center warp: the rebuild line must carry `outcome=Regenerate worldMissing=True
+repair=RegenerateStrandedAsset skip=none (orbit kerbal='Rayvan Kerman'; ... scene=SPACECENTER)`,
+then `regenerated stranded asset ... through RecoverAsset.GenerateOrbitalRecovery: added=1`; a
+save, a Cold reload (`LoadGame playerLoad=true`) and a second warp must add no second one (a second
+regeneration line is forbidden). `RSQ-2-rescue-rebuilt-in-flight-deferred` crosses it with a
+`TimeJump` in FLIGHT from an unrecorded pad Flea (a stock warp in flight patches no contract; the
+forward time jump runs `RecalculateAndPatchForTimeJump`): `repair=DeferStrandedAsset
+skip=scene=FLIGHT` and `Rescue accept deferral listed ... pending=1`, the list back after a save and
+a Cold load into FLIGHT (`Rescue accept deferrals installed (load Cold): pending=1`), then at the
+next Space Center scene `Rescue accept deferral evaluated: contractId='e8ba5ea6-...'
+outcome=Regenerate repair=RegenerateStrandedAsset`, the `regenerated stranded asset` line with
+`added=1` and `drained (onContractsLoaded, scene=SPACECENTER): evaluated=1 regenerated=1 dropped=0
+kept=0 pending=0`; a second Space Center visit (a Cold load there) must add nothing (no later
+`installed ... pending=[1-9]`, no second evaluation or regeneration). Both declare the new saveParse
+`crewAboard` census (vessels per seated kerbal) as `"Rayvan Kerman" = 1`, report-only until a first
+green flight arms it. The pre-rewind live accept is stock's own and logs no Parsek line.
 ## ~~SAVE-FREEZE-ON-MISSING-SIDECAR~~: one recording whose sidecar cannot be written froze its whole tree in every later save [FILED 2026-11-18 by code reading (test-gap pass, branch `test-gaps-savefreeze`); CONFIRMED 2026-11-20 by two red xUnit cells on the pre-fix code. FIXED 2026-11-20, same branch; xUnit; ST-4 re-pinned by code read, re-flight owed; high (silent loss of every later change to the tree; the sidecars of recordings the save no longer named were left as orphans on disk)]
 
 What happened. `ParsekScenario.SaveTreeRecordings` (`Controllers/ParsekScenario.Save.cs`) writes a

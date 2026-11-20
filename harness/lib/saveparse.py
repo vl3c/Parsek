@@ -458,6 +458,9 @@ class FlightVesselRow:
     # SPACE_OBJECT_PART_NAMES / _rock_part_name): a free rock carries its own, and a
     # ship that grabbed one carries it among its parts.
     rock_parts: Tuple[str, ...] = ()
+    # The distinct kerbal names seated in the vessel's PARTs (each PART's `crew`
+    # values), sorted: the `crewAboard` census.
+    crew: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -871,9 +874,11 @@ def _parse_flight_vessels(root: SfsNode) -> Tuple[FlightVesselRow, ...]:
         vtype = v.value("type") or ""
         rocks = tuple(n for n in (_rock_part_name(p, name, vtype)
                                   for p in v.nodes_named("PART")) if n is not None)
+        crew = tuple(sorted({c for p in v.nodes_named("PART")
+                             for c in p.values_named("crew") if c}))
         rows.append(FlightVesselRow(name=name, vessel_type=vtype,
                                     persistent_id=_parse_int(v.value("persistentId")),
-                                    rock_parts=rocks))
+                                    rock_parts=rocks, crew=crew))
     return tuple(rows)
 
 
@@ -1102,6 +1107,18 @@ def space_object_part_counts(snapshot: ParsekSaveSnapshot) -> Dict[str, int]:
     for v in snapshot.flight_vessels:
         for rock in v.rock_parts:
             counts[rock] = counts.get(rock, 0) + 1
+    return counts
+
+
+def crew_aboard_counts(snapshot: ParsekSaveSnapshot) -> Dict[str, int]:
+    """FLIGHTSTATE vessels per kerbal seated aboard (a kerbal counts once per vessel
+    whatever part he sits in). The one-copy census for a kerbal: a rescue's stranded
+    pod regenerated twice, or a kerbal seated in two vessels, counts 2 under his name;
+    a kerbal aboard no vessel is absent from the map (a window of 0 reads him)."""
+    counts: Dict[str, int] = {}
+    for v in snapshot.flight_vessels:
+        for name in v.crew:
+            counts[name] = counts.get(name, 0) + 1
     return counts
 
 
@@ -1581,6 +1598,8 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
                 "recordingNames": recording_name_counts(snapshot),
                 # Rock PARTs per rock name, free or grabbed (space_object_part_counts).
                 "spaceObjectParts": space_object_part_counts(snapshot),
+                # Vessels per seated kerbal (crew_aboard_counts).
+                "crewAboard": crew_aboard_counts(snapshot),
             },
             # Gate 12: the recorded-POINTS distribution, sibling of `structure`
             # and independently armable. Recorded UNCONDITIONALLY, which is how
@@ -1615,13 +1634,13 @@ STRUCTURE_BLOCK = "structure"  # nested under [expectations.recordings]
 STRUCTURE_BLOCK_KEYS: Tuple[str, ...] = (
     GATING_KEY, "trees", "committedTrees", "recordings",
     "terminalStates", "branchPoints", "ghostChainNodes", "spawnedVessels",
-    "vesselNames", "recordingNames", "spaceObjectParts")
+    "vesselNames", "recordingNames", "spaceObjectParts", "crewAboard")
 # The structure block's scalar (single-window) facets.
 STRUCTURE_SCALAR_KEYS: Tuple[str, ...] = (
     "trees", "committedTrees", "recordings", "ghostChainNodes", "spawnedVessels")
 # The structure block's free-form name censuses ({ "<name>" = <window> }).
 STRUCTURE_NAME_CENSUS_KEYS: Tuple[str, ...] = (
-    "vesselNames", "recordingNames", "spaceObjectParts")
+    "vesselNames", "recordingNames", "spaceObjectParts", "crewAboard")
 
 # Gate 12. A SIBLING of `structure`, not a key inside it, and deliberately so:
 # gating is PER-BLOCK (see SaveStructureResult / adversarial-review finding 3),
