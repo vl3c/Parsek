@@ -15,7 +15,8 @@ namespace Parsek.TestCommands
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
-        // ----- SimulateStockSwitchClick (R12, single-phase, site=map) -----
+        // ----- SimulateStockSwitchClick (R12, single-phase, site=map; ts / ksc in the
+        //       .SimulateSwitchClickFly.cs partial) -----
         //
         // The switch-segment code path is UNREACHABLE from the mission driver: kRPC's
         // active_vessel setter calls FlightGlobals.SetActiveVessel directly, which arms no
@@ -88,18 +89,13 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            if (!TestCommandSimulateSwitchClick.IsSiteImplemented(site))
+            if (TestCommandSimulateSwitchClick.IsFlySite(site))
             {
-                // ts / ksc arm through their OWN patched handlers (SpaceTracking.FlyVessel /
-                // KSCVesselMarkers.FlyVessel) from their OWN scenes, and both cross into a
-                // fresh FLIGHT load. Hand-rolling FlightDriver.StartAndFocusVessel here would
-                // also skip GhostMapPresence.RemoveAllGhostVesselsBeforeStockFly, whose
-                // absence is a live-list / saved-file index desync bug. They land with their
-                // own consumers, not as an untested branch of the map verb.
-                ParsekLog.Warn(Tag,
-                    $"switchclick rejected reason={TestCommandSimulateSwitchClick.SiteNotImplementedReason} " +
-                    $"site={TestCommandSimulateSwitchClick.SiteToken(site)} - v1 drives site=map only");
-                SetExecResult("REJECTED", null, TestCommandSimulateSwitchClick.SiteNotImplementedMsg(site));
+                // ts / ksc press their OWN stock controls (SpaceTracking's Fly button, the KSC
+                // marker's Fly) from their OWN scenes, so the patched handlers arm the intent
+                // and run GhostMapPresence.RemoveAllGhostVesselsBeforeStockFly before stock's
+                // save + StartAndFocusVessel. Two-phase: answered after the FLIGHT load.
+                StartSwitchClickFly(site, selector);
                 return;
             }
 

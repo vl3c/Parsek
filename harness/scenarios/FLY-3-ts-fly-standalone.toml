@@ -1,0 +1,82 @@
+schema = 1
+id = "FLY-3-ts-fly-standalone"
+# =====================================================================================
+# WHAT THIS LANE PROVES (test-gaps Batch 3, "Fly from the Tracking Station", the third
+# consume branch). The same stock Tracking Station Fly as FLY-1 (`SimulateStockSwitchClick
+# site=ts`), on a vessel that belongs to NO Parsek tree, so the consume skips the
+# committed-clone branch (no committed match) and the BG-member branch (no live tree after
+# a fresh FLIGHT load) and opens a STANDALONE segment (`route=standalone`, `created ...
+# reason=TrackingStationFly`).
+#
+# THE BG-MEMBER BRANCH IS NOT REACHABLE FROM A FLY SITE. It needs a live activeTree whose
+# BackgroundMap holds the target at consume time; a Tracking Station or Space Center Fly
+# loads FLIGHT fresh, and leaving FLIGHT for either scene finalizes the live tree first, so
+# no lane can host it from here. It stays covered from the map site (CI-1 / GS-3 / FAR-4).
+#
+# HOST. `eva2-lko-crewed` (S0.8's host): no trees, "Kerbal X Probe" (pid 2614652043)
+# ORBITING Kerbin. Orbiting is load-bearing (FLY-2 has the surface refusal).
+#
+# FAST-LANE CHECKLIST: as FLY-1. The recording window is a range until measured.
+# =====================================================================================
+tier = "nightly"
+description = "FLY-3: on eva2-lko-crewed, load the Tracking Station and press its Fly button on the orbiting Kerbal X Probe, a vessel in no Parsek tree, through the stock control; the TrackingStationFly intent survives the FLIGHT load and the consume opens a standalone continuation segment."
+instanceProfile = "stock-minimal"
+tags = ["FLY-3", "switch-segment", "stock-click", "tracking-station-fly", "D1", "test-gaps-b3"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# `vessel` is the RAW name (run.py percent-encodes args on the wire; S0.8's header).
+steps = [
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",               args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { site = "ts", vessel = "Kerbal X Probe" },        expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                     expect = "OK" },
+  { cmd = "StopRecording",                                                                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["switch-segment"]
+D14 = ["kerbin", "sandbox", "scene-ts", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# AUTHORED, NEVER FLOWN: the standalone tree's segment recording. Re-pin after the first
+# flight.
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "switchclick fly gate site=ts targetPid=2614652043 targetName=Kerbal X Probe situation=ORBITING scenarioReady=true canFlyVessel=true owned=true homeWorld=true kscMarker=false decision=proceed",
+  "\\[SwitchIntentPatch\\] TS Fly intent armed: intentId=\\S+ action=TrackingStationFly targetPid=2614652043 sourceScene=TrackingStation",
+  "switchclick fly observed FLIGHT load request site=ts targetPid=2614652043 intentArmed=true",
+  "\\[SwitchIntent\\] intent kept-armed on OnLoad: intentId=\\S+ action=TrackingStationFly targetPid=2614652043",
+  "\\[SwitchSegment\\] created intentId=\\S+ .*focusedPid=2614652043 focusedName='Kerbal X Probe' reason=TrackingStationFly",
+  "\\[SwitchSegment\\] route=standalone intentId=\\S+ .*focusedPid=2614652043",
+  "\\[SwitchIntent\\] cleared: intentId=\\S+ action=TrackingStationFly targetPid=2614652043 reason=consumed-into-segment",
+  "switchclick complete site=ts targetPid=2614652043 targetName=Kerbal X Probe intentId=\\S+ route=stock-fly-control activeVesselPid=2614652043 switched=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "switchclick refused",
+  "switchclick failed",
+  "route=committed-spawned-clone",
+  "route=bg-member-continuation",
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

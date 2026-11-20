@@ -1159,8 +1159,9 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # class, not the LoadGame class: it drives a scene exit and completes as soon as that
 # settles, so its C# budget is 120 s and it rides DISPATCH_DEFERRAL_BUDGET_SECONDS below.
 # Membership here is about the 540 s CAP governing a spec-declared budget, not about being
-# two-phase. SimulateStockSwitchClick is SINGLE-phase (the switch and Parsek's consume both
-# run synchronously inside SetActiveVessel), so it rides the plain 60 s default.
+# two-phase. SimulateStockSwitchClick is not a member either: its map site is single-phase,
+# and its ts / ksc sites (two-phase, a stock Fly into a FLIGHT load) ride the per-verb
+# 300 s row in DISPATCH_DEFERRAL_BUDGET_SECONDS below, under the cap.
 # The player-workflow lane added StartLoopPlayback for the same reason M-C1 added
 # TimeJump: it is a two-phase forward CLOCK jump (to the looped mission's next
 # faithful departure, which can be tens of millions of seconds ahead), so the 540 s
@@ -1251,10 +1252,13 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # parses a cold save off disk. Without the row the harness step-wait would ride the 60 s default + margin
     # and could KILL a healthy KSC bootstrap - which re-reads persistent.sfs and runs
     # SetProtoModules -> the pending-tree auto-commit - at ~120 s, converting a retryable
-    # seam TIMEOUT into a terminal KILLED. SimulateStockSwitchClick is deliberately ABSENT:
-    # the C# switch rides DefaultSeconds (60 s) because it is single-phase, and its budget
-    # only ever bounds the not-in-flight DEFER.
+    # seam TIMEOUT into a terminal KILLED.
     "ExitToSpaceCenter": 120.0,
+    # SimulateStockSwitchClick mirrors the C# SimulateStockSwitchClickSeconds = 300.0 (one
+    # budget per verb). Its ts / ksc sites press a stock Fly that saves persistent and loads
+    # FLIGHT from it, then wait for Parsek's consume to spend the intent: the LoadGame class.
+    # The map site is single-phase, so for it the row only bounds the not-in-flight DEFER.
+    "SimulateStockSwitchClick": 300.0,
     # Player-workflow lane. StartLoopPlayback mirrors the C#
     # StartLoopPlaybackSeconds = 120.0, sized like TimeJump because it IS the same
     # instantaneous clock set (Planetarium.SetUniversalTime via
@@ -2893,10 +2897,8 @@ BATCH_ISOLATED_VALUES: Tuple[str, ...] = ("true", "false")
 # same argument the isolated guard above makes and the same job validate_spec has
 # everywhere else.
 #
-# What is deliberately NOT checked: whether v1 IMPLEMENTS the value. `site=ts` and
-# `site=ksc` are legal spellings the v1 verb answers REJECTED site-not-implemented,
-# and a spec that drives one with expect = "REJECTED" is a legitimate capability
-# probe. Only the SPELLING is closed here.
+# Only the SPELLING is closed here: `site=ts` / `site=ksc` (the Tracking Station Fly and
+# the KSC marker Fly, two-phase, each issued from its own scene) are as legal as `map`.
 #
 # `scene=flight` is absent from the accepted set on purpose and is not an oversight
 # to be "fixed": a forced FLIGHT boot is not expressible (the focusable route needs
@@ -3003,6 +3005,20 @@ RECORDINGSTATE_AWAIT_RECORDER_LIVE_VALUES: Tuple[str, ...] = ("refly",)
 
 SWITCHCLICK_SITE_KEY = "site"
 SWITCHCLICK_SITE_VALUES: Tuple[str, ...] = ("map", "ts", "ksc")
+
+# SimulateStockSwitchClick site=ts / site=ksc, mirrored IN ORDER from the FlyRejectReasons /
+# FlyErrorReasons arrays of TestCommands/TestCommandSimulateSwitchClick.FlySites.cs
+# (SwitchClickFlySourceSyncTests), with the per-site wrong-scene DEFER tokens and the OK
+# payload's route.
+SWITCHCLICK_FLY_REJECT_REASONS: Tuple[str, ...] = (
+    "fly-control-missing", "cannot-fly-vessel", "target-not-owned",
+    "target-has-no-ksc-marker", "fly-button-locked")
+SWITCHCLICK_FLY_ERROR_REASONS: Tuple[str, ...] = (
+    "fly-select-failed", "fly-no-scene-load", "fly-intent-not-armed", "fly-wrong-vessel",
+    "fly-intent-not-consumed", "fly-returned-to-menu", "fly-timeout")
+SWITCHCLICK_SITE_SCENE_DEFERS: Dict[str, str] = {
+    "map": "not-in-flight", "ts": "not-in-trackstation", "ksc": "not-at-space-center"}
+SWITCHCLICK_FLY_ROUTE = "stock-fly-control"
 
 # career-ledger B.4: RunTests' `strict` arg, the per-scenario seam for
 # LedgerGroundTruthDiff.StrictPerIdentityForTesting (which promotes the ground-truth
@@ -12877,7 +12893,6 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
     "site-arg-invalid": "driver-arg",
-    "site-not-implemented": "driver-arg",
     "target-arg-missing": "driver-arg",
     "pid-arg-invalid": "driver-arg",
     "vessel-arg-invalid": "driver-arg",
@@ -12891,6 +12906,15 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "target-already-active": "driver-gate",
     "target-unloaded": "driver-gate",
     "dialog-pending": "driver-dialog",
+    # SimulateStockSwitchClick site=ts / site=ksc (SWITCHCLICK_FLY_REJECT_REASONS): a
+    # target stock would not fly is the spec's naming error; a control that never drew or a
+    # locked Fly button is the live state's. The ERROR half (fly-no-scene-load, ...) is
+    # observed after the press and stays out of this table.
+    "fly-control-missing": "driver-gate",
+    "cannot-fly-vessel": "driver-gate",
+    "target-not-owned": "driver-arg",
+    "target-has-no-ksc-marker": "driver-arg",
+    "fly-button-locked": "driver-gate",
     # The loop lanes (design "> Update (the loop lanes)"): MissionConfig,
     # StartLoopPlayback and EnterWatchMode. Same R12 reasoning - the three verbs ship
     # typed refusals and without these rows every one of them collapses to the coarse

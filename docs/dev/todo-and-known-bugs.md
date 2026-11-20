@@ -580,6 +580,42 @@ If the owner wants a point there, SURV-2's `Single-controllable` pin flips with 
 A red reading on any lane is filed as its own entry; each spec header lists its pre-registered
 readings.
 
+## FLY-SITES-LANES-OWED: Fly from the Tracking Station, Fly from a KSC marker and the alarm Jump from those scenes were unit-tested only [FILED 2026-11-20 (test-gaps Batch 3), branch `test-gaps-b3-fly-sites`; seam sites BUILT (xUnit); FLY-1..FLY-5 AUTHORED, NEVER FLOWN; OPEN: the first flights]
+
+`SimulateStockSwitchClick` answered `site-not-implemented` for `site=ts` / `site=ksc`, and
+`AlarmJump` ran only in FLIGHT, so no lane drove the stock-action intent's two cross-scene
+arming patches (`SwitchIntentTrackingStationFlyPatch`, `KscVesselMarkerFlyPatch`), the
+alarm patch's non-FLIGHT branch (GC-13) or the consume of the intents they arm after a fresh
+FLIGHT load.
+
+Built: `site=ts` / `site=ksc` are two-phase. Issued in the Tracking Station / at the Space
+Center (the dispatcher defers `not-in-trackstation` / `not-at-space-center` elsewhere), the
+verb presses the stock control (`SpaceTracking.SetVessel` + `FlyButton`; the KSC marker's
+`Marker` + `FlyButton`), reads the intent the patch armed when stock requests the FLIGHT load,
+and answers once the new flight settled on the target and the intent was spent (ERRORs
+`fly-no-scene-load`, `fly-intent-not-armed`, `fly-wrong-vessel`, `fly-intent-not-consumed`;
+budget 300 s). `AlarmJump` is `RequiresVesselListScene` and deletes its scaffold alarm before a
+non-FLIGHT press (stock's Jump saves persistent first). Contract:
+`design-autotest-command-seam.md` -> `R12/B` and `AlarmJump`.
+
+Lanes, each pinned to the consume line the branch logs: FLY-1 (TS Fly of a committed orbiting
+vessel, `route=committed-spawned-clone`, `kerbin-return-recorded`), FLY-2 (KSC marker Fly of a
+committed landed vessel, `on-surface-defer-to-trigger`, `kerbin-splashdown-recorded`), FLY-3
+(TS Fly, `route=standalone`, `eva2-lko-crewed`), FLY-4 / FLY-5 (alarm Jump from the TS / the
+Space Center, standalone segments with `reason=TrackingStationFly` / `reason=KscMarkerFly`).
+
+Not reachable from a fly site, by design: a KSC marker names only a landed or splashed vessel,
+so its consume is always the on-surface defer (FLY-5 is the KSC source scene's authorized
+consume); the BG-member branch needs a live tree holding the target, and a TS / KSC Fly loads
+FLIGHT fresh (leaving FLIGHT finalizes the live tree), so it stays covered from the map site
+(CI-1, GS-3, FAR-4).
+
+Owed: fly FLY-1..FLY-5 once each as reading runs; re-pin the recording windows to the measured
+counts; confirm FLY-1's route line (the consume's own clone route or the adopted-resumed-spawn
+variant, both matched) and whether FLY-2's committed-tree restore resumed a recording; the
+10 s TS / KSC intent TTL spans the FLIGHT load, so an `intent kept-armed` miss
+(`stale-intent`) on these lanes is a product finding, not a spec error.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
@@ -9733,7 +9769,8 @@ item and must not be counted as one:
   nothing could LEAVE flight either. Live-proven by `H23-tracking-station`,
   `S0.7-exit-auto-commit` and `S0.8-switch-click-segment`. The seam is 21 implemented
   verbs / 10 reserved. What it did NOT close is listed in the roadmap's R12 block -
-  `site=ts` / `site=ksc`, the dialog cases, and unloaded targets. The CL-1 spec
+  ~~`site=ts` / `site=ksc`~~ (built 2026-11-20, todo FLY-SITES-LANES-OWED), the dialog
+  cases, and unloaded targets. The CL-1 spec
   extension's stage A shipped 2026-07-30 as `CL-2-pod-impact-ledger`; its tombstone
   stage B ~~remains~~ SHIPPED 2026-08-03 as `CL-3-refly-crew-tombstone` (D9
   `tombstones` and D12 `dead-crew-strip` armed; `stand-ins` followed on

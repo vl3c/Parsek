@@ -1,3 +1,4 @@
+using System;
 using Parsek.TestCommands;
 using Xunit;
 
@@ -721,14 +722,80 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SimulateStockSwitchClick_RidesTheDefaultBudget()
+        public void SimulateStockSwitchClick_BudgetIsSizedForTheFlySites()
         {
-            // Single-phase: the switch and Parsek's consume both complete synchronously
-            // inside SetActiveVessel, so the budget only ever bounds the not-in-flight
-            // DEFER - a scene settle, which is exactly what the default is sized for. A
-            // dedicated constant here would imply a long-running phase that does not exist.
-            Assert.Equal(DeferralBudget.DefaultSeconds,
+            // One budget per verb. site=ts / site=ksc wait for a FLIGHT load from the save
+            // stock's Fly just wrote (the LoadGame class); the map site is single-phase and
+            // the budget only bounds its not-in-flight DEFER.
+            Assert.Equal(300.0, DeferralBudget.SimulateStockSwitchClickSeconds);
+            Assert.Equal(DeferralBudget.SimulateStockSwitchClickSeconds,
                 DeferralBudget.BudgetSeconds("SimulateStockSwitchClick"));
+            Assert.Equal(DeferralBudget.LoadGameSeconds,
+                DeferralBudget.BudgetSeconds("SimulateStockSwitchClick"));
+        }
+
+        [Theory]
+        // site absent / map: FLIGHT only, the pre-fly-site token.
+        [InlineData(null, "SpaceCenter", "not-in-flight")]
+        [InlineData(null, "TrackingStation", "not-in-flight")]
+        [InlineData("map", "Editor", "not-in-flight")]
+        // site=ts: the Tracking Station only.
+        [InlineData("ts", "Flight", "not-in-trackstation")]
+        [InlineData("ts", "SpaceCenter", "not-in-trackstation")]
+        [InlineData("ts", "MainMenu", "not-in-trackstation")]
+        // site=ksc: the Space Center only.
+        [InlineData("ksc", "Flight", "not-at-space-center")]
+        [InlineData("ksc", "TrackingStation", "not-at-space-center")]
+        public void SimulateStockSwitchClick_WrongSceneForSite_Defers(
+            string site, string sceneName, string expectedReason)
+        {
+            var scene = (TestCommandScene)Enum.Parse(typeof(TestCommandScene), sceneName);
+            var st = new DispatchState { Scene = scene, GameLoaded = true, SettingsPresent = true };
+            var cmd = site == null
+                ? Cmd("SimulateStockSwitchClick")
+                : CmdArgs("SimulateStockSwitchClick", "site=" + site, "pid=5");
+            var r = TestCommandDispatcher.DecideDispatch(cmd, st);
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal(expectedReason, r.Reason);
+        }
+
+        [Theory]
+        [InlineData("map", "Flight")]
+        [InlineData("ts", "TrackingStation")]
+        [InlineData("ksc", "SpaceCenter")]
+        public void SimulateStockSwitchClick_SiteInItsScene_Executes(string site, string sceneName)
+        {
+            var scene = (TestCommandScene)Enum.Parse(typeof(TestCommandScene), sceneName);
+            var st = new DispatchState { Scene = scene, GameLoaded = true, SettingsPresent = true };
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("SimulateStockSwitchClick", "site=" + site, "pid=5"), st);
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void SimulateStockSwitchClick_BadSite_ExecutesSoTheExecutorRejects()
+        {
+            // An unparseable site= must not defer to a TIMEOUT: it executes in any scene and
+            // the executor answers its typed site-arg-invalid at once.
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("SimulateStockSwitchClick", "site=TS", "pid=5"), MainMenu());
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void SimulateStockSwitchClick_FlySite_LoadInFlight_StillRejects()
+        {
+            var st = new DispatchState
+            {
+                Scene = TestCommandScene.TrackingStation,
+                GameLoaded = true,
+                SettingsPresent = true,
+                LoadInFlight = true,
+            };
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("SimulateStockSwitchClick", "site=ts", "pid=5"), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal("load-in-flight", r.Reason);
         }
 
         // ----- WarpToUT: scene-agnostic (TC-1) and the post-load physics hold -----

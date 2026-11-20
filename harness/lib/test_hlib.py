@@ -2034,7 +2034,8 @@ class SpecValidationRejectTests(unittest.TestCase):
         # Neither joins DEFERRED_SEAM_VERBS, and each for its OWN reason.
         # ExitToSpaceCenter IS two-phase but sits in the AnswerMergeDialog class (drives a
         # scene exit, completes on the settle, 120 s), so it rides the per-verb dispatch
-        # dict; SimulateStockSwitchClick is single-phase and rides the 60 s default.
+        # dict; SimulateStockSwitchClick's ts / ksc sites wait for a FLIGHT load and ride
+        # the per-verb 300 s row, under the cap.
         # Membership in DEFERRED_SEAM_VERBS is about the 540 s cap governing a
         # spec-declared budget, which neither needs.
         for verb in ("ExitToSpaceCenter", "SimulateStockSwitchClick"):
@@ -2045,13 +2046,14 @@ class SpecValidationRejectTests(unittest.TestCase):
 
     def test_r12_dispatch_budgets_mirror_c_sharp(self):
         # Mirrors TestCommandDispatcher.DeferralBudget: ExitToSpaceCenterSeconds = 120,
-        # SimulateStockSwitchClick falls through to DefaultSeconds = 60. Without the
+        # SimulateStockSwitchClickSeconds = 300 (the fly sites' FLIGHT load). Without the
         # ExitToSpaceCenter row the harness step-wait would ride 60 s + margin and could
         # KILL a healthy KSC bootstrap at ~120 s, converting a retryable seam TIMEOUT into
         # a terminal KILLED.
         self.assertEqual(hlib.dispatch_deferral_budget("ExitToSpaceCenter"), 120.0)
-        self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 60.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 300.0)
         self.assertEqual(hlib.required_dispatch_step_wait("ExitToSpaceCenter"), 180.0)
+        self.assertEqual(hlib.required_dispatch_step_wait("SimulateStockSwitchClick"), 360.0)
 
     def test_player_workflow_verbs_implemented_not_reserved(self):
         # The player-workflow lane's two promotions (the THIRD and FOURTH strict ones
@@ -2106,7 +2108,11 @@ class SpecValidationRejectTests(unittest.TestCase):
                 ("dialog-required%20variant%3DRegularMerge", "driver-gate"),
                 ("dialog-required%20case%3DA-session", "driver-gate"),
                 ("site-arg-invalid%20site%3DMAP", "driver-arg"),
-                ("site-not-implemented%20site%3Dts", "driver-arg"),
+                ("fly-control-missing", "driver-gate"),
+                ("cannot-fly-vessel", "driver-gate"),
+                ("target-not-owned", "driver-arg"),
+                ("target-has-no-ksc-marker", "driver-arg"),
+                ("fly-button-locked", "driver-gate"),
                 ("target-arg-missing", "driver-arg"),
                 ("pid-arg-invalid%20pid%3Dxyz", "driver-arg"),
                 ("vessel-arg-invalid%20vessel%3D", "driver-arg"),
@@ -2210,10 +2216,9 @@ class SpecValidationRejectTests(unittest.TestCase):
                         "case-variant scene key not rejected: %s" % list(v.errors))
 
     def test_r12_switchclick_site_arg_is_validated_pre_launch(self):
-        # Same treatment as scene=, with one deliberate difference: `ts` / `ksc` are LEGAL
-        # spellings v1 answers REJECTED site-not-implemented, so a capability-probe spec
-        # driving one with expect = "REJECTED" must still validate. Only the SPELLING is
-        # closed here, never the implementedness.
+        # Same treatment as scene=: `ts` / `ksc` are as legal as `map` (each a stock Fly
+        # pressed from its own scene), whatever the step expects. Only the SPELLING is
+        # closed here.
         def _site_step(value, cmd="SimulateStockSwitchClick", expect="OK"):
             def m(s):
                 s.get("expectations", {}).pop("ledger", None)
@@ -9270,9 +9275,9 @@ class BudgetArithmeticTests(unittest.TestCase):
         self.assertEqual(hlib.dispatch_deferral_budget("KscAction"), 60.0)
         self.assertEqual(hlib.dispatch_deferral_budget("StartRecording"), 180.0)
         # R12: ExitToSpaceCenterSeconds = 120 (sized for a driven scene exit and its
-        # settle), and SimulateStockSwitchClick is single-phase on the default.
+        # settle); SimulateStockSwitchClickSeconds = 300 (its fly sites' FLIGHT load).
         self.assertEqual(hlib.dispatch_deferral_budget("ExitToSpaceCenter"), 120.0)
-        self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 60.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 300.0)
         # An unlisted verb rides the 60s default (the C# DefaultSeconds).
         self.assertEqual(hlib.dispatch_deferral_budget("SetSetting"), 60.0)
         # RunTests defers to the declared scenario budget when supplied.
@@ -19207,6 +19212,59 @@ class LaunchSiteProbeSourceSyncTests(unittest.TestCase):
                 errs = v(4, bad)
                 self.assertEqual(1, len(errs), errs)
                 self.assertIn("driver.steps[4]", errs[0])
+
+
+class SwitchClickFlySourceSyncTests(unittest.TestCase):
+    """`SimulateStockSwitchClick site=ts|ksc`. Reads OUTSIDE harness/: the fly-site refusal /
+    error vocabularies (IN ORDER), the per-site wrong-scene DEFER tokens and the payload route
+    of the comment-stripped TestCommands/TestCommandSimulateSwitchClick.FlySites.cs, the C#
+    budget row, and the applier's presses of the stock Fly controls, so a spec's pinned
+    tokens and the step-wait cannot drift from what the seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# fly-site tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_tables_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandSimulateSwitchClick.FlySites.cs")
+        self.assertEqual(list(hlib.SWITCHCLICK_FLY_REJECT_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "FlyRejectReasons"))
+        self.assertEqual(list(hlib.SWITCHCLICK_FLY_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "FlyErrorReasons"))
+        self.assertIn('internal const string FlyControlRoute = "%s";' % hlib.SWITCHCLICK_FLY_ROUTE,
+                      text)
+        self.assertIn('NotInTrackingStationReason = "%s";'
+                      % hlib.SWITCHCLICK_SITE_SCENE_DEFERS["ts"], text)
+        self.assertIn('NotAtSpaceCenterReason = "%s";'
+                      % hlib.SWITCHCLICK_SITE_SCENE_DEFERS["ksc"], text)
+        self.assertEqual(set(hlib.SWITCHCLICK_SITE_SCENE_DEFERS), set(hlib.SWITCHCLICK_SITE_VALUES))
+        for reason in hlib.SWITCHCLICK_FLY_REJECT_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason), ("driver-arg", "driver-gate"),
+                          reason)
+        for reason in hlib.SWITCHCLICK_FLY_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+        self.assertNotIn("site-not-implemented", hlib._SEAM_REFUSAL_SUBKINDS)
+
+    def test_the_budget_mirrors_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandDispatcher.cs")
+        m = re.search(r"SimulateStockSwitchClickSeconds\s*=\s*([0-9.]+)", text)
+        self.assertIsNotNone(m, "DeferralBudget.SimulateStockSwitchClickSeconds moved")
+        self.assertEqual(float(m.group(1)),
+                         hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS["SimulateStockSwitchClick"])
+
+    def test_the_applier_presses_the_stock_fly_controls(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.SimulateSwitchClickFly.cs")
+        self.assertIn("ts.SetVessel(v, true)", applier)
+        self.assertIn("ts.FlyButton.onClick.Invoke()", applier)
+        self.assertIn('GetField("FlyButton"', applier)
+        self.assertIn("onGameSceneLoadRequested", applier)
+        # The verb must never hand-roll what the patched stock handlers do.
+        self.assertNotIn("StartAndFocusVessel(", applier)
+        self.assertNotIn("ArmStockActionIntent(", applier)
+        self.assertNotIn("SetActiveVessel(", applier)
 
 
 class AlarmJumpSourceSyncTests(unittest.TestCase):
