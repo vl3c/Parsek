@@ -71,7 +71,7 @@ namespace Parsek
     /// </summary>
     internal partial class BackgroundRecorder
     {
-        private enum BackgroundRecordingEndReason
+        internal enum BackgroundRecordingEndReason
         {
             Unknown = 0,
             VesselDestroyedOrDespawned = 1,
@@ -79,7 +79,7 @@ namespace Parsek
             LeftPhysicsBubble = 3,
             ParentRecordingMissing = 4,
             ParentRecordingClosedOrSuperseded = 5,
-            ParentOnRailsOrDestroyed = 6
+            ParentVesselDestroyed = 6
         }
 
         private RecordingTree tree;
@@ -144,10 +144,11 @@ namespace Parsek
         internal const double DebrisHalfFidelityProximityRangeMeters = 500.0;
         internal const double DebrisRelativeSectionExitMeters = 550.0;
 
-        // Cascade depth cap. Background vessel splits whose parent recording is at
-        // Generation >= MaxRecordingGeneration are skipped entirely — the parent's
-        // existing recording continues sampling, the new fragments are not tracked.
-        // Currently 1 = "only record primary debris (decoupled boosters)". See #284.
+        // Cascade depth cap. Background vessel splits whose parent recording is plain
+        // debris at Generation >= MaxRecordingGeneration are skipped entirely - the
+        // parent's existing recording continues sampling, the new fragments are not
+        // tracked. A parent with crew or a probe core records every breakup (owner
+        // ruling Q14, ShouldSkipForCascadeCap). See #284.
         internal const int MaxRecordingGeneration = 1;
 
         // Per-vessel debris TTL tracking (vesselPid -> UT at which to stop recording)
@@ -708,6 +709,7 @@ namespace Parsek
             }
 
             AdoptInheritedFinalizationCache(vesselPid, recordingId, inheritedFinalizationCache);
+            ArmDebrisLifetimeFromTreeIfMissing(vesselPid, recordingId, "backgrounded");
 
             if (initialEnvironmentOverride.HasValue)
             {
@@ -1348,6 +1350,12 @@ namespace Parsek
                 if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
                 {
                     FlushTrackSectionsToRecording(loadedState, flushRec);
+                    // Final sample at the destroy UT, as the active recorder's destroy handler
+                    // takes one: the last adaptive sample can be metres above the impact point.
+                    SampleBackgroundEndPoint(v, flushRec, ut, "background_destroy");
+                    DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
+                        flushRec,
+                        $"OnBackgroundVesselWillDestroy pid={pid}");
                     // Bug #280: persist the flushed data to disk IMMEDIATELY at
                     // finalization time. Relying on OnSave to see FilesDirty and write
                     // the file has proven fragile — the 2026-04-09 playtest showed
@@ -1393,6 +1401,36 @@ namespace Parsek
             railsSpanPartStates.Remove(pid);
             // Keep the finalization cache until DeferredDestructionCheck confirms
             // whether this was true destruction or a false unload signal.
+        }
+
+        /// <summary>
+        /// Appends a final boundary sample of a loaded background vessel at the end UT of its
+        /// recording (destroy, commit), gated by the same rule as the active recorder's final
+        /// sample (<see cref="FlightRecorder.DecideFinalPhysicsSample"/>): only a loaded,
+        /// unpacked live vessel has a physics pose to read.
+        /// </summary>
+        private void SampleBackgroundEndPoint(Vessel v, Recording rec, double ut, string context)
+        {
+            string skipReason = FlightRecorder.DecideFinalPhysicsSample(
+                hasVessel: v != null,
+                destroyed: false,
+                loaded: v != null && v.loaded,
+                packed: v != null && v.packed,
+                lastSampleUT: rec != null && rec.Points.Count > 0
+                    ? rec.Points[rec.Points.Count - 1].ut
+                    : double.NaN,
+                stopUT: ut);
+            if (skipReason != null)
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"Final background sample skipped: context={context} " +
+                    $"rec={rec?.RecordingId ?? "(null)"} reason={skipReason}");
+                return;
+            }
+            SampleBoundaryPoint(v, rec, ut);
+            ParsekLog.Verbose("BgRecorder",
+                $"Final background sample taken: context={context} pid={v.persistentId} " +
+                $"rec={rec?.RecordingId ?? "(null)"} UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>

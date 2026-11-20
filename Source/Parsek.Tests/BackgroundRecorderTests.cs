@@ -709,6 +709,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CheckDebrisTTL_EnginesStillBurning_EmitsTerminalShutdownsAtTheEndUT()
+        {
+            // DEBRIS-END-LEAVES-ENGINES-LIT: a debris recording closed by its TTL while an
+            // engine still burned (an SRB) kept the ghost's plume lit to the end.
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectLoadedStateForTesting(100u, "rec_bg1");
+            bgRecorder.InjectActiveEngineKeysForTesting(100u,
+                FlightRecorder.EncodeEngineKey(4242u, 0),
+                FlightRecorder.EncodeEngineKey(5353u, 1));
+            bgRecorder.InjectDebrisTTLForTesting(100u, 120.0);
+
+            bgRecorder.CheckDebrisTTL(130.0);
+
+            Recording rec = tree.Recordings["rec_bg1"];
+            Assert.Contains(rec.PartEvents, e => e.eventType == PartEventType.EngineShutdown
+                && e.partPersistentId == 4242u && e.ut == 130.0);
+            Assert.Contains(rec.PartEvents, e => e.eventType == PartEventType.RCSStopped
+                && e.partPersistentId == 5353u && e.moduleIndex == 1 && e.ut == 130.0);
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("EndDebrisRecording: emitted 2 terminal event(s) pid=100"));
+        }
+
+        [Fact]
+        public void CheckDebrisTTL_DestroyedSealedDebris_EmitsNoTerminalEvents()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            tree.Recordings["rec_bg1"].VesselDestroyed = true;
+            bgRecorder.InjectLoadedStateForTesting(100u, "rec_bg1");
+            bgRecorder.InjectActiveEngineKeysForTesting(100u,
+                FlightRecorder.EncodeEngineKey(4242u, 0),
+                FlightRecorder.EncodeEngineKey(5353u, 1));
+            bgRecorder.InjectDebrisTTLForTesting(100u, 120.0);
+
+            bgRecorder.CheckDebrisTTL(130.0);
+
+            Assert.DoesNotContain(tree.Recordings["rec_bg1"].PartEvents,
+                e => e.eventType == PartEventType.EngineShutdown);
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("terminal events skipped pid=100 rec=rec_bg1 reason=destroyed-sealed"));
+        }
+
+        [Fact]
         public void ForgetFinalizationCache_RemovesDeferredDestructionCache()
         {
             var tree = MakeTree((100, "rec_bg1"));

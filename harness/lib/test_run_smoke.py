@@ -8577,3 +8577,38 @@ class AdmitOnlyAndIdsFileTests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             code = run.main(["--ids-file", os.path.join(self.box, "missing.ids"), "--dry-run"])
         self.assertEqual(2, code)
+
+
+class ReadSaveStructureRewindPointListingTests(unittest.TestCase):
+    """run.read_save_structure attaches the Parsek/RewindPoints listing beside a
+    Parsek save, so the rewind block's two file facets are measured."""
+
+    _SFS = ("GAME\n{\n\tSCENARIO\n\t{\n\t\tname = ParsekScenario\n"
+            "\t\tREWIND_POINTS\n\t\t{\n\t\t\tPOINT\n\t\t\t{\n"
+            "\t\t\t\trewindPointId = rp_kept\n\t\t\t\tsessionProvisional = False\n"
+            "\t\t\t}\n\t\t}\n\t}\n}\n")
+
+    def _save_dir(self, rp_files):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        with open(os.path.join(d, "persistent.sfs"), "w", encoding="utf-8") as fh:
+            fh.write(self._SFS)
+        if rp_files is not None:
+            rp_dir = os.path.join(d, "Parsek", "RewindPoints")
+            os.makedirs(rp_dir)
+            for name in rp_files:
+                with open(os.path.join(rp_dir, name), "w", encoding="utf-8") as fh:
+                    fh.write("x")
+        return d
+
+    def test_listing_is_attached_and_unlisted_files_counted(self):
+        snap = run.read_save_structure(self._save_dir(["rp_kept.sfs", "rp_reverted.sfs"]))
+        self.assertEqual(("rp_kept.sfs", "rp_reverted.sfs"), snap.rewind_point_files)
+        rewind = run.saveparse.observed_structure_facets(snap)["rewind"]
+        self.assertEqual(2, rewind["rewindPointFiles"])
+        self.assertEqual(1, rewind["unlistedRewindPointFiles"])
+
+    def test_a_missing_folder_is_a_measured_empty_listing(self):
+        snap = run.read_save_structure(self._save_dir(None))
+        self.assertEqual((), snap.rewind_point_files)
+        self.assertEqual(0, run.saveparse.observed_structure_facets(snap)["rewind"]["rewindPointFiles"])

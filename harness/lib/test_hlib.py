@@ -20942,13 +20942,13 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         actions = re.findall(r"\bAction([A-Z]\w*)", block)
         self.assertEqual(
             ["Create", "SendOnce", "Pause", "Activate", "Link", "Unlink", "SetCadence",
-             "Rescan"],
+             "Rescan", "Delete"],
             actions,
             "the C# KnownActions order moved; hlib's comment at ROUTECOMMAND_ACTIONS_DOC "
             "and harness/README.md name this set")
         self.assertEqual(
             ("create", "send-once", "pause", "activate", "link", "unlink", "set-cadence",
-             "rescan"),
+             "rescan", "delete"),
             hlib.ROUTECOMMAND_ACTIONS)
 
     def test_every_new_routecommand_refusal_maps_to_a_finer_subkind(self):

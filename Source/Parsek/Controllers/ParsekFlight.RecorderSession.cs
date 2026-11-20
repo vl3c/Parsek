@@ -68,6 +68,9 @@ namespace Parsek
 
             LiftStampedExplicitEndToTrajectoryEnd(treeRec, "FlushRecorderToTreeRecording");
 
+            PropagateRecorderDestructionToTreeRecording(
+                rec.VesselDestroyedDuringRecording, treeRec, "FlushRecorderToTreeRecording");
+
             // Mark dirty so the next OnSave persists the flushed data to disk.
             // Without this, the in-memory points are lost on scene reload.
             treeRec.MarkFilesDirty();
@@ -118,6 +121,51 @@ namespace Parsek
             ParsekLog.Info("Flight", $"Flushed recorder to tree recording '{recId}': " +
                 $"{rec.Recording.Count} points, {rec.OrbitSegments.Count} orbit segments, " +
                 $"{rec.PartEvents.Count} part events");
+        }
+
+        /// <summary>
+        /// Carries the recorder's "vessel destroyed while recorded" knowledge onto the tree
+        /// recording it flushes into. Every flush path needs it, not only the commit: a crash where
+        /// KSP hands control to a surviving piece flushes the recorder through the background
+        /// transition (<see cref="HandleTreeBackgroundFlush"/>) and drops the recorder, so the
+        /// commit's active-recorder destruction override never sees it. The commit then reads
+        /// <see cref="Recording.VesselDestroyed"/> (<see cref="FinalizeTreeRecordingsAfterFlush"/>),
+        /// and the background commit keeps the end at the crash. The terminal stamp itself is left
+        /// to finalization, as for the active recorder. Returns true when the flag was set.
+        /// </summary>
+        internal static bool PropagateRecorderDestructionToTreeRecording(
+            bool recorderVesselDestroyed, Recording treeRec, string context)
+        {
+            if (!recorderVesselDestroyed || treeRec == null || treeRec.VesselDestroyed)
+                return false;
+            treeRec.VesselDestroyed = true;
+            ParsekLog.Info("Flight",
+                $"{context}: recorder saw the vessel destroyed; marked tree recording " +
+                $"'{treeRec.RecordingId ?? "(null)"}' destroyed " +
+                $"(terminal={treeRec.TerminalStateValue?.ToString() ?? "null"}, finalization stamps it)");
+            return true;
+        }
+
+        /// <summary>
+        /// The mirror of <see cref="PropagateRecorderDestructionToTreeRecording"/> for a recording
+        /// a live recorder takes up again (promotion from the background, a resumed committed
+        /// recording): the vessel is being flown, so a destruction flag a flush left with no
+        /// terminal yet is stale. A recording already sealed Destroyed is left alone (its seal is
+        /// the identity-loss or destroy verdict, not a flush artifact); the quickload resume clears
+        /// both through <c>IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume</c>.
+        /// Returns true when the flag was cleared.
+        /// </summary>
+        internal static bool ClearFlushedDestructionFlagForResume(Recording rec, string context)
+        {
+            if (rec == null || !rec.VesselDestroyed
+                || rec.TerminalStateValue == TerminalState.Destroyed)
+                return false;
+            rec.VesselDestroyed = false;
+            rec.MarkFilesDirty();
+            ParsekLog.Info("Flight",
+                $"{context}: cleared recorder destruction flag for resume rec={rec.RecordingId ?? "(null)"} " +
+                $"terminal={rec.TerminalStateValue?.ToString() ?? "null"}");
+            return true;
         }
 
         /// <summary>
@@ -180,6 +228,146 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: should the ACTIVE recording end now because it is debris whose time limit ran
+        /// out (owner ruling Q13, 2026-11-18: a debris piece the player switched to stays debris
+        /// and ends 60 s after it separated)? The limit is read from the tree
+        /// (<see cref="BackgroundRecorder.TryResolveDebrisExpiryUT"/>), so it survives the promotion that cancelled the
+        /// background recorder's own deadline. <paramref name="reason"/> is <c>expired</c> when
+        /// true; otherwise why not (<c>no-active-recording</c>, <c>recorder-not-live</c>,
+        /// <c>hand-off-in-progress</c>, <c>running</c>, or the lifetime resolver's reason).
+        /// </summary>
+        internal static bool EvaluateActiveDebrisLifetimeEnd(
+            RecordingTree tree,
+            bool recorderLive,
+            bool handOffInProgress,
+            double currentUT,
+            out double expiryUT,
+            out string reason)
+        {
+            expiryUT = double.NaN;
+            Recording activeRec = null;
+            if (tree == null
+                || string.IsNullOrEmpty(tree.ActiveRecordingId)
+                || tree.Recordings == null
+                || !tree.Recordings.TryGetValue(tree.ActiveRecordingId, out activeRec)
+                || activeRec == null)
+            {
+                reason = "no-active-recording";
+                return false;
+            }
+            if (!activeRec.IsDebris)
+            {
+                reason = "not-debris";
+                return false;
+            }
+            if (!recorderLive)
+            {
+                reason = "recorder-not-live";
+                return false;
+            }
+            string separationBpId;
+            if (!BackgroundRecorder.TryResolveDebrisExpiryUT(activeRec, tree, out expiryUT, out separationBpId, out reason))
+                return false;
+            if (currentUT < expiryUT)
+            {
+                reason = "running";
+                return false;
+            }
+            if (handOffInProgress)
+            {
+                reason = "hand-off-in-progress";
+                return false;
+            }
+            reason = "expired";
+            return true;
+        }
+
+        /// <summary>
+        /// Ends the active recording when it is debris past its time limit. The piece is handed
+        /// back to the background recorder (the same flush the vessel-switch path does) and
+        /// closed there exactly like a background time-limit end; the player keeps flying /
+        /// watching the vessel, which is simply no longer recorded.
+        /// </summary>
+        private void CheckActiveDebrisLifetime(double currentUT)
+        {
+            if (activeTree == null || recorder == null) return;
+
+            bool recorderLive = recorder.IsRecording && !recorder.IsBackgrounded;
+            // A split the deferred check has not processed yet must branch under this recording
+            // first: FlushPendingSplits (in the hand-off below) only feeds the captures no
+            // deferred check will take, so wait for the check instead of dropping its split.
+            bool handOffInProgress = pendingSplitInProgress
+                || pendingSplitRecorder != null
+                || pendingDeferredSplitCheckTrigger != DeferredSplitCheckTrigger.None
+                || recorder.HasPendingJointBreakCheck
+                || pendingTreeDockMerge
+                || restoringActiveTree
+                || recorder.ChainToVesselPending
+                || recorder.TransitionToBackgroundPending;
+            double expiryUT;
+            string reason;
+            if (!EvaluateActiveDebrisLifetimeEnd(
+                    activeTree, recorderLive, handOffInProgress, currentUT, out expiryUT, out reason))
+            {
+                if (reason == "hand-off-in-progress")
+                {
+                    ParsekLog.VerboseRateLimited("Flight", "active-debris-lifetime-deferred",
+                        $"Active debris lifetime over but a hand-off is in progress; ending it later: " +
+                        $"rec={activeTree.ActiveRecordingId} expiry={BackgroundRecorder.FormatDebrisUT(expiryUT)} " +
+                        $"currentUT={BackgroundRecorder.FormatDebrisUT(currentUT)}", 5.0);
+                }
+                return;
+            }
+
+            string recId = activeTree.ActiveRecordingId;
+            Recording rec = activeTree.Recordings[recId];
+            uint pid = recorder.RecordingVesselId != 0 ? recorder.RecordingVesselId : rec.VesselPersistentId;
+            if (pid == 0)
+            {
+                ParsekLog.WarnRateLimited("Flight", "active-debris-lifetime-no-pid",
+                    $"Active debris lifetime over but the recording has no vessel pid: rec={recId}");
+                return;
+            }
+
+            ParsekLog.Info("Flight",
+                $"Debris lifetime over on the active recording, handing it back to end it: " +
+                $"rec={recId} pid={pid} expiry={BackgroundRecorder.FormatDebrisUT(expiryUT)} " +
+                $"currentUT={BackgroundRecorder.FormatDebrisUT(currentUT)} (the vessel stays focused, unrecorded)");
+
+            SplitBrancher.EmitPendingSplitBeforeFocusLeaves("ActiveDebrisLifetime");
+            recorder.TransitionToBackground();
+            FlushRecorderToTreeRecording(recorder, activeTree);
+            activeTree.BackgroundMap[pid] = recId;
+            activeTree.ActiveRecordingId = null;
+            recorder.IsRecording = false;
+            RecordingFinalizationCache cache = recorder.GetFinalizationCacheForRecording(rec);
+            recorder = null;
+
+            EnsureBackgroundRecorderAttached("ActiveDebrisLifetime");
+            backgroundRecorder.OnVesselBackgrounded(pid, inheritedFinalizationCache: cache);
+            backgroundRecorder.EndDebrisRecordingForLifetime(pid, expiryUT, currentUT, "active-recorder");
+            DisarmPostSwitchWatchForEndedDebris(new List<uint> { pid });
+        }
+
+        /// <summary>
+        /// A debris piece whose recording just ended must not start a fresh recording from the
+        /// post-switch watcher (armed when the player switched to it while it was still a
+        /// tracked background member): it stays ended (owner ruling Q13).
+        /// </summary>
+        private void DisarmPostSwitchWatchForEndedDebris(List<uint> endedPids)
+        {
+            if (endedPids == null || endedPids.Count == 0 || postSwitchAutoRecord == null)
+                return;
+            for (int i = 0; i < endedPids.Count; i++)
+            {
+                if (!IsPostSwitchAutoRecordArmedForPid(endedPids[i]))
+                    continue;
+                PostSwitchAutoRecorder.DisarmPostSwitchAutoRecord("debris-recording-ended");
+                return;
+            }
+        }
+
+        /// <summary>
         /// Creates a new FlightRecorder for the promoted vessel, starts recording with
         /// isPromotion=true, updates activeTree state.
         /// </summary>
@@ -191,6 +379,10 @@ namespace Parsek
 
             RecorderStateLog.RecState("PromoteFromBackground:entry", CaptureRecorderState());
 
+            // Never drop one (owner ruling 2026-11-18): branch what is pending before the
+            // active recording changes and the recorder start resets the window.
+            SplitBrancher.FlushPendingSplits("PromoteRecordingFromBackground", newVessel.persistentId);
+
             // Callers pass the target recording id explicitly; BackgroundMap membership is
             // not a hard precondition here. The committed-tree restore path may already have
             // removed stale entries for this recording before the live promotion runs.
@@ -198,6 +390,9 @@ namespace Parsek
 
             // Set as the active recording
             activeTree.ActiveRecordingId = backgroundRecordingId;
+            Recording promotedRec;
+            if (activeTree.Recordings.TryGetValue(backgroundRecordingId, out promotedRec))
+                ClearFlushedDestructionFlagForResume(promotedRec, "PromoteRecordingFromBackground");
 
             // Create a new recorder and start recording with isPromotion
             recorder = new FlightRecorder();
@@ -934,6 +1129,10 @@ namespace Parsek
         public void StartRecording(bool suppressStartScreenMessage = false,
             bool fromPrelaunchTransition = false)
         {
+            // Never drop one (owner ruling 2026-11-18): branch what is pending before the
+            // recorder start resets the window.
+            SplitBrancher.FlushPendingSplits("StartRecording");
+
             // Commit orphaned CaptureAtStop from a previous recorder that was stopped
             // by vessel switch but never committed (e.g., auto-record started on new
             // vessel before scene change). Without this, the old recording data is lost.
@@ -1083,12 +1282,29 @@ namespace Parsek
             }
             liveResumeSessionStartUT = double.NaN;
 
-            // Reset crash coalescer on every recorder start so a fresh recorder cannot
-            // inherit a stale coalescing window from the previous segment or scene.
+            // A fresh recorder starts with an empty coalescing window. Every caller flushes
+            // the window before it changes the active recording (owner ruling 2026-11-18,
+            // never drop one; pinned by PendingSplitFlushWiringTests); a window still open
+            // here is emitted before the reset rather than dropped with it.
             if (crashCoalescer != null)
             {
+                if (crashCoalescer.HasPendingBreakup)
+                {
+                    ParsekLog.Warn("Coalescer",
+                        $"Coalescer window still open at recorder start (reason={reason}, " +
+                        $"activeRec={activeTree?.ActiveRecordingId ?? "(none)"}) - emitting it before the reset");
+                    SplitBrancher.EmitPendingSplitNow("PrepareSessionStateForRecorderStart:" + reason, null);
+                }
                 crashCoalescer.Reset();
                 ParsekLog.Verbose("Coalescer", "Coalescer reset on recording start");
+            }
+            int unfedDecoupleCaptures = decoupleControllerStatus?.Count ?? 0;
+            if (unfedDecoupleCaptures > 0 && !deferredJointBreakCheckInFlight)
+            {
+                ParsekLog.Verbose("Coalescer",
+                    $"PrepareSessionStateForRecorderStart: clearing {unfedDecoupleCaptures} decouple capture(s) " +
+                    $"the caller's flush did not feed (recorded vessel, background member or the split's own " +
+                    $"vessels; reason={reason})");
             }
 
             // A newly-started recorder owns split detection from a clean slate.

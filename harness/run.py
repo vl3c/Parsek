@@ -3123,9 +3123,18 @@ def read_save_structure(save_dir: str) -> Optional["saveparse.ParsekSaveSnapshot
         return None
     try:
         with open(sfs_path, "r", encoding="utf-8", errors="replace") as fh:
-            return saveparse.parse_parsek_scenario(fh.read())
+            snapshot = saveparse.parse_parsek_scenario(fh.read())
     except OSError:
         return None
+    # The rewind point quicksave files beside the save, for the rewind block's
+    # file facets. A missing folder is an empty listing; an unreadable one leaves
+    # the facets unmeasured (absent), never zero.
+    rp_dir = os.path.join(save_dir, "Parsek", "RewindPoints")
+    try:
+        names = os.listdir(rp_dir) if os.path.isdir(rp_dir) else []
+    except OSError:
+        return snapshot
+    return saveparse.with_rewind_point_files(snapshot, names)
 
 
 def read_sampling_input(save_dir: str, log_text: str) -> "samplingq.SamplingInput":

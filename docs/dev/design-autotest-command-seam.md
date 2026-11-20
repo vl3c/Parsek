@@ -1429,7 +1429,7 @@ window's row buttons and the in-game `RouteRewindTimeline` cells call.
 
 | arg | values | meaning |
 |---|---|---|
-| `action` | `create` \| `send-once` \| `pause` \| `activate` \| `link` \| `unlink` \| `set-cadence` \| `rescan` | required; fail-closed and case-sensitive |
+| `action` | `create` \| `send-once` \| `pause` \| `activate` \| `link` \| `unlink` \| `set-cadence` \| `rescan` \| `delete` | required; fail-closed and case-sensitive |
 | `tree` | committed `RecordingTree.Id` | `create` only; the candidate tree |
 | `name` | route name (percent-encoded ON THE WIRE; a spec carries the RAW name) | `create` only; absent lets `RouteBuilder` generate one |
 | `interval` | seconds, InvariantCulture, finite and > 0 | `create` only; absent = the route's snapped minimum |
@@ -1470,7 +1470,17 @@ picking.
 | REJECTED | `unknown-route` | no stored route matched the selector |
 | REJECTED | `route-ambiguous` | more than one stored route matched |
 | REJECTED | `rescan-not-offered` | `rescan` on a route whose row draws no enabled Re-scan button |
-| ERROR | `route-action-refused <action>` | the orchestrator declined (wrong status for the action) |
+| ERROR | `route-action-refused <action>` | the orchestrator declined (wrong status for the action); for `delete`, `RouteStore.RemoveRoute` found no route between resolve and remove |
+
+**`delete`** (added 2026-11-20) is the Logistics window's Delete button AFTER its confirm:
+`RouteStore.RemoveRoute`, the one call the "Confirm: Delete Route" Delete callback makes
+(`UiAction op=raise` raises that dialog but cannot press Delete). It takes only `route=`,
+adds no refusal token of its own, dirties the legibility cache like the other row actions,
+and answers OK with `applied`, `statusBefore`, `midCycle` (the route had an open cycle: a
+`RouteDispatched` row under the current cycle id, `RouteStore.DescribeAbandonedCycle`) and
+`remaining` (stored routes left). Today a mid-cycle delete loses the cargo already taken
+(nothing returns it and the undelivered windows never fire); the store logs
+`RemoveRoute: route <id> removed mid-cycle: cycle=... pickups=N deliveries=M` naming it.
 
 **The create refusals are walked in `RouteCandidateFinder.DeriveCandidates`' OWN gate
 order** (dismissed -> sealed -> eligible -> already-promoted) so the token names the FIRST
