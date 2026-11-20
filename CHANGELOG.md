@@ -28,6 +28,9 @@ Not released yet.
 
 ### Fixed
 
+- **A Re-Fly that ends still in flight stays open to fly again.** When the merge could not find
+  the Re-Fly's slot, a flight that ended on a sub-orbital arc was sealed; it now stays open, as it
+  does when the slot is found. (REFLY-FALLBACK-SEALS-SUBORBITAL)
 - **A crash in the middle of a Re-Fly merge no longer brings the old flight back.** If the game
   stopped right after the merge cut the old recording in two, the next load could join the two
   halves again before the merge finished, so the old flight played beside the new one.

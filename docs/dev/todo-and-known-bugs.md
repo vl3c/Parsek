@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-FALLBACK-SEALS-SUBORBITAL~~: the slot-less merge fallback sealed a sub-orbital Re-Fly that the normal path keeps open [FILED 2026-11-18 by the recording split / trim / merge review (finding M11), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; low (reached only when the slot lookup fails)]
+
+**Cause:** when `SupersedeCommit` cannot resolve the Re-Fly's slot it falls back to `TerminalKindClassifier` and flipped every outcome but a crash to `Immutable`. The tip's `MergeState` is the slot's open / closed bit (design section 6.24), and the slot-aware path keeps a `SubOrbital` ending open (`CommittedProvisional`, section 4.9: a sub-orbital arc is still in flight), so the fallback sealed a slot the main path leaves open. `Orbiting` never reaches the fallback (`RequiresSlotAwareMergeClassification` refuses to fall back for it).
+
+**Fix:** `SupersedeCommit.FallbackMergeStateForTerminal`: `Destroyed` and `SubOrbital` keep the slot open (`CommittedProvisional`); every other terminal, and a recording with no terminal, commits `Immutable`.
+
+**Tests:** `SupersedeCommitTests.FallbackMergeStateForTerminal_AgreesWithTheSlotAwareVerdict` (theory); `SubOrbitalStableLeaf_SlotLookupFailure_DoesNotThrow_FallsBackToInFlight` now expects `CommittedProvisional` (its old `Immutable` pinned the bug). Red under a mutation that restores the old mapping.
+
 ## ~~REFLY-HEAD-TIP-REGLUED-BEFORE-MERGE-ROWS~~: the optimizer could join a Re-Fly merge's HEAD and TIP back together before the merge finished [FILED 2026-11-18 by the recording split / trim / merge review (finding M8), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; medium (the old flight stays whole beside the new attempt: a duplicate ghost and untombstoned ledger rows)]
 
 **Cause:** the cold `ParsekScenario.OnLoad` runs the committed-list optimizer (phase `optimization`) before the merge journal finisher (phase `merge-journal`). Between the merge's `split` save and Durable Save #1 the supersede rows that keep `CanAutoMerge` off HEAD + TIP do not exist yet, so a HEAD and TIP with no ghosting-trigger event were offered as a merge candidate and glued back.
