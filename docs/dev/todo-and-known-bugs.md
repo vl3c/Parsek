@@ -297,6 +297,248 @@ is read through `FindVesselByPid`, see STOP-TAKES-NO-FINAL-SAMPLE).
 Tests: `RecorderStopEndingTests.ForceStop_EnginesStillBurning_EmitsTerminalShutdownsAtTheStopUT`
 (red before the fix), `ForceStop_NothingRunning_EmitsNothing`.
 
+## ~~SPLIT-WINDOW-DROPPED-ON-RECORDER-START~~: staging then undocking / EVA / docking within half a second lost the booster [FILED 2026-11-18 by the recording split / trim / merge review (draft H1), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit + a mutation-checked source gate; no lane flies the shape yet; high (a vessel with no recording, no ghost and no rewind point; the real booster stays untracked)]
+
+Cause. Separations are collected by the crash coalescer for 0.5 s before they become one branch
+point. Every new recorder session (`PrepareSessionStateForRecorderStart`) reset the coalescer
+without emitting what it held, and every split / merge branch, background promotion, recorder
+start, switch-segment bind and committed-tree resume starts one. Only the focus hand-offs (VN8)
+emitted the window first. Staging followed within the window by an undock, EVA or dock therefore
+dropped the staged booster.
+
+Fix. Owner ruling 2026-11-18 (RULE 2, never drop one): `ParsekFlightSplitBrancher.FlushPendingSplits`
+runs before every recorder session start, while the tree's active recording is still the parent
+(the switch-segment bind flushes under the prior recording through its existing swap-back). It
+feeds decouple captures no split check will process, then emits the window as one branch point;
+`ProcessBreakupEvent` takes the parent's recorder from the caller or the parked split recorder
+when the live one is parked (`SelectBreakupParentRecorder`), and `WireBreakupIntoTree` keeps a
+parent's link to a LATER child branch point (`ShouldKeepLaterChildBranchLink`).
+`PrepareSessionStateForRecorderStart` emits (Warn) instead of dropping a window a caller missed.
+
+Tests. `PendingSplitFlushWiringTests` (every recorder-start caller flushes first and before it
+moves `ActiveRecordingId`; the caller set is pinned; mutation-checked by deleting the
+`CreateMergeBranch` flush), `SeparationNeverDroppedTests` (the coalescer reset vs early emit, the
+parent-recorder choice, the later-link keep). Lane owed: see SAME-FRAME-SEPARATION-DROPPED.
+
+## ~~SAME-FRAME-SEPARATION-DROPPED~~: two separations in the same frame kept only one [FILED 2026-11-18 by the recording split / trim / merge review (draft H2), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit; no lane flies it yet; high (one vessel never recorded)]
+
+Cause. One action group firing a decoupler and a docking port, or releasing two docked
+satellites: the first undock parks the recorder and sets `pendingSplitInProgress`, so a second
+`OnVesselsUndocking` returned "another split is already being processed", and the decoupler's
+captured booster (`decoupleControllerStatus`) was cleared by the undock branch's recorder start
+because the undock had consumed the joint-break check that would have processed it.
+
+Fix. A second undock of the parked recorder's vessel joins the coalescer window as an `UNDOCK`
+separation (`TryFeedConcurrentUndockToCoalescer`, marked in `preBreakVesselPids` so an in-flight
+joint-break scan does not feed it twice), and `FlushPendingSplits` feeds decouple captures that
+no deferred joint-break check owns (`SelectUnprocessedDecoupleCaptures`,
+`deferredJointBreakCheckInFlight`). The undock branch's flush emits both as one branch point off
+the parent before the undock's own branch.
+
+Tests. `SeparationNeverDroppedTests` (capture selection, concurrent-undock child pid, an UNDOCK
+beside a DECOUPLE stays one JointBreak). Lanes owed: an action group bound to a decoupler and a
+docking port, and staging then undocking 0.2 s later (expect two branch points and a booster leg).
+
+## ~~SPLIT-WINDOW-MISSING-FROM-QUICKSAVE~~: F5 within half a second of staging saved no split [FILED 2026-11-18 by the recording split / trim / merge review (draft M2), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit source gate; no lane yet; medium (after F9 the separated pieces are untracked)]
+
+Cause. The coalescer is not saved and no save path emitted its open window, so a quicksave inside
+the window held the tree without the separation; scene exit and revert likewise cleared it with
+the transient state.
+
+Fix. `ParsekScenario.SaveActiveTreeIfAny` calls `ParsekFlight.FlushPendingSplitsForSave` before it
+serializes the tree; `OnSceneChangeRequested`, `FinalizeTreeOnSceneChangeForCallback` and
+`FinalizeTreeOnSceneChangeCore` flush before the transient reset and the commit.
+
+Not covered (left open on purpose): an F5 or scene exit in the single frame between
+`HandleJointBreakDeferredCheck` parking the recorder and the deferred check feeding the coalescer.
+The flush skips decouple captures while that check is in flight, because feeding them early
+would leave the check with no new vessel: it would classify the staging as within-segment and
+skip its focus hand-off (VN8). Closing it needs the deferred scan to run synchronously at save,
+which is not built.
+
+Tests. `PendingSplitFlushWiringTests` (save, scene exit, merge-flow finalize order).
+
+## ~~POST-SWITCH-WATCH-SPLIT-NOT-RECORDED~~: undocking right after a `]` switch to an untracked vessel dropped the separated piece [FILED 2026-11-18 by the recording split / trim / merge review follow-up (WP1 M4), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit + source gates; no lane yet; high (a vessel with no recording and no ghost)]
+
+Cause. A `]` switch to a vessel with no recording context arms the post-switch watch and binds no
+recorder. `OnVesselsUndocking` returned "not recording, ignoring", and the decouple capture keys on
+the recorded vessel, so nothing kept the separated vessel; the watch later started recording on
+the changed vessel, but the piece that came off stayed untracked.
+
+Fix. `ParsekFlightPostSwitchAutoRecord.TryCapturePostSwitchStructuralSplit` (pure decision
+`EvaluatePostSwitchStructuralSplit`) captures an undock (from `OnVesselsUndocking`) or decouple
+(an always-subscribed `onPartDeCoupleNewVesselComplete` forwarder) of the watched vessel with its
+split-time snapshot and pose. The next watch frame starts the recording past the baseline and
+settle gates (trigger `StructuralSplit`) and feeds the captures to the crash coalescer, so each
+separated vessel becomes a child of the new recording. A refused start drops the captures with a
+Warn (it refuses every frame); a watch disarmed with captures pending warns. A watched vessel the
+active tree tracks in the background at the moment of the split (its pid in the LIVE
+`BackgroundMap`, `IsWatchedVesselTrackedInBackground`; the arm-time `TrackedInActiveTree` flag goes
+stale when the background recorder drops a debris vessel at its TTL) is declined
+(`BackgroundRecorderOwns`, logged): the background recorder's own split check
+(`HandleBackgroundVesselSplit`) records that split, and a capture would record the child twice.
+When stock moves focus to the vessel that came off, `OnVesselSwitchComplete` re-arms the watch
+on it; `ArmPostSwitchAutoRecord` carries the captures across (`CarryStructuralSplitsAcrossRearm`).
+Every capture keeps both vessels of its split with their own split-time snapshot and pose, so
+the carried set is every vessel of the split except the newly watched one, once each, however
+many re-arms come before the watch starts (a `]` to C1 then to C2 under warp). Duplicate
+children are collapsed and counted, the capture refuses a child it already holds, and the feed
+refuses a repeated child or the recorded vessel itself. The designed carry logs at Info; a
+re-arm on an unrelated vessel keeps none and warns.
+
+Tests. `PostSwitchStructuralSplitTests` (the decision table including the tracked-member decline,
+the undock routing, start-then-feed ahead of the baseline gate, the live background-map decline,
+the carry across one and two focus-move re-arms, duplicate collapse, the drop-only Warn). Lane owed: `]` to an untracked docked pair, undock at once; expect a
+recording for each half.
+
+## ~~UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL~~: an undock where control moves to the departing half wrote that flight under the left-behind vessel [FILED 2026-11-18 by the recording split / trim / merge review (draft H3), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit + source gate; no lane yet; high (a recording keyed to one vessel holding another vessel's flight; after the next switch the background recorder samples the depot into it)]
+
+Cause. A crewed tug undocks from a probe-less depot that kept the root part (KSP's `oldVessel`,
+the recorded pid). Stock moves focus to the tug (`Vessel.WaitAndSwitchFocus`), so
+`DeferredUndockBranch` backgrounds the depot, finds it is debris (`ShouldRecordAsOwnBranch`
+false) and resumed the split recorder ("undocked vessel is debris"). `ResumeAfterFalseAlarm`
+without `keepRecordedVessel` rebinds to `FlightGlobals.ActiveVessel` (the tug) and re-stamps
+`RecordingVesselId`, while the tree recording keeps the depot's pid. Confirmed against
+`FlightRecorder.StopAndFinalize.cs` (`ResumeAfterFalseAlarm`) before fixing.
+
+Fix. The decoupler twin (VN8) resumes on the recorded vessel and hands focus over through the
+coalescer; an undock has its own branch type and route-window handling, so it branches instead:
+when the debris half is the recorded vessel and focus is on the new vessel
+(`ShouldBranchUndockWhenFocusLeftTheRecordedDebrisHalf`), `DeferredUndockBranch` runs
+`CreateSplitBranch(Undock, tug, depot)` and logs it. The ordinary debris undock (focus stays on
+the recorded vessel) still resumes. Not changed: the dedup-skip and "undocked vessel not found"
+resumes (the latter only when the recorded vessel itself vanished within the frame).
+
+Tests. `UndockFocusMoveBranchTests` (the decision table and the guard's order in
+`DeferredUndockBranch`). Lane owed: like VN-8, a crewed pod with Control From Here undocking from
+a probe-less tank that holds the root part; expect an Undock branch with one recording per half.
+
+## ~~UNDOCK-BRANCH-POINT-MISSING-SPLIT-CAUSE~~: focused undock branch points carried no SplitCause / DecouplerPartId [FILED 2026-11-18 by the recording split / trim / merge review (draft L8), code reading. FIXED 2026-11-20, branch `rsr-wp1-separations`; xUnit; low (saved metadata only: every reader labels an Undock by its type, so nothing the player sees changes)]
+
+Cause. `BuildSplitBranchData` wrote no `SplitCause` and `CreateSplitBranch` no `DecouplerPartId`
+for a docking-port Undock, while the background recorder and the coalescer (pre-attached port)
+write "UNDOCK", every test fixture writes "UNDOCK", and `dock-undock-recording-structure.md`
+section 4 documents `SplitCause = "UNDOCK"`, `DecouplerPartId = undockedPart.persistentId`.
+
+Fix. `BuildSplitBranchData` sets `SplitCause` through `ForegroundSplitCauseFor` ("UNDOCK" for an
+Undock, null otherwise); `OnPartUndock` stashes the undocked port's part id beside the seed and
+`OnVesselsUndocking` -> `DeferredUndockBranch` -> `CreateSplitBranch` stamps it as
+`DecouplerPartId`. An additive value of an existing optional key: no format bump.
+
+Tests. `UndockSplitCauseTests` (the factory's branch point through the tree codec and the
+Missions label, EVA unchanged, the part-id wiring; mutation-checked by returning null).
+
+## ~~CYCLE-SWITCH-PRESWITCH-BYPASS~~: the `[` / `]` keys switch to a vessel of another committed mission without merging the flight being left, and the vessel is grafted into that flight [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b, owner ruling Q16, given twice), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; no lane flies a `[` / `]` press onto a committed vessel yet; medium (the vessel gets a second history and its own mission stops)]
+
+What happened. The map Switch-To (and the alarm Jump) decide the recording the player leaves before
+stock switches: Case A (an armed switch segment, another target), Case B (a live recording, an
+unloaded target) and Case C (a live recording, a loaded vessel of a separately committed tree) commit
+or discard it first, and the target then continues its own committed mission through the
+committed-tree clone. The stock vessel cycle (`VesselCycleReFlySwitchPatch`) only dropped ghost
+markers and Re-Fly-refused candidates and otherwise left the press to stock: no Case A / C, no
+intent. A press onto a committed station while recording backgrounded the live ship, armed the
+post-switch watcher as an outsider, and its first trigger attached the station to the live tree as
+a `Launch` child of the ship (see POST-SWITCH-GRAFTS-COMMITTED-VESSEL); with Case A an armed switch
+session was left orphaned.
+
+Ruling Q16 (V, 2026-11-18). A `[` / `]` switch to a vessel of another committed mission behaves
+exactly like Map Switch-To: the Merge / Discard decision first if recording, then that vessel's own
+mission continues (committed-clone path), never a Launch graft or a new mission.
+
+Fix. `MapFocusObjectOnSelectPatch.TryTakePreSwitch` is the Cases A / B / C core, lifted out of
+`PrepareOwnedVesselSwitch` unchanged. `VesselCycleReFlySwitchPatch.RunCycle` keeps stock's candidate
+walk, the ghost drop and the Re-Fly gate, picks the candidate stock's own final step would take
+(pure `RouteCycle`; the target is asked about only when the switch will happen) and hands it to
+`TryTakePreSwitch(target, cycleSwitch: true)`. When a case applies the auto-resolved handler (or the
+dialog's buttons) merges or discards, arms the intent and switches with the cycle's own call
+(`SwitchLikeTheVesselCycle`: `ForceSetActiveVessel` + `ResumeVesselCtrlState`, `SetActiveVessel`
+only for a packed target in a game not clear to save). When a case applies and stock is not clear
+to save, the press is refused like the map Switch-To (`SwitchWillBeRefused`,
+`TakeForStockWillRefuse`, `RefuseCycleSwitchLikeStock`): no commit, no switch, stock's own
+`SetActiveVessel` refusal message, log `pre-switch refused: vessel cycle press needs case=`; the
+cycle's forced switch would otherwise commit a recording mid-burn or in atmosphere (found by the
+branch review). A press that needs no case (no switch session armed) routes exactly
+as before. Log: `[SwitchIntentPatch] Vessel cycle handed to pre-switch handling: targetPid= take=
+directRoute=`; the `CycleVessel` seam verb answers `outcome=pre-switch-handoff` with
+`detail=auto-resolved|dialog-open|refused-not-clear-to-save`.
+
+Tests. `VesselCyclePreSwitchRoutingTests` (Case C with nothing dropped, Case A after a ghost drop,
+same-tree and same-target presses unchanged, a refused switch never asks, only the target is asked,
+the refusal matrix, the cycle refusal take and its wiring, the RunCycle wiring);
+`TestCommandCycleVesselTests` (the new outcome token). Red first: with `AskPreSwitch` not calling
+the pre-switch core (today's routing) the Case A and C cells fail; with the first version's
+unpacked-cycle exception in `SwitchWillBeRefused` the cycle rows of the refusal matrix fail.
+
+Lane owed: a `CycleVessel` press from a live recording onto a loaded vessel of another committed
+tree, asserting `outcome=pre-switch-handoff`, the prior tree committed, and
+`route=committed-spawned-clone` for the target.
+
+## ~~POST-SWITCH-GRAFTS-COMMITTED-VESSEL~~: the post-switch watcher attaches a vessel of another committed mission to the live flight as a "launch" [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; no lane gates it yet; medium (the vessel gets a second history; the Missions view shows it launched from the player's ship)]
+
+Cause. `ParsekFlightPostSwitchAutoRecord.TryStartPostSwitchAutoRecord` had no committed-vessel
+check: for any vessel not tracked in the live tree's BackgroundMap it chose
+`StartFreshRecording`, and `PrepareActiveTreeForFreshPostSwitchRecording` added a recording to the
+live tree under a `Launch` branch point of the recording the player left, setting that parent's
+single `ChildBranchPointId`. A station of another committed mission switched to while recording
+(the `[` / `]` keys before CYCLE-SWITCH-PRESWITCH-BYPASS, a press while another merge dialog is
+open, or the switch stock makes itself after the active vessel is destroyed) became part of the
+player's flight and lost its own mission (owner ruling Q16: it continues its own mission).
+
+Fix (defence in depth behind the Q16 routing). The pure
+`IsPostSwitchGraftOfSeparateCommittedVessel(decision, hasActiveTree, matched, matchedTreeId,
+activeTreeId)` is true for a fresh start under a live tree of a vessel that
+`TryFindCommittedTreeMatchingVessel` (pid plus launch guid) matches to a committed tree other than
+the live one. The watcher then logs `[Flight] Post-switch fresh start refused: vessel= pid=
+trigger= reason=separate-committed-vessel matchedTreeId= activeTreeId=` (Info) and disarms; the
+vessel stays idle until the live tree is committed, after which the 1 Hz committed-tree restore
+continues its mission. Ordinary outsiders, vessels of the live tree's own committed original,
+promotions of tracked members and a start with no live tree are unchanged.
+
+Tests. `PostSwitchCommittedGraftGuardTests` (the graft refused, an uncommitted outsider and the
+live tree's own committed tree not refused, only a fresh start under a live tree is a graft, the
+refusal line invariant, and a source gate that the guard and its disarm run before
+`PrepareActiveTreeForFreshPostSwitchRecording`). Red first: the cells do not compile against the
+old code (no guard) and the source gate reds with the guard block removed.
+
+Not changed. `PrepareActiveTreeForFreshPostSwitchRecording` still overwrites the parent's single
+child link for an ordinary outsider when the parent already has one; that is the archived
+CHILD-BRANCH-SINGLE-SLOT-OVERWRITE limitation, out of scope here.
+
+## ~~POST-SWITCH-PASSIVE-MOTION-TRIGGERS~~: after a switch, a vessel that only tumbles, turns with the frame or coasts through an SOI change is recorded as if the player changed it [FILED 2026-11-18 by the recording split / trim / merge review (draft M3), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; no lane gates it yet; medium (a recording, and under a live tree a graft, for a vessel nobody touched)]
+
+Cause. The post-switch watcher (`ParsekFlightPostSwitchAutoRecord`) compared the vessel's WORLD
+rotation with the rotation at its baseline and fired `AttitudeChange` past 3 degrees (0.2 s
+debounce), and `HasMeaningfulOrbitChange` fired `OrbitChange` on any body change. A vessel left
+tumbling, one in a low orbit (the world frame co-rotates with the planet below the inverse-rotation
+altitude, about 1 degree a minute at Kerbin), the attitude a packed vessel comes back with after
+warp, and an SOI crossing while coasting or warping all read as the player changing the vessel.
+Design 5.4 rule 5: sitting still and coasting do not count. For an outsider that started a fresh
+recording (under a live tree, the graft of POST-SWITCH-GRAFTS-COMMITTED-VESSEL).
+
+Fix (outsiders only). The attitude is measured only from the first rotation the player commands:
+the pure `IsPlayerRotationCommand` (raw `FlightInputHandler.state` rotation, SAS switched on or off
+or another SAS mode, or with SAS off a rotation on `Vessel.ctrlState`: keys, trim, kRPC, autopilot
+mods; SAS's own holding corrections are not read) feeds the pure
+`DecidePostSwitchAttitudeBaselineStep`: with no command yet the baseline follows the vessel every
+evaluated frame (`[Flight] Post-switch attitude follows passive motion: pid= passiveDrift=`, on
+change), the first command latches a fresh baseline and seed point (`Post-switch rotation command
+seen: pid= sas= mode= passiveDriftIgnored=`), and from then on the 3 degree / 0.2 s rule applies
+unchanged. A body change moves the orbit baseline to the new body (`IsPassiveSoiTransition`, `Post-
+switch orbit baseline moved to the new body: pid= from= to=`) and element changes on the new body
+still trigger; a burn before the crossing shows as an element change on the old body or as a
+resource change. A tracked background member keeps every trigger as before: it is already part of
+the recording, and its promotion only moves it to the foreground recorder (GS-11 promotes a
+tumbling booster on its attitude).
+
+Tests. `PostSwitchPassiveChangeTests` (the baseline step for an outsider with and without a
+command and for a tracked member, the rotation-command matrix including SAS holding and stick
+noise, the SOI predicate and an element change on the new body, and a source gate that both rules
+run before the measurements they guard and the baseline resets the latch). Red first: with the
+step pinned to Measure and the SOI block off (today's behavior) three cells fail.
+
+Residual, not this finding: other passive changes still trigger for an outsider, notably
+`ResourceChange` from solar panels charging a battery and `LandedMotion` from a vessel settling.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the

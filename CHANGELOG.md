@@ -69,6 +69,28 @@ Not released yet.
   committing could end the replay a few seconds short of the vessel's real last position, and a
   crash watched from another vessel could end the wreck in the air above the impact. The final
   position is now sampled at the stop. (STOP-TAKES-NO-FINAL-SAMPLE)
+- **A separated vessel is never lost when two separations come close together.** Staging and
+  then undocking, going on EVA or docking within half a second, two separations in the same
+  frame, or a quicksave right after staging could leave a booster or satellite with no replay
+  and no ghost. Every separated vessel now gets its own recording.
+  (SPLIT-WINDOW-DROPPED-ON-RECORDER-START)
+- **Undocking a vessel you just switched to records both halves.** After switching with `]` to a
+  vessel Parsek was not recording yet, undocking or staging it at once recorded only the part you
+  kept; the piece that came off had no replay. Both now get their own recording.
+  (POST-SWITCH-WATCH-SPLIT-NOT-RECORDED)
+- **A crewed ship undocking from an uncrewed depot is recorded under the right vessel.** When
+  control moved to the ship leaving a probe-less depot, its flight was written into the depot's
+  recording and its replay followed the wrong vessel. Each now gets its own recording.
+  (UNDOCK-FOCUS-MOVE-RECORDS-UNDER-WRONG-VESSEL)
+- **The `[` and `]` keys now switch to a vessel of another mission like Switch-To does.** The
+  flight you leave is merged (or dropped if nothing changed) first, and the vessel you switch to
+  continues its own mission; while the game refuses switching (under thrust, in the air) that
+  switch is refused too. Before, the vessel could be attached to the flight you left as if
+  launched from it; that no longer happens on any switch. (CYCLE-SWITCH-PRESWITCH-BYPASS)
+- **Switching to a vessel and only watching it no longer starts a recording for it.** A vessel
+  that just tumbles, turns with its orbit or drifts into another body's sphere of influence is not
+  treated as changed. Turning it yourself, firing an engine or any other change still starts one.
+  (POST-SWITCH-PASSIVE-MOTION-TRIGGERS)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now
