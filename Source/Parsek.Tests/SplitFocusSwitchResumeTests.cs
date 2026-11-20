@@ -167,7 +167,7 @@ namespace Parsek.Tests
         [Fact]
         public void ProcessBreakupEvent_PairsTheParentRecordingWithTheRecordersVessel()
         {
-            string body = PreparedMethodBody(FlightPath, "void ProcessBreakupEvent(BranchPoint breakupBp)");
+            string body = PreparedMethodBody(FlightPath, "void ProcessBreakupEvent(BranchPoint breakupBp, FlightRecorder parentRecorderHint");
             IndexOrFail(body, "ResolveBreakupParentVesselPid(");
             IndexOrFail(body, "breakupControllablePairs.Add((parentVessel, activeRec))");
         }

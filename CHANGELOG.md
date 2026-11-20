@@ -28,6 +28,11 @@ Not released yet.
 
 ### Fixed
 
+- **A separated vessel is never lost when two separations come close together.** Staging and
+  then undocking, going on EVA or docking within half a second, two separations in the same
+  frame, or a quicksave right after staging could leave a booster or satellite with no replay
+  and no ghost. Every separated vessel now gets its own recording.
+  (SPLIT-WINDOW-DROPPED-ON-RECORDER-START)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now

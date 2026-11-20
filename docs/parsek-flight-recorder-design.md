@@ -381,6 +381,8 @@ Crashes, overheating, and structural failures can produce many fragments across 
 
 The BREAKUP event records the parent segment, all child segments that have controllers (these get proper segments with trajectory recording), and a count of debris fragments (not individually tracked).
 
+**Never drop a separation (owner ruling 2026-11-18).** A window that is still open when the active recording is about to change is emitted early, not reset: `ParsekFlightSplitBrancher.FlushPendingSplits` runs before every recorder session start (split / merge branch creation, background promotion, `StartRecording`, the switch-segment bind, both committed-tree resumes), on every save (`ParsekScenario.SaveActiveTreeIfAny`), on scene exit and revert (`OnSceneChangeRequested`, the merge-flow finalize). It first feeds decouple children captured since the last split check that no deferred check will process (a decoupler and a docking port fired in one frame), then emits the window as ONE branch point on the tree's active recording, seeded from the parent's recorder even while a split has it parked. A second undock in the same frame as a pending split joins the window as an `UNDOCK` separation instead of being dropped. `PrepareSessionStateForRecorderStart` still emits (with a warning) any window a caller failed to flush before it resets the coalescer. Source gate: `PendingSplitFlushWiringTests`.
+
 **Example — Mun crash with partial survival:**
 
 ```

@@ -545,6 +545,22 @@ namespace Parsek
         internal FlightRecorder ParkedSplitRecorderForSerialization => pendingSplitRecorder;
 
         /// <summary>
+        /// For <c>ParsekScenario.SaveActiveTreeIfAny</c>: branches every separation Parsek has
+        /// seen but not yet written into the tree (the crash coalescer's open window, decouple
+        /// captures no split check will process) before the save serializes the tree, so an F5
+        /// right after staging keeps the separated vessels (owner ruling 2026-11-18).
+        /// </summary>
+        internal void FlushPendingSplitsForSave()
+        {
+            if (restoringActiveTree)
+            {
+                ParsekLog.Verbose("Coalescer", "FlushPendingSplitsForSave: skipped, restore coroutine in progress");
+                return;
+            }
+            SplitBrancher.FlushPendingSplits("OnSave");
+        }
+
+        /// <summary>
         /// Lays the parked split recorder's unflushed buffers over the active tree's current
         /// recording for one save (audit R6, <see cref="ParkedSplitSaveOverlay"/>), or returns null
         /// when no overlay applies (logged with the reason). The caller restores it after the write.
@@ -748,6 +764,9 @@ namespace Parsek
         internal bool pendingSplitInProgress;
         internal FlightRecorder pendingSplitRecorder;
         internal DeferredSplitCheckTrigger pendingDeferredSplitCheckTrigger;
+        // True from HandleJointBreakDeferredCheck's coroutine start until its finally: that
+        // coroutine owns the decouple captures, so no flush feeds them a second time.
+        internal bool deferredJointBreakCheckInFlight;
         internal double pendingSplitTriggerUT = double.NaN;
         // Vessel PIDs that existed before a joint break (for filtering pre-existing vessels)
         internal HashSet<uint> preBreakVesselPids;
@@ -1678,6 +1697,12 @@ namespace Parsek
             // logical atlas). See MapMarkerRenderer.ResetForSceneChange.
             MapMarkerRenderer.ResetForSceneChange();
 
+            // Never drop one (owner ruling 2026-11-18): a separation still in the coalescing
+            // window, or a decouple captured this frame, branches into the tree before the
+            // transient reset clears a parked split recorder and the tree is finalized.
+            if (activeTree != null && !restoringActiveTree)
+                SplitBrancher.FlushPendingSplits("OnSceneChangeRequested:" + scene);
+
             ClearSceneChangeTransientState();
 
             // Tree mode: finalize and commit tree on scene exit.
@@ -2130,6 +2155,7 @@ namespace Parsek
             lastBranchUT = -1;
             lastBranchVesselPids.Clear();
             pendingSplitInProgress = false;
+            deferredJointBreakCheckInFlight = false;
             pendingSplitRecorder = null;
             preBreakVesselPids = null;
         }
