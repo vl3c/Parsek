@@ -20,6 +20,26 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TERMINAL-DESTROYED-PAYLOAD-DIVERGES~~: the destroyed paths stored different terminal-orbit data [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `TerminalEventTests`; low]
+
+Cause: `ParsekFlight.ApplyTerminalDestruction` (the background `DeferredDestructionCheck` fallback
+when no finalization cache applies) stamped Destroyed and copied the captured orbit and surface
+position onto the recording, and left `VesselDestroyed` unset, while
+`Recording.MarkDestroyedAtTerminal` (identity loss) and the finalization-cache applier
+(`RecordingFinalizationCacheApplier.ApplyTerminalMetadata`, a Destroyed cache) both write no
+terminal orbit and no terminal position (draft review L3). The same ending had two payloads.
+
+Fix: `ApplyTerminalDestruction` seals through `MarkDestroyedAtTerminal` at the captured UT (logged
+with what was dropped). The phantom-terrain-crash and Disassembled branches still attach the
+captured data (their endings are not Destroyed). Remaining difference, deliberately kept: the
+commit-time `MarkMissingVesselDestroyed` (a leaf whose vessel is gone at a commit) still fills the
+terminal orbit from the last orbit segment (#219, chain ghosts of orbital debris).
+
+Tests: `TerminalEventTests.ApplyTerminalDestruction_WithOrbitalData_KeepsNoTerminalOrbit`,
+`ApplyTerminalDestruction_WithSurfaceData_KeepsNoTerminalPosition` and
+`ApplyTerminalDestruction_OverwritesExistingData` (expectations changed: the old ones pinned the
+divergence; red before the fix).
+
 ## ~~BREAKUP-REMNANT-ENDING-DEPENDS-ON-DISTANCE~~: breakup remnants got different endings depending on distance [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `EffectiveLeafFinalizationTests`; medium (a wreck could respawn at the end of its replay)]
 
 Cause: the identity-loss override (`IdentityLossClassifier.IsRecordedIdentityLost`: a remnant that

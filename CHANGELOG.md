@@ -32,6 +32,9 @@ Not released yet.
   Space Center, or committing the flight, while an engine or thruster was firing kept its plume
   burning in the replay until the end. It now shuts off at the moment you left.
   (FORCESTOP-LEAVES-ENGINES-LIT)
+- **Destroyed flights all end the same way.** A craft destroyed far from you could keep the orbit
+  or landing spot it had when it died, unlike every other destroyed flight. All destroyed endings
+  now carry the same data. (TERMINAL-DESTROYED-PAYLOAD-DIVERGES)
 - **A wreck is a wreck however close you were.** When a crash broke a craft so that no command
   part survived, what was left was recorded as destroyed only if you had flown far away from it;
   nearby it could be saved as landed and come back as a wreck at the end of its replay.
