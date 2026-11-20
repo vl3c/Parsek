@@ -588,10 +588,11 @@ namespace Parsek
             if (bp == null || !BranchTypeCanLeaveParentRecording(bp.Type))
                 return false;
 
-            // Closed AT the split: BackgroundRecorder.CloseParentRecording writes
-            // ExplicitEndUT = branch UT synchronously, and its "parent vessel destroyed" path
-            // adds no same-PID child and stamps no terminal. A recording that keeps flying past
-            // the branch never has an explicit end at or before it.
+            // Closed AT the split: BackgroundRecorder.CloseParentRecording (a background
+            // undock) writes ExplicitEndUT = branch UT synchronously, and its "parent vessel
+            // destroyed" path adds no same-PID child and stamps no terminal. A recording that
+            // keeps flying past the branch (a focused or background decouple / breakup, whose
+            // samples after the split move its end past the branch UT) is not closed here.
             if (!allowClosedAtBranch
                 && !double.IsNaN(rec.ExplicitEndUT) && rec.ExplicitEndUT <= bp.UT)
                 return false;

@@ -12,11 +12,20 @@ namespace Parsek
         #region Background Vessel Split Detection
 
         /// <summary>
-        /// Called from Update() to process any pending background split checks.
+        /// Called from Update() to process any pending background split checks, then to
+        /// tick the per-parent separation windows (owner ruling Q15: a background
+        /// separation is coalesced like a focused one).
         /// Must be called one frame after the joint break event to allow KSP to
         /// finalize the vessel split.
         /// </summary>
         internal void ProcessPendingSplitChecks()
+        {
+            RunPendingSplitChecks();
+            if (separationWindows.Count > 0)
+                TickBackgroundSeparationWindows(Planetarium.GetUniversalTime());
+        }
+
+        private void RunPendingSplitChecks()
         {
             if (pendingBackgroundSplitChecks.Count == 0) return;
 
@@ -44,7 +53,10 @@ namespace Parsek
 
         /// <summary>
         /// Called when a background vessel may have split. Checks if new vessels appeared
-        /// from the split, creates BranchPoint + child recordings for each new vessel.
+        /// from the split. A decouple or a broken-off part feeds them into the parent's
+        /// separation window (the focused shape: the parent recording continues, see
+        /// <see cref="FeedBackgroundSeparationWindow"/>); an undock closes the parent and
+        /// creates BranchPoint + parent continuation + child recordings here.
         /// Spent stages and debris get a TTL (stop recording after DebrisTTLSeconds or on destruction
         /// or when leaving physics bubble).
         /// </summary>
@@ -128,6 +140,21 @@ namespace Parsek
             ParsekLog.Info("BgRecorder",
                 $"Background vessel split detected: parentPid={parentPid} " +
                 $"childCount={newVesselInfos.Count} branchUT={branchUT:F1} cause={splitCause ?? "BROKE_OFF"}");
+
+            // Owner ruling Q15 (2026-11-18): a decouple or a broken-off part gives the
+            // focused shape - the parent recording continues and the pieces are grouped by
+            // a coalescing window into one branch point. An undock closes the parent into
+            // two children, which is the focused undock shape already.
+            if (IsCoalescedBackgroundSeparationCause(splitCause))
+            {
+                FeedBackgroundSeparationWindow(
+                    parentPid, parentRecordingId, branchUT, splitCause, newVesselInfos);
+                return;
+            }
+
+            // The undock closes the parent recording below: a separation window the parent
+            // still holds is emitted first, onto the recording it belongs to.
+            EmitBackgroundSeparationWindowNow(parentPid, "undock-closes-parent");
 
             // Determine BranchPoint type: JointBreak (structural separation)
             var branchType = BranchPointType.JointBreak;
@@ -454,6 +481,19 @@ namespace Parsek
                 candidatePids.Add(info.pid);
             }
 
+            AuthorBackgroundSplitRewindPoint(bp, pairs, candidatePids);
+        }
+
+        /// <summary>
+        /// The shared tail of the background rewind-point hooks: given the controllable
+        /// (vessel, recording) pairs of one split, authors the rewind point when at least two
+        /// are controllable.
+        /// </summary>
+        private static void AuthorBackgroundSplitRewindPoint(
+            BranchPoint bp,
+            List<(Vessel vessel, Recording rec)> pairs,
+            List<uint> candidatePids)
+        {
             if (!SegmentBoundaryLogic.IsMultiControllableSplit(candidatePids.Count))
             {
                 ParsekLog.Info("Rewind",

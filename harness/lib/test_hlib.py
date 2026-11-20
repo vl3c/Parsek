@@ -24542,6 +24542,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
     BG_RECORDER_OTHER_PARTIALS = (
         "BackgroundRecorder.PartEventPolling.cs",
         "BackgroundRecorder.PhysicsSoi.cs",
+        "BackgroundRecorder.SeparationWindows.cs",
         "BackgroundRecorder.State.cs",
         "BackgroundRecorder.Testing.cs",
         "BackgroundRecorder.TimeJump.cs",

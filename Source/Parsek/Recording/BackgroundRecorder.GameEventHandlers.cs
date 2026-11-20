@@ -193,6 +193,11 @@ namespace Parsek
 
             uint vesselPid = joint.Child.vessel.persistentId;
 
+            // A controlled piece still held by an open separation window is not a background
+            // member yet: emit that window now so the piece's own separation is recorded.
+            if (!tree.BackgroundMap.ContainsKey(vesselPid))
+                EmitSeparationWindowHoldingControlledChild(vesselPid, "child-separated-again");
+
             // Only handle background vessels
             string recordingId;
             if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;

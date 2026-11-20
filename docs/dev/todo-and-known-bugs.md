@@ -20,6 +20,49 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~BG-SEPARATION-CLOSES-PARENT-RECORDING~~: a background vessel's staging closed its recording and started a second one [FIXED 2026-11-21, branch `rsr-wp8-bg-shape`; xUnit `BackgroundSeparationShapeTests`; low (two recordings-table rows for one vessel; no data lost)]
+
+Cause: a decouple or a broken-off part of a BACKGROUND vessel went through
+`BackgroundRecorder.HandleBackgroundVesselSplit`'s closing path: `CloseParentRecording` ended the
+parent recording at the split, a parent continuation recording (same pid) carried the vessel on,
+the pieces were anchored to the continuation, and each deferred scan (one per frame) made its own
+branch point. The focused vessel's decouple or breakup keeps one recording that runs past the
+split (`ParsekFlight.WireBreakupIntoTree`) and groups the pieces of a 0.5 s window into one
+branch point, so the same staging gave two different tree shapes depending on focus.
+
+Fix: owner ruling Q15 (2026-11-18), "One shape for both". `BackgroundRecorder.SeparationWindows.cs`
+keeps one `CrashCoalescer` per background parent pid (the class moved from `Rewind/` to
+`Recording/`, its own module, so the background recorder adds no backward module edge). The
+deferred scan feeds each new vessel (snapshot and pose captured at the scan) into the window;
+`ProcessPendingSplitChecks` ticks it; the emitted JointBreak branch point is wired with
+`WireBreakupIntoTree` onto the parent recording, which keeps its BackgroundMap entry and keeps
+sampling, gets its VesselSnapshot refreshed, and keeps the structural-event point the joint break
+wrote. Children go through `ParsekFlight.CreateBreakupChildRecording` anchored to the parent
+recording (a controlled piece gone before the window closed gets none, a debris piece gone gets
+the destroyed one-point row, as focused), live ones join the background recorder with the debris
+limit keyed on the branch point UT, and a split with two or more controllable vessels authors a
+rewind point whose parent slot is the parent recording itself. An undock keeps the closing shape
+(it is the focused undock shape), emitting a window the parent still holds first. Windows are
+emitted early (never drop one) from `FlushPendingSplits` (save, scene exit, revert, every
+recorder start), `FinalizeAllForCommit`, `Shutdown` (with a Warn), and when the parent stops
+being a background vessel: `OnVesselRemovedFromBackground` (promotion, switch, debris end, member
+reconcile), go-on-rails (before the identity-loss check), `OnBackgroundVesselWillDestroy` and
+`RetireDestroyedBackgroundEntry`. A controlled piece still held by a window that separates again
+emits its window first (`EmitSeparationWindowHoldingControlledChild`) so its own split is
+recorded. `RecordingTree.ChildBranchLeavesVesselLineOpen` / `IsVesselLineEnd`,
+`DebrisParentStateGate` and the Re-Fly HEAD/TIP splitter already handle this shape (the focused
+breakup writes it); comments updated. Residual: a window flushed in the same physics tick as its
+joint break leaves the parent's `ExplicitEndUT` equal to the branch UT, which reads as "closed at
+the split" until the next sample; a save in that tick that is then loaded leaves the parent out of
+the rebuilt BackgroundMap.
+
+Tests: `BackgroundSeparationShapeTests` (shape, coalescing and BROKE_OFF combine, dead controlled
+piece, flush / Shutdown / retire emission, recording change, missing parent, the separate-again
+emit, and source gates on every emission site; the gate cells and the retire cell were mutation
+checked red). The `BackgroundSplitTests` continuation / bug #285 simulation cells now pass the
+`UNDOCK` cause: they pinned the decouple continuation shape the ruling replaces, and the undock
+path is the one that still builds it.
+
 ## ~~DEBRIS-LIFETIME-LOST-ON-PROMOTION~~: a debris piece the player switched to lost its 60 s limit [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a promoted booster recorded until it crashed; GS-11 measured it)]
 
 Cause: the debris time limit lived only in `BackgroundRecorder.debrisTTLExpiry`. A promotion to the
