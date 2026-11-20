@@ -32,6 +32,9 @@ Not released yet.
   Space Center, or committing the flight, while an engine or thruster was firing kept its plume
   burning in the replay until the end. It now shuts off at the moment you left.
   (FORCESTOP-LEAVES-ENGINES-LIT)
+- **A save from a newer Parsek keeps its flights' endings.** A flight that ended in a way this
+  version does not know was saved back with no ending, and its end could then be cut away. The
+  ending is now kept as it was and the trajectory is left whole. (NEWER-ENDING-ERASED-BY-OLDER-BUILD)
 - **A docked or boarded flight keeps its ending.** Recovering the ship it docked with, or the ship
   a kerbal boarded, could rewrite the earlier flight as recovered and pay its recovery a second
   time. (DOCKED-ENDING-OVERWRITTEN-BY-RECOVERY)

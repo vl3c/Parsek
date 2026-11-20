@@ -20,6 +20,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~NEWER-ENDING-ERASED-BY-OLDER-BUILD~~: an ending a newer build wrote was erased on save and the tail trim then cut the trajectory [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; high (permanent data loss on a save opened in an older build)]
+
+Cause: `RecordingTreeRecordCodec.LoadRecordingFrom` read a `terminalState` number this build does
+not define (a newer build's new ending kind, the way `Disassembled` once was) as null, and the
+writer writes nothing for null, so the ending was gone for good after the next save. With a null
+ending, `RecordingOptimizer.TailPreservesTerminalSpawnStateInternal` allows the boring-tail trim,
+which then cut trajectory data its own doc comment says must be preserved for an unclassified
+ending (draft review H6). Against the save-format policy ("newer data held verbatim, written back").
+
+Fix: the codec holds the undefined number in `TerminalStateValue` as is (one `Codec` Warn) and the
+writer writes it back unchanged. No new key, no format bump. Every consumer reads an undefined value
+as a final, non-spawnable ending: `GhostPlaybackLogic.IsSpawnableTerminal`'s default refuses the
+end spawn and the tail trim (`unstable-terminal`, so `RecordingOptimizer*.cs` is unchanged and
+`TailPreservesTerminalSpawnState_NullTerminal_AllowsTrim` keeps its expectation: a truly null
+ending still trims), and `ParsekScenario.CanOverwriteTerminalState` refuses to overwrite it. Audited
+for unsafe uses of an undefined value: no array is indexed by a terminal state, no switch throws on
+its default, and the one `Dictionary<TerminalState, int>` (the prune breakdown) only skips it.
+`design-save-format-policy.md` section 4 and the CLAUDE.md save-format paragraph updated.
+
+Tests: `RecordingEndingTests.Codec_UnknownTerminalState_IsHeldAndWrittenBackVerbatim` and
+`TailTrim_UnknownTerminalState_RefusesTrim` (both red before the fix),
+`Codec_KnownTerminalState_LoadsWithoutWarning`, `CanOverwriteTerminalState_UnknownEndingIsFinal`.
+
 ## ~~DOCKED-ENDING-OVERWRITTEN-BY-RECOVERY~~: a Docked / Boarded ending could be overwritten by a later recovery [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low]
 
 Cause: `ParsekScenario.CanOverwriteTerminalState` treated Docked and Boarded like the situation

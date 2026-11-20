@@ -627,6 +627,16 @@ namespace Parsek
             // recovered or destroyed later is that other vessel, reached here only through the
             // name fallback or the shared pid of the absorbed craft. Overwriting would stamp a
             // dock or a boarding as a recovery (funds paired at commit) and drop the snapshot.
+            // An ending this build does not know (held verbatim from a newer build) is final:
+            // only the build that wrote it knows what it means.
+            if (!Enum.IsDefined(typeof(TerminalState), existing.Value))
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"CanOverwriteTerminalState: refused existing={(int)existing.Value} incoming={incoming} " +
+                    "(an ending unknown to this build, held from a newer build, is final)");
+                return false;
+            }
+
             if (existing.Value == TerminalState.Docked || existing.Value == TerminalState.Boarded)
             {
                 ParsekLog.Verbose("Scenario",
