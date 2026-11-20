@@ -5153,7 +5153,13 @@ down; `stockWouldPick=` names what stock's final step would take from the unfilt
 `forceGhost=true` the verb then calls `FlightGlobals.ForceSetActiveVessel` on the first ghost
 marker among the press's candidates and logs `cyclevessel forceGhost: ForceSetActiveVessel(ghost
 pid= vessel=) returned= activeBefore= activeAfter= result=`; the backstop answers with its own
-`Refused ForceSetActiveVessel to ghost map vessel '..' pid=..` Info line.
+`Refused ForceSetActiveVessel to ghost map vessel '..' pid=..` Info line. A press that lands on a
+vessel needing the map Switch-To's pre-switch handling (an armed switch segment focused on another
+vessel, or a live recording and a loaded, separately committed target; owner ruling 2026-11-18)
+answers `outcome=pre-switch-handoff`, `picked=` that vessel and `detail=auto-resolved` (the Merge /
+Discard handler already merged or discarded the recording and switched, so `after=` is the target
+unless the handler refused) or `detail=dialog-open` (the dialog's buttons switch; `after=` is
+`before=`), logging `Vessel cycle handed to pre-switch handling: targetPid= take= directRoute=`.
 
 **Phases.** SINGLE-PHASE (decompiled `FlightGlobals.setActiveVessel` sets `activeVessel` inside the
 call for a loaded target), `RequiresFlight`, default 60 s budget, world-mutating tail role,
@@ -5161,7 +5167,7 @@ call for a loaded target), `RequiresFlight`, default 60 s budget, world-mutating
 switched candidates candidatePids ghostPids ghostsDropped refusedDropped leftToStock picked
 stockWouldPick stockWouldPickGhost forceGhost forceGhostPid`; `outcome` is one of `stock-early-return
 no-active-vessel no-candidates left-to-stock only-ghosts only-refused switched set-active-fallback
-inert`, `forceGhost` one of `skipped no-ghost refused switched unexpected`, pid lists comma-joined
+pre-switch-handoff inert`, `forceGhost` one of `skipped no-ghost refused switched unexpected`, pid lists comma-joined
 in stock's candidate order (`none` when empty). Line `cyclevessel result` plus the payload as
 `key=value`. Pure half `TestCommandCycleVessel`, applier `ParsekTestCommandAddon.CycleVessel.cs`,
 mirrored by `CycleVesselSourceSyncTests`.

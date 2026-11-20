@@ -4569,7 +4569,8 @@ CYCLEVESSEL_REASONS: Tuple[str, ...] = (
 )
 CYCLEVESSEL_OUTCOMES: Tuple[str, ...] = (
     "stock-early-return", "no-active-vessel", "no-candidates", "left-to-stock",
-    "only-ghosts", "only-refused", "switched", "set-active-fallback", "inert",
+    "only-ghosts", "only-refused", "switched", "set-active-fallback",
+    "pre-switch-handoff", "inert",
 )
 
 

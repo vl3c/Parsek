@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **The `[` and `]` keys now switch to a vessel of another mission like Switch-To does.** The
+  flight you leave is merged (or dropped if nothing changed) first, and the vessel you switch to
+  continues its own mission. Before, it could be attached to the flight you left as if launched
+  from it. (CYCLE-SWITCH-PRESWITCH-BYPASS)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now

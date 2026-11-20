@@ -230,6 +230,83 @@ namespace Parsek.Patches
                 return true;
             }
 
+            // The pre-switch Merge / Discard handling (Cases A / B / C), shared with the
+            // stock vessel cycle (VesselCycleReFlySwitchPatch).
+            if (TryTakePreSwitch(vessel, cycleSwitch: false) != PreSwitchTake.NotTaken)
+                return false;
+
+            // A target outside the physics bubble reloads FLIGHT, and stock saves the
+            // scenario before that reload, so an armed intent would cross it. Arm none:
+            // stock still switches, and no segment starts on the far side.
+            if (DeclineArmForUnloadedTarget(vessel.loaded, vessel.persistentId, label))
+                return true;
+
+            Guid intentId = Guid.NewGuid();
+            var marker = new StockActionIntentMarker
+            {
+                IntentId = intentId,
+                Action = StockActionType.MapSwitchTo,
+                TargetVesselPersistentId = vessel.persistentId,
+                SourceScene = StockActionSourceScene.Flight,
+                CapturedRealtime = UnityEngine.Time.realtimeSinceStartup,
+                CapturedUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0,
+                ProcessSessionId = ParsekProcess.ProcessSessionId,
+            };
+
+            // Prefix-on-Prefix race log: ParsekScenario.ArmStockActionIntent
+            // already emits a `stale-intent-superseded` Info log when it overwrites
+            // a still-armed marker, but we also tag the SwitchIntentPatch subsystem
+            // so a grep of `[SwitchIntentPatch]` catches it.
+            var existing = scenario.CurrentStockActionIntent;
+            if (existing != null && existing.IntentId != intentId)
+            {
+                ParsekLog.Info("SwitchIntentPatch",
+                    $"{label} intent stale-intent-superseded: prior intentId={existing.IntentId:D} " +
+                    $"action={existing.Action} new intentId={intentId:D}");
+            }
+
+            scenario.ArmStockActionIntent(marker);
+            armedIntentId = intentId;
+            ParsekLog.Info("SwitchIntentPatch",
+                $"{label} intent armed: intentId={marker.IntentId:D} action={marker.Action} " +
+                $"targetPid={marker.TargetVesselPersistentId} sourceScene={marker.SourceScene} " +
+                $"capturedUT={marker.CapturedUT.ToString("R", CultureInfo.InvariantCulture)}");
+            return true;
+        }
+
+        /// <summary>What <see cref="TryTakePreSwitch"/> did with a switch.</summary>
+        internal enum PreSwitchTake
+        {
+            /// <summary>No pre-switch case applies (or the dialog could not open): the caller
+            /// switches its own way.</summary>
+            NotTaken = 0,
+            /// <summary>The Merge / Discard decision was taken without asking and its handler
+            /// ran, which also arms the intent and switches.</summary>
+            AutoResolved = 1,
+            /// <summary>The Merge / Discard dialog is open; its buttons switch.</summary>
+            DialogOpened = 2,
+        }
+
+        /// <summary>
+        /// The pre-switch Merge / Discard handling for a switch to <paramref name="vessel"/>
+        /// (Case A: an armed switch segment and another target; Case B: a live recording and an
+        /// unloaded target; Case C: a live recording and a loaded, separately committed target),
+        /// shared by the map Switch-To, the alarm Jump in FLIGHT (both through
+        /// <see cref="PrepareOwnedVesselSwitch"/>) and the stock <c>[</c> / <c>]</c> vessel cycle
+        /// (<see cref="VesselCycleReFlySwitchPatch"/>). <paramref name="cycleSwitch"/> names the
+        /// cycle's own switch call (<c>ForceSetActiveVessel</c>, which skips stock's
+        /// <c>ClearToSave</c> refusal for an unpacked target), used by the handlers and the
+        /// stock-will-refuse rule. Anything but <see cref="PreSwitchTake.NotTaken"/> means the
+        /// caller must not switch.
+        /// </summary>
+        internal static PreSwitchTake TryTakePreSwitch(Vessel vessel, bool cycleSwitch)
+        {
+            if (vessel == null)
+                return PreSwitchTake.NotTaken;
+            var scenario = ParsekScenario.Instance;
+            if (scenario == null)
+                return PreSwitchTake.NotTaken;
+
             // Rapid-switch interception (post-#876 playtest 2026-05-17):
             // when a SwitchSegmentSession is already armed and the new target
             // is a different vessel, open a pre-switch Merge/Discard dialog
@@ -355,8 +432,8 @@ namespace Parsek.Patches
                         // own message, and the Postfix clears the marker.
                         if (TryAutoResolvePreSwitch(vessel, existingSession,
                                 targetIsSeparateCommittedVessel,
-                                out PreSwitchAutoResolution autoResolution))
-                            return false;
+                                out PreSwitchAutoResolution autoResolution, cycleSwitch))
+                            return PreSwitchTake.AutoResolved;
                         if (autoResolution == PreSwitchAutoResolution.StockWillRefuse)
                             break;
 
@@ -383,13 +460,13 @@ namespace Parsek.Patches
                         // route through the new no-session handlers that commit
                         // / discard the live active tree directly.
                         bool dialogOpened = existingSession != null
-                            ? TryOpenPreSwitchDecisionDialog(vessel, existingSession)
-                            : TryOpenPreSwitchDecisionDialogNoSession(vessel);
+                            ? TryOpenPreSwitchDecisionDialog(vessel, existingSession, cycleSwitch)
+                            : TryOpenPreSwitchDecisionDialogNoSession(vessel, cycleSwitch);
                         if (dialogOpened)
                         {
-                            // Skip stock OnSelect; dialog button handlers will arm
-                            // the new intent and invoke FlightGlobals.SetActiveVessel.
-                            return false;
+                            // Skip the caller's switch; the dialog button handlers arm
+                            // the new intent and switch.
+                            return PreSwitchTake.DialogOpened;
                         }
                         // Dialog spawn failed — fall through to the original
                         // arm-and-skip flow. For Case A the existing
@@ -423,43 +500,7 @@ namespace Parsek.Patches
                     break;
             }
 
-            // A target outside the physics bubble reloads FLIGHT, and stock saves the
-            // scenario before that reload, so an armed intent would cross it. Arm none:
-            // stock still switches, and no segment starts on the far side.
-            if (DeclineArmForUnloadedTarget(vessel.loaded, vessel.persistentId, label))
-                return true;
-
-            Guid intentId = Guid.NewGuid();
-            var marker = new StockActionIntentMarker
-            {
-                IntentId = intentId,
-                Action = StockActionType.MapSwitchTo,
-                TargetVesselPersistentId = vessel.persistentId,
-                SourceScene = StockActionSourceScene.Flight,
-                CapturedRealtime = UnityEngine.Time.realtimeSinceStartup,
-                CapturedUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0,
-                ProcessSessionId = ParsekProcess.ProcessSessionId,
-            };
-
-            // Prefix-on-Prefix race log: ParsekScenario.ArmStockActionIntent
-            // already emits a `stale-intent-superseded` Info log when it overwrites
-            // a still-armed marker, but we also tag the SwitchIntentPatch subsystem
-            // so a grep of `[SwitchIntentPatch]` catches it.
-            var existing = scenario.CurrentStockActionIntent;
-            if (existing != null && existing.IntentId != intentId)
-            {
-                ParsekLog.Info("SwitchIntentPatch",
-                    $"{label} intent stale-intent-superseded: prior intentId={existing.IntentId:D} " +
-                    $"action={existing.Action} new intentId={intentId:D}");
-            }
-
-            scenario.ArmStockActionIntent(marker);
-            armedIntentId = intentId;
-            ParsekLog.Info("SwitchIntentPatch",
-                $"{label} intent armed: intentId={marker.IntentId:D} action={marker.Action} " +
-                $"targetPid={marker.TargetVesselPersistentId} sourceScene={marker.SourceScene} " +
-                $"capturedUT={marker.CapturedUT.ToString("R", CultureInfo.InvariantCulture)}");
-            return true;
+            return PreSwitchTake.NotTaken;
         }
 
         /// <summary>
@@ -596,7 +637,8 @@ namespace Parsek.Patches
             Vessel target,
             SwitchSegmentSession existingSession,
             bool targetIsSeparateCommittedVessel,
-            out PreSwitchAutoResolution resolution)
+            out PreSwitchAutoResolution resolution,
+            bool cycleSwitch = false)
         {
             resolution = PreSwitchAutoResolution.Dialog;
             if (target == null)
@@ -609,8 +651,7 @@ namespace Parsek.Patches
             bool reFlyOrJournalActive = !object.ReferenceEquals(null, scenario)
                 && (scenario.ActiveReFlySessionMarker != null || scenario.ActiveMergeJournal != null);
             string clearToSave = ReadClearToSaveStatus();
-            bool stockWillRefuse = clearToSave != null
-                && !string.Equals(clearToSave, "CLEAR", StringComparison.Ordinal);
+            bool stockWillRefuse = SwitchWillBeRefused(cycleSwitch, target.packed, clearToSave);
             bool evaluable = !stockWillRefuse && !reFlyOrJournalActive
                 && flight != null && !ParsekFlight.restoringActiveTree;
             bool priorIsNoOp = false;
@@ -652,19 +693,37 @@ namespace Parsek.Patches
             {
                 case PreSwitchAutoResolution.Discard:
                     if (hasSession)
-                        DiscardPriorAndSwitchTo(target, existingSession);
+                        DiscardPriorAndSwitchTo(target, existingSession, cycleSwitch);
                     else
-                        DiscardActiveRecordingAndSwitchTo(target);
+                        DiscardActiveRecordingAndSwitchTo(target, cycleSwitch);
                     return true;
                 case PreSwitchAutoResolution.Merge:
                     if (hasSession)
-                        MergePriorAndSwitchTo(target, existingSession);
+                        MergePriorAndSwitchTo(target, existingSession, cycleSwitch);
                     else
-                        MergeActiveTreeAndSwitchTo(target);
+                        MergeActiveTreeAndSwitchTo(target, cycleSwitch);
                     return true;
                 default:
                     return false;
             }
+        }
+
+        /// <summary>
+        /// Pure: whether stock refuses the switch the caller makes, from stock's
+        /// <c>FlightGlobals.ClearToSave()</c> status name (null: unread, not refused). The map
+        /// Switch-To and the alarm Jump switch with <c>SetActiveVessel</c>, which refuses
+        /// whenever the status is not CLEAR; the vessel cycle (<paramref name="cycleSwitch"/>)
+        /// switches an unpacked target with <c>ForceSetActiveVessel</c>, which skips the check,
+        /// and a packed one with it only when the game is clear to save (decompiled
+        /// <c>VesselSwitching.Update</c> / <c>FlightGlobals.setActiveVessel</c>).
+        /// </summary>
+        internal static bool SwitchWillBeRefused(bool cycleSwitch, bool targetPacked, string clearToSaveStatus)
+        {
+            bool notClear = clearToSaveStatus != null
+                && !string.Equals(clearToSaveStatus, "CLEAR", StringComparison.Ordinal);
+            if (cycleSwitch && !targetPacked)
+                return false;
+            return notClear;
         }
 
         /// <summary>
@@ -707,12 +766,13 @@ namespace Parsek.Patches
         /// </summary>
         private static bool TryOpenPreSwitchDecisionDialog(
             Vessel target,
-            SwitchSegmentSession priorSession)
+            SwitchSegmentSession priorSession,
+            bool cycleSwitch)
         {
             return MergeDialog.ShowPreSwitchDecisionDialog(
                 target,
-                mergeAction: () => MergePriorAndSwitchTo(target, priorSession),
-                discardAction: () => DiscardPriorAndSwitchTo(target, priorSession));
+                mergeAction: () => MergePriorAndSwitchTo(target, priorSession, cycleSwitch),
+                discardAction: () => DiscardPriorAndSwitchTo(target, priorSession, cycleSwitch));
         }
 
         /// <summary>
@@ -742,7 +802,7 @@ namespace Parsek.Patches
         /// outer Prefix already gated on
         /// <c>HasActiveTree</c>) or the dialog spawn fails.</para>
         /// </summary>
-        private static bool TryOpenPreSwitchDecisionDialogNoSession(Vessel target)
+        private static bool TryOpenPreSwitchDecisionDialogNoSession(Vessel target, bool cycleSwitch)
         {
             var flight = ParsekFlight.Instance;
             var activeTree = flight?.ActiveTreeForDisplay;
@@ -755,8 +815,8 @@ namespace Parsek.Patches
             }
             return MergeDialog.ShowPreSwitchDecisionDialog(
                 target,
-                mergeAction: () => MergeActiveTreeAndSwitchTo(target),
-                discardAction: () => DiscardActiveRecordingAndSwitchTo(target),
+                mergeAction: () => MergeActiveTreeAndSwitchTo(target, cycleSwitch),
+                discardAction: () => DiscardActiveRecordingAndSwitchTo(target, cycleSwitch),
                 priorTreeOverride: activeTree);
         }
 
@@ -784,7 +844,7 @@ namespace Parsek.Patches
         /// <c>onVesselChange</c> firing.</para>
         /// </summary>
         private static void MergePriorAndSwitchTo(
-            Vessel target, SwitchSegmentSession priorSession)
+            Vessel target, SwitchSegmentSession priorSession, bool cycleSwitch)
         {
             var scenario = ParsekScenario.Instance;
             string priorSessionIdStr = priorSession != null
@@ -905,7 +965,7 @@ namespace Parsek.Patches
                     scenario.ClearSwitchSegmentSession("pre-switch-dialog-merge-no-active-tree");
             }
 
-            ArmIntentAndSwitchTo(target);
+            ArmIntentAndSwitchTo(target, cycleSwitch);
         }
 
         /// <summary>
@@ -918,7 +978,7 @@ namespace Parsek.Patches
         /// <c>FlightGlobals.SetActiveVessel(target)</c>.
         /// </summary>
         private static void DiscardPriorAndSwitchTo(
-            Vessel target, SwitchSegmentSession priorSession)
+            Vessel target, SwitchSegmentSession priorSession, bool cycleSwitch)
         {
             string priorSessionIdStr = priorSession != null
                 ? priorSession.SessionId.ToString("D", CultureInfo.InvariantCulture)
@@ -977,7 +1037,7 @@ namespace Parsek.Patches
                     $"{ex.GetType().Name}: {ex.Message} - continuing with switch anyway");
             }
 
-            ArmIntentAndSwitchTo(target);
+            ArmIntentAndSwitchTo(target, cycleSwitch);
         }
 
         /// <summary>
@@ -994,7 +1054,7 @@ namespace Parsek.Patches
         /// session-armed Merge handler so a Re-Fly merge journal
         /// finisher cannot race the commit.</para>
         /// </summary>
-        private static void MergeActiveTreeAndSwitchTo(Vessel target)
+        private static void MergeActiveTreeAndSwitchTo(Vessel target, bool cycleSwitch)
         {
             var scenario = ParsekScenario.Instance;
             var flight = ParsekFlight.Instance;
@@ -1070,7 +1130,7 @@ namespace Parsek.Patches
                     $"priorTreeId={priorTreeIdStr} - proceeding with switch");
             }
 
-            ArmIntentAndSwitchTo(target);
+            ArmIntentAndSwitchTo(target, cycleSwitch);
         }
 
         /// <summary>
@@ -1102,7 +1162,7 @@ namespace Parsek.Patches
         /// <para>Mirrors the active-merge-journal guard so the journal
         /// finisher cannot race the discard.</para>
         /// </summary>
-        private static void DiscardActiveRecordingAndSwitchTo(Vessel target)
+        private static void DiscardActiveRecordingAndSwitchTo(Vessel target, bool cycleSwitch)
         {
             var scenario = ParsekScenario.Instance;
             var flight = ParsekFlight.Instance;
@@ -1165,7 +1225,7 @@ namespace Parsek.Patches
                     $"priorTreeId={priorTreeIdStr} - proceeding with switch");
             }
 
-            ArmIntentAndSwitchTo(target);
+            ArmIntentAndSwitchTo(target, cycleSwitch);
         }
 
         /// <summary>
@@ -1176,7 +1236,7 @@ namespace Parsek.Patches
         /// inside <c>SetActiveVessel</c>. An unloaded target is switched with no intent
         /// armed (<see cref="DeclineArmForUnloadedTarget"/>).
         /// </summary>
-        private static void ArmIntentAndSwitchTo(Vessel target)
+        private static void ArmIntentAndSwitchTo(Vessel target, bool cycleSwitch)
         {
             if (target == null)
             {
@@ -1214,9 +1274,14 @@ namespace Parsek.Patches
 
             try
             {
-                FlightGlobals.SetActiveVessel(target);
-                if (MapView.MapIsEnabled)
-                    MapView.ExitMapView();
+                if (cycleSwitch)
+                    SwitchLikeTheVesselCycle(target);
+                else
+                {
+                    FlightGlobals.SetActiveVessel(target);
+                    if (MapView.MapIsEnabled)
+                        MapView.ExitMapView();
+                }
             }
             catch (Exception ex)
             {
@@ -1224,6 +1289,31 @@ namespace Parsek.Patches
                     $"pre-switch-dialog: FlightGlobals.SetActiveVessel threw " +
                     $"{ex.GetType().Name}: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// The stock vessel cycle's own final switch (decompiled <c>VesselSwitching.Update</c>),
+        /// re-read at switch time because a dialog button can run frames after the press: an
+        /// unpacked target, or any target when the game is clear to save, through
+        /// <c>ForceSetActiveVessel</c> + <c>FlightInputHandler.ResumeVesselCtrlState</c>;
+        /// otherwise stock's <c>SetActiveVessel</c> fallback, which posts stock's refusal.
+        /// </summary>
+        private static void SwitchLikeTheVesselCycle(Vessel target)
+        {
+            if (CameraManager.Instance != null)
+                CameraManager.Instance.SetCameraFlight();
+            bool clear = FlightGlobals.ClearToSave() == ClearToSaveStatus.CLEAR;
+            bool forced = !target.packed || clear;
+            ParsekLog.Info("SwitchIntentPatch",
+                $"pre-switch-dialog: vessel cycle switch targetPid={target.persistentId} " +
+                $"packed={target.packed} clearToSave={clear} call={(forced ? "ForceSetActiveVessel" : "SetActiveVessel")}");
+            if (forced)
+            {
+                FlightGlobals.ForceSetActiveVessel(target);
+                FlightInputHandler.ResumeVesselCtrlState(target);
+            }
+            else
+                FlightGlobals.SetActiveVessel(target);
         }
 
         static void Postfix(Guid __state)

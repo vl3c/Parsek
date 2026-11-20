@@ -20,6 +20,46 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CYCLE-SWITCH-PRESWITCH-BYPASS~~: the `[` / `]` keys switch to a vessel of another committed mission without merging the flight being left, and the vessel is grafted into that flight [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b, owner ruling Q16, given twice), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; no lane flies a `[` / `]` press onto a committed vessel yet; medium (the vessel gets a second history and its own mission stops)]
+
+What happened. The map Switch-To (and the alarm Jump) decide the recording the player leaves before
+stock switches: Case A (an armed switch segment, another target), Case B (a live recording, an
+unloaded target) and Case C (a live recording, a loaded vessel of a separately committed tree) commit
+or discard it first, and the target then continues its own committed mission through the
+committed-tree clone. The stock vessel cycle (`VesselCycleReFlySwitchPatch`) only dropped ghost
+markers and Re-Fly-refused candidates and otherwise left the press to stock: no Case A / C, no
+intent. A press onto a committed station while recording backgrounded the live ship, armed the
+post-switch watcher as an outsider, and its first trigger attached the station to the live tree as
+a `Launch` child of the ship (see POST-SWITCH-GRAFTS-COMMITTED-VESSEL); with Case A an armed switch
+session was left orphaned.
+
+Ruling Q16 (V, 2026-11-18). A `[` / `]` switch to a vessel of another committed mission behaves
+exactly like Map Switch-To: the Merge / Discard decision first if recording, then that vessel's own
+mission continues (committed-clone path), never a Launch graft or a new mission.
+
+Fix. `MapFocusObjectOnSelectPatch.TryTakePreSwitch` is the Cases A / B / C core, lifted out of
+`PrepareOwnedVesselSwitch` unchanged. `VesselCycleReFlySwitchPatch.RunCycle` keeps stock's candidate
+walk, the ghost drop and the Re-Fly gate, picks the candidate stock's own final step would take
+(pure `RouteCycle`; the target is asked about only when the switch will happen) and hands it to
+`TryTakePreSwitch(target, cycleSwitch: true)`. When a case applies the auto-resolved handler (or the
+dialog's buttons) merges or discards, arms the intent and switches with the cycle's own call
+(`SwitchLikeTheVesselCycle`: `ForceSetActiveVessel` + `ResumeVesselCtrlState`, `SetActiveVessel`
+only for a packed target in a game not clear to save); `SwitchWillBeRefused` encodes that the
+cycle's call is not refused by `ClearToSave` for an unpacked target. Any other press routes exactly
+as before. Log: `[SwitchIntentPatch] Vessel cycle handed to pre-switch handling: targetPid= take=
+directRoute=`; the `CycleVessel` seam verb answers `outcome=pre-switch-handoff` with
+`detail=auto-resolved|dialog-open`.
+
+Tests. `VesselCyclePreSwitchRoutingTests` (Case C with nothing dropped, Case A after a ghost drop,
+same-tree and same-target presses unchanged, a refused switch never asks, only the target is asked,
+the switch-call matrix, the RunCycle wiring); `TestCommandCycleVesselTests` (the new outcome token).
+Red first: with `AskPreSwitch` not calling the pre-switch core (today's routing) the Case A and C
+cells fail.
+
+Lane owed: a `CycleVessel` press from a live recording onto a loaded vessel of another committed
+tree, asserting `outcome=pre-switch-handoff`, the prior tree committed, and
+`route=committed-spawned-clone` for the target.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
