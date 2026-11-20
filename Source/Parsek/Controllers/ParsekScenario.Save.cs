@@ -404,6 +404,9 @@ namespace Parsek
             }
 
             ConfigNode treeNode = node.AddNode("RECORDING_TREE");
+            // A recording made in this session is judged by the current split rules once
+            // committed; stamped here too, so a save and load before the commit keeps that.
+            RecordingOptimizer.StampSplitRulesForSave(pendingTree, "pending tree save");
             pendingTree.Save(treeNode);
             // markerKey selects how the node round-trips on load: "isPending" (Finalized
             // pending tree -> TryRestorePendingTreeNode), "isActive" (Limbo resume tree ->
@@ -790,6 +793,7 @@ namespace Parsek
                 logTag: "SaveActiveTreeIfAny");
 
             ConfigNode treeNode = node.AddNode("RECORDING_TREE");
+            RecordingOptimizer.StampSplitRulesForSave(activeTree, "active tree save");
             activeTree.Save(treeNode);
             treeNode.AddValue("isActive", "True");
 

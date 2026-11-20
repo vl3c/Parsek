@@ -20,6 +20,28 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~OPTIMIZER-SPLIT-RULES-V2~~: the 2026-11 split rules: atmosphere passes, one row across an SOI change, a touch-and-go as a graze, for new flights only (owner rulings Q5, Q7 with A1 / B1, Q8, Q9) [FILED 2026-11-18 by the recording split / trim / merge review (design questions 1-3 and 14), ruled by the owner 2026-11-18 and 2026-11-20 (`docs/handoff/recording-split-review/atmosphere-pass-analysis.md`, step 1 of section 8). BUILT 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; NOT FLOWN; OPEN: step 2 (cuts where the orbit changes kind, the deorbit row) waits on the Phase 0 re-aim measurement]
+
+**Cause:** the 2-minute graze clock, not what a pass did, decided how atmosphere passes split (a skip reentry had no row of its own, ten deep aerobraking passes made 21 rows, a short aerocapture was invisible); an engine running at an SOI change or the atmosphere line decided whether a leg was its own row; every touch-and-go cost two rows; and a rule change re-cut every old flight on the next load (ruling Q5: "freeze old recordings").
+
+**Fix:** design `docs/dev/done/plans/optimizer-persistence-split.md` section 14, code `RecordingOptimizer.SplitRules.cs`.
+- Version gate: `Recording.SplitRuleVersion` (key `splitRuleVersion`, written only above 1; absent = 1). Stamped 2 when a recording enters the committed list (tree commit append, Re-Fly provisional) or when an in-flight tree is saved; a recording that has a version keeps it. Both halves of a split carry it; `CanAutoMerge` refuses mixed versions. Version 1 runs the old predicate body unchanged.
+- Row role: `Recording.SegmentRole` (key `segmentRole`), stamped on both halves of a version-2 split (ascent, space, aerobraking, reentry, approach, surface, atmosphere); `CanAutoMerge` refuses different roles, so the merge pass (which runs before the split pass) cannot glue rows the split cut apart.
+- Atmosphere passes (Q7 / A1 / B1): a pass entered from space that ends on the ground or in the air is cut at its first entry (reentry row; skip dips inside it); one that ends back in space is cut at its first accepted touch of the row (aerobraking row; later passes and the exit stay inside it). The engine at the crossing no longer matters for such a pass; ascents and the airless approach band keep the old rules. Debris follows these rules; EVA kerbals keep version 1.
+- Q9: any SOI change between two space sections stays one row. Q8: a Surface run under 30 s between air or approach runs is never cut and reads as air.
+- Logs: `Split candidate (FinalDescentEntry|BrakingPassEntry)`, `Split roles: ...`, `Split rules: stamped version 2 ...`, the split summary's appended `passKept= touchdownKept= rules=v2`, `CanAutoMerge: rejecting ... split rules vA/vB roles ...`.
+- Accepted: a Re-Fly attempt committed later is version 2 beside version-1 pieces of the same tree. Known gap: the split recorder's fallback commit (`TreeCommitService.CommitRecordingDirect`, off this package's files) does not stamp, so such a recording keeps the version-1 rules. `ForceSplitRuleVersionForTesting` judges a fixture by version 2 (Phase 0).
+
+**Tests:** `OptimizerSplitRulesV2Tests` (every shape of the analysis section 3 with its version-1 pin where it differs, debris, EVA, Q8, Q9, the gate, the codec, the merge refusals, the stamps, a version-1 boundary-by-boundary pin), each shape run twice through the real pass with the second pass changing nothing; every existing optimizer cell is unchanged (the version-1 pin).
+
+## ~~OPTIMIZER-SPLIT-IN-ONE-PASS~~: a big mission needed several loads to finish splitting (owner ruling Q19, "finish in one go") [FILED 2026-11-18 by the recording split / trim / merge review (design question 15), ruled by the owner 2026-11-18. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane]
+
+**Cause:** the split loop of `CommittedListOptimizer.RunOptimizationPass` stopped after 50 splits (and the merge loop after 50 merges), leaving the rest for the next cold load or commit.
+
+**Fix:** both loops run until no candidate remains. The split loop is bounded by the committed list's section count plus its recording count (`ComputeSplitSafetyBound`, at least 50; every cut consumes a boundary), the merge loop by the list size; hitting a bound Warns `Optimization pass: hit split|merge safety bound (N), some candidates may remain`. Applies to every rule version (it changes when a cut happens, not where).
+
+**Tests:** `OptimizerSplitRulesV2Tests.OnePass_SplitsAMissionPastTheOldFiftySplitCap` (79 cuts in one pass), `SplitSafetyBound_CountsSectionsAndRecordings`.
+
 ## ~~CHAIN-INDEX-HOLE-RESTORES-EARLIER-PIECE~~: a hole in a chain's indices made an earlier piece look like the chain's end to the committed-tree restore [FILED 2026-11-18 by the recording split / trim / merge review (finding L11), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a resume of a committed vessel could record onto an earlier piece)]
 
 **Cause:** `ParsekFlight.HasNextChainSegmentInTree` (the "a later piece exists" check of `IsCommittedSpawnedRecordingRestorable`) looked for exactly `ChainIndex + 1`, so when that piece was gone (a hole in the indices) an earlier piece passed as the chain's last one.

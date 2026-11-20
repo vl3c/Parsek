@@ -575,6 +575,9 @@ namespace Parsek
         /// </summary>
         internal static void AppendCommittedUnbumped(Recording rec)
         {
+            // The tree commit's append is where a new recording first becomes committed: it is
+            // judged by the current split rules from here on (owner ruling Q5).
+            RecordingOptimizer.StampSplitRulesAtCommit(rec, "tree commit");
             committedRecordings.Add(rec);
         }
 
@@ -650,6 +653,9 @@ namespace Parsek
                 ParsekLog.Warn("RecordingStore", "AddProvisional called with null recording");
                 return;
             }
+            // A Re-Fly attempt is a new flight: the current split rules, beside version-1
+            // siblings when the tree was committed before them.
+            RecordingOptimizer.StampSplitRulesAtCommit(rec, "Re-Fly provisional");
             committedRecordings.Add(rec);
             BumpStateVersion();
             ParsekLog.Verbose("RecordingStore",

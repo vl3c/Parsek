@@ -20,6 +20,11 @@ Not released yet.
 
 ### Changed
 
+- **New flights split atmosphere passes the way a mission reads.** A reentry gets its own row from
+  the first touch of the air, skips included; aerobraking or an aerocapture starts one row at the
+  first pass; a brief touch-and-go and an SOI change in space no longer add rows. Flights already
+  on the timeline keep their rows. Parsek also finishes splitting a big mission in one go.
+  (OPTIMIZER-SPLIT-RULES-V2)
 - **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
   makes no rewind point of its own and never shows it in Unfinished Flights. The rock still gets
   its own replay from the release and becomes real at its end. (ROCK-RELEASE-REFLY-SLOT)

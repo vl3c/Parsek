@@ -136,8 +136,13 @@ transition from `prev = sections[s-1]` to `next = sections[s]`):
                                                                        Surface /
                                                                        ExoPropulsive.
 2. If env class unchanged AND body unchanged:→ not a boundary, skip
-3. If body changed and both sides are Exo:   → keep cohesive; UI labels show
-                                               the body path
+3. If body changed, both sides are Exo class,
+   AND either both are raw ExoBallistic or
+   both are OrbitalCheckpoint-framed (an
+   on-rails traversal):                      -> keep cohesive; UI labels show
+                                               the body path. A physics-frame
+                                               burn across the crossing does
+                                               NOT qualify and falls to step 4.
 4. If body changed otherwise:                → split  (#251 retained)
 5. If prev or next is Surface (class 2):     → if a brief Atmospheric/Approach
                                                run is bracketed by Surface on
@@ -145,12 +150,20 @@ transition from `prev = sections[s-1]` to `next = sections[s]`):
                                                surface graze; otherwise split
                                                (Surface remains meaningful by
                                                default)
-5. If prev or next is ExoPropulsive:         → split  (engine firing at the
+5b. (owner ruling 2026-10-07) the departure
+   from the LEADING Surface run of a
+   launch-site start:                        -> never split (checked after the
+                                               graze; the pad time stays with
+                                               the ascent)
+6. If prev or next is ExoPropulsive:         → split  (engine firing at the
                                                        crossing — direct
                                                        gameplay event,
                                                        keep S3 short-circuit)
-6. Apply the persistence predicate (§3.1).   → split or suppress
+7. Apply the persistence predicate (§3.1).   → split or suppress
 ```
+
+These are the version-1 rules. Recordings committed from 2026-11-21 on are
+judged by the version-2 rules of section 14, which change steps 3, 5 and 6.
 
 The seam check is step 1 — a hard "always wins" override regardless of
 env class on either side. The contract for `IsBoundarySeam` is "this section
@@ -888,3 +901,74 @@ depends on them.
   **Mitigation:** the manual split UI lets a player force a split. If
   playtest reveals demand, add a setting to widen `K` or disable the
   predicate per-recording.
+
+## 14. Split rule version 2 (2026-11-21)
+
+Owner rulings of the 2026-11-18 recording split review and the 2026-11-20 atmosphere-pass
+follow-up (`docs/handoff/recording-split-review/atmosphere-pass-analysis.md`, sections 3 and 8,
+"step 1"). Code: `RecordingOptimizer.SplitRules.cs`.
+
+**Version gate (ruling Q5, "freeze old recordings").** `Recording.SplitRuleVersion`: 0 = not
+committed yet, 1 = the rules of section 3 (a recording saved without the `splitRuleVersion` key loads
+as 1), 2 = the rules below. A recording is stamped 2 when it enters the committed list
+(`RecordingStore.AppendCommittedUnbumped`, the tree commit's append; `AddProvisional`, a Re-Fly
+attempt) or when an in-flight tree is saved (`StampSplitRulesForSave`, so a save and load before
+the commit keeps it); a recording that already carries a version keeps it, so resuming a
+committed flight never re-judges its old pieces. Both halves of a split carry the version.
+`CanAutoMerge` refuses two pieces cut under different versions. A Re-Fly attempt committed
+later is version 2 beside version-1 siblings of the same tree: accepted, the two never merge.
+EVA kerbals keep the version-1 rules. `ForceSplitRuleVersionForTesting` judges a fixture by
+another version. Known gap: the split recorder's fallback commit
+(`TreeCommitService.CommitRecordingDirect`) does not stamp, so such a recording is judged by
+the version-1 rules.
+
+**Row roles.** Version-2 splits stamp `Recording.SegmentRole` on both halves: `ascent`, `space`,
+`aerobraking`, `reentry`, `approach`, `surface`, `atmosphere` (`RecordingOptimizer.SegmentRoles`;
+the orbit-kind cuts of a later version add more). The first half keeps its role or gets the role
+of how it starts; the second half gets the role of the cut. `CanAutoMerge` refuses different
+roles: the merge pass runs before the split pass on every pass and would otherwise glue, for
+example, an aerobraking row and the reentry row after it (both phase `atmo`, same body) and
+cut them again on the next load. `SegmentPhase` keeps its four values.
+
+**Version-2 predicate**, the section 3 steps with these changes:
+
+- Step 3 (ruling Q9, "one row either way"): any body change between two Exo-class sections
+  stays one row, burning or not.
+- Brief touchdown (ruling Q8): a Surface run shorter than 30 s
+  (`BriefTouchdownMaxSeconds`) between Atmospheric / Approach runs is never cut
+  (`SuppressedBriefTouchdown`) and reads as the air around it for every other rule, so the
+  later real landing still splits.
+- Atmosphere passes (rulings Q7, A1, B1). An atmosphere stretch is an Atmospheric run with
+  every brief Exo hop (under 120 s) back into the atmosphere folded in. It is entered from
+  space when the run before it is Exo (or, for a row's first stretch, when the row's role is
+  `reentry` / `aerobraking`). A stretch entered from space that ends on the ground or with the
+  recording still in the air is the FINAL DESCENT: cut at its first entry
+  (`FinalDescentEntry`, role `reentry`). One that ends back in space is a BRAKING pass: cut at
+  its first entry (`BrakingPassEntry`, role `aerobraking`) unless the row already is an
+  aerobraking row (`SuppressedLaterBrakingPass`); "first" is the first accepted cut, since the
+  scan moves on when `CanAutoSplit` refuses one. Nothing inside a pass is cut
+  (`SuppressedInsidePass`), the exit of a braking pass is not cut
+  (`SuppressedBrakingPassExit`), and the entry of a row's own pass is not cut again
+  (`SuppressedOwnPassEntry`). Step 6 (engine at the crossing) no longer applies to these
+  passes. Ascents (atmosphere entered from the ground, or a row that starts in the air) and
+  the airless approach band keep steps 6 and 7.
+- The split summary line appends `passKept=N touchdownKept=N rules=v2` on a version-2 row.
+
+**One pass (ruling Q19).** The split loop runs until no candidate remains, bounded by the
+committed list's section plus recording count (`ComputeSplitSafetyBound`, Warn
+`hit split safety bound`); the merge loop is bounded by the list size. This holds for both
+versions.
+
+Resulting rows (each shape has a cell in `OptimizerSplitRulesV2Tests`, and every cell runs the
+pass twice and asserts the second changes nothing):
+
+| Shape | Version-2 rows |
+|---|---|
+| Plain reentry | space / reentry / surface |
+| Skip reentry, short hops | space / reentry (from the first dip) / surface |
+| Skip reentry, long hop | space / aerobraking (dip + hop) / reentry / surface |
+| Aerobraking campaign, then a raise burn | space / aerobraking |
+| Aerobraking campaign ending in a reentry | space / aerobraking / reentry / surface |
+| Aerocapture | space / aerobraking |
+| Dip with the engine on | same as without |
+| Ascent, airless approach band | unchanged |

@@ -101,7 +101,9 @@ namespace Parsek
         {
             int mergeCount = 0;
             HashSet<string> heldForRoutes = null;
-            const int maxMergesPerPass = 50;
+            // Every merge removes a recording, so the list size bounds the merges; the bound
+            // only guards against a pair offered again without being merged.
+            int maxMergesPerPass = recordings.Count + 1;
             // Iterate merge passes until no more candidates (merging may create new adjacent pairs)
             bool changed = true;
             while (changed && mergeCount < maxMergesPerPass)
@@ -160,7 +162,7 @@ namespace Parsek
 
             if (mergeCount >= maxMergesPerPass)
                 ParsekLog.Warn("RecordingStore",
-                    $"Optimization pass: hit merge cap ({maxMergesPerPass}), some candidates may remain");
+                    $"Optimization pass: hit merge safety bound ({maxMergesPerPass}), some candidates may remain");
             else if (mergeCount > 0)
                 ParsekLog.Info("RecordingStore", $"Optimization pass: merged {mergeCount} segment pair(s)");
             else
@@ -285,7 +287,11 @@ namespace Parsek
             // in the same tree still split normally — and let the next
             // optimization pass after the marker clears do the split.
             int splitCount = 0;
-            const int maxSplitsPerPass = 50;
+            // Owner ruling Q19: a mission is split in one go, not 50 cuts per load. Every cut
+            // consumes a section boundary, so the section count bounds the splits; the bound
+            // only guards against a candidate offered again without being split.
+            int maxSplitsPerPass = ComputeSplitSafetyBound(recordings);
+            var splitReasons = new List<RecordingOptimizer.SplitBoundaryReason>();
             string deferredActiveReFlyId =
                 ParsekScenario.Instance?.ActiveReFlySessionMarker?.ActiveReFlyRecordingId;
             int deferredCandidatesObservedTotal = 0;
@@ -294,7 +300,8 @@ namespace Parsek
             while (splitChanged && splitCount < maxSplitsPerPass)
             {
                 splitChanged = false;
-                var splitCandidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(recordings);
+                splitReasons.Clear();
+                var splitCandidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(recordings, splitReasons);
                 if (splitCandidates.Count == 0) break;
 
                 int chosen = ChooseSplitCandidateIndex(
@@ -312,6 +319,7 @@ namespace Parsek
                 var second = RecordingOptimizer.SplitAtSection(original, secIdx);
 
                 CopySplitIdentityFields(original, second);
+                AssignSplitRoles(original, second, splitReasons[chosen]);
 
                 RetagLedgerActionsAfterOptimizationSplit(original, second);
                 // SplitAtSection moved the terminal state onto the second half.
@@ -373,7 +381,7 @@ namespace Parsek
 
             if (splitCount >= maxSplitsPerPass)
                 ParsekLog.Warn("RecordingStore",
-                    $"Optimization pass: hit split cap ({maxSplitsPerPass}), some candidates may remain");
+                    $"Optimization pass: hit split safety bound ({maxSplitsPerPass}), some candidates may remain");
             else if (splitCount > 0)
                 ParsekLog.Info("RecordingStore", $"Optimization pass: split {splitCount} recording(s)");
 
@@ -391,6 +399,37 @@ namespace Parsek
                     $"[{FormatSortedIds(heldForRoutes)}] - a supply route's source recordings stay whole");
 
             return splitCount;
+        }
+
+        /// <summary>
+        /// The split loop's safety bound (ruling Q19): the committed list's section count plus
+        /// its recording count, never under 50 (the old per-pass cap).
+        /// </summary>
+        internal static int ComputeSplitSafetyBound(IReadOnlyList<Recording> recordings)
+        {
+            int sections = 0;
+            if (recordings != null)
+                for (int i = 0; i < recordings.Count; i++)
+                    sections += recordings[i]?.TrackSections?.Count ?? 0;
+            return Math.Max(50, sections + (recordings?.Count ?? 0));
+        }
+
+        /// <summary>
+        /// Names the two rows a version-2 split made (<see cref="Recording.SegmentRole"/>): the
+        /// first half keeps its role, or gets the role of how it starts when it had none; the
+        /// second half gets the role of the cut that started it. Version-1 and EVA recordings
+        /// get no role. Logs the pair.
+        /// </summary>
+        internal static void AssignSplitRoles(
+            Recording original, Recording second, RecordingOptimizer.SplitBoundaryReason reason)
+        {
+            if (!RecordingOptimizer.UsesCurrentSplitRules(original)) return;
+            if (string.IsNullOrEmpty(original.SegmentRole))
+                original.SegmentRole = RecordingOptimizer.ResolveStartRole(original);
+            second.SegmentRole = RecordingOptimizer.ResolveCutRole(reason, second);
+            ParsekLog.Verbose("Optimizer",
+                $"Split roles: '{original.RecordingId}'={original.SegmentRole ?? "<none>"} " +
+                $"'{second.RecordingId}'={second.SegmentRole ?? "<none>"} (cut {reason})");
         }
 
         /// <summary>
@@ -482,6 +521,7 @@ namespace Parsek
             // RecordingTreeSplitter.cs's `tip.SupersedeTargetId = null;`).
             second.SupersedeTargetId = original.SupersedeTargetId;
             second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
+            second.SplitRuleVersion = original.SplitRuleVersion;
         }
 
         /// <summary>
@@ -567,7 +607,7 @@ namespace Parsek
 
         /// <summary>
         /// The trim hold for <paramref name="rec"/>, or null: <c>superseded</c> when a supersede
-        /// row names it (<see cref="EffectiveState.IsSupersededByRelation"/>), <c>active-refly</c>
+        /// row names it (<see cref="RecordingOptimizer.IsSupersededForOptimizer"/>), <c>active-refly</c>
         /// when it is the live Re-Fly's provisional or a recording the live session or merge
         /// journal names (<see cref="RecordingOptimizer.IsNamedByLiveReFlyMerge"/>).
         /// </summary>
@@ -578,8 +618,7 @@ namespace Parsek
             ParsekScenario scenario)
         {
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return null;
-            if (supersedes != null && supersedes.Count > 0
-                && EffectiveState.IsSupersededByRelation(rec, supersedes))
+            if (RecordingOptimizer.IsSupersededForOptimizer(rec, supersedes))
                 return "superseded";
             if (!string.IsNullOrEmpty(activeReFlyId)
                 && string.Equals(rec.RecordingId, activeReFlyId, StringComparison.Ordinal))
