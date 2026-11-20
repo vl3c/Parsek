@@ -7,7 +7,8 @@ namespace Parsek.Tests
     /// <summary>
     /// How a recording's ending is chosen and kept: the final verdicts a later lifecycle event
     /// may not overwrite (todo DOCKED-ENDING-OVERWRITTEN-BY-RECOVERY) and an ending a newer
-    /// build wrote (todo NEWER-ENDING-ERASED-BY-OLDER-BUILD).
+    /// build wrote (todo NEWER-ENDING-ERASED-BY-OLDER-BUILD), and where an ending is read from
+    /// (todo ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON).
     /// </summary>
     [Collection("Sequential")]
     public class RecordingEndingTests : IDisposable
@@ -104,6 +105,82 @@ namespace Parsek.Tests
             Assert.False(ParsekScenario.CanOverwriteTerminalState((TerminalState)99, TerminalState.Recovered));
             Assert.Contains(logLines, l => l.Contains("[Scenario]")
                 && l.Contains("CanOverwriteTerminalState: refused existing=99 incoming=Recovered"));
+        }
+
+        // ---- the endpoint resolver's last point (todo ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON) ----
+
+        private static Recording RelativeTailRecording(bool withShadow)
+        {
+            var offset = new TrajectoryPoint
+            {
+                ut = 200.0, latitude = 812.5, longitude = -1300.0, altitude = 45.0, bodyName = "Kerbin"
+            };
+            var shadow = new TrajectoryPoint
+            {
+                ut = 200.0, latitude = -0.0972, longitude = -74.557, altitude = 70.0, bodyName = "Kerbin"
+            };
+            var section = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 190.0,
+                endUT = 200.0,
+                frames = new List<TrajectoryPoint> { offset },
+                bodyFixedFrames = withShadow ? new List<TrajectoryPoint> { shadow } : null
+            };
+            var rec = new Recording
+            {
+                RecordingId = withShadow ? "eva-shadow" : "eva-no-shadow",
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Kerbin"
+            };
+            rec.TrackSections.Add(section);
+            rec.Points.Add(offset);
+            return rec;
+        }
+
+        [Fact]
+        public void EndpointCoordinates_RelativeLastPointWithShadow_ReadsTheShadow()
+        {
+            Recording rec = RelativeTailRecording(withShadow: true);
+
+            Assert.True(RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
+                rec, out string body, out double lat, out double lon, out double alt));
+            Assert.Equal("Kerbin", body);
+            Assert.Equal(-0.0972, lat);
+            Assert.Equal(-74.557, lon);
+            Assert.Equal(70.0, alt);
+        }
+
+        [Fact]
+        public void EndpointCoordinates_RelativeLastPointWithoutShadow_Refuses()
+        {
+            Recording rec = RelativeTailRecording(withShadow: false);
+
+            Assert.False(RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
+                rec, out _, out _, out _, out _));
+            Assert.Contains(logLines, l => l.Contains("[EndpointDecision]")
+                && l.Contains("refused last point of 'eva-no-shadow'"));
+        }
+
+        [Fact]
+        public void EndpointCoordinates_AbsoluteLastPoint_Unchanged()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "abs",
+                EndpointPhase = RecordingEndpointPhase.TrajectoryPoint,
+                EndpointBodyName = "Kerbin"
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 10.0, latitude = 1.5, longitude = 2.5, altitude = 3.5, bodyName = "Kerbin"
+            });
+
+            Assert.True(RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
+                rec, out _, out double lat, out double lon, out double alt));
+            Assert.Equal(1.5, lat);
+            Assert.Equal(2.5, lon);
+            Assert.Equal(3.5, alt);
         }
     }
 }

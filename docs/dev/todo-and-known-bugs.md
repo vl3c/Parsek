@@ -20,6 +20,24 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
+
+Cause: `RecordingEndpointResolver.TryGetCoordinatesForPhase`'s `TrajectoryPoint` phase took the last
+flat `Recording.Points` entry's latitude / longitude / altitude as body-fixed coordinates. Inside a
+Relative section those fields hold anchor-local metres, so an EVA kerbal or controlled child that
+ended near its anchor with no terminal position resolved to a point far below the surface, against
+the CLAUDE.md flat-points rule (draft review L2). Callers: the end-of-recording spawn
+(`VesselSpawner.EndOfRecording` / `.Validation`) and `VesselGhoster`.
+
+Fix: the last point goes through `FlatPointFrameDispatch.Classify` against the recording's track
+sections: a body-fixed point reads as before, a Relative offset reads its section's body-fixed
+shadow, and a Relative offset with no shadow refuses the coordinates (logged on `EndpointDecision`)
+so the caller falls back instead of placing from metres.
+
+Tests: `RecordingEndingTests.EndpointCoordinates_RelativeLastPointWithShadow_ReadsTheShadow` and
+`EndpointCoordinates_RelativeLastPointWithoutShadow_Refuses` (both red before the fix),
+`EndpointCoordinates_AbsoluteLastPoint_Unchanged`.
+
 ## ~~TERMINAL-DESTROYED-PAYLOAD-DIVERGES~~: the destroyed paths stored different terminal-orbit data [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `TerminalEventTests`; low]
 
 Cause: `ParsekFlight.ApplyTerminalDestruction` (the background `DeferredDestructionCheck` fallback

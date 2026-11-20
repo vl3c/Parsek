@@ -32,6 +32,9 @@ Not released yet.
   Space Center, or committing the flight, while an engine or thruster was firing kept its plume
   burning in the replay until the end. It now shuts off at the moment you left.
   (FORCESTOP-LEAVES-ENGINES-LIT)
+- **A kerbal or probe that ended its flight right next to another vessel no longer ends up inside
+  the planet.** The end position could be read from a position measured from the nearby vessel,
+  which placed it far below the ground. (ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON)
 - **Destroyed flights all end the same way.** A craft destroyed far from you could keep the orbit
   or landing spot it had when it died, unlike every other destroyed flight. All destroyed endings
   now carry the same data. (TERMINAL-DESTROYED-PAYLOAD-DIVERGES)
