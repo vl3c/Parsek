@@ -229,8 +229,19 @@ namespace Parsek
                 FindCoveredCommittedOnlySplitPieces(committed, incoming);
             var absorbedPieces = new List<KeyValuePair<Recording, Recording>>();
             for (int p = 0; p < coveredPieces.Count; p++)
+            {
+                Recording piece = committed.Recordings[coveredPieces[p].Key];
+                string refusal = CommittedListOptimizer.SplitPieceFoldRefusal(piece);
+                if (refusal != null)
+                {
+                    ParsekLog.Info("RecordingStore",
+                        $"CommitTree: kept split piece '{coveredPieces[p].Key}' beside '{coveredPieces[p].Value}' " +
+                        $"although the live recording covers it: {refusal}");
+                    continue;
+                }
                 absorbedPieces.Add(new KeyValuePair<Recording, Recording>(
-                    committed.Recordings[coveredPieces[p].Key], incoming.Recordings[coveredPieces[p].Value]));
+                    piece, incoming.Recordings[coveredPieces[p].Value]));
+            }
             HashSet<string> chains = CarryCommittedChainIdentity(committed, incoming);
 
             if (!TryUnionLiveCopyIntoCommitted(committed, incoming, null,
@@ -256,6 +267,76 @@ namespace Parsek
                 $"activeRecordingIdSwapped={activeSwapped} " +
                 $"restoreAttemptArmed={CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(incoming.Id)})");
             return true;
+        }
+
+        /// <summary>
+        /// What a folded split piece owned as its chain's tip, carried onto
+        /// <paramref name="into"/> (the committed copy of the surviving id, which the commit's
+        /// replace step hands on to the live recording): its <see cref="Recording.MergeState"/>
+        /// outright (a slot's open / closed state is read from the tip, so a Seal or Stash taken
+        /// there wins), the spawn claim (<see cref="Recording.VesselSpawned"/>,
+        /// <see cref="Recording.SpawnedVesselPersistentId"/>) and the spawn counters
+        /// (<see cref="PreserveSpawnCountersOnReplace"/>) and the crew death respawn stamp where
+        /// <paramref name="into"/> has none, and every player setting
+        /// <paramref name="into"/> left at its default (hide, ghost off, loop fields, groups).
+        /// Returns the carried field names, comma-separated (empty when none). Pure.
+        /// </summary>
+        internal static string CarryTipOwnedStateOnFold(Recording tip, Recording into)
+        {
+            if (tip == null || into == null || ReferenceEquals(tip, into))
+                return "";
+            var carried = new List<string>();
+            if (into.MergeState != tip.MergeState)
+            {
+                into.MergeState = tip.MergeState;
+                carried.Add("MergeState");
+            }
+            if (!into.VesselSpawned && tip.VesselSpawned)
+            {
+                into.VesselSpawned = true;
+                carried.Add("VesselSpawned");
+            }
+            if (into.SpawnedVesselPersistentId == 0u && tip.SpawnedVesselPersistentId != 0u)
+            {
+                into.SpawnedVesselPersistentId = tip.SpawnedVesselPersistentId;
+                carried.Add("SpawnedVesselPersistentId");
+            }
+            int counters = 0;
+            PreserveSpawnCountersOnReplace(tip, into, ref counters);
+            if (counters > 0)
+                carried.Add("spawnCounters=" + counters.ToString(CultureInfo.InvariantCulture));
+            if (!into.CrewDeathRespawns.HasValue && tip.CrewDeathRespawns.HasValue)
+            {
+                into.CrewDeathRespawns = tip.CrewDeathRespawns;
+                into.CrewDeathRespawnSeconds = tip.CrewDeathRespawnSeconds;
+                carried.Add("CrewDeathRespawns");
+            }
+            CarryUnsetPlayerSettings(tip, into, carried);
+            return string.Join(",", carried.ToArray());
+        }
+
+        private static void CarryUnsetPlayerSettings(Recording tip, Recording into, List<string> carried)
+        {
+            if (!into.Hidden && tip.Hidden) { into.Hidden = true; carried.Add("Hidden"); }
+            if (into.PlaybackEnabled && !tip.PlaybackEnabled) { into.PlaybackEnabled = false; carried.Add("PlaybackEnabled"); }
+            if (!into.LoopPlayback && tip.LoopPlayback)
+            {
+                // The loop is one setting: its interval, unit, range and anchor go with it.
+                into.LoopPlayback = true;
+                into.LoopIntervalSeconds = tip.LoopIntervalSeconds;
+                into.LoopTimeUnit = tip.LoopTimeUnit;
+                into.LoopStartUT = tip.LoopStartUT;
+                into.LoopEndUT = tip.LoopEndUT;
+                into.LoopAnchorVesselId = tip.LoopAnchorVesselId;
+                into.LoopAnchorBodyName = tip.LoopAnchorBodyName;
+                carried.Add("Loop");
+            }
+            if ((into.RecordingGroups == null || into.RecordingGroups.Count == 0)
+                && tip.RecordingGroups != null && tip.RecordingGroups.Count > 0)
+            {
+                into.RecordingGroups = new List<string>(tip.RecordingGroups);
+                carried.Add("RecordingGroups");
+            }
         }
 
         /// <summary>

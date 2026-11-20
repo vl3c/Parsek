@@ -789,13 +789,7 @@ namespace Parsek
         {
             if (survivor == null || absorbed == null || ReferenceEquals(survivor, absorbed))
                 return;
-            RetagLedgerActionsAfterOptimizationMerge(survivor, absorbed);
-            InFlightRecoveryRequest.MoveAwaitingStockPayout(
-                absorbed.RecordingId, survivor.RecordingId, context);
             var recordings = RecordingStore.CommittedRecordings;
-            RepointAnchorsAfterOptimizationMerge(recordings, survivor, absorbed);
-            UpdateTreeStateAfterOptimizationMerge(survivor, absorbed);
-
             int index = -1;
             Recording mergeTarget = survivor;
             for (int i = 0; i < recordings.Count; i++)
@@ -806,6 +800,18 @@ namespace Parsek
                          && string.Equals(recordings[i].RecordingId, survivor.RecordingId, StringComparison.Ordinal))
                     mergeTarget = recordings[i];
             }
+
+            // The piece was the chain tip, where later writes land (a Seal, the spawn stamp
+            // MoveChainSpawnStampsToTip moves there, settings set on its row). They go onto the
+            // committed copy of the survivor's id: the commit's replace step then hands the
+            // committed copy's player settings and runtime fields to the live recording.
+            string carried = TreeCommitService.CarryTipOwnedStateOnFold(absorbed, mergeTarget);
+
+            RetagLedgerActionsAfterOptimizationMerge(survivor, absorbed);
+            InFlightRecoveryRequest.MoveAwaitingStockPayout(
+                absorbed.RecordingId, survivor.RecordingId, context);
+            RepointAnchorsAfterOptimizationMerge(recordings, survivor, absorbed);
+            UpdateTreeStateAfterOptimizationMerge(survivor, absorbed);
             if (index >= 0)
                 RecordingStore.RemoveCommittedAt(index, mergeTarget);
             ParsekLog.Info("RecordingStore",
@@ -815,8 +821,35 @@ namespace Parsek
                 $"{absorbed.EndUT.ToString("F1", CultureInfo.InvariantCulture)}] " +
                 $"liveSpan=[{survivor.StartUT.ToString("F1", CultureInfo.InvariantCulture)}," +
                 $"{survivor.EndUT.ToString("F1", CultureInfo.InvariantCulture)}] " +
-                $"removedFromCommittedList={index >= 0} context={context ?? "<none>"}) - " +
+                $"removedFromCommittedList={index >= 0} carried=[{carried}] context={context ?? "<none>"}) - " +
                 "the live recording covers it");
+        }
+
+        /// <summary>
+        /// Why a covered split piece must NOT be folded into a re-flown live recording, or null
+        /// when it may be: a supersede row names it (either side: the fold would leave the row
+        /// pointing at nothing), or a supply route sources from it (the optimizer merge holds
+        /// route sources the same way, <see cref="ChooseMergeCandidateIndex"/>).
+        /// </summary>
+        internal static string SplitPieceFoldRefusal(Recording piece)
+        {
+            if (piece == null || string.IsNullOrEmpty(piece.RecordingId))
+                return null;
+            var supersedes = ParsekScenario.Instance?.RecordingSupersedes;
+            if (supersedes != null)
+            {
+                for (int i = 0; i < supersedes.Count; i++)
+                {
+                    var row = supersedes[i];
+                    if (row == null) continue;
+                    if (string.Equals(row.OldRecordingId, piece.RecordingId, StringComparison.Ordinal)
+                        || string.Equals(row.NewRecordingId, piece.RecordingId, StringComparison.Ordinal))
+                        return "a supersede row names it (relation=" + (row.RelationId ?? "<no-id>") + ")";
+                }
+            }
+            if (IsRouteSource(piece, Logistics.RouteStore.CollectSourceRecordingIds()))
+                return "a supply route sources from it (route source)";
+            return null;
         }
 
         internal static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)

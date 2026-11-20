@@ -117,8 +117,15 @@ namespace Parsek.Tests
         {
             var committedHead = Rec("rec_head", 0, 100, "chain_A", 0);
             committedHead.Hidden = true;
+            committedHead.MergeState = MergeState.CommittedProvisional;
+            // After the split the tail is the chain tip, where later writes land: the player
+            // sealed the slot there, the spawn stamp moved there, a loop was set on its row.
             var committedTail = Rec("rec_tail", 100, 200, "chain_A", 1);
             committedTail.TerminalStateValue = TerminalState.Orbiting;
+            committedTail.MergeState = MergeState.Immutable;
+            committedTail.VesselSpawned = true;
+            committedTail.SpawnedVesselPersistentId = 777u;
+            committedTail.LoopPlayback = true;
             var anchored = Rec("rec_probe", 150, 180);
             anchored.ParentAnchorRecordingId = "rec_tail";
             var committedTree = Tree("rec_tail", committedHead, committedTail, anchored);
@@ -157,8 +164,14 @@ namespace Parsek.Tests
                 !ReferenceEquals(r, liveHead) && r.ChainId == "chain_A"
                 && r.StartUT < liveHead.EndUT && r.EndUT > liveHead.StartUT);
             Assert.Equal(TerminalState.Landed, liveHead.TerminalStateValue);
-            // RULE 1: the shared id keeps the committed head's player settings.
+            // RULE 1: the shared id keeps the committed head's player settings, and what only the
+            // tip carried is not lost with it: the seal (slot state is read from the tip), the
+            // spawn claim, and a setting the head did not have.
             Assert.True(liveHead.Hidden);
+            Assert.Equal(MergeState.Immutable, liveHead.MergeState);
+            Assert.True(liveHead.VesselSpawned);
+            Assert.Equal(777u, liveHead.SpawnedVesselPersistentId);
+            Assert.True(liveHead.LoopPlayback);
             // What named the tail now names the survivor.
             Assert.Equal("rec_head", anchored.ParentAnchorRecordingId);
             Assert.Contains("rec_head", committed.BranchPoints.Single(bp => bp.Id == "bp_probe").ParentRecordingIds);
@@ -192,6 +205,79 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("CommitTree: committed vessel flown again")
                 && l.Contains("reabsorbedSplitPieces=0")
                 && l.Contains("keptCommittedOnlyRecordings=1"));
+        }
+
+        // catches: folding a piece a supersede row names (a Re-Fly's old or new side) or a
+        // supply route sources from would leave the row or the route pointing at nothing.
+        [Theory]
+        [InlineData("supersede")]
+        [InlineData("route")]
+        public void CommitPendingTree_FlownAgain_NeverFoldsAPieceARowOrARouteNames(string holder)
+        {
+            CommitExisting(Tree("rec_tail",
+                Rec("rec_head", 0, 100, "chain_A", 0),
+                Rec("rec_tail", 100, 200, "chain_A", 1)));
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+            };
+            if (holder == "supersede")
+                scenario.RecordingSupersedes.Add(new RecordingSupersedeRelation
+                {
+                    RelationId = "rel_1", OldRecordingId = "rec_tail", NewRecordingId = "rec_fork", UT = 150,
+                });
+            ParsekScenario.SetInstanceForTesting(scenario);
+            if (holder == "route")
+                Parsek.Logistics.RouteStore.AddRoute(new Parsek.Tests.Generators.RouteFixtureBuilder()
+                    .WithId("route_1").WithName("route_1")
+                    .WithStatus(Parsek.Logistics.RouteStatus.Active)
+                    .WithRecordingId("rec_tail")
+                    .WithSourceRef(new Parsek.Logistics.RouteSourceRef { RecordingId = "rec_tail", TreeId = "tree_1" })
+                    .Build());
+            PendingTreeSlot.StashPendingTree(Tree("rec_head", Rec("rec_head", 0, 300)));
+
+            Assert.True(TreeCommitService.CommitPendingTree());
+
+            Assert.True(RecordingStore.FindCommittedTreeById("tree_1").Recordings.ContainsKey("rec_tail"));
+            Assert.Contains(RecordingStore.CommittedRecordings, r => r.RecordingId == "rec_tail");
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("kept split piece 'rec_tail' beside 'rec_head'")
+                && l.Contains(holder == "supersede" ? "supersede row" : "route source"));
+            Assert.Contains(logLines, l => l.Contains("reabsorbedSplitPieces=0"));
+        }
+
+        [Fact]
+        public void CarryTipOwnedStateOnFold_TipStateWins_SettingsOnlyWhereTheHeadHasNone()
+        {
+            var head = Rec("h", 0, 100, "chain_A", 0);
+            head.MergeState = MergeState.CommittedProvisional;
+            head.LoopPlayback = true;
+            head.LoopIntervalSeconds = 600;
+            head.RecordingGroups = new List<string> { "Head group" };
+            var tip = Rec("t", 100, 200, "chain_A", 1);
+            tip.MergeState = MergeState.Immutable;
+            tip.Hidden = true;
+            tip.LoopPlayback = true;
+            tip.LoopIntervalSeconds = 99;
+            tip.RecordingGroups = new List<string> { "Tip group" };
+            tip.CrewDeathRespawns = true;
+            tip.CrewDeathRespawnSeconds = 42;
+            tip.SpawnedVesselPersistentId = 777u;
+
+            string carried = TreeCommitService.CarryTipOwnedStateOnFold(tip, head);
+
+            Assert.Equal(MergeState.Immutable, head.MergeState);
+            Assert.True(head.Hidden);
+            Assert.Equal(600, head.LoopIntervalSeconds);
+            Assert.Equal(new[] { "Head group" }, head.RecordingGroups);
+            Assert.True(head.CrewDeathRespawns);
+            Assert.Equal(42, head.CrewDeathRespawnSeconds);
+            Assert.Equal(777u, head.SpawnedVesselPersistentId);
+            Assert.Contains("MergeState", carried);
+            Assert.DoesNotContain("Loop", carried);
+            Assert.Equal("", TreeCommitService.CarryTipOwnedStateOnFold(null, head));
         }
 
         [Fact]
