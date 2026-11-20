@@ -381,6 +381,11 @@ namespace Parsek
             if (activeTree == null || activeVessel == null || string.IsNullOrEmpty(recordingId))
                 return false;
 
+            Recording resumedRec;
+            if (activeTree.Recordings != null
+                && activeTree.Recordings.TryGetValue(recordingId, out resumedRec))
+                ClearFlushedDestructionFlagForResume(resumedRec, "ResumeCommittedActiveRecording");
+
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
             recorder.StartRecording(isPromotion: true);

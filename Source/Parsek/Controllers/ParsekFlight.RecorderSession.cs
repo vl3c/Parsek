@@ -147,6 +147,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The mirror of <see cref="PropagateRecorderDestructionToTreeRecording"/> for a recording
+        /// a live recorder takes up again (promotion from the background, a resumed committed
+        /// recording): the vessel is being flown, so a destruction flag a flush left with no
+        /// terminal yet is stale. A recording already sealed Destroyed is left alone (its seal is
+        /// the identity-loss or destroy verdict, not a flush artifact); the quickload resume clears
+        /// both through <c>IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume</c>.
+        /// Returns true when the flag was cleared.
+        /// </summary>
+        internal static bool ClearFlushedDestructionFlagForResume(Recording rec, string context)
+        {
+            if (rec == null || !rec.VesselDestroyed
+                || rec.TerminalStateValue == TerminalState.Destroyed)
+                return false;
+            rec.VesselDestroyed = false;
+            rec.MarkFilesDirty();
+            ParsekLog.Info("Flight",
+                $"{context}: cleared recorder destruction flag for resume rec={rec.RecordingId ?? "(null)"} " +
+                $"terminal={rec.TerminalStateValue?.ToString() ?? "null"}");
+            return true;
+        }
+
+        /// <summary>
         /// Lifts an explicit end already stamped on a recording that is still being recorded up
         /// to the end of the data the recorder appended to it. The quickload-resume trim
         /// (<c>ParsekScenario.TrimRecordingPastUT</c>) stamps the resume cutoff on the recording it
@@ -224,6 +246,9 @@ namespace Parsek
 
             // Set as the active recording
             activeTree.ActiveRecordingId = backgroundRecordingId;
+            Recording promotedRec;
+            if (activeTree.Recordings.TryGetValue(backgroundRecordingId, out promotedRec))
+                ClearFlushedDestructionFlagForResume(promotedRec, "PromoteRecordingFromBackground");
 
             // Create a new recorder and start recording with isPromotion
             recorder = new FlightRecorder();

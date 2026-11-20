@@ -98,9 +98,17 @@ on the tree recording (logged); `FinalizeTreeRecordingsAfterFlush` treats a leaf
 recorder's destroyed leaf (`ApplyDestroyedFallback`), and `BackgroundRecorder.FinalizeAllForCommit`
 already leaves a destroyed recording's end alone. The terminal stamp stays with finalization, as for
 the active recorder, so the finalization cache is consulted in the same order.
+A recording the flight resumes clears the flag again: the quickload resume
+(`IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume`, called by
+`RestoreActiveTreeFromPending`) always, because the Limbo stash on F9 flushes the recorder into the
+same Recording object the resume continues; promotion from the background and a resumed committed
+recording through `ParsekFlight.ClearFlushedDestructionFlagForResume`, only while no Destroyed
+terminal is sealed. Each clear is logged.
 
 Tests: `EffectiveLeafFinalizationTests.FinalizeTreeRecordingsAfterFlush_CrashedRecordingFlushedToBackground_SceneExitIsDestroyed`
-(red before the fix), `..._IsDestroyed`, `PropagateRecorderDestruction_NotDestroyedOrAlreadyMarked_DoesNothing`.
+(red before the fix), `..._IsDestroyed`, `PropagateRecorderDestruction_NotDestroyedOrAlreadyMarked_DoesNothing`,
+`LimboFlushThenResume_LandedVessel_IsNotStampedDestroyed` (the resume regression, red before the clear),
+`ClearFlushedDestructionFlagForResume_ClearsOnlyTheUnsealedFlag`.
 
 ## ~~NEWER-ENDING-ERASED-BY-OLDER-BUILD~~: an ending a newer build wrote was erased on save and the tail trim then cut the trajectory [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; high (permanent data loss on a save opened in an older build)]
 

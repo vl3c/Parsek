@@ -311,6 +311,76 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LimboFlushThenResume_LandedVessel_IsNotStampedDestroyed()
+        {
+            // CRASH-HANDOFF-LOSES-DESTROYED follow-up: the Limbo stash on F9 flushes the
+            // recorder (VesselDestroyedDuringRecording set) into the tree recording that the
+            // quickload then resumes on the same Recording object. The resume must clear the
+            // flag, or the commit stamps a safely landed vessel Destroyed.
+            var tree = new RecordingTree
+            {
+                Id = "tree-limbo-resume",
+                TreeName = "Kerbal X",
+                RootRecordingId = "resumed",
+                ActiveRecordingId = "resumed"
+            };
+            var rec = new Recording
+            {
+                RecordingId = "resumed",
+                TreeId = tree.Id,
+                VesselName = "Kerbal X",
+                VesselPersistentId = 222u
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 50.0, altitude = 900.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 70.0, altitude = 40.0, bodyName = "Kerbin" });
+            tree.Recordings[rec.RecordingId] = rec;
+
+            Assert.True(ParsekFlight.PropagateRecorderDestructionToTreeRecording(
+                recorderVesselDestroyed: true, rec, "StashActiveTreeAsPendingLimbo-flush"));
+
+            IncompleteBallisticSceneExitFinalizer.ClearStaleDestroyedTerminalForResume(
+                rec, "RestoreActiveTreeFromPending");
+            ParsekScenario.TrimRecordingTreePastUT(tree, 60.0);
+
+            Vessel landed = TestVessel(rec.VesselPersistentId, Vessel.Situations.LANDED);
+            ParsekFlight.FinalizeTreeRecordingsAfterFlush(
+                tree,
+                commitUT: 90.0,
+                isSceneExit: false,
+                resolveFinalizationCache: null,
+                resolveDestroyedDuringRecording: r => false,
+                findVesselByPid: pid => pid == rec.VesselPersistentId ? landed : null,
+                liveVesselAccess: TestLiveVesselAccess);
+
+            Assert.False(rec.VesselDestroyed);
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+            Assert.Contains(logLines, l => l.Contains("[Extrapolator]")
+                && l.Contains("RestoreActiveTreeFromPending: cleared recorder destruction flag for resume rec=resumed"));
+        }
+
+        [Fact]
+        public void ClearFlushedDestructionFlagForResume_ClearsOnlyTheUnsealedFlag()
+        {
+            var flushed = new Recording { RecordingId = "flushed", VesselDestroyed = true };
+            Assert.True(ParsekFlight.ClearFlushedDestructionFlagForResume(flushed, "PromoteRecordingFromBackground"));
+            Assert.False(flushed.VesselDestroyed);
+            Assert.Contains(logLines, l => l.Contains("[Flight]")
+                && l.Contains("PromoteRecordingFromBackground: cleared recorder destruction flag for resume rec=flushed"));
+
+            var sealedRec = new Recording
+            {
+                RecordingId = "sealed",
+                VesselDestroyed = true,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            Assert.False(ParsekFlight.ClearFlushedDestructionFlagForResume(sealedRec, "t"));
+            Assert.True(sealedRec.VesselDestroyed);
+            Assert.False(ParsekFlight.ClearFlushedDestructionFlagForResume(
+                new Recording { RecordingId = "clean" }, "t"));
+            Assert.False(ParsekFlight.ClearFlushedDestructionFlagForResume(null, "t"));
+        }
+
+        [Fact]
         public void PropagateRecorderDestruction_NotDestroyedOrAlreadyMarked_DoesNothing()
         {
             var rec = new Recording { RecordingId = "r" };
