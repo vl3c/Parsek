@@ -348,6 +348,25 @@ namespace Parsek
             if (vessel == null)
                 return;
 
+            ParsekFlight.PostSwitchAutoRecordState previous = host.postSwitchAutoRecord;
+            List<ParsekFlight.PostSwitchStructuralSplit> carried = null;
+            if (previous != null && previous.PendingStructuralSplits != null
+                && previous.PendingStructuralSplits.Count > 0)
+            {
+                int duplicatesRefused;
+                carried = CarryStructuralSplitsAcrossRearm(
+                    previous.PendingStructuralSplits, previous.VesselPid, vessel.persistentId,
+                    out duplicatesRefused);
+                string line =
+                    $"Post-switch watch re-armed while holding {previous.PendingStructuralSplits.Count} captured " +
+                    $"separation(s): oldPid={previous.VesselPid} newPid={vessel.persistentId} " +
+                    $"carried={carried.Count} duplicatesRefused={duplicatesRefused} reason={armReason}";
+                if (WatchReplaceDropsCaptures(previous.PendingStructuralSplits.Count, carried.Count))
+                    ParsekLog.Warn("Flight", line + " - the separations belong to a vessel no watch follows; not recorded");
+                else
+                    ParsekLog.Info("Flight", line);
+            }
+
             host.postSwitchAutoRecord = new ParsekFlight.PostSwitchAutoRecordState
             {
                 VesselPid = vessel.persistentId,
@@ -357,6 +376,8 @@ namespace Parsek
                 TrackedInActiveTree = trackedInActiveTree,
                 FreshStartParentRecordingId = freshStartParentRecordingId
             };
+            if (carried != null)
+                host.postSwitchAutoRecord.PendingStructuralSplits.AddRange(carried);
 
             ParsekLog.Info("Flight",
                 $"Post-switch auto-record armed: vessel='{host.postSwitchAutoRecord.VesselName}' " +
@@ -369,9 +390,17 @@ namespace Parsek
             if (host.postSwitchAutoRecord == null)
                 return;
 
+            int droppedSplits = host.postSwitchAutoRecord.PendingStructuralSplits?.Count ?? 0;
             ParsekLog.Info("Flight",
                 $"Post-switch auto-record disarmed: vessel='{host.postSwitchAutoRecord.VesselName}' " +
-                $"pid={host.postSwitchAutoRecord.VesselPid} reason={reason}");
+                $"pid={host.postSwitchAutoRecord.VesselPid} reason={reason}" +
+                (droppedSplits > 0 ? $" pendingStructuralSplits={droppedSplits}" : ""));
+            if (droppedSplits > 0)
+            {
+                ParsekLog.Warn("Flight",
+                    $"Post-switch watch disarmed with {droppedSplits} separation(s) its recording never took: " +
+                    $"pid={host.postSwitchAutoRecord.VesselPid} reason={reason}");
+            }
             host.postSwitchAutoRecord = null;
         }
 
@@ -1077,6 +1106,315 @@ namespace Parsek
                 $"baselineUT={state.BaselineCapturedUt:F2} currentUT={Planetarium.GetUniversalTime():F2}");
         }
 
+        /// <summary>
+        /// What a separation means for the post-switch watch
+        /// (<see cref="EvaluatePostSwitchStructuralSplit"/>).
+        /// </summary>
+        internal enum PostSwitchStructuralSplitDecision
+        {
+            NoWatch = 0,
+            RecorderBound = 1,
+            NotWatchedVessel = 2,
+            Capture = 3,
+            // The watched vessel is a background member of the active tree: the background
+            // recorder's own split detection (HandleBackgroundVesselSplit) records the split.
+            BackgroundRecorderOwns = 4,
+        }
+
+        /// <summary>
+        /// Pure: whether a separation (<paramref name="originalPid"/> lost
+        /// <paramref name="newPid"/>) is one the armed post-switch watch must capture: the watch
+        /// is armed, no recorder is bound and no split is parked (those paths own a split), and
+        /// the original vessel is the watched one (KSP keeps the original pid across an undock
+        /// or a decouple; the separated side is the new vessel). A watched vessel the active tree
+        /// already tracks in the background is left to the background recorder, which records
+        /// its splits itself (capturing it too would record the child twice).
+        /// </summary>
+        internal static PostSwitchStructuralSplitDecision EvaluatePostSwitchStructuralSplit(
+            bool watchArmed,
+            uint watchedPid,
+            bool recorderBound,
+            bool splitInProgress,
+            uint originalPid,
+            uint newPid,
+            bool watchedTrackedInActiveTree = false)
+        {
+            if (!watchArmed)
+                return PostSwitchStructuralSplitDecision.NoWatch;
+            if (recorderBound || splitInProgress)
+                return PostSwitchStructuralSplitDecision.RecorderBound;
+            if (watchedPid == 0u || originalPid != watchedPid || newPid == 0u || newPid == watchedPid)
+                return PostSwitchStructuralSplitDecision.NotWatchedVessel;
+            if (watchedTrackedInActiveTree)
+                return PostSwitchStructuralSplitDecision.BackgroundRecorderOwns;
+            return PostSwitchStructuralSplitDecision.Capture;
+        }
+
+        /// <summary>
+        /// A separation of the vessel the post-switch watch is armed for, while nothing records
+        /// it (owner ruling 2026-11-18, todo POST-SWITCH-WATCH-SPLIT-NOT-RECORDED): captures the
+        /// vessel that came off (snapshot and pose at the split) so the next watch frame starts
+        /// the watched vessel's recording and gives the separated vessel its own child
+        /// recording. Returns true when captured.
+        /// </summary>
+        internal bool TryCapturePostSwitchStructuralSplit(
+            Vessel originalVessel,
+            Vessel newVessel,
+            string cause,
+            string source,
+            TrajectoryPoint? childSeed = null)
+        {
+            ParsekFlight.PostSwitchAutoRecordState state = host.postSwitchAutoRecord;
+            uint originalPid = originalVessel != null ? originalVessel.persistentId : 0u;
+            uint newPid = newVessel != null ? newVessel.persistentId : 0u;
+            var decision = EvaluatePostSwitchStructuralSplit(
+                watchArmed: state != null,
+                watchedPid: state != null ? state.VesselPid : 0u,
+                recorderBound: host.recorder != null && host.recorder.IsRecording,
+                splitInProgress: host.pendingSplitInProgress,
+                originalPid: originalPid,
+                newPid: newPid,
+                watchedTrackedInActiveTree: state != null
+                    && IsWatchedVesselTrackedInBackground(
+                        host.activeTree != null ? host.activeTree.BackgroundMap : null, state.VesselPid));
+            if (decision != PostSwitchStructuralSplitDecision.Capture)
+            {
+                if (decision == PostSwitchStructuralSplitDecision.BackgroundRecorderOwns)
+                {
+                    ParsekLog.Info("Flight",
+                        $"Post-switch watch: separation left to the background recorder ({source}): " +
+                        $"watchedPid={originalPid} is a tracked background member, newPid={newPid}");
+                }
+                else if (decision != PostSwitchStructuralSplitDecision.NoWatch)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"Post-switch watch: separation not captured ({source}): decision={decision} " +
+                        $"originalPid={originalPid} newPid={newPid} watchedPid={state?.VesselPid ?? 0u}");
+                }
+                return false;
+            }
+            if (GhostMapPresence.IsGhostMapVessel(newPid))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"Post-switch watch: separation not captured ({source}): newPid={newPid} is a ghost map vessel");
+                return false;
+            }
+
+            for (int i = 0; i < state.PendingStructuralSplits.Count; i++)
+            {
+                if (state.PendingStructuralSplits[i] != null && state.PendingStructuralSplits[i].ChildPid == newPid)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"Post-switch watch: separation already captured ({source}): childPid={newPid}, duplicate refused");
+                    return true;
+                }
+            }
+
+            double ut = Planetarium.GetUniversalTime();
+            ConfigNode preSnapshot = FlightRecorder.TryBackupSnapshot(newVessel);
+            TrajectoryPoint? prePoint = childSeed
+                ?? BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                    newVessel, ut, preferRootPartSurfacePose: true);
+            bool hasController = ParsekFlight.ShouldRecordAsOwnBranch(newVessel);
+            // The watched side too: when stock moves focus to the vessel that came off, the
+            // watch re-arms on it and the watched side becomes the separated vessel
+            // (CarryStructuralSplitsAcrossRearm).
+            state.PendingStructuralSplits.Add(new ParsekFlight.PostSwitchStructuralSplit
+            {
+                ChildPid = newPid,
+                HasController = hasController,
+                Cause = cause,
+                UT = ut,
+                ChildRootPartPid = newVessel.rootPart != null ? newVessel.rootPart.persistentId : 0u,
+                PreSnapshot = preSnapshot,
+                PrePoint = prePoint,
+                Source = source,
+                OriginalPid = originalPid,
+                OriginalHasController = ParsekFlight.ShouldRecordAsOwnBranch(originalVessel),
+                OriginalRootPartPid = originalVessel.rootPart != null ? originalVessel.rootPart.persistentId : 0u,
+                OriginalPreSnapshot = FlightRecorder.TryBackupSnapshot(originalVessel),
+                OriginalPrePoint = BackgroundRecorder.CreateAbsoluteTrajectoryPointFromVessel(
+                    originalVessel, ut, preferRootPartSurfacePose: true),
+            });
+            ParsekLog.Info("Flight",
+                $"Post-switch watch: separation of the watched vessel captured ({source}): " +
+                $"watchedPid={originalPid} childPid={newPid} name='{newVessel.vesselName}' cause={cause} " +
+                $"hasController={hasController} preSnapshot={preSnapshot != null} " +
+                $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)} pending={state.PendingStructuralSplits.Count}");
+            return true;
+        }
+
+        /// <summary>
+        /// Pure: the captured separations a watch re-armed from
+        /// <paramref name="previousWatchedPid"/> to <paramref name="newWatchedPid"/> keeps. Every
+        /// capture names both vessels of its split with their own split-time data, so the
+        /// captures together know every vessel of the separation. When the new watch is on one
+        /// of them (stock moved focus to a vessel that came off, possibly over several re-arms
+        /// before the watch started), the carried set is every OTHER vessel of the split, each
+        /// once and with its own data, so all of them are recorded when the new watch starts. A
+        /// re-arm on the same vessel keeps the separated vessels. A re-arm on an unrelated vessel
+        /// keeps none: the separations belong to a vessel no watch follows any more.
+        /// <paramref name="duplicatesRefused"/> counts captures whose child was already carried.
+        /// </summary>
+        internal static List<ParsekFlight.PostSwitchStructuralSplit> CarryStructuralSplitsAcrossRearm(
+            IReadOnlyList<ParsekFlight.PostSwitchStructuralSplit> captures,
+            uint previousWatchedPid,
+            uint newWatchedPid,
+            out int duplicatesRefused)
+        {
+            duplicatesRefused = 0;
+            var result = new List<ParsekFlight.PostSwitchStructuralSplit>();
+            if (captures == null || captures.Count == 0 || newWatchedPid == 0u)
+                return result;
+
+            // Every vessel the captures know, first occurrence wins, in capture order.
+            var order = new List<uint>();
+            var sides = new Dictionary<uint, ParsekFlight.PostSwitchStructuralSplit>();
+            var seenChildren = new HashSet<uint>();
+            for (int i = 0; i < captures.Count; i++)
+            {
+                var c = captures[i];
+                if (c == null)
+                    continue;
+                if (c.ChildPid != 0u && !seenChildren.Add(c.ChildPid))
+                    duplicatesRefused++;
+                AddSide(order, sides, c.ChildPid, c.HasController, c.ChildRootPartPid,
+                    c.PreSnapshot, c.PrePoint, c);
+                AddSide(order, sides, c.OriginalPid, c.OriginalHasController, c.OriginalRootPartPid,
+                    c.OriginalPreSnapshot, c.OriginalPrePoint, c);
+            }
+
+            bool sameVessel = newWatchedPid == previousWatchedPid;
+            if (!sameVessel && !sides.ContainsKey(newWatchedPid))
+                return result;
+
+            ParsekFlight.PostSwitchStructuralSplit watched;
+            sides.TryGetValue(newWatchedPid, out watched);
+            for (int i = 0; i < order.Count; i++)
+            {
+                uint pid = order[i];
+                if (pid == newWatchedPid)
+                    continue;
+                // A same-vessel re-arm carries only the separated vessels, never a side that
+                // was only ever a watched (original) vessel.
+                if (sameVessel && !seenChildren.Contains(pid))
+                    continue;
+                var side = sides[pid];
+                result.Add(new ParsekFlight.PostSwitchStructuralSplit
+                {
+                    ChildPid = pid,
+                    HasController = side.HasController,
+                    Cause = side.Cause,
+                    UT = side.UT,
+                    ChildRootPartPid = side.ChildRootPartPid,
+                    PreSnapshot = side.PreSnapshot,
+                    PrePoint = side.PrePoint,
+                    Source = sameVessel ? side.Source : side.Source + "+focus-moved",
+                    OriginalPid = newWatchedPid,
+                    OriginalHasController = watched != null && watched.HasController,
+                    OriginalRootPartPid = watched != null ? watched.ChildRootPartPid : 0u,
+                    OriginalPreSnapshot = watched != null ? watched.PreSnapshot : null,
+                    OriginalPrePoint = watched != null ? watched.PrePoint : null,
+                });
+            }
+            return result;
+        }
+
+        // One vessel of a captured split with its own split-time data (held in the Child*
+        // fields of a side record); the first record of a pid wins.
+        private static void AddSide(
+            List<uint> order,
+            Dictionary<uint, ParsekFlight.PostSwitchStructuralSplit> sides,
+            uint pid, bool hasController, uint rootPartPid,
+            ConfigNode snapshot, TrajectoryPoint? point,
+            ParsekFlight.PostSwitchStructuralSplit from)
+        {
+            if (pid == 0u || sides.ContainsKey(pid))
+                return;
+            order.Add(pid);
+            sides[pid] = new ParsekFlight.PostSwitchStructuralSplit
+            {
+                ChildPid = pid,
+                HasController = hasController,
+                ChildRootPartPid = rootPartPid,
+                PreSnapshot = snapshot,
+                PrePoint = point,
+                Cause = from.Cause,
+                UT = from.UT,
+                Source = from.Source,
+            };
+        }
+
+        internal static bool IsWatchedVesselTrackedInBackground(
+            IReadOnlyDictionary<uint, string> backgroundMap, uint watchedPid)
+        {
+            return backgroundMap != null && watchedPid != 0u && backgroundMap.ContainsKey(watchedPid);
+        }
+
+        internal static bool WatchReplaceDropsCaptures(int capturedCount, int carriedCount)
+        {
+            return capturedCount > 0 && carriedCount == 0;
+        }
+
+        internal void OnDecoupleNewVesselForPostSwitchWatch(Vessel originalVessel, Vessel newVessel)
+        {
+            if (host.postSwitchAutoRecord == null || newVessel == null)
+                return;
+            TryCapturePostSwitchStructuralSplit(
+                originalVessel, newVessel, "DECOUPLE", "onPartDeCoupleNewVesselComplete");
+        }
+
+        /// <summary>
+        /// Feeds the separations the watch captured to the crash coalescer under the recording
+        /// that just started for the watched vessel, so each separated vessel gets its own child
+        /// recording from the split time. Returns how many were fed.
+        /// </summary>
+        private int FeedPostSwitchStructuralSplits(
+            List<ParsekFlight.PostSwitchStructuralSplit> splits, string reason)
+        {
+            if (splits == null || splits.Count == 0)
+                return 0;
+            if (host.activeTree == null || string.IsNullOrEmpty(host.activeTree.ActiveRecordingId)
+                || host.crashCoalescer == null)
+            {
+                ParsekLog.Warn("Flight",
+                    $"Post-switch watch: {splits.Count} captured separation(s) not fed ({reason}): " +
+                    $"tree={(host.activeTree != null)} activeRec={host.activeTree?.ActiveRecordingId ?? "(none)"}");
+                return 0;
+            }
+
+            string parentRecordingId = host.activeTree.ActiveRecordingId;
+            uint recordedPid = host.recorder != null ? host.recorder.RecordingVesselId : 0u;
+            var fedPids = new HashSet<uint>();
+            int fed = 0;
+            int refused = 0;
+            for (int i = 0; i < splits.Count; i++)
+            {
+                var split = splits[i];
+                // The coalescer keeps a list, so one vessel fed twice would get two child
+                // recordings; the recorded vessel is the parent, never its own child.
+                if (split == null || split.ChildPid == 0u || split.ChildPid == recordedPid
+                    || !fedPids.Add(split.ChildPid))
+                {
+                    refused++;
+                    continue;
+                }
+                fed++;
+                host.crashCoalescer.OnSplitEvent(
+                    split.UT, split.ChildPid, split.HasController,
+                    splitCause: split.Cause,
+                    preSnapshot: split.PreSnapshot,
+                    preTrajectoryPoint: split.PrePoint,
+                    decouplerPartId: string.Equals(split.Cause, "DECOUPLE", StringComparison.Ordinal)
+                        ? split.ChildRootPartPid : 0u);
+            }
+            ParsekLog.Info("Flight",
+                $"Post-switch watch: fed {fed} captured separation(s) to the coalescer ({reason}): " +
+                $"parentRec={parentRecordingId} recordedPid={recordedPid} refusedDuplicates={refused} " +
+                $"firstUT={splits[0].UT.ToString("F2", CultureInfo.InvariantCulture)}");
+            return fed;
+        }
+
         private bool TryStartPostSwitchAutoRecord(
             Vessel v,
             ParsekFlight.PostSwitchAutoRecordState state,
@@ -1182,6 +1520,17 @@ namespace Parsek
                     waitingForSettle: false,
                     currentUt: currentUT,
                     trigger: ParsekFlight.PostSwitchAutoRecordTrigger.None);
+                // Another path already started the watched vessel's recording: the captured
+                // separations still branch off it.
+                if (suppression == ParsekFlight.PostSwitchAutoRecordSuppressionReason.AlreadyRecording
+                    && state.PendingStructuralSplits.Count > 0
+                    && host.recorder != null && host.recorder.RecordingVesselId == state.VesselPid)
+                {
+                    FeedPostSwitchStructuralSplits(
+                        new List<ParsekFlight.PostSwitchStructuralSplit>(state.PendingStructuralSplits),
+                        "watched vessel already recording");
+                    state.PendingStructuralSplits.Clear();
+                }
                 DisarmPostSwitchAutoRecord($"suppressed by {suppression}");
                 return;
             }
@@ -1195,6 +1544,36 @@ namespace Parsek
                     waitingForSettle: false,
                     currentUt: currentUT,
                     trigger: ParsekFlight.PostSwitchAutoRecordTrigger.None);
+                return;
+            }
+
+            // A separation of the watched vessel is a modification on its own: start now, past
+            // the baseline and settle gates, and branch the separated vessels off the recording.
+            if (state.PendingStructuralSplits.Count > 0)
+            {
+                var splits = new List<ParsekFlight.PostSwitchStructuralSplit>(state.PendingStructuralSplits);
+                LogPostSwitchAutoRecordDecision(
+                    state,
+                    activePid,
+                    suppression,
+                    waitingForSettle: false,
+                    currentUt: currentUT,
+                    trigger: ParsekFlight.PostSwitchAutoRecordTrigger.StructuralSplit);
+                // Taken off the state first: the recorder start disarms the watch.
+                state.PendingStructuralSplits.Clear();
+                if (TryStartPostSwitchAutoRecord(
+                        v, state, ParsekFlight.PostSwitchAutoRecordTrigger.StructuralSplit, currentUT))
+                {
+                    FeedPostSwitchStructuralSplits(splits, "post-switch structural split start");
+                }
+                else
+                {
+                    // A refused start (the restore-and-promote seam) refuses every frame, so
+                    // retrying would only repeat it: nothing records the watched vessel.
+                    ParsekLog.Warn("Flight",
+                        $"Post-switch watch: recording did not start; " +
+                        $"{splits.Count} captured separation(s) not recorded (pid={state.VesselPid})");
+                }
                 return;
             }
 
