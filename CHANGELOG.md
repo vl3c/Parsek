@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **Changes you make during a Re-Fly are kept when it merges.** Sealing, stashing, hiding,
+  looping, regrouping or turning off the ghost of another flight of the same mission while you
+  re-fly one part of it was undone by the merge, and a sealed slot could come back open with no
+  rewind point. These settings now always survive a merge. (MERGE-REVERTS-PLAYER-SETTINGS)
 - **A merge that adds nothing no longer says "Merged".** When the flight was already on the
   timeline, the merge still reported success. Clicking Merge now says "Nothing new to merge:
   this flight is already in the timeline", and an automatic merge says nothing.
