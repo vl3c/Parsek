@@ -43,9 +43,10 @@ namespace Parsek
         public int Generation;
 
         // Loop sync: debris follows parent recording's loop clock (-1 = independent).
-        // Index into CommittedRecordings / engine trajectories list. Recomputed on every
-        // RunOptimizationPass call (after every commit and at load). The list is stable
-        // between passes because commits always trigger a full recompute. Not serialized.
+        // Index into CommittedRecordings / engine trajectories list. Recomputed by every
+        // RunOptimizationPass; between passes the committed-list primitives
+        // (RecordingStore.RemoveCommittedAt / InsertCommittedAt) shift it like any other
+        // index-keyed state. Not serialized.
         public int LoopSyncParentIdx { get; set; } = -1;
 
         public bool LoopPlayback;

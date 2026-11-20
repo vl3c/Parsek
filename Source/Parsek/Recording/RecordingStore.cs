@@ -499,6 +499,7 @@ namespace Parsek
             var rec = committedRecordings[index];
             NotifyCommittedRecordingRemoving(index, rec);
             committedRecordings.RemoveAt(index);
+            ShiftLoopSyncParentIndices(committedRecordings, index, removed: true);
             BumpStateVersion();
             NotifyCommittedRecordingRemoved(index, rec, absorbedInto);
         }
@@ -511,8 +512,48 @@ namespace Parsek
         internal static void InsertCommittedAt(int index, Recording toInsert)
         {
             committedRecordings.Insert(index, toInsert);
+            ShiftLoopSyncParentIndices(committedRecordings, index, removed: false);
             BumpStateVersion();
             NotifyCommittedRecordingInserted(index);
+        }
+
+        /// <summary>
+        /// <see cref="Recording.LoopSyncParentIdx"/> is a position in the committed list (the
+        /// engine reads it as an index into its trajectory list), so a mid-list removal or
+        /// insertion shifts it like any other index-keyed state: after a removal at
+        /// <paramref name="index"/> a link to it is dropped (-1) and a link past it moves down
+        /// one; after an insertion at <paramref name="index"/> a link at or past it moves up one.
+        /// The optimization pass recomputes every link at its end; this keeps them right
+        /// between passes. One Verbose line when any link moved.
+        /// </summary>
+        internal static void ShiftLoopSyncParentIndices(
+            IReadOnlyList<Recording> recordings, int index, bool removed)
+        {
+            if (recordings == null) return;
+            int shifted = 0;
+            int dropped = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null) continue;
+                int parent = rec.LoopSyncParentIdx;
+                if (parent < 0) continue;
+                if (removed)
+                {
+                    if (parent == index) { rec.LoopSyncParentIdx = -1; dropped++; }
+                    else if (parent > index) { rec.LoopSyncParentIdx = parent - 1; shifted++; }
+                }
+                else if (parent >= index)
+                {
+                    rec.LoopSyncParentIdx = parent + 1;
+                    shifted++;
+                }
+            }
+            if (shifted > 0 || dropped > 0)
+                ParsekLog.Verbose("RecordingStore",
+                    $"Loop sync parent links {(removed ? "after removal" : "after insertion")} at " +
+                    $"index {index.ToString(CultureInfo.InvariantCulture)}: shifted=" +
+                    $"{shifted.ToString(CultureInfo.InvariantCulture)} dropped={dropped.ToString(CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>

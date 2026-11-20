@@ -788,6 +788,7 @@ namespace Parsek
             if (recordings == null) return;
 
             int linked = 0;
+            int linkedByAnchor = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
@@ -802,30 +803,79 @@ namespace Parsek
                     continue;
                 }
 
-                // Find the non-debris recording in the same tree whose UT range covers this debris's start
-                double debrisStart = rec.StartUT;
-                int parentIdx = -1;
-                for (int j = 0; j < recordings.Count; j++)
-                {
-                    if (j == i) continue;
-                    var candidate = recordings[j];
-                    if (candidate.IsDebris) continue;
-                    if (candidate.TreeId != rec.TreeId) continue;
-                    if (candidate.VesselPersistentId != rec.VesselPersistentId
-                        && debrisStart >= candidate.StartUT && debrisStart <= candidate.EndUT)
-                    {
-                        parentIdx = j;
-                        break;
-                    }
-                }
-
+                string via;
+                int parentIdx = FindLoopSyncParentIndex(recordings, i, out via);
                 rec.LoopSyncParentIdx = parentIdx;
-                if (parentIdx >= 0) linked++;
+                if (parentIdx >= 0)
+                {
+                    linked++;
+                    if (via != "covering") linkedByAnchor++;
+                }
             }
 
             if (linked > 0)
                 ParsekLog.Info("RecordingStore",
-                    $"Loop sync: linked {linked} debris recording(s) to parent recordings");
+                    $"Loop sync: linked {linked} debris recording(s) to parent recordings " +
+                    $"(byParentAnchor={linkedByAnchor.ToString(CultureInfo.InvariantCulture)})");
+        }
+
+        /// <summary>
+        /// The committed index of the recording debris <c>recordings[debrisIdx]</c> loops with,
+        /// or -1. The debris's own parent (<see cref="Recording.ParentAnchorRecordingId"/>) wins
+        /// when it covers the debris's start (<paramref name="via"/> = <c>parent-anchor</c>), then
+        /// the piece of the parent's chain that covers it (an optimizer split moved the debris's
+        /// birth onto another piece; <c>parent-anchor-chain</c>); otherwise the first non-debris
+        /// recording of the same tree, of another vessel, whose range covers the debris's start
+        /// (<c>covering</c>, the rule for debris with no anchor).
+        /// </summary>
+        internal static int FindLoopSyncParentIndex(
+            IReadOnlyList<Recording> recordings, int debrisIdx, out string via)
+        {
+            via = null;
+            var rec = recordings[debrisIdx];
+            double debrisStart = rec.StartUT;
+            Func<Recording, bool> covers = c =>
+                debrisStart >= c.StartUT && debrisStart <= c.EndUT;
+
+            if (!string.IsNullOrEmpty(rec.ParentAnchorRecordingId))
+            {
+                int anchorIdx = RecordingStore.IndexOfRecordingId(recordings, rec.ParentAnchorRecordingId);
+                Recording anchor = anchorIdx >= 0 ? recordings[anchorIdx] : null;
+                if (anchor != null && anchorIdx != debrisIdx && !anchor.IsDebris)
+                {
+                    if (covers(anchor))
+                    {
+                        via = "parent-anchor";
+                        return anchorIdx;
+                    }
+                    if (!string.IsNullOrEmpty(anchor.ChainId))
+                    {
+                        for (int j = 0; j < recordings.Count; j++)
+                        {
+                            var piece = recordings[j];
+                            if (j == debrisIdx || piece == null || piece.IsDebris) continue;
+                            if (!string.Equals(piece.ChainId, anchor.ChainId, StringComparison.Ordinal)) continue;
+                            if (!covers(piece)) continue;
+                            via = "parent-anchor-chain";
+                            return j;
+                        }
+                    }
+                }
+            }
+
+            for (int j = 0; j < recordings.Count; j++)
+            {
+                if (j == debrisIdx) continue;
+                var candidate = recordings[j];
+                if (candidate.IsDebris) continue;
+                if (candidate.TreeId != rec.TreeId) continue;
+                if (candidate.VesselPersistentId != rec.VesselPersistentId && covers(candidate))
+                {
+                    via = "covering";
+                    return j;
+                }
+            }
+            return -1;
         }
     }
 }

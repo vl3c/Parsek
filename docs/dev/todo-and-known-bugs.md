@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~LOOP-SYNC-PARENT-LINK-WRONG~~: a debris piece's loop-sync parent link pointed at the wrong recording [FILED 2026-11-18 by the recording split / trim / merge review (findings L4 and L5), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a looping debris ghost follows another recording's loop clock)]
+
+**Cause:** (L4) `Recording.LoopSyncParentIdx` is a committed-list position the engine reads as an index into its trajectory list, but nothing shifted it on a mid-list removal or insertion between optimization passes, so after a discard or an insert it named whatever recording slid into that slot. (L5) `CommittedListOptimizer.PopulateLoopSyncParentIndices` picked the first non-debris recording of the tree whose range covered the debris's start, ignoring the debris's own parent (`ParentAnchorRecordingId`), so a sibling stage listed first won.
+
+**Fix:** (L4) the two committed-list primitives `RecordingStore.RemoveCommittedAt` / `InsertCommittedAt` shift every link through `ShiftLoopSyncParentIndices` (a link to the removed recording is dropped; Verbose `Loop sync parent links after removal|insertion at index N: shifted=.. dropped=..`). (L5) `FindLoopSyncParentIndex` prefers the parent anchor when it covers the debris's start, then the piece of the anchor's chain that does (an optimizer split moved the birth onto a later piece), and falls back to the covering rule; the summary line gains `byParentAnchor=N`.
+
+**Tests:** `OptimizerLoopSyncParentTests` (removal shifts and drops, insertion shifts, the anchor wins over an earlier covering sibling, the anchor's chain piece is found, no anchor keeps the covering rule); four red before the fix.
+
 ## ~~LAUNCH-HEAD-LABELLED-SURFACE~~: every launch's first row was labelled "surface" [FILED 2026-11-18 by the recording split / trim / merge review (finding M10), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a wrong label in the Recordings table and the map)]
 
 **Cause:** since the launch-site rule (step 5b, owner ruling 2026-10-07) keeps the pad or runway time with the ascent, a split's first half starts on the pad, and `SplitAtSection` took its `SegmentPhase` from section 0, so the ascent row read "Kerbin surface".

@@ -28,6 +28,9 @@ Not released yet.
 
 ### Fixed
 
+- **Looping debris follows its own rocket.** A looping debris ghost could follow the loop of
+  another stage, or of an unrelated recording after one was removed from the list.
+  (LOOP-SYNC-PARENT-LINK-WRONG)
 - **A launch's first row is labelled by its ascent, not "surface".** The pad time stays with the
   ascent, and the row used to be named after it. (LAUNCH-HEAD-LABELLED-SURFACE)
 - **A flight you hid, disabled or looped keeps that setting when Parsek splits it.** The new
