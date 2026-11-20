@@ -258,9 +258,15 @@ home is another body (GPP's Gael, RSS's Earth) the Space Center drew no ghost of
 route was ever a Space Center route.
 
 Fix. One helper, `Recording/HomeWorld.cs`: `HomeWorld.HomeBodyName` reads `FlightGlobals.GetHomeBody()`
-in a NoInlining core, falls back to "Kerbin" (silently headless, `WarnRateLimited` on any other read
-failure), logs a non-stock home world (`VerboseRateLimited`, tag `HomeWorld`), and has the test seam
-`HomeBodyNameOverrideForTesting`. Sites changed (7 literals on 6 lines): `ParsekKSC.cs`
+in a NoInlining core, falls back to "Kerbin" (silently headless, a rate-limited Warn on any other read
+failure, never cached). The callers run per committed recording per Update and per KSC ghost per frame, so
+the name is memoized on the live home `CelestialBody`'s reference identity (`IsResolvedFor`): a call costs
+one `GetHomeBody()` field read and allocates nothing; Unity's allocating `name` is read, and the
+`home world resolved:` line (Info when not stock, Verbose for Kerbin) logged, once per body object. Bodies
+live for the process, so a game load keeps the entry and a different body re-resolves with no scene hook.
+Test seams (`HomeBodyNameOverrideForTesting`, `LiveHomeBodyReaderForTesting`, `BodyNameReaderForTesting`) are
+`[ThreadStatic]`, so a test injecting "Gael" cannot leak into a parallel class reading Kerbin data
+(`RoverRelayCOracleTests` and the other non-Sequential KSC-origin / KSC-dispatch readers). Sites changed (7 literals on 6 lines): `ParsekKSC.cs`
 `ClassifyKscStructuralRoute`; `ParsekKSC.Playback.cs` `TryResolveKscPointPose` and
 `TryResolveKscSegmentPose` (2); `RouteAnalysisEngine.IsKscOriginRecording`; `RouteBuilder.TryResolveRouteOrigin`
 (the KSC test, and the origin endpoint now takes `originRec.StartBodyName`, which the test proved is the
