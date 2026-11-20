@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **Parts on robotic hinges, rotors and pistons move on the replay.** A ghost turned only the
+  servo itself, so a panel, arm or wheel mounted on a hinge stayed frozen while the hinge swung.
+  Everything on the moving side of a servo now moves with it, servos on servos included, and
+  parts on the fixed side stay put. (GHOST-SERVO-CHILDREN-STATIC)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now

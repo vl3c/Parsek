@@ -784,6 +784,15 @@ namespace Parsek
                         : 0f
                 };
 
+                if (ServoFollowerPlanner.IsBreakingGroundServoModuleName(moduleName))
+                {
+                    TryGetModuleStringField(module, "servoAttachNodes", out string attachNodes);
+                    TryGetModuleStringField(module, "servoSrfMeshNames", out string srfMeshNames);
+                    ServoAttachConfig config = ServoAttachConfig.FromFieldStrings(attachNodes, srfMeshNames);
+                    if (!config.IsEmpty)
+                        info.servoAttachConfig = config;
+                }
+
                 infos.Add(info);
             }
 
