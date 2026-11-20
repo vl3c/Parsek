@@ -178,21 +178,10 @@ namespace Parsek
                         // that carries flight the committed tree does not have is a committed
                         // vessel flown again, not a duplicate. The committed side may hold ids
                         // the copy lacks (an optimizer pass re-cut it while the copy lived), so
-                        // the strict gate refuses; union instead, keeping those ids.
-                        if (IsCommittedTreeFlownAgain(
-                                RecordingStore.CommittedTrees[i], tree, out string flownEvidence)
-                            && TryUnionLiveCopyIntoCommitted(
-                                RecordingStore.CommittedTrees[i], tree, null,
-                                out int flownAddedRecs, out int flownAddedBps, out bool flownActiveSwapped))
+                        // the strict gate refuses; union instead (TryUnionFlownAgainCopy).
+                        if (TryUnionFlownAgainCopy(
+                                RecordingStore.CommittedTrees[i], tree, replaceReason, out string flownEvidence))
                         {
-                            int keptCommittedOnly = CountMissingRecordingIds(RecordingStore.CommittedTrees[i], tree);
-                            ParsekLog.Info("RecordingStore",
-                                $"CommitTree: committed vessel flown again - unioned the live copy of tree " +
-                                $"id='{tree.Id}' into the committed tree (strictGateReason={replaceReason}, " +
-                                $"evidence={flownEvidence}, addedRecordings={flownAddedRecs} " +
-                                $"addedBranchPoints={flownAddedBps} keptCommittedOnlyRecordings={keptCommittedOnly} " +
-                                $"activeRecordingIdSwapped={flownActiveSwapped} " +
-                                $"restoreAttemptArmed={CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(tree.Id)})");
                             tree = RecordingStore.CommittedTrees[i];
                             replaceCommittedTreeIndex = i;
                             break;

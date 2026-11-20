@@ -109,17 +109,37 @@ namespace Parsek.Tests
         // ---------- Commit ----------
 
         // catches: the optimizer re-cut the committed tree while the copy lived (the committed
-        // side holds a tail id the copy lacks), so the strict gate refuses and the duplicate
-        // skip dropped the player's new leg.
+        // side holds a tail id the copy lacks), so the strict gate refused and the duplicate
+        // skip dropped the player's new leg; and a union that kept that tail beside the copy's
+        // whole recording played the tail twice and left it the chain tip with the old ending.
         [Fact]
-        public void CommitPendingTree_FlownAgainAfterAReCut_KeepsTheNewLegAndTheCommittedOnlyPiece()
+        public void CommitPendingTree_FlownAgainAfterAReCut_KeepsTheNewLeg_ReabsorbsTheCoveredSplitTail()
         {
-            CommitExisting(Tree("rec_tail",
-                Rec("rec_head", 0, 100, "chain_A", 0),
-                Rec("rec_tail", 100, 200, "chain_A", 1)));
+            var committedHead = Rec("rec_head", 0, 100, "chain_A", 0);
+            committedHead.Hidden = true;
+            var committedTail = Rec("rec_tail", 100, 200, "chain_A", 1);
+            committedTail.TerminalStateValue = TerminalState.Orbiting;
+            var anchored = Rec("rec_probe", 150, 180);
+            anchored.ParentAnchorRecordingId = "rec_tail";
+            var committedTree = Tree("rec_tail", committedHead, committedTail, anchored);
+            committedTree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp_probe",
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec_tail" },
+                ChildRecordingIds = new List<string> { "rec_probe" },
+            });
+            anchored.ParentBranchPointId = "bp_probe";
+            CommitExisting(committedTree);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_tail", Type = GameActionType.FundsEarning, RecordingId = "rec_tail",
+                UT = 160, FundsAwarded = 10f, FundsSource = FundsEarningSource.Other,
+            });
 
             // The live copy was taken before the re-cut: one whole recording, then flown on.
             var liveHead = Rec("rec_head", 0, 300);
+            liveHead.TerminalStateValue = TerminalState.Landed;
             PendingTreeSlot.StashPendingTree(Tree("rec_head", liveHead));
 
             Assert.True(TreeCommitService.CommitPendingTree());
@@ -127,13 +147,69 @@ namespace Parsek.Tests
             Assert.False(PendingTreeSlot.HasPendingTree);
             var committed = RecordingStore.FindCommittedTreeById("tree_1");
             Assert.Same(liveHead, committed.Recordings["rec_head"]);
-            Assert.True(committed.Recordings.ContainsKey("rec_tail"));
             Assert.Equal("rec_head", committed.ActiveRecordingId);
             Assert.Same(liveHead, RecordingStore.CommittedRecordings.Single(r => r.RecordingId == "rec_head"));
+            // Nothing else of the vessel's chain overlaps the live recording, and the stale tail
+            // (old ending) is gone, so the chain tip is the live recording with the new ending.
+            Assert.False(committed.Recordings.ContainsKey("rec_tail"));
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings, r => r.RecordingId == "rec_tail");
+            Assert.DoesNotContain(RecordingStore.CommittedRecordings, r =>
+                !ReferenceEquals(r, liveHead) && r.ChainId == "chain_A"
+                && r.StartUT < liveHead.EndUT && r.EndUT > liveHead.StartUT);
+            Assert.Equal(TerminalState.Landed, liveHead.TerminalStateValue);
+            // RULE 1: the shared id keeps the committed head's player settings.
+            Assert.True(liveHead.Hidden);
+            // What named the tail now names the survivor.
+            Assert.Equal("rec_head", anchored.ParentAnchorRecordingId);
+            Assert.Contains("rec_head", committed.BranchPoints.Single(bp => bp.Id == "bp_probe").ParentRecordingIds);
+            Assert.DoesNotContain("rec_tail", committed.BranchPoints.Single(bp => bp.Id == "bp_probe").ParentRecordingIds);
+            Assert.Equal("rec_head", Ledger.Actions.Single(a => a.ActionId == "act_tail").RecordingId);
             Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
                 && l.Contains("CommitTree: committed vessel flown again")
                 && l.Contains("recordingRunsPastCommitted rec=rec_head")
+                && l.Contains("reabsorbedSplitPieces=1")
                 && l.Contains("keptCommittedOnlyRecordings=1"));
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("re-absorbed split piece 'rec_tail' into 'rec_head'"));
+        }
+
+        // catches: a committed-only chain piece the live recording does not cover is a real
+        // separate piece of the timeline and must stay.
+        [Fact]
+        public void CommitPendingTree_FlownAgain_KeepsACommittedOnlyPieceTheLiveRecordingDoesNotCover()
+        {
+            CommitExisting(Tree("rec_tail",
+                Rec("rec_head", 0, 100, "chain_A", 0),
+                Rec("rec_tail", 100, 200, "chain_A", 1)));
+            var incoming = Tree("rec_head", Rec("rec_head", 0, 150));
+            incoming.BranchPoints.Add(Bp("bp_new_leg"));
+            PendingTreeSlot.StashPendingTree(incoming);
+
+            Assert.True(TreeCommitService.CommitPendingTree());
+
+            Assert.True(RecordingStore.FindCommittedTreeById("tree_1").Recordings.ContainsKey("rec_tail"));
+            Assert.Contains(RecordingStore.CommittedRecordings, r => r.RecordingId == "rec_tail");
+            Assert.Contains(logLines, l => l.Contains("CommitTree: committed vessel flown again")
+                && l.Contains("reabsorbedSplitPieces=0")
+                && l.Contains("keptCommittedOnlyRecordings=1"));
+        }
+
+        [Fact]
+        public void FindCoveredSplitPieces_Table()
+        {
+            var existing = Tree("h",
+                Rec("h", 0, 100, "chain_A", 0),
+                Rec("t1", 100, 200, "chain_A", 1),
+                Rec("t2", 200, 400, "chain_A", 2),
+                Rec("other", 100, 200, "chain_B", 0));
+            var incoming = Tree("h", Rec("h", 0, 300));
+
+            var pieces = TreeCommitService.FindCoveredCommittedOnlySplitPieces(existing, incoming);
+
+            Assert.Single(pieces);
+            Assert.Equal("t1", pieces[0].Key);
+            Assert.Equal("h", pieces[0].Value);
+            Assert.Empty(TreeCommitService.FindCoveredCommittedOnlySplitPieces(existing, existing));
         }
 
         // catches: a copy that was never flown (the same flight, re-cut on the committed side)

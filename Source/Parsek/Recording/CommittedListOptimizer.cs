@@ -774,6 +774,51 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Owner RULE 3: folds a committed split piece back into the live recording of a
+        /// committed vessel flown again (the reverse of the optimizer split that cut it off while
+        /// the live copy held the recording whole; <c>TreeCommitService.TryUnionFlownAgainCopy</c>).
+        /// The optimizer merge's own steps: the ledger rows, events and pending science tagged to
+        /// <paramref name="absorbed"/> are retagged to <paramref name="survivor"/>, an awaiting
+        /// stock payout moves, every Relative section anchor and parent anchor naming it is
+        /// re-pointed, the tree drops it and its branch points and children name the survivor,
+        /// and it leaves the committed list through <see cref="RecordingStore.RemoveCommittedAt"/>
+        /// (the index notifications fire). Its sidecar files are left to the orphan collector.
+        /// </summary>
+        internal static void ReabsorbSplitPieceIntoLiveCopy(Recording survivor, Recording absorbed, string context)
+        {
+            if (survivor == null || absorbed == null || ReferenceEquals(survivor, absorbed))
+                return;
+            RetagLedgerActionsAfterOptimizationMerge(survivor, absorbed);
+            InFlightRecoveryRequest.MoveAwaitingStockPayout(
+                absorbed.RecordingId, survivor.RecordingId, context);
+            var recordings = RecordingStore.CommittedRecordings;
+            RepointAnchorsAfterOptimizationMerge(recordings, survivor, absorbed);
+            UpdateTreeStateAfterOptimizationMerge(survivor, absorbed);
+
+            int index = -1;
+            Recording mergeTarget = survivor;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (ReferenceEquals(recordings[i], absorbed))
+                    index = i;
+                else if (recordings[i] != null
+                         && string.Equals(recordings[i].RecordingId, survivor.RecordingId, StringComparison.Ordinal))
+                    mergeTarget = recordings[i];
+            }
+            if (index >= 0)
+                RecordingStore.RemoveCommittedAt(index, mergeTarget);
+            ParsekLog.Info("RecordingStore",
+                $"CommitTree: re-absorbed split piece '{absorbed.RecordingId}' into '{survivor.RecordingId}' " +
+                $"(tree={survivor.TreeId ?? "<none>"} " +
+                $"pieceSpan=[{absorbed.StartUT.ToString("F1", CultureInfo.InvariantCulture)}," +
+                $"{absorbed.EndUT.ToString("F1", CultureInfo.InvariantCulture)}] " +
+                $"liveSpan=[{survivor.StartUT.ToString("F1", CultureInfo.InvariantCulture)}," +
+                $"{survivor.EndUT.ToString("F1", CultureInfo.InvariantCulture)}] " +
+                $"removedFromCommittedList={index >= 0} context={context ?? "<none>"}) - " +
+                "the live recording covers it");
+        }
+
         internal static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)
         {
             string treeId = target != null && !string.IsNullOrEmpty(target.TreeId)

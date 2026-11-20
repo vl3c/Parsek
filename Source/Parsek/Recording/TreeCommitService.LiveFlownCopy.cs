@@ -204,6 +204,140 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// The commit side of RULE 3: when <paramref name="incoming"/> is a committed vessel flown
+        /// again (<see cref="IsCommittedTreeFlownAgain"/>), unions it into
+        /// <paramref name="committed"/> (<see cref="TryUnionLiveCopyIntoCommitted"/>), keeping
+        /// the ids only the committed side has, except the split pieces the live recording
+        /// covers (<see cref="FindCoveredCommittedOnlySplitPieces"/>): an optimizer split while
+        /// the copy lived cut a tail off the committed recording the copy still holds whole,
+        /// and kept beside it the tail would replay twice and stay the chain tip with the old
+        /// ending. Each one is re-absorbed into the live recording the way an optimizer merge
+        /// absorbs a chain segment (<see cref="CommittedListOptimizer.ReabsorbSplitPieceIntoLiveCopy"/>).
+        /// A live recording without a chain id takes the committed copy's, and every touched
+        /// chain is re-indexed over the tree. False (nothing changed) when the copy is not
+        /// flown again or the union refuses; <paramref name="evidence"/> names why.
+        /// </summary>
+        internal static bool TryUnionFlownAgainCopy(
+            RecordingTree committed, RecordingTree incoming, string strictGateReason, out string evidence)
+        {
+            if (!IsCommittedTreeFlownAgain(committed, incoming, out evidence))
+                return false;
+
+            // Read before the union swaps the shared entries for the live instances.
+            List<KeyValuePair<string, string>> coveredPieces =
+                FindCoveredCommittedOnlySplitPieces(committed, incoming);
+            var absorbedPieces = new List<KeyValuePair<Recording, Recording>>();
+            for (int p = 0; p < coveredPieces.Count; p++)
+                absorbedPieces.Add(new KeyValuePair<Recording, Recording>(
+                    committed.Recordings[coveredPieces[p].Key], incoming.Recordings[coveredPieces[p].Value]));
+            HashSet<string> chains = CarryCommittedChainIdentity(committed, incoming);
+
+            if (!TryUnionLiveCopyIntoCommitted(committed, incoming, null,
+                    out int addedRecs, out int addedBps, out bool activeSwapped))
+                return false;
+
+            for (int p = 0; p < absorbedPieces.Count; p++)
+                CommittedListOptimizer.ReabsorbSplitPieceIntoLiveCopy(
+                    absorbedPieces[p].Value, absorbedPieces[p].Key, "flown-again-reabsorb");
+            if (absorbedPieces.Count > 0)
+                committed.RebuildBackgroundMap();
+            var treeRecordings = new List<Recording>(committed.Recordings.Values);
+            foreach (string chainId in chains)
+                RecordingOptimizer.ReindexChain(treeRecordings, chainId);
+
+            int keptCommittedOnly = CountMissingRecordingIds(committed, incoming);
+            ParsekLog.Info("RecordingStore",
+                $"CommitTree: committed vessel flown again - unioned the live copy of tree " +
+                $"id='{incoming.Id}' into the committed tree (strictGateReason={strictGateReason}, " +
+                $"evidence={evidence}, addedRecordings={addedRecs} addedBranchPoints={addedBps} " +
+                $"reabsorbedSplitPieces={absorbedPieces.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"keptCommittedOnlyRecordings={keptCommittedOnly} " +
+                $"activeRecordingIdSwapped={activeSwapped} " +
+                $"restoreAttemptArmed={CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(incoming.Id)})");
+            return true;
+        }
+
+        /// <summary>
+        /// The committed-only recordings an optimizer split cut off a recording the live copy
+        /// still holds: a recording only <paramref name="existing"/> has, on the chain of a
+        /// recording both trees hold (the committed copy's chain id: the split stamped it),
+        /// whose span lies inside the live recording's span (start to latest recorded data).
+        /// Each pair is (piece id, the shared id it folds into), ordered by piece id. A
+        /// committed-only recording the live span does not cover is a real separate piece and
+        /// is not returned. Pure.
+        /// </summary>
+        internal static List<KeyValuePair<string, string>> FindCoveredCommittedOnlySplitPieces(
+            RecordingTree existing, RecordingTree incoming)
+        {
+            var result = new List<KeyValuePair<string, string>>();
+            if (existing?.Recordings == null || incoming?.Recordings == null
+                || ReferenceEquals(existing, incoming))
+                return result;
+
+            foreach (var piece in existing.Recordings)
+            {
+                Recording pieceRec = piece.Value;
+                if (pieceRec == null || string.IsNullOrEmpty(piece.Key)
+                    || string.IsNullOrEmpty(pieceRec.ChainId)
+                    || incoming.Recordings.ContainsKey(piece.Key))
+                    continue;
+                string survivorId = FindCoveringSharedRecording(existing, incoming, pieceRec);
+                if (survivorId != null)
+                    result.Add(new KeyValuePair<string, string>(piece.Key, survivorId));
+            }
+            result.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
+            return result;
+        }
+
+        private static string FindCoveringSharedRecording(
+            RecordingTree existing, RecordingTree incoming, Recording piece)
+        {
+            double pieceStart = piece.StartUT;
+            double pieceEnd = TryGetLatestRecordedDataUT(piece, out double latest) ? latest : piece.EndUT;
+            foreach (var shared in incoming.Recordings)
+            {
+                if (shared.Value == null
+                    || !existing.Recordings.TryGetValue(shared.Key, out Recording committedShared)
+                    || committedShared == null
+                    || !string.Equals(committedShared.ChainId, piece.ChainId, StringComparison.Ordinal))
+                    continue;
+                double liveStart = shared.Value.StartUT;
+                double liveEnd = TryGetLatestRecordedDataUT(shared.Value, out double liveLatest)
+                    ? liveLatest
+                    : shared.Value.EndUT;
+                if (pieceStart >= liveStart - LiveCopyRecordedDataToleranceSeconds
+                    && pieceEnd <= liveEnd + LiveCopyRecordedDataToleranceSeconds)
+                    return shared.Key;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// A live recording copied before an optimizer split stamped its chain has no chain id:
+        /// it takes the committed copy's id and index, so the chain pieces that stay keep one
+        /// chain with it. Returns the chain ids of every shared recording on a chain (the ones
+        /// to re-index after the union).
+        /// </summary>
+        private static HashSet<string> CarryCommittedChainIdentity(RecordingTree existing, RecordingTree incoming)
+        {
+            var chains = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var shared in incoming.Recordings)
+            {
+                if (shared.Value == null
+                    || !existing.Recordings.TryGetValue(shared.Key, out Recording committedShared)
+                    || committedShared == null || string.IsNullOrEmpty(committedShared.ChainId))
+                    continue;
+                if (string.IsNullOrEmpty(shared.Value.ChainId))
+                {
+                    shared.Value.ChainId = committedShared.ChainId;
+                    shared.Value.ChainIndex = committedShared.ChainIndex;
+                }
+                chains.Add(shared.Value.ChainId);
+            }
+            return chains;
+        }
+
         private static string LiveCopyChainKey(Recording rec)
             => !string.IsNullOrEmpty(rec.ChainId) ? "chain:" + rec.ChainId : "rec:" + (rec.RecordingId ?? "");
 
