@@ -83,6 +83,32 @@ namespace Parsek.Tests
                 "a captured separation must start the recording (before the baseline / settle gates) and then be fed");
         }
 
+        [Fact]
+        public void StructuralSplitStart_RunsAheadOfThePassiveMotionTriggers()
+        {
+            // The passive-attitude baseline and the SOI follow live in the trigger evaluation;
+            // a captured separation starts the recording before any of them is consulted.
+            string body = MethodBody("ParsekFlightPostSwitchAutoRecord.cs", "void OnPostSwitchAutoRecordPhysicsFrame(Vessel v)");
+            int start = body.IndexOf("PostSwitchAutoRecordTrigger.StructuralSplit, currentUT)", StringComparison.Ordinal);
+            int settle = body.IndexOf("currentUT < state.ComparisonsReadyUt", StringComparison.Ordinal);
+            int evaluate = body.IndexOf("EvaluatePostSwitchAutoRecordTrigger(v", StringComparison.Ordinal);
+            Assert.True(start >= 0 && settle > start && evaluate > start,
+                "the structural-split start must run ahead of the settle wait and the trigger evaluation");
+        }
+
+        [Fact]
+        public void GraftGuard_DoesNotRefuseAnUntrackedUncommittedVessel()
+        {
+            // The separated vessel's fresh start under a live tree is a vessel no committed tree
+            // holds: the committed-vessel graft guard must let it through.
+            Assert.False(ParsekFlightPostSwitchAutoRecord.IsPostSwitchGraftOfSeparateCommittedVessel(
+                ParsekFlight.PostSwitchAutoRecordStartDecision.StartFreshRecording,
+                hasActiveTree: true, matchedCommittedTree: false, matchedTreeId: null, activeTreeId: "live"));
+            Assert.True(ParsekFlightPostSwitchAutoRecord.IsPostSwitchGraftOfSeparateCommittedVessel(
+                ParsekFlight.PostSwitchAutoRecordStartDecision.StartFreshRecording,
+                hasActiveTree: true, matchedCommittedTree: true, matchedTreeId: "other", activeTreeId: "live"));
+        }
+
         // ---- tracked background member: the background recorder owns the split ----
 
         [Fact]
