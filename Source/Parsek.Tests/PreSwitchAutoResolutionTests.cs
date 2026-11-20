@@ -179,7 +179,7 @@ namespace Parsek.Tests
             string src = ReadSource("Parsek", "Patches", "MapFocusObjectOnSelectPatch.cs");
             int openCase = src.IndexOf("case PreSwitchDialogDecision.OpenDialog:", StringComparison.Ordinal);
             int resolve = src.IndexOf("if (TryAutoResolvePreSwitch(vessel, existingSession,", openCase, StringComparison.Ordinal);
-            int spawn = src.IndexOf("TryOpenPreSwitchDecisionDialog(vessel, existingSession)", openCase, StringComparison.Ordinal);
+            int spawn = src.IndexOf("TryOpenPreSwitchDecisionDialog(vessel, existingSession, cycleSwitch)", openCase, StringComparison.Ordinal);
             Assert.True(openCase >= 0 && resolve > openCase && spawn > resolve,
                 "the OpenDialog branch must call TryAutoResolvePreSwitch before it spawns the dialog");
         }
