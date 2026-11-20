@@ -28,6 +28,10 @@ Not released yet.
 
 ### Fixed
 
+- **Vessels recorded close to a re-flown ship keep replaying.** A ghost recorded relative to the
+  old flight after the rewind point (one docking with it, say) lost its reference when the merge
+  cut the old flight and vanished early; it now follows the cut-off part of the old flight.
+  (REFLY-CUT-ORPHANS-RELATIVE-ANCHORS)
 - **A Re-Fly merge splits the new flight into its timeline rows at once.** The new attempt stayed
   one long row until the next merge or game load; it is now split at atmosphere, landing and
   sphere-of-influence changes as soon as the merge finishes.

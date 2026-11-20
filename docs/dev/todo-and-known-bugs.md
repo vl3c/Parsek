@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-CUT-ORPHANS-RELATIVE-ANCHORS~~: Relative-frame recordings anchored to a Re-Fly-cut origin after the rewind point anchored to HEAD, which ends at the rewind [FILED 2026-11-18 by the recording split / trim / merge review (finding L12), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; low (a ghost retires early for lack of an anchor)]
+
+**Cause:** `RecordingTreeSplitter` keeps the origin's id on HEAD (which now ends at the cut) and gives TIP a fresh id. It rewrote `TrackSection.anchorRecordingId` only on TIP's own sections and on reparented debris, so any other recording with a Relative section anchored to the origin after the cut resolved against HEAD, which no longer covers that time.
+
+**Fix:** step 2.8c, `RecordingTreeSplitter.RewriteOtherRecordingAnchorsToTip`: every other committed recording's Relative section anchored to the origin that starts at or after the cut points at TIP (on the split's rollback ledger, `FilesDirty` set). A section straddling the cut cannot be cut there and stays on HEAD, counted. The session's own attempt recordings (the provisional and every recording stamped with the session) are left alone. Verbose `Step8: anchor rewrites - ... otherSections=<n> otherStraddlersKeptOnHead=<n>`.
+
+**Tests:** `RecordingTreeSplitterTests.SplitOriginAtRewindUT_OtherRecordingsRelativeSectionsAfterTheCut_FollowTip` (red under a mutation that skips the walk).
+
 ## ~~REFLY-MERGE-OPTIMIZER-PASS-AFTER-MERGE~~: the optimizer pass right after a Re-Fly merge (owner ruling Q6) [FILED 2026-11-18 by the recording split / trim / merge review, ruled by the owner 2026-11-18 ("Yes, right after merge"). FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane]
 
 **Cause:** the merge dialog's optimizer pass runs before the supersede step while the Re-Fly marker is live, and `CommittedListOptimizer.RunOptimizationSplitPass` defers the active provisional while a marker is live, so the new attempt stayed one recording until the next commit or cold load.

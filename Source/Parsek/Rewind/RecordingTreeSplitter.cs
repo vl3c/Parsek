@@ -49,6 +49,8 @@ namespace Parsek
             internal int DebrisReparented;
             internal int DebrisAnchorRewrites;
             internal int TipAnchorRewrites;
+            internal int OtherAnchorRewrites;
+            internal int OtherAnchorStraddlers;
             internal int ActionsRetagged;
             internal int MilestonesRetagged;
             internal bool Skipped;
@@ -1045,9 +1047,21 @@ namespace Parsek
                     }
                 }
             }
+            // Every other recording's Relative sections anchored to the origin after the
+            // rewind UT (a vessel that approached or docked with the origin's vessel later in
+            // the old flight): HEAD keeps the origin id but ends at the rewind UT, so those
+            // sections would resolve against a recording that no longer covers them and the
+            // ghost would retire for lack of an anchor. They follow the post-rewind trajectory
+            // to TIP. A section straddling the rewind UT cannot be cut here; it stays on HEAD
+            // and is counted. The session's own attempt recordings anchor to the fork, never
+            // to the origin's old flight, and are left alone.
+            RewriteOtherRecordingAnchorsToTip(
+                marker, origin, tip, rewindUT, reparentedDebrisIds, snapshot, ref result);
             ParsekLog.Verbose(Tag,
                 $"Step8: anchor rewrites — tipSections={result.TipAnchorRewrites.ToString(ic)} " +
-                $"debrisSections={result.DebrisAnchorRewrites.ToString(ic)}");
+                $"debrisSections={result.DebrisAnchorRewrites.ToString(ic)} " +
+                $"otherSections={result.OtherAnchorRewrites.ToString(ic)} " +
+                $"otherStraddlersKeptOnHead={result.OtherAnchorStraddlers.ToString(ic)}");
 
             // Step 2.9: ledger action retag. Select every action tagged to origin
             // whose attribution UT (ShouldRetagLedgerActionToTip, read against the
@@ -1188,6 +1202,59 @@ namespace Parsek
                 $"addedTipThisCall={(addedTipThisCall ? "true" : "false")}");
 
             return result;
+        }
+
+        /// <summary>
+        /// Step 2.8c: points every other committed recording's Relative sections anchored to
+        /// the origin at or after the cut at TIP (todo REFLY-CUT-ORPHANS-RELATIVE-ANCHORS);
+        /// a section straddling the cut stays on HEAD and is counted. Mutations go on the
+        /// split's rollback ledger.
+        /// </summary>
+        private static void RewriteOtherRecordingAnchorsToTip(
+            ReFlySessionMarker marker, Recording origin, Recording tip, double rewindUT,
+            List<string> reparentedDebrisIds, SplitSnapshot snapshot, ref SplitOriginResult result)
+        {
+            var otherSource = RecordingStore.CommittedRecordings;
+            if (otherSource != null)
+            {
+                var reparentedSet = new HashSet<string>(reparentedDebrisIds, StringComparer.Ordinal);
+                for (int r = 0; r < otherSource.Count; r++)
+                {
+                    var o = otherSource[r];
+                    if (o == null || o.TrackSections == null) continue;
+                    if (ReferenceEquals(o, origin) || ReferenceEquals(o, tip)) continue;
+                    if (string.Equals(o.RecordingId, origin.RecordingId, StringComparison.Ordinal)
+                        || string.Equals(o.RecordingId, tip.RecordingId, StringComparison.Ordinal)
+                        || reparentedSet.Contains(o.RecordingId ?? ""))
+                        continue;
+                    if (marker != null
+                        && (string.Equals(o.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal)
+                            || (!string.IsNullOrEmpty(marker.SessionId)
+                                && string.Equals(o.CreatingSessionId, marker.SessionId, StringComparison.Ordinal))))
+                        continue;
+                    for (int i = 0; i < o.TrackSections.Count; i++)
+                    {
+                        var s = o.TrackSections[i];
+                        if (s.referenceFrame != ReferenceFrame.Relative
+                            || string.IsNullOrEmpty(s.anchorRecordingId)
+                            || !string.Equals(s.anchorRecordingId, origin.RecordingId, StringComparison.Ordinal))
+                            continue;
+                        if (s.startUT >= rewindUT)
+                        {
+                            snapshot.Ledger.Add(SplitMutationLedger.TrackSectionAnchor(
+                                o, i, s.anchorRecordingId, tip.RecordingId));
+                            s.anchorRecordingId = tip.RecordingId;
+                            o.TrackSections[i] = s;
+                            o.FilesDirty = true;
+                            result.OtherAnchorRewrites++;
+                        }
+                        else if (s.endUT > rewindUT)
+                        {
+                            result.OtherAnchorStraddlers++;
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>
