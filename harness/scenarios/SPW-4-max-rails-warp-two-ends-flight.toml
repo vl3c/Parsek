@@ -2,8 +2,8 @@ schema = 1
 id = "SPW-4-max-rails-warp-two-ends-flight"
 # =====================================================================================
 # SPW-4: TWO RECORDING ENDS CROSSED INSIDE ONE UNCAPPED RAILS WARP, IN FLIGHT.
-# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
-# tag `pending-flight`.)
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED; LIVE-PROVEN
+# 2026-11-20 on its re-flight, see below.)
 #
 # WHY. Every committed lane that crosses an end under warp caps the ladder (EVA-15 and
 # CN-3 at 100x, SPW-1 at <= 100x by span). Nothing crosses ends at the top of the rails
@@ -55,17 +55,24 @@ id = "SPW-4-max-rails-warp-two-ends-flight"
 # intended road: `[runtime] kspSettings = { DECLUTTER_KSC = false }` (VB-1's key, restored
 # at teardown) keeps the debris, and the reload names it, `focusPid = "1365670035"` (the
 # fixture's first `Kerbal X Debris`, LANDED on the pad), pinned by its `loadgame focus`
-# line. No spawn was read. Not re-flown since.
+# line. No spawn was read.
+# RE-FLOWN 2026-11-20, LIVE-PROVEN: run 2026-11-20_2203, PASS attempt 1, 233 s
+# (parallel runner run tip-spawn-reflight-2026-11-20, main c11d6cde2, Debug DLL 72189e6d...).
+# The fix held: the warp reached 100000x (`warptout complete ... ut=1000000 maxRate=100000`),
+# both ends were deferred during it (`Deferred spawn during warp: #1 "Kerbal X"`, `#2
+# "Valentina Kerman"`) and each spawned once through the Orbital path; LeafVesselPlacement
+# `compared=2 ok=2` at UT ~1,000,000, batch `total=1 passed=1 failed=0 skipped=0`, now
+# pinned whole; the id left INTERIM_PIN_IDS.
 #
 # FAST-LANE CHECKLIST: (1) reuse EVA-15's host and road whole. (2) explicit-UT waits only.
 # (3) EvaExit settle 10 s. (4)/(5) none. (6) retry once. (7) count exact 3 (EVA-15's
 # derivation). (8) operator until measured. (9) flight_efficiency.py after a green flight.
 # =====================================================================================
 tier = "operator"
-description = "Max rails warp in FLIGHT: on eva2-lko-crewed (asteroid removed) Valentina steps out of the orbiting Kerbal X and both leaves are recorded and committed; Rewind-to-Launch, reload into FLIGHT on a landed pad debris, and an uncapped WarpToUT to UT 1,000,000 (100000x) crosses both ends in one warp. Pins that each end spawns exactly once through the recorded-terminal-orbit path after the warp and that LeafVesselPlacement reads both on their recorded orbits."
+description = "LIVE-PROVEN 2026-11-20 (run 2026-11-20_2203, the re-flight). Max rails warp in FLIGHT: on eva2-lko-crewed (asteroid removed) Valentina steps out of the orbiting Kerbal X and both leaves are recorded and committed; Rewind-to-Launch, reload into FLIGHT on a landed pad debris, and an uncapped WarpToUT to UT 1,000,000 (100000x) crosses both ends in one warp. Pins that each end spawns exactly once through the recorded-terminal-orbit path after the warp and that LeafVesselPlacement reads both on their recorded orbits."
 instanceProfile = "stock-minimal"
 tags = ["SPW-4", "spawn", "end-spawn", "deferred-spawn", "terminal-orbit", "warp", "max-warp",
-        "rewind-to-launch", "eva-branch", "kerbin", "sandbox", "pending-flight"]
+        "rewind-to-launch", "eva-branch", "kerbin", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"
@@ -153,7 +160,7 @@ required = [
   "LeafPlacement: rec=[0-9a-f]+ vessel='Kerbal X' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
   "LeafPlacement: rec=[0-9a-f]+ vessel='Valentina Kerman' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
   "MISSIONMARK label=spw4-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[2-9][0-9]* ok=[2-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [
