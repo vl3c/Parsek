@@ -33,6 +33,7 @@ namespace Parsek.Tests.Logistics
 
         public void Dispose()
         {
+            HomeWorld.HomeBodyNameOverrideForTesting = null;
             Thread.CurrentThread.CurrentCulture = originalCulture;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -285,6 +286,43 @@ namespace Parsek.Tests.Logistics
             Assert.True(outcome.Route.IsKscOrigin);
             Assert.Equal("Kerbin", outcome.Route.Origin.BodyName);
             Assert.Equal(0u, outcome.Route.Origin.VesselPersistentId);
+        }
+
+        [Fact]
+        public void Build_KscOriginRecording_OnAPlanetPackHomeWorld_IsKscOrigin_OnThatBody()
+        {
+            // catches: the KSC-origin gate comparing against the literal "Kerbin", so a
+            // planet pack whose home world is another body (GPP's Gael) builds no Space
+            // Center route at all, or builds one whose origin endpoint names Kerbin.
+            HomeWorld.HomeBodyNameOverrideForTesting = "Gael";
+            Recording source = MakeKscSource();
+            source.StartBodyName = "Gael";
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.CAREER);
+
+            Assert.NotNull(outcome.Route);
+            Assert.True(outcome.Route.IsKscOrigin);
+            Assert.Equal("Gael", outcome.Route.Origin.BodyName);
+            Assert.Equal(0u, outcome.Route.Origin.VesselPersistentId);
+        }
+
+        [Fact]
+        public void Build_KerbinLaunch_WhenTheHomeWorldIsAnotherBody_IsNotKscOrigin()
+        {
+            // The mirror direction: with a planet-pack home world, a launch-site start on
+            // a body named "Kerbin" (a pack that keeps a non-home Kerbin) is no KSC origin.
+            HomeWorld.HomeBodyNameOverrideForTesting = "Gael";
+            Recording source = MakeKscSource();
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.CAREER);
+
+            // No KSC origin and no docked-origin proof: the build refuses, naming the endpoint.
+            Assert.Null(outcome.Route);
+            Assert.Equal("endpoint-missing", outcome.RejectReason);
         }
 
         [Fact]

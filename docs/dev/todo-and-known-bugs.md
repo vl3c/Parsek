@@ -194,6 +194,90 @@ offsets in time) and spawn on the chosen phase; (c) leave it. (a) is the smaller
 a rule for a station parked next to the spawn point (it never clears). Needs an owner pick; not
 built. Relevant to SPAWN-RESTING-ON-ROCK: a lander resting on a loaded rock hits exactly this path.
 
+## ~~DEBRIS-LIFETIME-LOST-ON-PROMOTION~~: a debris piece the player switched to lost its 60 s limit [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a promoted booster recorded until it crashed; GS-11 measured it)]
+
+Cause: the debris time limit lived only in `BackgroundRecorder.debrisTTLExpiry`. A promotion to the
+active recorder cancels that entry (D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: the background recorder no
+longer owns the piece), and the active recorder had no limit, so the booster recorded to impact
+(GS-11 `points=271 terminal=Destroyed`). Switching away again did not re-arm it, a Fly / Switch-To
+continuation segment of the piece recorded as a plain, non-debris segment with no limit, and a
+post-switch watch armed while the piece was tracked started a fresh recording once its limit ended
+it (draft review question 7). Owner ruling Q13 (2026-11-18): "Always the 60 s limit".
+
+Fix: the limit is read from the tree by the pure `BackgroundRecorder.TryResolveDebrisExpiryUT` (separation
+branch point UT + 60 s, walking up through `VesselSwitchContinuation` points). The active recorder
+honours it: `ParsekFlight.CheckActiveDebrisLifetime` (pure gate `EvaluateActiveDebrisLifetimeEnd`,
+deferred while a split, an unprocessed split check, dock merge, restore or hand-off is in progress)
+hands the piece back to the background recorder the way a vessel switch does, flushing the coalescer
+window and unprocessed decouple captures first (`FlushPendingSplits`) and ends it there
+(`BackgroundRecorder.EndDebrisRecordingForLifetime`, a background time-limit end); the vessel stays
+focused, unrecorded. `OnVesselBackgrounded` re-arms the same limit for a debris piece with none
+(`Debris lifetime re-armed from the tree`, Info for a hand-back, Verbose for a recording created this
+frame; a background split child sets its own deadline before the hand-off). `SwitchSegmentBuilder.InheritDebrisIdentityFromParent`
+keeps `IsDebris`, `ParentAnchorRecordingId` and `Generation` on a continuation of a debris piece whose limit still
+runs (a piece past its limit, from an older flight, continues as a plain segment, as before).
+`CheckDebrisTTL` returns the pids it ended and the flight host disarms a post-switch watch armed on
+one (`reason=debris-recording-ended`). Promotion already kept `IsDebris` and
+`ParentAnchorRecordingId` (same `Recording` object); only the limit was lost.
+
+Tests: `DebrisLifetimeTests` (lifetime resolution, the active gate, the hand-back re-arm and end, the
+continuation inheritance, `CheckDebrisTTL`'s ended pids). Red before the fix, by disabling the two
+new call sites: `HandBackToBackground_RearmsTheSeparationLifetime`,
+`SwitchContinuation_OfLiveDebris_StaysDebris`; the active gate and resolver are new code. The live
+hand-back (`TransitionToBackground` -> flush -> `OnVesselBackgrounded` -> end) is not headless-testable;
+lane GS-11 flies it (expected to change: the promoted booster now ends at its limit, not at impact).
+
+## ~~EVA-MARKS-SHIP-AS-SPINOFF-GENERATION~~: an EVA gave the ship the spinoff generation and the kerbal the ship's [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `BackgroundSplitTests`; low (no player-visible effect left after BG-BREAKUP-GENERATION-CAP)]
+
+Cause: `ParsekFlight.BuildSplitBranchData` gives the ACTIVE child the parent's generation and the
+background child one more. On an EVA KSP hands focus to the kerbal, so the kerbal kept the
+generation and the ship was marked as the spinoff; with the old cascade cap a landed ship that
+tipped over after an EVA recorded no breakup (draft review question 9).
+
+Fix: on an EVA branch whose kerbal is the active child, the ship (background child) keeps the
+parent's generation and the kerbal gets one more, as when the kerbal is the background child.
+BG-BREAKUP-GENERATION-CAP already lets the ship record its breakups (its recording is not debris),
+so this corrects the stored generation only. Merge note: a five-line edit inside the EVA block of
+`BuildSplitBranchData` in `ParsekFlight.SplitBranching.cs`.
+
+Tests: `BackgroundSplitTests.BuildSplitBranchData_EvaFromActiveShip_ShipKeepsGeneration_KerbalIsSpinoff`
+(red before the fix), `BuildSplitBranchData_EvaKerbalInBackground_ShipKeepsGeneration`.
+
+## ~~BG-BREAKUP-GENERATION-CAP~~: a background vessel never recorded its own breakup after its first split [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `BackgroundSplitTests`; medium (a second separation of a probe or crewed vessel left its pieces unrecorded)]
+
+Cause: `BackgroundRecorder.HandleBackgroundVesselSplit` skipped every split whose parent recording
+was at `Generation >= MaxRecordingGeneration` (1), so a probe or crewed vessel that had come off
+the launched vessel (generation 1) never recorded its own later separations while in the
+background (draft review question 9; the cap was undocumented).
+
+Fix: owner ruling Q14 (2026-11-18), "Yes, for controllable ones". `ShouldSkipForCascadeCap` takes
+whether the parent is controllable (`IsCascadeCapControllableParent`: a recording that is not
+debris, or a live parent that `ParsekFlight.ShouldRecordAsOwnBranch` accepts) and caps plain debris
+only. A lifted cap logs `Cascade depth cap lifted for a controllable parent`; the cap line gains
+`parentIsDebris` and `liveParentOwnBranch`. The flight-recorder design doc now states the rule.
+
+Tests: `BackgroundSplitTests.ShouldSkipForCascadeCap_ControllableParent_NeverSkips` (red before the
+fix), `IsCascadeCapControllableParent_PlainDebrisOnlyIsCapped`; the existing cap cells pass
+`parentControllable: false` and keep their expectations.
+
+## ~~DEBRIS-ENDS-WHEN-PARENT-GOES-ON-RAILS~~: time warp ended every parent-anchored debris recording [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a booster's fall was cut off whenever the player warped)]
+
+Cause: `BackgroundRecorder.CheckDebrisTTL` ended a parent-anchored debris recording when its parent
+vessel was packed or unloaded (`ParentOnRailsOrDestroyed`, plan Decision section 10). Time warp
+packs every loaded vessel, so warping right after staging ended every dropped stage's recording at
+once (draft review question 6). Owner ruling Q12 (2026-11-18): keep to the time limit.
+
+Fix: the per-entry verdict is the pure `BackgroundRecorder.ClassifyDebrisTtlEntry`. A parent that
+is on rails (packed or unloaded) no longer ends the debris; only a parent vessel that is gone does
+(`ParentVesselDestroyed`, log `Debris TTL: parent vessel gone, ending recording`). The debris keeps
+its 60 s limit and its other ends (vessel gone, left the physics bubble, parent recording missing
+or no longer written). While on rails it records through the existing background on-rails state
+(orbit checkpoints); no section is added to that state. A kept entry logs, rate-limited,
+`Debris TTL: parent on rails, debris keeps recording to its time limit`.
+
+Tests: `DebrisLifetimeTests` (the verdict table; `ParentPackedByTimeWarp_DebrisKeepsRecording` and
+`ParentUnloaded_DebrisKeepsRecording` red before the fix).
+
 ## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
 
 Cause: `RecordingEndpointResolver.TryGetCoordinatesForPhase`'s `TrajectoryPoint` phase took the last
@@ -629,6 +713,173 @@ step pinned to Measure and the SOI block off (today's behavior) three cells fail
 
 Residual, not this finding: other passive changes still trigger for an outsider, notably
 `ResourceChange` from solar panels charging a battery and `LandedMotion` from a vessel settling.
+
+## ~~ROUTE-DELETED-MID-CYCLE-LOSES-CARGO~~: deleting a route between a window that took cargo and the window that delivers it loses that cargo [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit through the production tick. OWNER RULING 2026-11-20 (V): "lost, but warn in the dialog". DONE 2026-11-20, same branch; xUnit only, no lane flies it yet; low (cargo only, on a player action behind a confirm)]
+
+No design document said what a route removal does to a cycle in flight: the supply-routes
+design covered a deleted SOURCE RECORDING during transit (section 1.3, "current cycle aborts
+before delivery"), not a deleted route. Behavior (`RouteRemovedMidCycleTests`, a two-window
+shuttle driven through `RouteOrchestrator.Tick`), kept by the ruling: the cargo the pickup
+window took from its source stays taken, the delivery window never fires, nothing refunds it,
+the `RouteCargoPickedUp` row stays in the route event log, and the cycle's escrow is dropped
+(`DropRouteEscrow`). A single-stop loop route has no such gap (its debit and delivery fire in
+one `EmitLoopCycle`). The removal logs it: `RemoveRoute: route <id> removed mid-cycle:
+cycle=cycle-N originDebits=a pickups=b deliveries=c; cargo already taken is not returned ...`
+(`RouteStore.DescribeAbandonedCycle`), and the seam has `RouteCommand action=delete` (payload
+`midCycle=`).
+
+Done: the existing Logistics delete confirm (`ParsekLogisticsDeleteRouteConfirm`, no new
+surface) adds one sentence, "Cargo already taken on this trip and not yet delivered will be
+lost.", before "This cannot be undone." while the route's open cycle has an origin debit or a
+pickup row (`RouteStore.HasUndeliveredCargoInOpenCycle`, the same open-cycle rule as
+`DescribeAbandonedCycle`; body from the pure `LogisticsWindowUI.BuildDeleteConfirmBody(route,
+cargoInTransit)`); the spawn line now reads `Logistics: Delete route=<id> confirm dialog spawned
+cargoInTransit=<bool>`. The dormant-route delete confirm is unchanged (a dormant route has no
+cycle in flight). Design table row added (supply-routes design section 1.3). Owed: a lane that
+raises the confirm mid-cycle (`UiAction raise popup=deleteroute` after a pickup window) and
+reads `cargoInTransit=True`.
+
+## ~~WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION~~: after a watched ship docks and undocks, watch follows the vessel that kept the merge's pid, not the ship [FILED 2026-11-20 by the test-gap pass (batch 2, branch `test-gaps-b2-cloud-a`), by xUnit (`WatchAcrossDockTests`). OWNER RULING 2026-11-20 (V): "follow the ship I was watching". FIXED 2026-11-20, same branch; xUnit only, no lane flies a watch across a dock and undock; low (camera choice, the player can pick the ship again)]
+
+At the dock itself watch was right in every shape and is unchanged: the merged vessel is the
+only child, so it is followed whether the merge kept the watched ship's pid (same-pid rule) or
+the partner's (the different-pid fallback, allowed for Dock), and from the passive partner too;
+with the merged ghost not spawned yet it holds (-1). The step after was the defect: when the
+merged vessel later undocked, `GhostPlaybackLogic.FindNextWatchTarget` preferred the child with
+the MERGED recording's pid, so a ship that docked into a station whose pid the merge kept was
+followed by the station, not by the ship that leaves.
+
+Fix: a watch session now remembers the launch guid of the vessel it started on
+(`WatchModeController.watchedIdentityGuid`, set in `TryCommitWatchSessionStart`, kept across
+`TransferWatchToNextSegment`, cleared with the session). At an Undock branch point
+`GhostPlaybackLogic.FindWatchedIdentityChild` picks the one child whose `RecordedVesselGuid` is
+that guid or continues it through a link row (`VesselLaunchIdentity.GuidsPositivelySameIdentity`;
+KSP gives the ship that leaves a dock a fresh guid, which the UndockReturn link joins back), and
+that child replaces the same-pid child as the preferred continuation in both
+`FindNextWatchTarget` and `TryGetPendingWatchActivationUT`: followed when its ghost is active,
+otherwise the watch holds for it (the hold timer retries) rather than jumping to the station.
+With the identity unknown, no child continuing it, or two children continuing it, the same-pid
+rule stays. Never a bare pid. Logs (`[Watch]`, rate-limited Verbose): `undock <bp>: following the
+watched vessel identity=<guid> -> child ...` / `no child continues the watched vessel identity=...
+- keeping the same-PID rule` / `watched identity unknown - keeping the same-PID rule`, plus
+`Watch session identity: #i ... identity=<guid|unknown>` at session start. Not covered: an undock
+recorded before dock-absorb rows existed, whose ship child carries a fresh guid with no link
+(VesselIdentity's edge 6, part-pid overlap, is not consulted here); it keeps the same-pid rule.
+
+## ROUTE-TICK-EVENT-LOG-SCANS: every route cycle walks the whole route event log several times, so a warp tick with many routes slows as the career grows [FILED 2026-11-20 from the test-gap list's "many routes at once" measurement (branch `test-gaps-b2-cloud-b`, `RouteTickScalingTests`); headless; OPEN; low-medium (frame time under high warp in a long career with many routes, no wrong result)]
+
+Measured headlessly (`RouteTickScalingTests`, test fake environment, so the live endpoint
+resolution is not in it; Windows .NET 4.7.2 test host on a shared, noisy machine, so read the
+numbers as orders of magnitude). Single-stop loop routes, half from the Space Center and half from
+their own depot, production delivery and origin-debit writers:
+
+| routes | 1x tick, fresh log | warp tick (all fire), fresh log | 1x tick, long log | warp tick (all fire), long log |
+| --- | --- | --- | --- | --- |
+| 10 | ~20 us | ~0.6-0.9 ms | ~50 us (38k rows) | ~7-12 ms (43k rows) |
+| 20 | ~45 us | ~1.7-3 ms | ~130-160 us (76k rows) | ~28-40 ms (86k rows) |
+| 30 | ~50-90 us | ~3.7-6 ms | ~260-630 us (113k rows) | ~90-96 ms (128k rows) |
+
+The route count alone scales linearly (no walk over route pairs). What grows is the per-cycle cost:
+each fire scans the whole `RouteEventLog.Events` list with ordinal string compares, so a warp tick
+that fires every route costs routes x rows, and the rows grow with routes x time. The scans on one
+single-stop cycle: `IsDispatchAlreadyLogged` (`RouteOrchestrator.Delivery.cs:747`, called from
+`EmitLoopCycle`, `RouteOrchestrator.Debits.cs:67`), `IsDeliveryAlreadyLogged`
+(`RouteOrchestrator.Delivery.cs:701`, called from `ApplyDelivery`, line 65) and
+`ComputeCycleSupplyDeficit` (`RouteOrchestrator.SupplyDeficit.cs:53`, called from `ApplyDelivery`,
+line 239); a blocked cycle adds `IsHoldReasonRecordedInOpenEpisode` (`RouteOrchestrator.Holds.cs:167`),
+and a multi-stop cycle adds `RouteOrchestrator.LoopCrossings.cs:685`. The tick runs once per game
+second, so at 1x this is small; under high warp it runs every frame, and a frame where many routes
+cross a dock pays it in full.
+
+Fix (not done, needs care): a per-(route id, cycle id) index of the log, kept in step with every
+mutator of the list (`Add`, `ReplaceAll`, the rewind retire, the window-row removal, load), or keyed
+on `RouteEventLog.StateVersion` with an append-only fast path. Every mutator must be covered or the
+replay backstop silently stops guarding, and a new mutable static needs `scripts/arch/lifetimes.toml`.
+Re-measure with `ManyRoutes_LongEventLog_Benchmark` (`PARSEK_ROUTE_TICK_BENCH=1`, about two minutes).
+
+Done on the same branch: the per-route, per-tick "no dock crossing" Verbose line in
+`ProcessLoopRoute` and the tick summary line built their messages (ten round-trip double formats)
+on every route every tick even when the rate limiter dropped them; both now build the message only
+when the line emits, which halved the 1x tick's garbage (about 2.9 KB to 1.4 KB per route per tick;
+`ManyRoutes_TickCostStaysSmall` pins it under 2 KB, and reds on the eager form). The rest of that
+garbage is the rate-limit key strings (`"loop-noncross-" + route.Id`,
+`"route-loop-clock-args-" + route.Id`, `RouteOrchestrator.LoopCrossings.cs:191` and `:61`, plus
+`ParsekLog`'s composite `subsystem|key`) and the per-call closure and delegate objects; caching the
+key strings per route would remove most of it.
+
+## ~~SAVE-WIDE-STAMP-NEWER-WRITEBACK~~: a save from a newer Parsek gets this build's save-wide stamp on its next save [CLOSED 2026-11-20 by owner ruling: keep today's behavior, documented in `design-save-format-policy.md` section 7 ("Keep today, document it"); FILED 2026-11-20 from the test-gap list (Batch 2 item 8), by code reading and a headless round trip, branch `test-gaps-b2-cloud-c`. OWNER QUESTION, no code change; low (only a downgrade then upgrade sequence reaches it)]
+
+What happens. Loading a PARSEK node stamped `parsekSaveFormat` above `SaveFormat.CurrentSaveFormat`
+logs the one Warn the policy names (`save written by a newer Parsek: parsekSaveFormat=N > current=1
+(writtenBy=...)`), and the unstamped stores load best effort. The next `OnSave` writes every store
+fresh in this build's shape and `SaveFormat.StampScenarioNode` (`ParsekScenario.cs`, phase
+`save-format`) stamps this build's own number, so the newer stamp is lowered. In the same round trip
+the stores drop what they cannot read: a `ROUTE` node's unknown values and child nodes, a
+`VESSEL_NAMES` node's and `DECISION` node's unknown keys, and an unknown `VesselNameSource` value is
+coerced to `ParsekRename`. Pinned as today's behaviour by
+`SaveFormatNewerSaveWideStampTests.NewerSaveWideStamp_LoadSave_WarnsOnce_RewritesStoresInThisBuildsShape_AndStampsCurrent`.
+
+Why it is a question, not a bug. `docs/dev/design-save-format-policy.md` section 4 ("Save-wide
+stamp") and section 7 ("the stores under the save-wide stamp have no hold") accept the best-effort
+read and say nothing about the number written back. Lowering the stamp is consistent with what is
+written (the stores ARE in this build's shape after the rewrite); keeping the newer number would make
+the newer build read this build's shape as its own and skip its upgrade step. The general rule
+("data newer than the build is held verbatim and written back, never coerced") points the other way
+only if the unstamped stores also get a hold.
+
+Owner decision needed: (a) keep today's behaviour and add one sentence to policy section 4 saying the
+stamp is rewritten as current because the stores are; or (b) give the unstamped stores a hold
+(write the loaded PARSEK node's unknown values and child nodes back, keep unknown enum names raw) and
+then keep the newer stamp. (b) is a feature, not a fix.
+
+## ~~PLANET-PACK-HOME-WORLD-LITERAL~~: Space Center ghosts and Space Center routes only recognized a home world named "Kerbin" [FILED 2026-11-20 from the test-gap list (Batch 2), by code reading. FIXED 2026-11-20, branch `test-gaps-b2-cloud-c`; xUnit (`HomeWorldTests`, two `RouteBuilderTests` cells, one mutation checked); no lane (no planet-pack install profile); medium for planet-pack players (no KSC ghosts, no Space Center routes), none on stock. OPEN: the residue below, low]
+
+Cause. `ParsekKSC.ClassifyKscStructuralRoute` and the two KSC pose resolvers compared point body names
+with the literal "Kerbin", and `RouteAnalysisEngine.IsKscOriginRecording` / `RouteBuilder`'s KSC origin
+compared `StartBodyName` with it and wrote `Origin.BodyName = "Kerbin"`. With a Kopernicus pack whose
+home is another body (GPP's Gael, RSS's Earth) the Space Center drew no ghost of a home launch and no
+route was ever a Space Center route.
+
+Fix. One helper, `Recording/HomeWorld.cs`: `HomeWorld.HomeBodyName` reads `FlightGlobals.GetHomeBody()`
+in a NoInlining core, falls back to "Kerbin" (silently headless, a rate-limited Warn on any other read
+failure, never cached). The callers run per committed recording per Update and per KSC ghost per frame, so
+the name is memoized on the live home `CelestialBody`'s reference identity (`IsResolvedFor`): a call costs
+one `GetHomeBody()` field read and allocates nothing; Unity's allocating `name` is read, and the
+`home world resolved:` line (Info when not stock, Verbose for Kerbin) logged, once per body object. Bodies
+live for the process, so a game load keeps the entry and a different body re-resolves with no scene hook.
+Test seams (`HomeBodyNameOverrideForTesting`, `LiveHomeBodyReaderForTesting`, `BodyNameReaderForTesting`) are
+`[ThreadStatic]`, so a test injecting "Gael" cannot leak into a parallel class reading Kerbin data
+(`RoverRelayCOracleTests` and the other non-Sequential KSC-origin / KSC-dispatch readers). Sites changed (7 literals on 6 lines): `ParsekKSC.cs`
+`ClassifyKscStructuralRoute`; `ParsekKSC.Playback.cs` `TryResolveKscPointPose` and
+`TryResolveKscSegmentPose` (2); `RouteAnalysisEngine.IsKscOriginRecording`; `RouteBuilder.TryResolveRouteOrigin`
+(the KSC test, and the origin endpoint now takes `originRec.StartBodyName`, which the test proved is the
+home world). The skip reason token `off-kerbin` and the `non-kerbin` pose failure are unchanged.
+
+Residue (not changed, 35 production lines left; 204 in in-game tests and 12 in the GUI gallery's
+synthetic mocks are fixtures). None is a home-world check; each is a default for a missing body name,
+a stock table or a comment:
+- Decode defaults when a persisted body is absent (writers always write it): `TrajectorySidecarBinary`
+  (3), `TrajectoryTextSidecarCodec` (4), `SurfacePosition` (1).
+- Null-body fallbacks in playback and spawn: the ghost positioner `Loop` / `RecordedRelative` (4),
+  `VesselGhoster` walkback, `ParsekFlight.MergeFlow` terminal position, `ParsekFlight.PadEvidence`,
+  `RecordingStatsCalculator` (3), `TrajectoryMath.Stats`, `RecordingEndpointResolver.GetPreferredEndpointBodyName`
+  (only a test calls it). Could default to `HomeWorld.HomeBodyName`; no evidence a recording lacks a body.
+- Live `v.mainBody?.name ?? "Kerbin"` fallbacks (`ParsekFlight.TerminalEvents` 2, `ParsekFlight.TerminalOrbit`,
+  `BackgroundRecorder.StateInitialization` 2): a live vessel always has a main body.
+- Stock radius tables with a live lookup first or diagnostic only (`ParsekFlight.PadHeuristicBodyRadii`,
+  `SessionMerger.BodyRadii`).
+- Ledger: `KspStatePatcher.Milestones.LegacyBareIdBodyName` (pre-1.0 bare milestone ids; the save-format
+  policy forbids new repair paths for pre-1.0 data).
+- Comments (7) and the `ParsekKSC.Decisions` log text "off Kerbin".
+
+## TEST-GAPS-BATCH2-LANE-FLIGHTS: four lane edits from the test-gaps Batch 2 owe their flights [FILED 2026-11-20, branch `test-gaps-b2-lanes`, harness and docs only, no C# change; AUTHORED, NEVER FLOWN; OPEN: the four flights, and an owner reading of STR-3's file facets]
+
+From the 2026-11-18 test-gaps list (Batch 2, the cheap lane items). All stock-minimal; no provisioning beyond the current automation DLL is needed (no C# change).
+
+- `STR-3-revert-takes-back-strategy-share` (operator): now also pins the reverted flight's rewind point (the staging's point dropped from memory by the revert's in-session handoff, `FollowSave:dropped-memory-only`, and listed by no save after it) and declares a report-only `[expectations.rewind]` block with two new saveParse facets, `rewindPointFiles` / `unlistedRewindPointFiles` (the `Parsek/RewindPoints/*.sfs` files beside the produced save, and those no `REWIND_POINTS` POINT lists; `saveparse.with_rewind_point_files`, attached by `run.read_save_structure`). Reading to take on the first flight: the archived `2026-11-15_1537` produced save already holds an EMPTY `Parsek/RewindPoints`, yet no Parsek line records the quicksave's deletion (the file collector's in-session pass was rate-limited and every later cold pass refused `zero-known-ids`; the only RP-file deleter logs `Rewind point file collected: rp=`). If the facet reads 1, the reverted point's quicksave outlives the revert until a collection that names a recording (design-load-restores-the-save.md 4.5); whether a revert should collect it sooner is an owner question. If it reads 0 with no collector line, find what removed the file.
+- `KB-5-flight-eva-block-held-kerbal` (nightly): a `CrewTransfer` step after the refused EVA; the K2 transfer backstop must refuse `CrewTransfer.Create` (`[CrewMove] Blocked crew transfer of 'Jebediah Kerman' via CrewTransfer.Create`, the `Cannot transfer` dialog) and the verb answers REJECTED `crewtransfer-transfer-unavailable valid=[]`.
+- `S0.16-switch-segment-across-f5-f9-scoped-discard` (daily, new): S0.13's twin with an F5 / F9 between the arming switch and the scoped auto-discard; one session id by backreference from `armed` through `session saved` / `session loaded` to the auto-resolve and the prune (`ownedRecordingIds=1 removedRecordings=1`), one committed tree at the exit. The F9 needs `StopRecording` first (the seam refuses a load over a live recorder outside a Re-Fly).
+- `VN-14-refly-rename-merge` (nightly, new): VN-2's twin ending in Merge; both name decisions survive into the save and load back (`decisions=2`), the cold apply pass renames no leg, no `Revert undo` runs; report-only census of the merged legs' names.
 
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 

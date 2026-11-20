@@ -157,4 +157,7 @@ An older build opening a save from a newer one keeps what it cannot read and wri
 - `CrewReservationManager.ApplyToRoster` still runs under a held ledger, on the kerbal rows the
   load derives from the committed recordings.
 - The stores under the save-wide stamp have no hold: a newer `parsekSaveFormat` only warns, and
-  those stores are read best effort.
+  those stores are read best effort. The next save rewrites them in this build's shape (keys and enum values this build does not
+  know are dropped) and stamps this build's `parsekSaveFormat`, so the newer stamp is not kept
+  (owner ruling 2026-11-20: a downgrade then upgrade is rare; the written data really is this
+  build's shape, and keeping the newer number would let the newer build skip its upgrade step).

@@ -1331,8 +1331,10 @@ namespace Parsek
                 double bgUT = Planetarium.GetUniversalTime();
                 backgroundRecorder.UpdateOnRails(bgUT);
                 backgroundRecorder.ProcessPendingSplitChecks();
-                backgroundRecorder.CheckDebrisTTL(bgUT);
+                List<uint> endedDebrisPids = backgroundRecorder.CheckDebrisTTL(bgUT);
+                DisarmPostSwitchWatchForEndedDebris(endedDebrisPids);
             }
+            CheckActiveDebrisLifetime(Planetarium.GetUniversalTime());
 
             SplitBrancher.HandleJointBreakDeferredCheck();
             SplitBrancher.TickCrashCoalescer();
@@ -2616,6 +2618,9 @@ namespace Parsek
             ? watchMode.WatchedLoopCycleIndex
             : -1;
         internal int WatchedRecordingIndex => watchMode.WatchedRecordingIndex;
+        internal string WatchedIdentityGuidForPolicy => watchMode != null
+            ? watchMode.WatchedIdentityGuid
+            : null;
         internal string DescribeWatchFocusForLogs() => watchMode != null
             ? watchMode.DescribeWatchFocusForLogs()
             : "watch=uninitialized";

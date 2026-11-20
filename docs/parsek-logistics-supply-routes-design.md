@@ -139,6 +139,7 @@ Before each cycle, the route evaluates whether dispatch is possible. It checks t
 | Destination destroyed (orbital) | Route halted (`EndpointLost`). Player must re-target to new station. |
 | Source recording missing | Route halted (`MissingSourceRecording`). No cargo transfers without the proof recording. |
 | Source recording deleted during transit | Current cycle aborts before delivery and route becomes `MissingSourceRecording`. |
+| Route deleted mid-cycle (after a window took cargo, before it is delivered) | The taken cargo is lost: not delivered, not returned to its source, and the undelivered windows never fire (owner ruling 2026-11-20). The existing delete confirm says so with one added sentence while the open cycle has taken cargo (`RouteStore.HasUndeliveredCargoInOpenCycle`). |
 | Source recording rewritten/superseded | Route halted (`SourceChanged`). Player must recreate or explicitly reanalyze the route from the current proof data. |
 | Player reverts past a dispatch | Stock quicksave/load restores stock vessels and their cargo. Route cycles are real-time: every load back in time retires the later route events from the route event log; routes carry no money and write no ledger rows (owner rulings 2026-10-21, section 10.6). |
 | Two routes linked as round-trip | Linked from a route's detail panel: they alternate, Route A completes -> Route B dispatches -> B completes -> A dispatches. |
