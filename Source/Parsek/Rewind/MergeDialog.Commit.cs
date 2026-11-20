@@ -188,6 +188,9 @@ namespace Parsek
             ClearPendingFlag("merge dialog commit button");
             // The tree is committed either way, so the committed listeners (ghost chain
             // re-evaluation) always run.
+            ParsekLog.Verbose("MergeDialog",
+                $"MergeCommit: committed-tree listeners notified tree='{tree.TreeName}' " +
+                $"reFlyResult={reFlyResult}");
             OnTreeCommitted?.Invoke(tree);
             if (reFlyResult == ReFlyMergeCommitResult.Interrupted)
             {

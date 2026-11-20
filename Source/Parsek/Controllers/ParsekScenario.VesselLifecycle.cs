@@ -602,7 +602,8 @@ namespace Parsek
         /// Determines whether a new terminal state can overwrite the existing one.
         /// Recovered/Destroyed can overwrite null or situation-based states (Orbiting, Landed, etc.).
         /// Destroyed cannot overwrite Recovered (a guard: stock fires onVesselTerminated only
-        /// from the Tracking Station delete confirm, never after a recovery).
+        /// from the Tracking Station delete confirm, never after a recovery). Disassembled,
+        /// Docked and Boarded are final too.
         /// </summary>
         internal static bool CanOverwriteTerminalState(TerminalState? existing, TerminalState incoming)
         {
@@ -621,6 +622,28 @@ namespace Parsek
             // ResurrectionRetirementEligibility key on, so the overwrite would start
             // paying recovery funds for a part that was merely put in a pocket.
             if (existing.Value == TerminalState.Disassembled) return false;
+
+            // Docked and Boarded end the vessel by merging it into another one: what is
+            // recovered or destroyed later is that other vessel, reached here only through the
+            // name fallback or the shared pid of the absorbed craft. Overwriting would stamp a
+            // dock or a boarding as a recovery (funds paired at commit) and drop the snapshot.
+            // An ending this build does not know (held verbatim from a newer build) is final:
+            // only the build that wrote it knows what it means.
+            if (!Enum.IsDefined(typeof(TerminalState), existing.Value))
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"CanOverwriteTerminalState: refused existing={(int)existing.Value} incoming={incoming} " +
+                    "(an ending unknown to this build, held from a newer build, is final)");
+                return false;
+            }
+
+            if (existing.Value == TerminalState.Docked || existing.Value == TerminalState.Boarded)
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"CanOverwriteTerminalState: refused existing={existing.Value} incoming={incoming} " +
+                    "(the vessel merged into another one; its ending is final)");
+                return false;
+            }
 
             // Situation-based states (Orbiting, Landed, Splashed, SubOrbital) can be overwritten
             // by Recovered or Destroyed (lifecycle events take precedence over scene-exit situation)

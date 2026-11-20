@@ -207,7 +207,9 @@ namespace Parsek.Tests
         [InlineData("CREATE")]
         [InlineData("send_once")]
         [InlineData("sendonce")]
-        [InlineData("delete")]
+        [InlineData("Delete")]
+        [InlineData("remove")]
+        [InlineData("dismiss")]
         public void IsKnownAction_RefusesEverythingElse(string action)
         {
             Assert.False(TestCommandRouteCommand.IsKnownAction(action));
@@ -218,6 +220,7 @@ namespace Parsek.Tests
         [InlineData("unlink")]
         [InlineData("set-cadence")]
         [InlineData("rescan")]
+        [InlineData("delete")]
         public void IsKnownAction_AcceptsTheRoundTripAndCadenceActions(string action)
         {
             Assert.True(TestCommandRouteCommand.IsKnownAction(action));
@@ -228,7 +231,8 @@ namespace Parsek.Tests
         {
             Assert.False(TestCommandRouteCommand.IsRouteOperation("create"));
             foreach (string action in new[] { "send-once", "pause", "activate",
-                                              "link", "unlink", "set-cadence", "rescan" })
+                                              "link", "unlink", "set-cadence", "rescan",
+                                              "delete" })
             {
                 Assert.True(TestCommandRouteCommand.IsRouteOperation(action),
                     action + " addresses an existing route and needs route=");
@@ -244,16 +248,17 @@ namespace Parsek.Tests
             Assert.False(TestCommandRouteCommand.IsStatusOperation("unlink"));
             Assert.False(TestCommandRouteCommand.IsStatusOperation("set-cadence"));
             Assert.False(TestCommandRouteCommand.IsStatusOperation("rescan"));
+            Assert.False(TestCommandRouteCommand.IsStatusOperation("delete"));
             Assert.False(TestCommandRouteCommand.IsStatusOperation("create"));
             Assert.False(TestCommandRouteCommand.IsStatusOperation(null));
         }
 
         [Fact]
-        public void TheActionVocabularyIsExactlyTheEightTokens()
+        public void TheActionVocabularyIsExactlyTheNineTokens()
         {
             Assert.Equal(
                 new[] { "create", "send-once", "pause", "activate",
-                        "link", "unlink", "set-cadence", "rescan" },
+                        "link", "unlink", "set-cadence", "rescan", "delete" },
                 TestCommandRouteCommand.KnownActions);
             // Every admitted action is either create or a route operation - no token can
             // pass IsKnownAction and then fall through both appliers.
@@ -262,6 +267,32 @@ namespace Parsek.Tests
                 Assert.True(action == TestCommandRouteCommand.ActionCreate
                             || TestCommandRouteCommand.IsRouteOperation(action));
             }
+        }
+
+        // ---- action=delete ----
+
+        // Fails if: delete stops being route-addressed (it would fall into the create
+        // branch and demand tree=), joins the status subset (the applier would hand the
+        // route to RouteOrchestrator instead of RouteStore.RemoveRoute), or its refusals
+        // stop being the shared selector tokens and the post-act compound.
+        [Fact]
+        public void Delete_IsRouteAddressed_RefusesThroughTheSharedSelector()
+        {
+            Assert.Equal("delete", TestCommandRouteCommand.ActionDelete);
+            Assert.True(TestCommandRouteCommand.IsRouteOperation(TestCommandRouteCommand.ActionDelete));
+            Assert.False(TestCommandRouteCommand.IsStatusOperation(TestCommandRouteCommand.ActionDelete));
+
+            List<Route> routes = Routes(("aaaa1111", "Alpha"), ("aaaa2222", "Beta"));
+            Assert.Equal(TestCommandRouteCommand.RouteArgMissingReason,
+                TestCommandRouteCommand.ResolveRoute(routes, null).RejectReason);
+            Assert.Equal(TestCommandRouteCommand.RouteArgMissingReason,
+                TestCommandRouteCommand.ResolveRoute(routes, "").RejectReason);
+            Assert.Equal(TestCommandRouteCommand.UnknownRouteReason,
+                TestCommandRouteCommand.ResolveRoute(routes, "zzzz").RejectReason);
+            Assert.Equal(TestCommandRouteCommand.RouteAmbiguousReason,
+                TestCommandRouteCommand.ResolveRoute(routes, "aaaa").RejectReason);
+            Assert.Equal("route-action-refused delete",
+                TestCommandRouteCommand.ActionRefusedMsg(TestCommandRouteCommand.ActionDelete));
         }
 
         // ---- cadence= ----
