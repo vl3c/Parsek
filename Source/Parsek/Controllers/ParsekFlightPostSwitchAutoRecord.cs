@@ -33,6 +33,8 @@ namespace Parsek
 
         private const double PostSwitchAttitudeChangeDebounceSeconds = 0.2;
 
+        private const float PostSwitchRotationCommandEpsilon = 0.01f;
+
         private const double PostSwitchResourceDeltaEpsilon = 0.01;
 
         private const double PostSwitchManifestEvaluationIntervalSeconds = 0.25;
@@ -504,6 +506,10 @@ namespace Parsek
                 currentUT);
             state.AttitudeThresholdExceededAtUt = double.NaN;
             state.BaselineOrbit = CapturePostSwitchOrbitSnapshot(v);
+            state.BaselineSasEnabled = ReadSasEnabled(v);
+            state.BaselineSasMode = ReadSasMode(v);
+            state.RotationCommandSeen = false;
+            state.PassiveAttitudeDriftDegrees = 0f;
             state.BaselineResources = VesselSnapshotOps.ExtractResourceManifest(vesselSnapshot);
             state.BaselineInventory = VesselSnapshotOps.ExtractInventoryManifest(vesselSnapshot, out _);
             state.BaselineCrew = VesselSpawner.ExtractCrewManifest(vesselSnapshot);
@@ -778,6 +784,8 @@ namespace Parsek
             double currentUT)
         {
             Quaternion currentWorldRotation = TrajectoryMath.SanitizeQuaternion(v.transform.rotation);
+            if (FollowPassiveOutsiderAttitude(v, state, currentWorldRotation, currentUT))
+                return false;
             float attitudeDeltaDegrees = ComputePostSwitchAttitudeDeltaDegrees(
                 state.BaselineWorldRotation,
                 currentWorldRotation);
@@ -821,6 +829,96 @@ namespace Parsek
             }
 
             return attitudeChanged;
+        }
+
+        // An outsider's attitude counts only from the first rotation the player commands
+        // (design 5.4 rule 5): until then the baseline follows the vessel, so a tumble, the
+        // co-rotating world frame of a low orbit or the attitude a packed vessel comes back with
+        // after warp never accumulates into a trigger. A tracked background member is already
+        // part of the recording, so any change promotes it as before. True: no attitude trigger
+        // this frame.
+        private static bool FollowPassiveOutsiderAttitude(
+            Vessel v,
+            ParsekFlight.PostSwitchAutoRecordState state,
+            Quaternion currentWorldRotation,
+            double currentUT)
+        {
+            bool sasEnabled = ReadSasEnabled(v);
+            int sasMode = ReadSasMode(v);
+            FlightCtrlState input = FlightInputHandler.state;
+            FlightCtrlState ctrl = v.ctrlState;
+            bool command = IsPlayerRotationCommand(
+                state.BaselineSasEnabled, state.BaselineSasMode, sasEnabled, sasMode,
+                input != null ? input.pitch : 0f, input != null ? input.yaw : 0f, input != null ? input.roll : 0f,
+                ctrl != null ? ctrl.pitch : 0f, ctrl != null ? ctrl.yaw : 0f, ctrl != null ? ctrl.roll : 0f);
+            PostSwitchAttitudeBaselineStep step = DecidePostSwitchAttitudeBaselineStep(
+                state.TrackedInActiveTree, state.RotationCommandSeen, command);
+            if (step == PostSwitchAttitudeBaselineStep.Measure)
+                return false;
+            if (step == PostSwitchAttitudeBaselineStep.FollowPassive)
+            {
+                float driftDegrees = ComputePostSwitchAttitudeDeltaDegrees(
+                    state.BaselineWorldRotation, currentWorldRotation);
+                state.PassiveAttitudeDriftDegrees += driftDegrees;
+                state.BaselineWorldRotation = currentWorldRotation;
+                state.AttitudeThresholdExceededAtUt = double.NaN;
+                ParsekLog.VerboseOnChange("Flight",
+                    "post-switch-attitude-passive-" + state.VesselPid.ToString(CultureInfo.InvariantCulture),
+                    state.PassiveAttitudeDriftDegrees >= PostSwitchAttitudeChangeThresholdDegrees ? "over" : "under",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Post-switch attitude follows passive motion: pid={0} passiveDrift={1:F2} " +
+                        "threshold={2:F2} sas={3} - no rotation command yet, not a change",
+                        state.VesselPid, state.PassiveAttitudeDriftDegrees,
+                        PostSwitchAttitudeChangeThresholdDegrees, sasEnabled));
+                return true;
+            }
+
+            state.RotationCommandSeen = true;
+            state.BaselineWorldRotation = currentWorldRotation;
+            state.AttitudeThresholdExceededAtUt = double.NaN;
+            state.BaselineSeedPoint = FlightRecorder.BuildTrajectoryPoint(
+                v, FlightRecorder.SampleCurrentVelocity(v), currentUT);
+            ParsekLog.Info("Flight", string.Format(CultureInfo.InvariantCulture,
+                "Post-switch rotation command seen: pid={0} sas={1}->{2} mode={3}->{4} " +
+                "passiveDriftIgnored={5:F2} - attitude measured from here",
+                state.VesselPid, state.BaselineSasEnabled, sasEnabled,
+                state.BaselineSasMode, sasMode, state.PassiveAttitudeDriftDegrees));
+            return true;
+        }
+
+        /// <summary>What the attitude baseline does on one evaluated frame.</summary>
+        internal enum PostSwitchAttitudeBaselineStep
+        {
+            /// <summary>Measure the attitude change from the baseline (a tracked background
+            /// member, or an outsider after its first rotation command).</summary>
+            Measure = 0,
+            /// <summary>An outsider with no rotation command yet: the baseline follows the
+            /// vessel, so passive motion never counts.</summary>
+            FollowPassive = 1,
+            /// <summary>An outsider's first rotation command: the baseline is taken here and
+            /// measured from the next frame on.</summary>
+            LatchCommand = 2,
+        }
+
+        /// <summary>Pure: the attitude baseline step (design 5.4 rule 5).</summary>
+        internal static PostSwitchAttitudeBaselineStep DecidePostSwitchAttitudeBaselineStep(
+            bool trackedInActiveTree, bool rotationCommandSeen, bool rotationCommandNow)
+        {
+            if (trackedInActiveTree || rotationCommandSeen)
+                return PostSwitchAttitudeBaselineStep.Measure;
+            return rotationCommandNow
+                ? PostSwitchAttitudeBaselineStep.LatchCommand
+                : PostSwitchAttitudeBaselineStep.FollowPassive;
+        }
+
+        private static bool ReadSasEnabled(Vessel v)
+        {
+            return v != null && v.Autopilot != null && v.Autopilot.Enabled;
+        }
+
+        private static int ReadSasMode(Vessel v)
+        {
+            return v != null && v.Autopilot != null ? (int)v.Autopilot.Mode : -1;
         }
 
         private static void EvaluatePostSwitchManifestChanges(
@@ -914,6 +1012,24 @@ namespace Parsek
             Vessel v,
             ParsekFlight.PostSwitchAutoRecordState state)
         {
+            // A body change is an SOI crossing the vessel coasts through on its own (a burn shows
+            // first as an element change on the old body, and its fuel as a resource change):
+            // an outsider's orbit baseline moves to the new body instead of triggering
+            // (design 5.4 rule 5). A tracked background member keeps promoting on it.
+            if (!state.TrackedInActiveTree)
+            {
+                ParsekFlight.PostSwitchOrbitSnapshot current = CapturePostSwitchOrbitSnapshot(v);
+                if (IsPassiveSoiTransition(state.BaselineOrbit, current))
+                {
+                    ParsekLog.Info("Flight",
+                        $"Post-switch orbit baseline moved to the new body: pid={state.VesselPid} " +
+                        $"from={state.BaselineOrbit.BodyName} to={current.BodyName} - an SOI change " +
+                        "while coasting is not a change");
+                    state.BaselineOrbit = current;
+                    return false;
+                }
+            }
+
             return v.situation != Vessel.Situations.LANDED
                 && v.situation != Vessel.Situations.SPLASHED
                 && v.mainBody != null
@@ -1319,6 +1435,24 @@ namespace Parsek
                 $"Post-switch trigger accepted: vessel='{v.vesselName}' pid={v.persistentId} " +
                 $"trigger={trigger} decision={decision}");
 
+            if (decision == ParsekFlight.PostSwitchAutoRecordStartDecision.StartFreshRecording
+                && host.activeTree != null)
+            {
+                RecordingTree matchedTree;
+                bool matched = ParsekFlight.TryFindCommittedTreeMatchingVessel(
+                    v.persistentId,
+                    v.id != Guid.Empty ? v.id.ToString("N") : null,
+                    out matchedTree);
+                if (IsPostSwitchGraftOfSeparateCommittedVessel(
+                        decision, hasActiveTree: true, matched, matchedTree?.Id, host.activeTree.Id))
+                {
+                    ParsekLog.Info("Flight", FormatPostSwitchGraftRefusal(
+                        v.vesselName, v.persistentId, trigger, matchedTree?.Id, host.activeTree.Id));
+                    DisarmPostSwitchAutoRecord("separate-committed-vessel");
+                    return false;
+                }
+            }
+
             switch (decision)
             {
                 case ParsekFlight.PostSwitchAutoRecordStartDecision.PromoteTrackedRecording:
@@ -1565,6 +1699,46 @@ namespace Parsek
                 currentWorldRotation) >= thresholdDegrees;
         }
 
+        /// <summary>
+        /// Pure: whether the player (or an autopilot acting for them) commanded a rotation of the
+        /// vessel since the baseline: SAS switched on or off, another SAS mode selected, the
+        /// player's raw rotation input, or, with SAS off, a rotation on the vessel's own control
+        /// state (keys, trim, an autopilot mod, kRPC). With SAS on the control state also
+        /// carries SAS's own corrections, which only hold the attitude, so it is not read then.
+        /// </summary>
+        internal static bool IsPlayerRotationCommand(
+            bool sasEnabledAtBaseline, int sasModeAtBaseline,
+            bool sasEnabledNow, int sasModeNow,
+            float inputPitch, float inputYaw, float inputRoll,
+            float ctrlPitch, float ctrlYaw, float ctrlRoll)
+        {
+            if (sasEnabledNow != sasEnabledAtBaseline)
+                return true;
+            if (sasEnabledNow && sasModeNow != sasModeAtBaseline)
+                return true;
+            if (IsRotationAxisCommanded(inputPitch, inputYaw, inputRoll))
+                return true;
+            return !sasEnabledNow && IsRotationAxisCommanded(ctrlPitch, ctrlYaw, ctrlRoll);
+        }
+
+        private static bool IsRotationAxisCommanded(float pitch, float yaw, float roll)
+        {
+            return Math.Abs(pitch) > PostSwitchRotationCommandEpsilon
+                || Math.Abs(yaw) > PostSwitchRotationCommandEpsilon
+                || Math.Abs(roll) > PostSwitchRotationCommandEpsilon;
+        }
+
+        /// <summary>
+        /// Pure: the vessel crossed into another body's sphere of influence since the baseline.
+        /// </summary>
+        internal static bool IsPassiveSoiTransition(
+            ParsekFlight.PostSwitchOrbitSnapshot baseline,
+            ParsekFlight.PostSwitchOrbitSnapshot current)
+        {
+            return baseline.IsValid && current.IsValid
+                && !string.Equals(baseline.BodyName, current.BodyName, StringComparison.Ordinal);
+        }
+
         internal static bool HasMeaningfulOrbitChange(
             ParsekFlight.PostSwitchOrbitSnapshot baseline,
             ParsekFlight.PostSwitchOrbitSnapshot current)
@@ -1746,6 +1920,42 @@ namespace Parsek
             if (canRestorePendingTrackedTree)
                 return ParsekFlight.PostSwitchAutoRecordStartDecision.RestoreAndPromoteTrackedRecording;
             return ParsekFlight.PostSwitchAutoRecordStartDecision.StartFreshRecording;
+        }
+
+        /// <summary>
+        /// Pure: a fresh post-switch recording under a live tree attaches the vessel to that
+        /// tree (a <c>Launch</c> child of the recording the player left). For a vessel of a
+        /// separately committed tree that is a second history for it and ends its own mission
+        /// (owner ruling Q16: it continues its own mission through the committed-tree clone, which
+        /// needs the live tree committed first, the pre-switch Case C). The vessel cycle and the
+        /// map Switch-To take Case C before switching; this refuses the graft for any switch that
+        /// still reaches the watcher (a press while another merge dialog is open, a switch stock
+        /// makes itself after a crash). A vessel of the live tree's own committed original is not
+        /// separate.
+        /// </summary>
+        internal static bool IsPostSwitchGraftOfSeparateCommittedVessel(
+            ParsekFlight.PostSwitchAutoRecordStartDecision decision,
+            bool hasActiveTree,
+            bool matchedCommittedTree,
+            string matchedTreeId,
+            string activeTreeId)
+        {
+            if (decision != ParsekFlight.PostSwitchAutoRecordStartDecision.StartFreshRecording
+                || !hasActiveTree || !matchedCommittedTree || string.IsNullOrEmpty(matchedTreeId))
+                return false;
+            return !string.Equals(matchedTreeId, activeTreeId, StringComparison.Ordinal);
+        }
+
+        internal static string FormatPostSwitchGraftRefusal(
+            string vesselName, uint pid, ParsekFlight.PostSwitchAutoRecordTrigger trigger,
+            string matchedTreeId, string activeTreeId)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Post-switch fresh start refused: vessel='{0}' pid={1} trigger={2} " +
+                "reason=separate-committed-vessel matchedTreeId={3} activeTreeId={4} - " +
+                "not attached to the live tree; it continues its own mission once the live tree is committed",
+                vesselName ?? "<unnamed>", pid, trigger,
+                matchedTreeId ?? "<null>", activeTreeId ?? "<null>");
         }
     }
 }

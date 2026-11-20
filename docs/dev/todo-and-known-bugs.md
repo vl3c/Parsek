@@ -151,6 +151,117 @@ Undock, null otherwise); `OnPartUndock` stashes the undocked port's part id besi
 Tests. `UndockSplitCauseTests` (the factory's branch point through the tree codec and the
 Missions label, EVA unchanged, the part-id wiring; mutation-checked by returning null).
 
+## ~~CYCLE-SWITCH-PRESWITCH-BYPASS~~: the `[` / `]` keys switch to a vessel of another committed mission without merging the flight being left, and the vessel is grafted into that flight [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b, owner ruling Q16, given twice), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; no lane flies a `[` / `]` press onto a committed vessel yet; medium (the vessel gets a second history and its own mission stops)]
+
+What happened. The map Switch-To (and the alarm Jump) decide the recording the player leaves before
+stock switches: Case A (an armed switch segment, another target), Case B (a live recording, an
+unloaded target) and Case C (a live recording, a loaded vessel of a separately committed tree) commit
+or discard it first, and the target then continues its own committed mission through the
+committed-tree clone. The stock vessel cycle (`VesselCycleReFlySwitchPatch`) only dropped ghost
+markers and Re-Fly-refused candidates and otherwise left the press to stock: no Case A / C, no
+intent. A press onto a committed station while recording backgrounded the live ship, armed the
+post-switch watcher as an outsider, and its first trigger attached the station to the live tree as
+a `Launch` child of the ship (see POST-SWITCH-GRAFTS-COMMITTED-VESSEL); with Case A an armed switch
+session was left orphaned.
+
+Ruling Q16 (V, 2026-11-18). A `[` / `]` switch to a vessel of another committed mission behaves
+exactly like Map Switch-To: the Merge / Discard decision first if recording, then that vessel's own
+mission continues (committed-clone path), never a Launch graft or a new mission.
+
+Fix. `MapFocusObjectOnSelectPatch.TryTakePreSwitch` is the Cases A / B / C core, lifted out of
+`PrepareOwnedVesselSwitch` unchanged. `VesselCycleReFlySwitchPatch.RunCycle` keeps stock's candidate
+walk, the ghost drop and the Re-Fly gate, picks the candidate stock's own final step would take
+(pure `RouteCycle`; the target is asked about only when the switch will happen) and hands it to
+`TryTakePreSwitch(target, cycleSwitch: true)`. When a case applies the auto-resolved handler (or the
+dialog's buttons) merges or discards, arms the intent and switches with the cycle's own call
+(`SwitchLikeTheVesselCycle`: `ForceSetActiveVessel` + `ResumeVesselCtrlState`, `SetActiveVessel`
+only for a packed target in a game not clear to save). When a case applies and stock is not clear
+to save, the press is refused like the map Switch-To (`SwitchWillBeRefused`,
+`TakeForStockWillRefuse`, `RefuseCycleSwitchLikeStock`): no commit, no switch, stock's own
+`SetActiveVessel` refusal message, log `pre-switch refused: vessel cycle press needs case=`; the
+cycle's forced switch would otherwise commit a recording mid-burn or in atmosphere (found by the
+branch review). A press that needs no case (no switch session armed) routes exactly
+as before. Log: `[SwitchIntentPatch] Vessel cycle handed to pre-switch handling: targetPid= take=
+directRoute=`; the `CycleVessel` seam verb answers `outcome=pre-switch-handoff` with
+`detail=auto-resolved|dialog-open|refused-not-clear-to-save`.
+
+Tests. `VesselCyclePreSwitchRoutingTests` (Case C with nothing dropped, Case A after a ghost drop,
+same-tree and same-target presses unchanged, a refused switch never asks, only the target is asked,
+the refusal matrix, the cycle refusal take and its wiring, the RunCycle wiring);
+`TestCommandCycleVesselTests` (the new outcome token). Red first: with `AskPreSwitch` not calling
+the pre-switch core (today's routing) the Case A and C cells fail; with the first version's
+unpacked-cycle exception in `SwitchWillBeRefused` the cycle rows of the refusal matrix fail.
+
+Lane owed: a `CycleVessel` press from a live recording onto a loaded vessel of another committed
+tree, asserting `outcome=pre-switch-handoff`, the prior tree committed, and
+`route=committed-spawned-clone` for the target.
+
+## ~~POST-SWITCH-GRAFTS-COMMITTED-VESSEL~~: the post-switch watcher attaches a vessel of another committed mission to the live flight as a "launch" [FILED 2026-11-18 by the recording split / trim / merge review (draft M2b), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; no lane gates it yet; medium (the vessel gets a second history; the Missions view shows it launched from the player's ship)]
+
+Cause. `ParsekFlightPostSwitchAutoRecord.TryStartPostSwitchAutoRecord` had no committed-vessel
+check: for any vessel not tracked in the live tree's BackgroundMap it chose
+`StartFreshRecording`, and `PrepareActiveTreeForFreshPostSwitchRecording` added a recording to the
+live tree under a `Launch` branch point of the recording the player left, setting that parent's
+single `ChildBranchPointId`. A station of another committed mission switched to while recording
+(the `[` / `]` keys before CYCLE-SWITCH-PRESWITCH-BYPASS, a press while another merge dialog is
+open, or the switch stock makes itself after the active vessel is destroyed) became part of the
+player's flight and lost its own mission (owner ruling Q16: it continues its own mission).
+
+Fix (defence in depth behind the Q16 routing). The pure
+`IsPostSwitchGraftOfSeparateCommittedVessel(decision, hasActiveTree, matched, matchedTreeId,
+activeTreeId)` is true for a fresh start under a live tree of a vessel that
+`TryFindCommittedTreeMatchingVessel` (pid plus launch guid) matches to a committed tree other than
+the live one. The watcher then logs `[Flight] Post-switch fresh start refused: vessel= pid=
+trigger= reason=separate-committed-vessel matchedTreeId= activeTreeId=` (Info) and disarms; the
+vessel stays idle until the live tree is committed, after which the 1 Hz committed-tree restore
+continues its mission. Ordinary outsiders, vessels of the live tree's own committed original,
+promotions of tracked members and a start with no live tree are unchanged.
+
+Tests. `PostSwitchCommittedGraftGuardTests` (the graft refused, an uncommitted outsider and the
+live tree's own committed tree not refused, only a fresh start under a live tree is a graft, the
+refusal line invariant, and a source gate that the guard and its disarm run before
+`PrepareActiveTreeForFreshPostSwitchRecording`). Red first: the cells do not compile against the
+old code (no guard) and the source gate reds with the guard block removed.
+
+Not changed. `PrepareActiveTreeForFreshPostSwitchRecording` still overwrites the parent's single
+child link for an ordinary outsider when the parent already has one; that is the archived
+CHILD-BRANCH-SINGLE-SLOT-OVERWRITE limitation, out of scope here.
+
+## ~~POST-SWITCH-PASSIVE-MOTION-TRIGGERS~~: after a switch, a vessel that only tumbles, turns with the frame or coasts through an SOI change is recorded as if the player changed it [FILED 2026-11-18 by the recording split / trim / merge review (draft M3), by code reading. FIXED 2026-11-20, branch `rsr-cycleswitch`; xUnit; no lane gates it yet; medium (a recording, and under a live tree a graft, for a vessel nobody touched)]
+
+Cause. The post-switch watcher (`ParsekFlightPostSwitchAutoRecord`) compared the vessel's WORLD
+rotation with the rotation at its baseline and fired `AttitudeChange` past 3 degrees (0.2 s
+debounce), and `HasMeaningfulOrbitChange` fired `OrbitChange` on any body change. A vessel left
+tumbling, one in a low orbit (the world frame co-rotates with the planet below the inverse-rotation
+altitude, about 1 degree a minute at Kerbin), the attitude a packed vessel comes back with after
+warp, and an SOI crossing while coasting or warping all read as the player changing the vessel.
+Design 5.4 rule 5: sitting still and coasting do not count. For an outsider that started a fresh
+recording (under a live tree, the graft of POST-SWITCH-GRAFTS-COMMITTED-VESSEL).
+
+Fix (outsiders only). The attitude is measured only from the first rotation the player commands:
+the pure `IsPlayerRotationCommand` (raw `FlightInputHandler.state` rotation, SAS switched on or off
+or another SAS mode, or with SAS off a rotation on `Vessel.ctrlState`: keys, trim, kRPC, autopilot
+mods; SAS's own holding corrections are not read) feeds the pure
+`DecidePostSwitchAttitudeBaselineStep`: with no command yet the baseline follows the vessel every
+evaluated frame (`[Flight] Post-switch attitude follows passive motion: pid= passiveDrift=`, on
+change), the first command latches a fresh baseline and seed point (`Post-switch rotation command
+seen: pid= sas= mode= passiveDriftIgnored=`), and from then on the 3 degree / 0.2 s rule applies
+unchanged. A body change moves the orbit baseline to the new body (`IsPassiveSoiTransition`, `Post-
+switch orbit baseline moved to the new body: pid= from= to=`) and element changes on the new body
+still trigger; a burn before the crossing shows as an element change on the old body or as a
+resource change. A tracked background member keeps every trigger as before: it is already part of
+the recording, and its promotion only moves it to the foreground recorder (GS-11 promotes a
+tumbling booster on its attitude).
+
+Tests. `PostSwitchPassiveChangeTests` (the baseline step for an outsider with and without a
+command and for a tracked member, the rotation-command matrix including SAS holding and stick
+noise, the SOI predicate and an element change on the new body, and a source gate that both rules
+run before the measurements they guard and the baseline resets the latch). Red first: with the
+step pinned to Measure and the SOI block off (today's behavior) three cells fail.
+
+Residual, not this finding: other passive changes still trigger for an outsider, notably
+`ResourceChange` from solar panels charging a battery and `LandedMotion` from a vessel settling.
+
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
