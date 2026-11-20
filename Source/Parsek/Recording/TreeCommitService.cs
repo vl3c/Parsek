@@ -1716,8 +1716,10 @@ namespace Parsek
         /// <summary>
         /// Commits the pending tree to the timeline. Returns false when nothing was committed:
         /// no pending tree, or <see cref="CommitTree"/> skipped it as a duplicate of a committed
-        /// tree. A skipped tree stays in the slot (its flight was not added, so the slot is not
-        /// emptied as if it had been) and the caller must not report a merge.
+        /// tree. A skipped tree is dropped from the slot all the same: kept pending it would be
+        /// skipped again by every route (the dialog, both outside-flight auto-commits) and would
+        /// hold the rewind / fast-forward gates for good with nothing to discard it. The caller
+        /// must not report a merge on false.
         /// </summary>
         public static bool CommitPendingTree()
         {
@@ -1733,7 +1735,8 @@ namespace Parsek
                 ParsekLog.Warn("RecordingStore",
                     $"CommitPendingTree: tree id='{pending.Id}' name='{pending.TreeName}' " +
                     $"recordings={pending.Recordings?.Count ?? 0} was skipped as a duplicate of the " +
-                    "committed tree - nothing committed, kept in the pending slot");
+                    "committed tree - nothing committed, pending slot cleared");
+                PendingTreeSlot.ClearSlot();
                 return false;
             }
             PendingTreeSlot.ClearSlot();

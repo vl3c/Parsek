@@ -266,23 +266,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AutoCommit_DuplicateSkip_ReturnsFalse_NothingMarked_TreeKeptPending()
+        public void AutoCommit_DuplicateSkip_ReturnsFalse_NothingMarked_PendingDropped()
         {
             // M13: a pending tree CommitTree skips as a duplicate reached no timeline; the
-            // seam must not mark it applied or let its caller report a commit.
+            // seam must not mark it applied or let its caller report a commit, and the slot
+            // is cleared.
             var committedRec = MakeRecording("rec-dup-a", "tree-dup-seam", 100.0, 200.0);
             var otherRec = MakeRecording("rec-dup-b", "tree-dup-seam", 120.0, 220.0);
             var committedTree = MakeTree("tree-dup-seam", "rec-dup-a", committedRec, otherRec);
             PendingTreeSlot.StashPendingTree(committedTree);
             Assert.True(ParsekScenario.CommitPendingTreeAsApplied(committedTree));
 
-            var staleRec = MakeRecording("rec-dup-a", "tree-dup-seam", 100.0, 200.0);
-            var staleTree = MakeTree("tree-dup-seam", "rec-dup-a", staleRec);
-            PendingTreeSlot.StashPendingTree(staleTree);
+            // An unchanged clone of the committed tree: nothing new to add.
+            var cloneRec = MakeRecording("rec-dup-a", "tree-dup-seam", 100.0, 200.0);
+            var cloneTree = MakeTree("tree-dup-seam", "rec-dup-a", cloneRec,
+                MakeRecording("rec-dup-b", "tree-dup-seam", 120.0, 220.0));
+            PendingTreeSlot.StashPendingTree(cloneTree);
 
-            Assert.False(ParsekScenario.CommitPendingTreeAsApplied(staleTree));
-            Assert.Equal(-1, staleRec.LastAppliedResourceIndex);
-            Assert.Same(staleTree, PendingTreeSlot.PendingTree);
+            Assert.False(ParsekScenario.CommitPendingTreeAsApplied(cloneTree));
+            Assert.Equal(-1, cloneRec.LastAppliedResourceIndex);
+            // Dropped, never left pending: every route would skip it again and the rewind
+            // gates would refuse for good.
+            Assert.False(PendingTreeSlot.HasPendingTree);
         }
 
         [Fact]

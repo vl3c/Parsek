@@ -34,12 +34,14 @@ namespace Parsek
                     {
                         ParsekLog.Warn("Scenario",
                             "Safety net: pending tree skipped as a duplicate of a committed tree " +
-                            "on save outside Flight - nothing committed");
-                        return;
+                            "on save outside Flight - nothing committed, pending tree dropped");
                     }
-                    LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
-                    ParsekLog.Warn("Scenario",
-                        "Safety net: committed pending tree on save outside Flight");
+                    else
+                    {
+                        LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
+                        ParsekLog.Warn("Scenario",
+                            "Safety net: committed pending tree on save outside Flight");
+                    }
                     DropScheduledRestoreAfterOutsideFlightCommit(
                         "safety-net", treeToCommit?.TreeName);
                 }
@@ -68,8 +70,8 @@ namespace Parsek
         /// (or <see cref="PendingTreeSlot.UnstashPendingTreeOnRevert"/>) instead (#434).</para>
         ///
         /// <para>Returns false when the pending tree was skipped as a duplicate of a committed
-        /// tree (nothing committed, nothing marked, tree kept pending); callers then report no
-        /// commit.</para>
+        /// tree (nothing committed, nothing marked, the pending slot cleared); callers then
+        /// report no commit.</para>
         /// </summary>
         internal static bool CommitPendingTreeAsApplied(RecordingTree tree)
         {
@@ -416,7 +418,8 @@ namespace Parsek
                     {
                         ParsekLog.Warn("Scenario",
                             $"Ghost-only auto-commit ({context}, reason={reason}): tree='{pt.TreeName}' " +
-                            "skipped as a duplicate of a committed tree - nothing committed, no toast");
+                            "skipped as a duplicate of a committed tree - nothing committed, " +
+                            "pending tree dropped, no toast");
                     }
                     else
                     {

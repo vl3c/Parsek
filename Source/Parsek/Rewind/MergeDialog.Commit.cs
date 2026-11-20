@@ -116,13 +116,19 @@ namespace Parsek
                     tree, decisions, activeReFlyTargetId);
             if (!TreeCommitService.CommitPendingTree())
             {
-                // The commit added nothing (a duplicate of a committed tree): no ledger
-                // notify, no Re-Fly supersede, no "Merged" toast. The tree stays pending.
+                // The commit added nothing (a duplicate of a committed tree; the slot is
+                // cleared): no ledger notify, no Re-Fly supersede, no "Merged" toast. A player
+                // who clicked Merge (reShowDialogOnRefusal marks the dialog buttons) is told
+                // plainly; a silent auto-commit says nothing on screen.
                 ParsekLog.Warn("MergeDialog",
                     $"User chose: Tree Merge (tree='{tree.TreeName}', " +
-                    $"recordings={tree.Recordings.Count}) - commit skipped as a duplicate; " +
-                    "nothing merged, tree kept pending, no success toast");
+                    $"recordings={tree.Recordings.Count}) - commit skipped as a duplicate of the " +
+                    $"committed tree; nothing merged, pending tree dropped, no success toast " +
+                    $"(announced={(reShowDialogOnRefusal ? "true" : "false")})");
                 ClearPendingFlag("merge dialog commit skipped as duplicate");
+                if (reShowDialogOnRefusal)
+                    ParsekLog.ScreenMessage(
+                        "Nothing new to merge: this flight is already in the timeline", 4f);
                 return;
             }
             // Phase C/F: mark recordings fully applied after the tree moves

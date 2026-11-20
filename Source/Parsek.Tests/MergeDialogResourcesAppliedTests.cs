@@ -784,11 +784,8 @@ namespace Parsek.Tests
             Assert.Equal(MergeJournal.Phases.Finalize, scenario.ActiveMergeJournal.Phase);
         }
 
-        [Fact]
-        public void MergeCommit_DuplicateSkip_NoMergedToast_TreeKeptPending()
+        private RecordingTree CommitTreeThenStashUnchangedClone()
         {
-            // M13: a duplicate-commit skip used to empty the pending slot (dropping the
-            // flight) and toast "Merged" although nothing reached the timeline.
             var a1 = MakeRecording("rec-dup-1", "tree-dup", 100.0, 200.0);
             var a2 = MakeRecording("rec-dup-2", "tree-dup", 150.0, 250.0);
             var committedTree = MakeTree("tree-dup", "rec-dup-1", a1, a2);
@@ -798,10 +795,25 @@ namespace Parsek.Tests
                 spawnCount: 0);
             Assert.Contains(RecordingStore.CommittedTrees, t => ReferenceEquals(t, committedTree));
 
-            // A different object with the same id and less in it: not a richer topology.
-            var b1 = MakeRecording("rec-dup-1", "tree-dup", 100.0, 200.0);
-            var staleTree = MakeTree("tree-dup", "rec-dup-1", b1);
-            PendingTreeSlot.StashPendingTree(staleTree);
+            // A different object with the same id and the same content: nothing new to add.
+            var cloneTree = MakeTree("tree-dup", "rec-dup-1",
+                MakeRecording("rec-dup-1", "tree-dup", 100.0, 200.0),
+                MakeRecording("rec-dup-2", "tree-dup", 150.0, 250.0));
+            PendingTreeSlot.StashPendingTree(cloneTree);
+            return cloneTree;
+        }
+
+        [Theory]
+        [InlineData(true)]  // the dialog's Merge button
+        [InlineData(false)] // a silent auto-commit through MergeCommit
+        public void MergeCommit_DuplicateSkip_NoMergedToast_PendingDropped_RewindNotHeld(bool clicked)
+        {
+            // M13: a duplicate-commit skip toasted "Merged" although nothing reached the
+            // timeline. Keeping the skipped tree pending instead would hold every later route
+            // (each skips it again) and the rewind / fast-forward gates
+            // (RewindLauncher: "Merge or discard pending tree first") for good, so the skip
+            // drops it, honestly.
+            var cloneTree = CommitTreeThenStashUnchangedClone();
             var screenMessages = new List<string>();
             ParsekLog.ScreenMessageSinkForTesting = (m, d) => screenMessages.Add(m);
             int committedEvents = 0;
@@ -809,25 +821,29 @@ namespace Parsek.Tests
             MergeDialog.OnTreeCommitted += onCommitted;
             try
             {
-                MergeDialog.MergeCommit(staleTree,
-                    new Dictionary<string, bool> { { "rec-dup-1", false } }, spawnCount: 0);
+                MergeDialog.MergeCommit(cloneTree,
+                    new Dictionary<string, bool> { { "rec-dup-1", false }, { "rec-dup-2", false } },
+                    spawnCount: 0, reShowDialogOnRefusal: clicked);
             }
             finally
             {
                 MergeDialog.OnTreeCommitted -= onCommitted;
             }
 
-            Assert.Same(staleTree, PendingTreeSlot.PendingTree);
+            Assert.False(PendingTreeSlot.HasPendingTree); // the rewind gates' condition
             Assert.DoesNotContain(screenMessages, m => m.StartsWith("Merged"));
             Assert.Equal(0, committedEvents);
+            if (clicked)
+                Assert.Contains(screenMessages,
+                    m => m == "Nothing new to merge: this flight is already in the timeline");
+            else
+                Assert.Empty(screenMessages);
             Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
                 && l.Contains("CommitPendingTree: tree id='tree-dup'")
-                && l.Contains("skipped as a duplicate"));
+                && l.Contains("skipped as a duplicate") && l.Contains("pending slot cleared"));
             Assert.Contains(logLines, l => l.Contains("[MergeDialog]")
                 && l.Contains("commit skipped as a duplicate")
-                && l.Contains("no success toast"));
-            Assert.False(TreeCommitService.CommitPendingTree());
-            Assert.Same(staleTree, PendingTreeSlot.PendingTree);
+                && l.Contains("pending tree dropped, no success toast"));
         }
 
         [Fact]
