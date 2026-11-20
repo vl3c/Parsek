@@ -149,7 +149,7 @@ namespace Parsek
             // witnesses for the boundary-bridging rule (plan D5) and a merge
             // would destroy the leg-boundary operands. Blocking on ANY run
             // manifest instead would disable the merge pass for every post-M2
-            // recording (RunOptimizationPass runs on every save load) - a
+            // recording (RunOptimizationPass runs on every cold load and commit) - a
             // silent global regression. Window-less run manifests COMPOSE in
             // MergeInto on matching pid scope and void on mismatch.
             int harvestWindowsA = a.RouteHarvestWindows?.Count ?? 0;

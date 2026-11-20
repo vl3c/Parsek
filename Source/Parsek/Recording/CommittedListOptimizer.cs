@@ -36,8 +36,9 @@ namespace Parsek
         /// <summary>
         /// Runs the optimization pass: find merge candidates among committed recordings,
         /// execute merges, re-index chains, then split multi-environment recordings at
-        /// environment boundaries. Called on save load after migrations, and mid-session
-        /// after every tree commit and chain-segment commit.
+        /// environment boundaries. Called on a COLD load (an in-session load such as F9 or a
+        /// revert does not run it), after every tree commit and right after a Re-Fly merge
+        /// finishes.
         ///
         /// Structural changes (a merge removes the absorbed recording mid-list, a split
         /// inserts the second half mid-list) bump <see cref="RecordingStore.StateVersion"/> at the

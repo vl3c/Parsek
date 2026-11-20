@@ -196,11 +196,14 @@ Recording
 
   // DAG linkage
   ParentBranchPointId:      string — BranchPoint that created this Recording
-  ChildBranchPointId:       string — BranchPoint that ended this Recording
+  ChildBranchPointId:       string — BranchPoint at this Recording's end, or a split the vessel
+                            flew on past (breakup-continuous: the piece that keeps control keeps
+                            this Recording; GhostPlaybackLogic.IsEffectiveLeafForVessel)
   ParentRecordingId:        string — parent in the tree
 
   // Terminal state (how/where the vessel ended)
-  TerminalStateValue:       RECOVERED | DESTROYED | RECYCLED | DESPAWNED | null
+  TerminalStateValue:       TerminalState: Orbiting | Landed | Splashed | SubOrbital | Destroyed |
+                            Recovered | Docked | Boarded | Disassembled, or null (not ended)
   TerminalOrbit*:           Keplerian elements at segment end (inc, ecc, sma, lan, argPe, mAe, epoch, body)
   TerminalPosition:         SurfacePosition — lat/lon/alt if surface-landed at end
   TerrainHeightAtEnd:       double — terrain height at final position (NaN if not surface; for spawn correction)
@@ -371,7 +374,7 @@ Only physical destruction or removal of ALL controller parts ends the segment.
 
 ### 4.6 Split Events
 
-When a vessel physically separates into independent assemblies (staging, undocking, EVA), the parent segment ends and two or more child segments begin. Each child inherits whatever controller parts end up on its side. Children without any controller are tagged as debris and receive minimal recording (position only until destruction/despawn).
+When a vessel physically separates into independent assemblies (staging, undocking, EVA), a split BranchPoint is written and each separated piece gets its own child Recording, inheriting whatever controller parts end up on its side. On the focused vessel the piece that keeps the vessel's identity keeps recording in the SAME Recording past the branch point ("breakup-continuous"; separations within 0.5 s are collected into one branch point, section 4.7); a background vessel's split ends its Recording and starts a continuation child. Children without any controller are tagged as debris; each debris piece gets its own Recording, which stops after `BackgroundRecorder.DebrisTTLSeconds` (60 s), at its crash or destruction, or when it leaves the physics bubble.
 
 An EVA is a split in the recording DAG like the others, but it is NOT a rewind split: Re-Fly is for vessel separations only (staging, decoupling, undocking; owner ruling 2026-09-27), so an EVA BranchPoint never carries a Rewind Point and an EVA kerbal is never an Unfinished Flight. See `parsek-rewind-to-separation-design.md` section 1.5.
 
@@ -379,7 +382,7 @@ An EVA is a split in the recording DAG like the others, but it is NOT a rewind s
 
 Crashes, overheating, and structural failures can produce many fragments across multiple physics frames. Rather than recording 20 individual SPLIT events in rapid succession, Parsek coalesces all separation events within a short time window (default 0.5 seconds) into a single BREAKUP tree event.
 
-The BREAKUP event records the parent segment, all child segments that have controllers (these get proper segments with trajectory recording), and a count of debris fragments (not individually tracked).
+The BREAKUP event records the parent segment and one child Recording per fragment: pieces with controllers get full trajectory recording, pieces without one are debris Recordings with the 60 s limit of section 4.6. The coalescing window applies to the focused vessel; a background vessel's separations are recorded one split at a time.
 
 **Example — Mun crash with partial survival:**
 
@@ -868,7 +871,7 @@ High-frequency continuous events (engine gimbal angles, control surface deflecti
 
 ### 7.4 Structural Events for All Physics-Bubble Vessels
 
-Events that affect the DAG structure (staging, decoupling, docking, undocking) are captured for all vessels in the physics bubble. A background vessel that stages while the player is focused elsewhere produces a proper SPLIT event in the recording tree. Debris children from intentional splits get a TTL: recording stops after `BackgroundRecorder.DebrisTTLSeconds` (60 seconds), or on crash/destruction, or when leaving the physics bubble. Rapid-fire crash fragments are coalesced into BREAKUP events and not individually tracked.
+Events that affect the DAG structure (staging, decoupling, docking, undocking) are captured for all vessels in the physics bubble. A background vessel that stages while the player is focused elsewhere produces a proper SPLIT event in the recording tree. Debris children get a TTL: recording stops after `BackgroundRecorder.DebrisTTLSeconds` (60 seconds), or on crash/destruction, or when leaving the physics bubble. A background vessel's fragments are not coalesced into one BREAKUP (only the focused vessel's are, section 4.7): each separation is its own split, and every fragment gets its own Recording.
 
 ---
 
@@ -995,17 +998,15 @@ When a Kerbal goes EVA, the recording tree branches at an EVA branch point: the 
 
 A kerbal leaving an external command seat, or released by a claw, is an EVA too (owner ruling 2026-10-24: "a kerbal leaving an external seat is an EVA, as we get a vehicle and a kerbal; undock is between vehicles"). Stock reaches Parsek through `Part.Undock` with no `onCrewOnEva` there, so `OnVesselsUndocking` classifies the shape first and sends a vehicle-plus-kerbal split to the same deferred EVA branch: no Rewind Point, never a Re-Fly slot, and with nothing recording it arms the hatch-EVA auto-record once the kerbal holds focus. Only a vehicle-plus-vehicle split is an Undock (`docs/dev/dock-undock-recording-structure.md` section 4.1).
 
-#### E. EVA Boarding (EVA → Vessel)
+#### E-G. Boarding, Dock / Undock, Vessel Switch (chain mode, deleted)
 
-When a Kerbal boards a vessel, the EVA segment commits and a new vessel recording begins.
-
-#### F. Dock/Undock
-
-Handled by `ParsekFlight.HandleDockUndockCommitRestart()` with four sub-scenarios (initiator dock, target dock, undock-stay, undock-switch). Each causes the current segment to commit. On undock, the sibling vessel gets a **ghost-only continuation** (`ChainBranch=1`) — it is adaptively sampled but never spawns as a real vessel at playback time.
-
-#### G. Vessel Switch During Active Chain
-
-If the player switches vessels while a chain is recording, the entire chain terminates (`HandleVesselSwitchChainTermination`). No continuation is possible because the focused vessel has changed.
+Chain mode committed and restarted a segment at each of these, and its handlers
+(`HandleDockUndockCommitRestart`, `HandleVesselSwitchChainTermination`, the ghost-only undock
+continuation on `ChainBranch = 1`) were deleted with it. In tree mode a boarding, a dock and
+an undock are tree branch points (`BranchPointType.Board`, `Dock`, `Undock`;
+`docs/dev/dock-undock-recording-structure.md`), and a vessel switch moves the recorder to the
+new vessel while the left vessel keeps recording in the background of the same tree
+(`FlightRecorder.DecideOnVesselSwitch` has no Stop decision).
 
 #### Not a Boundary
 
@@ -1030,27 +1031,36 @@ Mid-chain segments have their `VesselSnapshot` nulled (ghost-only playback) — 
 
 ### 9A.5 Recording Optimizer
 
-`RecordingOptimizer.cs` contains pure static functions that merge or split committed chain segments at save/load time. This is a **post-hoc cleanup pass** — it operates on already-committed Recordings.
+`RecordingOptimizer.cs` contains pure static functions that merge or split committed chain segments; `CommittedListOptimizer.RunOptimizationPass` applies them. The pass runs on a COLD load (`ParsekScenario.OnLoadFlowCold`; an in-session load such as F9 or a revert does not run it), after every tree commit (the merge dialog, the in-flight commit, the auto-commit outside flight) and right after a Re-Fly merge finishes (owner ruling Q6). This is a **post-hoc cleanup pass**: it operates on already-committed Recordings, merges first, then splits until no candidate remains (ruling Q19), then trims boring tails. Which split rules a recording gets depends on the rule version it was committed under (`docs/dev/done/plans/optimizer-persistence-split.md` sections 3 and 14).
 
 #### Auto-Merge: `CanAutoMerge(a, b)`
 
 Two consecutive chain segments can be merged if **all** of these conditions hold:
 
 1. Neither is null
-2. Same `ChainId` (non-empty)
-3. Both have valid `ChainIndex` (≥ 0)
-4. Consecutive: `b.ChainIndex == a.ChainIndex + 1`
-5. Both on primary branch (`ChainBranch == 0`)
-6. No `ChildBranchPointId` on A (no branch point between them)
-7. Same `SegmentPhase`
-8. Same `SegmentBodyName`
-9. Neither has ghosting-trigger events (checked via `GhostingTriggerClassifier`)
-10. Neither has `LoopPlayback` enabled
-11. Both have `PlaybackEnabled == true`
-12. Neither is `Hidden`
-13. Both have default `LoopIntervalSeconds` (10.0)
-14. Both have default `LoopAnchorVesselId` (0)
-15. Same `RecordingGroups` (ordered list equality)
+2. Neither is on the old side of a supersede row (the Re-Fly HEAD / TIP guard)
+3. Neither is named by a live Re-Fly session or merge journal (the marker's supersede target
+   and origin, and with a journal the provisional)
+4. Same `ChainId` (non-empty)
+5. Both have valid `ChainIndex` (>= 0)
+6. Consecutive: `b.ChainIndex == a.ChainIndex + 1`
+7. Both on primary branch (`ChainBranch == 0`)
+8. No `ChildBranchPointId` on A (no branch point between them)
+9. A is not destroyed (a destroyed recording is sealed at its terminal)
+10. Same `SegmentPhase` and `SegmentBodyName`, except a continuous EVA atmo / surface boundary
+11. Same split rule version and the same row role (`SegmentRole`)
+12. Neither has ghosting-trigger events (checked via `GhostingTriggerClassifier`)
+13. Neither has `LoopPlayback` enabled or a loop range (`LoopStartUT` / `LoopEndUT`)
+14. Both have `PlaybackEnabled == true`
+15. Neither is `Hidden`
+16. Both have the untouched `LoopIntervalSeconds` sentinel (`LoopTiming.UntouchedLoopIntervalSentinel`)
+17. Both have default `LoopAnchorVesselId` (0)
+18. Neither carries route harvest windows
+19. Same `IsDebris` and the same `ParentAnchorRecordingId`
+20. Same `RecordingGroups` (ordered list equality)
+
+`MergeInto` refuses (returns null, changing nothing) a destroyed target, and the
+pass then stops merging for this pass instead of deleting the absorbed recording.
 
 The purpose: if two consecutive segments have the same environment, same body, and neither has been customized by the user, they are redundant splits and should be re-merged into one.
 
@@ -1065,7 +1075,7 @@ A single Recording can be split at a TrackSection boundary where the environment
 3. Both resulting halves are **≥ 5 seconds** long
 4. Both resulting halves hold trajectory payload: the recording's actual sampled bounds (points, orbit segments, playable track sections, never an explicit or terminal bound) strictly straddle the cut (`SplitHalvesCarryPayload`). The 5-second test reads `StartUT` / `EndUT`, which an explicit bound can carry past the samples (a crash UT after the last sample), so without this a cut there left a half with no sample, whose `StartUT` read the 0.0 fallback.
 
-**Split operation** (`SplitAtSection`): Points partitioned by UT at the section boundary. Events partitioned (backward loop to avoid index shifting). TrackSections split at the section index. `GhostVisualSnapshot` cloned to both halves. Each half tagged with `SegmentPhase` derived from its first section's environment via `EnvironmentToPhase`:
+**Split operation** (`SplitAtSection`): Points partitioned by UT at the section boundary. Events partitioned (backward loop to avoid index shifting). TrackSections split at the section index. `GhostVisualSnapshot` cloned to both halves. The player's row settings (`Hidden`, `PlaybackEnabled`, the whole-recording loop, the seal, the groups) stay on both halves, and a recording with a loop range is never split. The end-of-flight fields (the terminal, the end snapshot, `VesselSituation`, the dock and route-transfer partner, the route windows not closed before the cut) go to the second half. Each half tagged with `SegmentPhase` derived from its first section's environment via `EnvironmentToPhase` (the first half of a launch-site start from the section where it leaves the site, since the pad time stays with the ascent):
 
 | SegmentEnvironment | Phase |
 |---|---|
@@ -1341,7 +1351,8 @@ function ComputeAllGhostChains(committedTrees, rewindUT):
     chain.links = claimList
     chain.tipRecording = find the Recording at the last claim's endpoint
     chain.spawnUT = chain.tipRecording.EndUT
-    chain.isTerminated = chain.tipRecording.TerminalStateValue in {DESTROYED, RECOVERED}
+    chain.isTerminated = chain.tipRecording.TerminalStateValue in {Destroyed, Recovered, Disassembled}
+                         // GhostChainWalker.IsChainTerminatingTerminal
     chains[vesselPID] = chain
 
   // Step 3: Cross-tree linking — extend chains across trees

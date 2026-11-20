@@ -26,7 +26,7 @@ This is the part you have to keep in mind everywhere, because Parsek's logic dep
 
 KSP fires `GameEvents.onPartCouple(data)` where `data.from.part` and `data.to.part` are the two coupling parts.
 
-- `data.to.vessel` is **always the survivor** — its `persistentId` becomes the merged vessel's PID. In modern KSP this is **not** one of the original two PIDs; KSP assigns a fresh PID at couple time. (In the playtest, the pre-dock vessels were `2167625385` (transport rover) and the destination rover; the merged vessel's PID is `3965530352`.)
+- The merged vessel keeps the `persistentId` of the half stock makes dominant (`Vessel.GetDominantVessel`), which can be either side, so the merged PID is one of the two pre-dock PIDs and the other half's PID is gone; on undock, the half that does not keep the merged PID gets a fresh one (`ChainTipStaleVessel`, `FlightRecorder.StartRecording`). Never assume which side survived: read the merged vessel. (In the playtest the pre-dock vessels were `2167625385`, the transport rover, and the destination rover, and the merged vessel's PID was `3965530352`.)
 - `data.from.vessel` is the absorbed side. Briefly after `onPartCouple` fires, KSP destroys this vessel object; its parts have been reparented onto `data.to.vessel`.
 - The transient pre-reparent window is small but real. When Parsek reads `data.from.vessel.persistentId` and `data.to.vessel.persistentId` at the top of `OnPartCouple`, both values are still meaningful — but a `FlightRecorder.FindVesselByPid(data.to.vessel.persistentId)` call later in the same frame returns a vessel object whose `parts` list already includes both sides' parts.
 
