@@ -156,6 +156,47 @@ Tests: `UnserializableTreeCarryForwardTests`
 (`SaveTreeRecordings_UnwritableMember_DoesNotFreezeTheRestOfTheTree` is the red cell, plus the
 load-back mirror, the key-set pin against the codec and the splice units). ST-4 pins the reworded
 Warn line; re-flight owed.
+## ~~GHOST-SERVO-CHILDREN-STATIC~~: parts mounted on a Breaking Ground servo stay frozen on the ghost while the servo moves [FILED 2026-11-20 by code reading (test-gap pass). FIXED 2026-11-20, branch `test-gaps-servoghost`; xUnit + mutation; in-game cell `ServoFollowers` written, NEVER RUN; no lane flies a servo craft; low (visual only: a hinge arm, a rotor's blades or a piston's payload does not move on the replay)]
+
+What the code did: the ghost builder parents every part (`ghost_part_<pid>`) directly to the ghost's
+part container at its snapshot pose (`GhostVisualBuilder.AddPartVisuals`), and the robotic
+appliers (`GhostPlaybackLogic.ApplyRoboticPose`, the rotor step in `UpdateActiveRobotics`) write
+only the servo's own moving transform inside the servo part's clone. Nothing beyond the servo part
+is under that transform, so every part attached to a hinge, rotation servo, piston or rotor kept
+its snapshot pose while the servo's own mesh turned.
+
+Fix: a build-time follower plan and a per-servo-write re-pose, no re-parenting (pid lookups,
+visibility walks and the camera pivot all assume the flat hierarchy).
+- `ServoFollowerPlanner` (pure, `Ghost/ServoFollowerPlanner.cs`) decides which parts ride which
+  servo from the snapshot's `parent` / `attN` / `srfN` lines and the prefab's `servoAttachNodes` /
+  `servoSrfMeshNames`, mirroring stock `BaseServo.SetChildParentTransform`: a part follows the
+  NEAREST servo on whose moving side its branch hangs, so a base-side part does not move and a
+  servo on a servo composes through its carrier. A servo whose parent hangs off its moving node
+  (stock's "rotate base" case) is reported and carries nothing.
+- At build, `GhostPlaybackLogic.BindServoFollowers` puts each servo at the moving-transform pose
+  stock saved in the same OnSave that refreshed the attached parts' positions
+  (`servoTransformPosition` / `servoTransformRotation`, decompiled `BaseServo.OnSave` ->
+  `ApplyCoordsUpdate`), stores each follower's pose in its servo's frame, then restores the
+  baseline pose and re-poses the followers.
+- Per frame: `PropagateServoFollowers` runs only where a servo transform is written and the servo
+  has followers: O(followers), no allocation; a ghost without a servo pays one null check per
+  robotic write. Logs: `Servo follower plan for ...` and `Servo followers bound: ...` once per
+  build (rate-limited per ghost).
+- Recorder side (mirror check): nothing new to record. Servo motion is already recorded per module
+  ordinal, the snapshot already carries the attach lines and stock's moving-transform pose, and the
+  moving-side node and mesh names come from the prefab.
+
+Proof: `ServoFollowerPlannerTests` (which parts follow, nested, base side, inverted, malformed)
+and `ServoFollowerPoseTests` (the pose math, nested composition, scale). Red against the pre-fix
+behaviour by mutation (planner yields nothing, follower pose ignores the servo): 9 of 21 cells red.
+
+OPEN:
+- Live proof. Run the in-game category `ServoFollowers` (FLIGHT, needs Breaking Ground; skips
+  without it), or watch a hinge craft's replay.
+- Known limits, not measured: a servo with an inverted mount keeps its base side still; a strut or
+  fuel line spanning the servo keeps its snapshot endpoints; a servo locked in flight after moving
+  with no save in between may have saved its children at an older pose (stock skips the
+  coordinate refresh in OnSave for a locked servo).
 
 ## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
 
