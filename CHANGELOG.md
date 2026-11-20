@@ -14,6 +14,11 @@ Not released yet.
   Klaw grab with a rewind, a release, rock mining onto a supply route, a Re-Fly across a grab and
   a comet grab.
 
+- **Dev: chained supply routes and many routes at once are tested.** A seeded test runs a hub
+  route feeding a depot that a second route draws from, through warps, saves and Re-Fly loads,
+  and a timing test runs 10 to 30 routes; the route tick also makes about half the garbage per
+  route it used to. (ROUTE-TICK-EVENT-LOG-SCANS)
+
 - **Dev: the leaf placement check also reads height.** For a vessel that ended landed or at sea
   it now reports whether the vessel sits buried, hanging in the air, or away from its recorded
   depth, on a line of its own that does not change the check's result yet.
