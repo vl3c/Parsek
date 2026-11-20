@@ -341,15 +341,35 @@ namespace Parsek
         /// FinalizerCache refresh thereafter. Clearing
         /// <c>TerminalStateValue</c> + <c>ExplicitEndUT</c> releases that
         /// short-circuit so the next refresh observes the live (now orbiting)
-        /// state. Returns <c>true</c> when a stale verdict was actually cleared,
+        /// state. It also clears <see cref="Recording.VesselDestroyed"/>: a recorder flush
+        /// (<c>ParsekFlight.PropagateRecorderDestructionToTreeRecording</c>, e.g. the Limbo stash
+        /// on F9) can leave it set with no terminal yet, and finalization reads it as a
+        /// destroyed leaf. Returns <c>true</c> when a stale verdict or flag was actually cleared,
         /// so callers can attribute the log line to a real state change.
         /// </summary>
         internal static bool ClearStaleDestroyedTerminalForResume(
             Recording recording,
             string logContext)
         {
+            bool clearedFlag = false;
+            if (recording != null && recording.VesselDestroyed)
+            {
+                recording.VesselDestroyed = false;
+                recording.MarkFilesDirty();
+                clearedFlag = true;
+                ParsekLog.Info("Extrapolator",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "{0}: cleared recorder destruction flag for resume rec={1} terminal={2}",
+                        string.IsNullOrEmpty(logContext) ? "ResumeRecording" : logContext,
+                        recording.RecordingId ?? "(null)",
+                        recording.TerminalStateValue.HasValue
+                            ? recording.TerminalStateValue.Value.ToString()
+                            : "null"));
+            }
+
             if (!IsAlreadyClassifiedDestroyed(recording))
-                return false;
+                return clearedFlag;
 
             string recordingId = recording.RecordingId ?? "(null)";
             double previousTerminalUT = !double.IsNaN(recording.ExplicitEndUT)

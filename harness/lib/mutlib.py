@@ -1212,8 +1212,10 @@ def save_windows(expectations: Dict, snapshot) -> List[Tuple[str, object, int, b
     out: List[Tuple[str, object, int, bool]] = []
     rewind = expectations.get(saveparse.REWIND_BLOCK)
     if isinstance(rewind, dict):
-        for key in ("supersedeRows", "tombstones", "rewindPoints"):
-            if key in rewind:
+        for key in saveparse.REWIND_COUNT_KEYS:
+            # A file facet is absent when the listing was not measured; the
+            # evaluator reports that as a defined mismatch, not a window.
+            if key in rewind and key in facets["rewind"]:
                 out.append(("rewind.%s" % key, rewind[key], facets["rewind"][key],
                             saveparse.REWIND_BLOCK in armed))
     structure = saveparse._structure_block(expectations)

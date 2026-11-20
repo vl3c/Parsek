@@ -358,6 +358,8 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # [expectations.perRecording] terminalState / endUT / predictedTail / mergeState -> reserved
 # [expectations.world]  vesselPid -> resource totals / roster (M-B2)          -> ACTIVE (verifier 8)
 # [expectations.rewind] supersedeRows / tombstones / rewindPoints (M-C2/R9)   -> ACTIVE (verifier 7b, report-only until gating = true)
+#   + rewindPointFiles / unlistedRewindPointFiles (the Parsek/RewindPoints folder beside the
+#   save, read by run.read_save_structure; absent when unmeasured, never zero)
 # [expectations.recordings.structure] trees / committedTrees / recordings /
 #   terminalStates / branchPoints / ghostChainNodes (M-C2/R9)                 -> ACTIVE (verifier 7b, report-only until gating = true)
 # [expectations.recordings.points] total / largest / smallest /

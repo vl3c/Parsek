@@ -14,12 +14,21 @@ Not released yet.
   Klaw grab with a rewind, a release, rock mining onto a supply route, a Re-Fly across a grab and
   a comet grab.
 
+- **Dev: chained supply routes and many routes at once are tested.** A seeded test runs a hub
+  route feeding a depot that a second route draws from, through warps, saves and Re-Fly loads,
+  and a timing test runs 10 to 30 routes; the route tick also makes about half the garbage per
+  route it used to. (ROUTE-TICK-EVENT-LOG-SCANS)
+
 - **Dev: the leaf placement check also reads height.** For a vessel that ended landed or at sea
   it now reports whether the vessel sits buried, hanging in the air, or away from its recorded
   depth, on a line of its own that does not change the check's result yet.
 
 ### Changed
 
+- **Deleting a supply route mid-trip now warns that its cargo will be lost.** When a route has
+  already taken cargo on its current trip, the delete confirmation adds "Cargo already taken on
+  this trip and not yet delivered will be lost." The cargo is still lost on delete, as before.
+  (ROUTE-DELETED-MID-CYCLE-LOSES-CARGO)
 - **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
   makes no rewind point of its own and never shows it in Unfinished Flights. The rock still gets
   its own replay from the release and becomes real at its end. (ROCK-RELEASE-REFLY-SLOT)
@@ -42,6 +51,36 @@ Not released yet.
   servo itself, so a panel, arm or wheel mounted on a hinge stayed frozen while the hinge swung.
   Everything on the moving side of a servo now moves with it, servos on servos included, and
   parts on the fixed side stay put. (GHOST-SERVO-CHILDREN-STATIC)
+- **Leaving the scene during a burn no longer leaves the replay's engines lit.** Going to the
+  Space Center, or committing the flight, while an engine or thruster was firing kept its plume
+  burning in the replay until the end. It now shuts off at the moment you left.
+  (FORCESTOP-LEAVES-ENGINES-LIT)
+- **A kerbal or probe that ended its flight right next to another vessel no longer ends up inside
+  the planet.** The end position could be read from a position measured from the nearby vessel,
+  which placed it far below the ground. (ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON)
+- **Destroyed flights all end the same way.** A craft destroyed far from you could keep the orbit
+  or landing spot it had when it died, unlike every other destroyed flight. All destroyed endings
+  now carry the same data. (TERMINAL-DESTROYED-PAYLOAD-DIVERGES)
+- **A wreck is a wreck however close you were.** When a crash broke a craft so that no command
+  part survived, what was left was recorded as destroyed only if you had flown far away from it;
+  nearby it could be saved as landed and come back as a wreck at the end of its replay.
+  (BREAKUP-REMNANT-ENDING-DEPENDS-ON-DISTANCE)
+- **A crash stays a crash when the game hands you a surviving piece.** When a craft crashed and
+  the game switched to a piece that survived, the crashed craft could be saved as landed at the
+  impact point and come back intact at the end of its replay. (CRASH-HANDOFF-LOSES-DESTROYED)
+- **A save from a newer Parsek keeps its flights' endings.** A flight that ended in a way this
+  version does not know was saved back with no ending, and its end could then be cut away. The
+  ending is now kept as it was and the trajectory is left whole. (NEWER-ENDING-ERASED-BY-OLDER-BUILD)
+- **A docked or boarded flight keeps its ending.** Recovering the ship it docked with, or the ship
+  a kerbal boarded, could rewrite the earlier flight as recovered and pay its recovery a second
+  time. (DOCKED-ENDING-OVERWRITTEN-BY-RECOVERY)
+- **Dropped boosters that were still burning stop their flame when their replay ends.** A spent
+  stage or booster whose recording ended while its engine still fired kept the flame lit to the
+  end of its replay. (DEBRIS-END-LEAVES-ENGINES-LIT)
+- **A recording now ends where the vessel was when it stopped.** Stopping, leaving the scene or
+  committing could end the replay a few seconds short of the vessel's real last position, and a
+  crash watched from another vessel could end the wreck in the air above the impact. The final
+  position is now sampled at the stop. (STOP-TAKES-NO-FINAL-SAMPLE)
 - **A separated vessel is never lost when two separations come close together.** Staging and
   then undocking, going on EVA or docking within half a second, two separations in the same
   frame, or a quicksave right after staging could leave a booster or satellite with no replay
@@ -64,6 +103,14 @@ Not released yet.
   that just tumbles, turns with its orbit or drifts into another body's sphere of influence is not
   treated as changed. Turning it yourself, firing an engine or any other change still starts one.
   (POST-SWITCH-PASSIVE-MOTION-TRIGGERS)
+- **Watching a ship that docks and later undocks keeps the camera on that ship.** When the ship
+  you were watching docked to a station and then left it, the camera could stay with the station
+  instead. Watch now follows the ship you started watching through the undock.
+  (WATCH-DOCK-UNDOCK-FOLLOWS-THE-STATION)
+- **Planet packs with another home world get Space Center ghosts and routes.** With a pack whose
+  home planet is not Kerbin, the Space Center now replays flights launched from home and supply
+  routes launched from its launch sites count as Space Center routes again.
+  (PLANET-PACK-HOME-WORLD-LITERAL)
 - **Sealing a flight that was split in two now lets you make a supply route from it.** When an
   Unfinished Flight's recording was cut in two (for example at the edge of the atmosphere),
   sealing it left the trip marked "Not finished yet" in Logistics for good. Sealed trips now

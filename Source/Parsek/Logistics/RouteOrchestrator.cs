@@ -601,7 +601,7 @@ namespace Parsek.Logistics
             }
 
             ParsekLog.VerboseRateLimited(Tag, "route-tick",
-                $"Tick: ut={currentUT.ToString("R", IC)} " +
+                () => $"Tick: ut={currentUT.ToString("R", IC)} " +
                 $"routes={tickedRoutes.ToString(IC)} " +
                 $"dispatched={dispatched.ToString(IC)} " +
                 $"transitioned={transitioned.ToString(IC)} " +

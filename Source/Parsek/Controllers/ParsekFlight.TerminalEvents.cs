@@ -112,10 +112,9 @@ namespace Parsek
         /// The stamp itself, split out so its exact write-set is pinned headlessly.
         ///
         /// <para><b>Deliberately does NOT set <see cref="Recording.VesselDestroyed"/>.</b>
-        /// This mirrors the ordinary background destruction path, which never sets it
-        /// either (only the ACTIVE-recorder override
-        /// <see cref="ApplyDestroyedFallback"/> does), and setting it here is actively
-        /// harmful: this seam runs BEFORE
+        /// The ordinary background destruction path sets it only later, in
+        /// <c>DeferredDestructionCheck</c> (<see cref="ApplyTerminalDestruction"/>), and
+        /// setting it here is actively harmful: this seam runs BEFORE
         /// <c>BackgroundRecorder.OnBackgroundVesselWillDestroy</c>, whose
         /// already-destroyed short circuit keys on exactly that bool. Tripping it
         /// would take the <c>RetireDestroyedBackgroundEntry</c> branch, which drops
@@ -366,10 +365,16 @@ namespace Parsek
             PendingDestruction pending,
             Recording rec)
         {
-            rec.StampTerminalState(TerminalState.Destroyed, "ApplyTerminalDestruction");
-            rec.ExplicitEndUT = pending.capturedUT;
-            ApplyTerminalData(pending, rec);
-            ParsekLog.Verbose("Flight", $"Applied terminal destruction to recording {rec.RecordingId}: Destroyed at UT={pending.capturedUT:F1}");
+            // The same seal every other destroyed ending gets (Recording.MarkDestroyedAtTerminal,
+            // also what the finalization-cache applier writes for Destroyed): VesselDestroyed set,
+            // the end at the destroy UT, and no terminal orbit or surface position. The captured
+            // orbit / position describe a vessel that no longer exists; keeping them gave the same
+            // ending two different payloads depending on which path wrote it.
+            rec.MarkDestroyedAtTerminal(pending.capturedUT, "ApplyTerminalDestruction");
+            ParsekLog.Verbose("Flight",
+                $"Applied terminal destruction to recording {rec.RecordingId}: Destroyed at " +
+                $"UT={pending.capturedUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"(captured orbit={pending.hasOrbit} surface={pending.hasSurface} not kept)");
         }
 
         /// <summary>

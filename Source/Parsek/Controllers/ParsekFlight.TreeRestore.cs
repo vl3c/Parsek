@@ -385,6 +385,11 @@ namespace Parsek
             // the active recording before the recorder start resets it.
             SplitBrancher.FlushPendingSplits("ResumeCommittedActiveRecording", activeVessel.persistentId);
 
+            Recording resumedRec;
+            if (activeTree.Recordings != null
+                && activeTree.Recordings.TryGetValue(recordingId, out resumedRec))
+                ClearFlushedDestructionFlagForResume(resumedRec, "ResumeCommittedActiveRecording");
+
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
             recorder.StartRecording(isPromotion: true);

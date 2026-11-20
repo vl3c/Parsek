@@ -285,7 +285,7 @@ namespace Parsek
                 : ReferenceFrame.Absolute;
             bool useBodyFixedPrimary = section.HasValue
                 && ShouldUseKscBodyFixedPrimary(rec, section.Value, point.ut);
-            if (point.bodyName != "Kerbin")
+            if (!HomeWorld.IsHomeBodyName(point.bodyName))
             {
                 pose = KscPoseResolution.Failure(
                     DescribeKscBranch(section, useBodyFixedPrimary),
@@ -369,7 +369,7 @@ namespace Parsek
                 : ReferenceFrame.Absolute;
             bool useBodyFixedPrimary = section.HasValue
                 && ShouldUseKscBodyFixedPrimary(rec, section.Value, targetUT);
-            if (before.bodyName != "Kerbin" || after.bodyName != "Kerbin")
+            if (!HomeWorld.IsHomeBodyName(before.bodyName) || !HomeWorld.IsHomeBodyName(after.bodyName))
             {
                 pose = KscPoseResolution.Failure(
                     DescribeKscBranch(section, useBodyFixedPrimary),

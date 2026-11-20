@@ -681,3 +681,13 @@ name = "Parsek.TreeDiscardPurge"
 reason = "the discarded-tree purge"
 [type.fields]
 PurgeTreeCountForTesting = "process: instrumentation counter PurgeTree increments; only tests reset and read it"
+
+[[type]]
+name = "Parsek.HomeWorld"
+default = "process"
+reason = "the home world's name, memoized on the identity of the live home CelestialBody; bodies live for the process, so a load keeps it valid and a different body re-resolves by itself"
+[type.fields]
+resolved = "process: cache keyed on the home body's reference identity"
+homeBodyNameOverrideForTesting = "test-hook"
+LiveHomeBodyReaderForTesting = "test-hook"
+BodyNameReaderForTesting = "test-hook"

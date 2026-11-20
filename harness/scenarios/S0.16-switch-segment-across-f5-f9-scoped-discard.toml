@@ -1,0 +1,168 @@
+schema = 1
+id = "S0.16-switch-segment-across-f5-f9-scoped-discard"
+# =====================================================================================
+# A SWITCH SEGMENT ACROSS F5 / F9, THEN THE SCOPED DISCARD (test-gaps Batch 2 item 3,
+# 2026-11-20; AUTHORED, NEVER FLOWN). No switch lane saved and reloaded while a switch
+# segment was live, so the `SWITCH_SEGMENT_SESSION` node's round trip through a quicksave
+# (ParsekScenario.SaveRewindStagingState / LoadRewindStagingState, policy cell
+# `SwitchSegmentSession` = Save on every load kind) and a scoped Discard of the reloaded
+# segment were proven only headless. (The id S0.15 was a withdrawn 2026-11-14 reading, the
+# two-switch #266 stash; its archived results keep that id, so this lane takes S0.16.)
+#
+# THE HOST is S0.13's (`eva2-lko-crewed`: "Kerbal X" pid 3620499050, the active crewed
+# stack, and "Kerbal X Probe" pid 2614652043 ~16 m away, both loaded and orbiting, nothing
+# committed) and S0.13's first half verbatim:
+#   1. `StartRecording` on Kerbal X (the live tree).
+#   2. Click the probe: the plain path arms a switch-segment session whose segment joins
+#      the live tree (S0.13 measured `armed: sessionId=... focusedPid=2614652043`).
+#   3. A short dwell, then THE F5: `SaveGame name=quicksave` with the segment live, so the
+#      quicksave carries the session node and the tree with the segment in it.
+#   4. Fly on 4 s (`WarpToUT 428`, a coast on the probe): what the F9 must take back.
+#   5. `StopRecording`, then THE F9: `LoadGame name=quicksave playerLoad=true`, the player's
+#      quickload (a Cold save-file load). The seam refuses a load over a live recorder
+#      (`recording-active`) outside a Re-Fly, so the recorder stops first (CX-1's shape);
+#      the load replaces memory with the quicksave's state either way.
+#   6. Click Kerbal X: Case A with the RELOADED session. The segment is back to its F5
+#      shape and did nothing, so the auto-resolution presses DISCARD (scoped:
+#      `SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt` prunes the segment's
+#      topological subtree only) and switches; Kerbal X's consume opens a continuation.
+#   7. ExitToSpaceCenter: the scene exit commits Kerbal X's tree (its continuation is a
+#      BgMemberOrMixed no-op, deferred to the normal commit), so one tree is saved and
+#      the probe appears in none of its recordings.
+#
+# THE GATES. One session id, carried by backreference from its arming through the F5 save,
+# the F9 load, the auto-resolve and the prune, so a fresh session minted after the F9
+# cannot read green. The prune removes exactly the segment (`ownedRecordingIds=1
+# removedRecordings=1`), and the tree survives it (one committed tree at the exit).
+#
+# PRE-REGISTERED OUTCOMES:
+#   (P1) Every token below: the marker survived the F9 and the Discard was scoped.
+#   (P2) `session loaded summary: none` right after the F9 mark, or a `cleared:` line for
+#        the session before the click: the marker did not survive the reload (a finding,
+#        filed in docs/dev/todo-and-known-bugs.md), and the click then takes the plain path.
+#   (P3) The click REJECTED `dialog-required case=A-session` or the auto-resolve line reads
+#        `evaluable=False`: the reloaded session's tree was not found (FindSegmentTreeForSession
+#        over the restored pending / active tree); read the `TryDiscardActiveSwitchSegmentAttempt
+#        refused` reason.
+#   (P4) `resolution=Merge` with `reason=insufficient-data`: the F5 came before the segment
+#        recorder authored coverage (lengthen the dwell before the F5; not a finding). Any
+#        other keep reason means the F9 did not take back the coast (a finding).
+#   (P5) `OnSave: saving 0 committed tree(s)` at the exit: the scene exit discarded Kerbal X's
+#        whole tree; read `TryAutoDiscardNoOpSwitchSegment` and the merge-flow auto-discard.
+#
+# FAST-LANE CHECKLIST: (1) reuse - S0.13's host and first click; (2) explicit-UT WarpToUT
+# waits only; (3) dwells are inert polls; (4)-(5) none; (6) retry `once`; (7) count {1,2};
+# (8) daily, S0.13's tier (S0.13 flies at ~70 s; this adds one quicksave and one F9);
+# (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "daily"
+description = "A switch segment across F5 / F9, then the scoped Discard: on eva2-lko-crewed, record Kerbal X, click the probe (a switch-segment session arms), F5 with the segment live, coast 4 s, stop the recorder and F9 back; the session reloads from the quicksave with the same id, and the click back to Kerbal X auto-discards exactly the probe's segment (one recording) under that id, leaving Kerbal X's tree to commit at the scene exit."
+instanceProfile = "stock-minimal"
+tags = ["switch-segment", "stock-click", "S0.16", "quickload", "f5-f9", "pre-switch-auto-resolve", "D1", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# `autoMerge = true` is LOAD-BEARING (the auto-resolution; S0.13), and `verboseLogging =
+# true` is mandatory (the classifier and partition lines are Verbose). The settings are
+# per-install, so the F9 keeps them.
+steps = [
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "WarpToUT",                 args = { ut = "424", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                    expect = "OK" },
+  # 2. the switch that arms the segment session
+  { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X Probe" },                    expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  # 3. THE F5, segment live
+  { cmd = "MissionMark",              args = { label = "s016-f5" },                           expect = "OK" },
+  { cmd = "SaveGame",                 args = { name = "quicksave" },                          expect = "OK", budget = 120 },
+  # 4. fly on: a coast the F9 takes back
+  { cmd = "WarpToUT",                 args = { ut = "428", maxRate = "1" },                     expect = "OK", budget = 60 },
+  # 5. THE F9 (the seam refuses a load over a live recorder outside a Re-Fly)
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "MissionMark",              args = { label = "s016-f9" },                           expect = "OK" },
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  # 6. the click back: the reloaded no-op segment is discarded, scoped
+  { cmd = "MissionMark",              args = { label = "s016-discard" },                      expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X" },                          expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  # 7. the exit commits Kerbal X's tree
+  { cmd = "ExitToSpaceCenter",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# `switch-segment` <- the auto-resolve and prune lines below, which only a switch with a
+#   live SwitchSegmentSession reaches (Case A). A re-claim (S0.8, S0.12, S0.13, GS-3).
+D1 = ["switch-segment"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Kerbal X's tree only: its root recording and (if the commit keeps it) its continuation
+# segment; the probe's segment is pruned. Never flown: pin exactly after the reading.
+count = { min = 1, max = 2 }
+
+# REPORT-ONLY until a reading run: one committed tree, the probe in none of its legs.
+[expectations.recordings.structure]
+gating         = false
+committedTrees = 1
+recordingNames = { "Kerbal X" = { min = 1 }, "Kerbal X Probe" = { max = 0 } }
+
+[expectations.logContracts]
+required = [
+  # 3. the session armed on the probe click is the one the F5 saved
+  "(?s)\\[SwitchSegment\\] armed: sessionId=([0-9a-f-]{36}) intentId=[0-9a-f-]{36} entryReason=MapSwitchTo [^\\r\\n]*focusedPid=2614652043 .*?MISSIONMARK label=s016-f5 .*?\\[SwitchSegment\\] session saved: \\1",
+  "(?s)MISSIONMARK label=s016-f5 .*?OnSave: Re-Fly subsystem state persisted [^\\r\\n]*switchSegment=True",
+  # 5. the F9 is the player's save-file load, and it brings the SAME session back
+  "(?s)MISSIONMARK label=s016-f9 .*?loadgame start save=\\S+ name=quicksave [^\\r\\n]*playerLoad=true",
+  "(?s)MISSIONMARK label=s016-f9 .*?Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*coldReason=save-file",
+  "(?s)\\[SwitchSegment\\] armed: sessionId=([0-9a-f-]{36}) [^\\r\\n]*focusedPid=2614652043 .*?MISSIONMARK label=s016-f9 .*?\\[SwitchSegment\\] session loaded: sessionId=\\1 ",
+  "(?s)MISSIONMARK label=s016-f9 .*?OnLoad: Re-Fly subsystem state loaded [^\\r\\n]*switchSegment=True",
+  # 6. the reloaded session's segment is a no-op, auto-discarded, and the prune is scoped
+  "(?s)\\[SwitchSegment\\] armed: sessionId=([0-9a-f-]{36}) [^\\r\\n]*focusedPid=2614652043 .*?MISSIONMARK label=s016-discard .*?pre-switch auto-resolve: resolution=Discard case=A-session autoMerge=True evaluable=True priorIsNoOp=True [^\\r\\n]*priorSessionId=\\1 targetPid=3620499050",
+  "(?s)\\[SwitchSegment\\] armed: sessionId=([0-9a-f-]{36}) [^\\r\\n]*focusedPid=2614652043 .*?MISSIONMARK label=s016-discard .*?TryDiscardActiveSwitchSegmentAttempt pruned: sessionId=\\1 [^\\r\\n]*ownedRecordingIds=1 removedRecordings=1 ",
+  "(?s)MISSIONMARK label=s016-discard .*?switchclick complete site=map targetPid=3620499050 targetName=Kerbal X route=pre-switch-auto-discard activeVesselPid=3620499050 switched=true",
+  # 7. the tree outlived the scoped discard
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=[0-9.]+s",
+  "(?s)MISSIONMARK label=s016-discard .*?OnSave: saving 1 committed tree\\(s\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # Neither switch may open the dialog or be refused.
+  "pre-switch-dialog opening",
+  "switchclick refused",
+  # The F5's session dropped before the click (P2).
+  "(?s)MISSIONMARK label=s016-f9 .*?\\[SwitchSegment\\] session loaded summary: none.*?MISSIONMARK label=s016-discard ",
+  "(?s)MISSIONMARK label=s016-f9 .*?\\[SwitchSegment\\] cleared: .*?MISSIONMARK label=s016-discard ",
+  "TryDiscardActiveSwitchSegmentAttempt refused",
+]
+
+[runtime]
+# 300 LoadGame + 120 + 60 WarpToUT + two 120 s clicks + 120 SaveGame + 300 F9 + 120
+# ExitToSpaceCenter + the fast polls + boot and margin. S0.13 flies at ~70 s wall.
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
