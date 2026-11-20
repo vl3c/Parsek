@@ -137,6 +137,7 @@ namespace Parsek
                 InFlightRecoveryRequest.MoveAwaitingStockPayout(
                     absorbed.RecordingId, target.RecordingId, "optimization-merge");
                 UpdateTreeStateAfterOptimizationMerge(target, absorbed);
+                RepointAnchorsAfterOptimizationMerge(recordings, target, absorbed);
 
                 // Remove absorbed recording from committed list
                 RecordingStore.RemoveCommittedAt(idxB, target);
@@ -171,6 +172,53 @@ namespace Parsek
                     $"[{FormatSortedIds(heldForRoutes)}] - a supply route's source recordings stay whole");
 
             return mergeCount;
+        }
+
+        /// <summary>
+        /// The absorbed recording's id disappears with the merge, so every other recording's
+        /// reference to it moves to the merge target, which now covers the absorbed time range:
+        /// a Relative section's <see cref="TrackSection.anchorRecordingId"/> and a
+        /// <see cref="Recording.ParentAnchorRecordingId"/>. Touched recordings are marked dirty
+        /// (the section anchor lives in the trajectory sidecar). One summary line when anything
+        /// moved.
+        /// </summary>
+        internal static void RepointAnchorsAfterOptimizationMerge(
+            IReadOnlyList<Recording> recordings, Recording target, Recording absorbed)
+        {
+            string absorbedId = absorbed?.RecordingId;
+            string targetId = target?.RecordingId;
+            if (recordings == null || string.IsNullOrEmpty(absorbedId) || string.IsNullOrEmpty(targetId))
+                return;
+            int sections = 0;
+            int parentAnchors = 0;
+            for (int r = 0; r < recordings.Count; r++)
+            {
+                var rec = recordings[r];
+                if (rec == null || ReferenceEquals(rec, absorbed)) continue;
+                if (string.Equals(rec.ParentAnchorRecordingId, absorbedId, StringComparison.Ordinal))
+                {
+                    rec.ParentAnchorRecordingId = targetId;
+                    parentAnchors++;
+                }
+                if (rec.TrackSections == null) continue;
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    var s = rec.TrackSections[i];
+                    if (!string.Equals(s.anchorRecordingId, absorbedId, StringComparison.Ordinal))
+                        continue;
+                    s.anchorRecordingId = targetId;
+                    rec.TrackSections[i] = s;
+                    rec.FilesDirty = true;
+                    sections++;
+                }
+            }
+            if (sections > 0 || parentAnchors > 0)
+            {
+                ParsekLog.Info("RecordingStore",
+                    $"Optimization: anchors re-pointed {absorbedId} -> {targetId} " +
+                    $"(sections={sections.ToString(CultureInfo.InvariantCulture)} " +
+                    $"parentAnchors={parentAnchors.ToString(CultureInfo.InvariantCulture)})");
+            }
         }
 
         /// <summary>

@@ -62,7 +62,9 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Fix:** step 2.8c, `RecordingTreeSplitter.RewriteOtherRecordingAnchorsToTip`: every other committed recording's Relative section anchored to the origin that starts at or after the cut points at TIP (on the split's rollback ledger, `FilesDirty` set). A section straddling the cut cannot be cut there and stays on HEAD, counted. The session's own attempt recordings (the provisional and every recording stamped with the session) are left alone. Verbose `Step8: anchor rewrites - ... otherSections=<n> otherStraddlersKeptOnHead=<n>`.
 
-**Tests:** `RecordingTreeSplitterTests.SplitOriginAtRewindUT_OtherRecordingsRelativeSectionsAfterTheCut_FollowTip` (red under a mutation that skips the walk).
+A split that throws undoes these re-points with the rest of its rollback ledger. A split that completed is not undone by a later RULE 4 give-up, so when HEAD and TIP are joined again (the given-up merge left no supersede row, and the session ends), the re-pointed sections would name TIP's vanished id: the optimizer's merge pass now moves every other recording's reference to an absorbed recording onto the merge target (`CommittedListOptimizer.RepointAnchorsAfterOptimizationMerge`: Relative section anchors and `ParentAnchorRecordingId`; Info `Optimization: anchors re-pointed <absorbed> -> <target> (sections=N parentAnchors=N)`), which also covers any other optimizer merge of a recording something anchors to.
+
+**Tests:** `RecordingTreeSplitterTests.SplitOriginAtRewindUT_OtherRecordingsRelativeSectionsAfterTheCut_FollowTip` (red under a mutation that skips the walk); `OptimizerMergeAnchorRetagTests.OptimizerMerge_RepointsOtherRecordingsAnchorsFromTheAbsorbedIdToTheTarget` (red before the merge-pass re-point).
 
 ## ~~REFLY-MERGE-OPTIMIZER-PASS-AFTER-MERGE~~: the optimizer pass right after a Re-Fly merge (owner ruling Q6) [FILED 2026-11-18 by the recording split / trim / merge review, ruled by the owner 2026-11-18 ("Yes, right after merge"). FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane]
 
