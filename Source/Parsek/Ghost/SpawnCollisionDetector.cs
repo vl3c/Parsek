@@ -18,7 +18,7 @@ namespace Parsek
     /// spawn-time overlap with loaded vessels. Used by the chain-tip spawn path
     /// to prevent physics explosions from overlapping vessel placement.
     /// </summary>
-    internal static class SpawnCollisionDetector
+    internal static partial class SpawnCollisionDetector
     {
         private const string Tag = "SpawnCollision";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -1232,6 +1232,45 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The world box a spawn's bounds occupy at <paramref name="spawnWorldPos"/>: the
+        /// bounds centre and extents (plus <paramref name="padding"/> on every side), turned
+        /// so the vessel-local up axis follows the nearest body's local up.
+        /// </summary>
+        private static void ResolveSpawnOverlapBox(
+            Vector3d spawnWorldPos, Bounds spawnBounds, float padding,
+            out Vector3 worldCenter, out Vector3 halfExtents, out Quaternion surfaceRot)
+        {
+            // Compute the surface-aligned rotation for the spawn box. spawnBounds is in
+            // vessel-local space, where the vessel's local Y axis points along the surface
+            // normal (a landed vessel sits "up" from the body). On a curved body that Y
+            // axis is tilted relative to world-Y. FromToRotation maps Vector3.up to the
+            // actual local up at the spawn position, so the OverlapBox's extents are
+            // oriented correctly. For the previous Quaternion.identity the error was small
+            // for vessels near KSC (world-Y is nearly parallel to Kerbin-up there), but
+            // grew for spawns on the far side of a body. Review finding from PR #225.
+            Vector3 upAxis = Vector3.up;
+            for (int bi = 0; FlightGlobals.Bodies != null && bi < FlightGlobals.Bodies.Count; bi++)
+            {
+                CelestialBody b = FlightGlobals.Bodies[bi];
+                if (b == null) continue;
+                double distSq = (spawnWorldPos - b.position).sqrMagnitude;
+                double r = b.Radius;
+                // The closest body whose center-to-spawn distance is within its
+                // sphere of influence radius is "the body we're spawning near".
+                // For our use case - landed/splashed spawns near the surface -
+                // testing against 1.5x body radius is enough to pick the correct one.
+                if (distSq < (r * 1.5) * (r * 1.5))
+                {
+                    upAxis = (Vector3)FlightGlobals.getUpAxis(b, (Vector3d)spawnWorldPos);
+                    break;
+                }
+            }
+            surfaceRot = Quaternion.FromToRotation(Vector3.up, upAxis);
+            worldCenter = (Vector3)spawnWorldPos + surfaceRot * spawnBounds.center;
+            halfExtents = spawnBounds.extents + Vector3.one * padding;
+        }
+
+        /// <summary>
         /// Checks whether a vessel spawned at <paramref name="spawnWorldPos"/> with
         /// the given local <paramref name="spawnBounds"/> would overlap any real
         /// part collider of a loaded vessel. Uses <see cref="Physics.OverlapBox"/>
@@ -1259,34 +1298,8 @@ namespace Parsek
             uint exemptVesselPid = 0, Recording spawningRecording = null, string site = null,
             double candidateUT = double.NaN)
         {
-            // Compute the surface-aligned rotation for the spawn box. spawnBounds is in
-            // vessel-local space, where the vessel's local Y axis points along the surface
-            // normal (a landed vessel sits "up" from the body). On a curved body that Y
-            // axis is tilted relative to world-Y. FromToRotation maps Vector3.up to the
-            // actual local up at the spawn position, so the OverlapBox's extents are
-            // oriented correctly. For the previous Quaternion.identity the error was small
-            // for vessels near KSC (world-Y is nearly parallel to Kerbin-up there), but
-            // grew for spawns on the far side of a body. Review finding from PR #225.
-            Vector3 upAxis = Vector3.up;
-            for (int bi = 0; FlightGlobals.Bodies != null && bi < FlightGlobals.Bodies.Count; bi++)
-            {
-                CelestialBody b = FlightGlobals.Bodies[bi];
-                if (b == null) continue;
-                double distSq = (spawnWorldPos - b.position).sqrMagnitude;
-                double r = b.Radius;
-                // The closest body whose center-to-spawn distance is within its
-                // sphere of influence radius is "the body we're spawning near".
-                // For our use case — landed/splashed spawns near the surface —
-                // testing against 1.5x body radius is enough to pick the correct one.
-                if (distSq < (r * 1.5) * (r * 1.5))
-                {
-                    upAxis = (Vector3)FlightGlobals.getUpAxis(b, (Vector3d)spawnWorldPos);
-                    break;
-                }
-            }
-            Quaternion surfaceRot = Quaternion.FromToRotation(Vector3.up, upAxis);
-            Vector3 worldCenter = (Vector3)spawnWorldPos + surfaceRot * spawnBounds.center;
-            Vector3 halfExtents = spawnBounds.extents + Vector3.one * padding;
+            ResolveSpawnOverlapBox(spawnWorldPos, spawnBounds, padding,
+                out Vector3 worldCenter, out Vector3 halfExtents, out Quaternion surfaceRot);
 
             // Rate-limited: walkback calls this once per sub-step (potentially hundreds of
             // calls per spawn attempt). A single diagnostic line per second is enough to

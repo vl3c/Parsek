@@ -578,7 +578,11 @@ namespace Parsek.Tests
                 "ApplyEndOfRecordingLandedDeOverlap(rec, index, body, ref spawnLat, ref spawnLon, ref spawnAlt)",
                 StringComparison.Ordinal);
             int pos = spawn.IndexOf("body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt)", StringComparison.Ordinal);
-            int check = spawn.IndexOf("CheckSpawnCollisions(", StringComparison.Ordinal);
+            // The collision check runs through ResolveEndOfRecordingSpawnCollision, which keeps
+            // CheckSpawnCollisions for every spawn without an orbit override.
+            int check = spawn.IndexOf("ResolveEndOfRecordingSpawnCollision(", StringComparison.Ordinal);
+            Assert.Contains("CheckSpawnCollisions(", ExtractMethodBody(eor,
+                "Vector3d pos) ResolveEndOfRecordingSpawnCollision("));
             Assert.True(orbit >= 0 && decide >= 0 && apply >= 0 && pos >= 0 && check >= 0);
             Assert.True(orbit < decide && decide < apply && apply < pos && pos < check,
                 "the de-overlap must run after the endpoint is resolved and before the spawn position and collision check");
