@@ -979,6 +979,9 @@ namespace Parsek
             RecorderBound = 1,
             NotWatchedVessel = 2,
             Capture = 3,
+            // The watched vessel is a background member of the active tree: the background
+            // recorder's own split detection (HandleBackgroundVesselSplit) records the split.
+            BackgroundRecorderOwns = 4,
         }
 
         /// <summary>
@@ -986,7 +989,9 @@ namespace Parsek
         /// <paramref name="newPid"/>) is one the armed post-switch watch must capture: the watch
         /// is armed, no recorder is bound and no split is parked (those paths own a split), and
         /// the original vessel is the watched one (KSP keeps the original pid across an undock
-        /// or a decouple; the separated side is the new vessel).
+        /// or a decouple; the separated side is the new vessel). A watched vessel the active tree
+        /// already tracks in the background is left to the background recorder, which records
+        /// its splits itself (capturing it too would record the child twice).
         /// </summary>
         internal static PostSwitchStructuralSplitDecision EvaluatePostSwitchStructuralSplit(
             bool watchArmed,
@@ -994,7 +999,8 @@ namespace Parsek
             bool recorderBound,
             bool splitInProgress,
             uint originalPid,
-            uint newPid)
+            uint newPid,
+            bool watchedTrackedInActiveTree = false)
         {
             if (!watchArmed)
                 return PostSwitchStructuralSplitDecision.NoWatch;
@@ -1002,6 +1008,8 @@ namespace Parsek
                 return PostSwitchStructuralSplitDecision.RecorderBound;
             if (watchedPid == 0u || originalPid != watchedPid || newPid == 0u || newPid == watchedPid)
                 return PostSwitchStructuralSplitDecision.NotWatchedVessel;
+            if (watchedTrackedInActiveTree)
+                return PostSwitchStructuralSplitDecision.BackgroundRecorderOwns;
             return PostSwitchStructuralSplitDecision.Capture;
         }
 
@@ -1028,10 +1036,19 @@ namespace Parsek
                 recorderBound: host.recorder != null && host.recorder.IsRecording,
                 splitInProgress: host.pendingSplitInProgress,
                 originalPid: originalPid,
-                newPid: newPid);
+                newPid: newPid,
+                watchedTrackedInActiveTree: state != null
+                    && (state.TrackedInActiveTree
+                        || (host.activeTree != null && host.activeTree.BackgroundMap.ContainsKey(state.VesselPid))));
             if (decision != PostSwitchStructuralSplitDecision.Capture)
             {
-                if (decision != PostSwitchStructuralSplitDecision.NoWatch)
+                if (decision == PostSwitchStructuralSplitDecision.BackgroundRecorderOwns)
+                {
+                    ParsekLog.Info("Flight",
+                        $"Post-switch watch: separation left to the background recorder ({source}): " +
+                        $"watchedPid={originalPid} is a tracked background member, newPid={newPid}");
+                }
+                else if (decision != PostSwitchStructuralSplitDecision.NoWatch)
                 {
                     ParsekLog.Verbose("Flight",
                         $"Post-switch watch: separation not captured ({source}): decision={decision} " +

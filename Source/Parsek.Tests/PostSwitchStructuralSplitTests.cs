@@ -82,6 +82,27 @@ namespace Parsek.Tests
                 "a captured separation must start the recording (before the baseline / settle gates) and then be fed");
         }
 
+        // ---- tracked background member: the background recorder owns the split ----
+
+        [Fact]
+        public void TrackedBackgroundMember_IsLeftToTheBackgroundRecorder()
+        {
+            // A watch armed via ArmTrackedBackgroundMember: the BackgroundRecorder's own split
+            // check records the child; a capture would record it twice.
+            Assert.Equal(Decision.BackgroundRecorderOwns,
+                ParsekFlightPostSwitchAutoRecord.EvaluatePostSwitchStructuralSplit(
+                    watchArmed: true, watchedPid: 100u, recorderBound: false, splitInProgress: false,
+                    originalPid: 100u, newPid: 200u, watchedTrackedInActiveTree: true));
+        }
+
+        [Fact]
+        public void Capture_ReadsTheTrackedFlagAndTheBackgroundMap()
+        {
+            string body = MethodBody("ParsekFlightPostSwitchAutoRecord.cs", "bool TryCapturePostSwitchStructuralSplit(");
+            Assert.Contains("state.TrackedInActiveTree", body);
+            Assert.Contains("BackgroundMap.ContainsKey(state.VesselPid)", body);
+        }
+
         private static string MethodBody(string file, string signature)
         {
             string repo = Path.GetFullPath(Path.Combine(

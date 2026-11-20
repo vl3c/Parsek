@@ -87,7 +87,11 @@ Fix. `ParsekFlightPostSwitchAutoRecord.TryCapturePostSwitchStructuralSplit` (pur
 split-time snapshot and pose. The next watch frame starts the recording past the baseline and
 settle gates (trigger `StructuralSplit`) and feeds the captures to the crash coalescer, so each
 separated vessel becomes a child of the new recording. A refused start drops the captures with a
-Warn (it refuses every frame); a watch disarmed with captures pending warns.
+Warn (it refuses every frame); a watch disarmed with captures pending warns. A watched vessel the
+active tree already tracks in the background (`ArmTrackedBackgroundMember`, or its pid in
+`BackgroundMap`) is declined (`BackgroundRecorderOwns`, logged): the background recorder's own
+split check (`HandleBackgroundVesselSplit`) records that split, and a capture would record the
+child twice.
 
 Tests. `PostSwitchStructuralSplitTests` (the decision table, the undock routing, start-then-feed
 ahead of the baseline gate). Lane owed: `]` to an untracked docked pair, undock at once; expect a
