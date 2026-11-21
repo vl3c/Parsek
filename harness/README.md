@@ -48,6 +48,18 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   ceiling, `minSweepDeg` rendered-rotation floor, `resolvedLines` window, per
   `rotRef` `refs`); REPORT-ONLY unless armed via
   `GHOSTLIFE_ARMED_SPECS` - empty as shipped),
+  + `partparity.py`, the pure part ghost parity verifier behind the
+  `partParity` row (docs/dev/design-part-ghost-parity.md sections 5, 6, 10):
+  run.py's harvest leg MOVES each `<instance>/parsek-partparity/<label>/` a
+  lane's `PartParitySweep` steps name into `results/<runId>_partparity/`
+  right after the drive, inside the lock (own retention pass; only the
+  manifest and the sidecars reach the results archive), and the row judges it
+  there: a bad control, a Python recompute of the shape measures that
+  disagrees with the C# sidecar, or an unfinished sweep is a terminal
+  `INVALID(parity-controls | parity-instrument | parity-incomplete)` from the
+  start; the per-part verdicts are REPORT-ONLY unless armed via
+  `[expectations.partParity] gating = true` (`PARTPARITY_ARMED_SPECS` - empty
+  as shipped), then `PARSEK-FAIL(part-parity)`,
   `provision/` (`provlib.py` pure, `provision.py`
   shell), `missions/` (M-B1: mission shells + `lib/mlib.py` pure mission
   decisions + `bootstrap_venv.py`), and their `test_*.py`. run.py drives

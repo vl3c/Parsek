@@ -77,8 +77,11 @@ class FakeRuntime(run.Runtime):
                  career_funds=25000.0, career_science=0.0, career_rep=0.0,
                  analyzer_fail_calls=0, produced_parsed=True, inject_noop=False,
                  render_manifest_text=None, ghost_lifecycle_log_text=None,
-                 analyzer_red=False):
+                 analyzer_red=False, part_parity_source=None):
         self.mode = mode
+        # The synthetic sweep directory the fake KSP copies into its label dir on a
+        # PartParitySweep `op=run` (_fake_ksp.PARTPARITY_SOURCE_ENV).
+        self.part_parity_source = part_parity_source
         # The GhostRenderTrace mesh-lifecycle lines the fake KSP "writes" into its
         # KSP.log, APPENDED at launch for the render-manifest reason below (after
         # staging, which is where a real run's lines land). Append, never write:
@@ -181,6 +184,9 @@ class FakeRuntime(run.Runtime):
         if self.ghost_lifecycle_log_text is not None:
             with open(os.path.join(cwd, "KSP.log"), "a", encoding="utf-8") as fh:
                 fh.write(self.ghost_lifecycle_log_text)
+        if self.part_parity_source is not None:
+            env = dict(env)
+            env["FAKE_KSP_PARTPARITY_SRC"] = self.part_parity_source
         return subprocess.Popen(
             [exe, FAKE_KSP, "--root", cwd, "--mode", self.mode],
             env=env, cwd=cwd,
@@ -8612,3 +8618,237 @@ class ReadSaveStructureRewindPointListingTests(unittest.TestCase):
         snap = run.read_save_structure(self._save_dir(None))
         self.assertEqual((), snap.rewind_point_files)
         self.assertEqual(0, run.saveparse.observed_structure_facets(snap)["rewind"]["rewindPointFiles"])
+
+
+import _partparity_fixture as _ppfx  # noqa: E402
+import partparity as _pp  # noqa: E402
+
+
+class PartParityHarvestSmokeTests(unittest.TestCase):
+    """The part parity harvest leg and the partParity row over the REAL run loop
+    (fake runtime; design-part-ghost-parity.md 5.1, 6, 10). The fake KSP answers
+    `PartParitySweep op=reset` by clearing <root>/parsek-partparity/<label>/ and
+    `op=run` by copying a synthetic sweep into it; run.py must move the directory out
+    of the instance into results/<runId>_partparity/<label>/ while the lock is held,
+    judge it there (never through the pipelined private copy), write the verdicts file
+    beside it, archive only the manifest and the sidecars, and classify the three
+    instrument gates as INVALID."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-pp-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "eva2-lko-crewed")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self.src = os.path.join(self.tmp, "sweep-src")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "pp_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _spec(self, label="pp1"):
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-partparity"
+        spec["driver"]["steps"] = [
+            {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+             "expect": "OK", "budget": 30},
+            {"cmd": "PartParitySweep", "args": {"label": label, "op": "reset"},
+             "expect": "OK", "budget": 60},
+            {"cmd": "PartParitySweep", "args": {"label": label, "op": "run", "skins": "all",
+                                                "controls": "true", "maxSeconds": "60"},
+             "expect": "OK", "budget": 60},
+            {"cmd": "FlushAndQuit", "expect": "OK"},
+        ]
+        spec["expectations"]["logContracts"]["required"] = []
+        spec["expectations"]["partParity"] = {"gating": False}
+        spec["retry"] = {"policy": "none"}
+        return spec
+
+    def _run(self, spec, defer=False, source=True, **kwargs):
+        rt = FakeRuntime("pass", part_parity_source=self.src if source else None, **kwargs)
+        out = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                              prior_boot_crashed=False, logger=self.logger,
+                              defer_post_quit=defer)
+        if defer:
+            self.assertIsInstance(out, run._DeferredAttempt)
+            self.assertIsNotNone(out.post_quit_copy)
+            # The private copy never carries the sweep: it is already under results/.
+            for _root, dirs, files in os.walk(out.post_quit_copy.root):
+                self.assertNotIn(hlib.PARTPARITY_INSTANCE_ROOT, dirs)
+                self.assertFalse(any(f.endswith(_pp.SIDECAR_SUFFIX) for f in files))
+            out = out.finish(self.logger)
+        return out
+
+    def _pp_dir(self, result, label="pp1"):
+        return os.path.join(run.RESULTS_DIR, hlib.partparity_results_dir_name(result["runId"]),
+                            label)
+
+    def _log(self):
+        with open(self.logger.log_path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_the_sweep_is_moved_judged_in_place_and_reported(self):
+        _ppfx.build_sweep(self.src, parts=3)
+        result = self._run(self._spec())
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        label_dir = self._pp_dir(result)
+        self.assertTrue(os.path.isfile(os.path.join(label_dir, _pp.MANIFEST_FILE)))
+        # MOVED, not copied: the instance no longer holds the label dir.
+        self.assertFalse(os.path.isdir(os.path.join(
+            self.instance, hlib.PARTPARITY_INSTANCE_ROOT, "pp1")))
+        row = result["verifiers"]["partParity"]
+        self.assertEqual(_pp.STATUS_REPORT, row["status"])
+        self.assertEqual("moved", row["harvest"]["labels"][0]["result"])
+        self.assertGreater(row["harvest"]["labels"][0]["files"], 20)
+        self.assertEqual(3, row["sweeps"][0]["counts"]["cases"])
+        self.assertEqual(9, row["sweeps"][0]["recomputed"])  # 8 controls + 1 sampled part
+        with open(os.path.join(label_dir, _pp.VERDICTS_FILE), encoding="utf-8") as fh:
+            doc = json.load(fh)
+        self.assertEqual(_pp.VERDICTS_SCHEMA, doc["schema"])
+        self.assertEqual(result["runId"], doc["runId"])
+        log = self._log()
+        self.assertIn("[PartParity] harvest run=%s label=pp1 result=moved" % result["runId"], log)
+        self.assertIn("verify partParity status=REPORT gating=False subkind=- label=pp1", log)
+
+    def test_the_pipelined_path_judges_the_same_dir_with_the_same_verdict(self):
+        _ppfx.build_sweep(self.src, parts=3)
+        result = self._run(self._spec(), defer=True)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertEqual(_pp.STATUS_REPORT, result["verifiers"]["partParity"]["status"])
+        self.assertTrue(os.path.isfile(os.path.join(self._pp_dir(result), _pp.VERDICTS_FILE)))
+
+    def test_a_bad_control_is_invalid_parity_controls(self):
+        _ppfx.build_sweep(self.src, control_outcome="bad")
+        result = self._run(self._spec())
+        self.assertEqual((hlib.VERDICT_INVALID, "parity-controls"),
+                         (result["verdict"], result["subkind"]))
+        self.assertIn("partParity label=pp1 controls: ctl-ghost-flip:bad", self._log())
+
+    def test_a_sweep_that_never_wrote_is_invalid_parity_incomplete(self):
+        # op=reset made the label dir, op=run wrote nothing into it: no manifest.
+        result = self._run(self._spec(), source=False)
+        self.assertEqual((hlib.VERDICT_INVALID, "parity-incomplete"),
+                         (result["verdict"], result["subkind"]))
+        self.assertEqual("moved", result["verifiers"]["partParity"]["harvest"]["labels"][0]["result"])
+
+    def test_a_label_the_instance_never_held_is_recorded_absent(self):
+        record = run._harvest_part_parity(self._spec(label="ghost"), "RID", self.instance,
+                                          self.logger)
+        self.assertEqual([{"label": "ghost", "result": "absent", "files": 0, "bytes": 0}],
+                         record["labels"])
+        self.assertIsNone(run._harvest_part_parity(_make_spec(self.template, 30, 600), "RID",
+                                                   self.instance, self.logger))
+
+    def test_a_tampered_sidecar_is_invalid_parity_instrument(self):
+        _ppfx.build_sweep(self.src)
+        path = os.path.join(self.src, "ctl-ghost-flip" + _pp.SIDECAR_SUFFIX)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        doc["views"][1]["realPx"] += 3
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        result = self._run(self._spec())
+        self.assertEqual((hlib.VERDICT_INVALID, "parity-instrument"),
+                         (result["verdict"], result["subkind"]))
+
+    def test_an_armed_lane_reds_parsek_fail_part_parity(self):
+        _ppfx.build_sweep(self.src, parts=2, part_ghost_shift=3)
+        spec = self._spec()
+        self.assertEqual(hlib.VERDICT_PASS, self._run(spec)["verdict"], "report-only")
+        spec["expectations"]["partParity"]["gating"] = True
+        result = self._run(spec)
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, "part-parity"),
+                         (result["verdict"], result["subkind"]))
+
+    def test_a_cross_volume_rename_falls_back_to_copy_and_delete(self):
+        _ppfx.build_sweep(self.src, parts=1)
+        orig = os.rename
+
+        def rename(a, b):
+            if hlib.PARTPARITY_INSTANCE_ROOT in str(a):
+                raise OSError(18, "Invalid cross-device link")
+            return orig(a, b)
+        with mock.patch.object(run.os, "rename", rename):
+            result = self._run(self._spec())
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertEqual("copied",
+                         result["verifiers"]["partParity"]["harvest"]["labels"][0]["result"])
+        self.assertFalse(os.path.isdir(os.path.join(
+            self.instance, hlib.PARTPARITY_INSTANCE_ROOT, "pp1")))
+
+    def test_any_other_rename_failure_is_recorded_and_reds_incomplete(self):
+        _ppfx.build_sweep(self.src, parts=1)
+        orig = os.rename
+
+        def rename(a, b):
+            if hlib.PARTPARITY_INSTANCE_ROOT in str(a):
+                raise PermissionError(13, "locked")
+            return orig(a, b)
+        with mock.patch.object(run.os, "rename", rename):
+            result = self._run(self._spec())
+        harvest = result["verifiers"]["partParity"]["harvest"]["labels"][0]
+        self.assertEqual("failed", harvest["result"])
+        self.assertIn("PermissionError", harvest["reason"])
+        self.assertEqual((hlib.VERDICT_INVALID, "parity-incomplete"),
+                         (result["verdict"], result["subkind"]))
+
+    def test_the_archive_takes_the_manifest_and_sidecars_only(self):
+        _ppfx.build_sweep(self.src, parts=2)
+        result = self._run(self._spec())
+        archive = os.path.join(self.tmp, "archive")
+        final = run.archive_run_results(result["runId"], run.RESULTS_DIR, archive,
+                                        self.logger.log_path, self.logger,
+                                        instance_dir=self.instance)
+        self.assertIsNotNone(final)
+        names = sorted(os.listdir(os.path.join(final, "partparity", "pp1")))
+        self.assertEqual(2 + len(_pp.CONTROL_IDS) + 1, len(names))  # sidecars + manifest
+        self.assertIn(_pp.MANIFEST_FILE, names)
+        self.assertTrue(all(n == _pp.MANIFEST_FILE or n.endswith(_pp.SIDECAR_SUFFIX)
+                            for n in names), names)
+        # The archive's own manifest.json is still the run's, and lists the sweep files.
+        with open(os.path.join(final, "manifest.json"), encoding="utf-8") as fh:
+            arch = json.load(fh)
+        self.assertEqual(result["runId"], arch["runId"])
+        self.assertIn("partparity/pp1/manifest.json", [f["name"] for f in arch["files"]])
+
+    def test_retention_prunes_the_oldest_partparity_dirs_and_spares_shots(self):
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        for i in range(hlib.PARTPARITY_KEEP_DIRS + 2):
+            d = os.path.join(run.RESULTS_DIR, "2026-01-0%d_0000_X_partparity" % (i + 1))
+            os.makedirs(os.path.join(d, "pp1"))
+            os.utime(d, (1000 + i, 1000 + i))
+        os.makedirs(os.path.join(run.RESULTS_DIR, "2026-01-01_0000_X_shots"))
+        run._prune_partparity_dirs("2026-01-01_0000_X_partparity", self.logger)
+        left = sorted(n for n in os.listdir(run.RESULTS_DIR) if n.endswith("_partparity"))
+        self.assertEqual(hlib.PARTPARITY_KEEP_DIRS + 1, len(left))
+        self.assertIn("2026-01-01_0000_X_partparity", left)      # protected
+        self.assertNotIn("2026-01-02_0000_X_partparity", left)   # oldest unprotected
+        self.assertTrue(os.path.isdir(os.path.join(run.RESULTS_DIR, "2026-01-01_0000_X_shots")))
+
+    def test_a_lane_with_no_sweep_has_no_row_and_no_dir(self):
+        result = self._run(_make_spec(self.template, 30, 600), source=False)
+        self.assertNotIn("partParity", result["verifiers"])
+        self.assertFalse(any(n.endswith("_partparity") for n in os.listdir(run.RESULTS_DIR)))
+
+    def test_the_dry_run_names_the_harvest_and_the_row(self):
+        buf = io.StringIO()
+        with mock.patch("sys.stdout", buf):
+            run.print_dry_run_plan([self._spec()], lambda _p: "C:/instance", self.logger)
+        out = buf.getvalue()
+        self.assertIn("[HARVEST] move parsek-partparity/pp1 -> results/<runId>_partparity/", out)
+        self.assertIn("partParity(labels: pp1; INVALID(parity-controls|parity-instrument|"
+                      "parity-incomplete)", out)
+        self.assertIn("parts report-only", out)
+        spec = self._spec()
+        spec["expectations"]["partParity"]["gating"] = True
+        buf = io.StringIO()
+        with mock.patch("sys.stdout", buf):
+            run.print_dry_run_plan([spec], lambda _p: "C:/instance", self.logger)
+        self.assertIn("parts armed -> PARSEK-FAIL(part-parity)", buf.getvalue())

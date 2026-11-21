@@ -50,6 +50,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
 import ghostlife  # noqa: E402  (the pure sibling behind the ghostLifecycle row)
 import hlib  # noqa: E402
 import ledgerverify  # noqa: E402  (the ledger-oracle verifier's decision core, shared with mutledger)
+import partparity  # noqa: E402  (the part ghost parity pure sibling behind the partParity row)
 import missionverify  # noqa: E402  (the mission-verdict decision core, shared with mutmission)
 import machinelock  # noqa: E402  (shared lock I/O; pure decisions live in provlib)
 import oracle  # noqa: E402
@@ -2418,6 +2419,10 @@ class BootWatch:
 
 class DriveResult:
     def __init__(self):
+        # The part parity harvest record (``_harvest_part_parity``), taken right
+        # after the drive while the instance lock is still held; None for a lane
+        # that drives no PartParitySweep step.
+        self.part_parity_harvest: Optional[Dict] = None
         self.steps_with_ids: List[Dict] = []
         self.response_lines: List[str] = []
         self.killed = False
@@ -4186,6 +4191,42 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                   "declared block after reading report-only runs): %s"
                         % (len(gl_report_only), gl_report_only))
 
+    # 7e. Part ghost parity verifier (docs/dev/design-part-ghost-parity.md sections 6
+    # and 10). Active iff the spec drives a PartParitySweep step; judges the sweep
+    # directories the harvest leg moved into results/<runId>_partparity/ IN PLACE
+    # (never through the pipelined private copy) and writes partparity-verdicts.json
+    # beside each. Three gates from the start, armed or not, each a terminal INVALID
+    # ahead of the contract verifiers: a control not `ok` (parity-controls), a Python
+    # recompute of the shape measures that disagrees with the C# sidecar
+    # (parity-instrument), a sweep that did not finish or left a planned case without
+    # a complete sidecar or a recorded setup fault (parity-incomplete). The part
+    # verdicts are REPORT-ONLY until the spec declares [expectations.partParity]
+    # gating = true (the PARTPARITY_ARMED_SPECS sweep in test_hlib.py); armed, a failing
+    # part case reds PARSEK-FAIL(part-parity). Over a driver-INVALID run the row is
+    # evaluated for triage and gates nothing (the driver's own INVALID names the run).
+    pp_row = evaluate_part_parity(spec, run_id or "", drive.part_parity_harvest, logger) \
+        if partparity.sweep_labels(spec) else None
+    if pp_row is not None:
+        pp_detail = partparity.detail_record(pp_row)
+        pp_detail["harvest"] = drive.part_parity_harvest
+        if not driver_valid:
+            pp_detail["reason"] = "driver-invalid-triage-only"
+        else:
+            if pp_row.status == partparity.STATUS_INVALID:
+                verifiers["part_parity_invalid"] = True
+                verifiers["part_parity_subkind"] = pp_row.invalid_subkind
+                verifiers["part_parity_reason"] = "; ".join(
+                    p for s_ in pp_row.sweeps for p in s_.problems[:2]) or pp_row.invalid_subkind
+            elif pp_row.gating:
+                verifiers["part_parity_mismatch"] = (pp_row.status == partparity.STATUS_FAIL)
+        detail["partParity"] = pp_detail
+        logger.info("Verify", "verify partParity %s%s"
+                    % (partparity.format_summary(pp_row),
+                       "" if driver_valid else " (driver-invalid, triage only)"))
+        for s_ in pp_row.sweeps:
+            for problem in s_.problems:
+                logger.warn("Verify", "partParity label=%s %s" % (s_.label, problem))
+
     # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
     # OR [expectations.world]; else SKIPPED(no-ledger-block-declared), the reserved
     # contract. Runs after the analyzer (verifier 3) produced the .analysis.json
@@ -4989,6 +5030,13 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                            run_budget, mission_ctx=mission_ctx, run_id=run_id,
                            boot_watch=boot_watch)
 
+        # ---- PART PARITY HARVEST ------------------------------------------
+        # The lane's KSP has exited and the instance lock is still held: move the
+        # sweep directories out of the instance before anything can re-stage it.
+        # The verifier reads them in place under results/, so neither the serial
+        # path nor the pipelined private copy carries them.
+        drive.part_parity_harvest = _harvest_part_parity(spec, run_id, instance_dir, logger)
+
         # ---- POST-QUIT -----------------------------------------------------
         # The lane's KSP has exited. Pipelined: copy what the post-quit steps read
         # out of the shared instance, then hand them to the caller's worker; the
@@ -5346,6 +5394,227 @@ def _prune_shots_dirs(protect_name: str, logger: HarnessLogger) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Part ghost parity: the harvest leg and the verifier's directory reader
+# (docs/dev/design-part-ghost-parity.md section 5.1; decisions in hlib / partparity).
+# ---------------------------------------------------------------------------
+
+
+def _move_dir(src: str, dst: str) -> str:
+    """Rename ``src`` to ``dst``; across volumes copy then delete. Returns "moved" or
+    "copied"; raises on any other failure (the caller records it)."""
+    try:
+        os.rename(src, dst)
+        return "moved"
+    except OSError as exc:
+        if not hlib.partparity_move_needs_copy(exc.errno, getattr(exc, "winerror", None)):
+            raise
+    shutil.copytree(src, dst)
+    shutil.rmtree(src)
+    return "copied"
+
+
+def _harvest_part_parity(spec: Dict, run_id: str, instance_dir: Optional[str],
+                         logger: HarnessLogger) -> Optional[Dict]:
+    """Move ``<instance>/parsek-partparity/<label>/`` for every label the spec's
+    PartParitySweep steps name into ``results/<runId>_partparity/<label>/``, then run
+    the part parity retention pass. Returns the harvest record (None for a lane with
+    no sweep step). Never raises: a failed move is recorded on its label, and the
+    verifier's completeness check then reds the lane INVALID(parity-incomplete)."""
+    labels = partparity.sweep_labels(spec)
+    if not labels or not instance_dir:
+        return None
+    dest_root = os.path.join(RESULTS_DIR, hlib.partparity_results_dir_name(run_id))
+    source_root = os.path.join(instance_dir, hlib.PARTPARITY_INSTANCE_ROOT)
+    record: Dict = {"dir": os.path.basename(dest_root), "labels": []}
+    try:
+        present = [l for l in labels if os.path.isdir(os.path.join(source_root, l))]
+        plan = hlib.plan_part_parity_harvest(labels, present)
+        for entry in plan:
+            row = {"label": entry.label, "result": "absent", "files": 0, "bytes": 0}
+            record["labels"].append(row)
+            if entry.action != "move":
+                logger.warn("PartParity", "harvest run=%s label=%s: absent (no %s/%s in the "
+                                          "instance; the sweep never wrote it)"
+                            % (run_id, entry.label, hlib.PARTPARITY_INSTANCE_ROOT, entry.label))
+                continue
+            src = os.path.join(source_root, entry.label)
+            dst = os.path.join(dest_root, entry.label)
+            try:
+                os.makedirs(dest_root, exist_ok=True)
+                shutil.rmtree(dst, ignore_errors=True)
+                t0 = time.monotonic()
+                row["result"] = _move_dir(src, dst)
+                row["files"] = _dir_file_count(dst)
+                row["bytes"] = _dir_size_bytes(dst)
+                logger.info("PartParity", "harvest run=%s label=%s result=%s files=%d bytes=%d "
+                                          "wall=%.2fs -> %s"
+                            % (run_id, entry.label, row["result"], row["files"], row["bytes"],
+                               time.monotonic() - t0, dst))
+            except Exception as exc:  # noqa: BLE001 - recorded, the verifier reds it
+                row["result"] = "failed"
+                row["reason"] = "%s: %s" % (type(exc).__name__, exc)
+                logger.warn("PartParity", "harvest run=%s label=%s FAILED (%s); the partParity "
+                                          "row will read the label as not harvested"
+                            % (run_id, entry.label, row["reason"]))
+    except Exception as exc:  # noqa: BLE001 - failure isolation; the row reds incomplete
+        record["error"] = "%s: %s" % (type(exc).__name__, exc)
+        logger.warn("PartParity", "harvest run=%s FAILED (%s)" % (run_id, record["error"]))
+    try:
+        _prune_partparity_dirs(os.path.basename(dest_root), logger)
+    except Exception as exc:  # noqa: BLE001 - retention never touches a verdict
+        logger.warn("PartParity", "part parity retention FAILED run=%s (%s: %s); verdict "
+                                  "unaffected" % (run_id, type(exc).__name__, exc))
+    return record
+
+
+def _prune_partparity_dirs(protect_name: str, logger: HarnessLogger) -> None:
+    """Remove the oldest ``results/*_partparity`` dirs past the retention budget
+    (hlib.select_partparity_dirs_to_prune; the current run's dir is always kept).
+    Skipped in a ``--slot`` child, like the shots pass; the runner sweeps once."""
+    if _CTX.slot_mode:
+        logger.verbose("PartParity", "part parity retention skipped (slot mode; the runner "
+                                     "sweeps)")
+        return
+    if not os.path.isdir(RESULTS_DIR):
+        return
+    entries = []
+    for name in os.listdir(RESULTS_DIR):
+        if not name.endswith(hlib.PARTPARITY_RESULTS_DIR_SUFFIX):
+            continue
+        path = os.path.join(RESULTS_DIR, name)
+        if not os.path.isdir(path):
+            continue
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        entries.append((name, mtime, _dir_size_bytes(path)))
+    prune = hlib.select_partparity_dirs_to_prune(entries, protect_name=protect_name)
+    for name in prune:
+        shutil.rmtree(os.path.join(RESULTS_DIR, name), ignore_errors=True)
+    if prune:
+        logger.info("PartParity", "retention pruned %d old part parity dir(s) (keep newest "
+                                  "%d dirs / %d MiB total): %s"
+                    % (len(prune), hlib.PARTPARITY_KEEP_DIRS,
+                       hlib.PARTPARITY_MAX_TOTAL_BYTES // (1024 * 1024),
+                       ", ".join(prune[:5]) + (" ..." if len(prune) > 5 else "")))
+
+
+def _read_text_lines(path: str) -> Tuple[str, ...]:
+    if not os.path.isfile(path):
+        return ()
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        return tuple(l.rstrip("\r\n") for l in fh)
+
+
+def read_part_parity_sweep(label_dir: str, label: str) -> "partparity.SweepInput":
+    """The I/O half of the partParity row for one label: list the directory, parse
+    the manifest and every sidecar, read inflight.txt / isolate.txt. A sidecar that
+    does not parse maps to None (the completeness check names it)."""
+    if not os.path.isdir(label_dir):
+        return partparity.SweepInput(label, False)
+    names = sorted(os.listdir(label_dir))
+    manifest = None
+    manifest_error = None
+    mpath = os.path.join(label_dir, partparity.MANIFEST_FILE)
+    if not os.path.isfile(mpath):
+        manifest_error = "missing %s" % partparity.MANIFEST_FILE
+    else:
+        try:
+            with open(mpath, "r", encoding="utf-8-sig") as fh:
+                manifest = json.load(fh)
+            if not isinstance(manifest, dict):
+                manifest, manifest_error = None, "not a JSON object"
+        except (OSError, ValueError) as exc:
+            manifest_error = "%s: %s" % (type(exc).__name__, exc)
+    sidecars: Dict[str, Optional[Dict]] = {}
+    for name in names:
+        if not name.endswith(partparity.SIDECAR_SUFFIX):
+            continue
+        case_id = name[:-len(partparity.SIDECAR_SUFFIX)]
+        try:
+            with open(os.path.join(label_dir, name), "r", encoding="utf-8-sig") as fh:
+                doc = json.load(fh)
+            sidecars[case_id] = doc if isinstance(doc, dict) else None
+        except (OSError, ValueError):
+            sidecars[case_id] = None
+    atlases = tuple(n for n in names if n.endswith(partparity.ATLAS_SUFFIX)
+                    and not n.endswith(partparity.THUMB_SUFFIX))
+    return partparity.SweepInput(
+        label, True, manifest, manifest_error, sidecars, atlases,
+        _read_text_lines(os.path.join(label_dir, partparity.INFLIGHT_FILE)),
+        _read_text_lines(os.path.join(label_dir, partparity.ISOLATE_FILE)))
+
+
+_gui_mirror_module = None
+
+
+def _load_png_reader():
+    """``read_png`` of harness/tools/gui_mirror.py, loaded by FILE PATH (the
+    contact-sheet rule: no sys.path insert of tools/). The part parity recompute
+    decodes the atlases with the same stdlib codec the GUI mirror uses."""
+    global _gui_mirror_module
+    if _gui_mirror_module is None:
+        existing = sys.modules.get("gui_mirror")
+        if existing is not None:
+            _gui_mirror_module = existing
+        else:
+            import importlib.util
+            path = os.path.join(TOOLS_DIR, "gui_mirror.py")
+            spec = importlib.util.spec_from_file_location("gui_mirror", path)
+            if spec is None or spec.loader is None:
+                raise ImportError("cannot load gui_mirror from %s" % path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["gui_mirror"] = module
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                sys.modules.pop("gui_mirror", None)
+                raise
+            _gui_mirror_module = module
+    return _gui_mirror_module.read_png
+
+
+def evaluate_part_parity(spec: Dict, run_id: str, harvest: Optional[Dict],
+                         logger: HarnessLogger) -> Optional["partparity.RowResult"]:
+    """The partParity row's I/O shell: judge every label the spec sweeps, in place
+    under ``results/<runId>_partparity/``, and write each label's
+    ``partparity-verdicts.json`` beside it. None for a lane with no sweep step."""
+    labels = partparity.sweep_labels(spec)
+    if not labels:
+        return None
+    gating = partparity.gating_armed(spec.get("expectations") or {})
+    root = os.path.join(RESULTS_DIR, hlib.partparity_results_dir_name(run_id))
+    try:
+        read_png = _load_png_reader()
+    except Exception as exc:  # noqa: BLE001 - recorded as an instrument problem
+        logger.warn("PartParity", "PNG reader unavailable (%s: %s); the recompute cannot run"
+                    % (type(exc).__name__, exc))
+        read_png = None
+    failed = {r.get("label"): r for r in (harvest or {}).get("labels", [])
+              if r.get("result") == "failed"}
+    results = []
+    for label in labels:
+        label_dir = os.path.join(root, label)
+        sweep = (partparity.SweepInput(label, False) if label in failed
+                 else read_part_parity_sweep(label_dir, label))
+        res = partparity.evaluate_sweep(sweep, run_id, gating, read_png,
+                                        lambda name, d=label_dir: os.path.join(d, name))
+        results.append(res)
+        if sweep.present:
+            try:
+                path = os.path.join(label_dir, partparity.VERDICTS_FILE)
+                with open(path, "w", encoding="utf-8", newline="\n") as fh:
+                    json.dump(partparity.verdicts_document(res, run_id), fh, indent=1,
+                              sort_keys=True)
+                    fh.write("\n")
+            except OSError as exc:
+                logger.warn("PartParity", "verdicts write FAILED label=%s (%s: %s)"
+                            % (label, type(exc).__name__, exc))
+    return partparity.combine(results, gating)
+
+
+# ---------------------------------------------------------------------------
 # Produced-save snapshot (HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN).
 #
 # The produced save is <instance>/saves/<saveTemplate leaf>, and the leaf is
@@ -5655,8 +5924,15 @@ def archive_run_results(run_id: str, results_dir: str, archive_root: str,
         shots_log = os.path.join(results_dir, "%s_shots" % run_id, "KSP.log")
         harness_name = (os.path.basename(harness_log_path)
                         if harness_log_path and os.path.isfile(harness_log_path) else None)
+        pp_root = os.path.join(results_dir, hlib.partparity_results_dir_name(run_id))
+        pp_listing: Dict[str, List[str]] = {}
+        if os.path.isdir(pp_root):
+            for label in os.listdir(pp_root):
+                if os.path.isdir(os.path.join(pp_root, label)):
+                    pp_listing[label] = os.listdir(os.path.join(pp_root, label))
         plan = hlib.plan_results_archive(run_id, names, os.path.isfile(shots_log),
-                                         harness_name)
+                                         harness_name,
+                                         hlib.select_partparity_archive_files(pp_listing))
         if plan.skip_reason:
             logger.warn("Archive", "results archive skipped run=%s reason=%s"
                         % (run_id, plan.skip_reason))
@@ -5674,8 +5950,10 @@ def archive_run_results(run_id: str, results_dir: str, archive_root: str,
         for entry in plan.entries:
             src = (os.path.join(results_dir, *entry.source_rel)
                    if entry.source_rel is not None else harness_log_path)
-            dst = os.path.join(tmp, entry.dest_name)
+            dst = os.path.join(tmp, *entry.dest_name.split("/"))
             try:
+                if os.path.dirname(dst) != tmp:
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
                 if entry.source_rel is None:
                     # Only this scenario's block of the per-invocation log
                     # (hlib.slice_harness_log_for_run): whole-log copies grow
@@ -6282,6 +6560,13 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
             else:
                 print("  [DRIVE  ] step=%d cmd=%s expect=%s budget=%s"
                       % (i, step.get("cmd"), step.get("expect", "OK"), step.get("budget", "-")))
+        # The part parity harvest leg runs right after the drive, inside the lock.
+        pp_labels = partparity.sweep_labels(spec)
+        if pp_labels:
+            print("  [HARVEST] move %s -> results/<runId>%s/<label>/ (rename; copy + delete "
+                  "across volumes); archive: manifest.json + *%s only"
+                  % (", ".join("%s/%s" % (hlib.PARTPARITY_INSTANCE_ROOT, l) for l in pp_labels),
+                     hlib.PARTPARITY_RESULTS_DIR_SUFFIX, partparity.SIDECAR_SUFFIX))
         # unityExceptions (row 6b) runs on every driver-valid run, but - same
         # lesson as the saveParse row below - the plan must say whether it can
         # MOVE THE VERDICT for this spec: 14 specs arm a maxTotal since
@@ -6371,6 +6656,19 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
                             % (", ".join(gl_declared), gl_assertions))
         else:
             verify_line += ", ghostLifecycle(facets only, no block declared)"
+        # partParity (row 7e): only for a lane that sweeps. The three instrument gates
+        # (controls, recompute, completeness) always gate; the part verdicts only when
+        # armed, so the plan names which.
+        if pp_labels:
+            if partparity.gating_armed(exp):
+                pp_part = ("parts armed -> PARSEK-FAIL(%s) on a failing case"
+                           % partparity.PARSEK_FAIL_SUBKIND)
+            else:
+                pp_part = "parts report-only"
+            verify_line += (", partParity(labels: %s; INVALID(%s) on a bad control / "
+                            "recompute mismatch / incomplete sweep; %s)"
+                            % (", ".join(pp_labels), "|".join(partparity.INVALID_SUBKINDS),
+                               pp_part))
         if ledger_block is not None or world_block is not None:
             verify_line += (", ledgerOracle(manifest-capture + oracle diff -> PARSEK-FAIL(ledger) on hard drift)")
         print(verify_line)
@@ -6667,12 +6965,14 @@ def _run_maintenance(args, runtime, umbrella_root: str, logger) -> int:
 
 def sweep_results_dir(logger) -> None:
     """The results retention passes a slot child skips, once: old ``_shots`` dirs,
-    old / orphaned ``_save`` snapshots and leftover ``.verify-private`` copies.
+    old ``_partparity`` sweeps, old / orphaned ``_save`` snapshots and leftover
+    ``.verify-private`` copies.
     Run only while no lane is flying (the runner calls it after its slots drained)."""
     if not os.path.isdir(RESULTS_DIR):
         logger.info("Artifacts", "sweep: no results dir at %s" % RESULTS_DIR)
         return
     _prune_shots_dirs("", logger)
+    _prune_partparity_dirs("", logger)
     _prune_save_snapshot_dirs("", logger)
     stale_copies = os.path.join(RESULTS_DIR, POST_QUIT_COPY_DIRNAME)
     if os.path.isdir(stale_copies):

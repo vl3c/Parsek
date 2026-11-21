@@ -26,6 +26,7 @@ import unittest
 
 import ghostlife
 import hlib
+import partparity
 import rendercompose
 import saveparse
 
@@ -10967,7 +10968,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "FAR-4-gilly-eva-switch-bg-member.toml": "tier=operator by the calibration discipline, NOT debt: CI-1's EVA and map Switch-To in Gilly orbit on `eve-gilly-recorded` (stock-minimal), where the switch target is both the live tree's background member and a committed tree's spawned leaf. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_2324`, third flight, after the Case C fix and a re-pin); owed: the ordinary promotion call",
         "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1639`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1641`, second flight after a spec re-pin); owed: the ordinary promotion call",
-        "PP-1-part-parity-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's P2 dev-size reading run (design-part-ghost-parity.md section 10) on `eva2-lko-crewed`: one PartParitySweep step over the first 20 parts plus the control cases beside their Parsek ghosts, whose product is the per-wave wall time and a case directory for the owner's viewer; parity verdicts are report-only until P5 arms them. Flown green 2026-11-21 (`2026-11-21_1739`, PASS attempt 1, after four reading flights that reworked the missing-mesh control)",
+        "PP-1-part-parity-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's full stock reading run (design-part-ghost-parity.md section 10) on `eva2-lko-crewed`: every stock part in every skin beside its Parsek ghost over two PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only until P5 arms them. The P2 shape flew green 2026-11-21 (`2026-11-21_1739`, PASS attempt 1, after four reading flights that reworked the missing-mesh control); the P3 shape owes its re-flight, which rides its status row, not an operator call",
+        "PP-2-part-parity-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-1's full reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md section 10): every part in every skin beside its Parsek ghost over three PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only until P5 arms them. AUTHORED 2026-11-21, NEVER FLOWN; that debt rides the `pending-flight` tag and its own status row",
         "FGV-1-fairing-ghost-visual.toml": "tier=operator by PURPOSE, NOT debt: a visual-confirmation lane whose product is a set of PNGs for the owner's eyes (four stock procedural fairings, an engine plate and an engine shroud beside their Parsek ghosts in LKO on `eva2-lko-crewed`, intact / jettisoned / separated) and whose gates are that the cells passed, every image was written and the ghost shows the same truss, shroud and mount meshes as the real part. Flown green 2026-11-07 (one-cell shape twice; two-cell shape `2026-11-07_2342`)",
         "SLM-2-standalone-loop-map-pause.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), read in FLIGHT map view in the pause after its second run, where no map ghost may exist. LIVE-PROVEN 2026-11-01 (`2026-11-01_0036`, 104 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "RW-20-strategy-and-deadline-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a strategy activated at the Space Center and a real contract deadline passed by warp, a Rewind-to-Launch before both, the same strategy refused, and the committed fail applied once when the deadline passes again. LIVE-PROVEN 2026-10-31 (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`); owed: the ordinary promotion call",
@@ -19224,7 +19226,7 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         self.assertEqual(0, spec["expectations"]["recordings"]["count"]["max"])
 
     def test_the_lane_gates_the_controls_and_crashes_on_the_run_step_line(self):
-        """Until P3's partParity row exists, PP-1's step-line pin is the only gate on the
+        """PP-1's step-line pin, kept beside the partParity row as a second guard on the
         controls and the crash count: it must match the run step's real line (the 2026-11-21
         flight's, with `controls=ok`) and miss it for a bad or pending control, a crashed
         case, a refused step and the reset step's line."""
@@ -19248,6 +19250,81 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         reset = ("[Parsek][INFO][PartParity] PartParity step label=pp1 op=reset ok=true label=pp1 "
                  "done=false next=0 cases=0 complete=0 crashed=0 setupFaults=0 controls=pending wall=0.0")
         self.assertIsNone(pin.search(reset))
+
+
+class PartParityLaneShapeTests(unittest.TestCase):
+    """The two part ghost parity reading lanes (design-part-ghost-parity.md section 10,
+    phase P3): the whole part list in every skin, enough time-boxed run steps for the
+    measured case rate (Appendix C: ~0.7 s per case), every step inside the S8 cap, the
+    partParity row declared report-only, and the run budget covering every step."""
+
+    LANES = {"PP-1-part-parity-stock.toml": ("pp1", "stock-minimal", 2),
+             "PP-2-part-parity-modded.toml": ("pp2", "modded-compat", 3)}
+
+    def test_each_lane_sweeps_everything_in_enough_steps(self):
+        for name, (label, profile, runs) in self.LANES.items():
+            with self.subTest(lane=name):
+                spec = load_spec(name)
+                self.assertEqual(profile, spec["instanceProfile"])
+                self.assertEqual("operator", spec["tier"])
+                self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
+                sweeps = [s for s in spec["driver"]["steps"] if s["cmd"] == hlib.PARTPARITY_VERB]
+                self.assertEqual({"label": label, "op": "reset"}, sweeps[0]["args"])
+                run_steps = sweeps[1:]
+                self.assertEqual(runs, len(run_steps))
+                for step in run_steps:
+                    a = step["args"]
+                    self.assertEqual((label, "run", "all", "true", "480"),
+                                     (a["label"], a["op"], a.get("skins"), a.get("controls"),
+                                      a.get("maxSeconds")))
+                    # The whole list: no limit, filter, source or shard narrows it.
+                    for key in ("limit", "filter", "source", "shard"):
+                        self.assertNotIn(key, a)
+                    self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, step["budget"])
+                self.assertEqual([label], partparity.sweep_labels(spec))
+                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                self.assertIn(partparity.PART_PARITY_BLOCK, spec["expectations"])
+                total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
+                self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
+                self.assertEqual("none", spec["retry"]["policy"])
+                self.assertEqual(0, spec["expectations"]["recordings"]["count"]["max"])
+
+    def test_pp2_pins_its_own_label_on_the_step_lines(self):
+        spec = load_spec("PP-2-part-parity-modded.toml")
+        required = spec["expectations"]["logContracts"]["required"]
+        pins = [p for p in required if hlib.PARTPARITY_STEP_LINE_LITERAL in p]
+        self.assertEqual(1, len(pins), required)
+        line = ("[Parsek][INFO][PartParity] PartParity step label=pp2 op=run ok=true label=pp2 "
+                "done=false next=611 cases=1488 complete=611 crashed=0 setupFaults=2 "
+                "controls=ok wall=478.9")
+        self.assertTrue(re.search(pins[0], line))
+        self.assertIsNone(re.search(pins[0], line.replace("label=pp2", "label=pp1")))
+        self.assertIsNone(re.search(pins[0], line.replace("controls=ok", "controls=bad")))
+        self.assertIn("pending-flight", spec["tags"])
+
+
+class PartParityArmedRosterTests(unittest.TestCase):
+    """The partParity row's PART verdicts are report-only unless a spec declares
+    `[expectations.partParity] gating = true`. Arming follows the saveparse arming rule:
+    a per-scenario operator decision taken only after a report-only reading run, the spec
+    added to the roster below in the same commit that arms it, citing its run ids. The
+    instrument gates (controls, recompute, completeness) are not armed by this key; they
+    gate every sweeping lane from the start. The roster's name deliberately does not end
+    in `ARMED_ALLOWLIST` (the RENDERCOMPOSE_ARMED_SPECS NAMING note: a second symbol ending so would break the first-match roster scrape in harness/missions/lib/test_cl3_refly_crew_tombstone.py)."""
+
+    PARTPARITY_ARMED_SPECS = set()
+
+    def test_no_committed_spec_arms_part_parity_gating(self):
+        armed = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if partparity.gating_armed(spec.get("expectations") or {}):
+                armed.append(name)
+        self.assertEqual(sorted(self.PARTPARITY_ARMED_SPECS), armed,
+                         "the set of specs arming part-parity gating changed; arming is a "
+                         "per-scenario operator decision taken after a report-only reading run "
+                         "- add the spec here in the same commit that arms it, citing the run id")
 
 
 class NewGameSourceSyncTests(unittest.TestCase):

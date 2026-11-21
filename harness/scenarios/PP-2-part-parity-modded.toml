@@ -1,0 +1,126 @@
+schema = 1
+id = "PP-2-part-parity-modded"
+tier = "operator"
+# PART GHOST PARITY, MODDED INSTALL, FULL READING RUN (phase P3 of
+# docs/dev/design-part-ghost-parity.md). PP-1's shape on the modded-compat instance, where
+# ReStock and ReStock+ swap the stock models and add parts, Waterfall replaces the engine
+# plumes and B9PartSwitch switches the Waterfall engine configs: the install where the ghost
+# most often differs from the real part (the ReStock LV-T45 skirt, the Mk16-XL canopy; design
+# section 1). The part ghost parity tool spawns each part as a real one-part vessel
+# co-orbital with the active vessel, builds Parsek's ghost of it from the real vessel's own
+# snapshot, photographs the pair from fixed views and measures the difference; the
+# `partParity` verifier row (harness/lib/partparity.py) judges the result.
+#
+# WHAT THE LANE FLIES. `eva2-lko-crewed` (sandbox, every part available, the Kerbal X Probe
+# ORBITING Kerbin at ~100 km; the P0 spike `PPS-0b-capture-spike-modded` flew this host on
+# this install green, design Appendix B) boots into FLIGHT, turns every auto-record setting
+# off, turns verbose logging on, warps on rails to UT 1900 (FGV-1's sunlit window), clears the
+# label directory (`op=reset`), runs THREE time-boxed sweep steps and quits. Nothing is staged
+# on the host and the run's save is a throwaway staged copy.
+#
+# STEP SIZING (design 3.2 and Appendix C). The design estimates ~700 parts / ~1500 cases on
+# this install with `skins=all`; at PP-1's measured ~0.7 s per case that is ~1050 s of sweep.
+# Each `op=run` step is time-boxed at maxSeconds=480 (budget 540, the S8 deferred-step cap)
+# and resumes where the previous one stopped (design 5.3), so three steps hold ~1440 s, ~390
+# s of margin. A step after completion answers `done=true` at once. If the third step still
+# answers `done=false`, the partParity row reds INVALID(parity-incomplete) with
+# `progress.complete=False`: add a fourth step (that is what this first flight measures).
+#
+# GATES. PP-1's: (1) the partParity row, from the start - every control case reached its
+# required outcome (else INVALID(parity-controls)), the sweep reached done and every planned
+# case has a complete sidecar or a recorded setup fault (else INVALID(parity-incomplete)),
+# and the Python recompute of the shape measures over every control plus a run-id-seeded 2 %
+# sample of the part atlases agrees with the C# sidecars (else INVALID(parity-instrument)).
+# A bad modded part that kills a case is a recorded setup fault, never a missing case.
+# (2) The part verdicts are REPORT-ONLY (`[expectations.partParity] gating = false`); the
+# Waterfall plume B9 subtypes carry little in the stowed state (design 3.2). (3) The interim
+# log pins as a second guard: the run-step summary line with `crashed=0` and `controls=ok`,
+# the seam applier's OK line, and no `[Parsek][ERROR]`: an ERROR a modded part provokes is a
+# finding to file, never a suppression (design 10).
+#
+# READING THE RESULT. The harvest leg moves `<KSP root>/parsek-partparity/pp2/` into
+# `harness/results/<runId>_partparity/pp2/` (design 5.1), where the row writes
+# `partparity-verdicts.json` beside the sweep. Full-resolution ReStock textures are NOT in
+# play (the profile pins TEXTURE_QUALITY; design 4.4), so VRAM stays at the measured ~1 GB per
+# copy; one slot regardless. Every ghost-visual defect a case shows is filed in
+# docs/dev/todo-and-known-bugs.md with its case id.
+#
+# FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: considered, not applied - the
+# MC lanes on this install fly in-game batches with their own budgets, and a sweep needs its
+# own 540 s steps. (2) No idle waits: the one game-time wait is an explicit-UT WarpToUT on
+# rails. (3) The time box is the measurement itself, not a dwell. (4)/(5) no burns, no
+# coasts. (6) `[retry] policy = "none"`: a retry's `op=reset` would clear the files a
+# reading run exists to keep. (7) Recording count pinned at 0. (8)/(9) after the first
+# flight: tier by measured p50 and a flight_efficiency.py check.
+#
+# AUTHORED 2026-11-21, NEVER FLOWN (tag `pending-flight`).
+description = "AUTHORED, NEVER FLOWN: the part ghost parity tool's full reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch) - every part in every skin photographed beside its Parsek ghost in LKO over three PartParitySweep steps, judged by the partParity verifier row (controls, completeness and the Python recompute gate; part verdicts report-only)."
+instanceProfile = "modded-compat"
+tags = ["part-parity", "ghost-visual", "modded-compat", "pending-flight", "PP-2"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # No spawned case vessel may start a recording.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # The per-case lines are verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # Into FGV-1's sunlit window. Rails warp, explicit UT.
+  { cmd = "WarpToUT",   args = { ut = "1900" }, expect = "OK", budget = 120 },
+  # Clear the label directory so no earlier run's files mix in.
+  { cmd = "PartParitySweep", args = { label = "pp2", op = "reset" }, expect = "OK", budget = 120 },
+  # Three time-boxed steps over the whole part list in every skin; each resumes.
+  { cmd = "PartParitySweep", args = { label = "pp2", op = "run", skins = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp2", op = "run", skins = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "PartParitySweep", args = { label = "pp2", op = "run", skins = "all", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# No D7 claim (stand-alone ghosts, not playback) and no D17 claim before a flight: the
+# ReStock models are read here as real-vs-ghost pictures only, and the claim waits for the
+# first reading run.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: every auto-record setting is off and the spawned case vessels are never recorded.
+count = { min = 0, max = 0 }
+
+[expectations.partParity]
+# Report-only part verdicts (design 10): controls, completeness and the recompute gate
+# regardless. Arming waits for a reading run.
+gating = false
+
+[expectations.logContracts]
+required = [
+  # The capture engine's run-step summary line (design 11 "Logging"): every control ok,
+  # no case crashed. A second guard on what the partParity row gates.
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp2 op=run ok=true label=pp2 done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
+  # The seam applier's OK line for a run step.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp2 elapsed=[0-9.]+s label=pp2 done=(true|false) ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+# Boot and load ~180 s (the modded install boots slower), the warp 120, the reset 120,
+# three 540 s run steps.
+budgetSeconds = 2400
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

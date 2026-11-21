@@ -95,6 +95,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 import time
 
@@ -103,6 +104,11 @@ RESPONSES = "parsek-test-responses.txt"
 JOURNAL = "parsek-test-commands.journal"
 RESULTS = "parsek-test-results.txt"
 KSP_LOG = "KSP.log"
+# PartParitySweep: `op=reset` clears <root>/parsek-partparity/<label>/; `op=run` copies
+# the directory this env var names into it (the smoke legs build a synthetic sweep
+# there), standing in for the capture engine. Unset: `op=run` leaves the label empty.
+PARTPARITY_ROOT = "parsek-partparity"
+PARTPARITY_SOURCE_ENV = "FAKE_KSP_PARTPARITY_SRC"
 
 # R12. The seam's `scene=` argument is fail-closed and lowercase-only; these are the
 # GameScenes tokens each accepted spelling lands on, and absent = the pre-R12 focusable
@@ -382,6 +388,27 @@ def main(argv=None):
                         "id=%s cmd=%s verdict=OK seq=%d ut=%s target=%s "
                         "delta=%s maxRate=1\n"
                         % (cid, cmd, seq, raw_ut, raw_ut, warp_ut))
+                continue
+            if cmd == "PartParitySweep":
+                label = fields.get("label", "")
+                label_dir = os.path.join(root, PARTPARITY_ROOT, label)
+                op = fields.get("op", "run")
+                if op == "reset":
+                    shutil.rmtree(label_dir, ignore_errors=True)
+                    os.makedirs(label_dir, exist_ok=True)
+                else:
+                    src = os.environ.get(PARTPARITY_SOURCE_ENV)
+                    os.makedirs(label_dir, exist_ok=True)
+                    if src and os.path.isdir(src):
+                        shutil.copytree(src, label_dir, dirs_exist_ok=True)
+                _append(log_path,
+                        "[LOG] [Parsek][INFO][PartParity] PartParity step label=%s op=%s ok=true "
+                        "label=%s done=true next=0 cases=0 complete=0 crashed=0 setupFaults=0 "
+                        "controls=%s wall=0.1\n"
+                        % (label, op, label, "pending" if op == "reset" else "ok"))
+                _append(responses_path,
+                        "id=%s cmd=%s verdict=OK seq=%d label=%s done=true\n"
+                        % (cid, cmd, seq, label))
                 continue
             payload = ""
             if verdict == "OK" and cmd == "LoadGame":
