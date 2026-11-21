@@ -18,7 +18,10 @@ id = "RSQ-2-rescue-rebuilt-in-flight-deferred"
 # clock cursor runs only at the Space Center and the Tracking Station; QL-14's header). A forward
 # Parsek time jump does (`TimeJumpManager.RecalculateLedgerAfterTimeJump` ->
 # `LedgerOrchestrator.RecalculateAndPatchForTimeJump`, scene FLIGHT), so the lane crosses the
-# accept with `TimeJump` from an unrecorded Flea on the pad.
+# accept with `TimeJump` from an unrecorded Flea on the pad. (Since 2026-11-21, todo
+# FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS, the flight scene runs the ledger clock cursor too, so a
+# flight warp would also reach the accept; the time jump stays the lane's crossing, and the
+# cursor's redundant walk after it finds the contract already Active.)
 #
 # PLAN (cs-career-mun4, UT ~185734; RecoverAsset e8ba5ea6-570c-4b7f-99b4-44c9dee51030 Offered,
 # Rayvan Kerman Unowned, low Kerbin orbit; RSQ-1's prefix):

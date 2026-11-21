@@ -317,11 +317,14 @@ rebuilds leaves the list there. A failed splice or write lands on the session's 
 own node carries that world's list. Tests: `RescueAcceptDeferralsTests` (policy cells,
 `LoadPolicy_RewindAndDiscardCells_NameTheSplice`, `Splice_KeepsTheLandedSavesOwnList_NotTheSessions`,
 `Splice_LandedSaveWithoutAList_DropsTheSessions`, `Splice_Refused_LeavesTheLandedListUntouched`), red on
-the pre-fix code (6 cells). Owed: a lane (RSQ-3) that builds the deferral in Flight, saves a rewind point or
-rewind save with it, then rewinds / discards and shows `landed=1`, `Rescue accept deferrals installed (load
-PlainRewind): pending=1` (or `DiscardReFly`), the `Rescue accept deferral evaluated: ... outcome=Regenerate`
-line, `regenerated stranded asset ... added=1` and `drained (onContractsLoaded, scene=SPACECENTER):
-evaluated=1 regenerated=1`.
+the pre-fix code (6 cells). Lane: `RSQ-3-rescue-deferral-kept-across-rewind` (authored 2026-11-21 on
+`test-gaps-batch3`, never flown; stock-tree, cs-career-mun4, RSQ-2's prefix): the deferral is listed in Flight,
+a recording started then writes its rewind save with it, the session's own Space Center visit drains its copy
+and persistent is saved empty, and a Rewind-to-Launch onto that recording must show `landed=1 session=0`,
+`Rescue accept deferrals installed (load PlainRewind): pending=1 (was 0)`, the `Rescue accept deferral
+evaluated: ... outcome=Regenerate` line, `regenerated stranded asset ... added=1` and `drained
+(onContractsLoaded, scene=SPACECENTER): evaluated=1 regenerated=1`, then a Cold reload adding nothing. The
+Discard Re-fly path (a rewind point holding the list) has no lane.
 
 ## ~~SAVE-FREEZE-ON-MISSING-SIDECAR~~: one recording whose sidecar cannot be written froze its whole tree in every later save [FILED 2026-11-18 by code reading (test-gap pass, branch `test-gaps-savefreeze`); CONFIRMED 2026-11-20 by two red xUnit cells on the pre-fix code. FIXED 2026-11-20, same branch; xUnit; ST-4 re-pinned by code read and RE-FLOWN GREEN 2026-11-20 (`2026-11-20_2317`); high (silent loss of every later change to the tree; the sidecars of recordings the save no longer named were left as orphans on disk)]
 
@@ -428,6 +431,7 @@ OPEN:
   coordinate refresh in OnSave for a locked servo).
 
 SRV-1's first flight 2026-11-20 (`2026-11-20_2314_SRV-1-hinge-followers-ghost`, runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): PARSEK-FAIL(expectation) attempt 1, with no Parsek defect shown. The `ServoFollowers` cell passed on its synthetic rig (`carried its moving-side part through 45`), but the flight itself recorded nothing to replay: both `PartAction servomax` / `servomin` set the target (`state='servo:target=90.00'` / `-90.00`) and the recorder tracked the hinge (`Robotics: tracking 'hinge.01' ... source=currentAngle`), yet 0 part events were recorded (no `RoboticMotionStarted` / `RoboticPositionSample`), and the committed pad rig's ghost is hidden by the launch-site rule (`LaunchSiteGhost: Ghost hidden: vessel 'SRV1 Hinge Rig' ... never left the launch site`), so no `Servo follower plan for 'SRV1 Hinge Rig'` was ever logged. Two lane problems: the derived craft (`build_srv_hinge_pad.py`) writes no MODULE nodes, so the hinge runs on prefab defaults (KSPCF `ModuleIndexingMismatch`) and was not seen to move (read the hinge's state next flight: locked, motor disengaged, or unpowered); and a rig that never leaves the pad has its ghost hidden by design. Redesign: give the craft its hinge MODULE (unlocked, motor engaged) and fly the rig off the pad (a hop), or replay away from the launch-site circle.
+
 ## S18-SEAM-CELL-ONE-SECOND-SPREAD: S1.8's seam cell measured 1 s of heliocentric travel, not a seam gap [FOUND 2026-11-21 from the BG-SOI-SEAM-WORLD-GAP mirror check (branch `test-gaps-bgsoi-gap`, SOI-3's sibling cell); CELL FIXED 2026-11-21, branch `test-gaps-s18-seam`, test only; OPEN: S1.8's re-flight; low (a gate too loose to catch anything under ~25 km, no product effect)]
 
 `SoiCrossingPlaybackInGameTests.SoiSeamWorldPositionsAreContinuous` evaluated the before side at
@@ -466,6 +470,7 @@ Owed: S1.8's re-flight on a DLL from this branch (stock-minimal, daily). Expecte
 `seam Kerbin->Sun ut=4742953.221 gap=0.0m (tolerance 1000m, both sides at the seam UT) afterEpoch=4742953.206 seamMinusAfterEpoch=0.015s localBody=Kerbin localSideFromBody=84159300m localSoi=84159286m`
 and `seam Sun->Duna ut=9128108.755 gap=0.0m (...) afterEpoch=9128108.707 seamMinusAfterEpoch=0.048s localBody=Duna localSideFromBody=47921878m localSoi=47921949m`,
 then `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0`. After it, tighten the spec's `gap=` windows.
+
 ## ~~FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS~~: in flight a committed row the clock reached took effect only at the next recalculation [FILED 2026-11-21 from the PADX lanes (TEST-GAPS-B3-PAD-AND-JUMP-LANES on `test-gaps-batch3`; owner decision: the flight scene needs the cursor); FIXED 2026-11-21, branch `test-gaps-flight-ksc-clock`; xUnit; PADX-2 spec edit owed on `test-gaps-batch3`; medium (a committed pad crash, purchase or contract outcome landed at the next warp exit, commit or spend instead of at its UT)]
 
 The Space Center and Tracking Station run `CareerLedgerClockCursor`: one cached next-row lookup per
@@ -505,11 +510,15 @@ Fix:
 - xUnit `FlightLedgerClockCursorTests` (window, fold, mode, headless live step, ParsekFlight wiring
   gate), `KscBuildingLivePatchWiringTests` (two pinned `PatchDestructionState` feeds).
 
-Owed: PADX-2 on `test-gaps-batch3` describes the warp-exit fall in its header; its gates still
-pass (the pad now falls inside the warp at the crash UT and the warp exit finds it down), but its
-header and a tighter gate (`reason=flight-clock` before the demolish, the demolish before
-`Warp exit ledger recalculation started`) belong there. No lane yet crosses a building row WHILE
-RECORDING (the hook's Apply path): `PatchCrossedBuildingRows: flight clock crossed`.
+Lanes (2026-11-21, `test-gaps-batch3`, all owed a flight): PADX-2's header now describes the
+fall inside the warp and each crossing window requires `Flight clock reached a committed ledger
+row: reason=flight-clock`, then `PatchDestructionState: demolished`, then `Warp exit ledger
+recalculation started`; QL-14's header no longer says the rows wait for the return and it requires
+the flight cursor line between the rewind and the return; the new `PADX-3-pad-row-crossed-while-recording`
+(stock-minimal) crosses PADX-1's committed pad collapse at 1x while a second flight RECORDS (the
+hook's Apply path): `PatchCrossedBuildingRows: flight clock crossed 1 committed building row(s) ...
+while the ledger patch is deferred (live recorder active)`, the demolish, and no
+`Game state: BuildingDestroyed` after the rewind (no second row on that flight's commit).
 
 ## ~~BG-SEPARATION-CLOSES-PARENT-RECORDING~~: a background vessel's staging closed its recording and started a second one [FIXED 2026-11-21, branch `rsr-wp8-bg-shape`; xUnit `BackgroundSeparationShapeTests`; low (two recordings-table rows for one vessel; no data lost)]
 
@@ -1482,7 +1491,13 @@ route fuzzers check the index after every operation and run seeded timelines (si
 origin, chained) twice, with the index and with `IndexDisabledForTesting` (the full scan), and
 compare the event log, the world, the counters and every log line byte for byte. Mutations: dropping
 the rewind retire's rebuild reds 32 cells; the supply-deficit read on the wrong cycle reds the wiring
-cell (no fuzzer cycle runs short, so only the wiring and property cells see it). Lifetimes: the two
+cell, and since 2026-11-21 (`test-gaps-batch3`) a short-supply fuzzer too:
+`RouteTimelineFuzzerTests.RandomTimeline_ShortSupply_DeliveryCapMatchesTheFullScan` (6 seeds) runs a
+vessel-origin loop route whose origin debit comes up short by a per-dock-cycle fraction through the
+production delivery over warps, saves and load-backs, and checks every delivered row against its own
+cycle's debit, the full-scan `ComputeCycleSupplyDeficit` and the model. Reading the deficit from the
+previous cycle's rows, or from no cycle's rows, reds all 6 seeds and nothing else in the fuzzer
+class (logs in `logs/mutation/2026-11-21/`). Lifetimes: the two
 index dictionaries are `save` (LoadFrom rebuilds them), the per-route key cache below is `process`.
 
 Measured after the fix (same benchmark, same noisy machine), warp tick with every route firing on
@@ -1744,6 +1759,9 @@ covered by `TombstoneEligibility` (a `FacilityDestruction` row is retirable).
   (a warp exit, a commit, a spend), not at the crash UT itself; at the Space Center and in the
   Tracking Station the clock cursor makes it fall at the crash UT. PADX-2 pins the warp-exit fall.
   If the pad must fall at the exact UT in flight too, the flight scene needs the cursor.
+  RULED and FIXED 2026-11-21 by ~~FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS~~: the flight scene runs the
+  ledger clock cursor, so the pad falls at the crash UT in flight too; PADX-2 was re-pinned to the
+  in-warp fall and PADX-3 added for the recording-time crossing.
 
 **A jump across committed career rows.** RW-1 / RW-18 / QL-14 cross committed Space Center rows
 with WARPS; no spec jumped the clock across them (grep: of the specs that fly `TimeJump`, none runs
