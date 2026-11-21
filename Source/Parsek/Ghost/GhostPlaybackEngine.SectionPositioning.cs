@@ -596,6 +596,19 @@ namespace Parsek
             return TryFindOrbitTailPlaybackSegment(traj, playbackUT, out _, out _);
         }
 
+        /// <summary>
+        /// Loop-path twin of the non-loop orbit-tail dispatch: a loop cycle past the last
+        /// recorded point rides the orbit tail through <c>PositionFromOrbit</c> (the path that
+        /// carries the trajectory, and so the tail continuity blend), unless the authored frame
+        /// gap has a body-fixed shadow. Pure.
+        /// </summary>
+        internal static bool ShouldPositionLoopFromOrbitTail(
+            IPlaybackTrajectory traj, double loopUT)
+        {
+            return !AuthoredFrameGapHasShadowCoverage(traj, loopUT)
+                && ShouldUseOrbitTailPlayback(traj, loopUT);
+        }
+
         internal static bool AuthoredFrameGapHasShadowCoverage(
             IPlaybackTrajectory traj, double playbackUT)
         {

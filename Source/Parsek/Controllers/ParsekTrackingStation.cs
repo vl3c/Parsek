@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using KSP.UI.Screens;
 using KSP.UI.Screens.Mapview;
 using Parsek.Patches;
@@ -1189,7 +1190,10 @@ namespace Parsek
             if (rec.IsDebris) return AtmosphericMarkerSkipReason.Debris;
             if (rec.Points == null || rec.Points.Count == 0)
                 return AtmosphericMarkerSkipReason.NoTrajectoryPoints;
-            if (currentUT < rec.Points[0].ut || currentUT > rec.Points[rec.Points.Count - 1].ut)
+            // Past the last recorded point the ghost rides its orbit tail (a crash or landing
+            // coast has no proto icon, so this marker is its only one): inside the tail the
+            // marker draws, past the recording's end it does not.
+            if (!GhostPlaybackLogic.IsInsidePointsOrTail(rec, currentUT))
                 return AtmosphericMarkerSkipReason.OutsideTimeRange;
             if (suppressedIds != null && suppressedIds.Contains(rec.RecordingId))
                 return AtmosphericMarkerSkipReason.SuppressedByChainFilter;
@@ -2083,6 +2087,11 @@ namespace Parsek
                 reason = "recording-null";
                 return false;
             }
+            // Past the last recorded point: follow the orbit tail instead of clamping to the
+            // last sample (the icon used to freeze there for the whole predicted coast).
+            if (GhostPlaybackLogic.TryFindTailSegment(recording, currentUT, out OrbitSegment tailSegment))
+                return TryResolveRecordingTailWorldPosition(
+                    recording, tailSegment, currentUT, out worldPos, out body, out reason);
             if (!TrySelectTrackingStationFocusFrames(
                     recording,
                     currentUT,
@@ -2125,6 +2134,37 @@ namespace Parsek
                 TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(
                     pt.Value.longitude, bodyFixedShiftSeconds, body),
                 pt.Value.altitude);
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool TryResolveRecordingTailWorldPosition(
+            Recording recording,
+            OrbitSegment tailSegment,
+            double currentUT,
+            out Vector3d worldPos,
+            out CelestialBody body,
+            out string reason)
+        {
+            worldPos = default(Vector3d);
+            reason = null;
+            body = FlightGlobals.Bodies?.Find(b => b.name == tailSegment.bodyName);
+            if (body == null)
+            {
+                reason = "body-missing";
+                return false;
+            }
+            if (!GhostPlaybackLogic.TryGetTailWorldPosition(tailSegment, body, currentUT, out worldPos))
+            {
+                reason = "tail-propagation-failed";
+                return false;
+            }
+            ParsekLog.VerboseRateLimited(Tag, "ts-tail-position-" + (recording.RecordingId ?? "(none)"),
+                string.Format(CultureInfo.InvariantCulture,
+                    "TS marker follows orbit tail: rec={0} ut={1:F1} segment=[{2:F1},{3:F1}] predicted={4} body={5}",
+                    recording.RecordingId ?? "(none)", currentUT, tailSegment.startUT, tailSegment.endUT,
+                    tailSegment.isPredicted, tailSegment.bodyName ?? "(null)"),
+                5.0);
             return true;
         }
 

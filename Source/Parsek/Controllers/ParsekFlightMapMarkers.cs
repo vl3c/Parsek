@@ -932,6 +932,17 @@ namespace Parsek
                     ? sectionSource
                     : rec.Points;
 
+            // Past the last recorded point the ghost rides its orbit tail (a predicted coast to
+            // impact, a recorded on-rails coast). Interpolating the points there clamps to the
+            // last sample and froze the icon for the whole tail. The tail is inertial, so the
+            // body-fixed loop shift does not apply to it.
+            if (frameSource == MapMarkerFrameSource.FlatPoints
+                && GhostPlaybackLogic.TryFindTailSegment(rec, ut, out OrbitSegment tailSegment))
+            {
+                return TryComputeGhostTailWorldPosition(
+                    rec, tailSegment, ut, out worldPos, out failureReason);
+            }
+
             int cachedIdx;
             if (!mapMarkerCachedIndices.TryGetValue(recordingIndex, out cachedIdx))
                 cachedIdx = -1;
@@ -980,6 +991,43 @@ namespace Parsek
             lon = TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(
                 lon, bodyFixedShiftSeconds, body);
             worldPos = (Vector3)body.GetWorldSurfacePosition(lat, lon, alt);
+            return true;
+        }
+
+        private bool TryComputeGhostTailWorldPosition(
+            Recording rec,
+            OrbitSegment tailSegment,
+            double ut,
+            out Vector3 worldPos,
+            out MapMarkerPositionFailureReason failureReason)
+        {
+            worldPos = Vector3.zero;
+            failureReason = MapMarkerPositionFailureReason.None;
+            string bodyName = tailSegment.bodyName ?? string.Empty;
+            CelestialBody body;
+            if (!bodyCache.TryGetValue(bodyName, out body))
+            {
+                body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                if (body != null)
+                    bodyCache[bodyName] = body;
+            }
+            if (body == null)
+            {
+                failureReason = MapMarkerPositionFailureReason.MissingBody;
+                return false;
+            }
+            if (!GhostPlaybackLogic.TryGetTailWorldPosition(tailSegment, body, ut, out Vector3d tailWorld))
+            {
+                failureReason = MapMarkerPositionFailureReason.OutsideTimeRange;
+                return false;
+            }
+            worldPos = (Vector3)tailWorld;
+            ParsekLog.VerboseRateLimited("GhostMap", "map-marker-tail-" + (rec.RecordingId ?? "(none)"),
+                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Map marker follows orbit tail: rec={0} ut={1:F1} segment=[{2:F1},{3:F1}] predicted={4} body={5}",
+                    rec.RecordingId ?? "(none)", ut, tailSegment.startUT, tailSegment.endUT,
+                    tailSegment.isPredicted, bodyName),
+                5.0);
             return true;
         }
 

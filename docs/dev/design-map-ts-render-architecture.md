@@ -1128,3 +1128,28 @@ published only on an ACTUAL draw, the forward pass is still purely additive and
 publishes nothing, and the icon floor / `ghostsWithSuppressedIcon` /
 `IsIconSuppressed` fallback is untouched. No new `MapRenderTrace` stamp site is
 added.
+
+**The icon and the line past the last recorded point (2026-11-21).** A flight whose
+ending the map-presence terminal gate refuses (Destroyed, Landed, Splashed) never has
+a map ProtoVessel, so two things stock would otherwise do for it did not happen
+during its tail:
+
+- The icon. The flight-map marker (`ParsekFlightMapMarkers.TryComputeGhostWorldPosition`)
+  and the Tracking Station marker (`ParsekTrackingStation.ClassifyAtmosphericMarkerSkip`
+  time gate + `TryResolveRecordingWorldPosition`) read the flat points only and
+  clamped to the last sample, so the icon froze there for the whole tail (or the TS
+  marker vanished with `OutsideTimeRange`). Past the last flat point both now resolve
+  through `GhostPlaybackLogic.TryFindTailSegment` (the segment the flight mesh rides,
+  `GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment`, so icon and mesh agree) and
+  `GhostPlaybackLogic.TryGetTailWorldPosition` (allocation-free `BallisticExtrapolator.TryPropagate`
+  lifted once to world axes). The TS time gate is `GhostPlaybackLogic.IsInsidePointsOrTail`:
+  inside the points, or on a tail up to the recording's end. The tail is inertial, so
+  the loop body-fixed shift does not apply to it. The KSC ghost follows the same tail
+  (`ParsekKSC.TryResolveKscTailPose`, branch `orbit-tail`, eased off the last point
+  with the flight ghost's continuity blend).
+- The line. The forward pass leaves the arc the head sits on to stock's
+  `OrbitRenderer`; with no ProtoVessel nothing drew it. `ShouldForwardDrawCurrentArc`
+  (no map pid AND a terminal the gate refuses) makes `SelectForwardArcSegmentIndices`
+  include the current arc for that member. A member that has or may get a ProtoVessel
+  keeps the old exclusion, so nothing double-draws. Ownership is still unchanged: the
+  forward pass publishes no ownership.

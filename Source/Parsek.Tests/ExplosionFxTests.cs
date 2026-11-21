@@ -151,6 +151,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryGetEarlyDestroyedDebrisExplosionUT_PredictedTailPastLastPoint_FollowsTheTail()
+        {
+            // L4: debris that lost a part and then was extrapolated to the ground must not explode
+            // at that first lost part and skip the rest of its tail.
+            var rec = new Recording
+            {
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Destroyed,
+                ExplicitEndUT = 300.0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 10.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 20.0, bodyName = "Kerbin" });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 20.0, endUT = 300.0, bodyName = "Kerbin",
+                semiMajorAxis = 650000.0, eccentricity = 0.1, isPredicted = true
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 12.5,
+                eventType = PartEventType.Destroyed,
+                partName = "tank"
+            });
+
+            Assert.True(GhostPlaybackLogic.HasPredictedTailPastLastPoint(rec));
+            Assert.False(GhostPlaybackLogic.TryGetEarlyDestroyedDebrisExplosionUT(rec, out double explosionUT));
+            Assert.True(double.IsNaN(explosionUT));
+            Assert.False(GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(rec, 100.0));
+            Assert.True(GhostPlaybackLogic.ShouldTriggerExplosionAtPlaybackUT(rec, 300.0));
+        }
+
+        [Fact]
+        public void HasPredictedTailPastLastPoint_RecordedSegmentOnly_False()
+        {
+            var rec = new Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 10.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 20.0 });
+            rec.OrbitSegments.Add(new OrbitSegment { startUT = 20.0, endUT = 300.0, isPredicted = false });
+            Assert.False(GhostPlaybackLogic.HasPredictedTailPastLastPoint(rec));
+            rec.OrbitSegments[0] = new OrbitSegment { startUT = 5.0, endUT = 15.0, isPredicted = true };
+            Assert.False(GhostPlaybackLogic.HasPredictedTailPastLastPoint(rec));
+        }
+
+        [Fact]
         public void TryGetEarlyDestroyedDebrisExplosionUT_OnlyEndDestroyedEvent_ReturnsFalse()
         {
             var rec = new Recording

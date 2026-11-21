@@ -44,13 +44,17 @@ namespace Parsek
                 }
 
                 long orbitTailCacheKey = index * 10000 + Math.Max(0, segmentIndex);
+                // A loop cycle replays the tail under a different body rotation every cycle,
+                // so its continuity offset (last body-fixed point vs the inertial conic) is
+                // recomputed rather than reused from an earlier cycle.
                 PositionGhostFromOrbit(
                     state.ghost,
                     seg,
                     ut,
                     orbitTailCacheKey,
                     traj.RecordingId,
-                    traj);
+                    traj,
+                    cacheContinuityOffset: state.loopCycleIndex < 0);
                 SetOrbitTailInterpolated(state, seg, ut, orbitTailCacheKey);
 
                 // Re-aim seam/arrival diagnostic: trace the orbit-only re-aim ghost vs the live bodies so a
@@ -169,7 +173,7 @@ namespace Parsek
         }
 
         void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, long cacheKey,
-            string recordingId = null, IPlaybackTrajectory traj = null)
+            string recordingId = null, IPlaybackTrajectory traj = null, bool cacheContinuityOffset = true)
         {
             if (!TrajectoryMath.HasUsableOrbitSegmentElements(segment))
             {
@@ -240,7 +244,8 @@ namespace Parsek
                 out double orbitContinuityWeight,
                 out double orbitContinuityAnchorUT,
                 out double orbitContinuityBlendSeconds,
-                out string orbitContinuityAnchorSource);
+                out string orbitContinuityAnchorSource,
+                cacheContinuityOffset);
             if (hasOrbitContinuityOffset)
                 worldPos += orbitContinuityOffset;
             if (!ParsekFlight.IsFiniteVector3d(worldPos))
