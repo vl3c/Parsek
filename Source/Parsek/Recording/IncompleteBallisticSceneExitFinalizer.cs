@@ -3156,6 +3156,51 @@ namespace Parsek
                 return false;
             }
 
+            if (!TryBuildReseededSegmentFromRecordedPoint(
+                    recording,
+                    point,
+                    "recovery-start",
+                    out OrbitSegment segment,
+                    out failureReason))
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!TryBuildStartStateFromSegment(segment, bodies, out startState))
+                {
+                    failureReason = "segment-propagation-failed";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                failureReason = ex.GetType().Name;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Live: the orbit a recorded above-surface sample was on, reseeded from its body-fixed
+        /// position and recorded velocity (frame resolved through its neighbours,
+        /// <see cref="OrbitReseed.FromLatLonAltAndSameSessionRecordedVelocity"/>) and turned back
+        /// to the body orientation at the sample's UT. The segment starts and ends at the
+        /// sample. False, with the reason, when the sample has no body, a non-finite position
+        /// or velocity, no motion, an unknown body, or the reseed fails.
+        /// </summary>
+        internal static bool TryBuildReseededSegmentFromRecordedPoint(
+            Recording recording,
+            TrajectoryPoint point,
+            string context,
+            out OrbitSegment segment,
+            out string failureReason)
+        {
+            segment = default(OrbitSegment);
+            failureReason = null;
+
             if (string.IsNullOrEmpty(point.bodyName))
             {
                 failureReason = "body-missing";
@@ -3212,13 +3257,13 @@ namespace Parsek
                         ? (TrajectoryPoint?)pointPrevious
                         : null,
                     point,
-                    "recovery-start",
+                    context,
                     recording?.RecordingId,
                     TryFindRecordedPointSuccessor(recording, point, out TrajectoryPoint pointNext)
                         ? (TrajectoryPoint?)pointNext
                         : null);
 
-                OrbitSegment segment = new OrbitSegment
+                segment = new OrbitSegment
                 {
                     startUT = point.ut,
                     endUT = point.ut,
@@ -3236,18 +3281,12 @@ namespace Parsek
                     ref segment,
                     body,
                     point.ut,
-                    "recovery-start",
+                    context,
                     recording?.RecordingId);
 
                 if (!IsFiniteOrbitElements(segment))
                 {
                     failureReason = "orbit-elements-non-finite";
-                    return false;
-                }
-
-                if (!TryBuildStartStateFromSegment(segment, bodies, out startState))
-                {
-                    failureReason = "segment-propagation-failed";
                     return false;
                 }
 
