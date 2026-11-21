@@ -57,9 +57,25 @@ id = "EX-2-single-point-held-ghost"
 #   the probe stays inside it for the whole 5 s window despite the drift between the
 #   propagated orbit and the probe's physics orbit. Reading `2026-09-23_2054` (one-part
 #   box) grazed the Mainsail at 13.4 m, cleared on the 1 s retry and spawned the vessel.
+#
+# SPEC CHANGED 2026-11-21 (owner ruling 2026-11-21, todo
+# SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS, branch `rsr-wp9-orbit-spawn-clear`), NOT
+# RE-FLOWN: a blocked recorded-terminal-orbit spawn now moves along its own orbit (up to
+# 1000 m, `OrbitSpawnClearance`) before it gives up, so the old 155 m box would clear at
+# about 230 m and SPAWN, losing this lane's D13 / D18 reading. The preset's outriggers moved
+# to 1300 m on each axis (a box about 1306 m half-extent) so every phase candidate still
+# covers the probe: the spawn is blocked on the orbit route's no-clear-spot branch
+# (`VesselSpawner.BlockOrbitRouteSpawn`, `(orbit spawn, no clear spot within 1000m along its
+# orbit)`), which leaves `VesselSpawned` false exactly like the single-point branch, so the
+# hold, the retries and the timeout below are unchanged. The spawn could not become a
+# NON-orbit single point instead: in LKO a body-fixed spawn point and the 2.2 km/s probe
+# part in a fraction of a second, so nothing is held for 5 s, and no committed fixture has a
+# loaded non-active vessel on the ground outside the KSC circles. The single-point branch of
+# `CheckSpawnCollisions` itself (no terminal orbit, one point) moved to the in-game cell
+# `OrbitSpawnClearance` / `SinglePointSpawnWithNoTerminalOrbit_KeepsTheSinglePointRetry`.
 # -------------------------------------------------------------------------------------
 tier = "nightly"
-description = "D18 ghost-extension-past-endut, SCOPED TO THE SINGLE-POINT COLLISION HOLD (design 13.5): an injected one-point recording with an orbit tail (single-point-hold preset) ends on eva2-lko-crewed's loaded, non-active Kerbal X Probe in LKO. At EndUT the spawn is collision-blocked on the single-point branch (no walkback possible), ParsekPlaybackPolicy holds the live ghost, retries every 1 s and times out at 5 s, and the release destroys the ghost with held-spawn-timeout. Asserts the ghost survives the hold (the engine keeps it after the completion reaches the policy, no stale past-end destroy before the timeout) and no vessel spawns."
+description = "D18 ghost-extension-past-endut, SCOPED TO THE SINGLE-POINT COLLISION HOLD (design 13.5): an injected one-point recording with an orbit tail (single-point-hold preset) ends on eva2-lko-crewed's loaded, non-active Kerbal X Probe in LKO. At EndUT the orbit spawn is collision-blocked with no clear spot along its own orbit (the preset's widened box covers every orbit phase candidate; the single-point branch until 2026-11-21), ParsekPlaybackPolicy holds the live ghost, retries every 1 s and times out at 5 s, and the release destroys the ghost with held-spawn-timeout. Asserts the ghost survives the hold (the engine keeps it after the completion reaches the policy, no stale past-end destroy before the timeout) and no vessel spawns."
 instanceProfile = "stock-minimal"
 tags = ["EX-2", "D18", "held-ghost", "spawn-blocked", "single-point",
         "injected-recordings", "R10", "runtime-handles"]
@@ -88,7 +104,8 @@ steps = [
 [dimensionsCovered]
 # D13 `bbox-block` (CLAIMED 2026-09-25, branch `cov-wave1`, no new token) <- the
 #   already-required `Spawn blocked for #N (Single Point Holder): overlaps 'Kerbal X
-#   Probe' at Nm (single-point trajectory)` (VesselSpawner.cs:1923): the bounding-box
+#   Probe' ...` (the single-point wording until 2026-11-21, the orbit route's `(orbit
+#   spawn, no clear spot within 1000m along its orbit)` since): the bounding-box
 #   overlap check refusing a spawn onto a live vessel, the collision detector that
 #   replaced the old proximity offset (VesselSpawner.cs:19). Armed flight
 #   `2026-09-23_2110` PASS, negative control `_2113`.
@@ -124,11 +141,13 @@ required  = [
   # The spawn takes the terminal-orbit route, not the last point (read off `2026-09-23_2110`
   # and `_2113`).
   "Spawn #[0-9]+ \\(Single Point Holder\\): using recorded terminal orbit propagated to current UT",
-  # The single-point branch of CheckSpawnCollisions, blocked by the probe. Since 11b6e3d9f
+  # The orbit route's no-clear-spot branch (since 2026-11-21; the single-point branch
+  # before it): every phase candidate overlaps the probe or the focused ship. Since 11b6e3d9f
   # the active vessel blocks every end-of-flight spawn too, and the active Kerbal X is the
   # nearer overlap, so the block names either (overnight 2026-11-01_0647: 'Kerbal X' at 43m;
   # the probe's own overlap still logs at 69.7m, pinned on the SpawnCollision line).
-  "Spawn blocked for #[0-9]+ \\(Single Point Holder\\): overlaps 'Kerbal X( Probe)?' at [0-9]+m \\(single-point trajectory\\)",
+  "Spawn blocked for #[0-9]+ \\(Single Point Holder\\): overlaps 'Kerbal X( Probe)?' \\(orbit spawn, no clear spot within 1000m along its orbit\\)",
+  "\\[SpawnCollision\\] Orbit spawn clearance: site=end-of-recording #[0-9]+ \\(Single Point Holder\\) outcome=Blocked attempts=30 ",
   "\\[SpawnCollision\\] Spawn overlaps with Kerbal X Probe \\(pid=[0-9]+\\) via part '[^']+' at [0-9.]+m",
   "Ghost held pending spawn retry: #[0-9]+ \"Single Point Holder\" id=single-point-hold-rec - spawn blocked, ghost stays visible",
   "Stale past-end cleanup after completion delivery: ghost #[0-9]+ \"Single Point Holder\" kept \\(held by the policy\\)",
@@ -150,6 +169,9 @@ forbidden = [
   "Vessel respawned",
   "Spawn RETIRED for #[0-9]+ \\(Single Point Holder\\)",
   "walkback rewrote spawn position for #[0-9]+ \\(Single Point Holder\\)",
+  # The orbit-route clearance must not find a clear spot (the widened preset box).
+  "Orbit spawn clearance: site=end-of-recording #[0-9]+ \\(Single Point Holder\\) outcome=(?:PhaseShifted|RockPushedOut)",
+  "orbit phase shift moved the spawn of #[0-9]+ \\(Single Point Holder\\)",
   "Duplicate blocker detected for #[0-9]+ \\(Single Point Holder\\)",
   "Ghost held pending spawn retry: #[0-9]+ \"Single Point Holder\" [^\\r\\n]*no ghost to keep visible",
   # REGRESSION (D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME): the stale

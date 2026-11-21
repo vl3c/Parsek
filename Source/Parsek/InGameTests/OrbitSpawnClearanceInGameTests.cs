@@ -174,6 +174,101 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "OrbitSpawnClearance", Scene = GameScenes.FLIGHT,
+            Description = "The boundary of the orbit route: an Orbiting one-point recording with NO recorded " +
+                "terminal orbit, ending under the active vessel, keeps the single-point collision retry (blocked, " +
+                "VesselSpawned false so the playback policy holds its ghost, no walkback, no orbit search) - the " +
+                "D18 single-point hold branch EX-2 no longer reaches since its preset spawns on its orbit")]
+        public IEnumerator SinglePointSpawnWithNoTerminalOrbit_KeepsTheSinglePointRetry()
+        {
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active == null || active.mainBody == null)
+                InGameAssert.Skip("no active vessel with a main body");
+            if (!(active.loaded && !active.packed))
+                InGameAssert.Skip($"'{active.vesselName}' is not loaded and unpacked");
+            if (SpawnCollisionDetector.ShouldSkipVesselType(active.vesselType))
+                InGameAssert.Skip($"'{active.vesselName}' is a {active.vesselType}, which the overlap check never sees");
+
+            ConfigNode donor = FlightRecorder.TryBackupSnapshot(active);
+            if (donor == null)
+                InGameAssert.Skip("TryBackupSnapshot of the active vessel returned null");
+            VesselSnapshotOps.StripAllCrewFromSnapshot(donor);
+
+            CelestialBody body = active.mainBody;
+            Vector3d target = active.CoMD;
+            double lat = body.GetLatitude(target);
+            double lon = body.GetLongitude(target);
+            double alt = body.GetAltitude(target);
+            donor.SetValue("lat", lat.ToString("R", IC), true);
+            donor.SetValue("lon", lon.ToString("R", IC), true);
+            donor.SetValue("alt", alt.ToString("R", IC), true);
+
+            var rec = new Recording
+            {
+                RecordingId = "osc-single-point-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                VesselName = "ParsekTestSinglePointHold",
+                VesselPersistentId = 912641077u,
+                VesselSnapshot = donor,
+                TerminalStateValue = TerminalState.Orbiting,
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = Planetarium.GetUniversalTime(),
+                latitude = lat,
+                longitude = lon,
+                altitude = alt,
+                bodyName = body.name,
+                rotation = active.srfRelRotation,
+                velocity = Vector3.zero,
+            });
+            InGameAssert.IsFalse(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec),
+                "a recording with no terminal orbit must not take the orbit route");
+            if (VesselSpawner.EvaluateKscEndOfFlightRetirement(rec).Retire)
+                InGameAssert.Skip("the active vessel sits in a KSC exclusion zone, where an ended flight is retired");
+
+            Bounds bounds = SpawnCollisionDetector.ComputeVesselBounds(donor);
+            var (blocked, _, blockerName, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                body.GetWorldSurfacePosition(lat, lon, alt), bounds, VesselGhoster.SpawnCollisionPadding);
+            if (!blocked)
+                InGameAssert.Skip($"the point under '{active.vesselName}' reads clear (no part collider there); " +
+                    "spawning would place a copy inside it");
+
+            var captured = new System.Collections.Generic.List<string>();
+            Action<string> prior = ParsekLog.TestObserverForTesting;
+            ParsekLog.TestObserverForTesting = line => { captured.Add(line); prior?.Invoke(line); };
+            try
+            {
+                VesselSpawner.SpawnOrRecoverIfTooClose(rec, 0);
+                yield return new WaitForFixedUpdate();
+
+                InGameAssert.IsFalse(rec.VesselSpawned,
+                    $"a blocked single-point spawn stays unsettled so its ghost is held (blocker '{blockerName}')");
+                InGameAssert.IsFalse(rec.SpawnAbandoned, "one blocked attempt is not an abandon");
+                InGameAssert.IsFalse(rec.WalkbackExhausted, "a single point cannot walk back");
+                InGameAssert.AreEqual(1, rec.CollisionBlockCount, "the single-point retry counts one blocked attempt");
+                InGameAssert.AreEqual(0u, rec.SpawnedVesselPersistentId, "nothing spawns inside the active vessel");
+                InGameAssert.IsFalse(captured.Exists(l => l.Contains("Orbit spawn clearance:")
+                        && l.Contains(rec.VesselName)),
+                    "a spawn with no recorded terminal orbit never runs the orbit-route clearance");
+                ParsekLog.Info("TestRunner", string.Format(IC,
+                    "OrbitSpawnClearance single-point test: blocked by '{0}', block={1}, spawned={2}",
+                    blockerName, rec.CollisionBlockCount, rec.VesselSpawned));
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = prior;
+                Vessel stray = rec.SpawnedVesselPersistentId != 0
+                    ? FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId)
+                    : null;
+                if (stray != null && stray != FlightGlobals.ActiveVessel && stray.state != Vessel.State.DEAD)
+                    stray.Die();
+            }
+        }
+
         private static Vessel RequireOrbitingActiveVessel()
         {
             Vessel active = FlightGlobals.ActiveVessel;

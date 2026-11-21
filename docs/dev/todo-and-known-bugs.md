@@ -174,11 +174,17 @@ Station spawns have no collision check (nothing is loaded there) and are unchang
 Tests: xUnit `OrbitSpawnClearanceTests` (schedule, mean-anomaly shift and wrap, searches, the
 blocked retry and abandon, wiring gates at all three sites, red on the old sources); in-game
 `OrbitSpawnClearance` cell `OrbitSpawnOnTheActiveVessel_MovesAlongItsOwnOrbitToAClearSpot`.
-Residue: no lane flies it (recommended: an orbit spawn next to a parked station). Lanes whose
-pinned lines this moves: `EX-2-single-point-held-ghost` and `SPW-11-rsc-warp-orbital-held-target`
-(their single-point orbit spawn blocked by the co-orbiting probe now moves along its orbit and
-spawns), `SPW-5-physics-warp-end-spawn-near-active` (a block would now read a phase shift, which its
-LeafPlacement verdict may report as `phase`).
+Residue: no lane flies it (recommended: an orbit spawn next to a parked station).
+`EX-2-single-point-held-ghost` reached its D18 hold through this path (its `single-point-hold`
+orbit spawn blocked by the co-orbiting probe): the phase search would now clear at about 230 m and
+spawn it, so the preset's outriggers moved from 150 m to 1300 m (every phase candidate still covers
+the probe) and the lane is re-pinned to the orbit route's no-clear-spot block, with the same hold,
+retries and timeout; re-flight owed. The non-orbit single-point branch EX-2 used to read is now the
+in-game cell `SinglePointSpawnWithNoTerminalOrbit_KeepsTheSinglePointRetry` (a non-orbit single point
+cannot be held in LKO, and no committed fixture has a ground host outside the KSC circles).
+`SPW-11-rsc-warp-orbital-held-target` shares the preset (its pins accept either outcome).
+`SPW-5-physics-warp-end-spawn-near-active` would read a phase shift if its probe ever blocked, which
+its LeafPlacement verdict may report as `phase`.
 
 ## ~~DEBRIS-LIFETIME-LOST-ON-PROMOTION~~: a debris piece the player switched to lost its 60 s limit [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a promoted booster recorded until it crashed; GS-11 measured it)]
 

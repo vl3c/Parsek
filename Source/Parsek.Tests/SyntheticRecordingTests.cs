@@ -7221,6 +7221,12 @@ namespace Parsek.Tests
         internal const double SinglePointHoldMnaLead = 1.0e-4;
 
         /// <summary>
+        /// Outrigger distance (metres, on each axis) of the preset's two extra parts: past the
+        /// orbit-route phase search's 1000 m bound plus the 70 m lead and the drift.
+        /// </summary>
+        internal const string SinglePointHoldOutriggerMeters = "1300";
+
+        /// <summary>
         /// A ONE-POINT recording whose Orbiting end sits on the loaded, non-active
         /// <c>Kerbal X Probe</c>: the shape that holds a ghost past EndUT on the non-chain
         /// path (design <c>docs/parsek-flight-recorder-design.md</c> 13.5; todo
@@ -7241,9 +7247,20 @@ namespace Parsek.Tests
         /// An ORBITING terminal carrying the recorded terminal orbit, so the spawn propagates
         /// the probe's own orbit to the current UT (<c>ShouldUseRecordedTerminalOrbitSpawnState</c>)
         /// and the collision box lands on the probe whenever EndUT is crossed.
-        /// The probe, not the focused ship, is the blocker: a non-EVA spawn skips the active
-        /// vessel in <c>CheckOverlapAgainstLoadedVessels</c>. The names differ, so the #112
-        /// duplicate-blocker recovery leaves the probe alone.
+        /// The names differ, so the #112 duplicate-blocker recovery leaves the probe alone (the
+        /// focused Kerbal X blocks too, GC9-SPAWN-IGNORES-ACTIVE-VESSEL).
+        /// </para>
+        /// <para>
+        /// Since the orbit-route spawn clearance (owner ruling 2026-11-21, todo
+        /// SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS) a blocked orbit spawn moves along its own
+        /// orbit by up to <see cref="OrbitSpawnClearance.PhaseShiftMaxMeters"/> before it is
+        /// held. The hold this preset exists for is therefore reached through the orbit route's
+        /// no-clear-spot branch (<c>VesselSpawner.BlockOrbitRouteSpawn</c>, VesselSpawned false
+        /// like the single-point branch): the outrigger box is wider than every phase candidate,
+        /// so the probe stays inside it at every shift. A non-orbit spawn in LKO cannot host the
+        /// single-point branch itself (its body-fixed spawn point and the 2.2 km/s probe part in
+        /// a fraction of a second), so that branch is read by the in-game
+        /// <c>OrbitSpawnClearance</c> cell <c>SinglePointSpawnWithNoTerminalOrbit_KeepsTheSinglePointRetry</c>.
         /// </para>
         /// </summary>
         internal static RecordingBuilder SinglePointOrbitalHold(double baseUT)
@@ -7262,16 +7279,18 @@ namespace Parsek.Tests
             b.WithTerminalOrbit("Kerbin", SinglePointHoldProbeSma, SinglePointHoldProbeEcc,
                 SinglePointHoldProbeInc, SinglePointHoldProbeLan, SinglePointHoldProbeLpe,
                 mna, SinglePointHoldSaveUT);
-            // Two outrigger parts widen the spawn collision box to about 155 m half-extent
-            // (padding included), so it covers the probe 70 m behind the propagated
-            // terminal orbit plus the drift between that orbit and the probe's physics
-            // orbit (0.6 m/s on reading 2026-09-23_2054, where a one-part box grazed the
-            // probe at 13.4 m and cleared on the 1 s retry). Nothing else is within
-            // kilometres, and a non-EVA spawn skips the focused Kerbal X.
+            // Two outrigger parts widen the spawn collision box to about 1306 m half-extent
+            // (padding included): it covers the probe 70 m behind the propagated terminal
+            // orbit, the drift between that orbit and the probe's physics orbit (0.6 m/s on
+            // reading 2026-09-23_2054, where a one-part box grazed the probe at 13.4 m and
+            // cleared on the 1 s retry), AND every candidate of the orbit-route phase search
+            // (up to 1000 m along the orbit), so no shift clears and the spawn is held.
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.ProbeShip(SinglePointHoldVesselName, pid: 71000001)
-                    .AddPart("probeCoreSphere", position: "-150,-150,-150")
-                    .AddPart("probeCoreSphere", position: "150,150,150")
+                    .AddPart("probeCoreSphere", position: "-" + SinglePointHoldOutriggerMeters + ",-" +
+                        SinglePointHoldOutriggerMeters + ",-" + SinglePointHoldOutriggerMeters)
+                    .AddPart("probeCoreSphere", position: SinglePointHoldOutriggerMeters + "," +
+                        SinglePointHoldOutriggerMeters + "," + SinglePointHoldOutriggerMeters)
                     .AsOrbiting(SinglePointHoldProbeSma, SinglePointHoldProbeEcc,
                         SinglePointHoldProbeInc, lan: SinglePointHoldProbeLan,
                         argPe: SinglePointHoldProbeLpe, mna: mna,
@@ -7312,7 +7331,12 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
             Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec));
             Assert.NotNull(rec.VesselSnapshot);
-            Assert.True(SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot).extents.x >= 150f);
+            // Every phase candidate (up to 1000 m along the orbit) still covers the probe 70 m
+            // behind, so the orbit-route clearance finds no clear spot and the spawn is held.
+            Bounds holdBounds = SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot);
+            foreach (float extent in new[] { holdBounds.extents.x, holdBounds.extents.y, holdBounds.extents.z })
+                Assert.True(extent > OrbitSpawnClearance.PhaseShiftMaxMeters + 200.0,
+                    "the hold box must outreach the orbit phase search, extent=" + extent);
             Assert.Equal(SinglePointHoldProbeMna + SinglePointHoldMnaLead,
                 reloaded.TerminalOrbitMeanAnomalyAtEpoch);
         }

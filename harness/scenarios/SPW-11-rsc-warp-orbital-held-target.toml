@@ -16,7 +16,9 @@ id = "SPW-11-rsc-warp-orbital-held-target"
 # THE HOST: EX-2's (`eva2-lko-crewed` + the `single-point-hold` injected preset): a
 # one-point recording `Single Point Holder` with an orbit tail, in progress at load (save UT
 # 421.19, EndUT 441.19), ending on the co-orbiting Kerbal X Probe in LKO, so its end spawn
-# is collision-blocked on the single-point branch (no walkback). The active vessel is the
+# is collision-blocked (the single-point branch until 2026-11-21; since then the orbit
+# route's no-clear-spot branch, EX-2's preset box widened past the 1000 m orbit phase
+# search, todo SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS). The active vessel is the
 # orbiting Kerbal X, well inside Real Spawn Control's 250 m / 2 m/s gates.
 #
 # THE FLIGHT: LoadGame; Advanced complexity (the launcher is Advanced-only, RSC-1); a 1x
