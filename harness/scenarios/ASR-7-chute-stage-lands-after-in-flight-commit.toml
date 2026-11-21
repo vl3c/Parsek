@@ -1,0 +1,162 @@
+schema = 1
+id = "ASR-7-chute-stage-lands-after-in-flight-commit"
+# =====================================================================================
+# ASR-7: A CHUTED STAGE COMMITTED IN FLIGHT ON A PREDICTED TOUCHDOWN, THEN LANDING FOR
+# REAL IN PHYSICS RANGE, KEEPS ITS LANDED ENDING AND ITS OPEN SLOT. AUTHORED 2026-11-21,
+# NEVER FLOWN. Report-only saveParse blocks until a reading run.
+# =====================================================================================
+#
+# WHAT IT PROVES (owner rulings Q4 / Q4c / Q14, P-STOCK; reconciler WP12 / WP13). A
+# predicted touchdown is kept only for an IN-FLIGHT commit where the player keeps flying
+# (Q14; leaving the flight decides the craft Destroyed instead, ASR-2). There the
+# prediction is a forecast and stock decides: when the stage then really lands inside
+# the physics bubble, the reconciler finds it down (`PredictedTouchdownOutcome.Consistent`)
+# and leaves the committed ending alone: Landed / Splashed, still TerminalPredicted, the
+# Re-Fly slot still open (`predictedTouchdown`), nothing overruled or contradicted.
+#
+# THE FLIGHT. ASR-2's act on `gs1-two-stage-pad` (GS1 Auto-Chute Booster hop, the
+# probe-cored booster's six Mk2-R canopies open from the staging apex; flight 2 measured
+# `canopy=Deployed openChutes=6` at the commit), `siblingAirborneAtExit = true` ending
+# the mission as soon as the booster is OBSERVED airborne after the pod lands. Then a
+# PLAIN in-flight commit (QL-4's order: StopRecording, CommitTree, StopRecording) with
+# the booster loaded and under canopy nearby, and the player keeps flying: an explicit-UT
+# 2x physics WarpToUT to UT 300 (QL-4 / CA-1's ladder; the booster lands by ~UT 150-200
+# on this profile, QL-4 / QL-2b readings), so the reconciler host runs its passes with
+# the booster down and stock still holding it.
+#
+# GATES.
+#   - the commit is in flight: `CommitTreeFlight: starting tree commit at UT=` (CA-1's
+#     literal), no scene-exit auto-commit;
+#   - C#-DEPENDENT, the commit's verdict on the booster: the classifier's predicted
+#     touchdown pair (`reason=predictedTouchdown slot=1 focusSlot=0
+#     terminal=(?:Landed|Splashed) predicted=True` and its promotion), and the WP13
+#     stock-held stamp (`... predicted touchdown rec=<id> vessel='GS1 Auto-Chute Booster
+#     Probe' committed while stock holds the vessel: stockHeldUT=...`,
+#     Recording/PredictedTouchdownStockFate.cs, Info);
+#   - C#-DEPENDENT, after the commit the reconciler never moves it: forbidden
+#     `Predicted touchdown overruled by stock` / `Predicted touchdown contradicted by stock`
+#     for the booster (Recording/PredictedCrashReconciler.cs), and the Q14 crash verdict.
+#     The pass summary (`Touchdown pass: scene=FLIGHT ... consistent=N`) is VerboseRateLimited
+#     and a pass with nothing left to recheck schedules no later one, so it is REPORTED,
+#     not required;
+#   - save side (report-only): the booster's ending Landed / Splashed with
+#     `terminalPredicted = true`, the pod Landed, the RewindPoint kept (`rewindPoints 1`).
+#
+# FAST-LANE CHECKLIST. 1 ASR-2's act is the prefix (no shorter host leaves a chuted stage
+# loaded in the air at a commit); separate because ASR-2 exits the scene. 2 One explicit-
+# UT WarpToUT. 3 No dwell beyond the landing. 4-5 n/a. 6 the gs1 machine's give-ups.
+# 7 count {2,8} (GS-1 / RF-1's window). 8 nightly (ASR-2's act plus ~90 s wall).
+# 9 flight_efficiency.py on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "Owner rulings Q4 / Q14 + the reconciler: GS-1's hop ends with the pod landed and the probe-cored booster still under its six canopies nearby; a plain in-flight CommitTree commits the booster on a predicted chute touchdown (slot open as predictedTouchdown, stock-held stamp), then the player keeps flying (WarpToUT 300) while the booster really lands in physics range. The reconciler leaves the ending: no overrule, no contradiction, booster Landed (predicted) with its RewindPoint kept."
+instanceProfile = "stock-minimal"
+tags = ["ASR", "ASR-7", "Q4", "Q14", "predicted-tail", "parachute", "reconciler",
+        "staging", "controlled-child", "commit-in-flight", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { phase = "mission",                                                              expect = "MISSION-OK", budget = 900 },
+  # THE IN-FLIGHT COMMIT with the booster still under canopy (QL-4's order).
+  { cmd = "StopRecording",                                                          expect = "OK" },
+  { cmd = "CommitTree",                                                             expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                          expect = "OK" },
+  # THE PLAYER KEEPS FLYING while the booster lands for real nearby.
+  { cmd = "WarpToUT",       args = { ut = "300", maxRate = "2", ladder = "phys" },  expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+# RF-1's params verbatim (ASR-2's).
+[driver.missionParams]
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 8 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+  "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "committree committed=true",
+  # C#-DEPENDENT (Q4 / Q4c, kept by Q14 for an in-flight commit): the predicted touchdown.
+  "IsUnfinishedFlight=true rec=\\S+ reason=predictedTouchdown slot=1 focusSlot=0 terminal=(?:Landed|Splashed) predicted=True",
+  "CommitTree promoted rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' slot=1 rp=\\S+ reason=predictedTouchdown to CommittedProvisional",
+  # C#-DEPENDENT (WP13): stock held the booster at the commit.
+  "predicted touchdown rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' committed while stock holds the vessel: stockHeldUT=",
+  # The player kept flying past the booster's landing.
+  "warptout complete",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Silent full-fidelity auto-commit \\(scene-exit\\)",
+  # C#-DEPENDENT: the reconciler moves nothing once the booster is down in range.
+  "Predicted touchdown overruled by stock: [^\\r\\n]*vessel='GS1 Auto-Chute Booster Probe'",
+  "Predicted touchdown contradicted by stock: [^\\r\\n]*vessel='GS1 Auto-Chute Booster Probe'",
+  "Predicted touchdown stock deletion not applied:",
+  # The Q14 exit verdict must not appear on an in-flight commit.
+  "IsUnfinishedFlight=true rec=\\S+ reason=crashed terminal=Destroyed",
+]
+
+# REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
+[expectations.recordings.endings.vessels."GS1 Auto-Chute Booster Probe"]
+ended             = { min = 1, max = 1 }
+terminalStates    = ["Landed", "Splashed"]
+terminalPredicted = true
+
+[expectations.recordings.endings.vessels."GS1 Auto-Chute Booster"]
+ended          = { min = 1, max = 1 }
+terminalStates = ["Landed", "Splashed"]
+
+[expectations.rewind]
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+terminalStates = { Landed = { min = 2 }, SubOrbital = { max = 0 }, Destroyed = { max = 0 } }
+
+[runtime]
+# LoadGame 660 + SetSetting x2 240 + mission 900 + StopRecording x2 240 + CommitTree 180
+#   + WarpToUT 360 + RecordingState 120 + FlushAndQuit 120 = 2820. 3000 clears it.
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

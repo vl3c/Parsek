@@ -20,7 +20,9 @@ WHERE THE NUMBERS COME FROM. Only what the produced save holds, never a log line
 
   - the ``.sfs`` RECORDING node (``RecordingTreeRecordCodec``): ``vesselName``,
     ``terminalState`` (absent = the recording has no ending: a chain piece before
-    the tip), ``explicitEndUT`` (written only when set), ``chainId``;
+    the tip), ``explicitEndUT`` (written only when set), ``chainId``, and the sparse
+    ending flags ``terminalPredicted`` / ``quietEnd`` (written only when true) and
+    ``tOrbBody`` (the terminal orbit's body, written only with a terminal orbit);
   - the readable sidecar mirror ``<id>.prec.txt`` (``TrajectoryTextSidecarCodec``,
     pinned ON for every harness run by ``hlib.PINNED_ON_SETTING_KEYS``): ``POINT``
     samples (``ut``) inside ``TRACK_SECTION`` nodes (``ref`` 0 Absolute / 1 Relative
@@ -66,8 +68,15 @@ TERMINALS_KEY = "terminalStates"
 PREDICTED_KEY = "predictedSegments"
 TAIL_KEY = "tailSeconds"
 ALTITUDE_KEY = "endAltitudeMeters"
+# Per-recording flags of the ending (each a bool every ended recording must match) and the
+# terminal orbit's body (a non-empty list of accepted names; no terminal orbit never passes).
+PREDICTED_FLAG_KEY = "terminalPredicted"
+QUIET_END_KEY = "quietEnd"
+ORBIT_BODIES_KEY = "terminalOrbitBodies"
+BOOL_FLAG_KEYS: Tuple[str, ...] = (PREDICTED_FLAG_KEY, QUIET_END_KEY)
 VESSEL_ASSERTION_KEYS: Tuple[str, ...] = (
-    ENDED_KEY, TERMINALS_KEY, PREDICTED_KEY, TAIL_KEY, ALTITUDE_KEY)
+    ENDED_KEY, TERMINALS_KEY, PREDICTED_KEY, TAIL_KEY, ALTITUDE_KEY,
+    PREDICTED_FLAG_KEY, QUIET_END_KEY, ORBIT_BODIES_KEY)
 # Windows that apply to EVERY ended recording of the vessel (not to the count).
 PER_RECORDING_WINDOW_KEYS: Tuple[str, ...] = (PREDICTED_KEY, TAIL_KEY, ALTITUDE_KEY)
 
@@ -282,6 +291,9 @@ def measure_ending(rec: "saveparse.RecordingRow",
     return {
         "recordingId": rec.recording_id,
         "terminal": saveparse.terminal_state_name(rec.terminal_state),
+        "terminalPredicted": rec.terminal_predicted,
+        "quietEnd": rec.quiet_end,
+        "terminalOrbitBody": rec.terminal_orbit_body or None,
         "chainMembers": len(chain),
         "missingMirrors": len(missing),
         "predictedSegments": len(predicted),
@@ -412,6 +424,15 @@ def validate_endings_expectations(block: Any) -> List[str]:
                 (ENDED_KEY, PREDICTED_KEY, TAIL_KEY)))
         if ALTITUDE_KEY in spec:
             errs.extend(_validate_signed_window("%s.%s" % (vp, ALTITUDE_KEY), spec[ALTITUDE_KEY]))
+        for key in BOOL_FLAG_KEYS:
+            if key in spec and not isinstance(spec[key], bool):
+                errs.append("%s.%s: %r must be a bool" % (vp, key, spec[key]))
+        if ORBIT_BODIES_KEY in spec:
+            want_b = spec[ORBIT_BODIES_KEY]
+            if (not isinstance(want_b, list) or not want_b
+                    or not all(isinstance(w, str) and w.strip() for w in want_b)):
+                errs.append("%s.%s: must be a non-empty array of body names"
+                            % (vp, ORBIT_BODIES_KEY))
         if TERMINALS_KEY in spec:
             want = spec[TERMINALS_KEY]
             if (not isinstance(want, list) or not want
@@ -478,6 +499,13 @@ def evaluate_endings(block: Dict, facets: Dict[str, Any]) -> List[str]:
             rl = "%s[%s]" % (label, rid)
             if isinstance(want_t, list) and e.get("terminal") not in want_t:
                 out.append("%s.terminal %s not in %s" % (rl, e.get("terminal"), want_t))
+            for key in BOOL_FLAG_KEYS:
+                if isinstance(spec.get(key), bool) and bool(e.get(key)) != spec[key]:
+                    out.append("%s.%s %s != %s" % (rl, key, bool(e.get(key)), spec[key]))
+            want_b = spec.get(ORBIT_BODIES_KEY)
+            if isinstance(want_b, list) and e.get("terminalOrbitBody") not in want_b:
+                out.append("%s.terminalOrbitBody %s not in %s"
+                           % (rl, e.get("terminalOrbitBody") or "(none)", want_b))
             asked = [k for k in PER_RECORDING_WINDOW_KEYS if k in spec]
             if asked and e.get("missingMirrors"):
                 out.append("%s: %d chain member(s) carry no .prec.txt mirror - not measured"

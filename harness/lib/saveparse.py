@@ -450,6 +450,13 @@ class RecordingRow:
     # the `[expectations.recordings.endings]` block (endingsq.py).
     explicit_end_ut: Optional[float] = None
     chain_id: str = ""
+    # The sparse ending flags (`RecordingTreeRecordCodec` writes each key only when true):
+    # `terminalPredicted` (an ending Parsek predicted), `quietEnd` (a Destroyed replay that
+    # ends with no explosion), and `tOrbBody` (the terminal orbit's body, written only with
+    # a terminal orbit; "" = none). Read by the endings block (endingsq.py).
+    terminal_predicted: bool = False
+    quiet_end: bool = False
+    terminal_orbit_body: str = ""
 
 
 @dataclass(frozen=True)
@@ -839,6 +846,9 @@ def _parse_recording(node: SfsNode) -> RecordingRow:
         spawned_pid=_parse_int(node.value("spawnedPid")),
         explicit_end_ut=_parse_float(node.value("explicitEndUT")),
         chain_id=node.value("chainId") or "",
+        terminal_predicted=_parse_bool(node.value("terminalPredicted"), default=False),
+        quiet_end=_parse_bool(node.value("quietEnd"), default=False),
+        terminal_orbit_body=node.value("tOrbBody") or "",
     )
 
 

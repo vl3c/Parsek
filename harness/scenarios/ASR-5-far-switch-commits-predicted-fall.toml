@@ -28,8 +28,9 @@ id = "ASR-5-far-switch-commits-predicted-fall"
 #
 # C#-DEPENDENT (red on today's build by design): the endings block (save fields), the
 # forbidden `CommitTreeFlight terminal: ... terminalState=SubOrbital` (EXISTING literal;
-# today the in-flight commit stamps the falling stack SubOrbital) and the forbidden crew
-# death line (EXISTING literal). NOT C#-dependent: the Case B chain (S0.14's literals).
+# today the in-flight commit stamps the falling stack SubOrbital) and the REQUIRED crew
+# death line (EXISTING literal; ruling Q6c: a predicted crash kills the crew). NOT
+# C#-dependent: the Case B chain (S0.14's literals).
 #
 # PRE-REGISTERED OUTCOMES. (A) EXPECTED: MISSION-OK, every token, endings 0 mismatches.
 # (B) `resolution=StockWillRefuse reason=stock-not-clear-to-save:<status>`: stock would
@@ -44,7 +45,7 @@ id = "ASR-5-far-switch-commits-predicted-fall"
 # OnFlightReady hold, not a fixed dwell. Tier nightly (ASR-1's flight + ~1 min).
 # =====================================================================================
 tier = "nightly"
-description = "A far Switch-To during the fall commits the predicted falls: ASR-1's Kerbal X coast-exit ascent with a 10 s Poodle burn on eva2-lko-crewed, then a stock Alarm Clock Jump to the fixture's unloaded Kerbal X Probe in LKO auto-resolves Case B Merge and CommitTreeFlight runs before the FLIGHT reload. Report-only endings block: debris, probe core and crewed stack each end Destroyed with predicted segments, past the commit, at the ground; no SubOrbital commit verdict, no crew death."
+description = "A far Switch-To during the fall commits the predicted falls: ASR-1's Kerbal X coast-exit ascent with a 10 s Poodle burn on eva2-lko-crewed, then a stock Alarm Clock Jump to the fixture's unloaded Kerbal X Probe in LKO auto-resolves Case B Merge and CommitTreeFlight runs before the FLIGHT reload. Report-only endings block: debris, probe core and crewed stack each end Destroyed with predicted segments, past the commit, at the ground; no SubOrbital commit verdict; the crewed stack's predicted crash kills its crew (ruling Q6c)."
 instanceProfile = "stock-minimal"
 tags = ["ASR", "ASR-5", "predicted-tail", "far-switch", "alarm-jump", "staging", "debris",
         "controlled-child", "kerbin", "sandbox", "reading-run"]
@@ -118,7 +119,9 @@ required = [
   "alarmjump start targetPid=2614652043 vessel='Kerbal X Probe' targetIsGhost=false targetLoaded=false ",
   "pre-switch auto-resolve: resolution=Merge case=B-unloaded ",
   "CommitTreeFlight: starting tree commit at UT=",
-  "(?s)pre-switch-dialog-merge-chosen-no-session priorTreeId=\\S+ newTargetPid=2614652043\\b.*?Scene change requested: FLIGHT at UT=",
+  # The far switch leaves the flight scene (owner ruling Q14's far Switch-To case,
+  # `leavesFlightScene=` suffix from asr-fix-exit 1fa2e6913).
+  "(?s)pre-switch-dialog-merge-chosen-no-session priorTreeId=\\S+ newTargetPid=2614652043 leavesFlightScene=True\\b.*?Scene change requested: FLIGHT at UT=",
   "listhandles kind=chains count=[0-9]+ truncated=",
 ]
 forbidden = [

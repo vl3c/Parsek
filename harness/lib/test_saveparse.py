@@ -1031,6 +1031,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # so they carry gs2's inert node.
         "graze-high-probe-stack": True,
         "graze-low-probe-stack": True,
+        # kerbin-escape-probe-stack is gs2-orbital-stack with the Kerbal X stack moved
+        # onto a Kerbin escape hyperbola (harness/tools/build_kerbin_escape_probe_stack.py),
+        # so it carries gs2's inert node.
+        "kerbin-escape-probe-stack": True,
         # The LABX-1 harvest (`2026-10-17_1957`, situation gate ORBITING): the LABX
         # Orbital Lab parked in LKO, SANDBOX, with the forge base's inert node (two
         # dead MILESTONE_STATE rows, the eva2 / gs2 shape) and zero recording state.
