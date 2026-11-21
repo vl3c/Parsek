@@ -63,7 +63,9 @@ count = { min = 0, max = 0 }
 #    floor, and the whole-index resolve sweep hold on the real ReStock install.
 #  - 2026-11-21 (todo RESTOCK-GHOST-SKIRT-AND-CHUTE): two ghost-geometry members
 #    added in ReStockGhostVisualTests.cs (LV-T45 variant subtrees hidden, Mk16-XL
-#    canopy bones posed), both expected to pass here, so total=11 passed=10.
+#    canopy bones posed). MEASURED 2026-11-21, run
+#    2026-11-21_1130_MC-2-restock-compat: PASS attempt 1, the line below token
+#    for token, both new members PASSED.
 required  = ["BATCH_COMPLETE v1 total=11 passed=10 failed=0 skipped=1 category=ReStockCompat scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
