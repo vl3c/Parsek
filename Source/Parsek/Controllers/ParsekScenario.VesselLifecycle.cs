@@ -407,7 +407,7 @@ namespace Parsek
                 {
                     VesselMatchKind matchKind = ClassifyVesselMatch(rec, identity, vesselPid);
                     if (matchKind == VesselMatchKind.None
-                        || !CanOverwriteTerminalState(rec.TerminalStateValue, state))
+                        || !CanOverwriteTerminalState(rec.TerminalStateValue, state, rec.TerminalPredicted))
                         continue;
 
                     // An earlier segment of the same vessel (split parent, dock dominant
@@ -481,6 +481,17 @@ namespace Parsek
             Recording rec, TerminalState state, double ut, string source)
         {
             if (rec == null) return;
+            if (state == TerminalState.Recovered
+                && rec.TerminalStateValue == TerminalState.Destroyed && rec.TerminalPredicted)
+            {
+                // The vessel a predicted ending gave up on was recovered: it was never
+                // destroyed, and the Recovered stamp below re-infers its crew as recovered.
+                rec.VesselDestroyed = false;
+                ParsekLog.Info("Scenario",
+                    $"{source ?? "(none)"}: predicted Destroyed of '{rec.RecordingId ?? "(null)"}' " +
+                    $"overwritten by Recovered at ut={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"(remnantSurvives={rec.TerminalRemnantSurvives}; KSP still had the vessel and the player recovered it)");
+            }
             rec.ExplicitEndUT = ut;
             CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
             // Snapshot first, stamp second: CanOverwriteTerminalState
@@ -605,13 +616,19 @@ namespace Parsek
         /// from the Tracking Station delete confirm, never after a recovery). Disassembled,
         /// Docked and Boarded are final too.
         /// </summary>
-        internal static bool CanOverwriteTerminalState(TerminalState? existing, TerminalState incoming)
+        internal static bool CanOverwriteTerminalState(
+            TerminalState? existing, TerminalState incoming, bool existingPredicted = false)
         {
             if (!existing.HasValue) return true;
 
             // Recovered and Destroyed are "final" — only Recovered blocks further overwrite
             if (existing.Value == TerminalState.Recovered) return false;
-            if (existing.Value == TerminalState.Destroyed) return false;
+            // A Destroyed Parsek only predicted (Recording.TerminalPredicted: a crash forecast
+            // while KSP still had the vessel, or an identity loss over a remnant KSP keeps) is
+            // not final against a recovery: KSP still had the vessel and the player recovered
+            // it, so the recovery is what happened and the crew come home.
+            if (existing.Value == TerminalState.Destroyed)
+                return existingPredicted && incoming == TerminalState.Recovered;
 
             // Disassembled is final for the same reason, and has to be named separately
             // because the caller's match (MatchesVessel) still falls back to the VESSEL NAME

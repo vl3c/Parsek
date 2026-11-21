@@ -94,24 +94,44 @@ namespace Parsek.Tests
         // ---------------------------------------------------------------- the inference
 
         [Fact]
-        public void InferCrewEndState_PredictedCrash_PartDestroyed_IsDead()
+        public void InferCrewEndState_SurvivingRemnant_PartDestroyed_IsDead()
         {
             Assert.Equal(KerbalEndState.Dead, KerbalsModule.InferCrewEndState(
                 Jeb, TerminalState.Destroyed, new HashSet<string> { Jeb },
-                terminalPredicted: true, partDestroyed: true));
+                remnantSurvives: true, partDestroyed: true));
             Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
                 && l.Contains("crew='Jebediah Kerman'") && l.Contains("part destroyed -> Dead"));
+            Assert.Equal(KerbalEndState.Aboard, KerbalsModule.InferCrewEndState(
+                Jeb, TerminalState.Destroyed, new HashSet<string> { Jeb }, remnantSurvives: true));
         }
 
         [Fact]
-        public void InferCrewEndState_PredictedCrash_MissingFromTheEndSnapshot_IsDead()
+        public void InferCrewEndState_SurvivingRemnant_MissingFromTheEndSnapshot_IsDead()
         {
-            // The vessel KSP still has does not carry him: his part died or he left it.
+            // The remnant KSP still has does not carry him: his part died or he left it.
             Assert.Equal(KerbalEndState.Dead, KerbalsModule.InferCrewEndState(
-                Jeb, TerminalState.Destroyed, new HashSet<string> { Bob }, terminalPredicted: true));
-            // No end snapshot at all keeps the predicted answer.
+                Jeb, TerminalState.Destroyed, new HashSet<string> { Bob }, remnantSurvives: true));
+            // No end snapshot at all keeps him with the remnant.
             Assert.Equal(KerbalEndState.Aboard, KerbalsModule.InferCrewEndState(
-                Jeb, TerminalState.Destroyed, null, terminalPredicted: true));
+                Jeb, TerminalState.Destroyed, null, remnantSurvives: true));
+        }
+
+        // catches: Q6c regressed to Q6 - a predicted crash (not a surviving remnant) sparing a
+        // kerbal whose own part KSP never destroyed. The crash Parsek predicted kills him.
+        [Fact]
+        public void Populate_PredictedCrash_NotARemnant_KillsEveryKerbal()
+        {
+            var start = Snapshot((PodPid, new[] { Jeb }), (CabinPid, new[] { Bob }));
+            Recording rec = Flight("rec-pred-all", start, start.CreateCopy());
+            PartDied(rec, CabinPid);
+            rec.StampTerminalState(TerminalState.Destroyed, "test", predicted: true);
+
+            KerbalsModule.PopulateCrewEndStates(rec);
+
+            Assert.True(rec.TerminalPredicted);
+            Assert.False(rec.TerminalRemnantSurvives);
+            Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates[Jeb]);
+            Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates[Bob]);
         }
 
         // ---------------------------------------------------------------- part deaths
@@ -119,12 +139,12 @@ namespace Parsek.Tests
         // catches: a predicted crash keeping Aboard a kerbal whose capsule KSP blew up
         // earlier in the flight (the vessel flew on without it).
         [Fact]
-        public void Populate_PredictedCrash_KerbalInADestroyedPart_IsDead_OthersAboard()
+        public void Populate_SurvivingRemnant_KerbalInADestroyedPart_IsDead_OthersAboard()
         {
             var start = Snapshot((PodPid, new[] { Jeb }), (CabinPid, new[] { Bob }));
             Recording rec = Flight("rec-pd", start, null);
             PartDied(rec, CabinPid);
-            rec.StampTerminalState(TerminalState.Destroyed, "test", predicted: true);
+            rec.StampTerminalState(TerminalState.Destroyed, "test", predicted: true, remnantSurvives: true);
 
             KerbalsModule.PopulateCrewEndStates(rec);
 
@@ -135,12 +155,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Populate_PredictedCrash_ParachuteDestroyedPart_IsAPartDeath()
+        public void Populate_SurvivingRemnant_ParachuteDestroyedPart_IsAPartDeath()
         {
             var start = Snapshot((PodPid, new[] { Jeb }));
             Recording rec = Flight("rec-chute", start, null);
             PartDied(rec, PodPid, PartEventType.ParachuteDestroyed);
-            rec.StampTerminalState(TerminalState.Destroyed, "test", predicted: true);
+            rec.StampTerminalState(TerminalState.Destroyed, "test", predicted: true, remnantSurvives: true);
 
             KerbalsModule.PopulateCrewEndStates(rec);
 
@@ -150,13 +170,13 @@ namespace Parsek.Tests
         // catches: a part death read off the START seat of a kerbal who moved to another
         // part that survived (the end snapshot shows where he really was).
         [Fact]
-        public void Populate_PredictedCrash_KerbalMovedToASurvivingPart_IsAboard()
+        public void Populate_SurvivingRemnant_KerbalMovedToASurvivingPart_IsAboard()
         {
             var start = Snapshot((PodPid, new[] { Jeb }), (CabinPid, new string[0]));
             var end = Snapshot((CabinPid, new[] { Jeb }));
             Recording rec = Flight("rec-moved", start, end);
             PartDied(rec, PodPid);
-            rec.StampTerminalState(TerminalState.Destroyed, "test", predicted: true);
+            rec.StampTerminalState(TerminalState.Destroyed, "test", predicted: true, remnantSurvives: true);
 
             KerbalsModule.PopulateCrewEndStates(rec);
 
@@ -194,6 +214,7 @@ namespace Parsek.Tests
 
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
             Assert.True(rec.TerminalPredicted);
+            Assert.True(rec.TerminalRemnantSurvives);
             Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates[Jeb]);
             Assert.Equal(KerbalEndState.Aboard, rec.CrewEndStates[Bob]);
             Assert.Contains(logLines, l => l.Contains("[Recording]")
@@ -208,6 +229,7 @@ namespace Parsek.Tests
             KerbalsModule.PopulateCrewEndStates(rec);
 
             Assert.False(rec.TerminalPredicted);
+            Assert.False(rec.TerminalRemnantSurvives);
             Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates[Jeb]);
         }
 

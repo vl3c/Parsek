@@ -285,7 +285,8 @@ namespace Parsek
         private static bool IsStampTarget(Recording rec, RecordingTree tree, Request req)
         {
             return RecordsRecoveredVessel(rec, req)
-                && ParsekScenario.CanOverwriteTerminalState(rec.TerminalStateValue, TerminalState.Recovered)
+                && ParsekScenario.CanOverwriteTerminalState(
+                    rec.TerminalStateValue, TerminalState.Recovered, rec.TerminalPredicted)
                 && ParsekScenario.IsTerminalEventTarget(rec, tree);
         }
 

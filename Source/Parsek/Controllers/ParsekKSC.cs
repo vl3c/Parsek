@@ -337,6 +337,10 @@ namespace Parsek
 
             if (committed.Count == 0) return;
 
+            // One live-vessel set per frame for the predicted-tail hide below (the cache is
+            // otherwise only invalidated by the FLIGHT and Tracking Station passes).
+            GhostPlaybackLogic.InvalidateVesselCache();
+
             var supersedes = CurrentRecordingSupersedes();
             var retirements = CurrentRecordingRewindRetirements();
 
@@ -546,6 +550,27 @@ namespace Parsek
                             kscGhosts.Remove(i);
                             loggedGhostSpawn.Remove(i);
                         }
+                        continue;
+                    }
+                    // Owner ruling Q1b, FLIGHT parity: past its last real sample the predicted
+                    // tail is not drawn while the vessel it predicts is still in the world.
+                    if (GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(
+                            rec, currentUT, loopingLike: false, RealVesselExistsForRecordingDelegate))
+                    {
+                        if (kscGhosts.ContainsKey(i))
+                        {
+                            ParsekLog.Verbose("KSCGhost",
+                                $"Ghost #{i} \"{rec.VesselName}\" on its predicted tail beside the live vessel - destroying");
+                            DestroyKscGhost(kscGhosts[i], i);
+                            kscGhosts.Remove(i);
+                            loggedGhostSpawn.Remove(i);
+                        }
+                        ParsekLog.VerboseRateLimited(
+                            "PredictedTakeover",
+                            "ksc-predicted-tail-live-vessel-" + (rec.RecordingId ?? "idx-" + i),
+                            $"Predicted tail ghost hidden (KSC): rec={rec.RecordingId ?? "(null)"} " +
+                            $"vessel='{rec.VesselName}' pid={rec.VesselPersistentId} - the vessel it predicts is live",
+                            5.0);
                         continue;
                     }
                     bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
@@ -1679,6 +1704,13 @@ namespace Parsek
         /// Filter recordings for KSC ghost display. Combines structural eligibility
         /// with the user's visibility toggle.
         /// </summary>
+        /// <summary>
+        /// The launch-gated real-vessel check the predicted-tail hide reads, cached so the
+        /// per-frame pass allocates no delegate.
+        /// </summary>
+        private static readonly Func<Recording, bool> RealVesselExistsForRecordingDelegate =
+            GhostPlaybackLogic.RealVesselExistsForRecording;
+
         internal static bool ShouldShowInKSC(Recording rec)
         {
             return ShouldShowInKSC(rec, CurrentRecordingSupersedes(), CurrentRecordingRewindRetirements());

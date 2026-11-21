@@ -472,6 +472,7 @@ namespace Parsek.Tests
 
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
             Assert.Equal(survives, rec.TerminalPredicted);
+            Assert.Equal(survives, rec.TerminalRemnantSurvives);
             Assert.Contains(logLines, l => l.Contains("[Flight]")
                 && l.Contains("recorded controllable identity lost for 'remnant-q6b'")
                 && l.Contains("remnantSurvives=" + survives));

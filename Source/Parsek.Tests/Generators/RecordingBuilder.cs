@@ -46,6 +46,7 @@ namespace Parsek.Tests.Generators
         private int? terminalState;
         private bool? crewDeathRespawns;
         private bool terminalPredicted;
+        private bool terminalRemnantSurvives;
         private double crewDeathRespawnSeconds = double.NaN;
         private MergeState? mergeState;
         private double terrainHeightAtEnd = double.NaN;
@@ -442,12 +443,25 @@ namespace Parsek.Tests.Generators
 
         /// <summary>
         /// A Destroyed ending Parsek only predicted (Recording.TerminalPredicted; key
-        /// terminalPredicted): its crew are not killed by it.
+        /// terminalPredicted): its crew die with it like a confirmed crash (owner ruling Q6c).
         /// </summary>
         public RecordingBuilder WithPredictedDestroyedTerminal()
         {
             terminalState = (int)TerminalState.Destroyed;
             terminalPredicted = true;
+            return this;
+        }
+
+        /// <summary>
+        /// A Destroyed ending sealed over a remnant KSP still keeps (an identity loss;
+        /// Recording.TerminalRemnantSurvives, key terminalRemnantSurvives): its crew are decided
+        /// per part (owner ruling Q6b).
+        /// </summary>
+        public RecordingBuilder WithRemnantSurvivesDestroyedTerminal()
+        {
+            terminalState = (int)TerminalState.Destroyed;
+            terminalPredicted = true;
+            terminalRemnantSurvives = true;
             return this;
         }
 
@@ -1007,6 +1021,8 @@ namespace Parsek.Tests.Generators
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
             if (terminalPredicted)
                 node.AddValue("terminalPredicted", "True");
+            if (terminalRemnantSurvives)
+                node.AddValue("terminalRemnantSurvives", "True");
             if (crewDeathRespawns.HasValue)
             {
                 node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());
@@ -1186,6 +1202,8 @@ namespace Parsek.Tests.Generators
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
             if (terminalPredicted)
                 node.AddValue("terminalPredicted", "True");
+            if (terminalRemnantSurvives)
+                node.AddValue("terminalRemnantSurvives", "True");
             if (crewDeathRespawns.HasValue)
             {
                 node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());

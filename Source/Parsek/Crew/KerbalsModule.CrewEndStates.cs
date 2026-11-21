@@ -18,11 +18,12 @@ namespace Parsek
         ///
         /// Decision table:
         ///   TerminalState == null           -> Unknown (recording still active or legacy)
-        ///   TerminalState == Destroyed      -> Dead (vessel destroyed with crew aboard)
-        ///   Destroyed, predicted            -> Aboard (a crash Parsek only predicted, or a wreck
-        ///                                      KSP still has; owner ruling Q6: crew die only when
-        ///                                      KSP destroyed it), except Dead when KSP destroyed
-        ///                                      the kerbal's part or the end snapshot lacks him (Q6b)
+        ///   TerminalState == Destroyed      -> Dead (vessel destroyed with crew aboard, whether
+        ///                                      KSP destroyed it or Parsek predicted the crash:
+        ///                                      owner ruling Q6c)
+        ///   Destroyed, remnant survives     -> Aboard (an identity loss over a wreck KSP still
+        ///                                      keeps), except Dead when KSP destroyed the
+        ///                                      kerbal's part or the end snapshot lacks him (Q6b)
         ///   TerminalState == Recovered      -> Recovered
         ///   TerminalState == Boarded        -> if in snapshot: Aboard, else Unknown
         ///   TerminalState == Docked         -> if in snapshot: Aboard, else Unknown
@@ -221,7 +222,7 @@ namespace Parsek
             string crewName,
             TerminalState? terminalState,
             HashSet<string> snapshotCrew,
-            bool terminalPredicted = false,
+            bool remnantSurvives = false,
             bool partDestroyed = false)
         {
             // No terminal state -> recording still active or legacy data
@@ -234,35 +235,37 @@ namespace Parsek
 
             var ts = terminalState.Value;
 
-            // A Destroyed ending sealed while KSP still had the vessel (a crash Parsek only
-            // predicted, or a wreck that lost the recorded controllers): the ending kills no
-            // one (owner ruling Q6). A kerbal dies only when KSP destroyed the part he sat in
-            // (ruling Q6b), read from the recording's part deaths, or when the vessel's end
-            // snapshot no longer carries him (his part died, or he left it). With no end
-            // snapshot he stays with the vessel, the answer a SubOrbital ending gives.
-            if (ts == TerminalState.Destroyed && terminalPredicted)
+            // A Destroyed ending sealed over a remnant KSP still keeps (a breakup wreck that
+            // lost the recorded controllers): the vessel was not destroyed, so the ending kills
+            // no one by itself. A kerbal dies only when KSP destroyed the part he sat in
+            // (owner ruling Q6b), read from the recording's part deaths, or when the remnant's
+            // end snapshot no longer carries him (his part died, or he left it). With no end
+            // snapshot he stays with the remnant.
+            if (ts == TerminalState.Destroyed && remnantSurvives)
             {
                 if (partDestroyed)
                 {
                     ParsekLog.Verbose(Tag,
-                        $"InferCrewEndState: crew='{crewName}' terminalState=Destroyed predicted=True " +
+                        $"InferCrewEndState: crew='{crewName}' terminalState=Destroyed remnantSurvives=True " +
                         "part destroyed -> Dead (KSP destroyed his part)");
                     return KerbalEndState.Dead;
                 }
                 if (snapshotCrew != null && !snapshotCrew.Contains(crewName))
                 {
                     ParsekLog.Verbose(Tag,
-                        $"InferCrewEndState: crew='{crewName}' terminalState=Destroyed predicted=True " +
-                        "inSnapshot=False -> Dead (not aboard the vessel KSP still has)");
+                        $"InferCrewEndState: crew='{crewName}' terminalState=Destroyed remnantSurvives=True " +
+                        "inSnapshot=False -> Dead (not aboard the remnant KSP still has)");
                     return KerbalEndState.Dead;
                 }
                 ParsekLog.Verbose(Tag,
-                    $"InferCrewEndState: crew='{crewName}' terminalState=Destroyed predicted=True -> Aboard " +
-                    "(predicted crash, not a confirmed destruction)");
+                    $"InferCrewEndState: crew='{crewName}' terminalState=Destroyed remnantSurvives=True -> Aboard " +
+                    "(identity lost, the remnant and his part survive)");
                 return KerbalEndState.Aboard;
             }
 
-            // Vessel destroyed -> all crew aboard are dead
+            // Vessel destroyed -> all crew aboard are dead. A crash Parsek predicted counts
+            // the same as one KSP carried out (owner ruling Q6c: if it's destroyed, the crew
+            // is dead).
             if (ts == TerminalState.Destroyed)
             {
                 ParsekLog.Verbose(Tag,
@@ -562,9 +565,10 @@ namespace Parsek
 
         /// <summary>
         /// The observer itself. <paramref name="predictedChanged"/> is true when the stamp
-        /// moved <see cref="Recording.TerminalPredicted"/>: a Destroyed verdict that turned
-        /// from predicted to confirmed (or back) is a real change of the crew answer even when
-        /// the terminal value did not change, so it re-infers like an X->Y stamp.
+        /// moved <see cref="Recording.TerminalPredicted"/> or
+        /// <see cref="Recording.TerminalRemnantSurvives"/>: a Destroyed verdict that turned
+        /// from a surviving remnant to a destroyed vessel (or back) is a real change of the crew
+        /// answer even when the terminal value did not change, so it re-infers like an X->Y stamp.
         /// </summary>
         internal static bool InvalidateCrewEndStatesForTerminalStamp(
             Recording rec,
@@ -939,7 +943,7 @@ namespace Parsek
                         "snapshot predates the breakup, the piece's recording holds him");
                 }
             }
-            // No end snapshot: the predicted-crash inference keeps the crew aboard rather than
+            // No end snapshot: the surviving-remnant inference keeps the crew aboard rather than
             // reading "absent from a snapshot that does not exist" as lost.
             HashSet<string> inferenceEndCrew = rec.VesselSnapshot != null ? endCrewSet : null;
 
@@ -962,7 +966,7 @@ namespace Parsek
                 var state = useGhostOnlyChainHandoffFallback
                     ? InferGhostOnlyChainHandoffEndState(rec.TerminalStateValue)
                     : InferCrewEndState(name, rec.TerminalStateValue, inferenceEndCrew,
-                        rec.TerminalPredicted, partDestroyed);
+                        rec.TerminalRemnantSurvives, partDestroyed);
                 state = ApplySplitDeparture(name, state, endCrewSet, carriedAway, rec.RecordingId);
                 rec.CrewEndStates[name] = state;
 
@@ -1057,9 +1061,9 @@ namespace Parsek
                 && (rec.GhostVisualSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName))
                 && (!rec.TerminalStateValue.HasValue
                     || rec.TerminalStateValue == TerminalState.Boarded
-                    // A predicted crash is not a handoff: its crew read Aboard through
-                    // InferCrewEndState, never the handoff fallback's Dead.
-                    || (rec.TerminalStateValue == TerminalState.Destroyed && !rec.TerminalPredicted)
+                    // A predicted crash takes the handoff's Dead like a confirmed one (owner
+                    // ruling Q6c); only a surviving remnant (Q6b) is decided per part.
+                    || (rec.TerminalStateValue == TerminalState.Destroyed && !rec.TerminalRemnantSurvives)
                     || rec.TerminalStateValue == TerminalState.Recovered);
         }
 

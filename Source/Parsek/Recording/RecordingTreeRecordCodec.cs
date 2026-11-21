@@ -33,6 +33,9 @@ namespace Parsek
             // stays byte-identical and an older save reads as confirmed (its crew stay Dead).
             if (rec.TerminalPredicted)
                 recNode.AddValue("terminalPredicted", "True");
+            // Sparse too: only an identity-loss Destroyed over a surviving remnant carries it.
+            if (rec.TerminalRemnantSurvives)
+                recNode.AddValue("terminalRemnantSurvives", "True");
             if (rec.EndpointPhase != RecordingEndpointPhase.Unknown)
                 recNode.AddValue("endpointPhase", ((int)rec.EndpointPhase).ToString(ic));
             if (!string.IsNullOrEmpty(rec.EndpointBodyName))
@@ -674,6 +677,8 @@ namespace Parsek
             // (an absent key, or any other ending, reads false).
             rec.TerminalPredicted = rec.TerminalStateValue == TerminalState.Destroyed
                 && ParseBoolOr(recNode, "terminalPredicted", false);
+            rec.TerminalRemnantSurvives = rec.TerminalStateValue == TerminalState.Destroyed
+                && ParseBoolOr(recNode, "terminalRemnantSurvives", false);
 
             string endpointPhaseStr = recNode.GetValue("endpointPhase");
             if (endpointPhaseStr != null)

@@ -281,12 +281,12 @@ namespace Parsek.Tests
             Func<Recording, bool> alive = r => true;
             Func<Recording, bool> gone = r => false;
 
-            Assert.True(PredictedEndingTakeover.ShouldHidePredictedTailGhostWhileVesselLives(rec, 200.0, alive));
-            Assert.False(PredictedEndingTakeover.ShouldHidePredictedTailGhostWhileVesselLives(rec, 150.0, alive));
-            Assert.False(PredictedEndingTakeover.ShouldHidePredictedTailGhostWhileVesselLives(rec, 200.0, gone));
+            Assert.True(GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(rec, 200.0, false, alive));
+            Assert.False(GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(rec, 150.0, false, alive));
+            Assert.False(GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(rec, 200.0, false, gone));
 
             PredictedEndingTakeover.DropPredictedEndingForTakeover(rec, 250.0, "test");
-            Assert.False(PredictedEndingTakeover.ShouldHidePredictedTailGhostWhileVesselLives(rec, 200.0, alive));
+            Assert.False(GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(rec, 200.0, false, alive));
         }
 
         // catches: the committed-tree restore refusing a predicted crash as a dead leaf, which

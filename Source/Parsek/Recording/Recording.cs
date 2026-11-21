@@ -306,12 +306,20 @@ namespace Parsek
         // True when the Destroyed terminal is Parsek's own prediction (an extrapolated crash
         // stamped while KSP still had the vessel, or one it never saw destroyed), false when
         // KSP actually destroyed the vessel. Only meaningful with a Destroyed terminal; every
-        // other terminal keeps it false. Crew die only on a confirmed destruction (owner
-        // ruling Q6), so a predicted crash leaves its crew Aboard. Persisted sparse as
-        // terminalPredicted (written only when true; absent = false, so a recording written
-        // before the key keeps the Dead crew it always had). Decided only through
+        // other terminal keeps it false. It does NOT spare the crew: a Destroyed ending kills
+        // them whether KSP destroyed the vessel or Parsek predicted the crash (owner ruling
+        // Q6c); the takeover (Q1b) and the playback read it. Persisted sparse as
+        // terminalPredicted (written only when true; absent = false). Decided only through
         // StampTerminalState (the codec and the copy sites carry it).
         public bool TerminalPredicted;
+
+        // True when the Destroyed terminal sealed an identity loss over a remnant KSP still
+        // keeps (a breakup wreck that lost the recorded controllers, MarkDestroyedAtTerminal
+        // with vesselSurvives). The vessel itself was not destroyed, so its crew are decided
+        // per part (owner ruling Q6b): only a kerbal whose part KSP destroyed, or who is no
+        // longer aboard the remnant, dies. Only with a Destroyed terminal; persisted sparse as
+        // terminalRemnantSurvives. Decided only through StampTerminalState.
+        public bool TerminalRemnantSurvives;
 
         // Terminal orbit (for Orbiting/SubOrbital terminal state)
         // Stored as Keplerian elements to avoid runtime Orbit object dependency in tests.
@@ -929,18 +937,31 @@ namespace Parsek
         /// a retraction) leaves it false; it is kept only with a Destroyed value. A change of
         /// the flag alone (a predicted crash later confirmed, or the reverse) is handed to the
         /// observer too, because the crew end states read it.</para>
-        internal bool StampTerminalState(TerminalState? value, string context, bool predicted = false)
+        /// <para><paramref name="remnantSurvives"/> says whether a Destroyed verdict sealed an
+        /// identity loss over a remnant KSP keeps (see <see cref="TerminalRemnantSurvives"/>);
+        /// kept only with a Destroyed value, and a change of it alone is handed to the observer
+        /// as well, because the per-part crew answer reads it.</para>
+        internal bool StampTerminalState(TerminalState? value, string context, bool predicted = false,
+            bool remnantSurvives = false)
         {
             TerminalState? previous = TerminalStateValue;
             bool previousPredicted = TerminalPredicted;
+            bool previousRemnant = TerminalRemnantSurvives;
             TerminalStateValue = value;
             TerminalPredicted = predicted && value == TerminalState.Destroyed;
+            TerminalRemnantSurvives = remnantSurvives && value == TerminalState.Destroyed;
             bool predictedChanged = previousPredicted != TerminalPredicted;
-            if (predictedChanged)
+            bool remnantChanged = previousRemnant != TerminalRemnantSurvives;
+            if (predictedChanged || remnantChanged)
             {
                 ParsekLog.Verbose("Recording",
                     "terminal predicted flag " + (previousPredicted ? "true" : "false") + "->"
-                    + (TerminalPredicted ? "true" : "false") + " rec=" + (RecordingId ?? "(null)")
+                    + (TerminalPredicted ? "true" : "false")
+                    + (remnantChanged
+                        ? " remnantSurvives " + (previousRemnant ? "true" : "false") + "->"
+                            + (TerminalRemnantSurvives ? "true" : "false")
+                        : "")
+                    + " rec=" + (RecordingId ?? "(null)")
                     + " terminal=" + (value.HasValue ? value.Value.ToString() : "null")
                     + " context=" + (context ?? "null"));
             }
@@ -961,7 +982,7 @@ namespace Parsek
                     double.MaxValue);
                 return false;
             }
-            return observer(this, previous, value, context, predictedChanged);
+            return observer(this, previous, value, context, predictedChanged || remnantChanged);
         }
 
         /// <summary>
@@ -975,18 +996,20 @@ namespace Parsek
         /// the same hygiene). Idempotent.
         /// <para><paramref name="vesselSurvives"/>: KSP still has the vessel (a breakup remnant
         /// that lost the recorded controllers). The ending is then stamped as one KSP did not
-        /// carry out (<see cref="TerminalPredicted"/>), so the crew still sitting in it are not
-        /// killed by it (owner rulings Q6 / Q6b); only a kerbal whose part KSP destroyed dies.</para>
+        /// carry out (<see cref="TerminalPredicted"/>) over a surviving remnant
+        /// (<see cref="TerminalRemnantSurvives"/>), so the crew still sitting in it are not
+        /// killed by it (owner ruling Q6b); only a kerbal whose part KSP destroyed dies.</para>
         /// </summary>
         internal void MarkDestroyedAtTerminal(double terminalUT, string source, bool vesselSurvives = false)
         {
             bool wasAlreadyDestroyed = VesselDestroyed
                 && TerminalStateValue == TerminalState.Destroyed
-                && TerminalPredicted == vesselSurvives;
+                && TerminalPredicted == vesselSurvives
+                && TerminalRemnantSurvives == vesselSurvives;
 
             VesselDestroyed = true;
             StampTerminalState(TerminalState.Destroyed, "MarkDestroyedAtTerminal:" + (source ?? "(none)"),
-                predicted: vesselSurvives);
+                predicted: vesselSurvives, remnantSurvives: vesselSurvives);
             ExplicitEndUT = terminalUT;
 
             // Clear surface-terminal data — leaving these set produces contradictory
@@ -1089,6 +1112,7 @@ namespace Parsek
             RecordedVesselGuid = source.RecordedVesselGuid;
             TerminalStateValue = source.TerminalStateValue;
             TerminalPredicted = source.TerminalPredicted;
+            TerminalRemnantSurvives = source.TerminalRemnantSurvives;
             TerminalOrbitInclination = source.TerminalOrbitInclination;
             TerminalOrbitEccentricity = source.TerminalOrbitEccentricity;
             TerminalOrbitSemiMajorAxis = source.TerminalOrbitSemiMajorAxis;

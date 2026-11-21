@@ -219,6 +219,46 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Owner ruling Q1b, the one predicate every scene that draws a recording's own ghost
+        /// reads (FLIGHT's playback flags, the Space Center pass): should the non-looping ghost
+        /// of <paramref name="rec"/> stay hidden at <paramref name="currentUT"/> because it is
+        /// past the last real sample, on the recording's predicted tail (the suffix of orbit
+        /// segments marked <c>isPredicted</c>), while the vessel that tail predicts is still in
+        /// the world (<paramref name="realVesselExists"/>, the launch-gated check)? The live
+        /// vessel is then the truth, and a ghost on the prediction would duplicate it. Before
+        /// the tail the recorded flight replays as before, and a loop replays on its own clock
+        /// and keeps drawing. The map presence of FLIGHT and the Tracking Station hides more:
+        /// its materialized gate (<see cref="GhostMapPresence.TryDecideMapPresenceMaterializedGate"/>)
+        /// drops a non-loop map ghost whenever the launch-matched vessel exists, tail or not.
+        /// Pure, cheap enough for the per-frame pass.
+        /// </summary>
+        internal static bool ShouldHidePredictedTailGhostForScene(
+            Recording rec, double currentUT, bool loopingLike, Func<Recording, bool> realVesselExists)
+        {
+            if (loopingLike)
+                return false;
+            if (rec?.OrbitSegments == null || rec.OrbitSegments.Count == 0 || realVesselExists == null)
+                return false;
+            if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
+                return false;
+            // The predicted tail is a suffix: an untouched last segment means no tail.
+            if (!rec.OrbitSegments[rec.OrbitSegments.Count - 1].isPredicted)
+                return false;
+            double tailStartUT = double.NaN;
+            for (int i = rec.OrbitSegments.Count - 1; i >= 0; i--)
+            {
+                OrbitSegment seg = rec.OrbitSegments[i];
+                if (!seg.isPredicted)
+                    break;
+                tailStartUT = seg.startUT;
+            }
+            if (double.IsNaN(tailStartUT) || double.IsInfinity(tailStartUT)
+                || currentUT <= tailStartUT + 1e-6)
+                return false;
+            return realVesselExists(rec);
+        }
+
+        /// <summary>
         /// Guid-aware existence check for tracking-station / spawn dedup (#976-class): true only when
         /// a real vessel with the recording's pid exists AND is the SAME launch (its Vessel.id matches
         /// the recording's RecordedVesselGuid). A relaunch of the same craft reuses the craft-baked
