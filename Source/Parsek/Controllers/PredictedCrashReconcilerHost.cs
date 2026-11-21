@@ -8,9 +8,14 @@ namespace Parsek
 {
     /// <summary>
     /// The live shell of <see cref="PredictedCrashReconciler"/> (owner rulings P-STOCK /
-    /// P-LEAVE / Q1b): in the two scenes where stock's <c>Vessel.CheckKill</c> runs (FLIGHT and
-    /// TRACKSTATION), once the scene has settled, it compares the committed recordings that end
-    /// in a predicted crash with the live vessel list and drops a prediction stock contradicted.
+    /// P-LEAVE / Q1b): in FLIGHT, the one scene where stock's <c>Vessel.CheckKill</c> runs, once
+    /// the scene has settled, it compares the committed recordings that end in a predicted crash,
+    /// touchdown or final orbit with the live vessel list and moves each toward what stock did.
+    /// <para>FLIGHT only (decompiled): <c>FlightGlobals.FixedUpdate</c> sets
+    /// <c>FlightGlobals.ready</c> only with an active vessel, and both <c>Vessel.CheckKill</c>
+    /// and this host gate on it, so in the Tracking Station and the Space Center stock deletes
+    /// nothing and a host there would never run a pass. A vessel stock deleted in flight is
+    /// reconciled on the next FLIGHT entry.</para>
     /// <para>Cost: one pass at the settle, then a pass only when the committed list changed,
     /// the clock passed the earliest predicted crash still ahead, or a candidate needs a second
     /// look (awaiting confirmation, or still falling toward stock's deletion line). A pass walks
@@ -393,10 +398,4 @@ namespace Parsek
         protected override string SceneName => "FLIGHT";
     }
 
-    /// <summary>The reconciler in the Tracking Station.</summary>
-    [KSPAddon(KSPAddon.Startup.TrackingStation, false)]
-    internal sealed class PredictedCrashReconcilerTrackingStation : PredictedCrashReconcilerHost
-    {
-        protected override string SceneName => "TRACKSTATION";
-    }
 }

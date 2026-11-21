@@ -191,7 +191,8 @@ namespace Parsek
             var facts = new PredictedCrashCandidateFacts { PredictedCrashUT = double.NaN };
             if (rec == null)
                 return facts;
-            facts.IsPredictedCrash = rec.TerminalStateValue == TerminalState.Destroyed && rec.TerminalPredicted;
+            facts.IsPredictedCrash = rec.TerminalStateValue == TerminalState.Destroyed && rec.TerminalPredicted
+                && !PredictedEndingTakeover.IsSurvivingBreakupRemnant(rec);
             if (!facts.IsPredictedCrash)
                 return facts;
             facts.HasLaunchGuid = VesselLaunchIdentity.NormalizeGuid(rec.RecordedVesselGuid) != null
@@ -376,8 +377,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The committed-history half of a predicted touchdown stock deleted (owner rulings
-        /// P-STOCK / Q4d, <see cref="PredictedTouchdownOutcome.StockDeleted"/>): deep-clones
+        /// The committed-history half of a predicted touchdown (or a predicted final orbit, owner
+        /// ruling Q8) stock deleted (owner rulings P-STOCK / Q4d,
+        /// <see cref="PredictedTouchdownOutcome.StockDeleted"/>): deep-clones
         /// <paramref name="committedTree"/>, turns the recording on the clone into stock's
         /// verdict (<see cref="PredictedTouchdownStockFate.ConvertToStockDeleted"/>: Destroyed,
         /// confirmed, crew dead, a quiet end after the chute descent), commits the clone over
@@ -400,7 +402,7 @@ namespace Parsek
                 result.Reason = "recording-not-in-tree";
                 return LogDeletionRefused(result, committedTree, recordingId, context);
             }
-            if (!PredictedTouchdownStockFate.IsPredictedTouchdown(committedRec))
+            if (!PredictedTouchdownStockFate.IsStockFatePrediction(committedRec))
             {
                 result.Reason = "not-a-predicted-touchdown";
                 return LogDeletionRefused(result, committedTree, recordingId, context);
@@ -416,6 +418,7 @@ namespace Parsek
 
             double touchdownUT = rec.EndUT;
             TerminalState? previous = rec.TerminalStateValue;
+            string kind = PredictedTouchdownStockFate.KindLabel(rec);
             if (!PredictedTouchdownStockFate.ConvertToStockDeleted(rec, context))
             {
                 result.Reason = "convert-refused";
@@ -435,10 +438,10 @@ namespace Parsek
             result.Reason = "applied";
             ParsekLog.Info(PredictedTouchdownStockFate.LogTag,
                 string.Format(CultureInfo.InvariantCulture,
-                    "Predicted touchdown overruled by stock: context={0} tree={1} rec={2} vessel='{3}' " +
+                    "Predicted {10} overruled by stock: context={0} tree={1} rec={2} vessel='{3}' " +
                     "previousTerminal={4} touchdownUT={5} nowUT={6} stockHeldUT={7} newTerminal={8} " +
-                    "quietEnd={9} - stock deleted the vessel in the air (crew killed); the recording ends " +
-                    "Destroyed as stock decided, its ghost descends and ends quietly, nothing spawns",
+                    "quietEnd={9} - stock removed the vessel it held with no recovery (crew killed); the " +
+                    "recording ends Destroyed as stock decided, its ghost ends quietly, nothing spawns",
                     context ?? "(none)",
                     committedTree.Id ?? "(null)",
                     recordingId,
@@ -448,7 +451,8 @@ namespace Parsek
                     FormatUT(nowUT),
                     FormatUT(rec.StockHeldVesselUT),
                     result.NewTerminal.HasValue ? result.NewTerminal.Value.ToString() : "null",
-                    rec.QuietDestroyedEnd ? "true" : "false"));
+                    rec.QuietDestroyedEnd ? "true" : "false",
+                    kind));
             return result;
         }
 

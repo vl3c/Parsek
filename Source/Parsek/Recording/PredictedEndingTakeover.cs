@@ -111,6 +111,20 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: a Destroyed ending sealed over a breakup remnant KSP keeps
+        /// (<see cref="Recording.TerminalRemnantSurvives"/>). It carries the predicted flag only
+        /// so the remnant's crew are decided per part (owner ruling Q6b); it forecasts no crash,
+        /// so a remnant stock still holds is no contradiction (and a pass that "applied" one
+        /// would re-stamp the same identity loss and commit an unchanged tree on every scene).
+        /// </summary>
+        internal static bool IsSurvivingBreakupRemnant(Recording rec)
+        {
+            return rec != null
+                && rec.TerminalStateValue == TerminalState.Destroyed
+                && rec.TerminalRemnantSurvives;
+        }
+
+        /// <summary>
         /// Pure: does the recording end in a prediction a takeover must drop? Decided from
         /// provenance: a predicted terminal (<see cref="Recording.TerminalPredicted"/>), a
         /// predicted descent section (<see cref="TrackSectionSource.Predicted"/>, which is what
@@ -129,6 +143,10 @@ namespace Parsek
             if (rec == null)
                 return false;
             if (IsNeverPredictedTerminal(rec.TerminalStateValue))
+                return false;
+            // A breakup remnant KSP keeps is not a prediction: its Destroyed sealed the loss of
+            // the recorded controllers, and its crew are decided per part (owner ruling Q6b).
+            if (IsSurvivingBreakupRemnant(rec))
                 return false;
             if (rec.TerminalPredicted)
                 return true;
