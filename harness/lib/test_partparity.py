@@ -320,6 +320,18 @@ class ViewAndCaseVerdictTests(unittest.TestCase):
         self.assertEqual(pp.VERDICT_FAIL, c.verdict)
         self.assertIn("extra-rendered:plume", c.reasons)
 
+    def test_a_context_dependent_part_caps_picture_fails_at_warn(self):
+        side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
+        side["views"][0]["colorBlobPx"] = 5000
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(side).verdict)
+        side["tags"] = ["context-dependent"]
+        c = pp.judge_case(side)
+        self.assertEqual(pp.VERDICT_WARN, c.verdict)
+        self.assertIn(pp.REASON_CONTEXT_POSE, c.reasons)
+        side["structure"]["extraOnGhost"] = [{"key": "plume", "mesh": "p", "rendered": True}]
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(side).verdict,
+                         "a structural defect still fails on a context-dependent part")
+
     def test_a_non_visual_renderer_missing_on_the_ghost_is_not_a_missing_mesh(self):
         side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
         for entry in ({"key": "a/RCSMask", "mesh": "", "rendered": True, "nonVisual": "depth-mask"},

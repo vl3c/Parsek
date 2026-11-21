@@ -353,6 +353,15 @@ def _rendered_entries(entries: Any) -> List[str]:
     return keys
 
 
+# PartParityCaseRules.TagContextDependent: wheels, suspension, legs and ground parts,
+# whose orbital pose (suspension at full droop, bogies tilted) is not the landed pose
+# the ghost keeps by design (owner ruling 2026-11-22: no suspension modelling). Their
+# picture differences cap at warn; a missing / extra rendered mesh or a skin mismatch
+# still fails.
+TAG_CONTEXT_DEPENDENT = "context-dependent"
+REASON_CONTEXT_POSE = "context-pose:picture differences capped at warn"
+
+
 SKIN_B9_MODULE = "ModuleB9PartSwitch"
 SKIN_FLAG_MISMATCH = "skin-mismatch"
 SKIN_FLAG_NOT_MODELLED_B9 = "skin-not-modelled:b9"
@@ -426,6 +435,10 @@ def judge_case(sidecar: Dict) -> CaseVerdict:
         if _RANK[j.verdict] > _RANK[verdict]:
             verdict, worst = j.verdict, j.view
         reasons.extend(j.reasons)
+    tags = sidecar.get("tags") if isinstance(sidecar.get("tags"), list) else []
+    if TAG_CONTEXT_DEPENDENT in tags and verdict == VERDICT_FAIL:
+        verdict = VERDICT_WARN
+        reasons.append(REASON_CONTEXT_POSE)
     structure = sidecar.get("structure") if isinstance(sidecar.get("structure"), dict) else {}
     missing = _rendered_entries(structure.get("missingOnGhost"))
     extra = _rendered_entries(structure.get("extraOnGhost"))
