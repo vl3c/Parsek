@@ -1102,6 +1102,20 @@ namespace Parsek
                 branchPartnerPid,
                 branchPartnerGuid);
 
+            // 5b. A partner that is no vessel of this tree may be an earlier mission's vessel
+            // with a predicted ending; the commit takes it over (owner ruling Q1b) and reads
+            // the merged vessel's orbit here for the coast-keep rule.
+            if (backgroundParentRecordingId == null && bp.TargetVesselPersistentId != 0u)
+            {
+                TakeoverCoastEvidence? partnerCoast = ParsekFlight.ReadTakeoverCoastEvidence(mergedVessel, mergeUT);
+                if (partnerCoast.HasValue)
+                {
+                    if (host.activeTree.MergePartnerCoastEvidence == null)
+                        host.activeTree.MergePartnerCoastEvidence = new Dictionary<string, TakeoverCoastEvidence>();
+                    host.activeTree.MergePartnerCoastEvidence[bp.Id] = partnerCoast.Value;
+                }
+            }
+
             // 6. Take snapshot of merged vessel
             ConfigNode mergedSnapshot = (mergedVessel != null)
                 ? FlightRecorder.TryBackupSnapshot(mergedVessel) : null;
@@ -3345,6 +3359,48 @@ namespace Parsek
         /// Handles tree dock merge: creates merge branch point when recorder is stopped
         /// and dock merge is pending. Consumes pending dock state.
         /// </summary>
+        /// <summary>
+        /// Owner ruling Q1b at a dock, claw grab or boarding: the merge partner is a vessel of
+        /// <paramref name="tree"/> whose recording already ended in a prediction (it is no
+        /// background member any more). Resolves that leaf for either merge vessel
+        /// (<paramref name="pidA"/>, <paramref name="pidB"/>; the launch guid
+        /// <paramref name="guid"/> only for <paramref name="guidPid"/>), drops its prediction
+        /// with the coast-keep rule read from <paramref name="liveVessel"/> (the merged vessel,
+        /// null for none), and returns its id, for the merge to end it as its second parent.
+        /// Null (nothing changed) when no such leaf exists. Logs one line when it took one over.
+        /// </summary>
+        internal static string TakeOverPredictedMergePartnerLeaf(
+            RecordingTree tree, uint pidA, uint pidB, uint guidPid, string guid,
+            Vessel liveVessel, double mergeUT, string context)
+        {
+            if (tree?.Recordings == null)
+                return null;
+            string leafId = null;
+            uint leafPid = 0u;
+            uint[] pids = { pidA, pidB };
+            for (int i = 0; i < pids.Length && leafId == null; i++)
+            {
+                if (pids[i] == 0u)
+                    continue;
+                leafId = PredictedEndingTakeover.ResolveTakeoverLeafInTree(
+                    tree, pids[i], pids[i] == guidPid ? guid : null);
+                leafPid = pids[i];
+            }
+            if (leafId == null || !tree.Recordings.TryGetValue(leafId, out Recording leaf) || leaf == null)
+                return null;
+            if (string.Equals(leafId, tree.ActiveRecordingId, StringComparison.Ordinal))
+                return null;
+
+            ParsekFlight.DropPredictedEndingForLiveTakeover(leaf, liveVessel, mergeUT, "MergeBranch." + context);
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Merge partner flown again: {0} joins predicted leaf '{1}' pid={2} tree={3} at ut={4} " +
+                    "as the second parent (owner ruling Q1b)",
+                    context ?? "(none)", leafId, leafPid, tree.Id ?? "(null)",
+                    mergeUT.ToString("F2", CultureInfo.InvariantCulture)));
+            return leafId;
+        }
+
         internal void HandleTreeDockMerge()
         {
             if (host.activeTree == null || !host.pendingTreeDockMerge || host.recorder == null
@@ -3365,6 +3421,16 @@ namespace Parsek
                 host.activeTree.BackgroundMap.TryGetValue(host.pendingDockAbsorbedPid, out bgParentId);
             if (bgParentId == null && host.pendingDockMergedPid != 0)
                 host.activeTree.BackgroundMap.TryGetValue(host.pendingDockMergedPid, out bgParentId);
+            // Owner ruling Q1b: a vessel of this tree whose recording already ended in a
+            // prediction (no background member any more) is flown again by this dock / claw
+            // grab: its prediction goes and it joins the merge as the second parent.
+            if (bgParentId == null)
+            {
+                bgParentId = TakeOverPredictedMergePartnerLeaf(
+                    host.activeTree, host.pendingDockAbsorbedPid, host.pendingDockMergedPid,
+                    host.pendingDockPartnerPid, host.pendingDockPartnerGuid,
+                    FlightRecorder.FindVesselByPid(host.pendingDockMergedPid), mergeUT, "Dock");
+            }
 
             var stoppedRecorder = host.recorder;
             host.recorder = null;
@@ -3434,11 +3500,23 @@ namespace Parsek
             string bgParentId = null;
             if (host.pendingBoardingTargetInTree)
                 host.activeTree.BackgroundMap.TryGetValue(mergedPid, out bgParentId);
+            string boardedVesselGuid = AnchorDetector.TryReadLiveVesselGuid(FlightGlobals.ActiveVessel);
+            // Owner ruling Q1b: boarding a vessel of this tree whose recording already ended in
+            // a prediction flies it again: its prediction goes and it joins the merge as the
+            // second parent (a two-parent merge, so the partner stays unstamped).
+            bool boardedPredictedLeaf = false;
+            if (bgParentId == null)
+            {
+                bgParentId = TakeOverPredictedMergePartnerLeaf(
+                    host.activeTree, mergedPid, 0u, mergedPid, boardedVesselGuid,
+                    FlightGlobals.ActiveVessel, mergeUT, "Board");
+                boardedPredictedLeaf = bgParentId != null;
+            }
 
             string boardPartnerGuid;
             uint boardPartnerPid = ParsekFlight.ResolveBoardPartnerStamp(
-                host.pendingBoardingTargetInTree, mergedPid,
-                AnchorDetector.TryReadLiveVesselGuid(FlightGlobals.ActiveVessel),
+                host.pendingBoardingTargetInTree || boardedPredictedLeaf, mergedPid,
+                boardedVesselGuid,
                 out boardPartnerGuid);
             ParsekLog.Verbose("Flight",
                 $"Board merge partner stamp: targetPid={mergedPid} inTree={host.pendingBoardingTargetInTree} " +

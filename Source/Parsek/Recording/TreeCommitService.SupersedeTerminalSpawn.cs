@@ -343,6 +343,137 @@ namespace Parsek
         internal const double LaterSpawnOwnerEndToleranceSeconds = 1e-3;
 
         /// <summary>
+        /// Owner ruling Q1b at a dock, a claw grab or a boarding with a vessel of an EARLIER
+        /// committed mission: joining an abandoned vessel whose committed recording kept a
+        /// predicted ending counts as flying it again. For each Dock / Board branch point of
+        /// <paramref name="tree"/> whose partner stamp (<c>TargetVesselPersistentId</c> +
+        /// <c>TargetVesselGuid</c>) names exactly one committed vessel-line end of another tree
+        /// that still carries a predicted ending and whose real data ends at or before the
+        /// merge, the prediction is dropped at the merge UT (coast kept to the merge when the
+        /// merged vessel's orbit, captured at the merge, shows it stayed on the predicted
+        /// conic), the recording ends Docked / Boarded at the merge, and its crew rows are
+        /// re-derived (the predicted crash had killed them, owner ruling Q6c; they now live on
+        /// the combined ship). Runs at the commit, not at the merge: a Discard of the flight, or
+        /// a revert that puts the vessel back on its fall, leaves the committed mission as it
+        /// was. Returns how many partner recordings it took over.
+        /// </summary>
+        internal static int TakeOverPredictedEndingsOfMergePartners(
+            RecordingTree tree, string logContext = "CommitTree")
+        {
+            if (tree?.BranchPoints == null || tree.BranchPoints.Count == 0)
+                return 0;
+            if (RecordingStore.CommittedRecordings == null || RecordingStore.CommittedRecordings.Count == 0)
+                return 0;
+
+            int taken = 0;
+            for (int b = 0; b < tree.BranchPoints.Count; b++)
+            {
+                BranchPoint bp = tree.BranchPoints[b];
+                if (bp == null || (bp.Type != BranchPointType.Dock && bp.Type != BranchPointType.Board))
+                    continue;
+                if (bp.TargetVesselPersistentId == 0u || double.IsNaN(bp.UT) || double.IsInfinity(bp.UT))
+                    continue;
+
+                Recording partner = FindCommittedPredictedMergePartner(tree, bp, out int candidates);
+                if (partner == null)
+                {
+                    if (candidates > 1)
+                        ParsekLog.Info("RecordingStore",
+                            string.Format(CultureInfo.InvariantCulture,
+                                "{0}: merge partner of bp={1} pid={2} ambiguous ({3} committed predicted " +
+                                "endings match), none taken over",
+                                logContext ?? "CommitTree", bp.Id ?? "(null)", bp.TargetVesselPersistentId, candidates));
+                    continue;
+                }
+
+                TerminalState? previousTerminal = partner.TerminalStateValue;
+                bool previousPredicted = partner.TerminalPredicted;
+                TakeoverCoastEvidence? coast = null;
+                if (tree.MergePartnerCoastEvidence != null && bp.Id != null
+                    && tree.MergePartnerCoastEvidence.TryGetValue(bp.Id, out TakeoverCoastEvidence captured))
+                    coast = captured;
+
+                PredictedEndingDropResult drop = PredictedEndingTakeover.DropPredictedEndingForTakeover(
+                    partner, bp.UT, "MergePartner." + bp.Type, coast);
+                if (!drop.TerminalCleared)
+                    continue;
+
+                TerminalState mergedEnding = bp.Type == BranchPointType.Dock
+                    ? TerminalState.Docked : TerminalState.Boarded;
+                if (!PredictedEndingTakeover.TryGetLastRealUT(partner, out double lastRealUT)
+                    || bp.UT > lastRealUT)
+                    partner.ExplicitEndUT = bp.UT;
+                partner.StampTerminalState(mergedEnding, (logContext ?? "CommitTree") + ".MergePartner");
+                partner.MarkFilesDirty();
+                int crewRows = LedgerOrchestrator.RefreshTakenOverMergePartnerCrewRows(
+                    partner, previousTerminal, previousPredicted, (logContext ?? "CommitTree") + ".MergePartner");
+                taken++;
+                ParsekLog.Info("RecordingStore",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "{0}: merge partner's predicted ending taken over: partner='{1}' vessel='{2}' " +
+                        "tree={3} by bp={4} type={5} in tree={6} ut={7} previousTerminal={8} " +
+                        "previousPredicted={9} terminal={10} coast={11} crewRows={12} (owner ruling Q1b)",
+                        logContext ?? "CommitTree",
+                        partner.RecordingId,
+                        partner.VesselName ?? "",
+                        partner.TreeId ?? "(null)",
+                        bp.Id ?? "(null)",
+                        bp.Type,
+                        tree.Id ?? "(null)",
+                        bp.UT.ToString("F3", CultureInfo.InvariantCulture),
+                        previousTerminal.HasValue ? previousTerminal.Value.ToString() : "null",
+                        previousPredicted ? "true" : "false",
+                        mergedEnding,
+                        drop.CoastKeptToTakeover ? "kept-to-merge" : (drop.Reason ?? "cut"),
+                        crewRows));
+            }
+
+            if (taken > 0)
+                RecordingStore.BumpStateVersion();
+            return taken;
+        }
+
+        /// <summary>
+        /// The committed recording <see cref="TakeOverPredictedEndingsOfMergePartners"/> takes
+        /// over for <paramref name="bp"/>: a recording of another tree that is the partner's
+        /// launch or its Parsek spawn (<see cref="VesselLaunchIdentity.CandidateMatchesRecording"/>),
+        /// ends its vessel line (no child branch point), still carries a predicted ending, and
+        /// whose real data ends at or before the merge. Null unless exactly one matches
+        /// (<paramref name="candidates"/> counts them). Read-only.
+        /// </summary>
+        internal static Recording FindCommittedPredictedMergePartner(
+            RecordingTree tree, BranchPoint bp, out int candidates)
+        {
+            candidates = 0;
+            if (tree == null || bp == null || bp.TargetVesselPersistentId == 0u)
+                return null;
+            Recording found = null;
+            for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+            {
+                Recording rec = RecordingStore.CommittedRecordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+                if (string.Equals(rec.TreeId, tree.Id, StringComparison.Ordinal))
+                    continue;
+                if (tree.Recordings != null && tree.Recordings.ContainsKey(rec.RecordingId))
+                    continue;
+                if (!string.IsNullOrEmpty(rec.ChildBranchPointId))
+                    continue;
+                if (!VesselLaunchIdentity.CandidateMatchesRecording(
+                        rec, bp.TargetVesselPersistentId, bp.TargetVesselGuid, matchSource: true, matchSpawn: true))
+                    continue;
+                if (!PredictedEndingTakeover.HasPredictedEnding(rec))
+                    continue;
+                if (PredictedEndingTakeover.TryGetLastRealUT(rec, out double lastRealUT)
+                    && lastRealUT > bp.UT + PredictedEndingTakeover.PredictedTerminalUTToleranceSeconds)
+                    continue;
+                candidates++;
+                found = rec;
+            }
+            return candidates == 1 ? found : null;
+        }
+
+        /// <summary>
         /// The earliest start of any recording in the tree that has a start at all: trajectory
         /// bounds or an explicit start. A recording with neither reads <c>StartUT</c> 0.0, which
         /// is not a start and would pull the tree to UT 0, so it is skipped. NaN when no

@@ -75,6 +75,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The ledger half of a merge-partner take-over (a dock, claw grab or boarding with a
+        /// committed vessel whose predicted ending was dropped,
+        /// <c>TreeCommitService.TakeOverPredictedEndingsOfMergePartners</c>): the partner's
+        /// KerbalAssignment rows are re-derived from its new ending (Docked / Boarded: the crew
+        /// aboard live on), and when the dropped ending was a predicted crash its kerbal-death
+        /// penalty goes with it. No tree commit files that recording's rows again, so they are
+        /// replaced here. Returns the number of crew rows now filed for it.
+        /// </summary>
+        internal static int RefreshTakenOverMergePartnerCrewRows(
+            Recording partner, TerminalState? previousTerminal, bool previousPredicted, string context)
+        {
+            if (partner == null || string.IsNullOrEmpty(partner.RecordingId))
+                return 0;
+            string recordingId = partner.RecordingId;
+            int penalties = 0;
+            if (previousTerminal == TerminalState.Destroyed && previousPredicted)
+            {
+                penalties = Ledger.RemoveWhere(a =>
+                    string.Equals(a.RecordingId, recordingId, StringComparison.Ordinal)
+                    && a.Type == GameActionType.ReputationPenalty
+                    && a.RepPenaltySource == ReputationPenaltySource.KerbalDeath,
+                    "merge-partner-takeover").Count;
+            }
+            List<GameAction> rows = CreateKerbalAssignmentActions(recordingId, partner.StartUT, partner.EndUT);
+            Ledger.ReplaceActionsForRecording(GameActionType.KerbalAssignment, recordingId, rows);
+            ParsekLog.Info(Tag,
+                $"{context ?? "(none)"}: merge partner '{recordingId}' flown again (previous ending " +
+                $"{(previousTerminal.HasValue ? previousTerminal.Value.ToString() : "null")} predicted={previousPredicted}, " +
+                $"now {(partner.TerminalStateValue.HasValue ? partner.TerminalStateValue.Value.ToString() : "null")}) - " +
+                $"re-derived {rows.Count.ToString(CultureInfo.InvariantCulture)} crew assignment row(s), " +
+                $"removed {penalties.ToString(CultureInfo.InvariantCulture)} death penalty row(s)");
+            return rows.Count;
+        }
+
+        /// <summary>
         /// Removes actions from the candidate list that already exist in the ledger.
         /// Matches on Type + occurrence UT (within epsilon) + key field (SubjectId, NodeId,
         /// FacilityId, MilestoneId, or ContractId depending on type). Science dedup compares

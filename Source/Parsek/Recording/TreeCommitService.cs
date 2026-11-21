@@ -237,6 +237,7 @@ namespace Parsek
             RecordingStore.AutoGroupTreeRecordings(tree);
             RecordingStore.AdoptOrphanedRecordingsIntoTreeGroup(tree);
             MarkSupersededTerminalSpawnsForContinuedSources(tree);
+            TakeOverPredictedEndingsOfMergePartners(tree);
             FinalizeTreeCommit(tree, replaceCommittedTreeIndex, unchangedRouteSourceIds);
             CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForTree(tree.Id, "CommitTree accepted restored active tree");
             SceneEntryVesselScope.ClearRewindReplayTargetScope();
