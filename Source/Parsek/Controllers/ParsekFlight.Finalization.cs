@@ -472,9 +472,70 @@ namespace Parsek
                     || other.ChainBranch != 0
                     || other.ChainIndex <= rec.ChainIndex)
                     continue;
-                if (endUT > other.StartUT + NonFinalChainSegmentBoundaryToleranceSeconds)
+                if (endUT > ChainSuccessorBoundaryUT(other) + NonFinalChainSegmentBoundaryToleranceSeconds)
                     continue;
                 successorId = other.RecordingId;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Where a chain successor begins for <see cref="IsNonFinalChainSegmentInTree"/>: its
+        /// first section's start (the optimizer's cut UT) when that is later than its first
+        /// sample. A section can open on the previous section's closing sample, before its own
+        /// start (flight asr-final3: the probe's space section opens at 168.4 and starts at the
+        /// cut, 173.74), so the successor's StartUT reads earlier than the head's end (its
+        /// trimmed section ends at the cut) and the head would read as recorded past it.
+        /// </summary>
+        internal static double ChainSuccessorBoundaryUT(Recording successor)
+        {
+            double startUT = successor.StartUT;
+            if (successor.TrackSections != null && successor.TrackSections.Count > 0
+                && successor.TrackSections[0].startUT > startUT)
+            {
+                return successor.TrackSections[0].startUT;
+            }
+            return startUT;
+        }
+
+        // A continuation segment starts where the recorder flushed the row it continues; the
+        // two can differ by the switch frame's sampling step.
+        internal const double SameVesselContinuationToleranceSeconds = 1.0;
+
+        /// <summary>
+        /// True when the tree holds another recording of the same launch as
+        /// <paramref name="rec"/> that continues it: the tree's active recording (the vessel the
+        /// player is flying), or a recording that starts after <paramref name="rec"/> starts and
+        /// no earlier than its end. Such a row is not an abandoned vessel: its vessel lives on
+        /// in the continuation (flight asr-final3 ASR-6: a takeover row whose Tracking Station
+        /// Fly opened a standalone continuation segment on the same pid), so an in-flight
+        /// commit must not give it the lifetime finalizer's predicted ending. Pure.
+        /// </summary>
+        internal static bool HasSameVesselContinuationInTree(
+            Recording rec,
+            RecordingTree tree,
+            out string continuationId)
+        {
+            continuationId = null;
+            if (rec == null || tree?.Recordings == null || rec.VesselPersistentId == 0)
+                return false;
+            double startUT = rec.StartUT;
+            double endUT = rec.EndUT;
+            foreach (Recording other in tree.Recordings.Values)
+            {
+                if (other == null || ReferenceEquals(other, rec)
+                    || string.Equals(other.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    continue;
+                if (!VesselLaunchIdentity.RecordingsShareLaunch(rec, other))
+                    continue;
+                double otherStartUT = other.StartUT;
+                if (otherStartUT <= startUT)
+                    continue;
+                bool flown = IsTreeActiveRecording(other, tree);
+                if (!flown && otherStartUT + SameVesselContinuationToleranceSeconds < endUT)
+                    continue;
+                continuationId = other.RecordingId;
                 return true;
             }
             return false;
@@ -623,6 +684,19 @@ namespace Parsek
                     finalizeVesselFound,
                     IsTreeActiveRecording(rec, treeContext),
                     abandonActiveVessel);
+            // An in-flight commit leaves a vessel unflown only when nothing in the tree carries
+            // it on; a row whose vessel continues in a later recording of the same launch keeps
+            // the live situation stamp below.
+            if (runLifetimeFinalizer
+                && !isSceneExit
+                && HasSameVesselContinuationInTree(rec, treeContext, out string continuationId))
+            {
+                runLifetimeFinalizer = false;
+                ParsekLog.Info("Flight",
+                    $"FinalizeIndividualRecording: live vessel pid={rec.VesselPersistentId} of " +
+                    $"'{rec.RecordingId}' continues in '{continuationId}' - in-flight commit keeps " +
+                    "the situation stamp, no lifetime finalizer");
+            }
             if (runLifetimeFinalizer)
             {
                 if (!isSceneExit)
