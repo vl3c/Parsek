@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~GHOST-HEAT-CLONE-PUSHES-NEARBY-VESSEL~~: building a ghost of a heat-animated part could push or break a real vessel near it [FILED 2026-11-21 from the part ghost parity sweep (harness run `2026-11-21_2011_PP-1-part-parity-stock`, branch `part-parity-p3`; the same break in the P2 flight `<umbrella>/logs/flights/pp1-ladder-evidence-2026-11-21/KSP.log` line 12432); FIXED 2026-11-21, branch `ghost-heat-clone-destroy`; xUnit `GhostTempCloneDestroyGateTests` (mutation: reverting the fix reds it); NOT FLOWN; medium (physics damage to a real vessel, first ghost build of a part type per session)]
+
+What: the sweep's host Kerbal X lost its `Decoupler.2` and `dockingPort2` and dropped from pe 93 km to pe 63 km in the same frame (6 ms) that the ghost of a `Clydesdale` case was built, 160 m away; the P2 flight shows the identical break at the same case. `GhostVisualBuilder.SampleHeatAnimation3State` instantiates the part prefab's model, colliders included, to sample its heat animation, and freed it with a deferred `Object.Destroy`, so the clone lived into the next physics step with a full-size collider and pushed whatever real vessel overlapped it. The three sibling samplers in `GhostVisualBuilder.AnimationSampling.cs` already used `DestroyImmediate`. The heat sample is cached per part name, so it bites only the first ghost of each heat-animated part type.
+
+Fix: `Object.DestroyImmediate(tempClone)`, like the siblings. `GhostTempCloneDestroyGateTests` scans `Source/Parsek/Ghost/` (line comments stripped) and reds on a deferred `Destroy(tempClone)` or on a `tempClone = Object.Instantiate(...)` count that differs from the `DestroyImmediate(tempClone)` count.
+
+Proof owed: the next PP-1 flight on a build with this fix; the host must stay in one piece and in orbit across the sweep (the second step answers instead of `host-not-orbiting`).
+
 ## TEST-GAPS-BATCH3-FLIGHTS-2026-11-21: the batch 3 re-flights, every owed lane green, 14 report-only save blocks armed [FILED 2026-11-21, branch `test-gaps-batch3`; one seam fix (C#, automation-only `PartAction`); OPEN: nothing; the operator / nightly promotion calls of the new lanes are the ordinary ones]
 
 Flown: runner runs `b3-flights-4` / `b3-flights-5` / `b3-flights-6` on V's PC, 3 slots. `b3-flights-4`: 19 lanes on the Debug automation DLL sha256 prefix 4dd8a0d9 built from 87ce236fb; `b3-flights-5`: 12 lanes on prefix b5179f97 (the `rotoron` torque fix below); `b3-flights-6`: 3 lanes on prefix b5d5ae14 (plus `rotorbrake`). Every install carried one hash per run, verified by size, sha256 and markers in both encodings (`ServoMirroredPose`, `RescueAcceptDeferrals`, `PatchCrossedBuildingRows`, `Rotor spin applied in playback`, `Flight clock reached a committed ledger row`, `Rewind point file deleted on revert`, later `partaction rotor torque raised: button=`, `rotorbrake`).

@@ -62,6 +62,10 @@ Not released yet.
 
 ### Fixed
 
+- **Ghosts no longer knock nearby craft.** The first replay of some parts, such as the Clydesdale
+  booster, could shove a real vessel parked close by, break it apart or lower its orbit. Building
+  those ghosts no longer touches the physics of anything around them.
+  (GHOST-HEAT-CLONE-PUSHES-NEARBY-VESSEL)
 - **Reverting a flight no longer leaves its rewind save behind.** After a Revert to Launch, the
   hidden save Parsek made when the flight staged stayed in the save folder. It is now deleted with
   the revert, unless a quicksave you made during that flight still needs it.
