@@ -1836,6 +1836,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryBuildFromLiveVessel_AtmosphericPackedDeclineAboveTheDeletionAltitude_DoesNotCacheDestroyed()
+        {
+            // Stock deletes a packed vessel only below the 1 kPa line; one in the thin upper
+            // atmosphere stays, so a declined refresh must not stamp it Destroyed.
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = default(IncompleteBallisticFinalizationResult);
+                    return false;
+                };
+
+            var vessel = MakeFlyingView(304u, packed: true, loaded: false, inAtmosphere: true);
+            vessel.IsBelowDeletionAltitudeValue = false;
+            vessel.AltitudeValue = 45000.0;
+            var recording = new Recording
+            {
+                RecordingId = "rec-live-atmo-above-deletion",
+                VesselPersistentId = 304u,
+                ExplicitEndUT = 100.0
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                140.0,
+                FinalizationCacheOwner.BackgroundOnRails,
+                "unit-live-atmo-above-deletion",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.False(built);
+            Assert.NotEqual(TerminalState.Destroyed, cache.TerminalState);
+            Assert.Contains(logLines, line =>
+                line.Contains("[FinalizerCache]")
+                && line.Contains("Atmospheric deletion fallback skipped: pid=304")
+                && line.Contains("context=default-finalizer-declined"));
+        }
+
+        [Fact]
         public void TryBuildFromLiveVessel_NullVessel_DeclinesAndLogs()
         {
             bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
@@ -2122,6 +2161,9 @@ namespace Parsek.Tests
             public Vessel.Situations Situation => SituationValue;
             public string BodyName => BodyNameValue;
             public bool IsInAtmosphere => IsInAtmosphereValue;
+            // Unset: below the deletion altitude whenever in the atmosphere (the pre-split reading).
+            public bool? IsBelowDeletionAltitudeValue;
+            public bool IsBelowDeletionAltitude => IsBelowDeletionAltitudeValue ?? IsInAtmosphereValue;
             public bool IsPacked => IsPackedValue;
             public bool IsLoaded => IsLoadedValue;
             public double Latitude => LatitudeValue;
