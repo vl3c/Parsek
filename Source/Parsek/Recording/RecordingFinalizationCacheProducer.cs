@@ -29,6 +29,9 @@ namespace Parsek
         Vessel.Situations Situation { get; }
         string BodyName { get; }
         bool IsInAtmosphere { get; }
+        // Below the body's 1 kPa deletion altitude (OrbitClearance.ResolveDeletionAltitude):
+        // where stock deletes a packed, unattended vessel. IsInAtmosphere is the atmosphere top.
+        bool IsBelowDeletionAltitude { get; }
         bool IsPacked { get; }
         bool IsLoaded { get; }
         double Latitude { get; }
@@ -273,7 +276,7 @@ namespace Parsek
             RecordingFinalizationOrbitView orbit;
             if (!vessel.TryGetOrbit(out orbit))
             {
-                if (cache.LastWasInAtmosphere)
+                if (ShouldTakeAtmosphericDeletionFallback(cache, vessel, requirePacked: false, "vessel-orbit-null"))
                     return CompleteRefresh(cache, PopulateAtmosphericDeletionCache(cache, refreshUT), recordingsExamined, 0, 0);
 
                 return CompleteRefresh(cache, Fail(cache, "vessel-orbit-null"), recordingsExamined, 0, 0);
@@ -406,7 +409,7 @@ namespace Parsek
                         0);
                 }
 
-                if (cache.LastWasInAtmosphere && (vessel.IsPacked || !vessel.IsLoaded))
+                if (ShouldTakeAtmosphericDeletionFallback(cache, vessel, requirePacked: true, "default-finalizer-declined"))
                     return CompleteRefresh(cache, PopulateAtmosphericDeletionCache(cache, refreshUT), recordingsExamined, 0, 0);
 
                 return CompleteRefresh(cache, Fail(cache, "default-finalizer-declined"), recordingsExamined, 0, 0);
@@ -580,6 +583,7 @@ namespace Parsek
             ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
                 startState,
                 bodies,
+                IncompleteBallisticSceneExitFinalizer.ResolveLiveExtrapolationLimits(),
                 warnOnSubSurfaceStart: false);
 
             if (result.segments == null
@@ -870,6 +874,12 @@ namespace Parsek
                 && vessel.altitude < vessel.mainBody.atmosphereDepth;
         }
 
+        internal static bool IsBelowDeletionAltitude(Vessel vessel)
+        {
+            return IsInAtmosphere(vessel)
+                && vessel.altitude < OrbitClearance.ResolveDeletionAltitude(vessel.mainBody);
+        }
+
         internal static string BuildVesselDigest(Vessel vessel, bool hasMeaningfulThrust)
         {
             if (vessel == null)
@@ -1143,6 +1153,39 @@ namespace Parsek
             cache.TailStartsAtUT = refreshUT;
             cache.PredictedSegments = new List<OrbitSegment>();
             return Accept(cache);
+        }
+
+        /// <summary>
+        /// The "stock deletes it now" fallback for a refresh that produced no tail: only for a
+        /// vessel below the deletion altitude (stock deletes a packed vessel only where the
+        /// pressure is above 1 kPa), so one in the thin upper atmosphere keeps its previous
+        /// cache instead of being stamped Destroyed. Logs the skip.
+        /// </summary>
+        internal static bool ShouldTakeAtmosphericDeletionFallback(
+            RecordingFinalizationCache cache,
+            IRecordingFinalizationVesselView vessel,
+            bool requirePacked,
+            string declineContext)
+        {
+            if (cache == null || vessel == null || !cache.LastWasInAtmosphere)
+                return false;
+            if (requirePacked && !(vessel.IsPacked || !vessel.IsLoaded))
+                return false;
+            if (vessel.IsBelowDeletionAltitude)
+                return true;
+
+            ParsekLog.VerboseRateLimited("FinalizerCache",
+                "atmo-deletion-skip." + cache.VesselPersistentId,
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Atmospheric deletion fallback skipped: pid={0} body={1} alt={2:F1} context={3} " +
+                    "(above the deletion altitude; stock keeps a packed vessel there)",
+                    cache.VesselPersistentId,
+                    vessel.BodyName ?? "(unknown)",
+                    vessel.Altitude,
+                    declineContext ?? "(none)"),
+                minIntervalSeconds: 30.0);
+            return false;
         }
 
         private static bool PopulateAtmosphericDeletionCache(
@@ -1703,6 +1746,7 @@ namespace Parsek
                 ?? vessel.orbit?.referenceBody?.name
                 ?? "(unknown-body)";
             public bool IsInAtmosphere => RecordingFinalizationCacheProducer.IsInAtmosphere(vessel);
+            public bool IsBelowDeletionAltitude => RecordingFinalizationCacheProducer.IsBelowDeletionAltitude(vessel);
             public bool IsPacked => vessel.packed;
             public bool IsLoaded => vessel.loaded;
             public double Latitude => vessel.latitude;

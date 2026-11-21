@@ -51,9 +51,10 @@ namespace Parsek.Tests
             Assert.False(result);
         }
 
+        // SUB_ORBITAL is not here: a bound SUB_ORBITAL coast whose periapsis clears the cutoff
+        // is a stable orbit (AbandonedStageAccuracyTests.ShouldExtrapolate_SubOrbital_*).
         [Theory]
         [InlineData((int)Vessel.Situations.FLYING)]
-        [InlineData((int)Vessel.Situations.SUB_ORBITAL)]
         [InlineData((int)Vessel.Situations.ESCAPING)]
         public void ShouldExtrapolate_UnstableFlightStates_ReturnTrue(int situationValue)
         {
@@ -489,7 +490,7 @@ namespace Parsek.Tests
                 bodies,
                 limits);
 
-            double expectedTerminalUT = limits.maxHorizonYears * 365.0 * 24.0 * 60.0 * 60.0;
+            double expectedTerminalUT = limits.maxHorizonYears * BallisticExtrapolator.SecondsPerYear;
             Assert.Equal(TerminalState.Orbiting, result.terminalState);
             Assert.Single(result.segments);
             Assert.Equal(expectedTerminalUT, result.terminalUT, 4);

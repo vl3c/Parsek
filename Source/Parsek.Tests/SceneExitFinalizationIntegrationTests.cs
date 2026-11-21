@@ -3975,8 +3975,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryCompleteFinalizationFromPatchedSnapshot_ManeuverNode_DiscardTailAndUsesLiveState()
+        public void TryCompleteFinalizationFromPatchedSnapshot_ManeuverNode_KeepsPatchesUpToTheNodeAndPropagatesFromIt()
         {
+            // B12: the stock coast up to a pending maneuver node is real (nobody makes the
+            // burn), so the patch that ends at the node is kept and the tail continues from
+            // its end on the unburned conic; the live orbit is not resampled.
             var rec = new Recording
             {
                 RecordingId = "scene-exit-maneuver-discard",
@@ -4036,22 +4039,24 @@ namespace Parsek.Tests
                 },
                 (startState, extrapolationBodies) =>
                 {
-                    Assert.Equal("Kerbin", startState.bodyName);
+                    Assert.Equal("Mun", startState.bodyName);
+                    Assert.Equal(150.0, startState.ut, 6);
                     return new ExtrapolationResult
                     {
                         terminalState = TerminalState.Destroyed,
                         terminalUT = 240.0,
-                        terminalBodyName = "Kerbin",
+                        terminalBodyName = "Mun",
                         segments = new List<OrbitSegment>
                         {
                             new OrbitSegment
                             {
-                                bodyName = "Kerbin",
-                                startUT = 120.0,
+                                bodyName = "Mun",
+                                startUT = 150.0,
                                 endUT = 240.0,
-                                semiMajorAxis = 650000.0,
-                                eccentricity = 0.2,
-                                inclination = 1.0
+                                semiMajorAxis = 250000.0,
+                                eccentricity = 0.01,
+                                inclination = 2.0,
+                                isPredicted = true
                             }
                         }
                     };
@@ -4059,19 +4064,21 @@ namespace Parsek.Tests
                 out IncompleteBallisticFinalizationResult result);
 
             Assert.True(built);
-            Assert.True(sampledLiveState);
-            Assert.Equal(0, result.patchedSegmentCount);
+            Assert.False(sampledLiveState);
+            Assert.Equal(1, result.patchedSegmentCount);
             Assert.Equal(1, result.extrapolatedSegmentCount);
             Assert.Equal(TerminalState.Destroyed, result.terminalState);
             Assert.Equal(240.0, result.terminalUT);
-            Assert.Single(result.appendedOrbitSegments);
-            Assert.Equal("Kerbin", result.appendedOrbitSegments[0].bodyName);
-            Assert.DoesNotContain(result.appendedOrbitSegments, segment => segment.bodyName == "Mun");
+            Assert.Equal(2, result.appendedOrbitSegments.Count);
+            Assert.Equal(100.0, result.appendedOrbitSegments[0].startUT);
+            Assert.Equal(150.0, result.appendedOrbitSegments[0].endUT);
+            Assert.Equal(150.0, result.appendedOrbitSegments[1].startUT);
+            Assert.All(result.appendedOrbitSegments, segment => Assert.Equal("Mun", segment.bodyName));
             Assert.Contains(logLines, l =>
                 l.Contains("[Parsek][INFO][PatchedSnapshot]") &&
                 l.Contains("scene-exit-maneuver-discard") &&
                 l.Contains("maneuver-node boundary detected") &&
-                l.Contains("discarding stock patched-conic tail"));
+                l.Contains("keeping 1 stock patch(es) up to the node at UT=150.0"));
         }
 
         [Fact]

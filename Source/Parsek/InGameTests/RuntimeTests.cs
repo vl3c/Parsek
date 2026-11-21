@@ -3722,6 +3722,9 @@ namespace Parsek.InGameTests
                         && vessel.altitude < body.atmosphereDepth;
                 }
             }
+            public bool IsBelowDeletionAltitude =>
+                IsInAtmosphere
+                && vessel.altitude < OrbitClearance.ResolveDeletionAltitude(vessel.mainBody ?? vessel.orbit?.referenceBody);
             public bool IsPacked => vessel.packed;
             public bool IsLoaded => vessel.loaded;
             public double Latitude => vessel.latitude;
