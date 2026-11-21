@@ -244,7 +244,8 @@ proof that the instrument sees what it claims to.
 
 Per side, per renderer: transform path relative to the part (with `(Clone)` stripped and the
 ghost's mirror prefix mapped back), mesh name, vertex count, material / shader / main-texture names,
-rendered or not, and the part-local matrix. The sidecar pairs them by path and lists: missing on
+rendered or not, and the part-local matrix. The sidecar pairs them by path (records sharing a
+path pair first on mesh and rendered state, then on mesh, then in hierarchy order) and lists: missing on
 the ghost, extra on the ghost, transform differs (position > 1 mm, rotation > 0.5 deg, scale > 1 %),
 material / shader / texture differs. This names the missing or extra mesh directly, is independent
 of lighting, and sees differences the four views cannot (an inner mesh, a mesh behind another).
@@ -289,13 +290,23 @@ results archive, under `<runId>/partparity/` (the archive already owns `<runId>/
               "realOnlyBlobPx": .., "ghostOnlyBlobPx": ..,        // largest connected component, tolerance applied
               "bbox": {"real": [x,y,w,h], "ghost": [..]}, "centroid": {"real": [x,y], "ghost": [..]},
               "touchesBorder": {"real": false, "ghost": false},
-              "colorOverPx": .., "colorBlobPx": .., "colorP99": .., "colorBlockMax": ..   // over the overlap; T and the 16x16 block grid in the header
+              "colorOverPx": .., "colorBlobPx": .., "colorP99": .., "colorBlockMax": ..   // over the overlap; T and the 16x16 block grid in "measure"
             } ],
-  "structure": {"pairs": .., "missingOnGhost": [..], "extraOnGhost": [..], "transformDiffers": [..], "materialDiffers": [..]},
+  "structure": {"pairs": .., "missingOnGhost": [..], "extraOnGhost": [..], "transformDiffers": [..], "materialDiffers": [..], "meshDiffers": [..], "renderedDiffers": [..]},
   "setup": {"status": "ok|skin-not-applied|spawn-timeout|still-animating|died-settling|crashed", "detail": "..."},
   "log": ["the Parsek lines emitted while this case was built, via ParsekLog.TestObserverForTesting"]
 }
 ```
+
+The P1 writer (`PartParityJson`) is the exact key set: its key tables list every key in
+order, and every key is always written (an unmeasured value is `null`, a NaN or infinity too).
+Beyond the sketch above it adds a `measure` block (coverage alpha, tolerance, connectivity,
+colour metric, T, grid), per view `width` / `height`, the raw `realOnlyPx` / `ghostOnlyPx`,
+`realOnlyBlobPct` / `ghostOnlyBlobPct`, `colorOverlapPx` and the per-side `matte` counts, and in
+`structure` the renderer counts plus `meshDiffers` (kind, mesh, vertex count) and
+`renderedDiffers` (a renderer both sides have that draws on one side only: the P0 shroud
+finding). Diff entries are objects keyed by part path (`#k` for the k-th further renderer of a
+shared path); missing / extra entries carry `mesh` and `rendered`.
 
 Additive keys only after the first flight; a renamed key bumps the schema. As in the other two
 systems, the C# `SchemaId` / key table and hlib's reader keys are pinned by a source-sync cell, and
@@ -326,7 +337,14 @@ only: a missing skirt of 400 px on a 150 000 px tank is IoU 0.997.
 
 Colour, over the overlap after alpha premultiply: per-pixel RGB distance; the count over T (default
 24), its largest blob, the p99, and the max mean over a 16 x 16 block grid, so a wrong decal or a
-dark patch is not diluted by the rest of the part.
+dark patch is not diluted by the rest of the part. As built (P1): the distance is Euclidean over
+premultiplied 0..255 RGB (one channel off by d reads d); the p99 is nearest-rank; the grid is 16 x
+16 CELLS whatever the tile, and a cell counts only when the overlap fills a quarter of it; the
+blob of over-T pixels is 4-connected like the shape blobs. Every colour measure reads the overlap
+INTERIOR only (a pixel covered on both sides across its whole 8-neighbourhood): antialiased edge
+pixels blend with the clear colour, so a sub-pixel silhouette offset would otherwise read as a
+full-edge colour blob (review of P1); the shape measures own the edge, and a part thinner than 3 px
+has no colour measure.
 
 Verdicts (`harness/lib/partparity.py`, constants in one place, starting guesses re-pinned after the
 first reading run against the controls and a hand-checked sample): `fail` when either largest
@@ -447,9 +465,9 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
 | `Source/Parsek/TestCommands/PartParityCaseAuthoring.cs` | Live: enumeration, skins, part node authoring, tags. |
 | `Source/Parsek/TestCommands/PartParityCapture.cs` | Live: camera, light rig, hide / render / read / restore, atlas, PNG encode. |
 | `Source/Parsek/TestCommands/ParsekTestCommandAddon.PartParitySweep.cs` | Thin applier and the wave coroutine on the seam addon. |
-| `Source/Parsek/Ghost/GhostPlaybackEngine.*` | The extracted build-and-initialise seam (D2), the engine's own load path rewired through it (`il_compare.py --fold` proof of no behaviour change). |
+| `Source/Parsek/Ghost/GhostPlaybackEngine.*` | The extracted build-and-initialise seam (D2), `GhostPlaybackEngine.InitializeBuiltGhostVisuals(state, buildResult, traj)`, the engine's own load path (`TryPopulateGhostVisuals`) rewired through it. Proof of no behaviour change: `il_compare.py` before / after reports only the new method and the caller's body, and inlining the seam's body back at the call site gives the caller's old body exactly (`--fold` models moves between types, not an extract-method). The loop-reuse re-init (`SpawnDestroy`) and the KSC spawn run other subsets (no pivot; KSC passes no trajectory) and stay as they are. Activation stays the engine's deferred `ActivateGhostVisualsIfNeeded`. |
 | `Source/Parsek/Ghost/GhostVisualBuilder*` | The `GhostBuildResult` applied-skin accessor. |
-| `Source/Parsek/InGameTests/GhostCoOrbitalRig.cs` | `SpawnCoOrbital`, part node authoring with skins, collider neutralising: moved out of `FairingGhostVisualInGameTests`, used by both, FGV unchanged. |
+| `Source/Parsek/InGameTests/GhostCoOrbitalRig.cs` | `SpawnCoOrbital` (log tag passed in), `UniqueFlightIds`, `AuthorPartNode` (writes `moduleVariantName` and the `ModulePartVariants` `selectedVariant`), `TryBuildGhostFromLiveVessel` (snapshot, throwaway recording, timeline build, the D2 seam) and `NeutralisePhysics`: moved out of `FairingGhostVisualInGameTests`, used by both, FGV's nodes and log lines unchanged. |
 | `Source/Parsek/InGameTests/PartParityInGameTests.cs` | Ctrl+Shift+T entry. |
 | `harness/lib/partparity.py` + tests | Pure manifest reader, verdicts, recompute, verifier row, baseline compare. |
 | `harness/tools/part_parity_view.py` + tests | The viewer and the GIF / APNG writer. |
