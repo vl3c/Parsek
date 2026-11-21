@@ -140,6 +140,7 @@ namespace Parsek
                 // Copy terminal/linkage state
                 merged.TerminalStateValue = srcRec.TerminalStateValue;
                 merged.TerminalPredicted = srcRec.TerminalPredicted;
+                merged.QuietDestroyedEnd = srcRec.QuietDestroyedEnd;
                 merged.ParentBranchPointId = srcRec.ParentBranchPointId;
                 merged.ChildBranchPointId = srcRec.ChildBranchPointId;
                 merged.ExplicitStartUT = srcRec.ExplicitStartUT;

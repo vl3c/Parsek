@@ -17,6 +17,8 @@ namespace Parsek
         public TerminalState? terminalState;
         public double terminalUT;
         public List<OrbitSegment> appendedOrbitSegments;
+        // A predicted chute descent to touchdown (owner ruling Q4), null otherwise.
+        public List<TrajectoryPoint> predictedDescentPoints;
         public int patchedSegmentCount;
         public int extrapolatedSegmentCount;
         public ConfigNode vesselSnapshot;
@@ -228,6 +230,28 @@ namespace Parsek
                         vessel.orbit.PeA,
                         cutoffAltitude))
                     return false;
+
+                // Owner ruling Q4: a vessel left under open parachutes descends at chute
+                // speed to touchdown; the drag-free tail below would read it as an impact.
+                if (TryBuildParachuteDescentResult(recording, vessel, commitUT, out result))
+                {
+                    ConfigNode chuteSnapshot = FlightRecorder.TryBackupSnapshot(vessel);
+                    if (chuteSnapshot != null)
+                    {
+                        result.ghostVisualSnapshot = chuteSnapshot.CreateCopy();
+                        if (result.terminalPosition.HasValue)
+                        {
+                            RecordingFinalizationCacheApplier.ApplyPredictedTouchdownToSnapshot(
+                                chuteSnapshot,
+                                result.terminalPosition.Value,
+                                result.terminalState.Value,
+                                recording.RecordingId,
+                                "TryFinalizeRecording");
+                        }
+                        result.vesselSnapshot = chuteSnapshot;
+                    }
+                    return true;
+                }
 
                 if (!TryBuildExtrapolationBodies(recording.RecordingId, commitUT, out var bodies))
                     return false;
@@ -3043,6 +3067,103 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The chute descent branch of the live finalizer (owner ruling Q4): reads the live
+        /// vessel's open parachutes and, when one is open in an atmosphere, predicts the
+        /// descent to touchdown. False (with nothing logged) when no chute is open.
+        /// </summary>
+        private static bool TryBuildParachuteDescentResult(
+            Recording recording,
+            Vessel vessel,
+            double commitUT,
+            out IncompleteBallisticFinalizationResult result)
+        {
+            result = default(IncompleteBallisticFinalizationResult);
+            if (!ParachuteDescentLiveReader.TryRead(vessel, commitUT, out ParachuteDescentInput input, out _))
+                return false;
+            return TryBuildParachuteDescentFinalizationResult(
+                recording?.RecordingId, recording != null ? recording.VesselPersistentId : 0u, input, out result);
+        }
+
+        /// <summary>
+        /// Pure: the finalization result of a predicted chute descent: a Landed / Splashed
+        /// terminal at the touchdown UT, the descent points, and the touchdown as the terminal
+        /// surface position (the vessel's attitude kept). False when the planner declines
+        /// (logged, rate-limited), so the caller falls through to the drag-free tail.
+        /// </summary>
+        internal static bool TryBuildParachuteDescentFinalizationResult(
+            string recordingId,
+            uint vesselPid,
+            ParachuteDescentInput input,
+            out IncompleteBallisticFinalizationResult result)
+        {
+            result = default(IncompleteBallisticFinalizationResult);
+            if (!ParachuteDescentPlanner.TryPlan(input, out ParachuteDescentPlan plan, out string declineReason))
+            {
+                ParsekLog.VerboseRateLimited("Extrapolator",
+                    "chute-descent-declined." + (recordingId ?? vesselPid.ToString(CultureInfo.InvariantCulture)),
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Chute descent declined: rec={0} pid={1} canopy={2} reason={3} alt={4:F1} terrain={5:F1}",
+                        recordingId ?? "(pending)", vesselPid, input.Canopy, declineReason ?? "(none)",
+                        input.Altitude, input.TerrainAltitude),
+                    minIntervalSeconds: 30.0);
+                return false;
+            }
+
+            bool splashed = plan.Terminal == TerminalState.Splashed;
+            result.terminalState = plan.Terminal;
+            result.terminalUT = plan.TouchdownUT;
+            result.predictedDescentPoints = plan.Points;
+            result.extrapolationFailureReason = ExtrapolationFailureReason.None;
+            if (!plan.SurvivesTouchdown)
+            {
+                // Owner ruling 2026-11-21: too fast under its canopies, it crashes at the
+                // ground like a fall (no surface ending, no spawn).
+                LogParachuteDescentDecision(recordingId, vesselPid, input, plan);
+                return true;
+            }
+            result.terminalPosition = new SurfacePosition
+            {
+                body = input.BodyName,
+                latitude = input.Latitude,
+                longitude = input.Longitude,
+                altitude = plan.TouchdownAltitude,
+                rotation = input.SurfaceRelativeRotation,
+                rotationRecorded = true,
+                situation = splashed ? SurfaceSituation.Splashed : SurfaceSituation.Landed
+            };
+            result.terrainHeightAtEnd = plan.GroundAltitude;
+            LogParachuteDescentDecision(recordingId, vesselPid, input, plan);
+            return true;
+        }
+
+        private static void LogParachuteDescentDecision(
+            string recordingId,
+            uint vesselPid,
+            ParachuteDescentInput input,
+            ParachuteDescentPlan plan)
+        {
+            ParsekLog.VerboseRateLimited("Extrapolator",
+                "chute-descent." + (recordingId ?? vesselPid.ToString(CultureInfo.InvariantCulture)),
+                string.Format(CultureInfo.InvariantCulture,
+                    "Chute descent predicted: rec={0} pid={1} canopy={2} openChutes={3} chutePid={4} " +
+                    "body={5} startUT={6:F3} startAlt={7:F1} verticalSpeed={8:F2} deployAgl={9} {10}",
+                    recordingId ?? "(pending)",
+                    vesselPid,
+                    input.Canopy,
+                    input.OpenChuteCount,
+                    input.ChutePartPersistentId,
+                    input.BodyName,
+                    input.StartUT,
+                    input.Altitude,
+                    input.VerticalSpeed,
+                    double.IsNaN(input.FullDeployAltitudeAgl)
+                        ? "-"
+                        : input.FullDeployAltitudeAgl.ToString("F0", CultureInfo.InvariantCulture),
+                    ParachuteDescentPlanner.Describe(plan)),
+                minIntervalSeconds: 10.0);
+        }
+
+        /// <summary>
         /// Pure: true when the recording's part events leave at least one parachute open
         /// (deployed or semi-deployed, and not since cut, destroyed, repacked or decoupled) at
         /// <paramref name="ut"/>. Events at exactly <paramref name="ut"/> count. The first
@@ -3401,9 +3522,12 @@ namespace Parsek
             if (result.appendedOrbitSegments != null && result.appendedOrbitSegments.Count > 0)
                 recording.OrbitSegments.AddRange(result.appendedOrbitSegments);
 
+            int descentPoints = ApplyPredictedDescent(recording, result, logContext);
+
             recording.StampTerminalState(
                 result.terminalState.Value,
-                (logContext ?? "SceneExitFinalizer") + ".Apply");
+                (logContext ?? "SceneExitFinalizer") + ".Apply",
+                predicted: descentPoints > 0 && result.terminalState != TerminalState.Destroyed);
             recording.ExplicitEndUT = result.terminalUT;
             if (result.terminalOrbit.HasValue)
                 StampTerminalOrbit(recording, result.terminalOrbit.Value);
@@ -3424,6 +3548,32 @@ namespace Parsek
             ApplyTerminalSurfaceMetadata(recording, result, ghostOnlySnapshot, logContext);
 
             recording.MarkFilesDirty();
+        }
+
+        /// <summary>
+        /// Appends a predicted chute descent the result carries (a Landed / Splashed touchdown)
+        /// after the recording's last real sample, replacing one an earlier apply left. Returns
+        /// the number of flat points appended (0 when the result carries none).
+        /// </summary>
+        private static int ApplyPredictedDescent(
+            Recording recording,
+            in IncompleteBallisticFinalizationResult result,
+            string logContext)
+        {
+            if (result.predictedDescentPoints == null || result.predictedDescentPoints.Count == 0
+                || (result.terminalState != TerminalState.Landed
+                    && result.terminalState != TerminalState.Splashed
+                    && result.terminalState != TerminalState.Destroyed))
+            {
+                return 0;
+            }
+
+            string context = (logContext ?? "SceneExitFinalizer") + ".Apply";
+            RecordingFinalizationCacheApplier.RemovePredictedDescent(recording, context);
+            if (!RecordingFinalizationCacheApplier.TryGetLastAuthoredUT(recording, out double lastAuthoredUT))
+                lastAuthoredUT = result.predictedDescentPoints[0].ut;
+            return RecordingFinalizationCacheApplier.AppendPredictedDescent(
+                recording, result.predictedDescentPoints, lastAuthoredUT, result.terminalUT, context);
         }
 
         /// <summary>

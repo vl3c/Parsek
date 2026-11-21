@@ -46,6 +46,7 @@ namespace Parsek.Tests.Generators
         private int? terminalState;
         private bool? crewDeathRespawns;
         private bool terminalPredicted;
+        private bool quietDestroyedEnd;
         private double crewDeathRespawnSeconds = double.NaN;
         private MergeState? mergeState;
         private double terrainHeightAtEnd = double.NaN;
@@ -448,6 +449,18 @@ namespace Parsek.Tests.Generators
         {
             terminalState = (int)TerminalState.Destroyed;
             terminalPredicted = true;
+            return this;
+        }
+
+        /// <summary>
+        /// A Destroyed ending stock decided for a chuted craft it deleted out of range
+        /// (Recording.QuietDestroyedEnd; key quietEnd): the ghost comes down under its chutes
+        /// and ends with no explosion.
+        /// </summary>
+        public RecordingBuilder WithQuietDestroyedEnd()
+        {
+            terminalState = (int)TerminalState.Destroyed;
+            quietDestroyedEnd = true;
             return this;
         }
 
@@ -1007,6 +1020,8 @@ namespace Parsek.Tests.Generators
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
             if (terminalPredicted)
                 node.AddValue("terminalPredicted", "True");
+            if (quietDestroyedEnd)
+                node.AddValue("quietEnd", "True");
             if (crewDeathRespawns.HasValue)
             {
                 node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());
@@ -1186,6 +1201,8 @@ namespace Parsek.Tests.Generators
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
             if (terminalPredicted)
                 node.AddValue("terminalPredicted", "True");
+            if (quietDestroyedEnd)
+                node.AddValue("quietEnd", "True");
             if (crewDeathRespawns.HasValue)
             {
                 node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());

@@ -29,6 +29,18 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Pure: a Destroyed ending whose ghost ends without the explosion (owner ruling
+        /// 2026-11-21): a chuted craft stock deleted out of range comes down under its canopies
+        /// to the ground and just ends there.
+        /// </summary>
+        internal static bool IsQuietDestroyedEnd(IPlaybackTrajectory traj)
+        {
+            return traj != null
+                && traj.TerminalStateValue == TerminalState.Destroyed
+                && traj.QuietDestroyedEnd;
+        }
+
         internal static bool TryGetEarlyDestroyedDebrisExplosionUT(
             IPlaybackTrajectory traj, out double explosionUT)
         {

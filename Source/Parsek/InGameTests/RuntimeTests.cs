@@ -27178,6 +27178,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue => null;
         public SurfacePosition? SurfacePos => null;
         public double TerrainHeightAtEnd => double.NaN;
@@ -27275,6 +27276,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue => TerminalState.Destroyed;
         public SurfacePosition? SurfacePos => null;
         public double TerrainHeightAtEnd => double.NaN;
@@ -27375,6 +27377,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue =>
             _terminalDestroyed ? TerminalState.Destroyed : (TerminalState?)null;
         public SurfacePosition? SurfacePos => null;
@@ -27426,6 +27429,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue => null;
         public SurfacePosition? SurfacePos => null;
         public double TerrainHeightAtEnd => double.NaN;
@@ -27509,6 +27513,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue => null;
         public SurfacePosition? SurfacePos => null;
         public double TerrainHeightAtEnd => double.NaN;
@@ -27577,6 +27582,7 @@ namespace Parsek.InGameTests
         public uint LoopAnchorVesselId => 0;
         public double LoopStartUT => double.NaN;
         public double LoopEndUT => double.NaN;
+        public bool QuietDestroyedEnd => false;
         public TerminalState? TerminalStateValue => null;
         public SurfacePosition? SurfacePos => null;
         public double TerrainHeightAtEnd => double.NaN;

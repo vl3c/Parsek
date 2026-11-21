@@ -303,15 +303,27 @@ namespace Parsek
         // --- Terminal state ---
         public TerminalState? TerminalStateValue;      // null = not yet terminated (still recording or legacy)
 
-        // True when the Destroyed terminal is Parsek's own prediction (an extrapolated crash
-        // stamped while KSP still had the vessel, or one it never saw destroyed), false when
-        // KSP actually destroyed the vessel. Only meaningful with a Destroyed terminal; every
-        // other terminal keeps it false. Crew die only on a confirmed destruction (owner
-        // ruling Q6), so a predicted crash leaves its crew Aboard. Persisted sparse as
-        // terminalPredicted (written only when true; absent = false, so a recording written
-        // before the key keeps the Dead crew it always had). Decided only through
-        // StampTerminalState (the codec and the copy sites carry it).
+        // True when the terminal is Parsek's own prediction, false when KSP or the player
+        // reached it. Destroyed: an extrapolated crash stamped while KSP still had the vessel,
+        // or one it never saw destroyed; crew die only on a confirmed destruction (owner
+        // ruling Q6), so a predicted crash leaves its crew Aboard. Landed / Splashed: a chute
+        // descent Parsek predicted to touchdown (owner ruling Q4), which keeps the separation
+        // open for a Re-Fly (Q4c). Every other terminal keeps it false
+        // (Recording.IsPredictableTerminal). Persisted sparse as terminalPredicted (written
+        // only when true; absent = false, so a recording written before the key keeps the
+        // Dead crew it always had). Decided only through StampTerminalState (the codec and the
+        // copy sites carry it).
         public bool TerminalPredicted;
+
+        // True on a Destroyed ending whose replay ends without the destroyed-vessel explosion
+        // (owner ruling 2026-11-21): a chuted craft stock deleted out of range is recorded as
+        // stock decided (vessel gone, crew dead, no spawn), but its ghost comes down under its
+        // canopies to the ground and ends there quietly. A marker, not derived: a chute descent
+        // that ends Destroyed is otherwise a crash (too fast under its canopies, which explodes),
+        // and the stock deletion that tells them apart is not visible in the recorded data.
+        // Persisted sparse as quietEnd (written only when true). Decided only through
+        // StampTerminalState (the codec and the copy sites carry it); kept only with Destroyed.
+        public bool QuietDestroyedEnd;
 
         // Terminal orbit (for Orbiting/SubOrbital terminal state)
         // Stored as Keplerian elements to avoid runtime Orbit object dependency in tests.
@@ -926,15 +938,37 @@ namespace Parsek
         /// <para><paramref name="predicted"/> says whether a Destroyed verdict is Parsek's
         /// own prediction (see <see cref="TerminalPredicted"/>). Every stamp sets the flag, so
         /// a site that does not pass it (every confirmed destruction, every other terminal,
-        /// a retraction) leaves it false; it is kept only with a Destroyed value. A change of
+        /// a retraction) leaves it false; it is kept only with a predictable value (IsPredictableTerminal). A change of
         /// the flag alone (a predicted crash later confirmed, or the reverse) is handed to the
         /// observer too, because the crew end states read it.</para>
-        internal bool StampTerminalState(TerminalState? value, string context, bool predicted = false)
+        /// <summary>
+        /// The endings a prediction can write: a crash (Destroyed) and a chute touchdown
+        /// (Landed / Splashed, owner ruling Q4). <see cref="TerminalPredicted"/> is kept only
+        /// with one of them.
+        /// </summary>
+        internal static bool IsPredictableTerminal(TerminalState? value)
+        {
+            return value == TerminalState.Destroyed
+                || value == TerminalState.Landed
+                || value == TerminalState.Splashed;
+        }
+
+        internal bool StampTerminalState(
+            TerminalState? value, string context, bool predicted = false, bool quietEnd = false)
         {
             TerminalState? previous = TerminalStateValue;
             bool previousPredicted = TerminalPredicted;
             TerminalStateValue = value;
-            TerminalPredicted = predicted && value == TerminalState.Destroyed;
+            TerminalPredicted = predicted && IsPredictableTerminal(value);
+            bool previousQuietEnd = QuietDestroyedEnd;
+            QuietDestroyedEnd = quietEnd && value == TerminalState.Destroyed;
+            if (previousQuietEnd != QuietDestroyedEnd)
+            {
+                ParsekLog.Verbose("Recording",
+                    "terminal quiet-end flag " + (previousQuietEnd ? "true" : "false") + "->"
+                    + (QuietDestroyedEnd ? "true" : "false") + " rec=" + (RecordingId ?? "(null)")
+                    + " context=" + (context ?? "null"));
+            }
             bool predictedChanged = previousPredicted != TerminalPredicted;
             if (predictedChanged)
             {
@@ -1089,6 +1123,7 @@ namespace Parsek
             RecordedVesselGuid = source.RecordedVesselGuid;
             TerminalStateValue = source.TerminalStateValue;
             TerminalPredicted = source.TerminalPredicted;
+            QuietDestroyedEnd = source.QuietDestroyedEnd;
             TerminalOrbitInclination = source.TerminalOrbitInclination;
             TerminalOrbitEccentricity = source.TerminalOrbitEccentricity;
             TerminalOrbitSemiMajorAxis = source.TerminalOrbitSemiMajorAxis;
@@ -1666,6 +1701,7 @@ namespace Parsek
         double IPlaybackTrajectory.LoopStartUT => LoopStartUT;
         double IPlaybackTrajectory.LoopEndUT => LoopEndUT;
         TerminalState? IPlaybackTrajectory.TerminalStateValue => TerminalStateValue;
+        bool IPlaybackTrajectory.QuietDestroyedEnd => QuietDestroyedEnd;
         SurfacePosition? IPlaybackTrajectory.SurfacePos => SurfacePos;
         double IPlaybackTrajectory.TerrainHeightAtEnd => TerrainHeightAtEnd;
         bool IPlaybackTrajectory.PlaybackEnabled => GhostVisible;

@@ -428,9 +428,14 @@ namespace Parsek
             cache.TerminalPosition = result.terminalPosition;
             cache.TerrainHeightAtEnd = result.terrainHeightAtEnd;
             cache.PredictedSegments = ClonePredictedSegments(result.appendedOrbitSegments);
+            cache.PredictedDescentPoints = result.predictedDescentPoints != null
+                ? new List<TrajectoryPoint>(result.predictedDescentPoints)
+                : new List<TrajectoryPoint>();
             cache.TailStartsAtUT = cache.PredictedSegments.Count > 0
                 ? cache.PredictedSegments[0].startUT
-                : refreshUT;
+                : cache.PredictedDescentPoints.Count > 0
+                    ? cache.PredictedDescentPoints[0].ut
+                    : refreshUT;
 
             if (!cache.TerminalOrbit.HasValue
                 && (cache.TerminalState == TerminalState.Orbiting
@@ -939,6 +944,7 @@ namespace Parsek
                 || !cache.TerminalState.HasValue
                 || !IsFinite(observedUT)
                 || (cache.PredictedSegments != null && cache.PredictedSegments.Count > 0)
+                || (cache.PredictedDescentPoints != null && cache.PredictedDescentPoints.Count > 0)
                 || !IsObservedStableTerminal(cache.TerminalState.Value))
             {
                 return false;
@@ -1311,23 +1317,30 @@ namespace Parsek
         /// <summary>
         /// True when <paramref name="cache"/> carries a predicted fall that ends after
         /// <paramref name="refreshUT"/>: an applicable Destroyed terminal later than the
-        /// refresh with at least one predicted segment to draw it.
+        /// refresh with at least one predicted segment or a chute descent to draw it.
         /// </summary>
         internal static bool IsPredictedFallCache(RecordingFinalizationCache cache, double refreshUT)
         {
-            return IsPotentiallyApplicableCache(cache)
-                && cache.TerminalState.Value == TerminalState.Destroyed
-                && IsFinite(refreshUT)
-                && cache.TerminalUT > refreshUT + RecordingFinalizationCacheApplier.UtEpsilon
-                && cache.PredictedSegments != null
-                && cache.PredictedSegments.Count > 0;
+            if (!IsPotentiallyApplicableCache(cache)
+                || !IsFinite(refreshUT)
+                || cache.TerminalUT <= refreshUT + RecordingFinalizationCacheApplier.UtEpsilon)
+            {
+                return false;
+            }
+            return cache.TerminalState.Value == TerminalState.Destroyed
+                && ((cache.PredictedSegments != null && cache.PredictedSegments.Count > 0)
+                    || RecordingFinalizationCacheApplier.IsPredictedDescentCache(cache));
         }
 
         /// <summary>
-        /// The ending of a stock deletion is always Destroyed: the vessel is gone. A predicted
-        /// impact (Destroyed) is kept with its tail; a predicted touchdown (Landed / Splashed,
-        /// a ballistic ground contact the deletion beat) becomes Destroyed at the same UT with
-        /// the same tail; anything else (a stable or open orbit, a decline, a failure) carries
+        /// The ending of a stock deletion is always Destroyed: the vessel is gone, and so is a
+        /// chuted craft's crew (owner ruling 2026-11-21: Parsek never saves or spawns what stock
+        /// killed or deleted). A predicted impact (Destroyed, with orbit segments or a chute
+        /// descent) is kept with its tail; a predicted touchdown (Landed / Splashed: a ballistic
+        /// ground contact or a chute descent the deletion beat) becomes Destroyed at the same UT
+        /// with the same tail, and a chute touchdown is marked to end quietly
+        /// (<see cref="RecordingFinalizationCache.QuietEnd"/>: the ghost comes down under its
+        /// canopies and ends with no explosion); anything else (a stable or open orbit, a decline, a failure) carries
         /// no fall and becomes "Destroyed now" at the refresh UT with no tail, so
         /// <see cref="ResolveStockOnRailsDeletionCache"/> can still prefer an earlier fall.
         /// </summary>
@@ -1338,23 +1351,27 @@ namespace Parsek
         {
             TerminalState? fresh = cache.TerminalState;
             string outcome;
+            bool carriesTail = (cache.PredictedSegments != null && cache.PredictedSegments.Count > 0)
+                || RecordingFinalizationCacheApplier.IsPredictedDescentCache(cache);
             if (success
                 && fresh.HasValue
                 && (fresh.Value == TerminalState.Landed || fresh.Value == TerminalState.Splashed)
                 && IsFinite(cache.TerminalUT)
                 && cache.TerminalUT >= refreshUT
-                && cache.PredictedSegments != null
-                && cache.PredictedSegments.Count > 0)
+                && carriesTail)
             {
                 cache.TerminalState = TerminalState.Destroyed;
                 cache.TerminalOrbit = null;
-                outcome = "touchdown-as-impact";
+                cache.TerminalPosition = null;
+                cache.TerrainHeightAtEnd = null;
+                cache.QuietEnd = RecordingFinalizationCacheApplier.IsPredictedDescentCache(cache);
+                outcome = cache.QuietEnd ? "chute-touchdown-quiet-end" : "touchdown-as-impact";
             }
             else if (success
                 && fresh == TerminalState.Destroyed
                 && IsFinite(cache.TerminalUT)
                 && cache.TerminalUT >= refreshUT - RecordingFinalizationCacheApplier.UtEpsilon
-                && ((cache.PredictedSegments != null && cache.PredictedSegments.Count > 0)
+                && (carriesTail
                     || cache.TerminalUT <= refreshUT + RecordingFinalizationCacheApplier.UtEpsilon))
             {
                 // A future impact needs the tail that reaches it; a Destroyed with no
@@ -1373,6 +1390,7 @@ namespace Parsek
                 cache.TerrainHeightAtEnd = null;
                 cache.TailStartsAtUT = refreshUT;
                 cache.PredictedSegments = new List<OrbitSegment>();
+                cache.PredictedDescentPoints = new List<TrajectoryPoint>();
                 outcome = "destroyed-now";
             }
 
@@ -1380,14 +1398,17 @@ namespace Parsek
                 string.Format(
                     CultureInfo.InvariantCulture,
                     "Stock deletion refresh: rec={0} pid={1} outcome={2} extrapolated={3} " +
-                    "terminalUT={4:F3} refreshUT={5:F3} segments={6} eagerRecordingStamp=False",
+                    "terminalUT={4:F3} refreshUT={5:F3} segments={6} eagerRecordingStamp=False " +
+                    "descentPoints={7} quietEnd={8}",
                     cache.RecordingId ?? "(pending)",
                     cache.VesselPersistentId,
                     outcome,
                     success && fresh.HasValue ? fresh.Value.ToString() : "(none)",
                     cache.TerminalUT,
                     refreshUT,
-                    cache.PredictedSegments?.Count ?? 0));
+                    cache.PredictedSegments?.Count ?? 0,
+                    cache.PredictedDescentPoints?.Count ?? 0,
+                    cache.QuietEnd));
             return true;
         }
 

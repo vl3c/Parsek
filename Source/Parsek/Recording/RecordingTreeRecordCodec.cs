@@ -29,10 +29,12 @@ namespace Parsek
 
             if (rec.TerminalStateValue.HasValue)
                 recNode.AddValue("terminalState", ((int)rec.TerminalStateValue.Value).ToString(ic));
-            // Sparse: only a predicted Destroyed ending carries it, so every other recording
+            // Sparse: only a predicted crash or touchdown carries it, so every other recording
             // stays byte-identical and an older save reads as confirmed (its crew stay Dead).
             if (rec.TerminalPredicted)
                 recNode.AddValue("terminalPredicted", "True");
+            if (rec.QuietDestroyedEnd)
+                recNode.AddValue("quietEnd", "True");
             if (rec.EndpointPhase != RecordingEndpointPhase.Unknown)
                 recNode.AddValue("endpointPhase", ((int)rec.EndpointPhase).ToString(ic));
             if (!string.IsNullOrEmpty(rec.EndpointBodyName))
@@ -670,10 +672,12 @@ namespace Parsek
                             "is unknown to this build (a newer ending kind); held verbatim and written back");
                 }
             }
-            // Read with the terminal it qualifies: kept only beside a Destroyed ending
-            // (an absent key, or any other ending, reads false).
-            rec.TerminalPredicted = rec.TerminalStateValue == TerminalState.Destroyed
+            // Read with the terminal it qualifies: kept only beside a Destroyed, Landed or
+            // Splashed ending (an absent key, or any other ending, reads false).
+            rec.TerminalPredicted = Recording.IsPredictableTerminal(rec.TerminalStateValue)
                 && ParseBoolOr(recNode, "terminalPredicted", false);
+            rec.QuietDestroyedEnd = rec.TerminalStateValue == TerminalState.Destroyed
+                && ParseBoolOr(recNode, "quietEnd", false);
 
             string endpointPhaseStr = recNode.GetValue("endpointPhase");
             if (endpointPhaseStr != null)

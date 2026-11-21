@@ -16,6 +16,7 @@ namespace Parsek
         public double LastRealUT;
         public int RemovedSegmentCount;
         public int ClippedSegmentCount;
+        public int RemovedDescentPointCount;
         public TerminalState? PreviousTerminal;
         public bool PreviousTerminalPredicted;
         public double PreviousExplicitEndUT;
@@ -98,6 +99,8 @@ namespace Parsek
                 return false;
             if (CountPredictedSegmentsPast(rec, lastRealUT) > 0)
                 return true;
+            if (RecordingFinalizationCacheApplier.TryGetPredictedSectionStartUT(rec, out _))
+                return true;
             return rec.TerminalStateValue.HasValue
                 && IsFinite(rec.ExplicitEndUT)
                 && rec.ExplicitEndUT > lastRealUT + PredictedTerminalUTToleranceSeconds;
@@ -175,6 +178,9 @@ namespace Parsek
                 }
             }
 
+            result.RemovedDescentPointCount = RecordingFinalizationCacheApplier.RemovePredictedDescent(
+                rec, "PredictedEndingTakeover:" + (context ?? "(none)"));
+
             if (rec.TerminalStateValue.HasValue)
             {
                 rec.StampTerminalState(null, "PredictedEndingTakeover:" + (context ?? "(none)"));
@@ -197,7 +203,8 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "Predicted ending dropped for takeover: context={0} rec={1} vessel='{2}' pid={3} " +
                     "takeoverUT={4} lastRealUT={5} cutUT={6} removedSegments={7} clippedSegments={8} " +
-                    "previousTerminal={9} previousTerminalPredicted={10} previousExplicitEndUT={11}",
+                    "previousTerminal={9} previousTerminalPredicted={10} previousExplicitEndUT={11} " +
+                    "removedDescentPoints={12}",
                     context ?? "(none)",
                     rec.RecordingId ?? "(null)",
                     rec.VesselName ?? "",
@@ -209,7 +216,8 @@ namespace Parsek
                     result.ClippedSegmentCount,
                     result.PreviousTerminal.HasValue ? result.PreviousTerminal.Value.ToString() : "null",
                     result.PreviousTerminalPredicted ? "true" : "false",
-                    FormatUT(result.PreviousExplicitEndUT)));
+                    FormatUT(result.PreviousExplicitEndUT),
+                    result.RemovedDescentPointCount));
             return result;
         }
 
@@ -264,9 +272,13 @@ namespace Parsek
         internal static bool ShouldHidePredictedTailGhostWhileVesselLives(
             Recording rec, double currentUT, Func<Recording, bool> realVesselExists)
         {
-            if (rec?.OrbitSegments == null || rec.OrbitSegments.Count == 0 || realVesselExists == null)
+            if (rec == null || realVesselExists == null || !IsFinite(currentUT))
                 return false;
-            if (!IsFinite(currentUT))
+            // A predicted chute descent is a tail too (a predicted section past the last real
+            // sample).
+            if (RecordingFinalizationCacheApplier.TryGetPredictedSectionStartUT(rec, out double descentStartUT))
+                return currentUT > descentStartUT + UtEpsilon && realVesselExists(rec);
+            if (rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
                 return false;
             // The predicted tail is a suffix: an untouched last segment means no tail.
             if (!rec.OrbitSegments[rec.OrbitSegments.Count - 1].isPredicted)

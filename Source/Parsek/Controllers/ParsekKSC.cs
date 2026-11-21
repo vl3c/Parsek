@@ -2008,6 +2008,15 @@ namespace Parsek
             if (state == null || state.ghost == null) return;
             if (state.explosionFired) return;
             if (rec.TerminalStateValue != TerminalState.Destroyed) return;
+            if (GhostPlaybackLogic.IsQuietDestroyedEnd(rec))
+            {
+                state.explosionFired = true;
+                GhostPlaybackLogic.HideAllGhostParts(state);
+                ParsekLog.VerboseRateLimited("KSCGhost", $"quiet-end-{recIdx}",
+                    $"Quiet end for ghost #{recIdx} \"{rec.VesselName}\": stock deleted it under its chutes; " +
+                    "the ghost came down and ends with no explosion");
+                return;
+            }
 
             float warpRate = TimeWarp.CurrentRate;
             double viewDistance = ResolveKscCameraDistance(state.ghost);

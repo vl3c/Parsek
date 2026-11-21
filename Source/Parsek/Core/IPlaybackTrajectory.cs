@@ -65,6 +65,9 @@ namespace Parsek
 
         // === Terminal state (for explosion FX) ===
         TerminalState? TerminalStateValue { get; }
+        // A Destroyed ending whose replay ends without the explosion: a chuted craft stock
+        // deleted out of range comes down under its canopies to the ground and ends quietly.
+        bool QuietDestroyedEnd { get; }
 
         // === Surface hold ===
         SurfacePosition? SurfacePos { get; }

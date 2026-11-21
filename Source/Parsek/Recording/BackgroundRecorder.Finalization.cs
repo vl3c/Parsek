@@ -729,7 +729,11 @@ namespace Parsek
                 TerrainHeightAtEnd = cache.TerrainHeightAtEnd,
                 PredictedSegments = cache.PredictedSegments != null
                     ? new List<OrbitSegment>(cache.PredictedSegments)
-                    : new List<OrbitSegment>()
+                    : new List<OrbitSegment>(),
+                PredictedDescentPoints = cache.PredictedDescentPoints != null
+                    ? new List<TrajectoryPoint>(cache.PredictedDescentPoints)
+                    : new List<TrajectoryPoint>(),
+                QuietEnd = cache.QuietEnd
             };
 
             if (IsFiniteUT(scoped.TerminalUT)
@@ -926,7 +930,11 @@ namespace Parsek
                 TerrainHeightAtEnd = source.TerrainHeightAtEnd,
                 PredictedSegments = source.PredictedSegments != null
                     ? new List<OrbitSegment>(source.PredictedSegments)
-                    : new List<OrbitSegment>()
+                    : new List<OrbitSegment>(),
+                PredictedDescentPoints = source.PredictedDescentPoints != null
+                    ? new List<TrajectoryPoint>(source.PredictedDescentPoints)
+                    : new List<TrajectoryPoint>(),
+                QuietEnd = source.QuietEnd
             };
         }
 
