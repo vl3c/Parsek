@@ -14,7 +14,14 @@ id = "SS-1-spawn-safety-corrections"
 # load-time save: `Batch baseline: restored campaign persistent.sfs (289462 bytes) from
 # batch-start backup; later FlushAndQuit saves are suppressed`. ListHandles had both
 # recordings spawned at the c2 mark. Fix: a `SaveGame name=persistent` before the batch,
-# so the backup it restores already holds both spawns. Not re-flown since.
+# so the backup it restores already holds both spawns.
+# RE-FLOWN 2026-11-20, LIVE-PROVEN: run 2026-11-20_2149, PASS attempt 1, 153 s
+# (parallel runner run tip-spawn-reflight-2026-11-20, main c11d6cde2, Debug DLL 72189e6d...).
+# The fix held: both spawns (`Spawning vessel: "Situation Hopper" sit=LANDED`, the Low
+# Perigee Probe deferred, then `Terminal spawn succeeded after defer` at UT 1002.75), the
+# armed census green, and the LeafVesselPlacement batch `total=1 passed=1 failed=0
+# skipped=0` (compared=1 ok=1 unsupported=1: the synthetic Situation Hopper carries no
+# TerminalPosition), now pinned whole; the id left INTERIM_PIN_IDS.
 # -------------------------------------------------------------------------------------
 # D13 `situation-correction` + `terminal-orbit-safety` (catalog: spawn safety). Two
 # end-of-recording spawn guards driven through the real flight-scene spawn path by an
@@ -202,12 +209,12 @@ required  = [
   "Terminal spawn succeeded after defer: rec=terminal-orbit-safety-rec",
   # In order: deferred, held, spawned.
   "Terminal orbit spawn deferred: rec=terminal-orbit-safety-rec[\\s\\S]*?Deferred spawn held for terminal orbit safety: #[0-9]+ \"Low Perigee Probe\"[\\s\\S]*?Terminal spawn succeeded after defer: rec=terminal-orbit-safety-rec",
-  # Added 2026-11-17 (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 3; NOT YET RE-FLOWN):
+  # Added 2026-11-17 (todo END-SPAWN-SCENE-LANES-2026-11-17, scope 3; green 2026-11-20_2149):
   # LeafVesselPlacement.cs (FormatSummary) + InGameTestRunner.cs. The Low Perigee Probe,
   # spawned after its safety deferral, sits on its recorded terminal orbit; the synthetic
   # Situation Hopper carries no TerminalPosition, so it reads unsupported, not compared.
   "MISSIONMARK label=ss1-placement [\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
   # The pre-batch save the produced save's structure reads (2026-11-17 fix).
   "savegame name=persistent folder=\\S+ saved=true[\\s\\S]*?MISSIONMARK label=ss1-placement ",
 ]

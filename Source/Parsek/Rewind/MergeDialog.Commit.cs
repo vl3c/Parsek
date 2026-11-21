@@ -114,7 +114,23 @@ namespace Parsek
             var retainedParentChainTipCandidates =
                 CollectRetainedParentChainTipAdoptionCandidates(
                     tree, decisions, activeReFlyTargetId);
-            TreeCommitService.CommitPendingTree();
+            if (!TreeCommitService.CommitPendingTree())
+            {
+                // The commit added nothing (a duplicate of a committed tree; the slot is
+                // cleared): no ledger notify, no Re-Fly supersede, no "Merged" toast. A player
+                // who clicked Merge (reShowDialogOnRefusal marks the dialog buttons) is told
+                // plainly; a silent auto-commit says nothing on screen.
+                ParsekLog.Warn("MergeDialog",
+                    $"User chose: Tree Merge (tree='{tree.TreeName}', " +
+                    $"recordings={tree.Recordings.Count}) - commit skipped as a duplicate of the " +
+                    $"committed tree; nothing merged, pending tree dropped, no success toast " +
+                    $"(announced={(reShowDialogOnRefusal ? "true" : "false")})");
+                ClearPendingFlag("merge dialog commit skipped as duplicate");
+                if (reShowDialogOnRefusal)
+                    ParsekLog.ScreenMessage(
+                        "Nothing new to merge: this flight is already in the timeline", 4f);
+                return;
+            }
             // Phase C/F: mark recordings fully applied after the tree moves
             // from pending to committed state.
             RecordingStore.MarkTreeAsApplied(tree);
@@ -170,7 +186,24 @@ namespace Parsek
             }
 
             ClearPendingFlag("merge dialog commit button");
+            // The tree is committed either way, so the committed listeners (ghost chain
+            // re-evaluation) always run.
+            ParsekLog.Verbose("MergeDialog",
+                $"MergeCommit: committed-tree listeners notified tree='{tree.TreeName}' " +
+                $"reFlyResult={reFlyResult}");
             OnTreeCommitted?.Invoke(tree);
+            if (reFlyResult == ReFlyMergeCommitResult.Interrupted)
+            {
+                // The Re-Fly supersede did not finish: the "Merge interrupted" toast already
+                // told the player, and the journal (when one exists) finishes on the next
+                // load. A route prompt or a "Merged" toast would announce a merge that has
+                // not happened.
+                ParsekLog.Warn("MergeDialog",
+                    $"User chose: Tree Merge (tree='{tree.TreeName}', " +
+                    $"recordings={tree.Recordings.Count}) - Re-Fly supersede interrupted; " +
+                    "route prompt and the merged toast suppressed");
+                return;
+            }
             // M6 Record-Supply-Run helper: one-time non-blocking prompt when
             // this commit produced an eligible route candidate. After
             // OnTreeCommitted so downstream state (ghost chains) is settled;

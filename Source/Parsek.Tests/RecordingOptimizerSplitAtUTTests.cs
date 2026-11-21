@@ -172,6 +172,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SplitAtUT_CrashedFlight_VesselDestroyedMovesWithTheTerminal()
+        {
+            // M9: the HEAD used to keep VesselDestroyed with no terminal.
+            ParsekLog.VerboseOverrideForTesting = true;
+            var rec = MakeSimpleRecording(8.0, 53.0, "rec-crashed", midUT: 34.0);
+            rec.VesselDestroyed = true;
+            rec.TerminalStateValue = TerminalState.Destroyed;
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+            Assert.Null(rec.TerminalStateValue);
+            Assert.False(rec.VesselDestroyed);
+            Assert.Equal(TerminalState.Destroyed, tip.TerminalStateValue);
+            Assert.True(tip.VesselDestroyed);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("VesselDestroyed moved with the terminal"));
+        }
+
+        [Fact]
+        public void MergeInto_DestroyedTarget_RefusesAndCanAutoMergeRefusesUpFront()
+        {
+            var head = MakeSimpleRecording(8.0, 34.0, "rec-head");
+            head.ChainId = "chain-m9";
+            head.ChainIndex = 0;
+            head.VesselDestroyed = true;
+            var tail = MakeSimpleRecording(34.0, 53.0, "rec-tail");
+            tail.ChainId = "chain-m9";
+            tail.ChainIndex = 1;
+
+            Assert.False(RecordingOptimizer.CanAutoMerge(head, tail));
+            Assert.Null(RecordingOptimizer.MergeInto(head, tail));
+            Assert.Equal(34.0, head.EndUT);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("MergeInto: refused - target is already destroyed"));
+        }
+
+        [Fact]
         public void SplitAtUT_OriginEntirelyPreSplitUT_ReturnsNull()
         {
             var rec = MakeSimpleRecording(8.0, 30.0, "rec-pre");

@@ -673,6 +673,107 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
+        // 6a. Relative sections of other recordings follow the cut (L12)
+        // =====================================================================
+
+        private static TrackSection RelativeSection(double startUT, double endUT, string anchorId)
+        {
+            return new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Relative,
+                anchorRecordingId = anchorId,
+                startUT = startUT,
+                endUT = endUT,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = new List<TrajectoryPoint> { PointAt(startUT), PointAt(endUT) },
+            };
+        }
+
+        [Fact]
+        public void SplitOriginAtRewindUT_OtherRecordingsRelativeSectionsAfterTheCut_FollowTip()
+        {
+            // L12: a vessel recorded relative to the origin after the rewind UT kept its
+            // anchor on HEAD, which ends at the rewind UT, so its ghost lost the anchor.
+            var origin = BuildRecording("rec_origin", 8.0, 53.0, midUT: 34.0,
+                treeId: "tree_l12", terminal: TerminalState.Orbiting);
+            var tree = InstallOriginInTree(origin, "tree_l12");
+
+            var docker = new Recording
+            {
+                RecordingId = "rec_docker", VesselName = "docker", TreeId = "tree_other",
+                MergeState = MergeState.Immutable,
+            };
+            docker.TrackSections.Add(RelativeSection(10.0, 20.0, origin.RecordingId));
+            docker.TrackSections.Add(RelativeSection(30.0, 38.0, origin.RecordingId));
+            docker.TrackSections.Add(RelativeSection(40.0, 50.0, origin.RecordingId));
+            docker.Points.Add(PointAt(10.0));
+            docker.Points.Add(PointAt(50.0));
+            RecordingStore.AddCommittedInternal(docker);
+
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+            var attempt = new Recording
+            {
+                RecordingId = "rec_attempt_child", VesselName = "attempt", TreeId = "tree_l12",
+                MergeState = MergeState.NotCommitted, CreatingSessionId = marker.SessionId,
+            };
+            attempt.TrackSections.Add(RelativeSection(40.0, 50.0, origin.RecordingId));
+            attempt.Points.Add(PointAt(40.0));
+            attempt.Points.Add(PointAt(50.0));
+            tree.AddOrReplaceRecording(attempt);
+            RecordingStore.AddCommittedInternal(attempt);
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.False(result.Skipped);
+            Assert.Equal(origin.RecordingId, docker.TrackSections[0].anchorRecordingId);
+            Assert.Equal(origin.RecordingId, docker.TrackSections[1].anchorRecordingId);
+            Assert.Equal(result.TipRecordingId, docker.TrackSections[2].anchorRecordingId);
+            Assert.Equal(origin.RecordingId, attempt.TrackSections[0].anchorRecordingId);
+            Assert.Equal(1, result.OtherAnchorRewrites);
+            Assert.Equal(1, result.OtherAnchorStraddlers);
+            Assert.True(docker.FilesDirty);
+            Assert.Contains(logLines, l => l.Contains("Step8: anchor rewrites")
+                && l.Contains("otherSections=1") && l.Contains("otherStraddlersKeptOnHead=1"));
+        }
+
+        // =====================================================================
+        // 6a'. The cut never lands inside a time jump (owner ruling Q18)
+        // =====================================================================
+
+        [Fact]
+        public void SplitOriginAtRewindUT_RewindInsideATimeJump_CutsAtTheJumpStart_AndReentryIsIdempotent()
+        {
+            var origin = BuildRecording("rec_origin", 8.0, 53.0, midUT: 30.0,
+                treeId: "tree_q18", terminal: TerminalState.Orbiting);
+            origin.SegmentEvents.Add(TimeJumpManager.CreateTimeJumpEvent(
+                30.0, 40.0, 0, 0, 0, 0f, 0f, 0f));
+            InstallOriginInTree(origin, "tree_q18");
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.False(result.Skipped);
+            var tip = FindCommitted(result.TipRecordingId);
+            Assert.NotNull(tip);
+            Assert.Equal(30.0, origin.EndUT, 6);
+            Assert.Equal(30.0, tip.StartUT, 6);
+            Assert.Contains(tip.SegmentEvents, e => e.type == SegmentEventType.TimeJump);
+            Assert.Contains(logLines, l => l.Contains("Re-Fly cut moved out of time-jump")
+                && l.Contains("rewindUT=34.00") && l.Contains("cutUT=30.00"));
+
+            // A finisher re-run after the marker names TIP resolves the same cut.
+            int committedBefore = RecordingStore.CommittedRecordings.Count;
+            Assert.Equal(tip.RecordingId, marker.SupersedeTargetId);
+            var again = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+            Assert.Equal(committedBefore, RecordingStore.CommittedRecordings.Count);
+            Assert.Equal(tip.RecordingId, again.TipRecordingId);
+            Assert.Contains(logLines, l => l.Contains("idempotent re-entry"));
+        }
+
+        // =====================================================================
         // 6b. Continuation-parented redo debris is NOT reparented to TIP
         // =====================================================================
 
