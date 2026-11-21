@@ -170,6 +170,16 @@ namespace Parsek.TestCommands
             return outp;
         }
 
+        /// <summary>The number of covered pixels (alpha &gt;= 0.5) of an RGBA8 image; 0 for null.</summary>
+        internal static int CoveragePx(byte[] rgba)
+        {
+            if (rgba == null) return 0;
+            int n = 0;
+            for (int i = 3; i < rgba.Length; i += 4)
+                if (rgba[i] >= CoverageAlphaByte) n++;
+            return n;
+        }
+
         /// <summary>The coverage mask (alpha &gt;= 0.5) of an RGBA8 image.</summary>
         internal static bool[] CoverageMask(byte[] rgba)
         {

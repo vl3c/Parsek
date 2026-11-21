@@ -150,37 +150,100 @@ namespace Parsek.TestCommands
             wc.GhostRenderers = new List<Renderer>(root.GetComponentsInChildren<Renderer>(true));
             var meshRenderers = new List<Renderer>();
             wc.GhostRecords = Records(partT, wc.GhostRenderers, wc.GhostLayers, meshRenderers);
-            if (wc.ControlId != TestCommandPartParitySweep.ControlGhostMissingMesh) return;
+            wc.GhostMeshRenderers = meshRenderers;
+        }
 
-            // Hide the renderer the pick rule chooses on the LIVE ghost's records and shared
-            // box (the same rule the prefab pre-pass used to choose the subject), then re-read
-            // the records so the structure shows it as not rendered.
-            PartParityFramingDecision pre = PartParityFramingRule.Decide(wc.RealRecords, wc.GhostRecords);
-            PartParityMissingMeshPick pick = PartParitySweepPlan.ChooseMissingMeshRenderer(
-                wc.Entry?.Name ?? wc.Key?.Part, wc.GhostRecords, pre.Shared, wc.Views);
-            if (pick.RendererIndex < 0)
+        /// <summary>
+        /// The missing-mesh control's MEASURED pick (design 4.5), run after the ghost is built
+        /// and framed, before any view, at the end of a frame: each rendered ghost renderer is
+        /// drawn ALONE once per view through the capture primitive (same camera, box, light
+        /// rig and clears as the views), and so is the whole ghost; the pure size rule
+        /// (<see cref="PartParitySweepPlan.ChooseMeasuredRenderer"/>) picks by those pixel
+        /// counts only, never by an outcome. The pick is forced off and the ghost records
+        /// re-read so the structure shows it; the views keep the box, ortho size and culling
+        /// mask the counts were measured in. No renderer in the window (or a failure) flags
+        /// the case <c>control-no-subject</c> with the counts.
+        /// </summary>
+        internal static void MeasuredHide(StepContext ctx, WaveCase wc)
+        {
+            string subject = wc.Entry?.Name ?? wc.Key?.Part;
+            if (wc.Ghost?.Build?.root == null || wc.GhostMeshRenderers == null || wc.Shared == null)
             {
-                wc.Flags.Add(PartParitySweepPlan.FlagControlNoSubject);
-                wc.Detail = wc.Detail ?? "no-subject: live ghost " + pick.Describe();
-                ParsekLog.Warn(PartParitySweepRunner.Tag, $"case {wc.CaseId}: no live ghost renderer in the window ({pick.Describe()})");
+                NoMeasuredSubject(wc, subject, "no ghost to measure", null);
                 return;
             }
-            int target = pick.RendererIndex;
-            meshRenderers[target].enabled = false;
+            Part part = wc.Real.rootPart;
+            Transform ghostRoot = wc.Ghost.Build.root.transform;
+            var all = new List<Renderer>();
+            foreach (Renderer r in part.GetComponentsInChildren<Renderer>(true))
+                if (r != null && !r.transform.IsChildOf(ghostRoot)) all.Add(r);
+            all.AddRange(wc.GhostRenderers);
+
+            var candidates = new List<int>();
+            var labels = new List<string>();
+            for (int i = 0; i < wc.GhostRecords.Count; i++)
+            {
+                if (!wc.GhostRecords[i].Rendered) continue;
+                candidates.Add(i);
+                labels.Add(wc.GhostRecords[i].Path);
+            }
+            var sets = new List<IList<Renderer>> { wc.GhostRenderers };
+            foreach (int i in candidates) sets.Add(new List<Renderer> { wc.GhostMeshRenderers[i] });
+
+            int views = wc.Views.Count;
+            var full = new int[views];
+            var solo = new List<int[]>();
+            for (int k = 0; k < candidates.Count; k++) solo.Add(new int[views]);
+            for (int v = 0; v < views; v++)
+            {
+                int[] px = ctx.Capture.MeasureCoverage(part.transform, wc.Shared, wc.OrthoSize, wc.Views[v],
+                    all, sets, wc.CullingMask, out string error);
+                if (px == null)
+                {
+                    NoMeasuredSubject(wc, subject, "measure " + wc.Views[v] + ": " + error, null);
+                    return;
+                }
+                full[v] = px[0];
+                for (int k = 0; k < candidates.Count; k++) solo[k][v] = px[k + 1];
+            }
+            string counts = PartParitySweepPlan.FormatMeasuredCounts(wc.Views, full, labels, solo);
+            ParsekLog.Verbose(PartParitySweepRunner.Tag, $"case {wc.CaseId}: missing-mesh measured counts " +
+                $"subject={subject ?? "<none>"} candidates={candidates.Count.ToString(Ic)} {counts}");
+
+            int chosen = PartParitySweepPlan.ChooseMeasuredRenderer(solo, full);
+            if (chosen < 0)
+            {
+                NoMeasuredSubject(wc, subject, "no ghost renderer in the size window", counts);
+                return;
+            }
+            int target = candidates[chosen];
+            wc.GhostMeshRenderers[target].enabled = false;
+            string pick = PartParitySweepPlan.FormatMeasuredPick(subject, wc.GhostRecords[target].Path, wc.Views,
+                solo[chosen], full, null);
             wc.Flags.Add(FlagMissingMeshTargetPrefix + wc.GhostRecords[target].Path);
-            wc.Flags.RemoveAll(f => f.StartsWith(PartParitySweepPlan.FlagControlPickPrefix, StringComparison.Ordinal));
-            wc.Flags.Add(PartParitySweepPlan.FlagControlPickPrefix + pick.Describe());
-            ParsekLog.Info(PartParitySweepRunner.Tag, $"case {wc.CaseId}: missing-mesh live pick {pick.Describe()} " +
-                "(prefab pick " + (wc.MissingMeshPick != null ? wc.MissingMeshPick.Describe() : "<none>") + ")");
+            wc.Flags.Add(PartParitySweepPlan.FlagControlPickPrefix + pick);
+            ParsekLog.Info(PartParitySweepRunner.Tag, $"case {wc.CaseId}: missing-mesh measured pick {pick} " +
+                "(prefab order " + (wc.MissingMeshSubject != null ? wc.MissingMeshSubject.Describe(wc.Views) : "<none>") + ")");
             wc.GhostLayers.Clear();
-            wc.GhostRecords = Records(partT, wc.GhostRenderers, wc.GhostLayers, null);
+            wc.GhostRecords = Records(part.transform, wc.GhostRenderers, wc.GhostLayers, null);
+            wc.Framing = PartParityFramingRule.Decide(wc.RealRecords, wc.GhostRecords);
+        }
+
+        private static void NoMeasuredSubject(WaveCase wc, string subject, string why, string counts)
+        {
+            wc.Flags.Add(PartParitySweepPlan.FlagControlNoSubject);
+            wc.Detail = wc.Detail ?? "no-subject: " + why;
+            ParsekLog.Info(PartParitySweepRunner.Tag, $"case {wc.CaseId}: missing-mesh measured pick " +
+                PartParitySweepPlan.FormatMeasuredPick(subject, null, wc.Views, null, null, why) +
+                " (control bad, no-subject)" + (counts != null ? " counts " + counts : string.Empty));
         }
 
         /// <summary>
         /// One missing-mesh candidate from a part prefab (design 4.5): its renderer records in
         /// prefab-root space, with <c>Rendered</c> read from the prefab's OWN active chain (the
-        /// prefab root is inactive, so <c>activeInHierarchy</c> is false everywhere), and
-        /// whether it carries any Animation. Null when the part has no prefab.
+        /// prefab root is inactive, so <c>activeInHierarchy</c> is false everywhere), whether it
+        /// carries any Animation, and its PartModule names (type names and module names).
+        /// Null when the part has no prefab.
         /// </summary>
         internal static PartParityMissingMeshCandidate PrefabCandidate(string name, AvailablePart info)
         {
@@ -195,12 +258,19 @@ namespace Parsek.TestCommands
                 Renderer r = meshRenderers[i];
                 records[i].Rendered = r.enabled && !r.forceRenderingOff && ActiveBelow(r.transform, root);
             }
-            return new PartParityMissingMeshCandidate
+            var c = new PartParityMissingMeshCandidate
             {
                 Subject = name,
                 HasAnimation = prefab.GetComponentsInChildren<Animation>(true).Length > 0,
                 Records = records,
             };
+            foreach (PartModule m in prefab.GetComponents<PartModule>())
+                if (m != null) c.ModuleNames.Add(m.GetType().Name);
+            if (prefab.Modules != null)
+                foreach (PartModule m in prefab.Modules)
+                    if (m != null && !string.IsNullOrEmpty(m.moduleName) && !c.ModuleNames.Contains(m.moduleName))
+                        c.ModuleNames.Add(m.moduleName);
+            return c;
         }
 
         private static bool ActiveBelow(Transform t, Transform root)

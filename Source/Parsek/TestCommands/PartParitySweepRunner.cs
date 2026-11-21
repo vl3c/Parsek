@@ -614,6 +614,21 @@ namespace Parsek.TestCommands
             {
                 Guard(ctx, wc, "prepare", () => PartParityCaseCapture.Prepare(ctx, wc));
                 if (wc.Status != null || wc.Shared == null) yield break;
+                if (wc.ControlId == TestCommandPartParitySweep.ControlGhostMissingMesh
+                    && !wc.Flags.Contains(PartParitySweepPlan.FlagControlNoSubject))
+                {
+                    // The measured pick renders, so it runs where the views do: at a frame end.
+                    yield return new WaitForEndOfFrame();
+                    if (wc.Real == null || wc.Real.rootPart == null || wc.Real.state == Vessel.State.DEAD)
+                    {
+                        wc.Status = TestCommandPartParitySweep.SetupDiedSettling;
+                        wc.Detail = "vessel lost before the missing-mesh pick";
+                        yield break;
+                    }
+                    Guard(ctx, wc, "pick", () => PartParityCaseCapture.MeasuredHide(ctx, wc));
+                    if (wc.Flags.Contains("exception-pick") && !wc.Flags.Contains(PartParitySweepPlan.FlagControlNoSubject))
+                        wc.Flags.Add(PartParitySweepPlan.FlagControlNoSubject);
+                }
                 foreach (string view in wc.Views)
                 {
                     yield return new WaitForEndOfFrame();
@@ -708,16 +723,13 @@ namespace Parsek.TestCommands
                 CaseId = id, Index = -1, ControlId = id,
                 Views = new List<string>(TestCommandPartParitySweep.RequiredViews),
             };
-            string part = ControlPart(ctx, id, out string ghostVariant, out string why, out PartParityMissingMeshPick pick);
+            string part = ControlPart(ctx, id, out string ghostVariant, out string why, out PartParityMissingMeshSubject subject);
             wc.Key = new PartParityCaseKey { Part = part ?? why };
-            wc.MissingMeshPick = pick;
-            if (id == TestCommandPartParitySweep.ControlGhostMissingMesh)
+            wc.MissingMeshSubject = subject;
+            if (id == TestCommandPartParitySweep.ControlGhostMissingMesh && subject == null)
             {
-                if (pick == null) wc.Flags.Add(PartParitySweepPlan.FlagControlNoSubject);
-                else wc.Flags.Add(PartParitySweepPlan.FlagControlPickPrefix + "prefab:" + pick.Describe());
-                ParsekLog.Info(Tag, $"control {id}: prefab pick " + (pick != null
-                    ? pick.Describe()
-                    : "none (no-subject): no candidate subject has a rendered renderer in the window"));
+                wc.Flags.Add(PartParitySweepPlan.FlagControlNoSubject);
+                wc.Detail = "no-subject: no still candidate subject is loaded";
             }
             if (part != null && ctx.EntriesByName.TryGetValue(part, out PartParityPartEntry e))
             {
@@ -732,11 +744,11 @@ namespace Parsek.TestCommands
         }
 
         private static string ControlPart(StepContext ctx, string id, out string ghostVariant, out string why,
-            out PartParityMissingMeshPick pick)
+            out PartParityMissingMeshSubject subject)
         {
             ghostVariant = null;
             why = null;
-            pick = null;
+            subject = null;
             switch (id)
             {
                 case TestCommandPartParitySweep.ControlGhostRot90:
@@ -744,16 +756,28 @@ namespace Parsek.TestCommands
                     return PartParitySweepPlan.ControlPodPart;
                 case TestCommandPartParitySweep.ControlGhostMissingMesh:
                 {
+                    var views = new List<string>(TestCommandPartParitySweep.RequiredViews);
                     var candidates = new List<PartParityMissingMeshCandidate>();
+                    var seen = new StringBuilder();
                     foreach (string n in PartParitySweepPlan.MissingMeshCandidates)
                     {
                         if (!ctx.EntriesByName.TryGetValue(n, out var e)) continue;
                         PartParityMissingMeshCandidate c = PartParityCaseCapture.PrefabCandidate(n, e.Info);
-                        if (c != null) candidates.Add(c);
+                        if (c == null) continue;
+                        candidates.Add(c);
+                        bool still = PartParitySweepPlan.IsStillSubject(c.HasAnimation, c.ModuleNames, out string notStill);
+                        seen.Append(seen.Length > 0 ? " " : string.Empty).Append(n).Append('=')
+                            .Append(still ? "still" : "animated(" + notStill + ")");
                     }
-                    pick = PartParitySweepPlan.ChooseMissingMeshSubject(
-                        candidates, new List<string>(TestCommandPartParitySweep.RequiredViews));
-                    if (pick != null) return pick.Subject;
+                    List<PartParityMissingMeshSubject> order = PartParitySweepPlan.OrderMissingMeshSubjects(candidates, views);
+                    ParsekLog.Verbose(Tag, $"control {id}: subject candidates {(seen.Length > 0 ? seen.ToString() : "<none loaded>")}");
+                    ParsekLog.Info(Tag, $"control {id}: subject order stills={order.Count.ToString(Ic)} first=" +
+                        (order.Count > 0 ? order[0].Describe(views) : "<none> (no-subject)"));
+                    if (order.Count > 0)
+                    {
+                        subject = order[0];
+                        return subject.Subject;
+                    }
                     why = "no-subject";
                     return null;
                 }
@@ -900,9 +924,13 @@ namespace Parsek.TestCommands
             internal SortedSet<int> GhostLayers = new SortedSet<int>();
             internal double? GhostRootOffsetM;
 
-            /// <summary>The missing-mesh control's prefab pick (null for every other case,
-            /// and when no candidate qualified).</summary>
-            internal PartParityMissingMeshPick MissingMeshPick;
+            /// <summary>The missing-mesh control's subject in prefab order (null for every
+            /// other case, and when no still candidate is loaded).</summary>
+            internal PartParityMissingMeshSubject MissingMeshSubject;
+
+            /// <summary>The ghost's mesh renderers, parallel to <c>GhostRecords</c> before the
+            /// missing-mesh hide re-reads them.</summary>
+            internal List<Renderer> GhostMeshRenderers;
             internal int SeedEvents;
             internal int SeedApplied;
             internal PartParitySkinProof Skin;

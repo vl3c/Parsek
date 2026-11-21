@@ -263,24 +263,46 @@ proof that the instrument sees what it claims to.
 | `ctl-ghost-missing-mesh` | a multi-renderer stock part, one small ghost renderer forced off | fails on the local-defect measures (6) while whole-image IoU stays above 0.99 |
 | `ctl-wrong-skin` | a stock part with a colour-only variant (chosen at run time, FGV's `ChooseColourVariant`), ghost built from a snapshot naming another variant | fails on colour with IoU near 1 |
 
-The missing-mesh pick is data-driven and pure (`PartParitySweepPlan.ChooseMissingMeshSubject` /
-`ChooseMissingMeshRenderer`; the first flight hid the LV-T45's whole bell, IoU 0.68, so "the
-smallest renderer above a diagonal floor" cannot guarantee a SMALL mesh). Over the candidate list
-`PartParitySweepPlan.MissingMeshCandidates` (stock parts with several meshes: pods, cockpits, lander
-cans, probe cores, RCS blocks, ladders, lights, solar panels, then the LV-T45 last), for each
-rendered renderer, its part-local bounds are projected along each required view's camera
-direction (`|dx| sy sz + |dy| sx sz + |dz| sx sy`) as a fraction of the shared box's projection
-in that view. The first (subject, renderer) whose fraction is >= 0.1 % in at least one view (a
-blob over the 64 px shape limit at tile 512) and <= 0.6 % in every view (IoU stays >= 0.99)
-wins; candidates whose prefab carries no `Animation` are tried before those that do, so the
-control is not captured `still-animating` when a still subject qualifies. The subject is chosen
-before the spawn from the prefab's records (shared box = union of its rendered renderers,
-`Rendered` read from the prefab's own active chain); the renderer actually hidden is re-chosen
-by the same rule on the LIVE ghost's records and shared box. No qualifying candidate (either
-pass) flags the case `control-no-subject` and the judge reports `bad`, detail `no-subject`,
-rather than guessing. The pick rides the sidecar flag `control-pick:subject=;renderer=;animated=;
-<view>=<pct>%;...` and the control's log line (`pick=`). The model ignores occlusion: a renderer
-hidden behind another can still read as no local failure, which the control then reports `bad`.
+The missing-mesh pick (owner follow-ups 2026-11-21, after two flights: hiding the LV-T45's whole
+bell read IoU 0.68; an estimate over the shared BOX then chose the telescopic ladder, animated,
+whose real and ghost already differed, IoU 0.39-0.86):
+
+- Subjects are STILL parts only (`PartParitySweepPlan.IsStillSubject`): no `Animation` component
+  on the prefab and no animating PartModule (`AnimatingModuleNames`: `ModuleAnimateGeneric`,
+  `RetractableLadder`, `ModuleAnimationGroup`, `ModuleAnimateHeat`, `ModuleAnimateEmissive`,
+  `ModuleAnimatedDecoupler`, `ModuleGimbal`, `ModuleControlSurface`, `ModuleAeroSurface`,
+  `ModuleCargoBay`, `ModuleServiceModule`, `ModuleProceduralFairing`, `ModuleJettison`,
+  `ModuleParachute`, `ModuleLight`, `ModuleResourceHarvester`, `ModuleAsteroidDrill`,
+  `ModuleGroundExperiment`, `ModuleGroundCommsPart`; `AnimatingModulePrefixes`:
+  `ModuleDeployable*`, `ModuleAnimate*`, `FXModuleAnimate*`, `ModuleRobotic*`, `ModuleWheel*`).
+  An animated subject measures animation, not the hide, so there is no animated fallback.
+- Before the spawn, a prefab estimate only ORDERS the still candidates of
+  `MissingMeshCandidates` (`OrderMissingMeshSubjects`): a renderer's projected bounds
+  (`|dx| sy sz + |dy| sx sz + |dz| sx sy` along each required view's camera direction) as a
+  fraction of the SUM of every rendered renderer's projected bounds in that view (a thin part's
+  box overstates how much of the image its meshes cover). Subjects with a renderer at >= 0.1 % in
+  one view and <= 0.6 % in every view come first, then the other still ones, in list order. The
+  first is spawned; no still candidate is `no-subject`.
+- At capture, after the ghost is built and framed and before any view, at the end of a frame,
+  the pick is MEASURED by size only, never by outcome (`PartParityCaseCapture.MeasuredHide`):
+  every rendered ghost renderer is drawn ALONE once per required view, and the whole ghost once,
+  through the capture primitive (`PartParityCapture.MeasureCoverage`: same camera, box, light rig
+  and two clears), and each coverage is counted (alpha >= 0.5). The first renderer whose solo
+  coverage is >= 100 px in at least one view and <= 0.6 % of the FULL ghost coverage in every
+  view (`ChooseMeasuredRenderer`) is forced off, and the ghost records are re-read for the
+  structure; the views keep the box, ortho size and culling mask the counts were measured in.
+- No renderer in the window (or a measuring failure) flags the case `control-no-subject`: the
+  judge reports `bad`, detail `no-subject`, rather than guessing. The required outcome is
+  unchanged.
+
+Log lines: Verbose `control ctl-ghost-missing-mesh: subject candidates <name>=still|animated(<why>)
+...`; Info `control ctl-ghost-missing-mesh: subject order stills=<n> first=subject=..;estimate=..`;
+Verbose `case ctl-ghost-missing-mesh: missing-mesh measured counts subject= candidates=<n> full=
+<view>:<px>,... | <path> <view>:<px>,...`; Info `case ctl-ghost-missing-mesh: missing-mesh measured
+pick subject=;renderer=;<view>=<solo>/<full>;... (prefab order ...)` (or `none=<why> (control
+bad, no-subject)`); and the control line `control <id>: outcome= subject= setup= detail= pick=`.
+The pick also rides the sidecar flag `control-pick:...`. Occlusion is measured, not modelled: a
+renderer hidden behind another simply counts few pixels.
 
 `still-animating` is never a setup fault for the judge (`TestCommandPartParitySweep.IsSetupFault`):
 the views alone decide every control's outcome, with or without it.
