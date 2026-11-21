@@ -7,6 +7,11 @@ namespace Parsek
     {
         public uint partPersistentId;
         public List<Transform> jettisonTransforms;
+        // The subset stock hides when the part starts in flight (ModuleJettison.SetupJettisonState:
+        // an empty bottom node with ignoreNodes off, or a jettisoned / hide-override shroud), read
+        // from the snapshot. The build hides them, and a loop cycle restarts with them hidden, so
+        // playback events layer over the same look the real part had. Null or empty when none.
+        public List<Transform> spawnHiddenTransforms;
     }
 
     internal class ParachuteGhostInfo

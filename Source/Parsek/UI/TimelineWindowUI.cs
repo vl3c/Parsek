@@ -947,7 +947,7 @@ namespace Parsek
         /// <see cref="WarpToTimeRefusalButtonDisabled"/> and the button's own greyed reason.
         /// </summary>
         internal bool TryPressWarpToTimeForTesting(int year, int day, int hour, int minute,
-            out double targetUT, out WarpToTimeMath.WarpPlanKind planKind,
+            out double targetUT, out WarpToTimeMath.WarpPlan plan,
             out string disabledReason, out bool inFlight, out string refusal)
         {
             refusal = null;
@@ -967,14 +967,13 @@ namespace Parsek
             var flight = parentUI.Flight;
             inFlight = parentUI.InFlightMode && flight != null;
             bool enabled = ResolveWarpToTimeButtonState(inFlight,
-                out _, out disabledReason, out targetUT, out WarpToTimeMath.WarpPlan plan);
-            planKind = plan.Kind;
+                out _, out disabledReason, out targetUT, out plan);
             if (!enabled)
             {
                 refusal = WarpToTimeRefusalButtonDisabled;
                 ParsekLog.Info("WarpTime", string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Warp to time not pressed: button disabled (plan={0} targetUT={1:F1} reason={2})",
-                    planKind, targetUT, disabledReason));
+                    "Warp to time not pressed: button disabled (targetUT={0:F1} reason={1})",
+                    targetUT, disabledReason));
                 return false;
             }
             ExecuteWarpToTimeClick(flight, inFlight);

@@ -86,6 +86,10 @@ Not released yet.
   half of a symmetry pair, or a rotation servo set to Inverted, began its replay turned the
   opposite way to the real part until it first moved. It now starts where the real part stood.
   (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
+- **A ghost engine with nothing below it no longer shows a shroud.** The real engine at the bottom
+  of a stack, or a lone engine, has no shroud, but its replay drew one, stock and ReStock alike.
+  An engine with a tank or decoupler under it keeps its shroud as before.
+  (GHOST-SHROUD-EMPTY-BOTTOM-NODE)
 - **Ghosts of ReStock parts look like the real parts again.** The LV-T45 boosters of a replayed
   Kerbal X no longer show a skirt and a second shroud, and a deployed Mk16-XL parachute opens to
   its full size instead of staying small and folded. (RESTOCK-GHOST-SKIRT-AND-CHUTE)

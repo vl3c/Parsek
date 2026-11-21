@@ -136,17 +136,18 @@ namespace Parsek.TestCommands
             string dateText = string.Format(System.Globalization.CultureInfo.InvariantCulture,
                 "Y{0} D{1} {2}:{3:00}", date.Year, date.Day, date.Hour, date.Minute);
             if (!window.TryPressWarpToTimeForTesting(date.Year, date.Day, date.Hour, date.Minute,
-                    out double targetUT, out WarpToTimeMath.WarpPlanKind planKind,
+                    out double targetUT, out WarpToTimeMath.WarpPlan warpPlan,
                     out string disabledReason, out bool inFlight, out string refusal))
             {
                 string detail = $" date={dateText} targetUT={WarpUtF1(targetUT)} "
-                    + $"plan={TestCommandUiWarpTime.PlanToken(planKind)} "
+                    + $"plan={TestCommandUiWarpTime.PlanToken(warpPlan.Kind)} "
                     + $"disabledReason={disabledReason ?? string.Empty}";
                 ParsekLog.Warn(Tag, $"uiaction rejected reason={refusal} window={spec.Name}{detail}");
                 SetExecResult("REJECTED", null, $"{refusal} window={spec.Name}{detail}");
                 return;
             }
 
+            WarpToTimeMath.WarpPlanKind planKind = warpPlan.Kind;
             string plan = TestCommandUiWarpTime.PlanToken(planKind);
             // Reported, not acted on: the click already resolved the same target through
             // this same call (WarpToTimeController.RequestWarp), so the payload names it.

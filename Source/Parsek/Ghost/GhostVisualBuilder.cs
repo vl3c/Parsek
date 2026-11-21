@@ -1234,22 +1234,23 @@ namespace Parsek
             ApplyDynamicNodeMeshVisibility(
                 prefab.partInfo?.partConfig, partNode, modelNode.transform, persistentId, partName);
 
-            // If the snapshot MODULE data shows the shroud is already jettisoned,
-            // hide the transforms immediately. Continuation recordings (tree
-            // promotions) skip seed events to avoid poisoning FindLastInterestingUT,
-            // so the ghost would otherwise display the shroud until the first
-            // playback event — which never comes for continuations (#290).
-            if (ShouldHideJettisonTransformsAtBuild(jettisonInfo, partNode))
+            // A snapshot that shows any ModuleJettison jettisoned hides every jettison transform
+            // of the part (#290: continuation recordings carry no seed event to hide it later).
+            // The resolver already marked the per-module stock flight-start hides (an empty
+            // bottom node, a hide override); both land in spawnHiddenTransforms so a loop cycle
+            // restarts from the same look.
+            bool wholePartJettisoned = ShouldHideJettisonTransformsAtBuild(jettisonInfo, partNode);
+            if (wholePartJettisoned)
+                jettisonInfo.spawnHiddenTransforms = new List<Transform>(jettisonInfo.jettisonTransforms);
+            int jettisonHidden = GhostPlaybackLogic.ApplyJettisonSpawnBaseline(jettisonInfo);
+            if (jettisonHidden > 0)
             {
-                for (int ji = 0; ji < jettisonInfo.jettisonTransforms.Count; ji++)
-                {
-                    var jt = jettisonInfo.jettisonTransforms[ji];
-                    if (jt != null) jt.gameObject.SetActive(false);
-                }
                 ParsekLog.VerboseRateLimited("GhostVisual",
                     $"jettison-hidden-{partName}-{persistentId}",
-                    $"    Part '{partName}' pid={persistentId}: jettison transforms hidden " +
-                    $"(isJettisoned=True in snapshot MODULE data)",
+                    $"    Part '{partName}' pid={persistentId}: {jettisonHidden} jettison transform(s) hidden at build " +
+                    (wholePartJettisoned
+                        ? "(isJettisoned=True in snapshot MODULE data)"
+                        : "(stock flight-start rule: empty bottom node or hide override)"),
                     5.0);
             }
 

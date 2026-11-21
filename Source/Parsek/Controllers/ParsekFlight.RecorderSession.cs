@@ -943,7 +943,15 @@ namespace Parsek
         {
             try
             {
-                FacilityStatePatcher.PatchCrossedBuildingRowsWhileTreeLives(windowAfterUT, currentUT, reason);
+                // The active Re-Fly's suppressed subtree: rows of the flight being re-flown
+                // must not knock the pad down under the attempt that replaces it.
+                var scenario = ParsekScenario.Instance;
+                ReFlySessionMarker marker = ReferenceEquals(null, scenario) ? null : scenario.ActiveReFlySessionMarker;
+                IReadOnlyCollection<string> excluded = marker != null
+                    ? EffectiveState.ComputeSessionSuppressedSubtree(marker)
+                    : null;
+                FacilityStatePatcher.PatchCrossedBuildingRowsWhileTreeLives(
+                    windowAfterUT, currentUT, reason, excluded);
             }
             catch (Exception ex)
             {
