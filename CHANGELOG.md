@@ -90,6 +90,9 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **Hinge ghosts no longer show the piston arm.** The Alligator and G-32W hinges drew the bars
+  and knuckles that the real hinge hides in flight. The ghost now shows the hinge as the real part
+  does. (GHOST-HINGE-PISTON-ARM)
 - **A flag part's ghost shows one flag, not all of them.** The replay of every flag part drew
   every size, both orientations and the panel and plain flags on top of each other. It now shows
   only the flag the real part shows. (GHOST-FLAG-ALL-MESHES)

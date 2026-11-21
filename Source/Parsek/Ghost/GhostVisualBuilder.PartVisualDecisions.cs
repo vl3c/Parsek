@@ -34,7 +34,7 @@ namespace Parsek
         /// <summary>
         /// Every transform name whose renderers a stock module deactivates on its flight start,
         /// so the ghost leaves them out: the FlagDecalBackground meshes other than the selected
-        /// one. One Verbose line per part when the set is non-empty.
+        /// one, and a ModuleRoboticServoHinge's piston arm. One Verbose line per source.
         /// </summary>
         internal static HashSet<string> ResolveStockHiddenTransformNames(
             Part prefab, ConfigNode partConfig, ConfigNode partNode, string selectedVariantName,
@@ -53,6 +53,86 @@ namespace Parsek
                     $"{hiddenFlagMeshes.Count} flag mesh(es) (variant='{selectedVariantName ?? "<none>"}')", 60.0);
             }
 
+            if (FindModuleNode(partConfig, "ModuleRoboticServoHinge") != null)
+            {
+                HashSet<string> pistons = ParseHingePistonTransformNames(
+                    ReadHingePistonTransformsRaw(prefab));
+                names.UnionWith(pistons);
+                ParsekLog.VerboseRateLimited("GhostVisual", $"hinge-pistons-{partName}",
+                    $"  Part '{partName}' pid={persistentId}: ModuleRoboticServoHinge hides " +
+                    $"piston transform(s) [{string.Join(", ", pistons)}]", 60.0);
+            }
+
+            return names;
+        }
+
+        /// <summary>
+        /// Stock <c>ModuleRoboticServoHinge.pistonTransforms</c> default (KSP 1.12.5,
+        /// decompiled): a private [SerializeField] string, not a KSPField, so no part config
+        /// can change it; <c>OnStart</c> and both inventory-mode hooks call
+        /// <c>TogglePistons(false)</c>, which SetActive(false)s each named child.
+        /// </summary>
+        internal const string DefaultHingePistonTransforms = "Bar1,Bar2,TopPlateKnuckle,BasePlateKnuckle";
+
+        private static System.Reflection.FieldInfo hingePistonTransformsField;
+        private static bool hingePistonTransformsFieldResolved;
+
+        /// <summary>
+        /// The prefab hinge module's own <c>pistonTransforms</c> value (reflection, the field
+        /// is private), or the stock default when it cannot be read.
+        /// </summary>
+        private static string ReadHingePistonTransformsRaw(Part prefab)
+        {
+            try
+            {
+                PartModule hinge = null;
+                if (prefab != null && prefab.Modules != null)
+                {
+                    for (int i = 0; i < prefab.Modules.Count; i++)
+                    {
+                        PartModule module = prefab.Modules[i];
+                        if (module != null && module.moduleName == "ModuleRoboticServoHinge")
+                        {
+                            hinge = module;
+                            break;
+                        }
+                    }
+                }
+                if (hinge == null)
+                    return DefaultHingePistonTransforms;
+                if (!hingePistonTransformsFieldResolved)
+                {
+                    hingePistonTransformsField = hinge.GetType().GetField("pistonTransforms",
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic
+                        | System.Reflection.BindingFlags.Public);
+                    hingePistonTransformsFieldResolved = true;
+                }
+                string raw = hingePistonTransformsField?.GetValue(hinge) as string;
+                return string.IsNullOrEmpty(raw) ? DefaultHingePistonTransforms : raw;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("GhostVisual",
+                    $"hinge pistonTransforms read failed ({ex.GetType().Name}); using stock default");
+                return DefaultHingePistonTransforms;
+            }
+        }
+
+        /// <summary>
+        /// Splits a <c>pistonTransforms</c> value the way <c>TogglePistons</c> does (on ',',
+        /// names used verbatim); empty entries are dropped.
+        /// </summary>
+        internal static HashSet<string> ParseHingePistonTransformNames(string raw)
+        {
+            var names = new HashSet<string>(System.StringComparer.Ordinal);
+            if (string.IsNullOrEmpty(raw))
+                return names;
+            string[] parts = raw.Split(',');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (!string.IsNullOrEmpty(parts[i]))
+                    names.Add(parts[i]);
+            }
             return names;
         }
 

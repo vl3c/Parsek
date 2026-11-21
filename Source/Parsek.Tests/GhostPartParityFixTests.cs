@@ -269,5 +269,30 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Hinge piston arm
+
+        [Fact]
+        public void HingePistons_StockDefault_NamesTheFourArmTransforms()
+        {
+            HashSet<string> names = GhostVisualBuilder.ParseHingePistonTransformNames(
+                GhostVisualBuilder.DefaultHingePistonTransforms);
+            Assert.Equal(4, names.Count);
+            Assert.Contains("Bar1", names);
+            Assert.Contains("Bar2", names);
+            Assert.Contains("TopPlateKnuckle", names);
+            Assert.Contains("BasePlateKnuckle", names);
+        }
+
+        [Theory]
+        [InlineData(null, 0)]
+        [InlineData("", 0)]
+        [InlineData("Bar1,,Bar2,", 2)]
+        public void HingePistons_SplitsLikeTogglePistons(string raw, int expected)
+        {
+            Assert.Equal(expected, GhostVisualBuilder.ParseHingePistonTransformNames(raw).Count);
+        }
+
+        #endregion
     }
 }

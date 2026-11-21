@@ -1131,7 +1131,7 @@ namespace Parsek
             LogPartRendererExclusionNames(depthMaskNames, partName, persistentId, damagedWheelNames);
 
             // Transforms a stock module hides on every flight start (a flag part's other flag
-            // meshes): their renderers are left off the ghost, on the same name-or-ancestor
+            // meshes, a hinge's piston arm): their renderers are left off the ghost, on the same name-or-ancestor
             // test as the busted wheel names.
             HashSet<string> stockHiddenNames = ResolveStockHiddenTransformNames(
                 prefab, partConfig, partNode, selectedVariantName, partName, persistentId);
