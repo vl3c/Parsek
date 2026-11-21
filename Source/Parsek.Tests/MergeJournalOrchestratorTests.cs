@@ -517,6 +517,9 @@ namespace Parsek.Tests
             provisional.CreatingSessionId = marker.SessionId;
             provisional.ChainId = "chain_session";
             provisional.ChainIndex = 0;
+            // An optimizer split is an environment boundary: the halves differ in
+            // phase, so the post-merge optimizer pass (owner ruling Q6) keeps them apart.
+            provisional.SegmentPhase = "atmo";
 
             var splitTail = new Recording
             {
@@ -527,6 +530,7 @@ namespace Parsek.Tests
                 CreatingSessionId = marker.SessionId,
                 ChainId = "chain_session",
                 ChainIndex = 1,
+                SegmentPhase = "exo",
             };
             splitTail.Points.Add(new TrajectoryPoint { ut = 1.0 });
             RecordingStore.AddRecordingWithTreeForTesting(splitTail, provisional.TreeId);
@@ -878,7 +882,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Finisher_UnknownPhase_TreatsAsRollback()
+        public void Finisher_UnknownPhase_DrivesForwardAndClearsTheJournal()
         {
             var (scenario, _) = MakeStandardFixture();
             scenario.ActiveMergeJournal = new MergeJournal

@@ -2,8 +2,8 @@ schema = 1
 id = "SPW-6-map-view-end-spawn-max-warp"
 # =====================================================================================
 # SPW-6: AN END CROSSED UNDER UNCAPPED WARP WITH THE MAP VIEW OPEN, IN FLIGHT.
-# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED, NEVER FLOWN:
-# tag `pending-flight`.)
+# (End-spawn program, 2026-11-17. Todo END-SPAWN-LANES-2026-11-17. AUTHORED; LIVE-PROVEN
+# 2026-11-20 on its re-flight, see below.)
 #
 # WHY. In flight view the engine suppresses ghost completion above 50x, so an end crossed
 # at high warp is only delivered on the downshift (SPW-4). With the MAP VIEW open that gate
@@ -43,16 +43,22 @@ id = "SPW-6-map-view-end-spawn-max-warp"
 # intended road: `[runtime] kspSettings = { DECLUTTER_KSC = false }` (VB-1's key, restored
 # at teardown) keeps the debris, and the reload names it, `focusPid = "1365670035"` (the
 # fixture's first `Kerbal X Debris`, LANDED on the pad), pinned by its `loadgame focus`
-# line. No spawn was read. Not re-flown since.
+# line. No spawn was read.
+# RE-FLOWN 2026-11-20, LIVE-PROVEN: run 2026-11-20_2200, PASS attempt 1, 231 s
+# (parallel runner run tip-spawn-reflight-2026-11-20, main c11d6cde2, Debug DLL 72189e6d...).
+# The fix held: with the map open the warp reached 100000x (`maxRate=100000`), the end
+# was deferred during it (`Deferred spawn during warp: #0 "Kerbal X"`) and spawned once
+# through the Orbital path; LeafVesselPlacement `compared=1 ok=1`, batch `total=1 passed=1
+# failed=0 skipped=0`, now pinned whole; the id left INTERIM_PIN_IDS.
 #
 # FAST-LANE CHECKLIST: (1) EVA-15's host and road. (2) explicit-UT waits. (3)/(4)/(5) none.
 # (6) retry once. (7) count exact 1. (8) operator until measured. (9) flight_efficiency.py.
 # =====================================================================================
 tier = "operator"
-description = "Map view under max warp: on eva2-lko-crewed (asteroid removed) ~46 s of Kerbal X's low Kerbin orbit is recorded and committed, Rewound-to-Launch and reloaded into FLIGHT on a landed pad debris; with the map view open an uncapped WarpToUT (100000x) crosses the end. Pins that the completion is queued during the warp and the vessel is then made exactly once on its recorded orbit."
+description = "LIVE-PROVEN 2026-11-20 (run 2026-11-20_2200, the re-flight). Map view under max warp: on eva2-lko-crewed (asteroid removed) ~46 s of Kerbal X's low Kerbin orbit is recorded and committed, Rewound-to-Launch and reloaded into FLIGHT on a landed pad debris; with the map view open an uncapped WarpToUT (100000x) crosses the end. Pins that the completion is queued during the warp and the vessel is then made exactly once on its recorded orbit."
 instanceProfile = "stock-minimal"
 tags = ["SPW-6", "spawn", "end-spawn", "deferred-spawn", "terminal-orbit", "warp", "max-warp",
-        "map-view", "rewind-to-launch", "kerbin", "sandbox", "pending-flight"]
+        "map-view", "rewind-to-launch", "kerbin", "sandbox", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"
@@ -136,7 +142,7 @@ required = [
   "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(Kerbal X\\) pid=([0-9]+) [^\\r\\n]*terminal=Orbiting[\\s\\S]*MISSIONMARK label=spw6-spawned-count-1-a-[0-9a-f-]+-true-\\1-end ",
   "LeafPlacement: rec=[0-9a-f]+ vessel='Kerbal X' pid=[0-9]+ kind=orbit body=Kerbin liveBody=Kerbin [^\\r\\n]*verdict=ok",
   "MISSIONMARK label=spw6-spawned-count-[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
   "savegame name=persistent folder=\\S+ saved=true",
 ]
 forbidden = [

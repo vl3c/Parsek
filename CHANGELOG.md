@@ -25,6 +25,9 @@ Not released yet.
 
 ### Changed
 
+- **No Re-Fly on a flight a supply route uses.** Re-flying it would take the route's recorded
+  trip away, so the Fly button is greyed out and its tooltip says to delete the route first.
+  (REFLY-ROUTE-SOURCE-REFUSED)
 - **Deleting a supply route mid-trip now warns that its cargo will be lost.** When a route has
   already taken cargo on its current trip, the delete confirmation adds "Cargo already taken on
   this trip and not yet delivered will be lost." The cargo is still lost on delete, as before.
@@ -32,8 +35,17 @@ Not released yet.
 - **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
   makes no rewind point of its own and never shows it in Unfinished Flights. The rock still gets
   its own replay from the release and becomes real at its end. (ROCK-RELEASE-REFLY-SLOT)
+- **A probe left on an escape trajectory becomes real at the end of its recording.** It used to
+  stay a replay that vanished. It now appears on its recorded path, in whichever planet's or the
+  Sun's reach it has got to by then, after the same orbit safety checks as an orbiting vessel.
+  A path that dips into an atmosphere or hits ground first still never spawns.
+  (SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS)
 - **Mining an asteroid on a supply route works like mining the ground.** A route that mines a
   rock never drains the real rock (owner ruling 2026-11-15).
+- **A vessel you are not flying keeps one recording when it stages.** When it drops a stage or a
+  part breaks off, its recording carries on past the separation, as it does for the vessel you
+  fly, and pieces that come off together share one split. The Recordings list shows one row for
+  that vessel instead of two. (BG-SEPARATION-CLOSES-PARENT-RECORDING)
 
 ### Fixed
 
@@ -55,6 +67,54 @@ Not released yet.
   servo itself, so a panel, arm or wheel mounted on a hinge stayed frozen while the hinge swung.
   Everything on the moving side of a servo now moves with it, servos on servos included, and
   parts on the fixed side stay put. (GHOST-SERVO-CHILDREN-STATIC)
+- **A vessel that ends in orbit next to another no longer appears inside it.** When the spot is
+  taken, it now appears a few metres ahead of or behind it on its own orbit. If no free spot is near,
+  it is held back, never placed overlapping. (SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS)
+- **A lander resting on an asteroid or comet no longer appears inside the rock.** It now appears
+  just clear of the rock's surface and moves with it, drifting slowly as in stock. A vessel holding
+  the rock with the Klaw is still one vessel with the rock. (SPAWN-RESTING-ON-ROCK)
+- **Changes you make during a Re-Fly are kept when it merges.** Sealing, stashing, hiding,
+  looping, regrouping or turning off the ghost of another flight of the same mission while you
+  re-fly one part of it was undone by the merge, and a sealed slot could come back open with no
+  rewind point. These settings now always survive a merge. (MERGE-REVERTS-PLAYER-SETTINGS)
+- **Flying a finished vessel again keeps the new flight.** If the game reloaded while you flew
+  a vessel from an earlier flight again, Parsek could re-cut that earlier flight and then throw
+  your new flight away as a duplicate when you merged. The earlier flight now stays as it is
+  while you fly, and the merge keeps what you flew. (LIVE-FLOWN-TREE-RECUT-DROPS-NEW-LEG)
+- **A merge that adds nothing no longer says "Merged".** When the flight was already on the
+  timeline, the merge still reported success. Clicking Merge now says "Nothing new to merge:
+  this flight is already in the timeline", and an automatic merge says nothing.
+  (MERGE-DUPLICATE-SKIP-TOASTS-MERGED)
+- **An interrupted Re-Fly merge no longer also says "Merged".** After "Merge interrupted - will
+  finish on next load" the game also showed the success message; it now shows only the first.
+  (REFLY-INTERRUPTED-MERGE-TOASTS-MERGED)
+- **A Re-Fly merge that keeps failing no longer blocks the save.** Every load retried it and failed,
+  and Discard stayed refused for good. Parsek now retries once, then hides the whole old flight
+  instead of cutting it; if that fails too it keeps the old flight as it was and lets you discard
+  the new attempt. (REFLY-MERGE-FINISHER-NEVER-CONVERGES)
+- **Timeline cuts never fall inside a time jump or a cheat teleport.** A Re-Fly whose rewind point
+  falls inside a time jump cuts the old flight just before the jump, and the timeline cleanup
+  moves a split out of a jump or a teleport (or skips it), so no replay slides across one.
+  (CUT-INSIDE-TIME-JUMP-OR-TELEPORT)
+- **Vessels recorded close to a re-flown ship keep replaying.** A ghost recorded relative to the
+  old flight after the rewind point (one docking with it, say) lost its reference when the merge
+  cut the old flight and vanished early; it now follows the cut-off part of the old flight.
+  (REFLY-CUT-ORPHANS-RELATIVE-ANCHORS)
+- **A Re-Fly merge splits the new flight into its timeline rows at once.** The new attempt stayed
+  one long row until the next merge or game load; it is now split at atmosphere, landing and
+  sphere-of-influence changes as soon as the merge finishes.
+  (REFLY-MERGE-OPTIMIZER-PASS-AFTER-MERGE)
+- **A Re-Fly that ends still in flight stays open to fly again.** When the merge could not find
+  the Re-Fly's slot, a flight that ended on a sub-orbital arc was sealed; it now stays open, as it
+  does when the slot is found. (REFLY-FALLBACK-SEALS-SUBORBITAL)
+- **A crash in the middle of a Re-Fly merge no longer brings the old flight back.** If the game
+  stopped right after the merge cut the old recording in two, the next load could join the two
+  halves again before the merge finished, so the old flight played beside the new one.
+  (REFLY-HEAD-TIP-REGLUED-BEFORE-MERGE-ROWS)
+- **Tidying the timeline no longer deletes a recording it could not join.** The cleanup that joins
+  pieces of one flight skipped joining onto a destroyed vessel's recording but still deleted the
+  other piece and its files. It now leaves both alone, and a crashed flight that was cut in two
+  keeps its crash on the later piece. (OPTIMIZER-MERGE-INTO-DESTROYED-DELETES-RECORDING)
 - **Switching to a falling booster no longer records it forever.** A dropped stage you switched to
   kept recording until it crashed, unlike every other dropped stage. It now stays a dropped stage
   and its recording ends 60 seconds after it separated, while you keep watching it.

@@ -103,6 +103,10 @@ namespace Parsek
                 return;
             }
 
+            // A piece that came off a background vessel less than a coalescing window ago is
+            // not a background member yet: emit its window so the switch finds its recording.
+            backgroundRecorder?.EmitSeparationWindowHoldingChild(newVessel.persistentId, "switch-to-held-piece");
+
             string freshStartParentRecordingId = activeTree != null
                 ? activeTree.ActiveRecordingId
                 : null;

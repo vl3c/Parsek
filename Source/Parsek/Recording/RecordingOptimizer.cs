@@ -23,7 +23,8 @@ namespace Parsek
         /// if a branch point separates them,
         /// or if either has ghosting-trigger part events (snapshot would be wrong).
         /// </summary>
-        internal static bool CanAutoMerge(Recording a, Recording b)
+        internal static bool CanAutoMerge(Recording a, Recording b,
+            IReadOnlyDictionary<string, string> heldByLiveReFlyMerge = null)
         {
             // NOTE: Two defenses prevent HEAD+TIP from being re-merged after Re-Fly's
             // SplitOriginAtRewindUT splits them:
@@ -81,6 +82,15 @@ namespace Parsek
                 }
             }
 
+            // A merge in flight (journal) or a live Re-Fly session (marker) has not
+            // written the supersede rows above yet when the cold OnLoad's pass runs ahead of
+            // the journal finisher (a crash between the split save and Durable Save #1), so
+            // the HEAD + TIP the split produced would be glued back. Refuse any pair naming
+            // a recording the session owns: TIP is the marker's SupersedeTargetId, so this
+            // also covers HEAD + TIP. The caller hands the ids in.
+            if (PairIsHeldByLiveReFlyMerge(a, b, heldByLiveReFlyMerge))
+                return false;
+
             // Must be in the same chain, consecutive, primary branch
             if (string.IsNullOrEmpty(a.ChainId) || a.ChainId != b.ChainId) return false;
             if (a.ChainIndex < 0 || b.ChainIndex < 0) return false;
@@ -89,6 +99,16 @@ namespace Parsek
 
             // No branch point between them
             if (!string.IsNullOrEmpty(a.ChildBranchPointId)) return false;
+
+            // A destroyed recording is sealed at its terminal UT: nothing can be absorbed
+            // into it (MergeInto refuses), so it is never a merge target.
+            if (a.VesselDestroyed)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"CanAutoMerge: rejecting merge of '{a.RecordingId}' + '{b.RecordingId}' " +
+                    "- the target is destroyed (sealed at its terminal)");
+                return false;
+            }
 
             bool samePhase = a.SegmentPhase == b.SegmentPhase;
             if (samePhase)
@@ -152,6 +172,35 @@ namespace Parsek
             if (!GroupsEqual(a.RecordingGroups, b.RecordingGroups)) return false;
 
             return true;
+        }
+
+        /// <summary>
+        /// True when <paramref name="heldByLiveReFlyMerge"/> (recording id -> why, built by
+        /// the caller that runs the pass from the live Re-Fly marker and merge journal,
+        /// <see cref="CommittedListOptimizer.CollectLiveReFlyMergeHeldIds"/>) names either
+        /// recording. Takes the ids rather than reading the session itself: this model-layer
+        /// type must not name Rewind types.
+        /// </summary>
+        private static bool PairIsHeldByLiveReFlyMerge(
+            Recording a, Recording b, IReadOnlyDictionary<string, string> heldByLiveReFlyMerge)
+        {
+            if (heldByLiveReFlyMerge == null || heldByLiveReFlyMerge.Count == 0) return false;
+            string namedBy;
+            if (!TryGetHeldReason(a, heldByLiveReFlyMerge, out namedBy)
+                && !TryGetHeldReason(b, heldByLiveReFlyMerge, out namedBy))
+                return false;
+            ParsekLog.Verbose("Optimizer",
+                $"CanAutoMerge: rejecting merge of '{a.RecordingId}' + '{b.RecordingId}' " +
+                $"- {namedBy} (Re-Fly merge not finished)");
+            return true;
+        }
+
+        private static bool TryGetHeldReason(
+            Recording rec, IReadOnlyDictionary<string, string> held, out string reason)
+        {
+            reason = null;
+            return rec != null && !string.IsNullOrEmpty(rec.RecordingId)
+                && held.TryGetValue(rec.RecordingId, out reason);
         }
 
         /// <summary>
@@ -253,7 +302,8 @@ namespace Parsek
         /// Scans committed recordings for consecutive chain segments that can be merged.
         /// Returns pairs of indices (a, b) where b can be merged into a.
         /// </summary>
-        internal static List<(int, int)> FindMergeCandidates(IReadOnlyList<Recording> committed)
+        internal static List<(int, int)> FindMergeCandidates(IReadOnlyList<Recording> committed,
+            IReadOnlyDictionary<string, string> heldByLiveReFlyMerge = null)
         {
             var candidates = new List<(int, int)>();
             if (committed == null || committed.Count < 2) return candidates;
@@ -284,7 +334,7 @@ namespace Parsek
                 {
                     int idxA = members[m].commitIdx;
                     int idxB = members[m + 1].commitIdx;
-                    if (CanAutoMerge(committed[idxA], committed[idxB]))
+                    if (CanAutoMerge(committed[idxA], committed[idxB], heldByLiveReFlyMerge))
                         candidates.Add((idxA, idxB));
                 }
             }
@@ -733,6 +783,78 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Owner ruling Q18: an optimizer split never lands inside a time jump or a teleport.
+        /// When section <paramref name="s"/>'s start lies strictly inside one of
+        /// <paramref name="windows"/>, the split moves to the section boundary at the nearest
+        /// edge outside it (the window's start on a tie, then the other edge); with no such
+        /// boundary (or only one beside a seam, or one the split guard refuses) the split is
+        /// refused. Returns false on refusal; <paramref name="placed"/> is the section index
+        /// to split at otherwise. Logs every move and refusal.
+        /// </summary>
+        private static int PlaceSplitOutsideDiscontinuity(
+            Recording rec, int s, ref List<DiscontinuityWindow> windows)
+        {
+            if (windows == null)
+                windows = RecordingDiscontinuities.Collect(new[] { (rec.SegmentEvents, rec.TrackSections) });
+            int placed;
+            return TryPlaceSplitOutsideDiscontinuity(rec, s, windows, out placed) ? placed : -1;
+        }
+
+        internal static bool TryPlaceSplitOutsideDiscontinuity(
+            Recording rec, int s, IReadOnlyList<DiscontinuityWindow> windows, out int placed)
+        {
+            placed = s;
+            if (rec == null || rec.TrackSections == null || s < 1 || s >= rec.TrackSections.Count)
+                return true;
+            double boundaryUT = rec.TrackSections[s].startUT;
+            string movedOutOf;
+            double nearest = RecordingDiscontinuities.MoveCutOutside(
+                windows, boundaryUT, earlierEdgeOnly: false, out movedOutOf);
+            if (movedOutOf == null)
+                return true;
+
+            var ic = CultureInfo.InvariantCulture;
+            double other = double.NaN;
+            for (int w = 0; w < windows.Count; w++)
+            {
+                if (!windows[w].StrictlyContains(boundaryUT)) continue;
+                other = nearest == windows[w].StartUT ? windows[w].EndUT : windows[w].StartUT;
+                break;
+            }
+            int k = FindUsableSplitSectionAt(rec, nearest);
+            if (k < 0 && !double.IsNaN(other)
+                && RecordingDiscontinuities.MoveCutOutside(windows, other, false, out _) == other)
+                k = FindUsableSplitSectionAt(rec, other);
+            if (k < 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"Split refused: rec={rec.RecordingId} sec={s} " +
+                    $"splitUT={boundaryUT.ToString("F2", ic)} lies inside {movedOutOf} and no " +
+                    "section boundary sits at its edges");
+                return false;
+            }
+            placed = k;
+            ParsekLog.Verbose("Optimizer",
+                $"Split moved out of {movedOutOf}: rec={rec.RecordingId} sec={s}->{k} " +
+                $"splitUT={boundaryUT.ToString("F2", ic)}->" +
+                $"{rec.TrackSections[k].startUT.ToString("F2", ic)}");
+            return true;
+        }
+
+        private static int FindUsableSplitSectionAt(Recording rec, double ut)
+        {
+            const double edgeEpsilon = 1e-3;
+            for (int k = 1; k < rec.TrackSections.Count; k++)
+            {
+                if (Math.Abs(rec.TrackSections[k].startUT - ut) > edgeEpsilon) continue;
+                if (rec.TrackSections[k].isBoundarySeam || rec.TrackSections[k - 1].isBoundarySeam)
+                    return -1;
+                return CanAutoSplitIgnoringGhostTriggers(rec, k) ? k : -1;
+            }
+            return -1;
+        }
+
+        /// <summary>
         /// Same as FindSplitCandidates but uses CanAutoSplitIgnoringGhostTriggers and applies
         /// the §3 / §3.1 boundary predicate (seam short-circuit, body hard split,
         /// Surface default split with surface-graze suppression, ExoPropulsive short-circuit,
@@ -817,6 +939,8 @@ namespace Parsek
                 int suppressedExoCoastBodyChange = 0;
                 int splittableButRejected = 0;
                 int suppressedLaunchSiteLeadingRun = 0;
+                int suppressedDiscontinuity = 0;
+                List<DiscontinuityWindow> discontinuities = null;
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
@@ -827,14 +951,21 @@ namespace Parsek
                     {
                         if (CanAutoSplitIgnoringGhostTriggers(rec, s))
                         {
+                            int placed = PlaceSplitOutsideDiscontinuity(rec, s, ref discontinuities);
+                            if (placed < 0)
+                            {
+                                evaluatedBoundaries++;
+                                suppressedDiscontinuity++;
+                                continue;
+                            }
                             // Per-candidate accept log — bounded by the `break` after one
                             // split per recording per pass × the maxSplitsPerPass cap from
                             // RunOptimizationSplitPass.
                             ParsekLog.Verbose("Optimizer",
-                                $"Split candidate ({reason}): rec={rec.RecordingId} sec={s} " +
-                                $"splitUT={rec.TrackSections[s].startUT.ToString("F2", CultureInfo.InvariantCulture)} " +
-                                $"prev={rec.TrackSections[s - 1].environment} next={rec.TrackSections[s].environment}");
-                            candidates.Add((i, s));
+                                $"Split candidate ({reason}): rec={rec.RecordingId} sec={placed} " +
+                                $"splitUT={rec.TrackSections[placed].startUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                                $"prev={rec.TrackSections[placed - 1].environment} next={rec.TrackSections[placed].environment}");
+                            candidates.Add((i, placed));
                             break; // One split per recording per pass (re-scan after split).
                         }
                         // Splittable boundary that CanAutoSplit rejects (e.g. too-short halves,
@@ -889,7 +1020,8 @@ namespace Parsek
                 if (suppressedGrazeForward > 0 || suppressedGrazeBackward > 0
                     || suppressedSurfaceGrazeForward > 0 || suppressedSurfaceGrazeBackward > 0
                     || suppressedBoundarySeam > 0 || suppressedExoCoastBodyChange > 0
-                    || splittableButRejected > 0 || suppressedLaunchSiteLeadingRun > 0)
+                    || splittableButRejected > 0 || suppressedLaunchSiteLeadingRun > 0
+                    || suppressedDiscontinuity > 0)
                 {
                     ParsekLog.Verbose("Optimizer",
                         $"Split summary: rec={rec.RecordingId} " +
@@ -901,7 +1033,8 @@ namespace Parsek
                         $"seamSkipped={suppressedBoundarySeam} " +
                         $"exoCoastBodyChangeKept={suppressedExoCoastBodyChange} " +
                         $"splittableButRejected={splittableButRejected} " +
-                        $"launchSiteRunKept={suppressedLaunchSiteLeadingRun}");
+                        $"launchSiteRunKept={suppressedLaunchSiteLeadingRun} " +
+                        $"discontinuityKept={suppressedDiscontinuity}");
                 }
             }
 
@@ -1065,14 +1198,16 @@ namespace Parsek
             // method would break the seal, and the per-event/section concatenations
             // would extend Recording.EndUT past the destruction UT. Skip the merge
             // entirely — there is nothing to absorb into a sealed recording.
+            // Returns null, never the absorbed id: the caller deletes whatever id comes back
+            // (the recording, its ledger tags and its sidecars), and nothing was absorbed.
+            // CanAutoMerge refuses this pair up front.
             if (target != null && target.VesselDestroyed)
             {
-                ParsekLog.VerboseRateLimited("Optimizer",
-                    $"merge-into-destroyed.{target.RecordingId}",
-                    $"MergeInto: skipping — target is already destroyed " +
-                    $"(target={target.RecordingId}, absorbed={absorbed?.RecordingId ?? "(null)"})",
-                    60.0);
-                return absorbed?.RecordingId;
+                ParsekLog.Warn("Optimizer",
+                    $"MergeInto: refused - target is already destroyed " +
+                    $"(target={target.RecordingId}, absorbed={absorbed?.RecordingId ?? "(null)"}); " +
+                    "nothing merged, nothing removed");
+                return null;
             }
 
             bool normalizeEvaBoundaryMerge = CanMergeContinuousEvaAtmoSurfaceBoundary(target, absorbed);
@@ -1770,6 +1905,18 @@ namespace Parsek
             TerminalState? carriedTerminal = original.TerminalStateValue;
             second.TerminalStateValue = original.TerminalStateValue;
             original.TerminalStateValue = null;
+
+            // The destroyed flag is part of the terminal verdict and travels with it: left on
+            // the first half it would read destroyed with no terminal, and the merge pass
+            // treats a destroyed recording as sealed (never a merge target).
+            if (original.VesselDestroyed)
+            {
+                second.VesselDestroyed = true;
+                original.VesselDestroyed = false;
+                ParsekLog.Verbose("Optimizer",
+                    $"Split: VesselDestroyed moved with the terminal onto the second half " +
+                    $"(original={original.RecordingId ?? "<no-id>"})");
+            }
 
             // A Re-Fly slot's open/closed bit is read from the slot's effective chain
             // TIP (UnfinishedFlightClassifier.IsSlotEffectiveTipOpen), and the terminal

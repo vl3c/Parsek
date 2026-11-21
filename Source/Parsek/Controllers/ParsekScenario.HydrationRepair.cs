@@ -888,6 +888,7 @@ namespace Parsek
                 BreakupDuration = source.BreakupDuration,
                 DebrisCount = source.DebrisCount,
                 CoalesceWindow = source.CoalesceWindow,
+                ParentContinues = source.ParentContinues,
                 MergeCause = source.MergeCause,
                 TargetVesselPersistentId = source.TargetVesselPersistentId,
                 TargetVesselGuid = source.TargetVesselGuid,

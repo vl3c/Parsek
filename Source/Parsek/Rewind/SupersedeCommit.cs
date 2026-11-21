@@ -1218,15 +1218,14 @@ namespace Parsek
             // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: the fallback kind reads the same
             // walked terminal as the slot-aware path below (an EVA / switch during the
             // session leaves the provisional itself without a terminal).
-            TerminalKind kind = TerminalKindClassifier.Classify(
+            Recording walkedTerminal =
                 EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(provisional, null)
-                ?? provisional);
+                ?? provisional;
+            TerminalKind kind = TerminalKindClassifier.Classify(walkedTerminal);
             var result = new MergeStateClassification
             {
                 Kind = kind,
-                NewState = (kind == TerminalKind.Crashed)
-                    ? MergeState.CommittedProvisional
-                    : MergeState.Immutable,
+                NewState = FallbackMergeStateForTerminal(walkedTerminal?.TerminalStateValue),
                 ClassifierReason = "fallback:" + kind,
                 SlotListIndex = -1,
                 FocusSlotIndex = -1,
@@ -1323,6 +1322,29 @@ namespace Parsek
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// The merge state the slot-less fallback gives a Re-Fly outcome. It agrees
+        /// with the slot-aware path's verdict for the same terminal when no seal trigger
+        /// fires (design section 4.9): a crash, and a suborbital arc that is still in
+        /// flight, keep the slot open (CommittedProvisional); a stable conclusion
+        /// (Orbiting, Landed, Splashed and the hard-safety set) and a recording with no
+        /// terminal commit Immutable. The fallback cannot read the slot, so the slot-aware
+        /// seal triggers (a sealing row in the retire set, a structural mutation) do not
+        /// apply here.
+        /// </summary>
+        internal static MergeState FallbackMergeStateForTerminal(TerminalState? terminal)
+        {
+            if (!terminal.HasValue) return MergeState.Immutable;
+            switch (terminal.Value)
+            {
+                case TerminalState.Destroyed:
+                case TerminalState.SubOrbital:
+                    return MergeState.CommittedProvisional;
+                default:
+                    return MergeState.Immutable;
+            }
         }
 
         internal static bool IsTerminalFailureReFlyOutcome(Recording rec)

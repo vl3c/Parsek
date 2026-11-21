@@ -2350,6 +2350,19 @@ namespace Parsek.Tests
                 && l.Contains("aborting because stable-leaf classification cannot safely fall back"));
         }
 
+        [Theory]
+        [InlineData(TerminalState.Destroyed, MergeState.CommittedProvisional)]
+        [InlineData(TerminalState.SubOrbital, MergeState.CommittedProvisional)]
+        [InlineData(TerminalState.Orbiting, MergeState.Immutable)]
+        [InlineData(TerminalState.Landed, MergeState.Immutable)]
+        [InlineData(TerminalState.Splashed, MergeState.Immutable)]
+        [InlineData(TerminalState.Recovered, MergeState.Immutable)]
+        public void FallbackMergeStateForTerminal_AgreesWithTheSlotAwareVerdict(
+            TerminalState terminal, MergeState expected)
+        {
+            Assert.Equal(expected, SupersedeCommit.FallbackMergeStateForTerminal(terminal));
+        }
+
         [Fact]
         public void SubOrbitalStableLeaf_SlotLookupFailure_DoesNotThrow_FallsBackToInFlight()
         {
@@ -2357,9 +2370,9 @@ namespace Parsek.Tests
             // SubOrbital is no longer in RequiresSlotAwareMergeClassification's
             // set (a suborbital arc is still in flight, not a seal-triggering
             // stable terminal), so a SubOrbital provisional whose slot lookup
-            // fails must NOT throw. The v0.9 TerminalKindClassifier fallback
-            // routes SubOrbital to InFlight kind, which lands the merge at
-            // MergeState.Immutable with AutoSealSlot=false (slot stays open).
+            // fails must NOT throw. The fallback keeps the slot open
+            // (MergeState.CommittedProvisional, AutoSealSlot=false), like the
+            // slot-aware path for the same terminal.
             InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
             var provisional = AddProvisional("rec_provisional", "tree_1",
                 TerminalState.SubOrbital, supersedeTargetId: "rec_origin");
@@ -2370,12 +2383,11 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersedeForTesting(
                 scenario.ActiveReFlySessionMarker, provisional);
 
-            // v0.9 fallback (TerminalKindClassifier.Classify(SubOrbital) ==
-            // InFlight) lands at MergeState.Immutable with AutoSealSlot=false.
-            // The Immutable here is "the recording is real", NOT "the slot
-            // sealed" - slot-aware seal state cannot be set when slot lookup
-            // failed, so the slot stays open in the rewind point.
-            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            // M11: the slot's open/closed bit IS the tip's MergeState (design
+            // section 6.24), so the old Immutable here sealed the slot, while the
+            // slot-aware path keeps a SubOrbital Re-Fly open (section 4.9). The
+            // fallback now agrees: a suborbital arc is still in flight.
+            Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
             // The v0.9 fallback path logs that slot lookup failed but did
             // NOT throw, falling back to the v0.9 terminalKind classifier.
             Assert.Contains(logLines, l =>

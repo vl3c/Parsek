@@ -1,4 +1,4 @@
-# In-game test category inventory (all 147 categories)
+# In-game test category inventory (all 148 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -156,6 +156,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `MissionPhasing` | 4 | 4 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 4; the residue wants an airborne vessel) | B |
 | `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below), LT-4-long-tail-route-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2036`, PASS attempt 1, 56 s wall, every verifier PASS or REPORT, all three per-category lines matched verbatim; predicted on the 2026-09-07 second census, scratch CEN-4, run `2026-09-07_2010`, at 2 of 13 over `depot-route-recorded` - the dock-composition cell plus the station-mission phase-lock cell `RealSave_StationMission_PhaseLocksOrHolds`, which H54's `duna-one-recorded` host does not reach. The two lanes are different slices of ONE category, which is what the archetype note below predicts: no single real save is more than one or two archetypes. The census also read 1 of 13 on `career-earned-pad`, which is why LT-3 does not carry it. Both driving lanes execute a SLICE - H54 3 of 13, LT-4 2 of 13 - so the promotion rule does NOT fire and the bucket stays **B**, the archetype residue being the reason) | B |
 | `MoonArrivalHold` | 1 | 0 | 1 | 0 | 0 | 1 | NOT DRIVEN (2026-11-07, the lone-moon arrival hold, thread "Re-time looped moon trips"). One SPACECENTER cell that walks the LIVE body graph: for every moon of every planet reachable from Kerbin, a looped trip that arrives at the planet and goes on to that one moon must engage the moon hold on the moon's live orbital period, and the per-loop hold must put the moon back within its live SOI crossing time at every replayed encounter (a landing on a tidally locked moon too). Pure planner calls, no store touched. Self-skips on a pack with no reachable moon. Its OWN category for the standing reason (a cell in `Missions` moves the M1 / H54 / LT-4 pins). Driven by `V31M-duna-ike-continuation-player-loop` (LIVE-PROVEN 2026-11-07, `2026-11-07_2248`: `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=MoonArrivalHold scene=SPACECENTER`), plus `V31T` (`_2258`), `V32M` (`_2252`) and `V33M` (`_2254`), all LIVE-PROVEN with the same per-category line, and `V32T` (`_2300`), every lane of the moon flight-test program Group A | A |
+| `OrbitSpawnClearance` | 3 | 2 | 0 | 0 | 1 | 3 | NOT DRIVEN (2026-11-21, todo SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS / SPAWN-RESTING-ON-ROCK). Three FLIGHT cells. One reads the single-point collision branch EX-2 reached until it moved to the widened `single-point-hold-wide` preset that day (an Orbiting one-point recording with no terminal orbit, ending under the active vessel, stays blocked with `VesselSpawned` false and never runs the orbit search; batchable). Two cover the orbit-route spawn clearance: a spawn on the active vessel's own orbit point moves along that orbit to a clear spot (batchable), and a spawn inside a live PotatoRoid is pushed out with the rock's velocity and a probe spawned there co-moves with it (isolated only: it spawns two vessels). All three self-skip without the context they need (an unpacked active vessel with colliders; the two orbit cells an orbiting one). Its own category so no pinned `BATCH_COMPLETE` tally moves; bucket **C** until a lane drives it | C |
 | `Optimizer` | 3 | 0 | 3 | 0 | 0 | 3 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes the whole category at SPACECENTER with zero skips. Its cells mutate the live store and skip whenever a committed recording is present, which is why that lane injects NOTHING. 2 -> 3 on 2026-09-22 (register item C2): `OnRailsBoundarySeam_SuppressesSplit_InGame`, the D3 `boundary-seam` cell; the re-pin's runs are in autotest-status.md) | A |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | LT-5-long-tail-playback-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2037`, PASS attempt 1, 72 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`) at 1 of 6 - `LightInfosValid` - over the playing `part-showcase` corpus. The FIRST execution of any cell in this category anywhere; the five skips want an active ghost whose engine / chute / fairing / decoupler FX resolve at the batch UT, which the static showcase ghosts do not give, so this is a SLICE at 1 of 6: the promotion rule below does NOT fire on a green flight that drove only part of the category, and the bucket stays **B**) | B |
 | `PartEventFidelity` | 6 | 6 | 0 | 0 | 0 | 5 | H37 (sixth cell, wheel damage, added 2026-11-07 and not yet flown) | A |
@@ -241,9 +242,10 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived from the table on 2026-11-20: **147 categories / 711 declarations**.
+Totals, re-derived from the table on 2026-11-21: **148 categories / 714 declarations**.
 Buckets **A 115 categories (418 declarations)**, **B 31 categories (289 declarations)**,
-**C 1 category (4 declarations)**. The 2026-11-16 test gap audit B11 wiring moved six of the
+**C 2 categories (7 declarations)**: the 2026-11-21 orbit-route spawn clearance added the
+undriven FLIGHT category `OrbitSpawnClearance` 3 to **C**. The 2026-11-16 test gap audit B11 wiring moved six of the
 seven categories no committed spec ran into **A**, first on the interim standing (`total=`
 literal, split regexed) and the same evening as measured **A3** members: reading runs
 `2026-11-16_2036` (LT-5) and `2026-11-16_2038` (AH-1), both PASS attempt 1, ran every cell of
@@ -280,7 +282,8 @@ interim standing: A 113 -> 114 categories, 414 -> 415 declarations; C 2 -> 1, 5 
 On 2026-11-20 the new FLIGHT category `BgSoiCrossingPlayback` 3 (test gap batch 3, a background
 vessel crossing an SOI boundary on rails) was wired into the new operator lane
 `SOI-3-bg-probe-mun-exit-on-rails` on the interim standing: A 114 -> 115 categories,
-415 -> 418 declarations, so **147 categories / 711 declarations**.
+415 -> 418 declarations, so 147 categories / 711 declarations before the
+2026-11-21 `OrbitSpawnClearance` 3 in **C** (C 1 -> 2 categories, 4 -> 7 declarations): **148 categories / 714 declarations**.
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
 the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it; both flew green the
 same day and it stays **B** (each lane is a scene slice, 4 of 9).
@@ -1825,7 +1828,7 @@ time verbatim and was taken WHOLE, `GUI-1-census-ksc` left
 `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, and the row moved to bucket **A** - which
 empties this sub-reason.
 
-### Bucket C - not batch-runnable (1 category, 4 declarations)
+### Bucket C - not batch-runnable (2 categories, 7 declarations)
 
 The rows here are not batch-UNRUNNABLE; they are the categories with no lane yet: `GuiMock` (4, P1 of the GUI state gallery; the test gap audit B11 appended it to AH-1 on 2026-11-16 and took it out the same day, because the Space Center draws no Parsek window unless `ParsekKSC.showUI` is raised and its cells would fail there), and, until the moon lanes, `MoonArrivalHold` (1, the lone-moon arrival hold, 2026-11-07), whose table row the moon arrival lanes had already moved to **A**, and `ServoFollowers` (1, 2026-11-20) until SRV-1 wired it the same day. `GhostCommNet` sat here from its opening on 2026-09-26 until CN-1 / CN-1T drove it the same day (now B7). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
 

@@ -356,6 +356,9 @@ namespace Parsek
             Orbit orbitalSpawnOrbit = null;
             if (useRecordedTerminalOrbit)
             {
+                // An escape trajectory may have left the endpoint body's sphere of influence
+                // by the spawn UT: it spawns in the body it is in then.
+                body = ResolveEscapeSpawnBody(rec, body, spawnUT);
                 if (TryResolveRecordedTerminalOrbitSpawnState(
                     rec, body, spawnUT, out double orbitLat, out double orbitLon,
                     out double orbitAlt, out orbitalSpawnVelocity, out orbitalSpawnOrbit))
@@ -408,8 +411,9 @@ namespace Parsek
             // EVA trajectories overlap the parent vessel for their entire length;
             // without exemption, walkback exhausts all points and abandons the spawn.
             uint exemptPid = ResolveEndOfRecordingCollisionExemptPid(rec);
-            var collision = CheckSpawnCollisions(rec, index, isEva, body,
-                spawnLat, spawnLon, spawnAlt, spawnPos, exemptPid);
+            var collision = ResolveEndOfRecordingSpawnCollision(rec, index, isEva, body, spawnUT,
+                spawnLat, spawnLon, spawnAlt, spawnPos, exemptPid,
+                ref orbitalSpawnOrbit, ref orbitalSpawnVelocity);
             if (collision.blocked) return;
             // Walkback may have rewritten the spawn coordinates (#264)
             spawnLat = collision.lat;
@@ -853,7 +857,8 @@ namespace Parsek
         private static (bool blocked, double lat, double lon, double alt, Vector3d pos) CheckSpawnCollisions(
             Recording rec, int index, bool isEva, CelestialBody body,
             double spawnLat, double spawnLon, double spawnAlt, Vector3d spawnPos,
-            uint exemptVesselPid = 0)
+            uint exemptVesselPid = 0,
+            OrbitRouteSpawn orbitRoute = null)
         {
             // The KSC exclusion zone (#170) is no longer a block here: a flight that ends
             // parked in it is retired before any spawn route runs (TryRetireEndedFlightAtKsc,
@@ -927,6 +932,12 @@ namespace Parsek
                     // Fall through to the walkback branch
                 }
 
+                // An orbit-route spawn is placed by its orbit, not by a recorded point, so it
+                // moves along its own orbit instead of walking back (owner ruling 2026-11-21).
+                if (orbitRoute != null)
+                    return ResolveOrbitRouteOverlap(rec, index, body, spawnBounds, exemptVesselPid,
+                        blockerName, overlapDist, spawnLat, spawnLon, spawnAlt, spawnPos, orbitRoute);
+
                 // Walkback: if the recording has enough trajectory points that place on the
                 // spawn body, step backward with 1.5 m linear sub-steps until we find a clear
                 // position (#264). Relative-section anchor offsets and other-body points are
@@ -982,6 +993,149 @@ namespace Parsek
             // Reset collision block counter on successful spawn path
             rec.CollisionBlockCount = 0;
             return (false, spawnLat, spawnLon, spawnAlt, spawnPos);
+        }
+
+        /// <summary>
+        /// The orbit-route state an end-of-recording spawn carries through its collision check:
+        /// the recorded terminal orbit propagated to <see cref="UT"/>, and what the clearance
+        /// did with it (<see cref="OrbitSpawnClearanceOutcome.Clear"/> until something moves it).
+        /// </summary>
+        private sealed class OrbitRouteSpawn
+        {
+            internal Orbit Orbit;
+            internal double UT;
+            internal OrbitSpawnClearanceResult Clearance;
+        }
+
+        /// <summary>
+        /// Collision handling of an end-of-recording spawn. A spawn with no orbit override
+        /// (landed, splashed, EVA, breakup or point-placed) runs <see cref="CheckSpawnCollisions"/>
+        /// and its walkback unchanged. A recorded-terminal-orbit spawn (Orbiting or an escape
+        /// path, todo SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS) is placed by its orbit: an
+        /// asteroid or comet at the spawn point pushes it out and gives it the rock's velocity
+        /// (todo SPAWN-RESTING-ON-ROCK); another loaded vessel moves it along its own orbit; no
+        /// clear spot takes the blocked retry path. A moved orbit replaces
+        /// <paramref name="orbit"/> / <paramref name="velocity"/> and re-runs the terminal-orbit
+        /// spawn safety check on it.
+        /// </summary>
+        private static (bool blocked, double lat, double lon, double alt, Vector3d pos) ResolveEndOfRecordingSpawnCollision(
+            Recording rec, int index, bool isEva, CelestialBody body, double spawnUT,
+            double spawnLat, double spawnLon, double spawnAlt, Vector3d spawnPos, uint exemptVesselPid,
+            ref Orbit orbit, ref Vector3d velocity)
+        {
+            if (orbit == null)
+                return CheckSpawnCollisions(rec, index, isEva, body,
+                    spawnLat, spawnLon, spawnAlt, spawnPos, exemptVesselPid);
+
+            var route = new OrbitRouteSpawn
+            {
+                Orbit = orbit,
+                UT = spawnUT,
+                Clearance = new OrbitSpawnClearanceResult { Outcome = OrbitSpawnClearanceOutcome.Clear },
+            };
+            (bool blocked, double lat, double lon, double alt, Vector3d pos) collision;
+            Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot);
+            if (SpawnCollisionDetector.TryResolveRockAtOrbitSpawn(
+                    orbit, body, spawnUT, spawnBounds, OrbitRouteCollisionPadding, exemptVesselPid, rec,
+                    "end-of-recording", OrbitRouteLogContext(rec, index), out route.Clearance))
+            {
+                collision = route.Clearance.CanSpawn
+                    ? AcceptOrbitRouteClearance(rec, body, route.Clearance)
+                    : BlockOrbitRouteSpawn(rec, index, route.Clearance.BlockerName,
+                        spawnLat, spawnLon, spawnAlt, spawnPos);
+            }
+            else
+            {
+                collision = CheckSpawnCollisions(rec, index, isEva, body,
+                    spawnLat, spawnLon, spawnAlt, spawnPos, exemptVesselPid, route);
+            }
+            if (collision.blocked || !route.Clearance.StateChanged)
+                return collision;
+
+            orbit = route.Clearance.Orbit;
+            velocity = route.Clearance.VelocityZup;
+            if (!TryPassTerminalOrbitSpawnSafety(rec, index, body, orbit, spawnUT, collision.alt, out _))
+            {
+                ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                    "Spawn #{0} ({1}): the {2} orbit did not pass the terminal orbit spawn safety check - not spawned now",
+                    index, rec.VesselName, route.Clearance.Outcome));
+                return (true, collision.lat, collision.lon, collision.alt, collision.pos);
+            }
+            return collision;
+        }
+
+        /// <summary>Padding the orbit-route clearance adds around the spawn bounds (the end-spawn check's).</summary>
+        private const float OrbitRouteCollisionPadding = 5f;
+
+        private static string OrbitRouteLogContext(Recording rec, int index)
+        {
+            return string.Format(CultureInfo.InvariantCulture, "#{0} ({1})", index, rec?.VesselName ?? "(unknown)");
+        }
+
+        /// <summary>
+        /// The overlap branch of <see cref="CheckSpawnCollisions"/> for an orbit-route spawn: the
+        /// phase search along its own orbit, then the spawn at the clear phase, or the blocked
+        /// retry path when none is clear within the bound.
+        /// </summary>
+        private static (bool blocked, double lat, double lon, double alt, Vector3d pos) ResolveOrbitRouteOverlap(
+            Recording rec, int index, CelestialBody body, Bounds spawnBounds, uint exemptVesselPid,
+            string blockerName, float overlapDist,
+            double spawnLat, double spawnLon, double spawnAlt, Vector3d spawnPos, OrbitRouteSpawn route)
+        {
+            route.Clearance = SpawnCollisionDetector.SearchClearOrbitPhase(
+                route.Orbit, body, route.UT, spawnBounds, OrbitRouteCollisionPadding, exemptVesselPid, rec,
+                "end-of-recording", OrbitRouteLogContext(rec, index), blockerName);
+            if (!route.Clearance.CanSpawn)
+                return BlockOrbitRouteSpawn(rec, index, route.Clearance.BlockerName ?? blockerName,
+                    spawnLat, spawnLon, spawnAlt, spawnPos);
+
+            ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                "CheckSpawnCollisions: orbit phase shift moved the spawn of #{0} ({1}) {2:F1}m ({3:F3}s) " +
+                "along its own orbit - original overlap with '{4}' at {5:F0}m cleared",
+                index, rec.VesselName, route.Clearance.ShiftMeters, route.Clearance.ShiftSeconds,
+                blockerName ?? "(unknown)", overlapDist));
+            return AcceptOrbitRouteClearance(rec, body, route.Clearance);
+        }
+
+        /// <summary>A clear orbit-route result as spawn coordinates; resets the block counter.</summary>
+        private static (bool blocked, double lat, double lon, double alt, Vector3d pos) AcceptOrbitRouteClearance(
+            Recording rec, CelestialBody body, OrbitSpawnClearanceResult clearance)
+        {
+            rec.CollisionBlockCount = 0;
+            Vector3d pos = clearance.WorldPos;
+            return (false, body.GetLatitude(pos), body.GetLongitude(pos), body.GetAltitude(pos), pos);
+        }
+
+        /// <summary>
+        /// An orbit-route spawn with no clear spot: today's blocked outcome for a spawn that
+        /// cannot walk back. It retries next frame (the playback policy holds the ghost) and is
+        /// abandoned after <see cref="MaxCollisionBlocks"/> consecutive blocked frames. Never
+        /// spawned overlapping.
+        /// </summary>
+        internal static (bool blocked, double lat, double lon, double alt, Vector3d pos) BlockOrbitRouteSpawn(
+            Recording rec, int index, string blockerName,
+            double spawnLat, double spawnLon, double spawnAlt, Vector3d spawnPos)
+        {
+            rec.CollisionBlockCount++;
+            if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
+            {
+                rec.VesselSpawned = true;
+                rec.SpawnAbandoned = true;
+                ParsekLog.Warn("Spawner", string.Format(CultureInfo.InvariantCulture,
+                    "Spawn ABANDONED for #{0} ({1}): orbit spawn collision-blocked for {2} consecutive frames by '{3}' " +
+                    "(no clear spot within {4:F0}m along its orbit) - giving up (max={5})",
+                    index, rec.VesselName, rec.CollisionBlockCount, blockerName ?? "(unknown)",
+                    OrbitSpawnClearance.PhaseShiftMaxMeters, MaxCollisionBlocks));
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("Spawner", "collision-block-" + index, string.Format(CultureInfo.InvariantCulture,
+                    "Spawn blocked for #{0} ({1}): overlaps '{2}' (orbit spawn, no clear spot within {3:F0}m along its orbit) " +
+                    "- will retry next frame (block={4}/{5})",
+                    index, rec.VesselName, blockerName ?? "(unknown)", OrbitSpawnClearance.PhaseShiftMaxMeters,
+                    rec.CollisionBlockCount, MaxCollisionBlocks));
+            }
+            return (true, spawnLat, spawnLon, spawnAlt, spawnPos);
         }
 
         /// <summary>
