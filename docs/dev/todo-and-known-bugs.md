@@ -478,7 +478,7 @@ Owed: S1.8's re-flight on a DLL from this branch (stock-minimal, daily). Expecte
 and `seam Sun->Duna ut=9128108.755 gap=0.0m (...) afterEpoch=9128108.707 seamMinusAfterEpoch=0.048s localBody=Duna localSideFromBody=47921878m localSoi=47921949m`,
 then `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0`. After it, tighten the spec's `gap=` windows.
 
-## ~~FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS~~: in flight a committed row the clock reached took effect only at the next recalculation [FILED 2026-11-21 from the PADX lanes (TEST-GAPS-B3-PAD-AND-JUMP-LANES on `test-gaps-batch3`; owner decision: the flight scene needs the cursor); FIXED 2026-11-21, branch `test-gaps-flight-ksc-clock`; xUnit; PADX-2 spec edit owed on `test-gaps-batch3`; medium (a committed pad crash, purchase or contract outcome landed at the next warp exit, commit or spend instead of at its UT)]
+## ~~FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS~~: in flight a committed row the clock reached took effect only at the next recalculation [FILED 2026-11-21 from the PADX lanes (TEST-GAPS-B3-PAD-AND-JUMP-LANES on `test-gaps-batch3`; owner decision: the flight scene needs the cursor); FIXED 2026-11-21, branch `test-gaps-flight-ksc-clock`; xUnit; PADX-2 spec re-pinned on `test-gaps-batch3`, re-flight owed; medium (a committed pad crash, purchase or contract outcome landed at the next warp exit, commit or spend instead of at its UT)]
 
 The Space Center and Tracking Station run `CareerLedgerClockCursor`: one cached next-row lookup per
 frame, and one clock-advance recalculation (`RecalculateAndPatchForClockAdvance`) when the clock

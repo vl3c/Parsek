@@ -433,33 +433,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Lazy <see cref="VerboseOnChange(string,string,string,Func{string})"/> with the identity
-        /// already composed by <see cref="ComposeKey"/>: the same change tracking and output,
-        /// without building the identity string on every call.
-        /// </summary>
-        internal static void VerboseOnChangeComposed(
-            string subsystem,
-            string compositeIdentity,
-            string stateKey,
-            Func<string> messageFactory)
-        {
-            if (!IsVerboseEnabled)
-                return;
-
-            if (messageFactory == null)
-                return;
-
-            if (string.IsNullOrEmpty(compositeIdentity))
-            {
-                Verbose(subsystem, messageFactory());
-                return;
-            }
-
-            VerboseOnChangeCore(subsystem, compositeIdentity, stateKey, messageFactory, InvokeFactory);
-        }
-
-        /// <summary>
-        /// <see cref="VerboseOnChangeComposed(string,string,string,Func{string})"/> with the
+        /// Lazy <see cref="VerboseOnChange(string,string,string,Func{string})"/> with the
+        /// identity already composed by <see cref="ComposeKey"/> and the
         /// message built from <paramref name="messageState"/> by a lambda that captures nothing,
         /// so a stable frame allocates nothing at all.
         /// </summary>
