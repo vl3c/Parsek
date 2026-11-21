@@ -19,9 +19,11 @@ namespace Parsek
     /// <para>
     /// The list describes the world of the save that carries it (the contract is Active and its
     /// vessel is missing in that save's world), so it is saved in the PARSEK node
-    /// (<see cref="NodeName"/>, an additive child) and each load takes the loaded save's copy,
-    /// except a plain rewind and a Discard Re-fly, whose node is not the landed world's
-    /// (<see cref="LoadStateCategory.RescueAcceptDeferrals"/>).
+    /// (<see cref="NodeName"/>, an additive child) and each load takes the loaded save's copy
+    /// (<see cref="LoadStateCategory.RescueAcceptDeferrals"/>). A plain rewind and a Discard
+    /// Re-fly splice the session's node around the landed world before the scene reloads it,
+    /// and that splice keeps the landed file's own list
+    /// (<c>RevertInterceptor.SpliceLiveParsekScenarioNode</c>).
     /// </para>
     ///
     /// <para>

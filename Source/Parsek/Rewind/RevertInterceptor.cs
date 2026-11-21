@@ -876,6 +876,11 @@ namespace Parsek
         /// future as a loss (REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE). The ledger
         /// held-through UT (<see cref="LedgerHeldWindow.ValueName"/>) stays the rewind point's own
         /// for the same reason: it says which ledger rows the written file's world already holds.
+        /// So does the rescue accept deferral list (<see cref="RescueAcceptDeferrals.NodeName"/>):
+        /// it names the rescues Active in the written file's world whose stranded vessel that
+        /// world lacks, so the landed save's own copy stays (none when it had none) and the landed
+        /// load installs it (todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD). A plain rewind's
+        /// <c>RewindLauncher.WriteRewindGameAsPersistent</c> splices through here too.
         /// Returns null on success, else why it refused (and leaves the target untouched).
         /// </summary>
         internal static string SpliceLiveParsekScenarioNode(ConfigNode target, ConfigNode live)
@@ -889,18 +894,38 @@ namespace Parsek
             ConfigNode rewindPointPoolReference = target.GetNode(StockPoolReference.NodeName)?.CreateCopy();
             bool liveHadPoolReference = live.HasNode(StockPoolReference.NodeName);
             double rewindPointHeldThroughUT = LedgerHeldWindow.ReadSaved(target);
+            ConfigNode landedRescueDeferrals = target.GetNode(RescueAcceptDeferrals.NodeName)?.CreateCopy();
+            int landedRescueDeferralCount = CountRescueDeferralValues(landedRescueDeferrals);
+            int sessionRescueDeferralCount = CountRescueDeferralValues(live.GetNode(RescueAcceptDeferrals.NodeName));
             target.ClearData();
             live.CopyTo(target);
             target.RemoveNodes(StockPoolReference.NodeName);
             if (rewindPointPoolReference != null)
                 target.AddNode(rewindPointPoolReference);
             LedgerHeldWindow.WriteValue(target, rewindPointHeldThroughUT);
+            target.RemoveNodes(RescueAcceptDeferrals.NodeName);
+            if (landedRescueDeferrals != null)
+                target.AddNode(landedRescueDeferrals);
+            string rescueLine =
+                "persistent.sfs splice kept the landed save's own " + RescueAcceptDeferrals.NodeName + ": landed=" +
+                landedRescueDeferralCount.ToString(System.Globalization.CultureInfo.InvariantCulture) + " session=" +
+                sessionRescueDeferralCount.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                " (the list describes the world of the file that carries it; the landed load installs it)";
+            if (landedRescueDeferralCount > 0 || sessionRescueDeferralCount > 0)
+                ParsekLog.Info(RewindSaveTag, rescueLine);
+            else
+                ParsekLog.Verbose(RewindSaveTag, rescueLine);
             ParsekLog.Info(RewindSaveTag,
                 "DiscardReFly: carried the session's Parsek node, keeping the rewind point's own " +
                 StockPoolReference.NodeName + " (rewindPoint=" + (rewindPointPoolReference != null ? "present" : "absent") +
                 " session=" + (liveHadPoolReference ? "present" : "absent") +
                 (rewindPointPoolReference != null ? "" : "; each pool starts afresh at its first patch") + ")");
             return null;
+        }
+
+        private static int CountRescueDeferralValues(ConfigNode listNode)
+        {
+            return listNode != null ? listNode.GetValues(RescueAcceptDeferrals.ValueName).Length : 0;
         }
 
         /// <summary>The clock of the game the discard loaded into <see cref="HighLogic.CurrentGame"/>,
