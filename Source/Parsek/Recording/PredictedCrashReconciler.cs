@@ -21,6 +21,9 @@ namespace Parsek
         SceneNotSettled,
         // The clock is not yet past the predicted crash (plus the margin).
         NotDueYet,
+        // Gone, and the player recovered or terminated it (a ledger row says so, Q13b): the
+        // player took it out of the world, not stock; the recovery path owns the ending.
+        RemovedByPlayer,
         // Stock removed the vessel: the prediction stands, nothing changes.
         VesselGone,
         // The player flies the vessel: the takeover path (owner ruling Q1b) owns it.
@@ -42,6 +45,8 @@ namespace Parsek
         public bool HasLaunchGuid;
         public bool OwnedElsewhere;
         public double PredictedCrashUT;
+        // A recovery or termination ledger row is tagged to the recording (Q13b).
+        public bool RemovedByPlayer;
     }
 
     /// <summary>
@@ -152,7 +157,9 @@ namespace Parsek
                 || nowUT <= candidate.PredictedCrashUT + CrashMarginSeconds)
                 return PredictedCrashReconcileOutcome.NotDueYet;
             if (!live.Found)
-                return PredictedCrashReconcileOutcome.VesselGone;
+                return candidate.RemovedByPlayer
+                    ? PredictedCrashReconcileOutcome.RemovedByPlayer
+                    : PredictedCrashReconcileOutcome.VesselGone;
             if (live.IsActiveVessel)
                 return PredictedCrashReconcileOutcome.VesselIsActive;
             if (!live.LandedOrSplashed)
@@ -183,10 +190,13 @@ namespace Parsek
 
         /// <summary>
         /// Pure: the recording half of the decision. <paramref name="isOwnedElsewhere"/> says
-        /// whether a live session owns the recording's tree (null: nothing does).
+        /// whether a live session owns the recording's tree (null: nothing does);
+        /// <paramref name="isRemovedByPlayer"/> whether a recovery or termination row explains
+        /// the vessel's absence (null: none does).
         /// </summary>
         internal static PredictedCrashCandidateFacts BuildCandidate(
-            Recording rec, Func<Recording, bool> isOwnedElsewhere)
+            Recording rec, Func<Recording, bool> isOwnedElsewhere,
+            Func<Recording, bool> isRemovedByPlayer = null)
         {
             var facts = new PredictedCrashCandidateFacts { PredictedCrashUT = double.NaN };
             if (rec == null)
@@ -199,6 +209,7 @@ namespace Parsek
                     Guid.Empty.ToString("N", CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase);
             facts.OwnedElsewhere = isOwnedElsewhere != null && isOwnedElsewhere(rec);
             facts.PredictedCrashUT = rec.EndUT;
+            facts.RemovedByPlayer = isRemovedByPlayer != null && isRemovedByPlayer(rec);
             return facts;
         }
 
@@ -209,7 +220,9 @@ namespace Parsek
         /// <paramref name="firstObserved"/> holds, per recording id, the real time a pass first
         /// saw the contradiction; this pass adds new sightings and drops recordings no longer
         /// contradicted. Every recording id in <paramref name="skipIds"/> (one that failed to
-        /// apply this scene) is left alone.
+        /// apply this scene) is left alone. <paramref name="isRemovedByPlayer"/> (see
+        /// <see cref="BuildCandidate"/>) keeps a vessel the player recovered or terminated out
+        /// of <see cref="PredictedCrashReconcilePassResult.Gone"/>.
         /// </summary>
         internal static PredictedCrashReconcilePassResult EvaluatePass(
             IReadOnlyList<Recording> recordings,
@@ -219,7 +232,8 @@ namespace Parsek
             bool sceneSettled,
             double realtimeNow,
             Dictionary<string, double> firstObserved,
-            ICollection<string> skipIds = null)
+            ICollection<string> skipIds = null,
+            Func<Recording, bool> isRemovedByPlayer = null)
         {
             var result = new PredictedCrashReconcilePassResult();
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -232,7 +246,8 @@ namespace Parsek
                         continue;
                     if (skipIds != null && skipIds.Contains(rec.RecordingId))
                         continue;
-                    PredictedCrashCandidateFacts candidate = BuildCandidate(rec, isOwnedElsewhere);
+                    PredictedCrashCandidateFacts candidate = BuildCandidate(
+                        rec, isOwnedElsewhere, isRemovedByPlayer);
                     if (!candidate.IsPredictedCrash)
                         continue;
                     result.Candidates++;
@@ -486,7 +501,7 @@ namespace Parsek
                 "Pass: scene={0} nowUT={1} candidates={2} contradicted={3} applied={4} failed={5} " +
                 "awaitingConfirmation={6} stockMayStillRemove={7} stockStillSimulating={8} " +
                 "vesselGone={9} vesselIsActive={10} notDueYet={11} ownedElsewhere={12} noLaunchGuid={13} " +
-                "nextDueUT={14} recheck={15}",
+                "nextDueUT={14} recheck={15} removedByPlayer={16}",
                 scene ?? "(none)",
                 FormatUT(nowUT),
                 pass.Candidates,
@@ -502,7 +517,8 @@ namespace Parsek
                 pass.Count(PredictedCrashReconcileOutcome.OwnedElsewhere),
                 pass.Count(PredictedCrashReconcileOutcome.NoLaunchGuid),
                 FormatUT(pass.NextDueUT),
-                pass.NeedsRecheck ? "true" : "false");
+                pass.NeedsRecheck ? "true" : "false",
+                pass.Count(PredictedCrashReconcileOutcome.RemovedByPlayer));
         }
 
         private static bool IsFinite(double v)

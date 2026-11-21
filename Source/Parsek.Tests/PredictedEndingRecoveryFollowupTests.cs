@@ -304,22 +304,28 @@ namespace Parsek.Tests
                 PredictedEndingRecovery.DecideRecovery(stage, StageGuid, 1100.0, ownedElsewhere: false));
         }
 
-        // A recovery at or after the predicted UT: stock would have deleted a crashing stage,
-        // and a craft recovered after its touchdown is an ordinary landed recovery.
+        // Owner ruling Q13b: a recovery at or after the predicted crash UT is a vessel that
+        // survived (stock landed it after the drag-free crash UT): it overrides the predicted
+        // Destroyed like a recovery before it. (A predicted touchdown recovered after its
+        // touchdown still changes nothing: RecoveryOverridesPredictedCrashTests.)
         [Theory]
         [InlineData(1300.0)]
         [InlineData(1500.0)]
-        public void RecoveryAtOrAfterThePredictedCrash_ChangesNothing(double recoveryUT)
+        public void RecoveryAtOrAfterThePredictedCrash_EndsRecovered(double recoveryUT)
         {
             Recording stage = CrewedPredictedCrashStage();
             F.CommitTreeWith(F.Core(), stage);
-
-            Assert.Equal(0, ApplyRecovery(StageGuid, recoveryUT));
-
-            Assert.Same(stage, RecordingStore.FindRecordingById(StageId));
-            Assert.Equal(PredictedEndingRecoveryOutcome.AfterPredictedEnd,
+            Assert.Equal(PredictedEndingRecoveryOutcome.Recover,
                 PredictedEndingRecovery.DecideRecovery(stage, StageGuid, recoveryUT, ownedElsewhere: false));
-            Assert.Contains(logLines, l => l.Contains("reason=AfterPredictedEnd"));
+
+            Assert.Equal(1, ApplyRecovery(StageGuid, recoveryUT));
+
+            Recording after = RecordingStore.FindRecordingById(StageId);
+            Assert.NotSame(stage, after);
+            Assert.Equal(TerminalState.Recovered, after.TerminalStateValue);
+            Assert.Equal(recoveryUT, after.EndUT, 6);
+            Assert.Equal(KerbalEndState.Recovered, after.CrewEndStates[Jeb]);
+            Assert.DoesNotContain(logLines, l => l.Contains("reason=AfterPredictedEnd"));
         }
 
         [Fact]

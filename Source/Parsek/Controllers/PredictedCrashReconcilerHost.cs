@@ -118,9 +118,24 @@ namespace Parsek
                 return ReadLiveFacts(rec, liveByGuid, ut);
             };
 
+            // Q13b: the crash pass reads the touchdown pass's evidence too. A live tree that
+            // docked with or boarded the vessel owns it (its commit takes the predicted ending
+            // over), and a recovery or termination row explains its absence: neither is stock
+            // confirming the crash.
+            RecordingTree activeTreeForMerge = ParsekFlight.Instance != null
+                ? ParsekFlight.Instance.ActiveTreeForSerialization
+                : null;
+            RecordingTree pendingTreeForMerge = PendingTreeSlot.PendingTree;
+            Func<Recording, bool> crashOwnedElsewhere = rec =>
+                ownedElsewhere(rec)
+                || IsMergePartnerOfLiveTree(rec, activeTreeForMerge)
+                || IsMergePartnerOfLiveTree(rec, pendingTreeForMerge);
+            Func<Recording, bool> crashRemovedByPlayer = EffectiveState.HasRecoveryOrTerminationRowLive;
+
             PredictedCrashReconcilePassResult pass = PredictedCrashReconciler.EvaluatePass(
-                EffectiveState.ComputeERS(), ownedElsewhere, lookup, ut, sceneSettled: true,
-                realtimeNow: now, firstObserved: firstObserved, skipIds: failedIds);
+                EffectiveState.ComputeERS(), crashOwnedElsewhere, lookup, ut, sceneSettled: true,
+                realtimeNow: now, firstObserved: firstObserved, skipIds: failedIds,
+                isRemovedByPlayer: crashRemovedByPlayer);
 
             int applied = 0, failed = 0;
             for (int i = 0; i < pass.Contradicted.Count; i++)
