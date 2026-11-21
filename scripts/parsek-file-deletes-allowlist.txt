@@ -59,3 +59,7 @@ Source/Parsek/TestCommands/ParsekTestCommandAddon.CaptureScreenshot.cs 1
 # Harness NewGame command: stock's New Game overwrite of the run's own saves/<save> folder
 # (files, then directories, keeping the top-level Ships/), at the main menu with no game loaded.
 Source/Parsek/TestCommands/ParsekTestCommandAddon.NewGame.cs 4
+# Part parity sweep (automation / in-game test only): op=reset removes its own label directory
+# under <KSP root>/parsek-partparity/<label>/, and the sweep deletes its own inflight.txt there
+# (once when a stale one is read at step start, once after each case). Nothing under saves/.
+Source/Parsek/TestCommands/PartParitySweepRunner.cs 3

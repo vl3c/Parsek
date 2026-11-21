@@ -159,6 +159,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | LT-5-long-tail-playback-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2037`, PASS attempt 1, 72 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`) at 1 of 6 - `LightInfosValid` - over the playing `part-showcase` corpus. The FIRST execution of any cell in this category anywhere; the five skips want an active ghost whose engine / chute / fairing / decoupler FX resolve at the batch UT, which the static showcase ghosts do not give, so this is a SLICE at 1 of 6: the promotion rule below does NOT fire on a green flight that drove only part of the category, and the bucket stays **B**) | B |
 | `PartEventFidelity` | 6 | 6 | 0 | 0 | 0 | 5 | H37 (sixth cell, wheel damage, added 2026-11-07 and not yet flown) | A |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips; its deployable cell asserted the retired pre-S2 snap on the census and is re-pinned to the shipped animated contract) | A |
+| `PartParity` | 1 | 0 | 0 | 0 | 1 | 1 | NOT DRIVEN (2026-11-21, P2 of the part ghost parity tool, `design-part-ghost-parity.md`). One FLIGHT cell, `AllowBatchExecution = false` (it spawns and removes one-part vessels around the active vessel and skips unless that vessel is in a stable orbit): a Ctrl+Shift+T entry that resets `parsek-partparity/ingame/` and runs one sweep step over the eight controls plus the first five stock parts. The lanes drive the same engine through the `PartParitySweep` seam verb, not `RunTests`, so no batch tally exists to pin | C |
 | `Periodicity` | 13 | 1 | 9 | 0 | 3 | 5 | M2 | B |
 | `Pipeline-Anchor` | 7 | 7 | 0 | 0 | 0 | 0 | H11 | A |
 | `Pipeline-Anchor-BubbleEntry` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
@@ -240,10 +241,11 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived from the table on 2026-11-21: **146 categories / 710 declarations**.
+Totals, re-derived from the table on 2026-11-21: **147 categories / 711 declarations**.
 Buckets **A 112 categories (411 declarations)**, **B 31 categories (289 declarations)**,
-**C 3 categories (8 declarations)**: the 2026-11-21 orbit-route spawn clearance added the
-undriven FLIGHT category `OrbitSpawnClearance` 3 to **C**, beside the 2026-11-20 `ServoFollowers` 1. The 2026-11-16 test gap audit B11 wiring moved six of the
+**C 4 categories (9 declarations)**: the 2026-11-21 orbit-route spawn clearance added the
+undriven FLIGHT category `OrbitSpawnClearance` 3 to **C**, beside the 2026-11-20 `ServoFollowers` 1,
+and the same day P2 of the part ghost parity tool added the single-run FLIGHT category `PartParity` 1. The 2026-11-16 test gap audit B11 wiring moved six of the
 seven categories no committed spec ran into **A**, first on the interim standing (`total=`
 literal, split regexed) and the same evening as measured **A3** members: reading runs
 `2026-11-16_2036` (LT-5) and `2026-11-16_2038` (AH-1), both PASS attempt 1, ran every cell of
@@ -1816,9 +1818,9 @@ time verbatim and was taken WHOLE, `GUI-1-census-ksc` left
 `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, and the row moved to bucket **A** - which
 empties this sub-reason.
 
-### Bucket C - not batch-runnable (2 categories, 5 declarations)
+### Bucket C - not batch-runnable (4 categories, 9 declarations)
 
-The rows here are not batch-UNRUNNABLE; they are the categories with no lane yet: `ServoFollowers` (1, the ghost servo follower cell, 2026-11-20; it needs Breaking Ground and a FLIGHT host), `GuiMock` (4, P1 of the GUI state gallery; the test gap audit B11 appended it to AH-1 on 2026-11-16 and took it out the same day, because the Space Center draws no Parsek window unless `ParsekKSC.showUI` is raised and its cells would fail there), and, until the moon lanes, `MoonArrivalHold` (1, the lone-moon arrival hold, 2026-11-07), whose table row the moon arrival lanes had already moved to **A**. `GhostCommNet` sat here from its opening on 2026-09-26 until CN-1 / CN-1T drove it the same day (now B7). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
+The rows here are not batch-UNRUNNABLE; they are the categories with no lane yet: `PartParity` (1, the part ghost parity Ctrl+Shift+T entry, 2026-11-21; single-run, its lanes use the `PartParitySweep` seam verb instead), `ServoFollowers` (1, the ghost servo follower cell, 2026-11-20; it needs Breaking Ground and a FLIGHT host), `GuiMock` (4, P1 of the GUI state gallery; the test gap audit B11 appended it to AH-1 on 2026-11-16 and took it out the same day, because the Space Center draws no Parsek window unless `ParsekKSC.showUI` is raised and its cells would fail there), and, until the moon lanes, `MoonArrivalHold` (1, the lone-moon arrival hold, 2026-11-07), whose table row the moon arrival lanes had already moved to **A**. `GhostCommNet` sat here from its opening on 2026-09-26 until CN-1 / CN-1T drove it the same day (now B7). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
 
 The sub-reasons below were EMPTY since R12 closed C2 on 2026-07-30 - the header said
 "1 category, 10 declarations" until 2026-09-06 because it was never re-derived after

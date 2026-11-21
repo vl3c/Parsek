@@ -144,23 +144,37 @@ cloned materials; `Die()` every spawned vessel and wait until gone. Every K = 10
 
 ### 4.2 One case, in order
 
-1. Collect the REAL renderer list from the part's model subtree and its framing box (each renderer's
-   local bounds corners into part space; SkinnedMeshRenderers from their world `bounds`, since
-   their local bounds are often stale) BEFORE any ghost exists. Record the real per-renderer
-   structure (4.6). The framing box takes `MeshRenderer` / `SkinnedMeshRenderer` on the part's own
-   model layers only: on the modded install a ReStock LV-T45 carries 18 extra mesh renderers (most
-   likely Waterfall plume meshes, invisible at zero throttle; not yet enumerated) that blew the
-   real box to 10 m against a 2 m part
-   (Appendix B).
+1. Collect the REAL renderer records (4.6) BEFORE any ghost exists, each with its part-local
+   bounds (a `MeshRenderer`'s mesh bounds corners into part space; a `SkinnedMeshRenderer` from its
+   world `bounds`, since its local bounds are often stale). Only rendered `MeshRenderer` /
+   `SkinnedMeshRenderer` records frame. The real box is NOT the union of every real renderer: on the
+   modded install a ReStock LV-T45 carries 18 extra mesh renderers (most likely Waterfall plume
+   meshes, invisible at zero throttle) that blew the real box to 10 m against a 2 m part
+   (Appendix B). Rule (`PartParityFramingRule`, applied once the ghost records exist, step 4):
+   pair the two sides' records first (`PartParityStructure.Diff`); the reference box is the union
+   of the rendered PAIRED real renderers (when none paired, the ghost box; when that is empty too,
+   no real renderer is dropped); an UNPAIRED real renderer joins the real box only when its bounds
+   lie inside the reference box grown to twice its extent about its centre (each half-extent at
+   least the reference's largest, so a flat plate does not drop everything off its plane). Every
+   other unpaired real renderer is dropped from framing only: it stays in the structural diff,
+   the case's Verbose line names it with its size, and the sidecar carries one flag
+   `framing-dropped:<key>=<sx>x<sy>x<sz>` (metres) per dropped renderer.
 2. Snapshot: `TryBackupSnapshot(real)`; seed events: `PartStateSeeder.SeedPartStates` on the real
-   vessel and `EmitSeedEvents` into the throwaway recording's `PartEvents` (D2).
-3. Build the ghost through the D2 seam, replay the t0 prefix of the seed events, disable ghost
-   colliders, freeze rigidbodies (FGV). Parent the ghost root to `real.rootPart.transform` with zero
+   vessel (the recorder's arguments: its engine / RCS caches, colour-changer lights seeded) and
+   `EmitSeedEvents` at t0 into the throwaway recording's `PartEvents` before the build (D2; the
+   rig's `TryBuildGhostFromLiveVessel` overload takes them).
+3. Build the ghost through the D2 seam, replay the t0 prefix of the seed events the way the
+   engine primes a loaded ghost (`PrimeLoadedGhostForPlaybackUT`: `partEventIndex = 0`, then
+   `GhostPlaybackLogic.ApplyPartEvents(rec, t0)` under `HiddenPrimeVisualPolicy`, so no transient
+   FX start; `GhostCoOrbitalRig.ApplySeedPrefix`), disable ghost colliders, freeze rigidbodies
+   (FGV). The emitted and applied counts are the sidecar flags `seed-events:<n>` /
+   `seed-applied:<n>`. Parent the ghost root to `real.rootPart.transform` with zero
    offset / identity rotation / unit scale. Record the world offset between `ghost_part_<pid>` and
    the real part transform (expected 0; else `ghost-root-offset`).
-4. Ghost framing box from the ghost's own renderers; the SHARED box is the union of the two (one box
-   for both sides, nothing re-centred). `ghost-outside-real-bounds` when the ghost box exceeds the
-   real one by more than 2 %.
+4. Ghost framing box from the ghost's own rendered renderers; the real box by the rule of step 1;
+   the SHARED box is the union of the two (one box for both sides, nothing re-centred).
+   `ghost-outside-real-bounds` when the ghost box exceeds the real one by more than 2 % of the
+   real box's largest dimension.
 5. For each view (4.3): capture (4.4).
 6. Write the thumbnail, the atlas, and LAST the sidecar, atomically (`FileIOUtils.SafeWriteBytes`):
    a case with a complete sidecar is complete (resume rule, 7). One `[PartParity]` Verbose line per
@@ -198,7 +212,7 @@ for side in (real, ghost):
     forceRenderingOff = true on the OTHER side's renderers
     for clear in (black, white):
         camera.backgroundColor = clear; camera.Render() into the MSAA target
-        Graphics.Blit to a non-MSAA target (forces the resolve); ReadPixels; GetRawTextureData
+        Graphics.Blit to a non-MSAA target (forces the resolve); ReadPixels; GetPixels32 (rows flipped top-down)
     forceRenderingOff restored
 light rig off (every saved light restored), camera disabled
 compose RGBA per side (D6); measure (6); blit into the atlas
@@ -462,9 +476,15 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
 | `Source/Parsek/TestCommands/PartParityMetrics.cs` | Pure: mask from two clears, tolerance mismatch, blobs, bbox, centroid, colour statistics. |
 | `Source/Parsek/TestCommands/PartParityStructure.cs` | Pure: renderer record pairing and the structural diff. |
 | `Source/Parsek/TestCommands/PartParityJson.cs` | Pure: manifest and sidecar model + invariant writer (`MapGeometryJson` pattern), `SchemaId`s. |
-| `Source/Parsek/TestCommands/PartParityCaseAuthoring.cs` | Live: enumeration, skins, part node authoring, tags. |
-| `Source/Parsek/TestCommands/PartParityCapture.cs` | Live: camera, light rig, hide / render / read / restore, atlas, PNG encode. |
-| `Source/Parsek/TestCommands/ParsekTestCommandAddon.PartParitySweep.cs` | Thin applier and the wave coroutine on the seam addon. |
+| `Source/Parsek/TestCommands/PartParityFramingRule.cs` | Pure: the framing rule of 4.2 (paired box, the 2x reach for unpaired real renderers, dropped list, `ghost-outside-real-bounds`). |
+| `Source/Parsek/TestCommands/PartParityImaging.cs` | Pure: the PNG encoder (`PartParityPng`), atlas and thumbnail (`PartParityImage`). |
+| `Source/Parsek/TestCommands/PartParityJsonReader.cs` | Pure: a minimal JSON reader, so each step rebuilds the manifest from the sidecars on disk. |
+| `Source/Parsek/TestCommands/PartParitySweepPlan.cs` | Pure: wave slots, the settle rule, the controls' required outcomes and their judge, manifest summaries. |
+| `Source/Parsek/TestCommands/PartParityCaseAuthoring.cs` | Pure rules (`PartParityCaseRules`: exclusions, model urls, source, tags) + live enumeration and part node authoring. |
+| `Source/Parsek/TestCommands/PartParityCapture.cs` | Live: camera, light rig, hide / render / read / restore (`PartParityCaptureMath` is its pure camera math). |
+| `Source/Parsek/TestCommands/PartParityCaseCapture.cs` | Live: one case in the order of 4.2 (records, seeds, ghost, framing, views, files) and the manifest writer. |
+| `Source/Parsek/TestCommands/PartParitySweepRunner.cs` | Live: the step and wave coroutine (`RunStep(args, onDone)`), shared by the seam verb and the in-game cell. |
+| `Source/Parsek/TestCommands/ParsekTestCommandAddon.PartParitySweep.cs` | Thin applier: starts `PartParitySweepRunner.RunStep` and answers the seam. |
 | `Source/Parsek/Ghost/GhostPlaybackEngine.*` | The extracted build-and-initialise seam (D2), `GhostPlaybackEngine.InitializeBuiltGhostVisuals(state, buildResult, traj)`, the engine's own load path (`TryPopulateGhostVisuals`) rewired through it. Proof of no behaviour change: `il_compare.py` before / after reports only the new method and the caller's body, and inlining the seam's body back at the call site gives the caller's old body exactly (`--fold` models moves between types, not an extract-method). The loop-reuse re-init (`SpawnDestroy`) and the KSC spawn run other subsets (no pivot; KSC passes no trajectory) and stay as they are. Activation stays the engine's deferred `ActivateGhostVisualsIfNeeded`. |
 | `Source/Parsek/Ghost/GhostVisualBuilder*` | The `GhostBuildResult` applied-skin accessor. |
 | `Source/Parsek/InGameTests/GhostCoOrbitalRig.cs` | `SpawnCoOrbital` (log tag passed in), `UniqueFlightIds`, `AuthorPartNode` (writes `moduleVariantName` and the `ModulePartVariants` `selectedVariant`), `TryBuildGhostFromLiveVessel` (snapshot, throwaway recording, timeline build, the D2 seam) and `NeutralisePhysics`: moved out of `FairingGhostVisualInGameTests`, used by both, FGV's nodes and log lines unchanged. |
@@ -472,8 +492,10 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
 | `harness/lib/partparity.py` + tests | Pure manifest reader, verdicts, recompute, verifier row, baseline compare. |
 | `harness/tools/part_parity_view.py` + tests | The viewer and the GIF / APNG writer. |
 
-`Parsek.csproj` gains a thirteenth Unity module reference, `UnityEngine.ImageConversionModule.dll`
-(present in `vl3c/ksp-refs`), for `EncodeToPNG`. No new mutable statics (sweep state lives on the
+`Parsek.csproj` gains NO Unity module reference: PNGs are written by the P0 spike's own encoder
+(`PartParityPng`, zlib over `System.IO.Compression.DeflateStream`, filter 0, colour type 6; xUnit
+round-trips it against a spec decode), so `UnityEngine.ImageConversionModule` and `EncodeToPNG` are
+not used. No new mutable statics (sweep state lives on the
 coroutine and in the label directory). Everything is automation-only and inert unless the seam is
 armed or the in-game test is launched: no player-facing surface.
 

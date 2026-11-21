@@ -125,6 +125,20 @@ namespace Parsek.InGameTests
         /// </summary>
         internal static bool TryBuildGhostFromLiveVessel(
             Vessel real, string recordingId, string ghostRootName, out LiveGhost ghost, out string failReason)
+            => TryBuildGhostFromLiveVessel(real, recordingId, ghostRootName, null, null, out ghost, out failReason);
+
+        /// <summary>
+        /// As above, with two additions the part parity sweep needs (design D2): the
+        /// throwaway recording's <c>PartEvents</c> start as <paramref name="seedEvents"/>
+        /// (the live vessel's <c>PartStateSeeder</c> start seeds; replay them with
+        /// <see cref="ApplySeedPrefix"/>), and <paramref name="mutateSnapshot"/> may edit the
+        /// snapshot before the ghost is built from it (a control's wrong skin). Both null is
+        /// exactly the overload above.
+        /// </summary>
+        internal static bool TryBuildGhostFromLiveVessel(
+            Vessel real, string recordingId, string ghostRootName,
+            List<PartEvent> seedEvents, Action<ConfigNode> mutateSnapshot,
+            out LiveGhost ghost, out string failReason)
         {
             ghost = null;
             failReason = null;
@@ -134,6 +148,7 @@ namespace Parsek.InGameTests
                 failReason = "TryBackupSnapshot returned null";
                 return false;
             }
+            mutateSnapshot?.Invoke(snapshot);
             double t0 = Planetarium.GetUniversalTime();
             var rec = new Recording
             {
@@ -147,6 +162,8 @@ namespace Parsek.InGameTests
                 GhostVisualSnapshot = snapshot.CreateCopy(),
                 VesselSnapshot = snapshot.CreateCopy(),
             };
+            if (seedEvents != null)
+                rec.PartEvents.AddRange(seedEvents);
             GhostBuildResult build = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(rec, ghostRootName);
             if (build == null || build.root == null)
             {
@@ -164,6 +181,57 @@ namespace Parsek.InGameTests
             GhostPlaybackEngine.InitializeBuiltGhostVisuals(state, build, rec);
             ghost = new LiveGhost { Snapshot = snapshot, Recording = rec, Build = build, State = state };
             return true;
+        }
+
+        /// <summary>
+        /// Replays the recording's part events up to <paramref name="ut"/> onto the ghost the
+        /// way the engine primes a freshly loaded ghost (<c>PrimeLoadedGhostForPlaybackUT</c>:
+        /// cursor reset, then <see cref="GhostPlaybackLogic.ApplyPartEvents"/> under the hidden
+        /// prime policy, so no transient FX start). Returns the number of events applied.
+        /// </summary>
+        internal static int ApplySeedPrefix(LiveGhost ghost, double ut)
+        {
+            if (ghost?.State == null || ghost.Recording == null) return 0;
+            ghost.State.partEventIndex = 0;
+            GhostPlaybackLogic.ApplyPartEvents(-1, ghost.Recording, ut, ghost.State,
+                GhostPlaybackEngine.HiddenPrimeVisualPolicy().allowTransientEffects);
+            return ghost.State.partEventIndex;
+        }
+
+        /// <summary>
+        /// Destroys a rig ghost the way the engine destroys a ghost's resources
+        /// (<c>GhostPlaybackEngine.DestroyGhostResources</c>, the parts reachable without an
+        /// engine instance: the state's own materials, fairing shell meshes, engine / RCS
+        /// particle systems stopped and cleared, fake canopies, the root). Materials the
+        /// builder caches for reuse are deliberately left alone; clones nothing references
+        /// go with <c>Resources.UnloadUnusedAssets</c>.
+        /// </summary>
+        internal static void DestroyLiveGhost(LiveGhost ghost)
+        {
+            if (ghost == null) return;
+            GhostPlaybackState state = ghost.State;
+            if (state != null)
+            {
+                if (state.materials != null)
+                    for (int i = 0; i < state.materials.Count; i++)
+                        if (state.materials[i] != null) UnityEngine.Object.Destroy(state.materials[i]);
+                GhostVisualBuilder.DestroyFairingShellMeshes(state.fairingInfos);
+                if (state.engineInfos != null)
+                    foreach (var info in state.engineInfos.Values)
+                        GhostPlaybackLogic.StopAndClearParticleSystems(info.particleSystems, info.kspEmitters);
+                if (state.rcsInfos != null)
+                    foreach (var info in state.rcsInfos.Values)
+                        GhostPlaybackLogic.StopAndClearParticleSystems(info.particleSystems, info.kspEmitters);
+                GhostPlaybackLogic.DestroyAllFakeCanopies(state);
+            }
+            GameObject root = ghost.Build != null ? ghost.Build.root : state?.ghost;
+            if (root != null)
+            {
+                root.transform.SetParent(null, false);
+                UnityEngine.Object.Destroy(root);
+            }
+            if (ghost.Build != null) ghost.Build.root = null;
+            if (state != null) state.ghost = null;
         }
 
         /// <summary>
