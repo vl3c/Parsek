@@ -137,10 +137,14 @@ def reduce_save(root: SfsNode) -> SfsNode:
 
 
 class _Ctx:
-    """Fresh, deterministic identifiers for synthesized / cloned nodes."""
+    """Fresh, deterministic identifiers for synthesized / cloned nodes, plus the
+    edited copy of the ``Parsek/RewindPoints`` listing (``files``: None when the
+    shell measured no listing; an edit may set it to None to model an unread
+    folder)."""
 
-    def __init__(self) -> None:
+    def __init__(self, files: Optional[Sequence[str]] = None) -> None:
         self.n = 0
+        self.files: Optional[List[str]] = list(files) if files is not None else None
 
     def fresh(self, what: str = "") -> str:
         self.n += 1
@@ -844,6 +848,41 @@ def _destination_body_op(name: str) -> Op:
 # Window -> operator.
 # ---------------------------------------------------------------------------
 
+def _rewind_files_op(unlisted_only: bool) -> Op:
+    """A ``Parsek/RewindPoints`` file facet: edit the listing copy on ``ctx``.
+    Down drops files (``rewindPointFiles``: listed ones first, so the unlisted
+    count stays put; ``unlistedRewindPointFiles``: unlisted ones only); up adds
+    fresh ``.sfs`` names no POINT lists. Which file is listed is read back
+    through ``saveparse.unlisted_rewind_point_files`` over the edited tree, so
+    the rule is the evaluator's own."""
+
+    def op(root: SfsNode, _sc: SfsNode, measured: int, target: int, ctx: _Ctx) -> Optional[str]:
+        if ctx.files is None:
+            return None
+        if target < measured:
+            snap = saveparse.with_rewind_point_files(
+                saveparse.parse_parsek_scenario(write_sfs(root)), ctx.files)
+            if snap is None or snap.rewind_point_files is None:
+                return None
+            unlisted = list(saveparse.unlisted_rewind_point_files(snap))
+            listed = [n for n in snap.rewind_point_files if n not in unlisted]
+            pool = unlisted if unlisted_only else listed + unlisted
+            k = measured - target
+            if len(pool) < k:
+                return None
+            drop = pool[:k]
+            for name in drop:
+                ctx.files.remove(name)
+            return "dropped %d %s Parsek/RewindPoints file(s) (%s)" % (
+                k, "unlisted" if unlisted_only else "listed-first", ", ".join(drop))
+        k = target - measured
+        for _ in range(k):
+            ctx.files.append(ctx.fresh("rpfile") + ".sfs")
+        return "added %d unlisted Parsek/RewindPoints file(s)" % k
+
+    return op
+
+
 _REWIND_OPS: Dict[str, Op] = {
     "supersedeRows": _staging_op("RECORDING_SUPERSEDES", "ENTRY", lambda c: [
         ("relationId", c.fresh("rel")), ("oldRecordingId", c.fresh("rec")),
@@ -854,6 +893,8 @@ _REWIND_OPS: Dict[str, Op] = {
     "rewindPoints": _staging_op("REWIND_POINTS", "POINT", lambda c: [
         ("rewindPointId", c.fresh("rp")), ("branchPointId", c.fresh("bp")),
         ("sessionProvisional", "False"), ("quicksaveFilename", c.fresh("rp") + ".sfs")]),
+    "rewindPointFiles": _rewind_files_op(False),
+    "unlistedRewindPointFiles": _rewind_files_op(True),
 }
 
 
@@ -961,8 +1002,19 @@ def _measure(expectations: Dict, snapshot) -> Tuple[Dict[str, int], Dict[str, Tu
     return counts, sets
 
 
-def evaluate_text(expectations: Dict, text: str) -> EditResult:
+def snapshot_of(text: str, rp_files: Optional[Sequence[str]] = None):
+    """The parsed save with the ``Parsek/RewindPoints`` listing attached the way
+    ``run.read_save_structure`` attaches it (None: no listing was measured, so
+    the file facets stay absent)."""
     snap = saveparse.parse_parsek_scenario(text)
+    if rp_files is None:
+        return snap
+    return saveparse.with_rewind_point_files(snap, list(rp_files))
+
+
+def evaluate_text(expectations: Dict, text: str,
+                  rp_files: Optional[Sequence[str]] = None) -> EditResult:
+    snap = snapshot_of(text, rp_files)
     res = saveparse.evaluate_save_structure(expectations, snap)
     counts, sets = _measure(expectations, snap)
     return EditResult(res.status, tuple(res.armed_mismatches), counts, sets)
@@ -1009,13 +1061,27 @@ FAULT_PHRASES = {
     "drop-pointCount": "carry no readable pointCount",
     "strip-stops": "DROPPED by RouteCodec",
     "drop-completedCycles": "completedCycles/skippedCycles",
+    "unread-listing": "not measured (no Parsek/RewindPoints listing",
 }
 
 
-def _fault_edits(armed: Sequence[str]) -> List[Tuple[str, str, Callable[[SfsNode, _Ctx], Optional[str]]]]:
+def _fault_edits(armed: Sequence[str], expectations: Optional[Dict] = None,
+                 ) -> List[Tuple[str, str, Callable[[SfsNode, _Ctx], Optional[str]]]]:
     """(block, fault, edit) for every armed block. ``tear`` is applied to TEXT by
     the caller, so its edit is a marker that returns None-as-text."""
     out: List[Tuple[str, str, Callable[[SfsNode, _Ctx], Optional[str]]]] = []
+    rewind_spec = (expectations or {}).get(saveparse.REWIND_BLOCK)
+    file_windows = isinstance(rewind_spec, dict) and any(
+        k in rewind_spec for k in saveparse.REWIND_FILE_KEYS)
+
+    def unread_listing(_root: SfsNode, ctx: _Ctx) -> Optional[str]:
+        # The folder could not be listed (run.read_rewind_point_listing -> None):
+        # the file windows must read a defined not-measured mismatch, never zero.
+        # A MISSING folder is an empty listing (0 files), a real measurement.
+        if ctx.files is None:
+            return None
+        ctx.files = None
+        return "left the Parsek/RewindPoints listing unread"
 
     def drop_scenario(root: SfsNode, _ctx: _Ctx) -> Optional[str]:
         parent, node = find_scenario(root)
@@ -1053,6 +1119,8 @@ def _fault_edits(armed: Sequence[str]) -> List[Tuple[str, str, Callable[[SfsNode
         out.append((block, "drop-scenario", drop_scenario))
         if block == "recordings.points":
             out.append((block, "drop-pointCount", drop_point_count))
+        if block == saveparse.REWIND_BLOCK and file_windows:
+            out.append((block, "unread-listing", unread_listing))
         if block == saveparse.ROUTES_BLOCK:
             out.append((block, "strip-stops", strip_stops))
             out.append((block, "drop-completedCycles", drop_cycles))
@@ -1085,14 +1153,16 @@ def _set_edits(expectations: Dict) -> List[Tuple[str, Callable[[SfsNode, _Ctx], 
     return out
 
 
-def mutate_save_structure(expectations: Dict, root: SfsNode) -> SaveCheck:
+def mutate_save_structure(expectations: Dict, root: SfsNode,
+                          rp_files: Optional[Sequence[str]] = None) -> SaveCheck:
     """Every save-level edit for the ARMED blocks of ``expectations`` over the
     baseline tree ``root`` (whose evaluation must already be PASS; the caller
-    checks). ``root`` is never modified."""
+    checks) and the baseline ``Parsek/RewindPoints`` listing ``rp_files`` (None:
+    not measured). Neither input is modified."""
     import mutlib  # local import, see _measure
     check = SaveCheck()
     base_text = write_sfs(root)
-    base = evaluate_text(expectations, base_text)
+    base = evaluate_text(expectations, base_text, rp_files)
     if base.status != saveparse.STATUS_PASS:
         check.notes.append("the written-back baseline save is not PASS (%s); no edits run"
                            % "; ".join(base.armed_mismatches[:2]))
@@ -1101,11 +1171,11 @@ def mutate_save_structure(expectations: Dict, root: SfsNode) -> SaveCheck:
 
     def run(edit: Callable[[SfsNode, _Ctx], Optional[str]]) -> Tuple[Optional[str], Optional[EditResult]]:
         tree = copy.deepcopy(root)
-        ctx = _Ctx()
+        ctx = _Ctx(rp_files)
         detail = edit(tree, ctx)
         if detail is None:
             return None, None
-        return detail, evaluate_text(expectations, write_sfs(tree))
+        return detail, evaluate_text(expectations, write_sfs(tree), ctx.files)
 
     def record(label: str, window_text: str, kind: str, detail: str, killed: bool,
                triage: str, note: str) -> None:
@@ -1116,7 +1186,7 @@ def mutate_save_structure(expectations: Dict, root: SfsNode) -> SaveCheck:
 
     # 1. Bound-crossing edits, per armed count window.
     for label, window, measured, is_armed in mutlib.save_windows(
-            expectations, saveparse.parse_parsek_scenario(base_text)):
+            expectations, snapshot_of(base_text, rp_files)):
         if not is_armed:
             continue
         wtext = mutlib._window_text(window)
@@ -1181,10 +1251,10 @@ def mutate_save_structure(expectations: Dict, root: SfsNode) -> SaveCheck:
                                        PROVEN if killed else VACUOUS, "" if killed else note))
 
     # 3. Block faults.
-    for block, fault, edit in _fault_edits(sorted(armed)):
+    for block, fault, edit in _fault_edits(sorted(armed), expectations):
         if fault == "tear":
             text = base_text[:len(base_text) // 2]
-            res = evaluate_text(expectations, text)
+            res = evaluate_text(expectations, text, rp_files)
             detail = "truncated the save text to half"
         else:
             detail, res = run(edit)
@@ -1211,15 +1281,21 @@ class SaveBaseline:
     reasons: List[str]
     reduced: bool
     note: str = ""
+    # The Parsek/RewindPoints listing the edits start from (None: not measured).
+    rp_files: Optional[Tuple[str, ...]] = None
 
 
-def prepare_baseline(expectations: Dict, save_text: Optional[str]) -> SaveBaseline:
-    """Parse the archived save, check the ARMED save-parse blocks pass on it, and
-    pick the tree edits run over: the reduced Parsek surface when it measures
-    exactly what the full save measures, else the full tree."""
+def prepare_baseline(expectations: Dict, save_text: Optional[str],
+                     rp_files: Optional[Sequence[str]] = None) -> SaveBaseline:
+    """Parse the archived save (with the ``Parsek/RewindPoints`` listing the shell
+    read beside it, ``run.read_rewind_point_listing``; None leaves the file facets
+    unmeasured, as the live verifier would), check the ARMED save-parse blocks
+    pass on it, and pick the tree edits run over: the reduced Parsek surface when
+    it measures exactly what the full save measures, else the full tree."""
     if save_text is None:
         return SaveBaseline(None, ["no archived save"], False)
-    snap = saveparse.parse_parsek_scenario(save_text)
+    files = tuple(rp_files) if rp_files is not None else None
+    snap = snapshot_of(save_text, files)
     res = saveparse.evaluate_save_structure(expectations, snap)
     if res.status != saveparse.STATUS_PASS:
         return SaveBaseline(None, ["saveParse: %s" % m for m in res.armed_mismatches]
@@ -1227,10 +1303,11 @@ def prepare_baseline(expectations: Dict, save_text: Optional[str]) -> SaveBaseli
     parsed = saveparse.parse_sfs(save_text)
     full = parsed.root
     reduced = reduce_save(full)
-    rsnap = saveparse.parse_parsek_scenario(write_sfs(reduced))
+    rsnap = snapshot_of(write_sfs(reduced), files)
     if (saveparse.observed_structure_facets(rsnap) == saveparse.observed_structure_facets(snap)
             and saveparse.evaluate_save_structure(expectations, rsnap).status == res.status):
-        return SaveBaseline(reduced, [], True)
+        return SaveBaseline(reduced, [], True, rp_files=files)
     return SaveBaseline(full, [], False,
-                        "the reduced Parsek surface measured differently; edits ran over the full save")
+                        "the reduced Parsek surface measured differently; edits ran over the full save",
+                        rp_files=files)
 
