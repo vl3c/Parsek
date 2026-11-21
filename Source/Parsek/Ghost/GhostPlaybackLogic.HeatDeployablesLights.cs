@@ -691,6 +691,28 @@ namespace Parsek
                 : GhostPartEventOutcome.NoResolvedVisual;
         }
 
+        /// <summary>
+        /// Hides the jettison transforms the part starts with hidden
+        /// (<see cref="JettisonGhostInfo.spawnHiddenTransforms"/>), after the build forced every
+        /// jettison transform on and after a loop cycle re-attached every panel. Returns how
+        /// many it hid. Touches Unity (the null test and SetActive), so a headless caller must not
+        /// reach it: the loop reset calls it only for a non-empty list.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static int ApplyJettisonSpawnBaseline(JettisonGhostInfo info)
+        {
+            if (info == null || info.spawnHiddenTransforms == null) return 0;
+            int hidden = 0;
+            for (int i = 0; i < info.spawnHiddenTransforms.Count; i++)
+            {
+                Transform t = info.spawnHiddenTransforms[i];
+                if (t == null) continue;
+                t.gameObject.SetActive(false);
+                hidden++;
+            }
+            return hidden;
+        }
+
         #endregion
 
         #region Lights

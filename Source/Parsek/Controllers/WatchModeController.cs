@@ -2511,7 +2511,7 @@ namespace Parsek
         /// <summary>
         /// Finds the next recording to auto-follow when the watched recording ends.
         /// Handles two cases:
-        /// 1. Chain continuation: next segment with same ChainId, ChainBranch 0, ChainIndex + 1
+        /// 1. Chain continuation: next segment with same ChainId, ChainBranch 0, the next ChainIndex (a hole is stepped over)
         /// 2. Tree branching: child recording via ChildBranchPointId, preferring same VesselPersistentId
         /// Returns the committed-list index of the next recording, or -1 if none found.
         /// Only returns a target if its ghost is already active (spawned and playing).

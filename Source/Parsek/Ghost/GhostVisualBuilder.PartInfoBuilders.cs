@@ -79,6 +79,54 @@ namespace Parsek
         /// and builds a ParachuteGhostInfo with sampled semi-deployed and deployed states.
         /// Returns null if the part has no parachute or the canopy transform could not be resolved.
         /// </summary>
+        /// <summary>
+        /// Maps each sampled canopy bone onto the ghost through cloneMap and captures its
+        /// build-time (stowed) local pose. Bones the ghost did not clone are skipped and counted.
+        /// Returns null when nothing resolved, so stock canopies keep the root-only pose.
+        /// </summary>
+        private static List<CanopyBonePose> ResolveCanopyBonePoses(
+            List<CanopyBoneSample> samples, Transform srcCanopy,
+            Dictionary<Transform, Transform> cloneMap, string partName, uint persistentId)
+        {
+            if (samples == null || samples.Count == 0 || srcCanopy == null)
+                return null;
+
+            List<CanopyBonePose> poses = null;
+            int unresolved = 0;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                CanopyBoneSample s = samples[i];
+                Transform srcBone = ResolveChildIndexPath(srcCanopy, s.childIndexPath);
+                Transform ghostBone = null;
+                if (srcBone == null || !cloneMap.TryGetValue(srcBone, out ghostBone) || ghostBone == null)
+                {
+                    unresolved++;
+                    continue;
+                }
+                if (poses == null)
+                    poses = new List<CanopyBonePose>();
+                poses.Add(new CanopyBonePose
+                {
+                    bone = ghostBone,
+                    stowedPos = ghostBone.localPosition,
+                    stowedRot = ghostBone.localRotation,
+                    stowedScale = ghostBone.localScale,
+                    semiDeployedSampled = s.semiDeployedSampled,
+                    semiPos = s.semiPos,
+                    semiRot = s.semiRot,
+                    semiScale = s.semiScale,
+                    deployedPos = s.deployedPos,
+                    deployedRot = s.deployedRot,
+                    deployedScale = s.deployedScale
+                });
+            }
+
+            ParsekLog.Verbose("GhostVisual",
+                $"  Part '{partName}' pid={persistentId}: canopy rig sampled={samples.Count} " +
+                $"resolved={(poses != null ? poses.Count : 0)} unresolved={unresolved} animated canopy bones");
+            return poses;
+        }
+
         private static ParachuteGhostInfo TryBuildParachuteInfo(
             Part prefab, string partName, uint persistentId,
             Dictionary<Transform, Transform> cloneMap, Transform modelRoot,
@@ -165,19 +213,19 @@ namespace Parsek
 
             if (ghostCanopy != null)
             {
-                var (sdScale, sdPos, sdRot, semiOk, dScale, dPos, dRot) = SampleCanopyStates(prefab, chute);
+                CanopySample sample = SampleCanopyStates(prefab, chute);
                 var parachuteInfo = new ParachuteGhostInfo
                 {
                     partPersistentId = persistentId,
                     canopyTransform = ghostCanopy,
                     capTransform = ghostCap,
-                    deployedCanopyScale = dScale,
-                    deployedCanopyPos = dPos,
-                    deployedCanopyRot = dRot,
-                    semiDeployedCanopyScale = sdScale,
-                    semiDeployedCanopyPos = sdPos,
-                    semiDeployedCanopyRot = sdRot,
-                    semiDeployedSampled = semiOk
+                    deployedCanopyScale = sample.dScale,
+                    deployedCanopyPos = sample.dPos,
+                    deployedCanopyRot = sample.dRot,
+                    semiDeployedCanopyScale = sample.sdScale,
+                    semiDeployedCanopyPos = sample.sdPos,
+                    semiDeployedCanopyRot = sample.sdRot,
+                    semiDeployedSampled = sample.semiDeployedSampled
                 };
 
                 // Stowed = invisible (canopy mesh starts at zero scale in KSP prefabs)
@@ -214,6 +262,12 @@ namespace Parsek
                 parachuteInfo.stowedCanopyScale = ghostCanopy.localScale;
                 parachuteInfo.stowedCanopyPos = ghostCanopy.localPosition;
                 parachuteInfo.stowedCanopyRot = ghostCanopy.localRotation;
+
+                // EVA canopies take the fixed overhead override above, so their bone rig is
+                // left alone.
+                if (!partName.StartsWith("kerbalEVA"))
+                    parachuteInfo.canopyBones = ResolveCanopyBonePoses(
+                        sample.bones, srcCanopy, cloneMap, partName, persistentId);
 
                 return parachuteInfo;
             }
@@ -905,6 +959,7 @@ namespace Parsek
         {
             var ghostJettisonTransforms = new List<Transform>();
             var resolvedJettisonNames = new List<string>();
+            List<Transform> spawnHidden = null;
             List<ConfigNode> snapshotJettisons = SnapshotModulesNamed(partNode, "ModuleJettison");
             int jettisonOrdinal = 0;
             for (int moduleIndex = 0; moduleIndex < prefab.Modules.Count; moduleIndex++)
@@ -922,6 +977,13 @@ namespace Parsek
                 // recorded as active, never a forced-on mesh of another variant.
                 List<string> jettisonNames = SelectJettisonNames(
                     jettisonNameList, snapJettison != null ? snapJettison.GetValue("activejettisonName") : null);
+
+                // Stock's flight-start rule decides whether this module's shroud is up when the
+                // part starts; the ghost mirrors it so no event is needed to hide a shroud stock
+                // never showed (todo GHOST-SHROUD-EMPTY-BOTTOM-NODE).
+                JettisonSpawnHideReason hideReason = ResolveJettisonSpawnHideReason(
+                    jettison.ignoreNodes, jettison.bottomNodeName, partNode, snapJettison);
+                int moduleTransforms = 0;
                 for (int nameIndex = 0; nameIndex < jettisonNames.Count; nameIndex++)
                 {
                     string jettisonName = jettisonNames[nameIndex];
@@ -995,9 +1057,26 @@ namespace Parsek
                         $"parentName={ghostJettison.parent?.name} " +
                         $"parentLocalPos={ghostJettison.parent?.localPosition}", 60.0);
 
+                    moduleTransforms++;
+                    if (hideReason != JettisonSpawnHideReason.None)
+                    {
+                        if (spawnHidden == null) spawnHidden = new List<Transform>();
+                        if (!spawnHidden.Contains(ghostJettison)) spawnHidden.Add(ghostJettison);
+                    }
                     if (ghostJettisonTransforms.Contains(ghostJettison)) continue;
                     ghostJettisonTransforms.Add(ghostJettison);
                     resolvedJettisonNames.Add(jettisonName);
+                }
+
+                if (moduleTransforms > 0)
+                {
+                    ParsekLog.VerboseRateLimited("GhostVisual",
+                        $"jettison-spawn-{partName}-{persistentId}-{moduleIndex}",
+                        $"    Part '{partName}' pid={persistentId} ModuleJettison[{moduleIndex}] '{jettisonNameList}': " +
+                        (hideReason != JettisonSpawnHideReason.None ? "starts hidden" : "starts shown") +
+                        $" (reason={hideReason} bottomNode='{jettison.bottomNodeName}' " +
+                        $"bottomEmpty={IsAttachNodeEmptyInSnapshot(partNode, jettison.bottomNodeName)} " +
+                        $"ignoreNodes={jettison.ignoreNodes} transforms={moduleTransforms})", 60.0);
                 }
             }
 
@@ -1006,7 +1085,8 @@ namespace Parsek
                 return new JettisonGhostInfo
                 {
                     partPersistentId = persistentId,
-                    jettisonTransforms = ghostJettisonTransforms
+                    jettisonTransforms = ghostJettisonTransforms,
+                    spawnHiddenTransforms = spawnHidden
                 };
             }
 
