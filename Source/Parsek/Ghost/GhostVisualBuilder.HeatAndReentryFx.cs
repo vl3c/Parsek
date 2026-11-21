@@ -269,7 +269,7 @@ namespace Parsek
             }
             finally
             {
-                Object.Destroy(tempClone);
+                Object.DestroyImmediate(tempClone);
             }
 
             return result;
