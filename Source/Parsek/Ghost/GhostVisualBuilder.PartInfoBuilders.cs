@@ -79,6 +79,54 @@ namespace Parsek
         /// and builds a ParachuteGhostInfo with sampled semi-deployed and deployed states.
         /// Returns null if the part has no parachute or the canopy transform could not be resolved.
         /// </summary>
+        /// <summary>
+        /// Maps each sampled canopy bone onto the ghost through cloneMap and captures its
+        /// build-time (stowed) local pose. Bones the ghost did not clone are skipped and counted.
+        /// Returns null when nothing resolved, so stock canopies keep the root-only pose.
+        /// </summary>
+        private static List<CanopyBonePose> ResolveCanopyBonePoses(
+            List<CanopyBoneSample> samples, Transform srcCanopy,
+            Dictionary<Transform, Transform> cloneMap, string partName, uint persistentId)
+        {
+            if (samples == null || samples.Count == 0 || srcCanopy == null)
+                return null;
+
+            List<CanopyBonePose> poses = null;
+            int unresolved = 0;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                CanopyBoneSample s = samples[i];
+                Transform srcBone = ResolveChildIndexPath(srcCanopy, s.childIndexPath);
+                Transform ghostBone = null;
+                if (srcBone == null || !cloneMap.TryGetValue(srcBone, out ghostBone) || ghostBone == null)
+                {
+                    unresolved++;
+                    continue;
+                }
+                if (poses == null)
+                    poses = new List<CanopyBonePose>();
+                poses.Add(new CanopyBonePose
+                {
+                    bone = ghostBone,
+                    stowedPos = ghostBone.localPosition,
+                    stowedRot = ghostBone.localRotation,
+                    stowedScale = ghostBone.localScale,
+                    semiDeployedSampled = s.semiDeployedSampled,
+                    semiPos = s.semiPos,
+                    semiRot = s.semiRot,
+                    semiScale = s.semiScale,
+                    deployedPos = s.deployedPos,
+                    deployedRot = s.deployedRot,
+                    deployedScale = s.deployedScale
+                });
+            }
+
+            ParsekLog.Verbose("GhostVisual",
+                $"  Part '{partName}' pid={persistentId}: canopy rig sampled={samples.Count} " +
+                $"resolved={(poses != null ? poses.Count : 0)} unresolved={unresolved} animated canopy bones");
+            return poses;
+        }
+
         private static ParachuteGhostInfo TryBuildParachuteInfo(
             Part prefab, string partName, uint persistentId,
             Dictionary<Transform, Transform> cloneMap, Transform modelRoot,
@@ -165,19 +213,19 @@ namespace Parsek
 
             if (ghostCanopy != null)
             {
-                var (sdScale, sdPos, sdRot, semiOk, dScale, dPos, dRot) = SampleCanopyStates(prefab, chute);
+                CanopySample sample = SampleCanopyStates(prefab, chute);
                 var parachuteInfo = new ParachuteGhostInfo
                 {
                     partPersistentId = persistentId,
                     canopyTransform = ghostCanopy,
                     capTransform = ghostCap,
-                    deployedCanopyScale = dScale,
-                    deployedCanopyPos = dPos,
-                    deployedCanopyRot = dRot,
-                    semiDeployedCanopyScale = sdScale,
-                    semiDeployedCanopyPos = sdPos,
-                    semiDeployedCanopyRot = sdRot,
-                    semiDeployedSampled = semiOk
+                    deployedCanopyScale = sample.dScale,
+                    deployedCanopyPos = sample.dPos,
+                    deployedCanopyRot = sample.dRot,
+                    semiDeployedCanopyScale = sample.sdScale,
+                    semiDeployedCanopyPos = sample.sdPos,
+                    semiDeployedCanopyRot = sample.sdRot,
+                    semiDeployedSampled = sample.semiDeployedSampled
                 };
 
                 // Stowed = invisible (canopy mesh starts at zero scale in KSP prefabs)
@@ -214,6 +262,12 @@ namespace Parsek
                 parachuteInfo.stowedCanopyScale = ghostCanopy.localScale;
                 parachuteInfo.stowedCanopyPos = ghostCanopy.localPosition;
                 parachuteInfo.stowedCanopyRot = ghostCanopy.localRotation;
+
+                // EVA canopies take the fixed overhead override above, so their bone rig is
+                // left alone.
+                if (!partName.StartsWith("kerbalEVA"))
+                    parachuteInfo.canopyBones = ResolveCanopyBonePoses(
+                        sample.bones, srcCanopy, cloneMap, partName, persistentId);
 
                 return parachuteInfo;
             }

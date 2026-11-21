@@ -548,8 +548,13 @@ namespace Parsek
         /// <summary>
         /// Pure matching logic: given a list of ancestor names (bottom-up, from transform
         /// to modelRoot) and GAMEOBJECTS rules, returns whether the transform is enabled.
-        /// First matching ancestor wins. Returns true if no rule matches (default include).
-        /// Extracted for unit testability without Unity (#242c).
+        /// Stock ModulePartVariants applies each rule as GameObject.SetActive, and a
+        /// GameObject renders only when every ancestor is active, so ANY matching rule
+        /// set to false in the chain disables the transform, even when a deeper rule
+        /// enables it (ReStock's LV-T45 Size1 variant enables Frame_Boat under a disabled
+        /// LV_T45_Boattail). The out values name the deciding rule: the deepest disabling
+        /// rule, else the deepest matching enabling rule. Returns true if no rule matches
+        /// (default include). Extracted for unit testability without Unity (#242c).
         /// </summary>
         internal static bool IsAncestorChainEnabledByVariantRule(
             List<string> ancestorNamesBottomUp,
@@ -564,30 +569,44 @@ namespace Parsek
                 gameObjectStates == null || gameObjectStates.Count == 0)
                 return true;
 
+            string firstEnabledRule = null;
             for (int i = 0; i < ancestorNamesBottomUp.Count; i++)
             {
                 string name = ancestorNamesBottomUp[i];
+                string ruleName = null;
+                bool enabled;
 
-                if (gameObjectStates.TryGetValue(name, out bool enabled))
+                if (name != null && gameObjectStates.TryGetValue(name, out enabled))
                 {
-                    matchedRuleName = name;
-                    matchedRuleEnabled = enabled;
-                    return enabled;
+                    ruleName = name;
+                }
+                else
+                {
+                    // Multi-MODEL parts: KSP names model roots with the full GameDatabase path
+                    // plus "(Clone)" suffix (e.g. "SquadExpansion/.../Shroud3x0(Clone)").
+                    // Variant GAMEOBJECTS rules use short names (e.g. "Shroud3x0").
+                    // Try matching the last path segment after stripping "(Clone)".
+                    string shortName = ExtractShortTransformName(name);
+                    if (shortName == null || !gameObjectStates.TryGetValue(shortName, out enabled))
+                        continue;
+                    ruleName = shortName;
                 }
 
-                // Multi-MODEL parts: KSP names model roots with the full GameDatabase path
-                // plus "(Clone)" suffix (e.g. "SquadExpansion/.../Shroud3x0(Clone)").
-                // Variant GAMEOBJECTS rules use short names (e.g. "Shroud3x0").
-                // Try matching the last path segment after stripping "(Clone)".
-                string shortName = ExtractShortTransformName(name);
-                if (shortName != null && gameObjectStates.TryGetValue(shortName, out bool shortEnabled))
+                if (!enabled)
                 {
-                    matchedRuleName = shortName;
-                    matchedRuleEnabled = shortEnabled;
-                    return shortEnabled;
+                    matchedRuleName = ruleName;
+                    matchedRuleEnabled = false;
+                    return false;
                 }
+                if (firstEnabledRule == null)
+                    firstEnabledRule = ruleName;
             }
 
+            if (firstEnabledRule != null)
+            {
+                matchedRuleName = firstEnabledRule;
+                matchedRuleEnabled = true;
+            }
             return true;
         }
     }
