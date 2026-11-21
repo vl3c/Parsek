@@ -438,7 +438,10 @@ allowedAnomalies = []
 # Still exact: 10 and 12 both red.
 # Confirmed on the new pin (mission warp policy flights): `2026-10-01_1938_B14-minmus-landing` PASS
 # attempt 1, same splits.
-count = { min = 11, max = 11 }
+# RE-PINNED 13 (2026-11-21, run 2026-11-21_1559): split rule version 3 adds circularization and departure-burn rows
+# to this flight (burn cuts at orbit-kind changes, design section 14.1). The
+# ascent and debris population above is unchanged; this was `count = { min = 11, max = 11 }`.
+count = { min = 13, max = 13 }
 
 [expectations.logContracts]
 # Sourced from the ACTUAL emitting ParsekLog call sites; identical set to B13

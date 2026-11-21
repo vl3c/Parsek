@@ -1193,7 +1193,10 @@ allowedAnomalies = []
 #   CommitTreeFlight: optimization pass ran committed=5->6
 # Re-flown on the new pin: `2026-10-01_2235_B22-jool-orbit` PASS attempt 1, count 6,
 # same split, the same circular Jool park. Still exact: 5 and 7 both red.
-count = { min = 6, max = 6 }
+# RE-PINNED 7 (2026-11-21, run 2026-11-21_1520): split rule version 3 adds the circularization row
+# to this flight (burn cuts at orbit-kind changes, design section 14.1). The
+# ascent and debris population above is unchanged; this was `count = { min = 6, max = 6 }`.
+count = { min = 7, max = 7 }
 
 [expectations.logContracts]
 # Every token sourced from its ACTUAL emitting call site; the interplanetary format is
