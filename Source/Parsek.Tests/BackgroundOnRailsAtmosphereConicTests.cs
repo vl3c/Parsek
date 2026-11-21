@@ -534,12 +534,12 @@ namespace Parsek.Tests
             OrbitSegment older = SuborbitalArc(PackUT);
             older.endUT = PackUT + 300.0;
             Assert.True(OrbitSegmentCheckpointBridge.TryAppendClosedCheckpointSection(
-                rec, older, markDirty: false, SegmentEnvironment.Atmospheric, out _));
+                rec, older, markDirty: false, out _, SegmentEnvironment.Atmospheric));
 
             OrbitSegment newer = SuborbitalArc(PackUT + 200.0);
             newer.endUT = PackUT + 400.0;
             Assert.True(OrbitSegmentCheckpointBridge.TryAppendClosedCheckpointSection(
-                rec, newer, markDirty: false, SegmentEnvironment.Atmospheric, out _));
+                rec, newer, markDirty: false, out _, SegmentEnvironment.Atmospheric));
 
             Assert.Equal(2, rec.TrackSections.Count);
             Assert.All(rec.TrackSections, s => Assert.Equal(SegmentEnvironment.Atmospheric, s.environment));

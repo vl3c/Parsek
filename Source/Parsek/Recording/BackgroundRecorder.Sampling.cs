@@ -93,8 +93,8 @@ namespace Parsek
                     treeRec,
                     state.currentOrbitSegment,
                     markDirty: true,
-                    sectionEnvironment,
-                    out checkpointSkipReason);
+                    out checkpointSkipReason,
+                    sectionEnvironment);
                 treeRec.ExplicitEndUT = ut;
             }
 

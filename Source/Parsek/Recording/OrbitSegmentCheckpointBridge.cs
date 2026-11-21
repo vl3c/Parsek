@@ -68,17 +68,14 @@ namespace Parsek
         private const double DistanceTolerance = 1e-6;
         private const double VectorTolerance = 1e-6;
 
-        internal static TrackSection BuildOpenCheckpointSection(double startUT)
-        {
-            return BuildOpenCheckpointSection(startUT, SegmentEnvironment.ExoBallistic);
-        }
-
         /// <summary>
-        /// An empty checkpoint section with an explicit environment label. Only the on-rails
-        /// background recorder passes a label other than ExoBallistic: a span packed below the
-        /// atmosphere top is Atmospheric (BackgroundRecorder.ResolveOnRailsCheckpointEnvironment).
+        /// An empty checkpoint section. Only the on-rails background recorder passes a label
+        /// other than ExoBallistic: a span packed below the atmosphere top is Atmospheric
+        /// (BackgroundRecorder.ResolveOnRailsCheckpointEnvironment).
         /// </summary>
-        internal static TrackSection BuildOpenCheckpointSection(double startUT, SegmentEnvironment environment)
+        internal static TrackSection BuildOpenCheckpointSection(
+            double startUT,
+            SegmentEnvironment environment = SegmentEnvironment.ExoBallistic)
         {
             return new TrackSection
             {
@@ -93,13 +90,9 @@ namespace Parsek
             };
         }
 
-        internal static TrackSection BuildClosedCheckpointSection(OrbitSegment segment)
-        {
-            return BuildClosedCheckpointSection(segment, SegmentEnvironment.ExoBallistic);
-        }
-
         internal static TrackSection BuildClosedCheckpointSection(
-            OrbitSegment segment, SegmentEnvironment environment)
+            OrbitSegment segment,
+            SegmentEnvironment environment = SegmentEnvironment.ExoBallistic)
         {
             TrackSection section = BuildOpenCheckpointSection(segment.startUT, environment);
             section.endUT = segment.endUT;
@@ -107,27 +100,17 @@ namespace Parsek
             return section;
         }
 
-        internal static bool TryAppendClosedCheckpointSection(
-            Recording rec,
-            OrbitSegment segment,
-            bool markDirty,
-            out string skipReason)
-        {
-            return TryAppendClosedCheckpointSection(
-                rec, segment, markDirty, SegmentEnvironment.ExoBallistic, out skipReason);
-        }
-
         /// <summary>
-        /// <see cref="TryAppendClosedCheckpointSection(Recording, OrbitSegment, bool, out string)"/>
-        /// with the environment label the appended section (or the empty shell it fills)
-        /// carries.
+        /// Appends a closed on-rails segment as a checkpoint section labelled
+        /// <paramref name="environment"/> (the label the appended section, or the empty shell
+        /// it fills, carries).
         /// </summary>
         internal static bool TryAppendClosedCheckpointSection(
             Recording rec,
             OrbitSegment segment,
             bool markDirty,
-            SegmentEnvironment environment,
-            out string skipReason)
+            out string skipReason,
+            SegmentEnvironment environment = SegmentEnvironment.ExoBallistic)
         {
             skipReason = null;
             if (rec == null)
