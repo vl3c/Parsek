@@ -289,6 +289,10 @@ namespace Parsek.Tests.Logistics
 
         private void AssertInvariants(ModelState m, double startTank, string trace)
         {
+            // The per-route index of the log stays equal to a full scan through every
+            // warp, save, Re-Fly start and Discard Re-fly load (todo ROUTE-TICK-EVENT-LOG-SCANS).
+            Assert.True(RouteEventLog.IndexMatchesFullScanForTesting(out string indexMismatch),
+                $"route event log index out of step: {indexMismatch}\n{trace}");
             Route r = Live();
             Assert.True(m.Delivered == r.CompletedCycles,
                 $"completed {r.CompletedCycles} != model {m.Delivered}\n{trace}");

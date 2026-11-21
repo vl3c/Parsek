@@ -1442,7 +1442,7 @@ watched vessel identity=<guid> -> child ...` / `no child continues the watched v
 recorded before dock-absorb rows existed, whose ship child carries a fresh guid with no link
 (VesselIdentity's edge 6, part-pid overlap, is not consulted here); it keeps the same-pid rule.
 
-## ROUTE-TICK-EVENT-LOG-SCANS: every route cycle walks the whole route event log several times, so a warp tick with many routes slows as the career grows [FILED 2026-11-20 from the test-gap list's "many routes at once" measurement (branch `test-gaps-b2-cloud-b`, `RouteTickScalingTests`); headless; OPEN; low-medium (frame time under high warp in a long career with many routes, no wrong result)]
+## ~~ROUTE-TICK-EVENT-LOG-SCANS~~: every route cycle walked the whole route event log several times, so a warp tick with many routes slowed as the career grew [FILED 2026-11-20 from the test-gap list's "many routes at once" measurement (branch `test-gaps-b2-cloud-b`, `RouteTickScalingTests`); FIXED 2026-11-21, branch `test-gaps-route-index`; headless, xUnit + fuzzer + mutation; no lane; low-medium (frame time under high warp in a long career with many routes, no wrong result)]
 
 Measured headlessly (`RouteTickScalingTests`, test fake environment, so the live endpoint
 resolution is not in it; Windows .NET 4.7.2 test host on a shared, noisy machine, so read the
@@ -1467,11 +1467,28 @@ and a multi-stop cycle adds `RouteOrchestrator.LoopCrossings.cs:685`. The tick r
 second, so at 1x this is small; under high warp it runs every frame, and a frame where many routes
 cross a dock pays it in full.
 
-Fix (not done, needs care): a per-(route id, cycle id) index of the log, kept in step with every
-mutator of the list (`Add`, `ReplaceAll`, the rewind retire, the window-row removal, load), or keyed
-on `RouteEventLog.StateVersion` with an append-only fast path. Every mutator must be covered or the
-replay backstop silently stops guarding, and a new mutable static needs `scripts/arch/lifetimes.toml`.
-Re-measure with `ManyRoutes_LongEventLog_Benchmark` (`PARSEK_ROUTE_TICK_BENCH=1`, about two minutes).
+Fix (done 2026-11-21): `RouteEventLog` owns a per-route index of its own list (each route's rows,
+and each route's rows per cycle id, both in log order; `RowsForRoute` / `RowsForCycle`). The log is
+the only writer of the list: `Add` / `AddRange` extend the index, and every other mutator
+(`ReplaceAll`, `RetireFutureRouteActionsAtRewind`, `RetireUnheldWindowRows`, `RemoveWhere`,
+`LoadFrom`, `ResetForTesting`) rebuilds it from the list. The readers keep their bodies and read the
+narrowed rows: `IsDispatchAlreadyLogged` / `IsDeliveryAlreadyLogged` / `IsPickupAlreadyLogged` /
+`IsLostUndeliveredMultiStopCycle`, the lost-cycle skip in `RouteOrchestrator.cs` and the supply
+deficit read `RowsForCycle`; the held-row check reads `RowsForRoute`. Each already filtered by route
+(and cycle) and broke ties by log order, so the same rows in the same order give the same answer.
+Proof: `RouteEventLogIndexTests` (index equals a full scan after every mutator, deficit and
+open-hold-episode reads equal on random logs, a desync is reported, the live readers' wiring), the
+route fuzzers check the index after every operation and run seeded timelines (single route, vessel
+origin, chained) twice, with the index and with `IndexDisabledForTesting` (the full scan), and
+compare the event log, the world, the counters and every log line byte for byte. Mutations: dropping
+the rewind retire's rebuild reds 32 cells; the supply-deficit read on the wrong cycle reds the wiring
+cell (no fuzzer cycle runs short, so only the wiring and property cells see it). Lifetimes: the two
+index dictionaries are `save` (LoadFrom rebuilds them), the per-route key cache below is `process`.
+
+Measured after the fix (same benchmark, same noisy machine), warp tick with every route firing on
+the long log: 10 routes ~6.3 ms -> ~0.12 ms (43k rows), 20 routes ~25 ms -> ~0.25 ms (86k rows),
+30 routes ~57 ms -> ~0.4-1.1 ms (128k rows); the long log now costs what the fresh log costs. The 1x
+tick on the long log: 30 routes ~193 us -> ~40 us.
 
 Done on the same branch: the per-route, per-tick "no dock crossing" Verbose line in
 `ProcessLoopRoute` and the tick summary line built their messages (ten round-trip double formats)
@@ -1482,6 +1499,18 @@ garbage is the rate-limit key strings (`"loop-noncross-" + route.Id`,
 `"route-loop-clock-args-" + route.Id`, `RouteOrchestrator.LoopCrossings.cs:191` and `:61`, plus
 `ParsekLog`'s composite `subsystem|key`) and the per-call closure and delegate objects; caching the
 key strings per route would remove most of it.
+
+Done with the index fix: `RouteOrchestrator` composes each route's loop-line keys once
+(`ParsekLog.ComposeKey`, cached per route id), the tick's own two keys are composed once, and the
+per-tick lines (no dock crossing, multi-stop no due window, paused-route skip, the clock-args
+on-change line) pass their values as a tuple to a lambda that captures nothing
+(`ParsekLog.VerboseRateLimitedComposed` / `VerboseOnChangeComposed`, same throttling and output).
+The closure had copied the whole loop unit per route per tick (about 1 KB). A tick where no route
+fires now allocates about 0.3-0.5 KB in all (the route snapshot and the summary line), nothing per
+route (1x tick with occasional fires: 10 routes ~14.2 KB -> ~0.8 KB). `ManyRoutes_TickCostStaysSmall`
+adds a no-fire phase (one repeated UT, quietest of five slices, the thread's own allocation counter
+where the runtime has one) bounded at 512 B + 32 B per route; restoring the per-call key strings
+alone reds it.
 
 ## ~~SAVE-WIDE-STAMP-NEWER-WRITEBACK~~: a save from a newer Parsek gets this build's save-wide stamp on its next save [CLOSED 2026-11-20 by owner ruling: keep today's behavior, documented in `design-save-format-policy.md` section 7 ("Keep today, document it"); FILED 2026-11-20 from the test-gap list (Batch 2 item 8), by code reading and a headless round trip, branch `test-gaps-b2-cloud-c`. OWNER QUESTION, no code change; low (only a downgrade then upgrade sequence reaches it)]
 

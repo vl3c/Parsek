@@ -24,6 +24,17 @@ namespace Parsek.Logistics
     ///
     /// <para>Readers take <see cref="Events"/> directly: no event is ever tombstoned or
     /// superseded, so there is no effective view to compute.</para>
+    ///
+    /// <para><b>The per-route index.</b> The log also keeps each route's rows, and each
+    /// (route, cycle) pair's rows, in log order (<see cref="RowsForRoute"/>,
+    /// <see cref="RowsForCycle"/>), so the per-cycle replay guards a route tick runs read
+    /// a handful of rows instead of the whole career's log (todo ROUTE-TICK-EVENT-LOG-SCANS).
+    /// This class is the only writer of the list, and every mutator keeps the index in
+    /// step: an append extends it, and every other change (replace, rewind retire, window
+    /// removal, removal, load, reset) rebuilds it from the list. A reader that filters a
+    /// full scan by route (and cycle) gets the same rows in the same order from the
+    /// index. Route events are never edited after they are logged (their route id and
+    /// cycle id are the index keys).</para>
     /// </summary>
     internal static class RouteEventLog
     {
@@ -38,6 +49,171 @@ namespace Parsek.Logistics
 
         /// <summary>Bumped on every change; caches keyed on the log read it.</summary>
         internal static int StateVersion { get; private set; }
+
+        // The index, derived from the events list and never saved; kept in step by every
+        // mutator below. Each route's rows in log order, and each route's rows per cycle id
+        // (non-empty cycle ids only), also in log order.
+        private static readonly Dictionary<string, List<RouteEvent>> rowsByRoute =
+            new Dictionary<string, List<RouteEvent>>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Dictionary<string, List<RouteEvent>>> rowsByRouteCycle =
+            new Dictionary<string, Dictionary<string, List<RouteEvent>>>(StringComparer.Ordinal);
+
+        private static readonly IReadOnlyList<RouteEvent> NoRows = new RouteEvent[0];
+
+        /// <summary>
+        /// Test seam: true makes <see cref="RowsForRoute"/> / <see cref="RowsForCycle"/> hand
+        /// back the whole log (the full scan every reader ran before the index), so a test can
+        /// prove the index changes no decision. The index itself is still maintained.
+        /// </summary>
+        internal static bool IndexDisabledForTesting;
+
+        private static void IndexAppend(RouteEvent e)
+        {
+            if (e == null || string.IsNullOrEmpty(e.RouteId))
+                return;
+            if (!rowsByRoute.TryGetValue(e.RouteId, out List<RouteEvent> routeRows))
+            {
+                routeRows = new List<RouteEvent>();
+                rowsByRoute[e.RouteId] = routeRows;
+            }
+            routeRows.Add(e);
+            if (string.IsNullOrEmpty(e.RouteCycleId))
+                return;
+            if (!rowsByRouteCycle.TryGetValue(e.RouteId, out Dictionary<string, List<RouteEvent>> byCycle))
+            {
+                byCycle = new Dictionary<string, List<RouteEvent>>(StringComparer.Ordinal);
+                rowsByRouteCycle[e.RouteId] = byCycle;
+            }
+            if (!byCycle.TryGetValue(e.RouteCycleId, out List<RouteEvent> cycleRows))
+            {
+                cycleRows = new List<RouteEvent>();
+                byCycle[e.RouteCycleId] = cycleRows;
+            }
+            cycleRows.Add(e);
+        }
+
+        // Every non-append change rebuilds the index from the list, into new lists, so a
+        // reader still holding an old one keeps the snapshot it read.
+        private static void RebuildIndex()
+        {
+            rowsByRoute.Clear();
+            rowsByRouteCycle.Clear();
+            for (int i = 0; i < events.Count; i++)
+                IndexAppend(events[i]);
+        }
+
+        /// <summary>
+        /// The rows of <paramref name="routeId"/> in log order: exactly the rows a full scan
+        /// of <see cref="Events"/> filtered by ordinal route id yields. Empty for an unknown or
+        /// empty id. The list is live (an append extends it); do not hold it across a change
+        /// of the log.
+        /// </summary>
+        internal static IReadOnlyList<RouteEvent> RowsForRoute(string routeId)
+        {
+            if (IndexDisabledForTesting)
+                return events;
+            if (string.IsNullOrEmpty(routeId) || !rowsByRoute.TryGetValue(routeId, out List<RouteEvent> routeRows))
+                return NoRows;
+            return routeRows;
+        }
+
+        /// <summary>
+        /// The rows of <paramref name="routeId"/> whose cycle id is <paramref name="cycleId"/>
+        /// (ordinal), in log order: exactly what a full scan filtered by both yields. Empty for
+        /// an unknown pair or an empty id (every reader refuses an empty cycle id first).
+        /// </summary>
+        internal static IReadOnlyList<RouteEvent> RowsForCycle(string routeId, string cycleId)
+        {
+            if (IndexDisabledForTesting)
+                return events;
+            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId)
+                || !rowsByRouteCycle.TryGetValue(routeId, out Dictionary<string, List<RouteEvent>> byCycle)
+                || !byCycle.TryGetValue(cycleId, out List<RouteEvent> cycleRows))
+                return NoRows;
+            return cycleRows;
+        }
+
+        /// <summary>
+        /// Test check: true when the index holds exactly what a full scan of the list derives
+        /// (the same routes and cycles, the same rows by reference, in the same order). On a
+        /// difference <paramref name="mismatch"/> names the first one.
+        /// </summary>
+        internal static bool IndexMatchesFullScanForTesting(out string mismatch)
+        {
+            mismatch = null;
+            var expected = new Dictionary<string, List<RouteEvent>>(StringComparer.Ordinal);
+            var expectedCycles = new Dictionary<string, List<RouteEvent>>(StringComparer.Ordinal);
+            for (int i = 0; i < events.Count; i++)
+            {
+                RouteEvent e = events[i];
+                if (e == null || string.IsNullOrEmpty(e.RouteId))
+                    continue;
+                if (!expected.TryGetValue(e.RouteId, out List<RouteEvent> all))
+                    expected[e.RouteId] = all = new List<RouteEvent>();
+                all.Add(e);
+                if (string.IsNullOrEmpty(e.RouteCycleId))
+                    continue;
+                string key = e.RouteId + "|" + e.RouteCycleId;
+                if (!expectedCycles.TryGetValue(key, out List<RouteEvent> cyc))
+                    expectedCycles[key] = cyc = new List<RouteEvent>();
+                cyc.Add(e);
+            }
+            if (expected.Count != rowsByRoute.Count)
+            {
+                mismatch = $"routes: index={rowsByRoute.Count.ToString(IC)} scan={expected.Count.ToString(IC)}";
+                return false;
+            }
+            int indexedCycles = 0;
+            foreach (var kv in rowsByRoute)
+            {
+                if (!expected.TryGetValue(kv.Key, out List<RouteEvent> all))
+                {
+                    mismatch = "route " + kv.Key + " is indexed but has no row in the log";
+                    return false;
+                }
+                if (!SameRows(kv.Value, all))
+                {
+                    mismatch = "route " + kv.Key + ": indexed rows differ from the scan";
+                    return false;
+                }
+            }
+            foreach (var kv in rowsByRouteCycle)
+            {
+                if (!expected.ContainsKey(kv.Key))
+                {
+                    mismatch = "route " + kv.Key + " has indexed cycles but no row in the log";
+                    return false;
+                }
+                foreach (var c in kv.Value)
+                {
+                    indexedCycles++;
+                    if (!expectedCycles.TryGetValue(kv.Key + "|" + c.Key, out List<RouteEvent> cyc)
+                        || !SameRows(c.Value, cyc))
+                    {
+                        mismatch = "route " + kv.Key + " cycle " + c.Key + ": indexed rows differ from the scan";
+                        return false;
+                    }
+                }
+            }
+            if (indexedCycles != expectedCycles.Count)
+            {
+                mismatch = $"cycles: index={indexedCycles.ToString(IC)} scan={expectedCycles.Count.ToString(IC)}";
+                return false;
+            }
+            return true;
+        }
+
+        private static bool SameRows(List<RouteEvent> a, List<RouteEvent> b)
+        {
+            if (a.Count != b.Count)
+                return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (!ReferenceEquals(a[i], b[i]))
+                    return false;
+            }
+            return true;
+        }
 
         private static void Bump()
         {
@@ -55,6 +231,7 @@ namespace Parsek.Logistics
                 return;
             }
             events.Add(e);
+            IndexAppend(e);
             Bump();
             ParsekLog.Verbose(Tag,
                 $"Added event: type={e.Type} route={RouteIds.Short(e.RouteId)} " +
@@ -86,6 +263,7 @@ namespace Parsek.Logistics
                         events.Add(kept[i]);
                 }
             }
+            RebuildIndex();
             Bump();
             ParsekLog.Verbose(Tag,
                 $"ReplaceAll ({reason ?? "?"}): events {before.ToString(IC)} -> {events.Count.ToString(IC)}");
@@ -111,6 +289,7 @@ namespace Parsek.Logistics
             {
                 events.Clear();
                 events.AddRange(keptEvents);
+                RebuildIndex();
                 Bump();
                 ParsekLog.Info(Tag,
                     $"RetireFutureRouteActionsAtRewind: removed {retired} free-standing route " +
@@ -162,6 +341,7 @@ namespace Parsek.Logistics
             }
             var drop = new HashSet<RouteEvent>(retiredRows);
             events.RemoveAll(e => e != null && drop.Contains(e));
+            RebuildIndex();
             Bump();
             var routes = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < retiredRows.Count; i++)
@@ -239,7 +419,10 @@ namespace Parsek.Logistics
                 }
             }
             if (removed > 0)
+            {
+                RebuildIndex();
                 Bump();
+            }
             ParsekLog.Verbose(Tag,
                 $"RemoveWhere ({reason ?? "?"}): removed={removed.ToString(IC)} total={events.Count.ToString(IC)}");
             return removed;
@@ -278,6 +461,7 @@ namespace Parsek.Logistics
             Bump();
             ConfigNode node = parsekNode?.GetNode(NodeName);
             events.AddRange(ReadEventsFrom(node, out int dropped, out string firstReject));
+            RebuildIndex();
             if (dropped > 0)
             {
                 ParsekLog.Warn(Tag,
@@ -374,6 +558,9 @@ namespace Parsek.Logistics
         internal static void ResetForTesting()
         {
             events.Clear();
+            rowsByRoute.Clear();
+            rowsByRouteCycle.Clear();
+            IndexDisabledForTesting = false;
             Bump();
         }
     }

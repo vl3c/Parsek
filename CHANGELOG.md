@@ -25,6 +25,10 @@ Not released yet.
 
 ### Changed
 
+- **High time warp stays smooth with many supply routes in a long career.** A route's run used to
+  read through every route event the career had logged, several times, so warp slowed as the
+  career grew. It now reads only its own route's rows, and a tick where no route runs makes no
+  garbage per route. (ROUTE-TICK-EVENT-LOG-SCANS)
 - **No Re-Fly on a flight a supply route uses.** Re-flying it would take the route's recorded
   trip away, so the Fly button is greyed out and its tooltip says to delete the route first.
   (REFLY-ROUTE-SOURCE-REFUSED)

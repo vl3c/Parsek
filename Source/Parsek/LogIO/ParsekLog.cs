@@ -236,7 +236,83 @@ namespace Parsek
                 return;
             }
 
-            string compositeKey = $"{subsystem}|{key}";
+            VerboseRateLimitedCore(subsystem, ComposeKey(subsystem, key), messageFactory, InvokeFactory, minIntervalSeconds);
+        }
+
+        /// <summary>
+        /// The rate-limit / on-change key the keyed helpers build from a subsystem and a
+        /// caller key (<c>subsystem|key</c>). A per-frame caller that logs under the same key
+        /// every frame builds it once with this and passes it to
+        /// <see cref="VerboseRateLimitedComposed"/> / <see cref="VerboseOnChangeComposed"/>,
+        /// which share the one state dictionary with the string-keyed overloads, so the two
+        /// forms of one key are the same entry.
+        /// </summary>
+        internal static string ComposeKey(string subsystem, string key) => $"{subsystem}|{key}";
+
+        /// <summary>
+        /// <see cref="VerboseRateLimited(string,string,Func{string},double)"/> with the key
+        /// already composed by <see cref="ComposeKey"/>: the same throttling and output,
+        /// without building the key string on every call.
+        /// </summary>
+        internal static void VerboseRateLimitedComposed(
+            string subsystem,
+            string compositeKey,
+            Func<string> messageFactory,
+            double minIntervalSeconds = DefaultRateLimitSeconds)
+        {
+            if (!IsVerboseEnabled)
+                return;
+
+            if (messageFactory == null)
+                return;
+
+            if (string.IsNullOrEmpty(compositeKey))
+            {
+                Verbose(subsystem, messageFactory());
+                return;
+            }
+
+            VerboseRateLimitedCore(subsystem, compositeKey, messageFactory, InvokeFactory, minIntervalSeconds);
+        }
+
+        /// <summary>
+        /// <see cref="VerboseRateLimitedComposed(string,string,Func{string},double)"/> with the
+        /// message built from <paramref name="state"/> by <paramref name="messageFactory"/>: a
+        /// per-frame caller passes its values in a struct and a lambda that captures nothing
+        /// (the compiler caches it), so a call that does not emit allocates nothing at all.
+        /// </summary>
+        internal static void VerboseRateLimitedComposed<TState>(
+            string subsystem,
+            string compositeKey,
+            TState state,
+            Func<TState, string> messageFactory,
+            double minIntervalSeconds = DefaultRateLimitSeconds)
+        {
+            if (!IsVerboseEnabled)
+                return;
+
+            if (messageFactory == null)
+                return;
+
+            if (string.IsNullOrEmpty(compositeKey))
+            {
+                Verbose(subsystem, messageFactory(state));
+                return;
+            }
+
+            VerboseRateLimitedCore(subsystem, compositeKey, state, messageFactory, minIntervalSeconds);
+        }
+
+        // Adapts a Func<string> to the state-passing core without a closure.
+        private static readonly Func<Func<string>, string> InvokeFactory = factory => factory();
+
+        private static void VerboseRateLimitedCore<TState>(
+            string subsystem,
+            string compositeKey,
+            TState messageState,
+            Func<TState, string> messageFactory,
+            double minIntervalSeconds)
+        {
             double now = GetLogClockSeconds();
             if (!rateLimitStateByKey.TryGetValue(compositeKey, out var state))
             {
@@ -245,13 +321,13 @@ namespace Parsek
                     lastEmitSeconds = now,
                     suppressedCount = 0
                 };
-                Verbose(subsystem, messageFactory());
+                Verbose(subsystem, messageFactory(messageState));
                 return;
             }
 
             if ((now - state.lastEmitSeconds) >= minIntervalSeconds)
             {
-                string message = messageFactory();
+                string message = messageFactory(messageState);
                 string suffix = state.suppressedCount > 0
                     ? $" | suppressed={state.suppressedCount}"
                     : string.Empty;
@@ -353,7 +429,69 @@ namespace Parsek
                 return;
             }
 
-            string compositeIdentity = $"{subsystem}|{identity}";
+            VerboseOnChangeCore(subsystem, ComposeKey(subsystem, identity), stateKey, messageFactory, InvokeFactory);
+        }
+
+        /// <summary>
+        /// Lazy <see cref="VerboseOnChange(string,string,string,Func{string})"/> with the identity
+        /// already composed by <see cref="ComposeKey"/>: the same change tracking and output,
+        /// without building the identity string on every call.
+        /// </summary>
+        internal static void VerboseOnChangeComposed(
+            string subsystem,
+            string compositeIdentity,
+            string stateKey,
+            Func<string> messageFactory)
+        {
+            if (!IsVerboseEnabled)
+                return;
+
+            if (messageFactory == null)
+                return;
+
+            if (string.IsNullOrEmpty(compositeIdentity))
+            {
+                Verbose(subsystem, messageFactory());
+                return;
+            }
+
+            VerboseOnChangeCore(subsystem, compositeIdentity, stateKey, messageFactory, InvokeFactory);
+        }
+
+        /// <summary>
+        /// <see cref="VerboseOnChangeComposed(string,string,string,Func{string})"/> with the
+        /// message built from <paramref name="messageState"/> by a lambda that captures nothing,
+        /// so a stable frame allocates nothing at all.
+        /// </summary>
+        internal static void VerboseOnChangeComposed<TState>(
+            string subsystem,
+            string compositeIdentity,
+            string stateKey,
+            TState messageState,
+            Func<TState, string> messageFactory)
+        {
+            if (!IsVerboseEnabled)
+                return;
+
+            if (messageFactory == null)
+                return;
+
+            if (string.IsNullOrEmpty(compositeIdentity))
+            {
+                Verbose(subsystem, messageFactory(messageState));
+                return;
+            }
+
+            VerboseOnChangeCore(subsystem, compositeIdentity, stateKey, messageState, messageFactory);
+        }
+
+        private static void VerboseOnChangeCore<TState>(
+            string subsystem,
+            string compositeIdentity,
+            string stateKey,
+            TState messageState,
+            Func<TState, string> messageFactory)
+        {
             string normalizedKey = stateKey ?? string.Empty;
             if (!onChangeStateByIdentity.TryGetValue(compositeIdentity, out var state))
             {
@@ -362,7 +500,7 @@ namespace Parsek
                     lastKey = normalizedKey,
                     suppressedCount = 0
                 };
-                Verbose(subsystem, messageFactory());
+                Verbose(subsystem, messageFactory(messageState));
                 return;
             }
 
@@ -371,7 +509,7 @@ namespace Parsek
                 string suffix = state.suppressedCount > 0
                     ? $" | suppressed={state.suppressedCount}"
                     : string.Empty;
-                Verbose(subsystem, $"{messageFactory()}{suffix}");
+                Verbose(subsystem, $"{messageFactory(messageState)}{suffix}");
                 state.lastKey = normalizedKey;
                 state.suppressedCount = 0;
             }
