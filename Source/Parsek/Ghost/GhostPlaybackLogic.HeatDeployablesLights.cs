@@ -1167,7 +1167,9 @@ namespace Parsek
                 for (int c = 0; c < infos.Count; c++)
                 {
                     var ccInfo = infos[c];
-                    if (ccInfo.isCabinLight) continue; // Only Pattern B responds to reentry
+                    // Only an ablator-driven char responds to reentry; a rest-state
+                    // colour changer keeps its build-time colour.
+                    if (ccInfo == null || !ccInfo.isAblationChar || ccInfo.materials == null) continue;
 
                     // Char is permanent — only increase, never fade back
                     float fraction = Mathf.Clamp01(intensity);

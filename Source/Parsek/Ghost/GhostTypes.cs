@@ -465,6 +465,10 @@ namespace Parsek
         public uint partPersistentId;
         public string shaderProperty;      // "_EmissiveColor" or "_BurnColor"
         public bool isCabinLight;          // true = Pattern A (toggle), false = Pattern B (reentry)
+        // True only for a colour changer a ModuleAblator drives (the reentry char); a
+        // rest-state colour changer (isCabinLight and isAblationChar both false) is written
+        // once at build and never again.
+        public bool isAblationChar;
         // Pattern B: highest char fraction reached (permanent, never decreases).
         // NOTE: Rewind past reentry won't reset this value — a reset mechanism
         // will be needed when rewind/scrub support is added.

@@ -90,6 +90,10 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **ReStock engines no longer glow on their ghosts at rest.** A stopped ReStock engine's replay
+  showed an orange nozzle and a white-hot core where the real engine is dark. Its ghost now starts
+  dark like the real one, colour effects touch only the parts of the model the real part colours,
+  and the KV pods' windows show the colour the real pod shows. (GHOST-COLORCHANGER-GAPS)
 - **A strut or fuel line attached to nothing shows no line on its ghost.** The replay drew the
   line and its far end even when the real strut or fuel line had no target. It now shows only the
   base, as the real part does. (GHOST-LINKED-MESH-NO-TARGET)
