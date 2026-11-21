@@ -84,6 +84,7 @@ namespace Parsek
 
         internal const int KscFlatPointFrameSourceKey = 0;
         internal const string KscOrbitTailBranch = "orbit-tail";
+        internal const string KscOrbitTailSlideBranch = "orbit-tail-slide";
 
         /// <summary>
         /// Interpolates the KSC playback pose and dispatches the point payload
@@ -114,6 +115,14 @@ namespace Parsek
             {
                 return TryResolveKscTailPose(
                     rec, tailSegment, targetUT, surfaceLookup, bodyStateLookup, out pose);
+            }
+            // A predicted tail that starts past the bridge cap: slide to it across the gap.
+            if (bodyStateLookup != null
+                && GhostPlaybackLogic.TryFindTailSlide(
+                    rec, targetUT, out OrbitSegment slideSegment, out double slideLastPointUT))
+            {
+                return TryResolveKscTailSlidePose(
+                    rec, slideSegment, slideLastPointUT, targetUT, surfaceLookup, bodyStateLookup, out pose);
             }
 
             int targetSectionIndex = FindKscTrackSectionIndex(rec, targetUT);
@@ -303,6 +312,75 @@ namespace Parsek
                 $"segment=[{FormatUt(tailSegment.startUT)},{FormatUt(tailSegment.endUT)}] " +
                 $"predicted={tailSegment.isPredicted} continuityWeight={blendWeight.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"attitude={attitude}",
+                2.0);
+            return true;
+        }
+
+        /// <summary>
+        /// KSC pose across a gap the bridge cap does not cover (owner ruling L5): the ghost
+        /// slides from the last recorded point to the predicted path's start
+        /// (<see cref="GhostPlaybackLogic.TryComputeTailSlideWorldPosition"/>), its attitude
+        /// easing from the last recorded one to the tail's start attitude.
+        /// </summary>
+        internal static bool TryResolveKscTailSlidePose(
+            Recording rec,
+            OrbitSegment slideSegment,
+            double lastPointUT,
+            double targetUT,
+            KscSurfaceLookup surfaceLookup,
+            KscBodyStateLookup bodyStateLookup,
+            out KscPoseResolution pose)
+        {
+            if (!HomeWorld.IsHomeBodyName(slideSegment.bodyName))
+            {
+                pose = KscPoseResolution.Failure(KscOrbitTailSlideBranch, "non-kerbin", null);
+                return false;
+            }
+            if (!bodyStateLookup(slideSegment.bodyName, out Vector3d bodyPos, out double mu))
+            {
+                pose = KscPoseResolution.Failure(KscOrbitTailSlideBranch, "body-not-found", null);
+                return false;
+            }
+            if (!GhostPlaybackLogic.TryGetTailSlideAnchorPoints(rec, slideSegment,
+                    out TrajectoryPoint last, out TrajectoryPoint prev, out bool hasPrev)
+                || !surfaceLookup(last.bodyName, last.latitude, last.longitude, last.altitude,
+                    out Vector3d lastWorld, out Quaternion lastBodyRot))
+            {
+                pose = KscPoseResolution.Failure(KscOrbitTailSlideBranch, "no-slide-anchor", null);
+                return false;
+            }
+            Vector3d prevWorld = Vector3d.zero;
+            if (hasPrev
+                && !surfaceLookup(prev.bodyName, prev.latitude, prev.longitude, prev.altitude,
+                    out prevWorld, out _))
+                hasPrev = false;
+            if (!GhostPlaybackLogic.TryComputeTailWorldOffset(
+                    slideSegment, mu, slideSegment.startUT, out Vector3d startOffset, out Vector3d startVelocity)
+                || !GhostPlaybackLogic.TryComputeTailSlideWorldPosition(
+                    bodyPos, lastWorld, prevWorld, hasPrev, last.ut - prev.ut,
+                    startOffset, startVelocity, lastPointUT, slideSegment.startUT, targetUT,
+                    out Vector3d worldPos, out double fraction))
+            {
+                pose = KscPoseResolution.Failure(KscOrbitTailSlideBranch, "slide-failed", null);
+                ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-tail-slide-failed-{rec.RecordingId}",
+                    $"KSC predicted tail slide unresolved: recording={rec.DebugName} targetUT={FormatUt(targetUT)}");
+                return false;
+            }
+
+            Quaternion startRot = TrajectoryMath.PureMultiply(
+                lastBodyRot, TrajectoryMath.SanitizeQuaternion(last.rotation));
+            Quaternion endRot = GhostPlaybackLogic.TryResolveTailWorldRotation(
+                slideSegment, startOffset, startVelocity, out Quaternion tailRot)
+                ? tailRot
+                : startRot;
+            Quaternion worldRot = TrajectoryMath.PureSlerp(
+                startRot, endRot, (float)GhostPlaybackLogic.SmoothStep01(fraction));
+
+            pose = KscPoseResolution.Success(worldPos, worldRot, KscOrbitTailSlideBranch, null);
+            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-tail-slide-{rec.RecordingId}",
+                $"KSC predicted tail slide: recording={rec.DebugName} targetUT={FormatUt(targetUT)} " +
+                $"lastPointUT={FormatUt(lastPointUT)} tailStartUT={FormatUt(slideSegment.startUT)} " +
+                $"fraction={fraction.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}",
                 2.0);
             return true;
         }

@@ -14,6 +14,14 @@ namespace Parsek
             if (state?.ghost == null || traj?.OrbitSegments == null) return;
             bool foundSegment = GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(
                 traj, ut, out OrbitSegment seg, out int segmentIndex);
+            if (!foundSegment
+                && GhostPlaybackEngine.TryFindPredictedOrbitTailSlide(
+                    traj, ut, out OrbitSegment slideSegment, out int slideIndex, out double slideLastPointUT))
+            {
+                PositionGhostOnPredictedTailSlide(
+                    index, traj, state, slideSegment, slideIndex, slideLastPointUT, ut);
+                return;
+            }
             if (!foundSegment)
             {
                 for (int i = 0; i < traj.OrbitSegments.Count; i++)
@@ -106,6 +114,99 @@ namespace Parsek
                     GhostSurfaceVelocity.FromOrbitVelocity(zupVelocity, body.getRFrmVel(ghostWorldPos)),
                     GhostSurfaceVelocitySource.Orbit);
             state.SetInterpolated(interp);
+        }
+
+        /// <summary>
+        /// Owner ruling L5: across a gap the bridge cap does not cover, slide the ghost from the
+        /// last recorded point to the start of the predicted path
+        /// (<see cref="GhostPlaybackLogic.TryComputeTailSlideWorldPosition"/>). The predicted
+        /// orbit is placed only at its own start (never run backwards into the gap); the
+        /// attitude eases from the last recorded one to the tail's start attitude; and the
+        /// interpolation result carries no velocity, so no FX runs on a stale velocity.
+        /// </summary>
+        private void PositionGhostOnPredictedTailSlide(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state,
+            OrbitSegment seg, int segmentIndex, double lastPointUT, double ut)
+        {
+            if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg))
+                return;
+            if (!GhostPlaybackLogic.TryGetTailSlideAnchorPoints(traj, seg,
+                    out TrajectoryPoint last, out TrajectoryPoint prev, out bool hasPrev))
+                return;
+
+            long cacheKey = index * 10000 + Math.Max(0, segmentIndex);
+            // Place the ghost on the tail's start: this resolves the conic, its start pose and
+            // the surface clamp exactly as the first tail frame after the gap will.
+            PositionGhostFromOrbit(
+                state.ghost,
+                seg,
+                seg.startUT,
+                cacheKey,
+                traj.RecordingId,
+                traj,
+                cacheContinuityOffset: false);
+            if (host.orbitCache == null
+                || !host.orbitCache.TryGetValue(cacheKey, out Orbit orbit) || orbit == null)
+                return;
+            CelestialBody body = orbit.referenceBody;
+            if (body == null)
+                return;
+
+            Vector3d bodyPos = body.position;
+            Vector3d endWorld = state.ghost.transform.position;
+            Quaternion endRot = state.ghost.transform.rotation;
+            Vector3d endVelocity = TrajectoryMath.SwizzleZupBodyRelativeToWorld(
+                orbit.getOrbitalVelocityAtUT(seg.startUT));
+
+            double shift = state.bodyFixedShiftSeconds;
+            Vector3d lastWorld = body.GetWorldSurfacePosition(
+                last.latitude,
+                TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(last.longitude, shift, body),
+                last.altitude);
+            Vector3d prevWorld = hasPrev
+                ? body.GetWorldSurfacePosition(
+                    prev.latitude,
+                    TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(prev.longitude, shift, body),
+                    prev.altitude)
+                : Vector3d.zero;
+            if (!GhostPlaybackLogic.TryComputeTailSlideWorldPosition(
+                    bodyPos, lastWorld, prevWorld, hasPrev, last.ut - prev.ut,
+                    endWorld - bodyPos, endVelocity,
+                    lastPointUT, seg.startUT, ut,
+                    out Vector3d worldPos, out double fraction))
+            {
+                ParsekLog.VerboseRateLimited("Playback", "tail-slide-failed|" + (traj.RecordingId ?? "<no-rec>"),
+                    "Predicted tail slide unresolved: rec=" + ShortRecordingId(traj.RecordingId)
+                    + " ut=" + ut.ToString("F2", CultureInfo.InvariantCulture)
+                    + "; ghost held at the predicted path's start", 5.0);
+                return;
+            }
+
+            Quaternion startRot = body.bodyTransform != null
+                ? body.bodyTransform.rotation * TrajectoryMath.FrameTransform.ShiftSurfaceRelativeRotation(
+                    TrajectoryMath.SanitizeQuaternion(last.rotation), shift, body)
+                : endRot;
+            state.ghost.transform.position = worldPos;
+            state.ghost.transform.rotation = Quaternion.Slerp(
+                startRot, endRot, (float)GhostPlaybackLogic.SmoothStep01(fraction));
+
+            // Body and altitude for the FX readers, and no velocity: the slide is not a flight
+            // path, so re-entry flames fade instead of burning on the last point's velocity.
+            state.SetInterpolated(new InterpolationResult(
+                Vector3.zero, seg.bodyName, body.GetAltitude(worldPos)));
+
+            ParsekLog.VerboseRateLimited("Playback", "tail-slide|" + (traj.RecordingId ?? "<no-rec>"),
+                string.Format(CultureInfo.InvariantCulture,
+                    "Predicted tail slide: rec={0} vessel=\"{1}\" ut={2:F2} lastPointUT={3:F2} tailStartUT={4:F2} gap={5:F1}s fraction={6:F3} startVelocity={7}",
+                    ShortRecordingId(traj.RecordingId),
+                    traj.VesselName ?? "?",
+                    ut,
+                    lastPointUT,
+                    seg.startUT,
+                    seg.startUT - lastPointUT,
+                    fraction,
+                    hasPrev ? "points" : "none"),
+                5.0);
         }
 
         internal void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
@@ -505,7 +606,12 @@ namespace Parsek
             if (!GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(
                     traj, targetUT, out OrbitSegment segment, out int segmentIndex))
             {
-                return false;
+                if (!GhostPlaybackEngine.TryFindPredictedOrbitTailSlide(
+                        traj, targetUT, out OrbitSegment slideSegment, out _, out double slideLastPointUT))
+                    return false;
+                CelestialBody slideBody = FindBodyByNameOrNull(FlightGlobals.Bodies, slideSegment.bodyName);
+                return GhostPlaybackLogic.TryGetTailSlideWorldPosition(
+                    traj, slideSegment, slideBody, slideLastPointUT, targetUT, 0.0, out worldPos);
             }
 
             long cacheKey = orbitCacheBase + Math.Max(0, segmentIndex);
