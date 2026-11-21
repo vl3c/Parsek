@@ -303,6 +303,16 @@ namespace Parsek
         // --- Terminal state ---
         public TerminalState? TerminalStateValue;      // null = not yet terminated (still recording or legacy)
 
+        // True when the Destroyed terminal is Parsek's own prediction (an extrapolated crash
+        // stamped while KSP still had the vessel, or one it never saw destroyed), false when
+        // KSP actually destroyed the vessel. Only meaningful with a Destroyed terminal; every
+        // other terminal keeps it false. Crew die only on a confirmed destruction (owner
+        // ruling Q6), so a predicted crash leaves its crew Aboard. Persisted sparse as
+        // terminalPredicted (written only when true; absent = false, so a recording written
+        // before the key keeps the Dead crew it always had). Decided only through
+        // StampTerminalState (the codec and the copy sites carry it).
+        public bool TerminalPredicted;
+
         // Terminal orbit (for Orbiting/SubOrbital terminal state)
         // Stored as Keplerian elements to avoid runtime Orbit object dependency in tests.
         public double TerminalOrbitInclination;
@@ -870,7 +880,8 @@ namespace Parsek
             Recording recording,
             TerminalState? previous,
             TerminalState? updated,
-            string context);
+            string context,
+            bool predictedChanged);
 
         /// <summary>
         /// The single installed terminal-stamp observer. Owned by the crew-end-state
@@ -912,10 +923,27 @@ namespace Parsek
         ///
         /// Returns true when crew end states were invalidated by this stamp.
         /// </summary>
-        internal bool StampTerminalState(TerminalState? value, string context)
+        /// <para><paramref name="predicted"/> says whether a Destroyed verdict is Parsek's
+        /// own prediction (see <see cref="TerminalPredicted"/>). Every stamp sets the flag, so
+        /// a site that does not pass it (every confirmed destruction, every other terminal,
+        /// a retraction) leaves it false; it is kept only with a Destroyed value. A change of
+        /// the flag alone (a predicted crash later confirmed, or the reverse) is handed to the
+        /// observer too, because the crew end states read it.</para>
+        internal bool StampTerminalState(TerminalState? value, string context, bool predicted = false)
         {
             TerminalState? previous = TerminalStateValue;
+            bool previousPredicted = TerminalPredicted;
             TerminalStateValue = value;
+            TerminalPredicted = predicted && value == TerminalState.Destroyed;
+            bool predictedChanged = previousPredicted != TerminalPredicted;
+            if (predictedChanged)
+            {
+                ParsekLog.Verbose("Recording",
+                    "terminal predicted flag " + (previousPredicted ? "true" : "false") + "->"
+                    + (TerminalPredicted ? "true" : "false") + " rec=" + (RecordingId ?? "(null)")
+                    + " terminal=" + (value.HasValue ? value.Value.ToString() : "null")
+                    + " context=" + (context ?? "null"));
+            }
             TerminalStampObserver observer = OnTerminalStamped;
             if (observer == null)
             {
@@ -933,7 +961,7 @@ namespace Parsek
                     double.MaxValue);
                 return false;
             }
-            return observer(this, previous, value, context);
+            return observer(this, previous, value, context, predictedChanged);
         }
 
         /// <summary>
@@ -1054,6 +1082,7 @@ namespace Parsek
             VesselPersistentId = source.VesselPersistentId;
             RecordedVesselGuid = source.RecordedVesselGuid;
             TerminalStateValue = source.TerminalStateValue;
+            TerminalPredicted = source.TerminalPredicted;
             TerminalOrbitInclination = source.TerminalOrbitInclination;
             TerminalOrbitEccentricity = source.TerminalOrbitEccentricity;
             TerminalOrbitSemiMajorAxis = source.TerminalOrbitSemiMajorAxis;

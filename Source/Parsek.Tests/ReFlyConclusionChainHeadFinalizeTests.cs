@@ -326,7 +326,9 @@ namespace Parsek.Tests
         }
 
         // Mirror: with no committed spawn owner, a leaf whose own vessel is live still takes its
-        // terminal from that vessel (a genuine own continuation).
+        // terminal from that vessel (a genuine own continuation). It is not the tree's active
+        // recording, so the in-flight commit runs the lifetime finalizer on that vessel first
+        // (owner ruling Q1b), and this fixture's finalizer crashes Kerbal X: a predicted crash.
         [Fact]
         public void FinalizeIndividualRecording_OwnLiveVesselNoLaterOwner_StampsTerminal()
         {
@@ -348,7 +350,9 @@ namespace Parsek.Tests
                 findVesselByPid: fx.FindVessel,
                 liveVesselAccess: LiveAccess());
 
-            Assert.Equal(TerminalState.SubOrbital, standalone.TerminalStateValue);
+            Assert.Contains("own-continuation", sceneExitFinalizerIds);
+            Assert.Equal(TerminalState.Destroyed, standalone.TerminalStateValue);
+            Assert.True(standalone.TerminalPredicted);
         }
 
         // ------------------------------------------------------------------

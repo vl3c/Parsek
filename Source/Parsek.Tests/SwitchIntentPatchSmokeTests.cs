@@ -533,8 +533,9 @@ namespace Parsek.Tests
             string mergeBody = source.Substring(mergeStart, mergeEnd - mergeStart);
 
             // (a) Commits the active tree via the session-agnostic
-            //     in-flight commit entry point.
-            Assert.Contains("flight.CommitTreeFlight()", mergeBody);
+            //     in-flight commit entry point, abandoning the active vessel
+            //     (the player switches away, so it gets the lifetime finalizer).
+            Assert.Contains("flight.CommitTreeFlightAbandoningActiveVessel()", mergeBody);
 
             // (b) Invokes the chain-evaluation hook (CommitTreeFlight
             //     itself does not fire OnTreeCommitted).

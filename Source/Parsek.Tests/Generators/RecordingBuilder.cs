@@ -45,6 +45,7 @@ namespace Parsek.Tests.Generators
         private float rewindReservedRep;
         private int? terminalState;
         private bool? crewDeathRespawns;
+        private bool terminalPredicted;
         private double crewDeathRespawnSeconds = double.NaN;
         private MergeState? mergeState;
         private double terrainHeightAtEnd = double.NaN;
@@ -436,6 +437,17 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder WithTerminalState(int terminalState)
         {
             this.terminalState = terminalState;
+            return this;
+        }
+
+        /// <summary>
+        /// A Destroyed ending Parsek only predicted (Recording.TerminalPredicted; key
+        /// terminalPredicted): its crew are not killed by it.
+        /// </summary>
+        public RecordingBuilder WithPredictedDestroyedTerminal()
+        {
+            terminalState = (int)TerminalState.Destroyed;
+            terminalPredicted = true;
             return this;
         }
 
@@ -993,6 +1005,8 @@ namespace Parsek.Tests.Generators
 
             if (terminalState.HasValue)
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
+            if (terminalPredicted)
+                node.AddValue("terminalPredicted", "True");
             if (crewDeathRespawns.HasValue)
             {
                 node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());
@@ -1170,6 +1184,8 @@ namespace Parsek.Tests.Generators
 
             if (terminalState.HasValue)
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
+            if (terminalPredicted)
+                node.AddValue("terminalPredicted", "True");
             if (crewDeathRespawns.HasValue)
             {
                 node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());

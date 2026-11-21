@@ -27,6 +27,9 @@ namespace Parsek
         public string ConsumerPath;
         public bool AllowStale;
         public bool AllowAlreadyFinalizedRepair;
+        // The caller saw KSP destroy the vessel (a background destruction the deferred
+        // check confirmed). A Destroyed cache applied without it is a prediction.
+        public bool DestructionConfirmed;
     }
 
     internal struct RecordingFinalizationCacheApplyResult
@@ -105,7 +108,8 @@ namespace Parsek
                 recording.OrbitSegments.AddRange(retainedSegments);
 
             recording.StampTerminalState(
-                cache.TerminalState.Value, "RecordingFinalizationCacheApplier");
+                cache.TerminalState.Value, "RecordingFinalizationCacheApplier",
+                predicted: IsPredictedDestroyedTerminal(cache, options));
             ApplyTerminalMetadata(recording, cache, retainedSegments);
 
             recording.ExplicitEndUT = cache.TerminalUT;
@@ -145,6 +149,31 @@ namespace Parsek
                     cache.TerminalState.Value,
                     cache.TerminalUT));
             return true;
+        }
+
+        /// <summary>
+        /// True when the Destroyed terminal this cache carries is Parsek's prediction rather
+        /// than a destruction KSP performed: a cache built from a live vessel's refresh,
+        /// applied by a caller that did not see the vessel destroyed. A destroy-event cache
+        /// (the refresh the destruction itself triggered) and a caller-confirmed destruction
+        /// are confirmed. Pure. The two destroy reasons are the producer's
+        /// (<c>RecordingFinalizationCacheProducer.IsDestroyRefreshReason</c>), spelled here so
+        /// the pure applier does not depend on the live producer; a test keeps them equal.
+        /// </summary>
+        internal static bool IsPredictedDestroyedTerminal(
+            RecordingFinalizationCache cache,
+            RecordingFinalizationCacheApplyOptions options)
+        {
+            return cache != null
+                && cache.TerminalState == TerminalState.Destroyed
+                && !options.DestructionConfirmed
+                && !IsDestroyEventReason(cache.RefreshReason);
+        }
+
+        internal static bool IsDestroyEventReason(string reason)
+        {
+            return string.Equals(reason, "destroy_event", StringComparison.Ordinal)
+                || string.Equals(reason, "background_destroy", StringComparison.Ordinal);
         }
 
         internal static bool TryGetLastAuthoredUT(Recording recording, out double lastAuthoredUT)

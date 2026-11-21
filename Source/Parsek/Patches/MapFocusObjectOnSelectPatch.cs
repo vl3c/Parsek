@@ -947,7 +947,7 @@ namespace Parsek.Patches
                 RecordingTree committedTreeRef = flight.ActiveTreeForSerialization;
                 try
                 {
-                    flight.CommitTreeFlight();
+                    flight.CommitTreeFlightAbandoningActiveVessel();
                     ParsekLog.Info("SwitchIntentPatch",
                         $"pre-switch-dialog committed-prior-segment " +
                         $"priorSessionId={priorSessionIdStr}");
@@ -1139,7 +1139,7 @@ namespace Parsek.Patches
                 RecordingTree committedTreeRef = flight.ActiveTreeForSerialization;
                 try
                 {
-                    flight.CommitTreeFlight();
+                    flight.CommitTreeFlightAbandoningActiveVessel();
                     ParsekLog.Info("SwitchIntentPatch",
                         $"pre-switch-dialog-merge-chosen-no-session " +
                         $"priorTreeId={priorTreeIdStr} " +

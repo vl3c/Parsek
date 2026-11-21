@@ -110,7 +110,8 @@ namespace Parsek
             RecordingTree tree,
             bool isSceneExit = false,
             double commitUT = double.NaN,
-            RecordingFinalizationCache finalizationCache = null)
+            RecordingFinalizationCache finalizationCache = null,
+            bool abandonActiveVessel = false)
         {
             if (string.IsNullOrEmpty(tree.ActiveRecordingId))
                 return false;
@@ -137,15 +138,37 @@ namespace Parsek
                     vesselMissing: v == null,
                     out string restoredSceneExitReason);
 
-            if (isSceneExit && !preserveRestoredSceneExitTerminalState)
+            bool runLifetimeFinalizer = !preserveRestoredSceneExitTerminalState
+                && ShouldRunLifetimeFinalizerForLeaf(
+                    isSceneExit, vesselFound: v != null, isActiveRecording: true, abandonActiveVessel);
+            if (runLifetimeFinalizer)
             {
+                if (!isSceneExit)
+                    LogAbandonLifetimeFinalizer(activeRec, "EnsureActiveRecordingTerminalState");
                 if (ApplyActiveRecordingSceneExitLifetime(
                     activeRec,
                     v,
                     commitUT,
                     tree,
                     out bool sceneExitSuppliedSnapshots))
+                {
+                    MarkLifetimeFinalizerCrashPredicted(activeRec, "EnsureActiveRecordingTerminalState");
                     return sceneExitSuppliedSnapshots;
+                }
+            }
+
+            if (runLifetimeFinalizer
+                && v != null
+                && !activeRec.TerminalStateValue.HasValue
+                && IsPredictedCrashCacheForLiveVessel(finalizationCache)
+                && ParsekFlightMergeFlow.TryApplyFinalizationCacheFallback(
+                    activeRec,
+                    finalizationCache,
+                    "EnsureActiveRecordingTerminalState.liveVesselPredictedCrash",
+                    allowStale: false,
+                    out _))
+            {
+                return false;
             }
 
             if (v != null)
@@ -171,6 +194,11 @@ namespace Parsek
                     allowStale: v == null,
                     out _))
             {
+                ConfirmObservedDestruction(
+                    activeRec,
+                    destroyedDuringRecording: false,
+                    vesselMissingOnInFlightCommit: !isSceneExit && v == null,
+                    "EnsureActiveRecordingTerminalState");
                 return false;
             }
 
@@ -450,6 +478,87 @@ namespace Parsek
         // The optimizer cut stamps the first half's end at the second half's start.
         internal const double NonFinalChainSegmentBoundaryToleranceSeconds = 1e-3;
 
+        /// <summary>
+        /// Whether a leaf with no terminal yet runs the lifetime finalizer (the predicted tail
+        /// and its terminal) before the live-vessel situation stamp. A scene exit always does,
+        /// as before. An in-flight commit does for a leaf whose live vessel still exists when
+        /// the player is not flying it: every non-active leaf, and the active one only when
+        /// the commit abandons it (the pre-switch dialog's Merge, which switches away). A
+        /// plain in-flight commit keeps the active vessel's situation stamp. Pure.
+        /// </summary>
+        internal static bool ShouldRunLifetimeFinalizerForLeaf(
+            bool isSceneExit,
+            bool vesselFound,
+            bool isActiveRecording,
+            bool abandonActiveVessel)
+        {
+            if (isSceneExit)
+                return true;
+            if (!vesselFound)
+                return false;
+            return !isActiveRecording || abandonActiveVessel;
+        }
+
+        /// <summary>
+        /// A cache the abandon path may apply to a live vessel the finalizer declined: a fresh
+        /// one predicting a crash. Every other terminal keeps the live situation stamp, whose
+        /// re-snapshot a cache apply would skip. Pure.
+        /// </summary>
+        internal static bool IsPredictedCrashCacheForLiveVessel(RecordingFinalizationCache cache)
+        {
+            return cache != null
+                && cache.Status == FinalizationCacheStatus.Fresh
+                && cache.TerminalState == TerminalState.Destroyed;
+        }
+
+        private static void LogAbandonLifetimeFinalizer(Recording rec, string context)
+        {
+            ParsekLog.Info("Flight",
+                $"{context}: in-flight commit leaves live vessel pid={rec?.VesselPersistentId ?? 0} " +
+                $"of '{rec?.RecordingId ?? "(null)"}' unflown - running the lifetime finalizer " +
+                "before the situation stamp");
+        }
+
+        /// <summary>
+        /// The lifetime finalizer extrapolates from a vessel KSP still has, so a Destroyed
+        /// ending it wrote is a prediction (owner ruling Q6: the crew are not killed by it).
+        /// </summary>
+        internal static void MarkLifetimeFinalizerCrashPredicted(Recording rec, string context)
+        {
+            if (rec == null || rec.TerminalStateValue != TerminalState.Destroyed || rec.TerminalPredicted)
+                return;
+            rec.StampTerminalState(
+                TerminalState.Destroyed, context + ".lifetimeFinalizerPredicted", predicted: true);
+            ParsekLog.Info("Flight",
+                $"{context}: lifetime finalizer predicted a crash for '{rec.RecordingId ?? "(null)"}' " +
+                $"pid={rec.VesselPersistentId} - marked predicted (crew not killed by the prediction)");
+        }
+
+        /// <summary>
+        /// Turns a predicted Destroyed ending into a confirmed one when the commit itself
+        /// observed the destruction: the active recorder saw the vessel destroyed, or an
+        /// in-flight commit found no live vessel (KSP removed it). Returns true when it
+        /// confirmed.
+        /// </summary>
+        internal static bool ConfirmObservedDestruction(
+            Recording rec,
+            bool destroyedDuringRecording,
+            bool vesselMissingOnInFlightCommit,
+            string context)
+        {
+            if (rec == null || !rec.TerminalPredicted
+                || rec.TerminalStateValue != TerminalState.Destroyed)
+                return false;
+            if (!destroyedDuringRecording && !vesselMissingOnInFlightCommit)
+                return false;
+            rec.StampTerminalState(TerminalState.Destroyed, context + ".destructionConfirmed");
+            ParsekLog.Info("Flight",
+                $"{context}: predicted crash of '{rec.RecordingId ?? "(null)"}' confirmed " +
+                $"(destroyedDuringRecording={destroyedDuringRecording}, " +
+                $"vesselMissingOnInFlightCommit={vesselMissingOnInFlightCommit})");
+            return true;
+        }
+
         internal static bool FinalizeIndividualRecording(
             Recording rec,
             double commitUT,
@@ -458,7 +567,8 @@ namespace Parsek
             RecordingTree treeContext = null,
             bool vesselDestroyedDuringRecording = false,
             Func<uint, Vessel> findVesselByPid = null,
-            FinalizationLiveVesselAccess liveVesselAccess = null)
+            FinalizationLiveVesselAccess liveVesselAccess = null,
+            bool abandonActiveVessel = false)
         {
             var vesselAccess = liveVesselAccess ?? FinalizationLiveVesselAccess.Default;
 
@@ -499,11 +609,18 @@ namespace Parsek
                     $"{restoredSceneExitReason}");
             }
 
-            if (isLeaf
-                && isSceneExit
+            bool runLifetimeFinalizer = isLeaf
                 && !preserveRestoredSceneExitTerminalState
-                && !rec.TerminalStateValue.HasValue)
+                && !rec.TerminalStateValue.HasValue
+                && ShouldRunLifetimeFinalizerForLeaf(
+                    isSceneExit,
+                    finalizeVesselFound,
+                    IsTreeActiveRecording(rec, treeContext),
+                    abandonActiveVessel);
+            if (runLifetimeFinalizer)
             {
+                if (!isSceneExit)
+                    LogAbandonLifetimeFinalizer(rec, "FinalizeIndividualRecording");
                 sceneExitLifetimeExtended = ApplySceneExitLifetimeFinalizer(
                     rec,
                     finalizeVessel,
@@ -511,6 +628,27 @@ namespace Parsek
                     treeContext,
                     out sceneExitSuppliedSnapshots,
                     out sceneExitSuppliedTerminalOrbit);
+                if (sceneExitLifetimeExtended)
+                    MarkLifetimeFinalizerCrashPredicted(rec, "FinalizeIndividualRecording");
+            }
+
+            // The finalizer declined a live vessel that the player is leaving: a fresh cache
+            // that already predicts its crash stands in (owner ruling Q1b), before the
+            // situation stamp below would end it as a coasting vessel.
+            if (runLifetimeFinalizer
+                && finalizeVesselFound
+                && !sceneExitLifetimeExtended
+                && !rec.TerminalStateValue.HasValue
+                && IsPredictedCrashCacheForLiveVessel(finalizationCache)
+                && ParsekFlightMergeFlow.TryApplyFinalizationCacheFallback(
+                    rec,
+                    finalizationCache,
+                    "FinalizeIndividualRecording.liveVesselPredictedCrash",
+                    allowStale: false,
+                    out _))
+            {
+                cacheFinalizationApplied = true;
+                cacheSuppliedTerminalOrbit = false;
             }
 
             if (isLeaf
@@ -565,7 +703,15 @@ namespace Parsek
             }
 
             if (isLeaf && !preserveRestoredSceneExitTerminalState)
+            {
                 ApplyDestroyedFallback(vesselDestroyedDuringRecording, rec);
+                ConfirmObservedDestruction(
+                    rec,
+                    vesselDestroyedDuringRecording,
+                    vesselMissingOnInFlightCommit:
+                        !isSceneExit && rec.VesselPersistentId != 0 && !finalizeVesselFound,
+                    "FinalizeIndividualRecording");
+            }
 
             // #289: Re-snapshot the vessel whenever the recording has reached a stable terminal
             // state (Landed/Splashed/Orbiting) AND the live vessel is still findable. Without

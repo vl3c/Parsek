@@ -199,10 +199,12 @@ set f.ExplicitEndUT: d:FFF8000000000000 -> d:4066800000000000
 set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
 set f.FilesDirty: false -> true
 set f.OrbitSegments: []#0 -> [{angularVelocity={x=f:00000000 y=f:00000000 z=f:00000000} argumentOfPeriapsis=d:4008000000000000 bodyName='Kerbin' eccentricity=d:3FB999999999999A endUT=d:4066800000000000 epoch=d:4059000000000000 inclination=d:3FF0000000000000 isPredicted=true longitudeOfAscendingNode=d:4000000000000000 meanAnomalyAtEpoch=d:3FD999999999999A orbitalFrameRotation={w=f:00000000 x=f:00000000 y=f:00000000 z=f:00000000} semiMajorAxis=d:41255CC000000000 startUT=d:4059000000000000}]#1
+set f.TerminalPredicted: false -> true
 set f.TerminalStateValue: <null> -> Destroyed
 set p.EndUT: d:4059000000000000 -> d:4066800000000000
 set p.HasOrbitSegments: false -> true
 log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: vessel pid=42 not found for 'c15' (isSceneExit=True) — re-snapshot will be skipped
+log [Parsek][VERBOSE][Recording] terminal predicted flag false->true rec=c15 terminal=Destroyed context=RecordingFinalizationCacheApplier
 log [Parsek][INFO][FinalizerCache] Apply accepted: consumer=FinalizeIndividualRecording rec=rec[c15|Vessel c15|sa|-] cacheStatus=Fresh owner=BackgroundLoaded staleAllowed=True appendedSegments=1 removedPredictedSegments=0 lastAuthoredUT=100.000 oldExplicitEndUT=100.000 newExplicitEndUT=180.000 terminal=Destroyed terminalUT=180.000
 log [Parsek][INFO][Flight] Finalization source=cache consumer=FinalizeIndividualRecording rec=rec[c15|Vessel c15|sa|-] terminal=Destroyed terminalUT=180.000 appendedSegments=1 staleAllowed=True
 log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=c15 before=(OrbitSegment,Kerbin) after=(OrbitSegment,Kerbin) status=resolved changed=False
@@ -217,10 +219,12 @@ set f.ExplicitEndUT: d:FFF8000000000000 -> d:4066800000000000
 set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
 set f.FilesDirty: false -> true
 set f.OrbitSegments: []#0 -> [{angularVelocity={x=f:00000000 y=f:00000000 z=f:00000000} argumentOfPeriapsis=d:4008000000000000 bodyName='Kerbin' eccentricity=d:3FB999999999999A endUT=d:4066800000000000 epoch=d:4059000000000000 inclination=d:3FF0000000000000 isPredicted=true longitudeOfAscendingNode=d:4000000000000000 meanAnomalyAtEpoch=d:3FD999999999999A orbitalFrameRotation={w=f:00000000 x=f:00000000 y=f:00000000 z=f:00000000} semiMajorAxis=d:41255CC000000000 startUT=d:4059000000000000}]#1
+set f.TerminalPredicted: false -> true
 set f.TerminalStateValue: <null> -> Destroyed
 set p.EndUT: d:4059000000000000 -> d:4066800000000000
 set p.HasOrbitSegments: false -> true
 log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: vessel pid=43 not found for 'c16' (isSceneExit=True) — re-snapshot will be skipped
+log [Parsek][VERBOSE][Recording] terminal predicted flag false->true rec=c16 terminal=Destroyed context=RecordingFinalizationCacheApplier
 log [Parsek][INFO][FinalizerCache] Apply accepted: consumer=FinalizeIndividualRecording rec=rec[c16|Vessel c16|sa|-] cacheStatus=Stale owner=BackgroundLoaded staleAllowed=True appendedSegments=1 removedPredictedSegments=0 lastAuthoredUT=100.000 oldExplicitEndUT=100.000 newExplicitEndUT=180.000 terminal=Destroyed terminalUT=180.000
 log [Parsek][INFO][Flight] Finalization source=cache consumer=FinalizeIndividualRecording rec=rec[c16|Vessel c16|sa|-] terminal=Destroyed terminalUT=180.000 appendedSegments=1 staleAllowed=True
 log [Parsek][WARN][Flight] Finalization source=cache applied stale cache consumer=FinalizeIndividualRecording rec=rec[c16|Vessel c16|sa|-] terminal=Destroyed terminalUT=180.000 owner=BackgroundLoaded cachedAtUT=105.000
