@@ -907,6 +907,53 @@ namespace Parsek
                 "Active vessel orbit segments handled by on-rails events");
         }
 
+        /// <summary>
+        /// The flight ledger clock cursor's recalculation: the Space Center / Tracking Station
+        /// clock-advance walk at the crossing clock, so committed rows the flight clock reaches
+        /// take effect at their UT instead of at the next warp exit, commit or spend. One Info
+        /// line per crossing (the cursor runs once per crossed row, never per frame); a failure
+        /// is logged and never breaks the flight Update.
+        /// </summary>
+        internal static void RecalculateLedgerAtFlightClockCrossing(double currentUT, string reason)
+        {
+            try
+            {
+                ParsekLog.Info("LedgerOrchestrator",
+                    "Flight clock reached a committed ledger row: reason=" + (reason ?? "flight-clock")
+                    + " ut=" + currentUT.ToString("R", CultureInfo.InvariantCulture)
+                    + " - recalculating");
+                LedgerOrchestrator.RecalculateAndPatchForClockAdvance(currentUT, reason);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("LedgerOrchestrator",
+                    "Flight clock ledger recalculation failed: ut="
+                    + currentUT.ToString("R", CultureInfo.InvariantCulture)
+                    + " error=" + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// The flight ledger clock cursor's after-recalculate hook: the crossed building rows
+        /// while a flight tree defers the ordinary patch
+        /// (<see cref="FacilityStatePatcher.PatchCrossedBuildingRowsWhileTreeLives"/>).
+        /// </summary>
+        internal static void ApplyCrossedBuildingRowsAtFlightClockCrossing(
+            double windowAfterUT, double currentUT, string reason)
+        {
+            try
+            {
+                FacilityStatePatcher.PatchCrossedBuildingRowsWhileTreeLives(windowAfterUT, currentUT, reason);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("LedgerOrchestrator",
+                    "Flight clock building patch failed: ut="
+                    + currentUT.ToString("R", CultureInfo.InvariantCulture)
+                    + " error=" + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
         internal static void RecalculateLedgerAfterWarpExit(double warpEndUT)
         {
             RecalculateLedgerAfterWarpExit(

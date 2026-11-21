@@ -4,7 +4,8 @@ namespace Parsek
 {
     /// <summary>
     /// Keeps the career ledger in step with a clock that moves with no scene change (the
-    /// Space Center and Tracking Station warp). Both scenes load with the current-UT cutoff,
+    /// Space Center and Tracking Station warp, and the flight clock at 1x or in warp). Each
+    /// scene loads with the current-UT cutoff,
     /// so committed actions still ahead of the clock are filtered out of the patched career;
     /// when the clock reaches the next such action (or moves backward) this runs one
     /// live-timeline recalculation at the new UT. Per frame it costs a cached lookup and two
@@ -17,6 +18,7 @@ namespace Parsek
         private readonly string reasonPrefix;
         private readonly Func<double, double> nextActionUTAfter;
         private readonly Action<double, string> recalculate;
+        private readonly Action<double, double, string> afterRecalculate;
 
         private double lastCutoffUT = double.NaN;
         private int cachedNextActionVersion = int.MinValue;
@@ -30,14 +32,20 @@ namespace Parsek
         /// <param name="recalculate">Test seam; defaults to
         /// <see cref="LedgerOrchestrator.RecalculateAndPatchForClockAdvance"/>, which lets
         /// the reached committed-future rows past the drawdown guard.</param>
+        /// <param name="afterRecalculate">Optional, called after each recalculation with the
+        /// crossing window (exclusive start: the previous cutoff at the ledger's now; inclusive
+        /// end: the new clock) and the reason. The flight scene applies the building rows of
+        /// that window here while a flight tree defers the ordinary patch.</param>
         internal CareerLedgerClockCursor(
             string reasonPrefix,
             Func<double, double> nextActionUTAfter = null,
-            Action<double, string> recalculate = null)
+            Action<double, string> recalculate = null,
+            Action<double, double, string> afterRecalculate = null)
         {
             this.reasonPrefix = string.IsNullOrEmpty(reasonPrefix) ? "scene" : reasonPrefix;
             this.nextActionUTAfter = nextActionUTAfter;
             this.recalculate = recalculate ?? LedgerOrchestrator.RecalculateAndPatchForClockAdvance;
+            this.afterRecalculate = afterRecalculate;
         }
 
         internal double LastCutoffUT => lastCutoffUT;
@@ -60,13 +68,16 @@ namespace Parsek
 
             // Rows up to the ledger held-through UT are in the loaded world (a Rewind-to-Launch
             // lead window): reaching one is no crossing, so the next row that is one lies after it.
-            double nextActionUT = GetNextActionUTAfter(LedgerHeldWindow.ResolveLedgerNowUT(lastCutoffUT));
+            double windowAfterUT = LedgerHeldWindow.ResolveLedgerNowUT(lastCutoffUT);
+            double nextActionUT = GetNextActionUTAfter(windowAfterUT);
             if (!ParsekKSC.ShouldAdvanceCareerLedgerForKscUT(
                     currentUT, lastCutoffUT, nextActionUT, AdvanceEpsilonSeconds))
                 return false;
 
             string reason = FormatReason(reasonPrefix, currentUT, lastCutoffUT, AdvanceEpsilonSeconds);
             recalculate(currentUT, reason);
+            if (afterRecalculate != null)
+                afterRecalculate(windowAfterUT, currentUT, reason);
 
             // Advance even if a pending/live tree makes the internal patch defer; tree
             // resolution runs its own recalc, while retrying here every frame would spam

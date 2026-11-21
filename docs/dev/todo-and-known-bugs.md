@@ -466,6 +466,50 @@ Owed: S1.8's re-flight on a DLL from this branch (stock-minimal, daily). Expecte
 `seam Kerbin->Sun ut=4742953.221 gap=0.0m (tolerance 1000m, both sides at the seam UT) afterEpoch=4742953.206 seamMinusAfterEpoch=0.015s localBody=Kerbin localSideFromBody=84159300m localSoi=84159286m`
 and `seam Sun->Duna ut=9128108.755 gap=0.0m (...) afterEpoch=9128108.707 seamMinusAfterEpoch=0.048s localBody=Duna localSideFromBody=47921878m localSoi=47921949m`,
 then `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0`. After it, tighten the spec's `gap=` windows.
+## ~~FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS~~: in flight a committed row the clock reached took effect only at the next recalculation [FILED 2026-11-21 from the PADX lanes (TEST-GAPS-B3-PAD-AND-JUMP-LANES on `test-gaps-batch3`; owner decision: the flight scene needs the cursor); FIXED 2026-11-21, branch `test-gaps-flight-ksc-clock`; xUnit; PADX-2 spec edit owed on `test-gaps-batch3`; medium (a committed pad crash, purchase or contract outcome landed at the next warp exit, commit or spend instead of at its UT)]
+
+The Space Center and Tracking Station run `CareerLedgerClockCursor`: one cached next-row lookup per
+frame, and one clock-advance recalculation (`RecalculateAndPatchForClockAdvance`) when the clock
+reaches the next ledger row. FLIGHT had only the milestone cursor (`CommittedMilestoneClockCursor`,
+add-only world-firsts), so at 1x the reached rows waited; in warp they applied at the warp exit.
+
+Fix:
+- `ParsekFlight` owns a third cursor, `flightLedgerClock` (reason `flight-clock`), advanced in
+  `Update` beside the milestone cursor, after the teardown early-out and only while no rewind UT
+  adjustment is pending. The first frame seeds (the scene load walked at that clock). A time jump,
+  a commit or a load that already walked costs at most one redundant walk (the committed-future
+  snapshot then reaches no crossing), as at the Space Center after a purchase. The recalculation
+  is wrapped (`ParsekFlight.RecalculateLedgerAtFlightClockCrossing`: one Info line
+  `Flight clock reached a committed ledger row: reason=flight-clock` per crossing; a failure is a
+  Warn that never breaks `Update`). F9, revert, rewind and Re-Fly loads rebuild the scene, so the
+  cursor reseeds at the loaded clock.
+- Row kinds: every kind the Space Center cursor applies (funds, science, reputation, facility
+  levels and buildings, contracts, tech, hires, strategies, dismissals), because the flight warp
+  exit already runs the same walk in FLIGHT; the cursor only moves it to the row's UT.
+- While a flight records, or its tree is uncommitted or pending, that walk's KSP patch stays
+  deferred (#466: the pools hold the flight's uncommitted effects) and the live building patch
+  skips (the flight owns collapses the ledger has not received). The one exception is the
+  buildings: the cursor's after-recalculate hook
+  (`FacilityStatePatcher.PatchCrossedBuildingRowsWhileTreeLives`) applies the FacilityDestruction /
+  FacilityRepair rows of the crossing window only (`ComputeBuildingStatesCrossed`, rows in
+  `(previous cutoff, now]`), so a pad the committed timeline knocks down falls at its UT even under
+  a recording. A full fold would repair a building the live flight knocked down after an earlier
+  committed repair; a window never reaches back past the previous crossing, so it agrees with the
+  fold the commit's patch makes later. Rows tagged to the active Re-Fly's suppressed subtree are
+  left out (the flight being re-flown stays in the ledger until the merge). Skipped inside OnLoad,
+  from a ledger held from a newer version, on a clock that is not ready, and for an empty window.
+- Double apply: the patch's Demolish / Repair run under `SuppressionGuard.ResourcesAndReplay`, so
+  stock's collapse event is not captured as the live flight's; a crash the live flight itself
+  causes is captured once and becomes its row at commit, which the next crossing finds already
+  matching the building.
+- xUnit `FlightLedgerClockCursorTests` (window, fold, mode, headless live step, ParsekFlight wiring
+  gate), `KscBuildingLivePatchWiringTests` (two pinned `PatchDestructionState` feeds).
+
+Owed: PADX-2 on `test-gaps-batch3` describes the warp-exit fall in its header; its gates still
+pass (the pad now falls inside the warp at the crash UT and the warp exit finds it down), but its
+header and a tighter gate (`reason=flight-clock` before the demolish, the demolish before
+`Warp exit ledger recalculation started`) belong there. No lane yet crosses a building row WHILE
+RECORDING (the hook's Apply path): `PatchCrossedBuildingRows: flight clock crossed`.
 
 ## ~~BG-SEPARATION-CLOSES-PARENT-RECORDING~~: a background vessel's staging closed its recording and started a second one [FIXED 2026-11-21, branch `rsr-wp8-bg-shape`; xUnit `BackgroundSeparationShapeTests`; low (two recordings-table rows for one vessel; no data lost)]
 

@@ -264,10 +264,18 @@ namespace Parsek
         // ghost spawns and other processing into the dying scene.
         private bool sceneChangeInProgress;
         // Marks a world-first the committed timeline credits complete in stock when the
-        // flight clock passes its row (no flight recalc runs at 1x, and one under a live
-        // recorder is deferred), so a re-earning flight is not paid for it again.
+        // flight clock passes its row (the ledger cursor's recalculation under a live
+        // recorder defers the patch), so a re-earning flight is not paid for it again.
         private readonly CommittedMilestoneClockCursor committedMilestoneClock =
             new CommittedMilestoneClockCursor("flight");
+        // Applies a committed ledger row (a building collapse or repair, a Space Center
+        // purchase, a contract outcome) when the flight clock reaches it, at 1x or in warp, as
+        // the Space Center and Tracking Station cursors do. A live flight tree defers the
+        // recalculation's KSP patch; the crossed building rows still apply through the hook.
+        private readonly CareerLedgerClockCursor flightLedgerClock = new CareerLedgerClockCursor(
+            "flight",
+            recalculate: RecalculateLedgerAtFlightClockCrossing,
+            afterRecalculate: ApplyCrossedBuildingRowsAtFlightClockCrossing);
         // Pid of the active vessel the M-A2 DiscardTree seam verb asked to leave idle
         // (0 = none). While it matches the active vessel, TryRestoreCommittedTreeForSpawnedActiveVessel
         // refuses to re-adopt that vessel's committed tree; otherwise the 1 Hz Update
@@ -1299,7 +1307,14 @@ namespace Parsek
             // A rewind's pending UT adjustment means Planetarium still reads the pre-rewind
             // future: never pass a committed row on that clock.
             if (!RecordingStore.RewindUTAdjustmentPending)
-                committedMilestoneClock.Advance(Planetarium.GetUniversalTime());
+            {
+                double flightClockUT = Planetarium.GetUniversalTime();
+                committedMilestoneClock.Advance(flightClockUT);
+                // An unready clock reads 0: seeding there would make the first crossing window
+                // fold all history (and repair a building the live tree knocked down).
+                if (flightClockUT > 0.0)
+                    flightLedgerClock.Advance(flightClockUT);
+            }
 
             // Vessel name decisions re-applied when the committed set moved or (1 Hz) the
             // live tree gained a leg (vessel names design 7.4). Inert with no decision.
