@@ -13,7 +13,7 @@ namespace Parsek.Tests
     /// writes. A source gate that read "BackgroundRecorder.cs" as a whole reads exactly that set as
     /// one text: the main file first, then the area files in ordinal file-name order, each file
     /// whole, so a member's body is never split across the join. The older siblings
-    /// (PartEventPolling, PhysicsSoi, State, Testing, TimeJump) were never part of that file and are NOT read,
+    /// (PartEventPolling, PhysicsSoi, SeparationWindows, State, Testing, TimeJump) were never part of that file and are NOT read,
     /// so a gate's scope stays what it was. Every <c>BackgroundRecorder.*.cs</c> on disk must be
     /// named in one of the two lists, or <see cref="Paths"/> throws naming the new file.
     /// </summary>
@@ -42,6 +42,7 @@ namespace Parsek.Tests
         {
             "BackgroundRecorder.PartEventPolling.cs",
             "BackgroundRecorder.PhysicsSoi.cs",
+            "BackgroundRecorder.SeparationWindows.cs",
             "BackgroundRecorder.State.cs",
             "BackgroundRecorder.Testing.cs",
             "BackgroundRecorder.TimeJump.cs",

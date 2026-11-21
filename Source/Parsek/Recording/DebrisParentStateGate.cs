@@ -41,7 +41,7 @@ namespace Parsek
     /// <item><description><b>Active background recording</b> —
     /// <c>BackgroundMap[parent.VesselPersistentId] == parent.RecordingId</c>.
     /// The recorder is currently writing samples to this recording for
-    /// its vessel. After a background split,
+    /// its vessel. After a background undock,
     /// <c>CloseParentRecording</c> sets <c>ChildBranchPointId</c> on the
     /// closed parent AND swaps <c>BackgroundMap[pid]</c> to the
     /// continuation's id — so the closed parent's <c>RecordingId</c> no
@@ -101,7 +101,7 @@ namespace Parsek
 
             // Active-background recording: BackgroundMap entry for the
             // parent's vessel pid points at the parent's recording id.
-            // After a background split, CloseParentRecording sets
+            // After a background undock, CloseParentRecording sets
             // ChildBranchPointId AND swaps BackgroundMap[pid] to the
             // continuation's id — so this branch correctly fails for the
             // closed parent (its RecordingId no longer matches the

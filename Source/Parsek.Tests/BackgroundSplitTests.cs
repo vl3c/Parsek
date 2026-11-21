@@ -491,10 +491,12 @@ namespace Parsek.Tests
         #region HandleBackgroundVesselSplit — Tree Structure (via BuildBackgroundSplitBranchData)
 
         // NOTE: HandleBackgroundVesselSplit cannot be called in unit tests because it
-        // accesses FlightGlobals.Vessels (KSP runtime). The two pure methods it delegates
-        // to - BuildBackgroundSplitBranchData for the branch data and
+        // accesses FlightGlobals.Vessels (KSP runtime). The two pure methods its UNDOCK path
+        // delegates to - BuildBackgroundSplitBranchData for the branch data and
         // TryBuildAndAttachParentContinuation for the parent continuation - are called
-        // directly here; only the parent close is staged by the test.
+        // directly here; only the parent close is staged by the test. A decouple or a
+        // broken-off part no longer takes this path (owner ruling Q15: the parent continues,
+        // BackgroundSeparationShapeTests).
 
         [Fact]
         public void BuildBackgroundSplitBranchData_TreeStructure_ParentClosedChildCreated()
@@ -513,7 +515,7 @@ namespace Parsek.Tests
 
             var (bp, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
                 "rec_bg", "tree_split_test", 150.0, BranchPointType.JointBreak,
-                100, newVessels);
+                100, newVessels, splitCause: "UNDOCK");
 
             // Close the parent exactly as HandleBackgroundVesselSplit's CloseParentRecording does
             parentRec.ChildBranchPointId = bp.Id;
@@ -1129,8 +1131,9 @@ namespace Parsek.Tests
 
         #region Bug #285 — Parent Dead at Split Time (Simulation Tests)
 
-        // These tests drive the two paths of the continuation decision through the pure
-        // helper HandleBackgroundVesselSplit delegates it to,
+        // These tests drive the two paths of the continuation decision of a background
+        // UNDOCK (the one split that still closes its parent, owner ruling Q15) through the
+        // pure helper HandleBackgroundVesselSplit delegates it to,
         // BackgroundRecorder.TryBuildAndAttachParentContinuation: (a) parent alive ->
         // continuation created and wired into the tree, (b) parent dead -> null, nothing
         // added. HandleBackgroundVesselSplit itself accesses FlightGlobals so cannot be
@@ -1151,7 +1154,7 @@ namespace Parsek.Tests
 
             var (bp, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
                 "rec_bg", "tree_split_test", 150.0, BranchPointType.JointBreak,
-                100, newVessels);
+                100, newVessels, splitCause: "UNDOCK");
 
             // Close parent
             parentRec.ChildBranchPointId = bp.Id;
@@ -1203,7 +1206,7 @@ namespace Parsek.Tests
 
             var (bp, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
                 "rec_bg", "tree_split_test", 150.0, BranchPointType.JointBreak,
-                100, newVessels);
+                100, newVessels, splitCause: "UNDOCK");
 
             // Close parent
             parentRec.ChildBranchPointId = bp.Id;
@@ -1248,7 +1251,7 @@ namespace Parsek.Tests
 
             var (bp, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
                 "rec_bg", "tree_split_test", 150.0, BranchPointType.JointBreak,
-                100, newVessels);
+                100, newVessels, splitCause: "UNDOCK");
 
             // Close parent, then let production take the parent-dead path
             parentRec.ChildBranchPointId = bp.Id;

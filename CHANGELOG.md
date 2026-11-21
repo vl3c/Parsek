@@ -42,6 +42,10 @@ Not released yet.
   (SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS)
 - **Mining an asteroid on a supply route works like mining the ground.** A route that mines a
   rock never drains the real rock (owner ruling 2026-11-15).
+- **A vessel you are not flying keeps one recording when it stages.** When it drops a stage or a
+  part breaks off, its recording carries on past the separation, as it does for the vessel you
+  fly, and pieces that come off together share one split. The Recordings list shows one row for
+  that vessel instead of two. (BG-SEPARATION-CLOSES-PARENT-RECORDING)
 
 ### Fixed
 

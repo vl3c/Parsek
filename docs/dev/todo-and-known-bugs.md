@@ -20,6 +20,64 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~BG-SEPARATION-CLOSES-PARENT-RECORDING~~: a background vessel's staging closed its recording and started a second one [FIXED 2026-11-21, branch `rsr-wp8-bg-shape`; xUnit `BackgroundSeparationShapeTests`; low (two recordings-table rows for one vessel; no data lost)]
+
+Cause: a decouple or a broken-off part of a BACKGROUND vessel went through
+`BackgroundRecorder.HandleBackgroundVesselSplit`'s closing path: `CloseParentRecording` ended the
+parent recording at the split, a parent continuation recording (same pid) carried the vessel on,
+the pieces were anchored to the continuation, and each deferred scan (one per frame) made its own
+branch point. The focused vessel's decouple or breakup keeps one recording that runs past the
+split (`ParsekFlight.WireBreakupIntoTree`) and groups the pieces of a 0.5 s window into one
+branch point, so the same staging gave two different tree shapes depending on focus.
+
+Fix: owner ruling Q15 (2026-11-18), "One shape for both". `BackgroundRecorder.SeparationWindows.cs`
+keeps one `CrashCoalescer` per background parent pid (the class moved from `Rewind/` to
+`Recording/`, its own module, so the background recorder adds no backward module edge). The
+deferred scan feeds each new vessel (snapshot and pose captured at the scan) into the window;
+`ProcessPendingSplitChecks` ticks it; the emitted JointBreak branch point is wired with
+`WireBreakupIntoTree` onto the parent recording, which keeps its BackgroundMap entry and keeps
+sampling, gets its VesselSnapshot refreshed, and keeps the structural-event point the joint break
+wrote. Children go through `ParsekFlight.CreateBreakupChildRecording` anchored to the parent
+recording (a controlled piece gone before the window closed gets none, a debris piece gone gets
+the destroyed one-point row, as focused), live ones join the background recorder with the debris
+limit keyed on the branch point UT, and a split with two or more controllable vessels authors a
+rewind point whose parent slot is the parent recording itself. An undock keeps the closing shape
+(it is the focused undock shape), emitting a window the parent still holds first. Windows are
+emitted early (never drop one) from `FlushPendingSplits` (save, scene exit, revert, every
+recorder start), `FinalizeAllForCommit`, `Shutdown` (with a Warn), and when the parent stops
+being a background vessel: `OnVesselRemovedFromBackground` (promotion, switch, debris end, member
+reconcile), go-on-rails (before the identity-loss check), `OnBackgroundVesselWillDestroy` and
+`RetireDestroyedBackgroundEntry`. A piece still held by a window that acts on its own (separates
+again, undocks or is decoupled, or the player switches to it) emits its window first
+(`EmitSeparationWindowHoldingChild`, from `OnBackgroundPartJointBreak`, `OnBackgroundPartUndock`,
+`OnBackgroundPartDeCouple` and `OnVesselSwitchComplete`) so it is a background member with its
+own recording when it does, and an undock of it is still classed UNDOCK. A piece is held by one
+window only: two background parents splitting in one physics step both see each other's new
+vessel (a held piece is not in the BackgroundMap yet), so the new-vessel scan and the window feed
+skip a piece an open window holds (one recording per vessel). `DebrisParentStateGate` and the
+Re-Fly HEAD/TIP splitter already handle this shape (the focused breakup writes it).
+
+The vessel-line rule (`RecordingTree.ChildBranchLeavesVesselLineOpen`) read a recording whose
+`ExplicitEndUT` is at or before the branch UT as closed at the split. A background parent's end
+equals the branch UT from the joint break's structural point until its next ordinary sample (2 s
+close in, 3 s / 8 s for a steady parent at Medium / Low density), so an F5 in that span saved a
+parent that F9's `RebuildBackgroundMap` then dropped (never sampled again, no terminal). The
+branch point now says it: `BranchPoint.ParentContinues`, stamped by every
+`ParsekFlight.WireBreakupIntoTree` caller (focused and background), skips the end-UT rule. It is
+an additive optional key `parentContinues = True` on the BRANCH_POINT node (absent reads false,
+today's reading for older saves and for the background undock's close; no format bump), carried
+by both branch-point clones and `ScenarioWriter.SeparationBranch(parentContinues:)`.
+
+Tests: `BackgroundSeparationShapeTests` (shape with the parent's end at the branch UT, the map
+rebuild and the `parentContinues` round trip, the unstamped closed-at-split reading, the focused
+stamp, coalescing and BROKE_OFF combine, dead controlled piece, one recording for a piece two
+parents saw, flush / Shutdown / retire emission, recording change, missing parent, the held-piece
+emit, and source gates on every emission site; the stamp, the one-holder and the held-piece cells
+were red before their fixes, the earlier gate cells and the retire cell were mutation checked).
+The `BackgroundSplitTests` continuation / bug #285 simulation cells now pass the
+`UNDOCK` cause: they pinned the decouple continuation shape the ruling replaces, and the undock
+path is the one that still builds it.
+
 ## ~~REFLY-ROUTE-SOURCE-REFUSED~~: Re-Fly was offered on a flight a supply route is built from [FILED 2026-11-18 by the recording split / trim / merge review (design question 13: the optimizer holds route sources, the Re-Fly splitter had no such hold); ruled by the owner 2026-11-18 (Q17 "Refuse Re-Fly"). FIXED 2026-11-21, branch `rsr-wp6-live-flight`; xUnit + mutation; no lane; medium (a merge would cut or supersede the route's source and pause the route for good)]
 
 **Cause:** the Re-Fly gate (`RewindInvoker.CanInvoke`) did not know about supply routes. Route candidates come only from fully sealed trees, but a slot of such a tree can open later, and nothing then stopped a Re-Fly whose merge splits the closure root and supersedes the slot's subtree, moving or hiding recordings the route's `SourceRefs` name (route reads `SourceChanged` / `MissingSourceRecording`).

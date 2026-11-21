@@ -312,9 +312,12 @@ namespace Parsek.Tests.Generators
         /// recording, children = the separated vessels. Pass
         /// <paramref name="type"/> <see cref="BranchPointType.Undock"/> for an undock.
         /// </summary>
+        /// <paramref name="parentContinues"/> authors the coalescer shape (a decouple or
+        /// breakup whose parent recording keeps recording past it, key <c>parentContinues</c>).
         public static BranchPoint SeparationBranch(
             string branchPointId, string parentRecordingId, IEnumerable<string> childRecordingIds,
-            double splitUT, BranchPointType type = BranchPointType.JointBreak)
+            double splitUT, BranchPointType type = BranchPointType.JointBreak,
+            bool parentContinues = false)
         {
             return new BranchPoint
             {
@@ -323,7 +326,8 @@ namespace Parsek.Tests.Generators
                 Type = type,
                 SplitCause = type == BranchPointType.Undock ? "UNDOCK" : "DECOUPLE",
                 ParentRecordingIds = new List<string> { parentRecordingId },
-                ChildRecordingIds = new List<string>(childRecordingIds)
+                ChildRecordingIds = new List<string>(childRecordingIds),
+                ParentContinues = parentContinues
             };
         }
 

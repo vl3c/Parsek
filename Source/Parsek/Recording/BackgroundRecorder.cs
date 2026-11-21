@@ -784,6 +784,10 @@ namespace Parsek
 
         private void OnVesselRemovedFromBackground(uint vesselPid, double? closeUT)
         {
+            // A separation window still open for this vessel belongs to the recording it is
+            // leaving: emit it first (never drop one, owner ruling 2026-11-18).
+            EmitBackgroundSeparationWindowNow(vesselPid, "removed-from-background");
+
             // When supplied for a live vessel, closeUT must be from the same frame
             // as the pose sampled below so the boundary point stays coherent.
             double? ut = null;
@@ -875,6 +879,10 @@ namespace Parsek
             uint pid = v.persistentId;
             string recordingId;
             if (!tree.BackgroundMap.TryGetValue(pid, out recordingId) || recordingId == null) return;
+
+            // The separations of this vessel collected so far become their branch point while
+            // the vessel is still loaded (never drop one, owner ruling 2026-11-18).
+            EmitBackgroundSeparationWindowNow(pid, "go-on-rails");
 
             // Out-of-band destroyed-recording guard. The identity-loss override below
             // handles the normal path (active recording crashes destructively while BG),
@@ -1085,6 +1093,7 @@ namespace Parsek
         /// </summary>
         internal void RetireDestroyedBackgroundEntry(uint pid, string recordingId, double terminalUT)
         {
+            EmitBackgroundSeparationWindowNow(pid, "retire-destroyed");
             tree.BackgroundMap.Remove(pid);
             onRailsStates.Remove(pid);
             loadedStates.Remove(pid);
@@ -1301,6 +1310,8 @@ namespace Parsek
 
             uint pid = v.persistentId;
             if (!tree.BackgroundMap.ContainsKey(pid)) return;
+            // The pieces that came off before the destruction keep their branch point.
+            EmitBackgroundSeparationWindowNow(pid, "vessel-will-destroy");
             double ut = Planetarium.GetUniversalTime();
             string recordingId;
             tree.BackgroundMap.TryGetValue(pid, out recordingId);
@@ -1448,6 +1459,12 @@ namespace Parsek
         /// </summary>
         internal void Shutdown(double ut)
         {
+            if (separationWindows.Count > 0)
+            {
+                ParsekLog.Warn("BgRecorder",
+                    $"Separation window(s) still open at shutdown: count={separationWindows.Count} - emitting them");
+                FlushBackgroundSeparationWindows("Shutdown");
+            }
             UnsubscribePartEvents();
 
             // Close all open orbit segments (skip destroyed — closing an open segment
