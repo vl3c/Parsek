@@ -223,7 +223,7 @@ namespace Parsek.TestCommands
             "transformDiffers", "materialDiffers", "meshDiffers", "renderedDiffers",
         };
 
-        internal static readonly string[] RendererRefKeys = { "key", "mesh", "rendered" };
+        internal static readonly string[] RendererRefKeys = { "key", "mesh", "rendered", "nonVisual" };
 
         internal static readonly string[] TransformDiffKeys =
         {
@@ -466,7 +466,8 @@ namespace Parsek.TestCommands
         }
 
         private static string RendererRef(PartParityRendererRef r)
-            => Obj(M("key", Str(r.Key)), M("mesh", Str(r.Mesh)), M("rendered", Bool(r.Rendered)));
+            => Obj(M("key", Str(r.Key)), M("mesh", Str(r.Mesh)), M("rendered", Bool(r.Rendered)),
+                   M("nonVisual", Str(r.NonVisual)));
 
         private static string FieldDiffs(List<PartParityFieldDiff> list)
         {

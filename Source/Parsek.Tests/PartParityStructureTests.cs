@@ -55,6 +55,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void NonVisualReason_NamesDepthMasksAndWaterfallEffects()
+        {
+            Assert.Equal(PartParityStructure.NonVisualDepthMask,
+                PartParityStructure.NonVisualReason(new[] { "KSP/Diffuse", "ReStock/DepthMask" }));
+            Assert.Equal(PartParityStructure.NonVisualDepthMask,
+                PartParityStructure.NonVisualReason(new[] { "Waterfall/Additive", "depthmask" }));
+            Assert.Equal(PartParityStructure.NonVisualFx,
+                PartParityStructure.NonVisualReason(new[] { "Waterfall/Additive (Dynamic)" }));
+            Assert.Null(PartParityStructure.NonVisualReason(new[] { "KSP/Bumped Specular" }));
+            Assert.Null(PartParityStructure.NonVisualReason(new[] { "<null>", null }));
+            Assert.Null(PartParityStructure.NonVisualReason(null));
+        }
+
+        [Fact]
         public void GhostAndRealPathsOfOneRenderer_NormalizeAlike()
         {
             string real = "model/fuelTankSmallFlat(Clone)/Tank";

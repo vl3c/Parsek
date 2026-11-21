@@ -320,6 +320,23 @@ class ViewAndCaseVerdictTests(unittest.TestCase):
         self.assertEqual(pp.VERDICT_FAIL, c.verdict)
         self.assertIn("extra-rendered:plume", c.reasons)
 
+    def test_a_non_visual_renderer_missing_on_the_ghost_is_not_a_missing_mesh(self):
+        side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
+        for entry in ({"key": "a/RCSMask", "mesh": "", "rendered": True, "nonVisual": "depth-mask"},
+                      {"key": "a/fx", "mesh": "", "rendered": True, "nonVisual": "fx"},
+                      # a sidecar from before the nonVisual key: the path decides
+                      {"key": "a/RCSjet/Waterfall/FX/fx-cylinder/CylinderMesh", "mesh": "",
+                       "rendered": True},
+                      {"key": "a/b/solarshroud_mask", "mesh": "", "rendered": True}):
+            side["structure"]["missingOnGhost"] = [entry]
+            self.assertEqual(pp.VERDICT_PASS, pp.judge_case(side).verdict, entry["key"])
+        side["structure"]["missingOnGhost"] = [
+            {"key": "a/Mask", "mesh": "m", "rendered": True, "nonVisual": None}]
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(side).verdict,
+                         "a nonVisual key that is null is a visible renderer, whatever its name")
+        side["structure"]["missingOnGhost"] = [{"key": "model/Tank", "mesh": "m", "rendered": True}]
+        self.assertEqual(pp.VERDICT_FAIL, pp.judge_case(side).verdict)
+
     def test_the_skin_proof(self):
         side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
         side["skin"] = {"module": "ModulePartVariants", "moduleId": None, "requested": "Dark",

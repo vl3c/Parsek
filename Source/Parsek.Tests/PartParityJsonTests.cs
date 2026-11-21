@@ -102,7 +102,7 @@ namespace Parsek.Tests
             "  \"views\": [\n" +
             "    {\"view\":\"side-a\",\"width\":4,\"height\":4,\"realPx\":4,\"ghostPx\":3,\"andPx\":3,\"orPx\":4,\"realOnlyPx\":1,\"ghostOnlyPx\":0,\"realOnlyTolPx\":0,\"ghostOnlyTolPx\":0,\"realOnlyBlobPx\":0,\"ghostOnlyBlobPx\":0,\"realOnlyBlobPct\":0,\"ghostOnlyBlobPct\":null,\"bbox\":{\"real\":[1,1,2,2],\"ghost\":[1,1,2,2]},\"centroid\":{\"real\":[2,2],\"ghost\":[1.8333333333333333,2]},\"touchesBorder\":{\"real\":false,\"ghost\":true},\"colorOverlapPx\":3,\"colorOverPx\":0,\"colorBlobPx\":0,\"colorP99\":0.5,\"colorBlockMax\":0.25,\"iou\":0.75,\"matte\":{\"real\":{\"opaque\":3,\"edge\":1,\"inverted\":0},\"ghost\":null}}\n" +
             "  ],\n" +
-            "  \"structure\": {\"realRenderers\":2,\"ghostRenderers\":1,\"pairs\":1,\"missingOnGhost\":[{\"key\":\"model/skirt\",\"mesh\":\"skirt\",\"rendered\":true}],\"extraOnGhost\":[],\"transformDiffers\":[],\"materialDiffers\":[],\"meshDiffers\":[],\"renderedDiffers\":[{\"key\":\"model/a\",\"field\":\"rendered\",\"real\":\"false\",\"ghost\":\"true\"}]},\n" +
+            "  \"structure\": {\"realRenderers\":2,\"ghostRenderers\":1,\"pairs\":1,\"missingOnGhost\":[{\"key\":\"model/skirt\",\"mesh\":\"skirt\",\"rendered\":true,\"nonVisual\":null}],\"extraOnGhost\":[],\"transformDiffers\":[],\"materialDiffers\":[],\"meshDiffers\":[],\"renderedDiffers\":[{\"key\":\"model/a\",\"field\":\"rendered\",\"real\":\"false\",\"ghost\":\"true\"}]},\n" +
             "  \"setup\": {\"status\":\"ok\",\"detail\":null},\n" +
             "  \"log\": [\"[Parsek][INFO][GhostVisual] built\"]\n" +
             "}\n";

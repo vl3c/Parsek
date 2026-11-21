@@ -87,7 +87,7 @@ STRUCTURE_KEYS: Tuple[str, ...] = (
     "realRenderers", "ghostRenderers", "pairs", "missingOnGhost", "extraOnGhost",
     "transformDiffers", "materialDiffers", "meshDiffers", "renderedDiffers",
 )
-RENDERER_REF_KEYS: Tuple[str, ...] = ("key", "mesh", "rendered")
+RENDERER_REF_KEYS: Tuple[str, ...] = ("key", "mesh", "rendered", "nonVisual")
 SETUP_KEYS: Tuple[str, ...] = ("status", "detail")
 CONTROL_KEYS: Tuple[str, ...] = ("id", "subject", "required", "outcome", "detail")
 CASE_SUMMARY_KEYS: Tuple[str, ...] = (
@@ -331,10 +331,24 @@ class CaseVerdict:
                 "setupStatus": self.setup_status}
 
 
+_NON_VISUAL_FALLBACK_RE = re.compile(r"(^|/)Waterfall(/|$)|mask[^/]*$", re.IGNORECASE)
+
+
+def is_non_visual(entry: Dict) -> bool:
+    """A renderer the ghost leaves out by design: the C# ``nonVisual`` reason
+    (``depth-mask`` / ``fx``, from its shader names). A sidecar written before that key
+    existed carries no shader, so its path decides: under a ``Waterfall`` segment, or a
+    leaf name containing ``mask``."""
+    if "nonVisual" in entry:
+        return bool(entry.get("nonVisual"))
+    return bool(_NON_VISUAL_FALLBACK_RE.search(str(entry.get("key") or "")))
+
+
 def _rendered_entries(entries: Any) -> List[str]:
+    """The keys of RENDERED structure entries that are not non-visual (``is_non_visual``)."""
     keys = []
     for e in entries or []:
-        if isinstance(e, dict) and e.get("rendered") is True:
+        if isinstance(e, dict) and e.get("rendered") is True and not is_non_visual(e):
             keys.append(str(e.get("key")))
     return keys
 

@@ -46,6 +46,12 @@ namespace Parsek.TestCommands
         internal string Key;
         internal string Mesh;
         internal bool Rendered;
+
+        /// <summary>Null for a visible renderer; else why it draws nothing a picture can
+        /// show and the ghost leaves it out by design: <c>depth-mask</c> (a depth-only
+        /// shader) or <c>fx</c> (a runtime effect mesh such as a Waterfall plume). See
+        /// <see cref="PartParityStructure.NonVisualReason"/>.</summary>
+        internal string NonVisual;
     }
 
     /// <summary>A paired renderer whose part-local pose differs past a tolerance.</summary>
@@ -123,6 +129,31 @@ namespace Parsek.TestCommands
         internal const string FieldVertexCount = "vertexCount";
         internal const string FieldKind = "kind";
         internal const string FieldRendered = "rendered";
+
+        internal const string NonVisualDepthMask = "depth-mask";
+        internal const string NonVisualFx = "fx";
+
+        /// <summary>
+        /// Why a renderer is non-visual, from its shader names: a depth-mask shader (the
+        /// same test as <c>GhostVisualBuilder.IsDepthMaskShaderName</c>: the name contains
+        /// <c>DepthMask</c>, case ignored) is <c>depth-mask</c>; a Waterfall shader (name
+        /// starts with <c>Waterfall/</c>) is <c>fx</c>; else null. The ghost builder skips
+        /// depth masks and builds engine effects its own way, so such a renderer missing
+        /// on the ghost is not a missing mesh.
+        /// </summary>
+        internal static string NonVisualReason(string[] shaders)
+        {
+            if (shaders == null || shaders.Length == 0) return null;
+            bool fx = false;
+            foreach (string s in shaders)
+            {
+                if (string.IsNullOrEmpty(s)) continue;
+                if (s.IndexOf("DepthMask", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return NonVisualDepthMask;
+                if (s.StartsWith("Waterfall/", StringComparison.Ordinal)) fx = true;
+            }
+            return fx ? NonVisualFx : null;
+        }
 
         /// <summary>Strips every trailing <c>(Clone)</c> (with or without a space before it)
         /// from one name.</summary>
@@ -354,7 +385,10 @@ namespace Parsek.TestCommands
         }
 
         private static PartParityRendererRef Ref(string key, PartParityRendererRecord r)
-            => new PartParityRendererRef { Key = key, Mesh = r.Mesh, Rendered = r.Rendered };
+            => new PartParityRendererRef
+            {
+                Key = key, Mesh = r.Mesh, Rendered = r.Rendered, NonVisual = NonVisualReason(r.Shaders),
+            };
 
         private static void ComparePair(
             string key, PartParityRendererRecord r, PartParityRendererRecord g, PartParityStructureDiff diff)
