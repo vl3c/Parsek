@@ -392,7 +392,13 @@ namespace Parsek
             activeTree.ActiveRecordingId = backgroundRecordingId;
             Recording promotedRec;
             if (activeTree.Recordings.TryGetValue(backgroundRecordingId, out promotedRec))
+            {
                 ClearFlushedDestructionFlagForResume(promotedRec, "PromoteRecordingFromBackground");
+                // Owner ruling Q1b: the player flies the vessel again, so a predicted ending
+                // its recording kept is dropped before the recorder appends the real flight.
+                PredictedEndingTakeover.DropPredictedEndingForTakeover(
+                    promotedRec, SafeCurrentUtForResumeAnchor(), "PromoteRecordingFromBackground");
+            }
 
             // Create a new recorder and start recording with isPromotion
             recorder = new FlightRecorder();
