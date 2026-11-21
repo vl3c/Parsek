@@ -1821,7 +1821,8 @@ namespace Parsek
                     targetUT,
                     TryLookupKscSurfacePose,
                     TryResolveRecordedKscAnchorFrame,
-                    out pose))
+                    out pose,
+                    TryLookupKscBodyState))
             {
                 if (pose.FailureReason == "relative-anchor-unresolved")
                 {
@@ -1896,6 +1897,21 @@ namespace Parsek
             bool hasValidPose)
         {
             return positioned || hasValidPose;
+        }
+
+        internal bool TryLookupKscBodyState(
+            string bodyName,
+            out Vector3d bodyWorldPos,
+            out double gravParameter)
+        {
+            bodyWorldPos = Vector3d.zero;
+            gravParameter = 0.0;
+            CelestialBody body = LookupBody(bodyName);
+            if (body == null)
+                return false;
+            bodyWorldPos = body.position;
+            gravParameter = body.gravParameter;
+            return true;
         }
 
         internal bool TryLookupKscSurfacePose(

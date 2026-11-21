@@ -40,6 +40,12 @@ namespace Parsek
             if (traj.PartEvents == null || traj.PartEvents.Count == 0)
                 return false;
 
+            // A predicted tail after the last recorded point means the debris was still flying
+            // when Parsek lost it: a part it shed before that was not its end, so it follows the
+            // tail and explodes at the tail's own end (the ground), not at the first lost part.
+            if (HasPredictedTailPastLastPoint(traj))
+                return false;
+
             double latestEligibleUT = traj.EndUT - LoopTiming.MinEarlyDebrisExplosionLeadSeconds;
             if (latestEligibleUT <= traj.StartUT)
                 return false;
@@ -64,6 +70,26 @@ namespace Parsek
 
             explosionUT = earliestEligibleUT;
             return true;
+        }
+
+        /// <summary>
+        /// Pure: does the trajectory carry a predicted orbit segment that ends after its last
+        /// recorded point (the scene-exit tail the finalizer extrapolates)?
+        /// </summary>
+        internal static bool HasPredictedTailPastLastPoint(IPlaybackTrajectory traj)
+        {
+            if (traj?.OrbitSegments == null || traj.OrbitSegments.Count == 0)
+                return false;
+            double lastPointUT = traj.Points != null && traj.Points.Count > 0
+                ? traj.Points[traj.Points.Count - 1].ut
+                : double.NegativeInfinity;
+            for (int i = 0; i < traj.OrbitSegments.Count; i++)
+            {
+                OrbitSegment seg = traj.OrbitSegments[i];
+                if (seg.isPredicted && seg.endUT > lastPointUT + 1e-6)
+                    return true;
+            }
+            return false;
         }
 
         internal static bool ShouldTriggerExplosionAtPlaybackUT(

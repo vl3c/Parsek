@@ -208,12 +208,26 @@ namespace Parsek.Display
         internal static List<int> SelectForwardArcSegmentIndices(
             List<OrbitSegment> effectiveSegments,
             double forwardWindowStartUT, double forwardStopUT, double headUT,
-            BodySurfaceProvider surface)
+            BodySurfaceProvider surface, bool includeCurrentArc = false)
         {
             var indices = new List<int>();
             SelectForwardArcSegmentIndices(
-                effectiveSegments, forwardWindowStartUT, forwardStopUT, headUT, surface, indices);
+                effectiveSegments, forwardWindowStartUT, forwardStopUT, headUT, surface, indices,
+                includeCurrentArc);
             return indices;
+        }
+
+        /// <summary>
+        /// PURE: should the forward pass draw the arc the head sits on itself? The current arc is
+        /// left to stock's <c>OrbitRenderer</c>, which only exists when the recording has a map
+        /// ProtoVessel. A recording that has none now (<paramref name="ghostPid"/> 0) and can never
+        /// get one (the map-presence terminal gate refuses its ending: a crash, a landing) has no
+        /// stock line at all, so its current coast went undrawn for the whole predicted tail.
+        /// </summary>
+        internal static bool ShouldForwardDrawCurrentArc(uint ghostPid, TerminalState? eligibilityTerminal)
+        {
+            return ghostPid == 0
+                && !GhostMapPresence.IsTerminalStateEligibleForMapPresence(eligibilityTerminal);
         }
 
         /// <summary>
@@ -228,7 +242,7 @@ namespace Parsek.Display
         internal static void SelectForwardArcSegmentIndices(
             List<OrbitSegment> effectiveSegments,
             double forwardWindowStartUT, double forwardStopUT, double headUT,
-            BodySurfaceProvider surface, List<int> indices)
+            BodySurfaceProvider surface, List<int> indices, bool includeCurrentArc = false)
         {
             if (indices == null) return;
             indices.Clear();
@@ -238,8 +252,9 @@ namespace Parsek.Display
             {
                 var seg = effectiveSegments[i];
                 if (seg.endUT <= seg.startUT) continue;
-                // The CURRENT arc (icon's element) is drawn by stock; never forward-draw it.
-                if (headUT >= seg.startUT && headUT < seg.endUT) continue;
+                // The CURRENT arc (icon's element) is drawn by stock; never forward-draw it,
+                // unless there is no stock line for it (ShouldForwardDrawCurrentArc).
+                if (!includeCurrentArc && headUT >= seg.startUT && headUT < seg.endUT) continue;
                 // Below-surface descent conic -> drawn as a forward leg, not an arc.
                 if (IsSegmentExcludedFromOrbitOwnership(seg, surface)) continue;
                 // Overlap the half-open forward window.

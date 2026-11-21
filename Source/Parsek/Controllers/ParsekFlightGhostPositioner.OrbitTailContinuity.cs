@@ -17,7 +17,8 @@ namespace Parsek
             out double weight,
             out double anchorUT,
             out double blendSeconds,
-            out string anchorSource)
+            out string anchorSource,
+            bool useCache = true)
         {
             weightedOffset = Vector3d.zero;
             rawOffset = Vector3d.zero;
@@ -39,7 +40,8 @@ namespace Parsek
 
             string cacheKey = BuildPredictedOrbitTailContinuityCacheKey(traj, segment, anchorUT);
             bool cacheHit = false;
-            if (predictedOrbitTailContinuityCache.TryGetValue(
+            if (useCache
+                && predictedOrbitTailContinuityCache.TryGetValue(
                     cacheKey, out ParsekFlight.PredictedOrbitTailContinuityCacheEntry cacheEntry)
                 && ParsekFlight.IsFiniteVector3d(cacheEntry.rawOffset))
             {
@@ -76,12 +78,13 @@ namespace Parsek
                 if (candidateRawMeters <= 0.01)
                     return false;
 
-                predictedOrbitTailContinuityCache[cacheKey] =
-                    new ParsekFlight.PredictedOrbitTailContinuityCacheEntry
-                    {
-                        rawOffset = rawOffset,
-                        anchorSource = anchorSource
-                    };
+                if (useCache)
+                    predictedOrbitTailContinuityCache[cacheKey] =
+                        new ParsekFlight.PredictedOrbitTailContinuityCacheEntry
+                        {
+                            rawOffset = rawOffset,
+                            anchorSource = anchorSource
+                        };
             }
 
             weightedOffset = rawOffset * weight;
@@ -110,7 +113,7 @@ namespace Parsek
                     weight,
                     blendSeconds,
                     GhostRenderTrace.FormatVector3d(weightedOffset)
-                    + " cache=" + (cacheHit ? "hit" : "miss")),
+                    + " cache=" + (!useCache ? "off" : cacheHit ? "hit" : "miss")),
                 5.0);
             return true;
         }
