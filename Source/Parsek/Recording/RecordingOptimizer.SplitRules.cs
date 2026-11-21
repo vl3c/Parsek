@@ -7,7 +7,8 @@ namespace Parsek
     /// <summary>
     /// The optimizer's split-rule versions (owner ruling Q5, "freeze old recordings") and the
     /// version-2 boundary rules: atmosphere passes (rulings Q7, A1, B1), one row across an SOI
-    /// change in space (Q9) and a brief touchdown as a graze (Q8). Version 1 is
+    /// change in space (Q9) and a brief touchdown as a graze (Q8). Version 3 adds the orbit-kind
+    /// burn cuts (<c>RecordingOptimizer.BurnCuts.cs</c>) to the version-2 rules. Version 1 is
     /// <see cref="IsSplittableEnvOrBodyBoundary"/>'s original body, unchanged; a recording is
     /// judged by the version it was committed under, so a rule change never re-cuts a flight
     /// committed before it. Design: <c>docs/dev/done/plans/optimizer-persistence-split.md</c>
@@ -22,8 +23,15 @@ namespace Parsek
         /// <summary>The rules before 2026-11-21. A recording saved without the key loads as this.</summary>
         internal const int SplitRuleVersionLegacy = 1;
 
+        /// <summary>The atmosphere-pass rules (2026-11-21): the version-2 predicate and the row
+        /// roles. Every later version keeps them.</summary>
+        internal const int SplitRuleVersionPassRules = 2;
+
+        /// <summary>The version-2 rules plus the orbit-kind burn cuts (2026-11-21).</summary>
+        internal const int SplitRuleVersionBurnCuts = 3;
+
         /// <summary>The rules every new commit is stamped with.</summary>
-        internal const int SplitRuleVersionCurrent = 2;
+        internal const int SplitRuleVersionCurrent = SplitRuleVersionBurnCuts;
 
         /// <summary>
         /// Ruling Q8: a Surface run shorter than this, bracketed by Atmospheric / Approach on
@@ -34,8 +42,8 @@ namespace Parsek
         /// <summary>
         /// The row roles the split pass stamps on version-2 rows (<see cref="Recording.SegmentRole"/>).
         /// A role names what the row is in the mission profile; two rows with different roles
-        /// never merge back (<see cref="CanAutoMerge"/>). Extensible: the orbit-kind cuts of a
-        /// later rule version add roles (circularization, transfer, capture, deorbit).
+        /// never merge back (<see cref="CanAutoMerge"/>). The version-3 orbit-kind cuts add
+        /// circularization, orbit, transfer, injection, deorbit and descent.
         /// </summary>
         internal static class SegmentRoles
         {
@@ -53,17 +61,31 @@ namespace Parsek
             internal const string Surface = "surface";
             /// <summary>In an atmosphere, not entered from space within the row (a start mid-air).</summary>
             internal const string Atmosphere = "atmosphere";
+            /// <summary>From the atmosphere exit (or the approach band) until the burn that reaches orbit ends.</summary>
+            internal const string Circularization = "circularization";
+            /// <summary>In orbit: from the burn that reached it to the burn that leaves it.</summary>
+            internal const string Orbit = "orbit";
+            /// <summary>From a departure burn's start (or an injection burn's end) to the next orbit,
+            /// across SOI changes (Q9): the burn, the coast and a capture burn.</summary>
+            internal const string Transfer = "transfer";
+            /// <summary>From the atmosphere exit until the burn that leaves the SOI ends (no parking orbit).</summary>
+            internal const string Injection = "injection";
+            /// <summary>From a deorbit burn's start to the first atmosphere touch (atmosphere body).</summary>
+            internal const string Deorbit = "deorbit";
+            /// <summary>From a deorbit or descent burn's start to the approach band (airless body).</summary>
+            internal const string Descent = "descent";
         }
 
         /// <summary>
-        /// True when <paramref name="rec"/> is judged by the version-2 rules: stamped 2 or
-        /// later, and not an EVA kerbal (EVA rows keep the version-1 rules and get no role, so
-        /// the continuous EVA atmo / surface merge is untouched).
+        /// True when <paramref name="rec"/> is judged by the version-2 rules (versions 2 and 3:
+        /// version 3 adds the burn cuts, <see cref="UsesBurnCutRules"/>), and not an EVA kerbal
+        /// (EVA rows keep the version-1 rules and get no role, so the continuous EVA atmo /
+        /// surface merge is untouched).
         /// </summary>
         internal static bool UsesCurrentSplitRules(Recording rec)
         {
             return rec != null
-                && rec.SplitRuleVersion >= SplitRuleVersionCurrent
+                && rec.SplitRuleVersion >= SplitRuleVersionPassRules
                 && !IsEvaRecording(rec);
         }
 
@@ -183,6 +205,8 @@ namespace Parsek
         {
             if (tail?.TrackSections == null || tail.TrackSections.Count == 0 || IsEvaRecording(tail))
                 return null;
+            string burnRole = ResolveBurnCutTailRole(reason, tail);
+            if (burnRole != null) return burnRole;
             if (reason == SplitBoundaryReason.FinalDescentEntry) return SegmentRoles.Reentry;
             if (reason == SplitBoundaryReason.BrakingPassEntry) return SegmentRoles.Aerobraking;
             int firstClass = SplitEnvironmentClass(tail.TrackSections[0].environment);
@@ -240,6 +264,8 @@ namespace Parsek
             internal List<ClassRun> Runs;
             internal List<AtmosphereStretch> Stretches;
             internal int[] StretchOfRun;
+            /// <summary>Version 3: the recording's burns and their kind cuts (built on first use).</summary>
+            internal BurnMap Burns;
         }
 
         internal static PassMap BuildPassMap(Recording rec)
@@ -381,6 +407,10 @@ namespace Parsek
             bool bodyChanged = SectionBodyChanged(prev, next);
             if (rawPrev == rawNext && !bodyChanged)
             {
+                // Version 3: a burn inside one space stretch that changes the orbit kind.
+                if (rawPrev == ExoSplitClass
+                    && TryClassifyBurnBoundary(rec, s, map, out reason, out bool burnSplit))
+                    return burnSplit;
                 reason = SplitBoundaryReason.NotABoundary;
                 return false;
             }
@@ -563,7 +593,10 @@ namespace Parsek
         /// would cut the joined recording of <paramref name="a"/> and <paramref name="b"/> again
         /// (any boundary the predicate splits and the split guard accepts). Such a join is never
         /// made, so a merge pass and a split pass can never undo each other on every load. The
-        /// join is a read-only view carrying <paramref name="a"/>'s identity, role and start.
+        /// join is a read-only view carrying <paramref name="a"/>'s identity, role and start and
+        /// <paramref name="b"/>'s end (terminal orbit). Version 3: the view cannot see the chain
+        /// piece before <paramref name="a"/>, so a join that starts in space is judged both as
+        /// starting at an atmosphere exit and not; either cut refuses the join.
         /// </summary>
         internal static bool WouldSplitRulesCutJoin(Recording a, Recording b)
         {
@@ -574,9 +607,19 @@ namespace Parsek
                 SplitRuleVersion = a.SplitRuleVersion,
                 SegmentRole = a.SegmentRole,
                 EvaCrewName = a.EvaCrewName,
+                IsDebris = a.IsDebris,
                 LaunchSiteName = a.LaunchSiteName,
                 StartSituation = a.StartSituation,
                 StartBodyName = a.StartBodyName,
+                TerminalStateValue = b.TerminalStateValue,
+                TerminalOrbitInclination = b.TerminalOrbitInclination,
+                TerminalOrbitEccentricity = b.TerminalOrbitEccentricity,
+                TerminalOrbitSemiMajorAxis = b.TerminalOrbitSemiMajorAxis,
+                TerminalOrbitLAN = b.TerminalOrbitLAN,
+                TerminalOrbitArgumentOfPeriapsis = b.TerminalOrbitArgumentOfPeriapsis,
+                TerminalOrbitMeanAnomalyAtEpoch = b.TerminalOrbitMeanAnomalyAtEpoch,
+                TerminalOrbitEpoch = b.TerminalOrbitEpoch,
+                TerminalOrbitBody = b.TerminalOrbitBody,
             };
             joined.TrackSections.AddRange(a.TrackSections);
             joined.TrackSections.AddRange(b.TrackSections);
@@ -585,7 +628,16 @@ namespace Parsek
             if (a.OrbitSegments != null) joined.OrbitSegments.AddRange(a.OrbitSegments);
             if (b.OrbitSegments != null) joined.OrbitSegments.AddRange(b.OrbitSegments);
             if (joined.TrackSections.Count < 2) return false;
+            if (JoinHasACut(joined, BurnStartContext.None)) return true;
+            return UsesBurnCutRules(joined)
+                && SplitEnvironmentClass(joined.TrackSections[0].environment) == ExoSplitClass
+                && JoinHasACut(joined, BurnStartContext.FloorExit);
+        }
+
+        private static bool JoinHasACut(Recording joined, BurnStartContext context)
+        {
             var map = BuildPassMap(joined);
+            if (UsesBurnCutRules(joined)) map.Burns = BuildBurnMap(joined, map, context);
             for (int s = 1; s < joined.TrackSections.Count; s++)
             {
                 if (IsSplittableBoundaryV2(joined, s, map, out _)

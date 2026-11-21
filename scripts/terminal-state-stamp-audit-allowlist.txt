@@ -48,6 +48,10 @@ Source/Parsek/Recording/SessionMerger.cs | merged.TerminalStateValue = srcRec.Te
 Source/Parsek/Recording/RecordingOptimizer.cs | second.TerminalStateValue = original.TerminalStateValue;
 Source/Parsek/Recording/RecordingOptimizer.cs | original.TerminalStateValue = null;
 
+# RecordingOptimizer.WouldSplitRulesCutJoin: `joined` is a fresh, read-only view of two
+# chain pieces for the merge guard; it is never stored and carries no crew end states.
+Source/Parsek/Recording/RecordingOptimizer.SplitRules.cs | TerminalStateValue = b.TerminalStateValue,
+
 # ── Not a Recording at all ─────────────────────────────────────────────────────
 # MissionLeg display DTOs built fresh for the Missions UI; they carry no crew end states.
 Source/Parsek/Missions/MissionComposition.cs | TerminalStateValue = isLast ? lastLeg.TerminalStateValue : null,

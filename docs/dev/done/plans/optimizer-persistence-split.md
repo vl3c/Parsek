@@ -910,7 +910,9 @@ follow-up (`docs/handoff/recording-split-review/atmosphere-pass-analysis.md`, se
 
 **Version gate (ruling Q5, "freeze old recordings").** `Recording.SplitRuleVersion`: 0 = not
 committed yet, 1 = the rules of section 3 (a recording saved without the `splitRuleVersion` key loads
-as 1), 2 = the rules below. A recording is stamped 2 when it enters the committed list
+as 1), 2 = the rules below, 3 = the rules below plus the orbit-kind burn cuts (section 14.1). Every
+new recording is stamped with the current version (3; it was 2 before 14.1 shipped, and a version-2
+recording keeps the version-2 rules). A recording is stamped when it enters the committed list
 (`RecordingStore.AppendCommittedUnbumped`, the tree commit's append; `AddProvisional`, a Re-Fly
 attempt) or when an in-flight tree is saved (`StampSplitRulesForSave`, so a save and load before
 the commit keeps it); a recording that already carries a version keeps it, so resuming a
@@ -980,3 +982,79 @@ pass twice and asserts the second changes nothing):
 | Aerocapture | space / aerobraking |
 | Dip with the engine on | same as without |
 | Ascent, airless approach band | unchanged |
+
+### 14.1 Split rule version 3: orbit-kind burn cuts (2026-11-21)
+
+Step 2 of `docs/handoff/recording-split-review/atmosphere-pass-analysis.md` section 8, owner
+rulings Q-P1, the section 7 case table and "Yes, deorbit row" (2026-11-20); owner decision
+2026-11-21: no recorder or save-format change, the kind is read from data the recordings
+already carry. Code: `RecordingOptimizer.BurnCuts.cs`; the version-3 check sits in
+`IsSplittableBoundaryV2` at a boundary inside one space stretch (which the version-2 rules
+never cut), so the version-2 path is unchanged for a version-2 recording.
+
+**Orbit kind**, around the body the vessel is at: falling (low point below the floor, the
+atmosphere top or the ground, and not yet passed; a closed path inside the SOI always comes
+back to it), in orbit (closed, inside the SOI, low point above the floor), leaving (open, or
+beyond the SOI and not coming down first; or the recording's own later SOI change before the
+next burn, walked back over the burns that only corrected the orbit: a semi-major-axis step
+of at most 25 %, `BurnCorrectionRelSma`). The evidence, strongest first: the coast's own
+SOI change; the elements of a non-predicted on-rails checkpoint in the coast, or the terminal
+orbit when the coast reaches the recording's end (`ClassifyOrbitKind`); an SOI crossed from
+the parent with no burn since (leaving unless the coast comes down); an atmosphere or ground
+entry at the coast's end, or an approach band run that ends on the ground (falling); an
+atmosphere / ground / approach exit at the coast's start, or the chain piece before the
+recording ending there (`ResolveBurnStartContext`; falling). Recorded point velocities are
+never read. A burn with no evidence on both sides is never cut. Body facts come from the live
+`CelestialBody` (a planet pack's bodies included) and, headless, from the stock table.
+
+**Burns.** A burn is a run of physics-frame `ExoPropulsive` sections on one body; engine-off
+gaps up to 10 s are merged (staging), a gap on rails or an SOI change ends it. A burn is judged
+on the coast before and the coast after it (`JudgeBurn`):
+
+| Kind change | Cut | Rows (head / tail role) |
+|---|---|---|
+| falling -> in orbit (insertion, the raise out of aerobraking) | burn end | circularization (or the aerobraking row) / orbit |
+| leaving -> in orbit (capture) | burn end | transfer / orbit |
+| leaving -> falling at an atmosphere body | burn end | transfer / aerobraking (deorbit when the first pass is the final descent) |
+| falling -> leaving (direct ascent to a transfer) | burn end | injection / transfer |
+| in orbit -> leaving (departure) | burn start | orbit / transfer |
+| in orbit -> falling (deorbit, every body) | burn start | orbit / deorbit (descent at a body with no atmosphere) |
+| leaving -> falling at an airless body (direct descent) | burn start | transfer / descent |
+
+The head's role is replaced only when it is unclassified (`space` or none); a row that holds an
+interplanetary transfer kept whole is a `transfer` row. Ascents still end at the atmosphere
+exit, the approach band and the version-2 atmosphere passes are unchanged (an aerocapture is
+still one aerobraking row, ruling B1), a burn that keeps the kind (an apoapsis raise, a plane
+change, a correction, a powered flyby) stays inside its row, and an SOI change is never a cut
+(Q9).
+
+**Guards.** A kind cut is dropped (`SuppressedBurnShortRow`) when it would make a row under
+45 s next to another cut or the recording's ends (`BurnCutMinRowSeconds`). EVA kerbals and
+debris get no kind cuts. Phase 0 (`OptimizerBurnCutsPhase0Tests`, every committed fixture
+save under version 2, version 3 and version 3 with the guard lifted, the re-aim classifier run
+on each resulting recording): cutting the departure or the capture of a transfer between two
+children of one body (Kerbin to Dres, Eve, Duna, Moho, Eeloo, Jool) cost 16 of the 21 fixture
+trees whose transfer re-aims under version 2 the re-aim or its parking-orbit loiter cut (the
+member holding the parking orbit and the one holding the coast and the arrival are then two
+recordings, todo REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS), so such a transfer stays
+one row (`SuppressedInterplanetaryTransfer`): no kind cut for a burn around the parent between
+two of its children, a departure after which the recording reaches the parent and then a
+sibling, or a capture / direct descent at a body reached from a sibling through the parent.
+With the guard every transfer that classified under version 2 still classifies with the same
+loiter cuts; the insertion cut at the launch body keeps the parking orbit in the transfer row.
+
+**Merge side.** `WouldSplitRulesCutJoin` runs the version-3 rules on the join (carrying the
+second piece's terminal orbit), and a join that starts in space is judged both with and without
+an atmosphere exit before it (the join view cannot see the chain piece before it); either cut
+refuses the merge.
+
+**Logs.** `Burn kind change: rec= body= burn=[a,b] Before -> After (Kind) cut|<reason> at sec= ut=`
+(once per state), `Split candidate (OrbitInsertionBurnEnd|CaptureBurnEnd|CaptureToAtmosphereBurnEnd|
+InjectionBurnEnd|DepartureBurnStart|DeorbitBurnStart|DirectDescentBurnStart)`, and the split
+summary's `rules=v3 burns= burnsUnjudged= burnKindKept= burnShortRowKept= transferWholeKept=`.
+
+Cells: `OptimizerBurnCutsTests` (every case of the table, the staging gap, the Mun transfer
+ellipse, the mid-course correction, the powered flyby, a recording starting or ending
+mid-burn, the guards, the version pins, the merge refusals; each shape run twice through the
+real pass), `OptimizerRepeatPassSweepTests` (every fixture save, forced version 3: the second
+pass changes nothing).
