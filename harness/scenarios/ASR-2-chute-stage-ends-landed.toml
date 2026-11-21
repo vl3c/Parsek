@@ -1,9 +1,10 @@
 schema = 1
 id = "ASR-2-chute-stage-ends-landed"
 # =====================================================================================
-# ASR-2: A STAGE LEFT UNDER OPEN PARACHUTES ENDS LANDED AT TOUCHDOWN. AUTHORED
-# 2026-11-21, NEVER FLOWN. Report-only until the predicted-tail C# change merges and a
-# reading run sizes the windows.
+# ASR-2: A STAGE LEFT UNDER OPEN PARACHUTES ENDS LANDED AT TOUCHDOWN, ITS SLOT STILL
+# OPEN. AUTHORED 2026-11-21, NEVER FLOWN. Re-pinned the same day to the chute-descent C#
+# (owner rulings Q4 / Q4c: predicted touchdown, slot open as `predictedTouchdown`). The
+# saveParse blocks stay report-only until a reading run sizes the windows.
 # =====================================================================================
 #
 # WHAT IT PROVES (owner ruling). When the player stops flying a stage whose chutes are
@@ -20,14 +21,18 @@ id = "ASR-2-chute-stage-ends-landed"
 # stage out of range), so this covers the COMMIT trigger with the stage still held by
 # KSP; ASR-1 covers the out-of-range triggers.
 #
-# TODAY (measured on RF-1's flights): the booster closes `terminal=SubOrbital` and the
-# classifier opens an Unfinished Flight for it (`IsUnfinishedFlight=true ...
-# reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital`). After the change
-# it ends Landed / Splashed, the slot is stable and the RewindPoint is expected to reap
-# (reported below, not gated: that is the classifier's decision downstream of the ending).
-# NOTE FOR THE SUPERVISOR: every lane that relies on that SubOrbital open slot (RF-1,
-# RB-4 / RB-5, QL-4 family, VN-2 / VN-9 / VN-14, RF-4, RF-C1, RF-L2, STR-2 / STR-3, L13,
-# QL-2b / QL-2c, QL-7) changes meaning with the same C#.
+# BEFORE THE CHANGE (measured on RF-1's flights): the booster closed `terminal=SubOrbital`
+# and the classifier opened an Unfinished Flight for it (`IsUnfinishedFlight=true ...
+# reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital`). WITH THE CHANGE
+# (owner rulings Q4 / Q4c, 2026-11-21) it ends Landed / Splashed on its PREDICTED
+# touchdown (TerminalPredicted), and a predicted touchdown keeps the separation OPEN: the
+# classifier answers the new reason `predictedTouchdown` (`IsUnfinishedFlight=true ...
+# reason=predictedTouchdown slot=1 focusSlot=0 terminal=Landed predicted=True`), the slot
+# is promoted `CommittedProvisional` and the RewindPoint is NOT reaped (rewindPoints 1).
+# The booster is loaded and inside the bubble at the commit, so stock has not deleted it
+# and Q4d's Destroyed / quiet-end case does not apply. The open-slot lanes (RF-1, RB-4 /
+# RB-5, QL-4 family, RF-4, RF-C1, RF-L2, QL-2b / QL-2c, QL-7) were re-pinned to the new
+# reason with this change.
 #
 # WHAT IS READ. `[expectations.recordings.endings]` (harness/lib/endingsq.py) over the
 # produced save: the booster's ended recording terminal in {Landed, Splashed}, and its
@@ -37,8 +42,9 @@ id = "ASR-2-chute-stage-ends-landed"
 # arc and the change's representation of it is not specified, so the numbers are
 # REPORTED (`predictedSegments`, `endAltitudeMeters`) and not asserted.
 #
-# C#-DEPENDENT: the endings windows (save fields) and the forbidden SubOrbital classifier
-# line (an EXISTING literal, Rewind/EffectiveState.cs, that today's build prints).
+# C#-DEPENDENT: the endings windows (save fields), the required predictedTouchdown pair
+# (Rewind/UnfinishedFlightClassifier.cs verdict line, Recording/TreeCommitService.cs
+# promotion line) and the forbidden SubOrbital classifier line (the pre-change verdict).
 # NOT C#-dependent: the flight and the commit tokens.
 #
 # FAST-LANE CHECKLIST. 1 RF-1's act 1 is this flight, but RF-1 continues into a re-fly of
@@ -49,7 +55,7 @@ id = "ASR-2-chute-stage-ends-landed"
 # flight). 9 flight_efficiency.py on the first green flight.
 # =====================================================================================
 tier = "nightly"
-description = "A stage left under open chutes ends Landed at touchdown: RF-1's GS1 hop, the probe-cored booster still under its six canopies when the pod lands and ExitToSpaceCenter commits. Report-only endings block: the booster's recording ends Landed or Splashed, past its last watched sample; the SubOrbital open-slot classifier line is forbidden."
+description = "A stage left under open chutes ends Landed at touchdown: RF-1's GS1 hop, the probe-cored booster still under its six canopies when the pod lands and ExitToSpaceCenter commits. Report-only endings block: the booster's recording ends Landed or Splashed, past its last watched sample; the predicted touchdown keeps the booster's slot open (reason predictedTouchdown, RewindPoint kept) and the old SubOrbital open-slot classifier line is forbidden."
 instanceProfile = "stock-minimal"
 tags = ["ASR", "ASR-2", "predicted-tail", "parachute", "staging", "controlled-child",
         "scene-exit", "kerbin", "sandbox", "reading-run"]
@@ -105,10 +111,13 @@ required  = [
   "Recording started",
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+  # C#-DEPENDENT (owner ruling Q4c): the predicted touchdown keeps the booster's slot open.
+  "IsUnfinishedFlight=true rec=\\S+ reason=predictedTouchdown slot=1 focusSlot=0 terminal=(?:Landed|Splashed) predicted=True",
+  "CommitTree promoted rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' slot=1 rp=\\S+ reason=predictedTouchdown to CommittedProvisional",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # C#-DEPENDENT: today's open-slot verdict for the booster (Rewind/EffectiveState.cs).
+  # The pre-change open-slot verdict for the booster (a SubOrbital ending in mid-air).
   "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital",
 ]
 
@@ -122,10 +131,11 @@ tailSeconds    = { min = 5 }
 ended          = { min = 1, max = 1 }
 terminalStates = ["Landed", "Splashed"]
 
-# REPORT-ONLY: the RewindPoint the split authored is expected to reap once both slots
-# end stable (GS-1's shape); read, not gated.
+# REPORT-ONLY: the predicted touchdown keeps the booster's slot open (owner ruling Q4c),
+# so the RewindPoint the split authored is NOT reaped (RF-1's shape, not GS-1's); read,
+# not gated.
 [expectations.rewind]
-rewindPoints  = { max = 0 }
+rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 

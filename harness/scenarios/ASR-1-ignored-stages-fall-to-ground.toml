@@ -24,9 +24,12 @@ id = "ASR-1-ignored-stages-fall-to-ground"
 #   - the fueled core (`Kerbal X Probe`, probeStackLarge: a CONTROLLED child) is dropped
 #     inside the atmosphere at a 95 km apoapsis. Without the burn it rides the stack's arc
 #     a few metres away and never unloads (RF-9's shape). With it the Poodle burns 10 s
-#     prograde (~170 m/s), the stack is past the 2.25 km load range within seconds, the
-#     core goes on rails out of range and is still on its way up (or near its apex) when
-#     the scene exit commits. THE PROBE-CORED CASE, "KSP still has it".
+#     prograde, the stack opens the gap at ~110 m/s (measured), and the post-mission
+#     WarpToUT 280 holds the commit until the gap passes stock's 10 km sub-orbital pack
+#     range, so the core goes on rails out of range and is near its apex when the scene
+#     exit commits. (The 2.25 km figure is the LOAD range; a loaded vessel is packed only
+#     at 10 km sub-orbital / 25 km flying, which the first reading missed.)
+#     THE PROBE-CORED CASE, "KSP still has it".
 #   - the crewed stack (`Kerbal X`) is the vessel the player flies: the mission ends once
 #     it is OBSERVED coasting SUB_ORBITAL above 71 km, and the spec's ExitToSpaceCenter
 #     commits the tree with it falling. THE CREWED CASE: a predicted crash kills its crew
@@ -42,10 +45,10 @@ id = "ASR-1-ignored-stages-fall-to-ground"
 #   predictedSegments  at least one isPredicted segment on the chain;
 #   tailSeconds        endUT minus the last WATCHED datum (a real POINT sample or the end
 #                      of a non-predicted segment): how long the recording runs past the
-#                      moment Parsek stopped watching. Margins: the boosters are cut loose
-#                      at ~10-15 km climbing and fall back in ~30 s, so >= 20 s;
-#                      the core and the stack are near or above 70 km at the exit and
-#                      climbing, so the ground is minutes away, >= 60 s. A mid-air close
+#                      moment Parsek stopped watching. Margins: NOT asserted for the
+#                      boosters (they fall inside the bubble almost to the ground, the
+#                      first reading measured 2-9 s); the core and the stack are well
+#                      above 70 km at the exit, so the ground is minutes away, >= 60 s. A mid-air close
 #                      reads ~0.
 #   endAltitudeMeters  the two-body altitude at the last predicted segment's endUT: the
 #                      ground (sea level to a few km of terrain), window [-500, 5000]. A
@@ -87,7 +90,8 @@ id = "ASR-1-ignored-stages-fall-to-ground"
 #     the bubble (no upper burn) and both continue past the exit into a re-fly, so the
 #     claim would ride a longer lane whose own subject this change moves (RF-9's slot
 #     reasons). A separate act-1-only lane is the shorter flight.
-#   2 No idle waits: none; the mission ends on an observed gate.
+#   2 No idle waits: one explicit-UT WarpToUT (UT 280, phys 2x, ~55 s wall) so the core
+#     really leaves the load range; the mission itself ends on an observed gate.
 #   3 Minimal dwells: coastSeconds 15 (separation before the Poodle lights), burn 10 s.
 #   4 Burns at 1x: yes (the COAST physics warp is forced off before COAST-EXIT).
 #   5 b5 coasts: not applicable.
@@ -122,6 +126,16 @@ steps = [
   { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
   { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
   { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
+  # THE OUT-OF-RANGE WAIT (reading `2026-11-21_1839`): the mission ends at UT ~173 with the
+  # core only ~2.3 km behind (`dist=2301m`), still LOADED, so without this step the commit
+  # finalizes it loaded (`background_commit_loaded`) and the on-rails case never happens.
+  # The two coast apart at ~110 m/s after the Poodle cut (1306 m at UT ~160, 2301 m at UT
+  # ~169), both SUB_ORBITAL above 70 km, where stock packs a vessel at 10 km
+  # (VesselRanges.subOrbital pack 10000, unload 15000): ~UT 240. UT 280 leaves margin
+  # (~14 km at the measured rate) with the stack still near its ~109 km apex, above the
+  # atmosphere. Explicit UT, physics ladder at 2x (QL-4 / CA-1's cap), so nothing goes on
+  # rails because of the warp itself.
+  { cmd = "WarpToUT",          args = { ut = "280", maxRate = "2", ladder = "phys" },    expect = "OK", budget = 300 },
   { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
   { cmd = "SaveGame",          args = { name = "persistent" },                           expect = "OK" },
   { cmd = "FlushAndQuit",                                                                expect = "OK" },
@@ -179,11 +193,14 @@ forbidden = [
 ]
 
 # REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
+# The boosters fall INSIDE the bubble until near the ground (reading `2026-11-21_1839`:
+# tails 2.1-8.9 s, end altitude 63-65 m, one predicted segment each), so a tail minimum
+# says nothing about "ends at the ground"; the end altitude and the predicted segment do.
+# tailSeconds is not asserted for the debris.
 [expectations.recordings.endings.vessels."Kerbal X Debris"]
 ended             = { min = 4, max = 6 }
 terminalStates    = ["Destroyed"]
 predictedSegments = { min = 1 }
-tailSeconds       = { min = 20 }
 endAltitudeMeters = { min = -500, max = 5000 }
 
 [expectations.recordings.endings.vessels."Kerbal X Probe"]
@@ -211,9 +228,9 @@ committedTrees = { min = 1, max = 1 }
 terminalStates = { Destroyed = { min = 6 } }
 
 [runtime]
-# LoadGame 660 + SetSetting x3 360 + mission 1600 + ExitToSpaceCenter 240 + SaveGame 120
-#   + FlushAndQuit 120 = 3100. 3400 clears it.
-budgetSeconds = 3400
+# LoadGame 660 + SetSetting x3 360 + mission 1600 + WarpToUT 300 + ExitToSpaceCenter 240
+#   + SaveGame 120 + FlushAndQuit 120 = 3400. 3700 clears it.
+budgetSeconds = 3700
 
 [retry]
 policy = "once"

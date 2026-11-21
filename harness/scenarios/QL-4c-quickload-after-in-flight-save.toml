@@ -66,8 +66,9 @@ id = "QL-4c-quickload-after-in-flight-save"
 # BEFORE-FIX CONVENTION: PLAIN (lands with the fix). On a pre-fix DLL the prediction is
 # PARSEK-FAIL(expectation): forbidden `keeping in-memory pending tree` and `reason=empty-plan`
 # match; the decision line, the restore-attempt clear, the detach, the reconcile line and the
-# 1-entry background attach are missing (the booster keeps its abandoned-future SubOrbital,
-# so the post-F9 SubOrbital forbidden token matches too).
+# 1-entry background attach are missing (the booster keeps its abandoned-future ending; that
+# ending is a predicted chute touchdown since owner ruling Q4, 2026-11-21, so the post-F9
+# SubOrbital forbidden token, which matched it before, no longer does: the bg=0 lines carry it).
 #
 # READING-RUN NOTES:
 #   - `route=space-center` on the decision line means the clone was not the live tree at the

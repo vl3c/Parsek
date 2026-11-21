@@ -11,8 +11,9 @@ tier = "operator"
 # with Valentina, the probe booster is still under its canopy at the scene exit, and the exit
 # auto-commits the tree. Every career row the flight earned (FirstLaunch, the altitude
 # records) is tagged to the ACTIVE recording, the pod's, so the booster slot's retire set
-# holds nothing: Rule 1 leaves it open (`stableLeafUnconcluded`, RF-1's verdict on the
-# sandbox twin), and the load-time sweep seals nothing. The player re-flies the booster
+# holds nothing: Rule 1 leaves it open (`predictedTouchdown` since owner ruling Q4c, the
+# booster ending on its predicted chute touchdown; `stableLeafUnconcluded` /
+# SubOrbital before, RF-1's verdict on the sandbox twin), and the load-time sweep seals nothing. The player re-flies the booster
 # (InvokeRewind slot 1), lets it come down under its chute, merges, exits to the Space
 # Center and recovers it from the Tracking Station: the recovery is a NEW earning
 # (`VesselRecovery funds patched: vessel='GS1 Auto-Chute Booster Probe' amount=N`) and
@@ -156,9 +157,12 @@ required = [
   "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
-  # The booster earned nothing, so Rule 1 leaves its slot open.
-  "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital",
-  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  # The booster earned nothing, so Rule 1 leaves its slot open. It is loaded and under
+  # canopy at the scene-exit commit (not stock-deleted), so since owner rulings Q4 / Q4c
+  # (2026-11-21) it ends on its PREDICTED touchdown and the open reason is
+  # `predictedTouchdown` (before: `stableLeafUnconcluded ... terminal=SubOrbital`).
+  "IsUnfinishedFlight=true rec=\\S+ reason=predictedTouchdown slot=1 focusSlot=0 terminal=(?:Landed|Splashed) predicted=True",
+  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=predictedTouchdown to CommittedProvisional",
   "Value-sealed slots \\(section 2\\.12\\): found=[0-9]+ sealed=0",
   # --- ACT 2: the re-fly ---
   "listhandles kind=rewindpoints count=1 truncated=false",

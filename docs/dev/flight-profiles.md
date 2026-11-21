@@ -365,8 +365,8 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 | revert | 23 | QL 4, RW 4, IR 3, VN 3, LAB 2, FAR 1, FXR 1, LX 1, REV 1, RF 1 +2 |
 | reload | 180 | V 30, QL 21, RF 17, LAB 10, SPW 9, EVA 8, MINE 7, RW 6, VN 6, RB 5 +35 |
 | save | 290 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +61 |
-| warp | 259 | RW 25, V 21, LAB 18, MINE 14, QL 12, EVA 11, SPW 11, CI 8, VN 8 +63 |
-| physics-warp | 16 | QL 5, PWR 3, RF 2, CA 1, FAR 1, L 1, SPW 1, STR 1, V 1 |
+| warp | 261 | RW 25, V 21, LAB 18, MINE 14, QL 12, EVA 11, SPW 11, CI 8, VN 8 +63 |
+| physics-warp | 18 | QL 5, PWR 3, ASR 2, RF 2, CA 1, FAR 1, L 1, SPW 1, STR 1, V 1 |
 | time-jump | 128 | V 44, RVR 14, RF 9, TP 8, QL 6, S 6, GUI 5, H 5, IR 4, MINE 4 +19 |
 | scene-change | 192 | V 30, RW 25, QL 14, RF 13, CS 11, LAB 8, S 5, CI 4, CX 4, IR 4 +51 |
 | vessel-switch | 24 | FLY 5, S 5, CI 2, EVA 2, MINE 2, AJ 1, ASR 1, FAR 1, GC 1, GS 1 +3 |
@@ -379,7 +379,7 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 416 | 109 | 52 | 17 | 148 | 219 | 209 | 14 | 51 | 156 | 19 | - |
+| Kerbin | 416 | 109 | 52 | 17 | 148 | 219 | 211 | 16 | 51 | 156 | 19 | - |
 | Mun | 65 | 31 | 7 | 6 | 16 | 45 | 44 | - | 13 | 40 | - | 1 |
 | Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
@@ -408,7 +408,7 @@ Lanes per family (rows) per timeline operation (columns).
 | AIR | 3 | 2 | - | - | - | - | 2 | - | - | 1 | - | - |
 | AJ | 1 | - | 1 | - | - | - | - | - | 1 | - | 1 | - |
 | AP | 1 | - | - | - | - | - | 1 | - | 1 | - | - | - |
-| ASR | 5 | - | - | - | - | 2 | 2 | - | - | 2 | 1 | - |
+| ASR | 5 | - | - | - | - | 2 | 4 | 2 | - | 2 | 1 | - |
 | AST | 4 | 2 | 1 | - | 3 | 4 | 4 | - | 1 | 1 | - | - |
 | AT | 1 | - | - | - | - | - | - | - | 1 | - | - | - |
 | B | 41 | - | - | - | - | 5 | - | - | - | - | - | - |
@@ -588,7 +588,7 @@ Lanes per family (rows) per timeline operation (columns).
 | SetSetting | 653 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, QL 23, L 22, S 20, RVR 19 +99 |
 | StopRecording | 376 | V 65, RF 25, RW 24, RVR 19, LAB 17, EVA 16, H 15, B 14, MINE 14 +63 |
 | SaveGame | 290 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +61 |
-| WarpToUT | 259 | RW 25, V 21, LAB 18, MINE 14, QL 12, EVA 11, SPW 11, CI 8, VN 8 +63 |
+| WarpToUT | 261 | RW 25, V 21, LAB 18, MINE 14, QL 12, EVA 11, SPW 11, CI 8, VN 8 +63 |
 | DiscardTree | 254 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, SPW 9, TP 9 +40 |
 | RecordingState | 248 | RF 27, V 21, QL 16, LAB 14, MINE 12, VN 12, CS 11, EVA 11, L 11 +51 |
 | RunTests | 228 | H 71, RW 25, V 13, CS 10, SPW 9, L 8, CN 6, LT 5, S 5, FAR 4, RF 4 +44 |
@@ -886,11 +886,11 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| ASR-1-ignored-stages-fall-to-ground | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | save, scene-change | - | never flown |
+| ASR-1-ignored-stages-fall-to-ground | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | save, warp, physics-warp, scene-change | - | reading 2026-11-21, spec re-pinned, not r... |
 | ASR-2-chute-stage-ends-landed | nightly | gs1-two-stage-pad | gs1_auto_chute_booster | Kerbin | save, scene-change | - | never flown |
 | ASR-3-graze-above-1kpa-stays-orbiting | daily | graze-high-probe-stack | seam | Kerbin | warp | - | never flown |
-| ASR-4-graze-below-1kpa-destroyed | daily | graze-low-probe-stack | seam | Kerbin | warp | - | never flown |
-| ASR-5-far-switch-commits-predicted-fall | nightly | eva2-lko-crewed | kx_rewind_watch | Kerbin | vessel-switch | - | never flown |
+| ASR-4-graze-below-1kpa-destroyed | daily | graze-low-probe-stack | seam | Kerbin | warp | - | reading 2026-11-21, spec re-pinned, not r... |
+| ASR-5-far-switch-commits-predicted-fall | nightly | eva2-lko-crewed | kx_rewind_watch | Kerbin | warp, physics-warp, vessel-switch | - | reading 2026-11-21, spec re-pinned, not r... |
 
 ### AST (4)
 
