@@ -637,7 +637,7 @@ namespace Parsek
             if (rec == null || string.IsNullOrEmpty(rec.ChainId) || recordings == null)
                 return false;
 
-            int nextIdx = rec.ChainIndex + 1;
+            int nextIdx = RecordingChainQueries.NextChainIndexAfter(rec, recordings);
             foreach (var other in recordings.Values)
             {
                 if (other.ChainId == rec.ChainId

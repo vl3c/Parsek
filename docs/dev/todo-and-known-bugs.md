@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CHAIN-NEXT-PIECE-EXACT-INDEX~~: seven chain readers still stopped at a hole in a chain's indices [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B5), by code reading; CHAIN-INDEX-HOLE-RESTORES-EARLIER-PIECE fixed one reader only. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit; no lane; low (a hole: a piece removed from a chain)]
+
+**Cause:** every "next piece of this chain" reader looked for exactly `ChainIndex + 1`: `RecordingTree.HasNextChainSegment`, `GhostChainWalker.TraceLineagePids`, `ParsekFlightPlaybackHost.FindNextChainRecording`, `MissionCrossTreeDock.FindChainSuccessor`, `SplitParentLinks.UniqueChainSuccessor` and the three chain cases of `GhostPlaybackLogic.WatchMode.cs` (`ResolveChainNextSlotIndex`, `FindNextWatchTarget`, `TryGetPendingWatchActivationUT`). Past a hole the chain looked ended: the watch camera, the chain tip walk, the lineage pid trace, the cross-tree journey and the parent-link repair all stopped early.
+
+**Fix:** one pure helper in the module that owns chain queries, `RecordingChainQueries.NextChainIndexAfter(rec, list | tree dictionary)`: the lowest `ChainIndex` above rec's among the recordings of the same chain id (ordinal) and branch, `NoNextChainIndex` (int.MinValue, matches no recording) when none. Each reader takes its next index from it and keeps its own match loop (first match, the duplicate warning, the uniqueness check). No new module edge (Recording is below every caller's module).
+
+**Tests:** `ChainIndexHoleReaderTests` (the helper, then one cell per reader over a chain indexed 0 and 2; every reader cell red before the fix).
+
 ## ~~FOLDED-PIECE-ROW-SETTINGS-SPREAD~~: a folded split piece's hide, ghost-off or loop setting spread over the whole re-flown flight [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B4), by code reading. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit + mutation; no lane; low-medium (a loop or hide set on one row of a flight flown again covered the whole flight, then every row a later split made)]
 
 **Cause:** the RULE 3 fold of a covered split piece (`TreeCommitService.CarryTipOwnedStateOnFold` -> `CarryUnsetPlayerSettings`, `TreeCommitService.LiveFlownCopy.cs`) carried every player setting the survivor left at its default from the piece onto the survivor. Those per-row settings covered only the piece's span; on the survivor they covered the whole flight, and `RecordingOptimizer.CopyPlayerRowSettings` then copied them onto every row the next splits cut from it.

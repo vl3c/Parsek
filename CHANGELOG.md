@@ -54,6 +54,9 @@ Not released yet.
 
 ### Fixed
 
+- **A flight with a missing middle row still plays and follows as one flight.** When a row was
+  gone from the middle of a split flight, watching, the end-of-flight walk and the parent links
+  stopped at the gap. (CHAIN-NEXT-PIECE-EXACT-INDEX)
 - **A loop or hide set on one row of a flight stays on that row when you fly it again.** When
   the new flight absorbed the old row, its loop, hide or ghost-off setting used to spread over
   the whole flight and every row cut from it later. (FOLDED-PIECE-ROW-SETTINGS-SPREAD)
