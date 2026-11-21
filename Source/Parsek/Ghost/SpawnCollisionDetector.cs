@@ -43,6 +43,7 @@ namespace Parsek
             GhostMapVessel = 2,
             ExemptParent = 3,
             SkippedVesselType = 4,
+            IgnoredPart = 5,
         }
 
         /// <summary>
@@ -50,13 +51,16 @@ namespace Parsek
         /// this order: an unloaded vessel, a ghost map vessel, the exempt vessel (an EVA's
         /// parent, T57) and a skipped vessel type do not block; anything else does. There is
         /// deliberately no active-vessel input: the vessel the player flies blocks a spawn like
-        /// any other loaded vessel (todo GC9-SPAWN-IGNORES-ACTIVE-VESSEL).
+        /// any other loaded vessel (todo GC9-SPAWN-IGNORES-ACTIVE-VESSEL). A hit on the one part the
+        /// caller names as ignored (<paramref name="isIgnoredPart"/>: the rock a push-out has just
+        /// cleared, held by another vessel's Klaw) does not block either.
         /// </summary>
         internal static LoadedVesselHitVerdict ClassifyLoadedVesselHit(
             bool loaded, bool isGhostMapVessel, uint vesselPid, uint exemptVesselPid,
-            VesselType vesselType)
+            VesselType vesselType, bool isIgnoredPart = false)
         {
             if (!loaded) return LoadedVesselHitVerdict.NotLoaded;
+            if (isIgnoredPart) return LoadedVesselHitVerdict.IgnoredPart;
             if (isGhostMapVessel) return LoadedVesselHitVerdict.GhostMapVessel;
             if (exemptVesselPid != 0 && vesselPid == exemptVesselPid)
                 return LoadedVesselHitVerdict.ExemptParent;
@@ -1296,7 +1300,7 @@ namespace Parsek
         internal static (bool overlap, float closestDistance, string blockerName, Vessel blockerVessel) CheckOverlapAgainstLoadedVessels(
             Vector3d spawnWorldPos, Bounds spawnBounds, float padding,
             uint exemptVesselPid = 0, Recording spawningRecording = null, string site = null,
-            double candidateUT = double.NaN)
+            double candidateUT = double.NaN, Part ignorePart = null)
         {
             ResolveSpawnOverlapBox(spawnWorldPos, spawnBounds, padding,
                 out Vector3 worldCenter, out Vector3 halfExtents, out Quaternion surfaceRot);
@@ -1353,9 +1357,11 @@ namespace Parsek
                     GhostMapPresence.IsGhostMapVessel(other.persistentId),
                     other.persistentId,
                     exemptVesselPid,
-                    other.vesselType);
+                    other.vesselType,
+                    isIgnoredPart: ignorePart != null && part == ignorePart);
                 if (verdict == LoadedVesselHitVerdict.NotLoaded
-                    || verdict == LoadedVesselHitVerdict.GhostMapVessel)
+                    || verdict == LoadedVesselHitVerdict.GhostMapVessel
+                    || verdict == LoadedVesselHitVerdict.IgnoredPart)
                 {
                     filteredHits++;
                     continue;

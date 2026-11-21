@@ -489,7 +489,11 @@ namespace Parsek.Tests
             string ghoster = StripLineComments(File.ReadAllText(ParsekSource("Ghost", "VesselGhoster.cs")));
             string body = ExtractMethodBody(ghoster, "internal uint SpawnAtChainTip(");
             int resolve = body.IndexOf("VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(", StringComparison.Ordinal);
-            int check = body.IndexOf("SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(", StringComparison.Ordinal);
+            // The overlap check lives in ResolveChainTipSpawnOverlap, which an orbital tip
+            // reaches with its propagated orbit (the orbit-route clearance).
+            int check = body.IndexOf("ResolveChainTipSpawnOverlap(", StringComparison.Ordinal);
+            Assert.Contains("SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(",
+                ExtractMethodBody(ghoster, "Vessel blocker) ResolveChainTipSpawnOverlap("));
             Assert.True(resolve >= 0 && check >= 0);
             Assert.True(resolve < check,
                 "SpawnAtChainTip must resolve the propagated orbit state before the collision check");

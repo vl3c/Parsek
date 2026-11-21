@@ -325,11 +325,16 @@ namespace Parsek.Tests
         {
             string ghoster = Source("Ghost", "VesselGhoster.cs");
             string tip = Body(ghoster, "internal uint SpawnAtChainTip(");
-            int clearance = tip.IndexOf("ApplyChainTipOrbitClearance(", StringComparison.Ordinal);
+            int clearance = tip.IndexOf("ResolveChainTipSpawnOverlap(", StringComparison.Ordinal);
             int safety = tip.IndexOf("PassChainTipTerminalOrbitSafety(", StringComparison.Ordinal);
             Assert.True(clearance >= 0 && clearance < safety,
                 "the first chain-tip attempt clears an orbital tip before its safety check");
-            Assert.Contains("haveOrbitalSpawnState\n                ? (false, float.MaxValue", tip);
+            string firstOverlap = Body(ghoster, "Vessel blocker) ResolveChainTipSpawnOverlap(");
+            int noOrbit = firstOverlap.IndexOf("if (!orbital)", StringComparison.Ordinal);
+            int plain = firstOverlap.IndexOf("SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(", StringComparison.Ordinal);
+            int orbitClear = firstOverlap.IndexOf("ApplyChainTipOrbitClearance(", StringComparison.Ordinal);
+            Assert.True(noOrbit >= 0 && noOrbit < plain && plain < orbitClear,
+                "a tip with no orbit keeps the plain overlap check; an orbital tip takes the clearance");
 
             string blocked = Body(ghoster, "internal uint TrySpawnBlockedChain(");
             int orbitTip = blocked.IndexOf("TrySpawnBlockedOrbitChainTip(", StringComparison.Ordinal);
@@ -362,6 +367,25 @@ namespace Parsek.Tests
             string push = Body(clearance, "internal static OrbitSpawnClearanceResult ResolveRockPushOut(");
             Assert.Contains("rock.Vessel.orbit.getOrbitalVelocityAtUT(spawnUT)", push);
             Assert.Contains("OrbitSpawnClearance.TryBuildCoMovingOrbit(", push);
+            // A Klaw-held rock is part of a Ship: the final check at the spawn padding must not
+            // count the rock the push-out just cleared by its smaller margin.
+            Assert.Contains("ignorePart: rock.Part", push);
+            string detector = Source("Ghost", "SpawnCollisionDetector.cs");
+            string check = Body(detector, "Vessel blockerVessel) CheckOverlapAgainstLoadedVessels(");
+            Assert.Contains("isIgnoredPart: ignorePart != null && part == ignorePart", check);
+            Assert.Contains("verdict == LoadedVesselHitVerdict.IgnoredPart", check);
+        }
+
+        [Fact]
+        public void ClassifyLoadedVesselHit_TheIgnoredRockPartOfAHoldingShip_DoesNotBlock()
+        {
+            Assert.Equal(SpawnCollisionDetector.LoadedVesselHitVerdict.IgnoredPart,
+                SpawnCollisionDetector.ClassifyLoadedVesselHit(true, false, 7u, 0u, VesselType.Ship, isIgnoredPart: true));
+            // Every other part of the holding ship still blocks.
+            Assert.Equal(SpawnCollisionDetector.LoadedVesselHitVerdict.Blocker,
+                SpawnCollisionDetector.ClassifyLoadedVesselHit(true, false, 7u, 0u, VesselType.Ship));
+            Assert.Equal(SpawnCollisionDetector.LoadedVesselHitVerdict.NotLoaded,
+                SpawnCollisionDetector.ClassifyLoadedVesselHit(false, false, 7u, 0u, VesselType.Ship, isIgnoredPart: true));
         }
 
         // ---- source helpers ----

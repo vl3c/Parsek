@@ -217,9 +217,13 @@ namespace Parsek
                 }
                 else
                 {
+                    // The rock itself was cleared by the margin above; a Klaw-held rock is a
+                    // part of a Ship / Probe vessel the ordinary check would count again at its
+                    // larger padding, so its part is left out (the holding vessel still blocks).
                     var (ov, _, name, _) = CheckOverlapAgainstLoadedVessels(
                         pushedPos, spawnBounds, padding, exemptVesselPid,
-                        spawningRecording: spawningRecording, site: site + "-rock");
+                        spawningRecording: spawningRecording, site: site + "-rock",
+                        ignorePart: rock.Part);
                     if (ov)
                     {
                         refusal = "pushed-spot-blocked";

@@ -130,7 +130,10 @@ rock's centre in 0.5 m steps until its bounds clear the rock's colliders by 1 m 
 size-class radius plus the bounds radius plus 1 m), and takes the rock's orbital velocity through a
 co-moving orbit built at the spawn UT (`ResolveRockPushOut`, `OrbitSpawnClearance.TryBuildCoMovingOrbit`),
 so it moves with the rock and drifts slowly like stock. The terminal-orbit spawn safety check is re-run
-on that orbit. A pushed spot another loaded vessel blocks takes the blocked retry. Logged:
+on that orbit. A pushed spot another loaded vessel blocks takes the blocked retry; that final
+check leaves out the rock part itself, since a rock held by another vessel's Klaw is a part of that
+Ship / Probe vessel and would otherwise block every push-out at the 5 m padding (the holding
+vessel's other parts still block). Logged:
 `[SpawnCollision] Rock push-out: ...` and `Orbit spawn clearance: ... outcome=RockPushedOut`. Landed
 spawns are unchanged (the ordinary check still skips rocks). Not done (option A, not ordered): no
 rock identity or relative pose is recorded, so a rock that drifted after a rewind is not followed;

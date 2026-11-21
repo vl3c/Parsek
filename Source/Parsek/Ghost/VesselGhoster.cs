@@ -329,18 +329,9 @@ namespace Parsek
                     tipId,
                     haveOrbitalSpawnState ? "propagated-orbit" : "snapshot",
                     spawnUT.ToString("F2", ic)));
-            // An orbital tip is placed by its orbit: the orbit-route clearance moves it along
-            // that orbit, or pushes it off a rock, or holds it blocked (owner ruling 2026-11-21).
-            if (haveOrbitalSpawnState
-                && !ApplyChainTipOrbitClearance(
-                    chain, tipRecording, spawnBody, spawnUT, spawnBounds, "chain-tip", markBlocked: true,
-                    ref orbitalSpawnOrbit, ref orbitalSpawnVelocity, ref orbitLat, ref orbitLon, ref orbitAlt))
-                return 0;
-            var (overlap, distance, blockerName, _) = haveOrbitalSpawnState
-                ? (false, float.MaxValue, (string)null, (Vessel)null)
-                : SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                    spawnPos, spawnBounds, SpawnCollisionPadding,
-                    spawningRecording: tipRecording, site: "chain-tip");
+            var (overlap, distance, blockerName, _) = ResolveChainTipSpawnOverlap(
+                tipRecording, spawnBody, spawnUT, spawnBounds, spawnPos, haveOrbitalSpawnState,
+                ref orbitalSpawnOrbit, ref orbitalSpawnVelocity, ref orbitLat, ref orbitLon, ref orbitAlt);
 
             if (overlap)
             {
@@ -759,45 +750,47 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The collision check of the first chain-tip attempt. A tip with no orbit override is
+        /// checked at <paramref name="spawnPos"/>; an orbital tip is placed by its orbit, so the
+        /// orbit-route clearance moves it along that orbit or pushes it off a rock (owner ruling
+        /// 2026-11-21), and only a tip with no clear spot within the bound reads as overlapping.
+        /// </summary>
+        private static (bool overlap, float distance, string blockerName, Vessel blocker) ResolveChainTipSpawnOverlap(
+            Recording tip, CelestialBody body, double spawnUT, Bounds spawnBounds, Vector3d spawnPos,
+            bool orbital, ref Orbit orbit, ref Vector3d velocity, ref double lat, ref double lon, ref double alt)
+        {
+            if (!orbital)
+                return SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                    spawnPos, spawnBounds, SpawnCollisionPadding,
+                    spawningRecording: tip, site: "chain-tip");
+            bool clear = ApplyChainTipOrbitClearance(tip, body, spawnUT, spawnBounds, "chain-tip",
+                ref orbit, ref velocity, ref lat, ref lon, ref alt, out string orbitBlocker);
+            return clear
+                ? (false, float.MaxValue, (string)null, (Vessel)null)
+                : (true, 0f, orbitBlocker, (Vessel)null);
+        }
+
+        /// <summary>
         /// Orbit-route clearance of an orbital chain tip (owner ruling 2026-11-21, todo
         /// SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS / SPAWN-RESTING-ON-ROCK): the tip is placed
         /// by its recorded terminal orbit, so a rock at the spawn point pushes it out with the
         /// rock's velocity and another loaded vessel moves it a little along its own orbit. A
         /// moved state replaces the orbit, velocity and coordinates (the caller's terminal-orbit
-        /// safety check then reads the moved orbit). False when no clear spot exists within the
-        /// bound: the tip stays blocked (marked when <paramref name="markBlocked"/>, the first
-        /// attempt) and the blocked retry runs it again.
+        /// safety check then reads the moved orbit). False, with the blocker's name, when no clear
+        /// spot exists within the bound: the caller keeps the tip blocked and retries it.
         /// </summary>
         private static bool ApplyChainTipOrbitClearance(
-            GhostChain chain, Recording tip, CelestialBody body, double spawnUT, Bounds spawnBounds,
-            string site, bool markBlocked,
-            ref Orbit orbit, ref Vector3d velocity, ref double lat, ref double lon, ref double alt)
+            Recording tip, CelestialBody body, double spawnUT, Bounds spawnBounds, string site,
+            ref Orbit orbit, ref Vector3d velocity, ref double lat, ref double lon, ref double alt,
+            out string blockerName)
         {
             string context = string.Format(ic, "tip '{0}' ({1})",
                 tip?.RecordingId ?? "(null)", tip?.VesselName ?? "(unknown)");
             OrbitSpawnClearanceResult clearance = SpawnCollisionDetector.ResolveOrbitSpawnClearance(
                 orbit, body, spawnUT, spawnBounds, SpawnCollisionPadding, 0u, tip, site, context);
+            blockerName = clearance.BlockerName;
             if (!clearance.CanSpawn)
-            {
-                if (markBlocked)
-                {
-                    MarkSpawnBlocked(chain, spawnUT, 0f);
-                    ParsekLog.Info("SpawnCollision",
-                        string.Format(ic,
-                            "Spawn blocked: vessel={0} overlaps with {1} (orbit spawn, no clear spot within {2}m along its orbit)",
-                            tip?.VesselName ?? "(unknown)", clearance.BlockerName ?? "(unknown)",
-                            OrbitSpawnClearance.PhaseShiftMaxMeters.ToString("F0", ic)));
-                }
-                else
-                {
-                    ParsekLog.VerboseRateLimited("SpawnCollision", "blocked-recheck-" + (chain != null ? chain.OriginalVesselPid : 0u),
-                        string.Format(ic,
-                            "Spawn still blocked: vessel={0} overlaps with {1} (orbit spawn, blocked {2}s)",
-                            tip?.VesselName ?? "(unknown)", clearance.BlockerName ?? "(unknown)",
-                            chain != null ? (spawnUT - chain.BlockedSinceUT).ToString("F1", ic) : "?"));
-                }
                 return false;
-            }
             if (!clearance.StateChanged)
                 return true;
 
@@ -844,9 +837,17 @@ namespace Parsek
 
             Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
             if (!ApplyChainTipOrbitClearance(
-                    chain, tipRecording, spawnBody, currentUT, spawnBounds, "chain-tip-blocked", markBlocked: false,
-                    ref orbit, ref velocity, ref lat, ref lon, ref alt))
+                    tipRecording, spawnBody, currentUT, spawnBounds, "chain-tip-blocked",
+                    ref orbit, ref velocity, ref lat, ref lon, ref alt, out string blockerName))
+            {
+                ParsekLog.VerboseRateLimited("SpawnCollision", "blocked-recheck-" + chain.OriginalVesselPid,
+                    string.Format(ic,
+                        "Spawn still blocked: vessel={0} overlaps with {1} (orbit spawn, no clear spot within {2}m along its orbit, blocked {3}s)",
+                        tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)",
+                        OrbitSpawnClearance.PhaseShiftMaxMeters.ToString("F0", ic),
+                        (currentUT - chain.BlockedSinceUT).ToString("F1", ic)));
                 return true;
+            }
 
             ParsekLog.Info("SpawnCollision",
                 string.Format(ic,
