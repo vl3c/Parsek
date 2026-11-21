@@ -174,7 +174,8 @@ namespace Parsek.Tests
                 "(debris=1; likely dropped by the stock vessel budget or KSC declutter at save): " +
                 "reason=unit pids=[11,22,33] recIds=[r1,(null),r3] - closed=1 " +
                 "(situation terminal at last known UT, no Destroyed) keptTerminal=1 " +
-                "(already ended by a recovery/termination event) " +
+                "(already ended by a recovery/termination event) followedRecordedTail=0 " +
+                "(predicted ending from the member's own recorded path) " +
                 "outcomes=[11:kept-Recovered@120.0,22:SubOrbital@NaN(last-point),unplanned]",
                 line);
         }
