@@ -742,19 +742,20 @@ namespace Parsek.Logistics
         }
 
         // The single recording in the tree that precedes this one in its split chain
-        // (same ChainId and ChainBranch, ChainIndex - 1); null when none or ambiguous.
+        // (same ChainId and ChainBranch, the previous chain index); null when none or ambiguous.
         private static Recording FindChainPredecessor(RecordingTree tree, Recording rec)
         {
             if (tree?.Recordings == null || rec == null
                 || string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex <= 0)
                 return null;
             Recording found = null;
+            int previousIdx = RecordingChainQueries.PreviousChainIndexBefore(rec, tree.Recordings);
             foreach (Recording candidate in tree.Recordings.Values)
             {
                 if (candidate == null || ReferenceEquals(candidate, rec)) continue;
                 if (!string.Equals(candidate.ChainId, rec.ChainId, StringComparison.Ordinal)
                     || candidate.ChainBranch != rec.ChainBranch
-                    || candidate.ChainIndex != rec.ChainIndex - 1)
+                    || candidate.ChainIndex != previousIdx)
                     continue;
                 if (found != null) return null;
                 found = candidate;

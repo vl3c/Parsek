@@ -104,8 +104,8 @@ namespace Parsek.Tests
 
             TreeCommitService.CommitRecordingDirect(rec);
 
-            Assert.Equal(2, rec.SplitRuleVersion);
-            Assert.Contains(logLines, l => l.Contains("stamped version 2 on rec=direct at direct commit"));
+            Assert.Equal(RecordingOptimizer.SplitRuleVersionCurrent, rec.SplitRuleVersion);
+            Assert.Contains(logLines, l => l.Contains("stamped version 3 on rec=direct at direct commit"));
         }
     }
 }

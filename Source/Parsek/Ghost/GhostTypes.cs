@@ -7,6 +7,11 @@ namespace Parsek
     {
         public uint partPersistentId;
         public List<Transform> jettisonTransforms;
+        // The subset stock hides when the part starts in flight (ModuleJettison.SetupJettisonState:
+        // an empty bottom node with ignoreNodes off, or a jettisoned / hide-override shroud), read
+        // from the snapshot. The build hides them, and a loop cycle restarts with them hidden, so
+        // playback events layer over the same look the real part had. Null or empty when none.
+        public List<Transform> spawnHiddenTransforms;
     }
 
     internal class ParachuteGhostInfo
@@ -30,6 +35,69 @@ namespace Parsek
         public Vector3 stowedCanopyScale;
         public Vector3 stowedCanopyPos;
         public Quaternion stowedCanopyRot;
+        // Animated bones BELOW the canopy transform (a rigged canopy such as ReStock's, whose
+        // deploy clips move child bones, not just the canopy root). Null when the deploy clips
+        // animate nothing under the canopy (stock canopies), so those chutes keep the
+        // root-only pose. Each entry carries the bone's own local pose per stage.
+        public List<CanopyBonePose> canopyBones;
+    }
+
+    internal enum CanopyPoseStage
+    {
+        Stowed,
+        SemiDeployed,
+        Deployed
+    }
+
+    /// <summary>
+    /// One animated canopy bone's local pose (relative to its parent) at each parachute stage.
+    /// Stowed is the ghost bone's build-time pose; the two deploy stages are sampled from the
+    /// part's deploy animations at their end.
+    /// </summary>
+    internal class CanopyBonePose
+    {
+        public Transform bone;
+        public Vector3 stowedPos;
+        public Quaternion stowedRot;
+        public Vector3 stowedScale;
+        public bool semiDeployedSampled;
+        public Vector3 semiPos;
+        public Quaternion semiRot;
+        public Vector3 semiScale;
+        public Vector3 deployedPos;
+        public Quaternion deployedRot;
+        public Vector3 deployedScale;
+    }
+
+    /// <summary>
+    /// A canopy bone sampled from a prefab clone: the child-index path from the canopy
+    /// transform to the bone, and its local pose at the end of each deploy animation.
+    /// </summary>
+    internal class CanopyBoneSample
+    {
+        public int[] childIndexPath;
+        public bool semiDeployedSampled;
+        public Vector3 semiPos;
+        public Quaternion semiRot;
+        public Vector3 semiScale;
+        public Vector3 deployedPos;
+        public Quaternion deployedRot;
+        public Vector3 deployedScale;
+    }
+
+    /// <summary>
+    /// Per-part-type result of sampling a parachute's canopy deploy animations.
+    /// </summary>
+    internal class CanopySample
+    {
+        public Vector3 sdScale;
+        public Vector3 sdPos;
+        public Quaternion sdRot;
+        public bool semiDeployedSampled;
+        public Vector3 dScale;
+        public Vector3 dPos;
+        public Quaternion dRot;
+        public List<CanopyBoneSample> bones;
     }
 
     internal struct KspEmitterRef

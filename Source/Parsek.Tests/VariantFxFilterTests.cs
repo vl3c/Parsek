@@ -118,9 +118,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FirstDeepestMatchWins_EnabledChildUnderDisabledParent()
+        public void DisabledParentHidesEnabledChild()
         {
-            // Inverse of above: EnabledChild is closer (checked first), should win
+            // Stock applies rules as SetActive: an inactive parent hides an active child,
+            // so a deeper enabling rule must not override a disabling ancestor.
             var ancestors = new List<string> { "thrustTransform", "EnabledChild", "DisabledParent" };
             var rules = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
             {
@@ -131,9 +132,90 @@ namespace Parsek.Tests
             bool result = GhostVisualBuilder.IsAncestorChainEnabledByVariantRule(
                 ancestors, rules, out string matched, out bool enabled);
 
+            Assert.False(result);
+            Assert.Equal("DisabledParent", matched);
+            Assert.False(enabled);
+        }
+
+        [Fact]
+        public void AllEnabledChain_ReportsDeepestEnablingRule()
+        {
+            var ancestors = new List<string> { "mesh", "EnabledChild", "EnabledParent", "model" };
+            var rules = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "EnabledChild", true },
+                { "EnabledParent", true }
+            };
+
+            bool result = GhostVisualBuilder.IsAncestorChainEnabledByVariantRule(
+                ancestors, rules, out string matched, out bool enabled);
+
             Assert.True(result);
             Assert.Equal("EnabledChild", matched);
             Assert.True(enabled);
+        }
+
+        [Fact]
+        public void DisabledMultiModelRootHidesEnabledChild()
+        {
+            // A disabling rule on a multi-MODEL root (matched by short name) still wins
+            // over an enabling rule deeper in the chain.
+            var ancestors = new List<string>
+            {
+                "ShroudMesh", "ShroudPiece", "SquadExpansion/Parts/Shroud3x0(Clone)", "model"
+            };
+            var rules = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "ShroudPiece", true },
+                { "Shroud3x0", false }
+            };
+
+            bool result = GhostVisualBuilder.IsAncestorChainEnabledByVariantRule(
+                ancestors, rules, out string matched, out bool enabled);
+
+            Assert.False(result);
+            Assert.Equal("Shroud3x0", matched);
+            Assert.False(enabled);
+        }
+
+        // ReStock LV-T45 (liquidEngine2) Size1 variant, verbatim from
+        // ReStock/PatchesLegacy/Engines/restock-engines-liquid-125.cfg. It enables
+        // Frame_Boat and ShroudT45_CompactWhite whose parents it disables; the live part
+        // hides both, and the ghost drew them as booster skirts before this rule.
+        private static Dictionary<string, bool> ReStockLvT45Size1Rules()
+        {
+            return new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "LV_T45_Boattail", false }, { "LV_T45_Basic", true }, { "LV_T45_Compact", false },
+                { "T45_Piston001", true }, { "T45_Piston002", true },
+                { "T45_Piston003", false }, { "T45_Piston004", false },
+                { "Engine", true }, { "EngineBoattail", false },
+                { "fairing", true }, { "ShroudT45_Compact", false },
+                { "fairingWhite", true }, { "ShroudT45_CompactWhite", true },
+                { "Frame_Boat", true }, { "fairingOrange", false },
+                { "ShroudT45_CompactOrange", false }, { "Frame_BoatOrange", false }
+            };
+        }
+
+        private const string ReStockSwivelRoot = "ReStock/Assets/Engine/restock-engine-swivel-1(Clone)";
+
+        [Theory]
+        [InlineData(false, "Frame_Boat", "LV_T45_Boattail")]
+        [InlineData(false, "ShroudT45_CompactWhite", "ShroudT45_Compact", "LV_T45_Compact")]
+        [InlineData(false, "Frame_BoatOrange", "LV_T45_Boattail")]
+        [InlineData(false, "T45_Piston003", "Gimbal", "LV_T45_Common")]
+        [InlineData(true, "fairingWhite", "fairing", "LV_T45_Basic")]
+        [InlineData(true, "Frame", "LV_T45_Basic")]
+        [InlineData(true, "Engine", "Gimbal", "LV_T45_Common")]
+        [InlineData(true, "EngineCoreT45Glow", "Gimbal", "LV_T45_Common")]
+        public void ReStockLvT45Size1_MatchesLiveVisibility(bool expected, params string[] chain)
+        {
+            var ancestors = new List<string>(chain) { "liquidEngine2", ReStockSwivelRoot, "model" };
+
+            bool result = GhostVisualBuilder.IsAncestorChainEnabledByVariantRule(
+                ancestors, ReStockLvT45Size1Rules(), out _, out _);
+
+            Assert.Equal(expected, result);
         }
 
         [Fact]

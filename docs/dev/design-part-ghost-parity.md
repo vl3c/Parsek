@@ -579,7 +579,7 @@ Findings:
    events, and `PartStateSeeder.SeedJettisons` seeds only `isJettisoned = True`. So any recorded
    vessel whose bottom engine has nothing below plays back with a shroud the real craft never had.
    The ReStock Boattail variant carries no shroud and matches. Filed as todo
-   GHOST-SHROUD-EMPTY-BOTTOM-NODE.
+   GHOST-SHROUD-EMPTY-BOTTOM-NODE; fixed and live-proven on the spike lanes in PR #2737.
 2. **Extra real-side renderers (most likely Waterfall plume meshes) inflate the real framing box.** ReStock LV-T45: 28 real mesh renderers
    against 10 on the ghost; the real box was 10 m, so the part filled a corner of the tile. Fixed in
    4.2 step 1 (frame from the part's model renderers only); P2 logs which renderers it dropped.

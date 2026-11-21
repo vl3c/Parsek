@@ -266,7 +266,8 @@ namespace Parsek
         /// Load-time repair for trees written before a split moved its parent links. For every
         /// branch-point parent entry and every child <see cref="Recording.ParentRecordingId"/>,
         /// walks the named recording forward through its chain successors (same
-        /// <c>ChainId</c> and <c>ChainBranch</c>, the single segment at <c>ChainIndex + 1</c>,
+        /// <c>ChainId</c> and <c>ChainBranch</c>, the single segment at the next chain index
+        /// (<see cref="RecordingChainQueries.NextChainIndexAfter(Recording, Dictionary{string, Recording})"/>),
         /// with a usable start) while the event belongs to the successor by
         /// <see cref="BelongsToTail"/>, and repoints the link to the segment it stops on. Never
         /// moves a link backwards, never onto a segment the branch point itself created, and
@@ -410,11 +411,12 @@ namespace Parsek
         private static Recording UniqueChainSuccessor(RecordingTree tree, Recording cur)
         {
             Recording found = null;
+            int nextIdx = RecordingChainQueries.NextChainIndexAfter(cur, tree.Recordings);
             foreach (Recording candidate in tree.Recordings.Values)
             {
                 if (candidate == null || ReferenceEquals(candidate, cur)) continue;
                 if (!SameChain(candidate, cur)) continue;
-                if (candidate.ChainIndex != cur.ChainIndex + 1) continue;
+                if (candidate.ChainIndex != nextIdx) continue;
                 if (found != null) return null;
                 found = candidate;
             }

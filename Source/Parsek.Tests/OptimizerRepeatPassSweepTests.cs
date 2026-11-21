@@ -12,7 +12,7 @@ namespace Parsek.Tests
     /// headlessly - its committed RECORDING_TREE nodes through the production tree codec, each
     /// recording's trajectory through the production sidecar codec - and the optimization pass
     /// runs over it twice, under the rules the save carries (version 1) and with every
-    /// recording forced to version 2. The second pass must change nothing: no recording added
+    /// recording forced to version 2 and to version 3. The second pass must change nothing: no recording added
     /// or removed, no range, phase, role or chain slot moved. A pass that is not idempotent
     /// re-cuts (or re-glues) the player's rows on every load.
     /// </summary>
@@ -34,7 +34,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
         }
 
-        private static void Reset()
+        internal static void Reset()
         {
             MilestoneStore.ResetForTesting();
             Ledger.ResetForTesting();
@@ -45,13 +45,13 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
         }
 
-        private static string RepoRoot()
+        internal static string RepoRoot()
         {
             return Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
         }
 
-        private static IEnumerable<string> FixtureSaveDirs()
+        internal static IEnumerable<string> FixtureSaveDirs()
         {
             var roots = new[]
             {
@@ -69,7 +69,7 @@ namespace Parsek.Tests
 
         /// <summary>Loads the committed trees of one fixture save into the store; returns how many
         /// recordings carry track sections.</summary>
-        private static int LoadFixture(string saveDir)
+        internal static int LoadFixture(string saveDir)
         {
             ConfigNode root = ConfigNode.Load(Path.Combine(saveDir, "persistent.sfs"));
             ConfigNode game = root?.GetNode("GAME") ?? root;
@@ -136,7 +136,7 @@ namespace Parsek.Tests
                     (r.TrackSections?.Count ?? 0).ToString(), (r.Points?.Count ?? 0).ToString())));
         }
 
-        private static List<string> SweepAll(bool forceCurrentRules, out int fixtures, out int recordings)
+        private static List<string> SweepAll(int forcedVersion, out int fixtures, out int recordings)
         {
             var unstable = new List<string>();
             fixtures = 0;
@@ -148,9 +148,9 @@ namespace Parsek.Tests
                 if (withSections == 0) continue;
                 fixtures++;
                 recordings += RecordingStore.CommittedRecordings.Count;
-                if (forceCurrentRules)
+                if (forcedVersion > 0)
                     RecordingOptimizer.ForceSplitRuleVersionForTesting(
-                        RecordingStore.CommittedRecordings.ToList(), RecordingOptimizer.SplitRuleVersionCurrent);
+                        RecordingStore.CommittedRecordings.ToList(), forcedVersion);
 
                 CommittedListOptimizer.RunOptimizationPass();
                 string afterFirst = Snapshot();
@@ -165,7 +165,7 @@ namespace Parsek.Tests
         [Fact]
         public void EveryFixtureSave_SecondPassChangesNothing_VersionOne()
         {
-            var unstable = SweepAll(forceCurrentRules: false, out int fixtures, out int recordings);
+            var unstable = SweepAll(0, out int fixtures, out int recordings);
             Assert.True(fixtures >= 50, $"the sweep must cover the fixture inventory (covered {fixtures})");
             Assert.True(unstable.Count == 0,
                 $"second pass changed {unstable.Count} of {fixtures} fixture save(s) " +
@@ -175,7 +175,17 @@ namespace Parsek.Tests
         [Fact]
         public void EveryFixtureSave_SecondPassChangesNothing_VersionTwo()
         {
-            var unstable = SweepAll(forceCurrentRules: true, out int fixtures, out int recordings);
+            var unstable = SweepAll(RecordingOptimizer.SplitRuleVersionPassRules, out int fixtures, out int recordings);
+            Assert.True(fixtures >= 50, $"the sweep must cover the fixture inventory (covered {fixtures})");
+            Assert.True(unstable.Count == 0,
+                $"second pass changed {unstable.Count} of {fixtures} fixture save(s) " +
+                $"({recordings} recordings): {string.Join(", ", unstable)}");
+        }
+
+        [Fact]
+        public void EveryFixtureSave_SecondPassChangesNothing_VersionThree()
+        {
+            var unstable = SweepAll(RecordingOptimizer.SplitRuleVersionBurnCuts, out int fixtures, out int recordings);
             Assert.True(fixtures >= 50, $"the sweep must cover the fixture inventory (covered {fixtures})");
             Assert.True(unstable.Count == 0,
                 $"second pass changed {unstable.Count} of {fixtures} fixture save(s) " +

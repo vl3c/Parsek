@@ -1604,17 +1604,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Finds the chain predecessor (ChainIndex = current.ChainIndex - 1)
+        /// Finds the chain predecessor (the previous chain index, RecordingChainQueries.PreviousChainIndexBefore)
         /// for <paramref name="current"/> on the same TreeId+ChainId+ChainBranch.
         /// Returns null if no predecessor exists (current is the head of its chain).
         /// </summary>
         private static Recording TryFindChainPredecessor(Recording current)
         {
             if (current == null || string.IsNullOrEmpty(current.ChainId)) return null;
-            int expectedIndex = current.ChainIndex - 1;
-            if (expectedIndex < 0) return null;
             var source = RecordingStore.CommittedRecordings;
             if (source == null) return null;
+            int expectedIndex = RecordingChainQueries.PreviousChainIndexBefore(current, source);
+            if (expectedIndex < 0) return null;
             for (int i = 0; i < source.Count; i++)
             {
                 var rec = source[i];

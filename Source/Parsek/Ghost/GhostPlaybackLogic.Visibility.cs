@@ -325,7 +325,8 @@ namespace Parsek
         ///     panel that deployed mid-cycle is folded again before the new
         ///     cycle's events re-deploy it on schedule.
         ///  3. Jettison panels: reactivate jettisoned panels (SetActive true)
-        ///     so the new cycle's jettison events can re-fire.
+        ///     so the new cycle's jettison events can re-fire, then re-hide the ones
+        ///     the part spawned with hidden (<c>JettisonGhostInfo.spawnHiddenTransforms</c>).
         ///  3e. Robotic servos: put every servo transform back to its spawn
         ///     pose. <see cref="ResetForLoopCycle"/> zeroes the robotic
         ///     bookkeeping but cannot touch <c>servoTransform</c>, so the mesh
@@ -392,15 +393,27 @@ namespace Parsek
                     ApplyWheelDamageState(state, kvp.Key, damaged: false);
             }
 
-            // 3. Jettison panels: re-attach every panel. Jettison events
-            //    during the new cycle hide them again on their original UT.
+            // 3. Jettison panels: re-attach every panel, then hide again the ones the part
+            //    started with hidden (a jettisoned snapshot, or stock's flight-start rule: an
+            //    empty bottom node, a hide override), so the cycle restarts from the spawn look.
+            //    Jettison events during the new cycle hide the rest on their original UT.
             if (state.jettisonInfos != null)
             {
+                int spawnHiddenRestored = 0;
                 foreach (var kvp in state.jettisonInfos)
                 {
                     var attachedEvt = new PartEvent { partPersistentId = kvp.Key };
                     ApplyJettisonPanelState(state, attachedEvt, jettisoned: false);
+                    // Guarded here so the Unity applier is only compiled and called for a part
+                    // that has something to hide (the loop reset also runs headless in xUnit).
+                    if (kvp.Value != null && kvp.Value.spawnHiddenTransforms != null
+                        && kvp.Value.spawnHiddenTransforms.Count > 0)
+                        spawnHiddenRestored += ApplyJettisonSpawnBaseline(kvp.Value);
                 }
+                if (spawnHiddenRestored > 0)
+                    ParsekLog.VerboseRateLimited("GhostVisual", "loop-jettison-spawn-hidden",
+                        $"Loop cycle: re-hid {spawnHiddenRestored} jettison transform(s) the parts " +
+                        $"started with hidden (vessel='{state.vesselName ?? "unknown"}')", 1.0);
             }
 
             // 3b. Parachutes: re-stow canopies to the spawn-time pose captured by
@@ -428,6 +441,7 @@ namespace Parsek
                         info.canopyTransform.localScale = info.stowedCanopyScale;
                         info.canopyTransform.localPosition = info.stowedCanopyPos;
                         info.canopyTransform.localRotation = info.stowedCanopyRot;
+                        ApplyCanopyBonePoses(info, CanopyPoseStage.Stowed);
                     }
                     if (info.capTransform != null)
                         info.capTransform.gameObject.SetActive(true);

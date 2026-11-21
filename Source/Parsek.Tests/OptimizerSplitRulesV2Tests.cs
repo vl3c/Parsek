@@ -48,7 +48,7 @@ namespace Parsek.Tests
 
         private static Recording V2(Recording rec)
         {
-            rec.SplitRuleVersion = RecordingOptimizer.SplitRuleVersionCurrent;
+            rec.SplitRuleVersion = RecordingOptimizer.SplitRuleVersionPassRules;
             return rec;
         }
 
@@ -409,10 +409,11 @@ namespace Parsek.Tests
             var old = new Recording { RecordingId = "old", SplitRuleVersion = 1 };
             RecordingStore.AppendCommittedUnbumped(fresh);
             RecordingStore.AppendCommittedUnbumped(old);
-            Assert.Equal(2, fresh.SplitRuleVersion);
+            Assert.Equal(RecordingOptimizer.SplitRuleVersionCurrent, fresh.SplitRuleVersion);
+            Assert.Equal(3, RecordingOptimizer.SplitRuleVersionCurrent);
             Assert.Equal(1, old.SplitRuleVersion);
             Assert.Contains(logLines, l => l.Contains("[Optimizer]")
-                && l.Contains("stamped version 2 on rec=fresh at tree commit"));
+                && l.Contains("stamped version 3 on rec=fresh at tree commit"));
         }
 
         [Fact]
@@ -425,7 +426,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(resumed);
 
             Assert.Equal(1, RecordingOptimizer.StampSplitRulesForSave(tree, "active tree save"));
-            Assert.Equal(2, fresh.SplitRuleVersion);
+            Assert.Equal(RecordingOptimizer.SplitRuleVersionCurrent, fresh.SplitRuleVersion);
             Assert.Equal(1, resumed.SplitRuleVersion);
             Assert.Contains(logLines, l => l.Contains("on 1 recording(s) of tree live at active tree save"));
         }
@@ -435,26 +436,26 @@ namespace Parsek.Tests
         {
             var provisional = new Recording { RecordingId = "prov", MergeState = MergeState.NotCommitted };
             RecordingStore.AddProvisional(provisional);
-            Assert.Equal(2, provisional.SplitRuleVersion);
+            Assert.Equal(RecordingOptimizer.SplitRuleVersionCurrent, provisional.SplitRuleVersion);
         }
 
         [Fact]
         public void Codec_VersionAndRole_RoundTrip_AbsentKeyIsVersionOne()
         {
-            foreach (int version in new[] { 0, 1, 2 })
+            foreach (int version in new[] { 0, 1, 2, 3 })
             {
                 var rec = new Recording
                 {
                     RecordingId = "codec" + version,
                     SplitRuleVersion = version,
-                    SegmentRole = version == 2 ? "reentry" : null,
+                    SegmentRole = version >= 2 ? (version == 3 ? "circularization" : "reentry") : null,
                 };
                 var node = new ConfigNode("RECORDING");
                 RecordingTreeRecordCodec.SaveRecordingResourceAndState(node, rec);
-                Assert.Equal(version == 2, node.HasValue("splitRuleVersion"));
+                Assert.Equal(version >= 2, node.HasValue("splitRuleVersion"));
                 var back = new Recording();
                 RecordingTreeRecordCodec.LoadRecordingResourceAndState(node, back);
-                Assert.Equal(version == 2 ? 2 : 1, back.SplitRuleVersion);
+                Assert.Equal(version >= 2 ? version : 1, back.SplitRuleVersion);
                 Assert.Equal(rec.SegmentRole, back.SegmentRole);
             }
             var legacy = new Recording();
@@ -543,6 +544,148 @@ namespace Parsek.Tests
                 Assert.True(r0 < RecordingOptimizer.SplitBoundaryReason.FinalDescentEntry,
                     $"boundary {s} used a version-2 reason {r0}");
             }
+        }
+
+        // ------------------------------------------------------------ forward gate (BATCH-B3)
+
+        private static Recording Newer(Recording rec)
+        {
+            rec.SplitRuleVersion = RecordingOptimizer.SplitRuleVersionCurrent + 1;
+            return rec;
+        }
+
+        // A recording a newer build cut under rules this build does not know is held verbatim:
+        // the pass neither splits it (the version-2 predicate would cut this shape twice) nor
+        // trims it, and the codec writes its version back.
+        // MUTATION NOTE: dropping the newer-version skip in FindSplitCandidatesForOptimizer reds this.
+        [Fact]
+        public void NewerSplitRuleVersion_IsNeverSplit_AndRoundTrips()
+        {
+            var rec = Newer(Make("newer", 0, Exo(2000), Atmo(300), Ground(100)));
+            CommitAlone(rec);
+            CommittedListOptimizer.RunOptimizationPass();
+            var rows = ChainOf(rec.TreeId);
+            Assert.Single(rows);
+            Assert.Equal(0.0, rows[0].StartUT);
+            Assert.Equal(2400.0, rows[0].EndUT);
+            Assert.Equal(RecordingOptimizer.SplitRuleVersionCurrent + 1, rows[0].SplitRuleVersion);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("held 1 recording(s) whole: split rules newer than this build"));
+            Assert.Equal("newer-split-rules",
+                CommittedListOptimizer.DescribeTrimHold(rec, null, null, null));
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTreeRecordCodec.SaveRecordingResourceAndState(node, rec);
+            var back = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingResourceAndState(node, back);
+            Assert.Equal(RecordingOptimizer.SplitRuleVersionCurrent + 1, back.SplitRuleVersion);
+        }
+
+        // The merge side: two rows of one chain cut under a newer version, with nothing else
+        // keeping them apart, are never joined, and a covered newer piece is never folded.
+        [Fact]
+        public void NewerSplitRuleVersion_IsNeverMergedOrFolded()
+        {
+            var c = Newer(Make("n-c", 0, Exo(100)));
+            var d = Newer(Make("n-d", 100, Exo(100)));
+            c.ChainId = d.ChainId = "chain-n";
+            c.ChainIndex = 0;
+            d.ChainIndex = 1;
+            c.SegmentPhase = d.SegmentPhase = "exo";
+            c.SegmentBodyName = d.SegmentBodyName = "Kerbin";
+            c.SegmentRole = d.SegmentRole = "space";
+            Assert.False(RecordingOptimizer.CanAutoMerge(c, d));
+            Assert.Contains(logLines, l => l.Contains("CanAutoMerge: rejecting merge of 'n-c' + 'n-d'")
+                && l.Contains("newer than this build"));
+            Assert.NotNull(CommittedListOptimizer.SplitPieceFoldRefusal(d, c));
+
+            // Mirror: the same pair at the current version still merges.
+            c.SplitRuleVersion = d.SplitRuleVersion = RecordingOptimizer.SplitRuleVersionCurrent;
+            Assert.True(RecordingOptimizer.CanAutoMerge(c, d));
+            Assert.Null(CommittedListOptimizer.DescribeTrimHold(c, null, null, null));
+        }
+
+        // ------------------------------------------------------------ row roles (BATCH-B6)
+
+        // (a) A resumed reentry row that climbs back to orbit is no longer cut (its own pass
+        // entry and a braking exit are never cut), so the role stamped at the old cut stayed
+        // "reentry". The pass re-reads a pass role from the row's content.
+        // MUTATION NOTE: removing the ReReadRowRoles call from RunOptimizationPass reds this.
+        [Fact]
+        public void ResumedReentryRow_ClimbsBackToOrbit_RoleReReadAsAerobraking()
+        {
+            var rec = V2(Make("climb", 0, Atmo(100), Exo(3000)));
+            rec.SegmentRole = "reentry";
+            var rows = Optimize(rec);
+            Assert.Single(rows);
+            Assert.Equal("aerobraking", rows[0].role);
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("Row role re-read: 'climb' reentry -> aerobraking"));
+        }
+
+        // (b) An unsplit version-2 row gets the role of how it starts, so the labels of one
+        // mission's rows never mix a phase ("exo") with roles ("space").
+        [Fact]
+        public void UnsplitVersionTwoRow_GetsItsStartRole_VersionOneRowStaysUnset()
+        {
+            var rows = Optimize(V2(Make("whole", 0, Exo(500))));
+            Assert.Single(rows);
+            Assert.Equal("space", rows[0].role);
+
+            RecordingStore.ResetForTesting();
+            var v1 = Optimize(V1(Make("whole-v1", 0, Exo(500))));
+            Assert.Null(v1[0].role);
+        }
+
+        // (c) Loopability still reads the phase, not the role: a re-read role leaves it alone.
+        [Fact]
+        public void RoleReRead_DoesNotChangeLoopability()
+        {
+            var rec = V2(Make("loopable", 0, Atmo(100), Exo(3000)));
+            rec.SegmentRole = "reentry";
+            rec.SegmentPhase = "exo";
+            bool before = Recording.IsLoopableRecording(rec);
+            Optimize(rec);
+            Assert.Equal("aerobraking", rec.SegmentRole);
+            Assert.Equal(before, Recording.IsLoopableRecording(rec));
+        }
+
+        // ------------------------------------------------------------ fixed point (BATCH-B7)
+
+        // A split can leave a new piece next to one it may join (the cut's air half beside the
+        // chain's next air piece): the merge phase ran before the split phase, so that join waited
+        // for the next pass, a later load, and the ids changed after it. The pass now repeats
+        // merge + split until nothing changes: running it twice equals running it once.
+        // MUTATION NOTE: running the merge and split phases once in RunOptimizationPass reds this.
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void SplitThenJoinableNeighbour_SettlesInOnePass(int version)
+        {
+            var head = Make("fp-x", 0, Exo(2000), Atmo(300));
+            var next = Make("fp-y", 2300, Atmo(200));
+            head.SplitRuleVersion = next.SplitRuleVersion = version;
+            head.TreeId = next.TreeId = "tree-fp";
+            head.ChainId = next.ChainId = "chain-fp";
+            head.ChainIndex = 0;
+            next.ChainIndex = 1;
+            head.SegmentPhase = "exo";
+            next.SegmentPhase = "atmo";
+            head.SegmentBodyName = next.SegmentBodyName = "Kerbin";
+            var tree = new RecordingTree { Id = "tree-fp", TreeName = "fp", RootRecordingId = head.RecordingId };
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(next);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(head);
+            RecordingStore.AddRecordingWithTreeForTesting(next);
+
+            CommittedListOptimizer.RunOptimizationPass();
+            string once = Snapshot("tree-fp");
+            CommittedListOptimizer.RunOptimizationPass();
+            Assert.Equal(once, Snapshot("tree-fp"));
+            // Version 1 joins the air half to the next air piece in the same pass; version 2
+            // keeps the reentry row apart from the uncut air piece (different roles).
+            Assert.Equal(version == 1 ? 2 : 3, ChainOf("tree-fp").Count);
         }
     }
 }
