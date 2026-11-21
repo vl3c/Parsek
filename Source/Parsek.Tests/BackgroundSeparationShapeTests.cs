@@ -349,7 +349,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ControlledPieceSeparatingAgain_EmitsItsWindowFirst_DebrisPieceDoesNot()
+        public void ControlledPieceSeparatingAgain_EmitsItsWindowFirst()
         {
             var tree = MakeTree(out Recording parent);
             var bg = MakeRecorder(tree);
@@ -358,20 +358,16 @@ namespace Parsek.Tests
             bg.FeedBackgroundSeparationWindowCore(
                 ParentPid, ParentRecId, 150.0, "DECOUPLE", 7302u, false, Snapshot("Stage", 7302u), Seed(150.02));
 
-            // A debris piece is not looked up (plain debris records only its own separation).
-            Assert.False(bg.EmitSeparationWindowHoldingControlledChild(7302u, "child-separated-again"));
-            Assert.Equal(1, OpenWindowCount(bg));
-
-            Assert.True(bg.EmitSeparationWindowHoldingControlledChild(7301u, "child-separated-again"));
+            Assert.True(bg.EmitSeparationWindowHoldingChild(7301u, "child-separated-again"));
             Assert.Equal(0, OpenWindowCount(bg));
             Assert.Single(tree.BranchPoints);
             Assert.Equal(tree.BranchPoints[0].Id, parent.ChildBranchPointId);
             Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
-                && l.Contains("Controlled piece separates again inside its window: childPid=7301 parentPid=7100"));
+                && l.Contains("Held piece acts before its window closed: childPid=7301 parentPid=7100 controlled=true"));
             Assert.Contains(logLines, l => l.Contains("Separation window emitted early (child-separated-again)"));
 
             // Nothing open any more: an unknown piece finds no window.
-            Assert.False(bg.EmitSeparationWindowHoldingControlledChild(7301u, "child-separated-again"));
+            Assert.False(bg.EmitSeparationWindowHoldingChild(7301u, "child-separated-again"));
         }
 
         [Fact]
@@ -380,9 +376,22 @@ namespace Parsek.Tests
             string body = MethodBody(
                 ReadSource(Path.Combine("Recording", "BackgroundRecorder.GameEventHandlers.cs")),
                 "internal void OnBackgroundPartJointBreak(");
-            int emit = body.IndexOf("EmitSeparationWindowHoldingControlledChild(vesselPid,", StringComparison.Ordinal);
+            int emit = body.IndexOf("EmitSeparationWindowHoldingChild(vesselPid,", StringComparison.Ordinal);
             int membership = body.IndexOf("if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;", StringComparison.Ordinal);
             Assert.True(emit > 0 && membership > emit, $"emit={emit} membership={membership}");
+        }
+
+        [Fact]
+        public void DebrisPieceActingBeforeItsWindowCloses_EmitsTheWindowToo()
+        {
+            var tree = MakeTree(out _);
+            var bg = MakeRecorder(tree);
+            bg.FeedBackgroundSeparationWindowCore(
+                ParentPid, ParentRecId, 150.0, "DECOUPLE", 7302u, false, Snapshot("Stage", 7302u), Seed(150.02));
+
+            Assert.True(bg.EmitSeparationWindowHoldingChild(7302u, "switch-to-held-piece"));
+            Assert.Single(tree.BranchPoints);
+            Assert.Contains(logLines, l => l.Contains("controlled=false"));
         }
 
         // B1: the parent's end equals the branch UT right after the split (the joint break's
@@ -457,6 +466,74 @@ namespace Parsek.Tests
                 "bp", "parent", new[] { "child" }, 150.0, parentContinues: true).ParentContinues);
             Assert.False(ScenarioWriter.SeparationBranch(
                 "bp", "parent", new[] { "child" }, 150.0).ParentContinues);
+        }
+
+        // B2: two background parents split in one physics step and both scans see the same new
+        // vessel. The first window to hold it keeps it; the vessel gets one recording.
+        [Fact]
+        public void SameNewVesselFedForTwoParents_IsRecordedOnce()
+        {
+            var tree = MakeTree(out Recording parent);
+            var other = new Recording
+            {
+                RecordingId = "rec_bg_other",
+                TreeId = tree.Id,
+                VesselName = "Other Stack",
+                VesselPersistentId = 7400u,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 150.0
+            };
+            tree.Recordings[other.RecordingId] = other;
+            tree.BackgroundMap[7400u] = other.RecordingId;
+            var bg = MakeRecorder(tree);
+
+            bg.FeedBackgroundSeparationWindowCore(
+                ParentPid, ParentRecId, 150.0, "DECOUPLE", 7201u, false, Snapshot("A", 7201u), Seed(150.02));
+            Assert.False(bg.FeedBackgroundSeparationWindowCore(
+                7400u, other.RecordingId, 150.0, "DECOUPLE", 7201u, false, Snapshot("A", 7201u), Seed(150.02)));
+            bg.FlushBackgroundSeparationWindows("test");
+
+            int recordingsOfTheVessel = 0;
+            foreach (var rec in tree.Recordings.Values)
+                if (rec.VesselPersistentId == 7201u) recordingsOfTheVessel++;
+            Assert.Equal(1, recordingsOfTheVessel);
+            BranchPoint bp = Assert.Single(tree.BranchPoints);
+            Assert.Equal(new List<string> { ParentRecId }, bp.ParentRecordingIds);
+            Assert.Null(other.ChildBranchPointId);
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("already held by a separation window") && l.Contains("childPid=7201")
+                && l.Contains("holderParentPid=7100") && l.Contains("parentPid=7400"));
+        }
+
+        [Fact]
+        public void NewVesselScan_SkipsAPieceAnOpenWindowHolds()
+        {
+            string body = MethodBody(
+                ReadSource(Path.Combine("Recording", "BackgroundRecorder.SplitDetection.cs")),
+                "private List<(uint pid, string name, bool hasController)> CollectNewBackgroundSplitVessels(");
+            Assert.Contains("TryFindSeparationWindowHolding(v.persistentId,", body);
+        }
+
+        [Theory]
+        [InlineData("BackgroundRecorder.GameEventHandlers.cs", "internal void OnBackgroundPartUndock(Part undockedPart)")]
+        [InlineData("BackgroundRecorder.GameEventHandlers.cs", "internal void OnBackgroundPartDeCouple(Part decoupledPart)")]
+        public void UndockAndDecoupleNotes_EmitTheHoldingWindowBeforeTheMembershipCheck(string file, string signature)
+        {
+            string body = MethodBody(ReadSource(Path.Combine("Recording", file)), signature);
+            int emit = body.IndexOf("EmitSeparationWindowHoldingChild(vesselPid,", StringComparison.Ordinal);
+            int membership = body.IndexOf("if (!tree.BackgroundMap.ContainsKey(vesselPid)) return;", StringComparison.Ordinal);
+            Assert.True(emit > 0 && membership > emit, $"emit={emit} membership={membership}");
+        }
+
+        [Fact]
+        public void SwitchToAHeldPiece_EmitsItsWindowBeforeTheSwitchDecisions()
+        {
+            string body = MethodBody(
+                ReadSource(Path.Combine("Controllers", "ParsekFlight.SwitchContinuation.cs")),
+                "internal void OnVesselSwitchComplete(Vessel newVessel)");
+            int emit = body.IndexOf("backgroundRecorder?.EmitSeparationWindowHoldingChild(newVessel.persistentId,", StringComparison.Ordinal);
+            int firstDecision = body.IndexOf("if (pendingTreeDockMerge)", StringComparison.Ordinal);
+            Assert.True(emit > 0 && firstDecision > emit, $"emit={emit} firstDecision={firstDecision}");
         }
 
         [Fact]

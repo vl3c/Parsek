@@ -79,6 +79,21 @@ namespace Parsek
             TrajectoryPoint? seedPoint)
         {
             string cause = splitCause ?? SegmentBoundaryLogic.BrokeOffSplitCause;
+
+            // Two background parents splitting in one physics step both see the other's new
+            // vessel in their scans (a piece stays out of the BackgroundMap until its window
+            // closes). The first window to hold a piece keeps it: one recording per vessel.
+            uint holderPid;
+            bool holderControlled;
+            if (TryFindSeparationWindowHolding(childPid, out holderPid, out holderControlled))
+            {
+                ParsekLog.Info("BgRecorder",
+                    $"Background separation: piece already held by a separation window, not fed again: " +
+                    $"childPid={childPid} holderParentPid={holderPid} parentPid={parentPid} " +
+                    $"parentRec={parentRecordingId}");
+                return false;
+            }
+
             CrashCoalescer window;
             string windowRecordingId;
             if (separationWindows.TryGetValue(parentPid, out window)
@@ -170,34 +185,56 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Emits the open window that holds <paramref name="childPid"/> as a controlled piece:
-        /// the piece is separating again before the window closed, and it can record that
-        /// separation only once it is a background member with its own recording. Debris
-        /// pieces are not looked up: plain debris records only the separation that made it
-        /// (<see cref="ShouldSkipForCascadeCap"/>). False when no window holds the piece.
+        /// The open window that holds <paramref name="childPid"/> (controlled or debris), if
+        /// any. A held piece is not yet a background member.
         /// </summary>
-        internal bool EmitSeparationWindowHoldingControlledChild(uint childPid, string reason)
+        private bool TryFindSeparationWindowHolding(uint childPid, out uint holderPid, out bool controlled)
+        {
+            holderPid = 0u;
+            controlled = false;
+            foreach (var kvp in separationWindows)
+            {
+                if (ListHolds(kvp.Value.ControlledChildPids, childPid))
+                {
+                    holderPid = kvp.Key;
+                    controlled = true;
+                    return true;
+                }
+                if (ListHolds(kvp.Value.DebrisPids, childPid))
+                {
+                    holderPid = kvp.Key;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool ListHolds(IReadOnlyList<uint> pids, uint pid)
+        {
+            for (int i = 0; i < pids.Count; i++)
+                if (pids[i] == pid) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Emits the open window that holds <paramref name="childPid"/> before the piece acts
+        /// on its own (it separates again, undocks, or the player switches to it): it can be
+        /// recorded doing so only once it is a background member with its own recording.
+        /// False when no window holds the piece.
+        /// </summary>
+        internal bool EmitSeparationWindowHoldingChild(uint childPid, string reason)
         {
             if (separationWindows.Count == 0) return false;
 
-            uint holderPid = 0u;
-            bool found = false;
-            foreach (var kvp in separationWindows)
-            {
-                IReadOnlyList<uint> controlled = kvp.Value.ControlledChildPids;
-                for (int i = 0; i < controlled.Count && !found; i++)
-                {
-                    if (controlled[i] != childPid) continue;
-                    holderPid = kvp.Key;
-                    found = true;
-                }
-                if (found) break;
-            }
-            if (!found) return false;
+            uint holderPid;
+            bool controlled;
+            if (!TryFindSeparationWindowHolding(childPid, out holderPid, out controlled))
+                return false;
 
             ParsekLog.Info("BgRecorder",
-                $"Controlled piece separates again inside its window: childPid={childPid} " +
-                $"parentPid={holderPid} - emitting the window first");
+                $"Held piece acts before its window closed: childPid={childPid} " +
+                $"parentPid={holderPid} controlled={(controlled ? "true" : "false")} " +
+                $"reason={reason} - emitting the window first");
             return EmitBackgroundSeparationWindowNow(holderPid, reason);
         }
 

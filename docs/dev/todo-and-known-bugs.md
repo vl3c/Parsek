@@ -47,11 +47,15 @@ emitted early (never drop one) from `FlushPendingSplits` (save, scene exit, reve
 recorder start), `FinalizeAllForCommit`, `Shutdown` (with a Warn), and when the parent stops
 being a background vessel: `OnVesselRemovedFromBackground` (promotion, switch, debris end, member
 reconcile), go-on-rails (before the identity-loss check), `OnBackgroundVesselWillDestroy` and
-`RetireDestroyedBackgroundEntry`. A controlled piece still held by a window that separates again
-emits its window first (`EmitSeparationWindowHoldingControlledChild`) so its own split is
-recorded. `RecordingTree.ChildBranchLeavesVesselLineOpen` / `IsVesselLineEnd`,
-`DebrisParentStateGate` and the Re-Fly HEAD/TIP splitter already handle this shape (the focused
-breakup writes it); comments updated.
+`RetireDestroyedBackgroundEntry`. A piece still held by a window that acts on its own (separates
+again, undocks or is decoupled, or the player switches to it) emits its window first
+(`EmitSeparationWindowHoldingChild`, from `OnBackgroundPartJointBreak`, `OnBackgroundPartUndock`,
+`OnBackgroundPartDeCouple` and `OnVesselSwitchComplete`) so it is a background member with its
+own recording when it does, and an undock of it is still classed UNDOCK. A piece is held by one
+window only: two background parents splitting in one physics step both see each other's new
+vessel (a held piece is not in the BackgroundMap yet), so the new-vessel scan and the window feed
+skip a piece an open window holds (one recording per vessel). `DebrisParentStateGate` and the
+Re-Fly HEAD/TIP splitter already handle this shape (the focused breakup writes it).
 
 The vessel-line rule (`RecordingTree.ChildBranchLeavesVesselLineOpen`) read a recording whose
 `ExplicitEndUT` is at or before the branch UT as closed at the split. A background parent's end
@@ -66,10 +70,11 @@ by both branch-point clones and `ScenarioWriter.SeparationBranch(parentContinues
 
 Tests: `BackgroundSeparationShapeTests` (shape with the parent's end at the branch UT, the map
 rebuild and the `parentContinues` round trip, the unstamped closed-at-split reading, the focused
-stamp, coalescing and BROKE_OFF combine, dead controlled piece, flush / Shutdown / retire
-emission, recording change, missing parent, the separate-again emit, and source gates on every
-emission site; the stamp cells were red before the fix, the gate cells and the retire cell were
-mutation checked red). The `BackgroundSplitTests` continuation / bug #285 simulation cells now pass the
+stamp, coalescing and BROKE_OFF combine, dead controlled piece, one recording for a piece two
+parents saw, flush / Shutdown / retire emission, recording change, missing parent, the held-piece
+emit, and source gates on every emission site; the stamp, the one-holder and the held-piece cells
+were red before their fixes, the earlier gate cells and the retire cell were mutation checked).
+The `BackgroundSplitTests` continuation / bug #285 simulation cells now pass the
 `UNDOCK` cause: they pinned the decouple continuation shape the ruling replaces, and the undock
 path is the one that still builds it.
 

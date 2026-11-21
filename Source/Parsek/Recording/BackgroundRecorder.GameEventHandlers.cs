@@ -112,6 +112,10 @@ namespace Parsek
         {
             if (tree == null || undockedPart?.vessel == null) return;
             uint vesselPid = undockedPart.vessel.persistentId;
+            // A piece still held by a separation window joins the background first, so its
+            // undock is noted and classed UNDOCK.
+            if (!tree.BackgroundMap.ContainsKey(vesselPid))
+                EmitSeparationWindowHoldingChild(vesselPid, "held-piece-undock");
             if (!tree.BackgroundMap.ContainsKey(vesselPid)) return;
             NoteBackgroundUndock(undockedPart.persistentId, Planetarium.GetUniversalTime());
             ParsekLog.Verbose("BgRecorder",
@@ -130,6 +134,8 @@ namespace Parsek
         {
             if (tree == null || decoupledPart?.vessel == null) return;
             uint vesselPid = decoupledPart.vessel.persistentId;
+            if (!tree.BackgroundMap.ContainsKey(vesselPid))
+                EmitSeparationWindowHoldingChild(vesselPid, "held-piece-decouple");
             if (!tree.BackgroundMap.ContainsKey(vesselPid)) return;
             double ut = Planetarium.GetUniversalTime();
             if (!DockingPortSeparation.TryConsumePreAttachedUndock(
@@ -193,10 +199,10 @@ namespace Parsek
 
             uint vesselPid = joint.Child.vessel.persistentId;
 
-            // A controlled piece still held by an open separation window is not a background
-            // member yet: emit that window now so the piece's own separation is recorded.
+            // A piece still held by an open separation window is not a background member
+            // yet: emit that window now so the piece's own separation is recorded.
             if (!tree.BackgroundMap.ContainsKey(vesselPid))
-                EmitSeparationWindowHoldingControlledChild(vesselPid, "child-separated-again");
+                EmitSeparationWindowHoldingChild(vesselPid, "child-separated-again");
 
             // Only handle background vessels
             string recordingId;

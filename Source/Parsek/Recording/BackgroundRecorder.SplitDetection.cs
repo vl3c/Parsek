@@ -393,6 +393,18 @@ namespace Parsek
                     if (tree.BackgroundMap.ContainsKey(v.persistentId))
                         continue;
 
+                    // Skip a piece another parent's open separation window already holds
+                    // (two background parents split in one physics step).
+                    uint holderPid;
+                    bool holderControlled;
+                    if (TryFindSeparationWindowHolding(v.persistentId, out holderPid, out holderControlled))
+                    {
+                        ParsekLog.Verbose("BgRecorder",
+                            $"Background split scan: pid={v.persistentId} already held by the separation " +
+                            $"window of parentPid={holderPid}, skipping for parentPid={parentPid}");
+                        continue;
+                    }
+
                     if (!ParsekFlight.ShouldIncludeVesselInDeferredBreakupScan(v, out string rejectReason))
                     {
                         ParsekLog.Verbose("BgRecorder",

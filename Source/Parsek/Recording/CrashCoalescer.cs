@@ -295,6 +295,12 @@ namespace Parsek
         public IReadOnlyList<uint> ControlledChildPids => controlledChildPids;
 
         /// <summary>
+        /// The debris PIDs accumulated during the current window. Only valid while
+        /// HasPendingBreakup is true.
+        /// </summary>
+        public IReadOnlyList<uint> DebrisPids => debrisPids;
+
+        /// <summary>
         /// Returns the controlled child PIDs from the last emitted BREAKUP.
         /// Valid immediately after Tick() returns a non-null BranchPoint.
         /// Overwritten on the next Tick() emission. Not cleared by Reset()
