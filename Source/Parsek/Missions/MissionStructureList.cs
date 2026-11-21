@@ -482,7 +482,7 @@ namespace Parsek
                     }
                 }
                 if (Tree.Recordings == null) return;
-                // Chain segments: segment k continues segment k-1 of the same chain.
+                // Chain segments: a segment continues the previous segment of its chain.
                 var byChain = new Dictionary<string, Dictionary<int, string>>(StringComparer.Ordinal);
                 foreach (Recording r in Tree.Recordings.Values)
                 {
@@ -498,7 +498,7 @@ namespace Parsek
                 {
                     if (r == null || string.IsNullOrEmpty(r.ChainId) || r.ChainIndex <= 0) continue;
                     if (byChain.TryGetValue(r.ChainId, out Dictionary<int, string> seg)
-                        && seg.TryGetValue(r.ChainIndex - 1, out string prev))
+                        && seg.TryGetValue(RecordingChainQueries.PreviousChainIndexBefore(r, Tree.Recordings), out string prev))
                         AddPredecessors(r.RecordingId, new List<string> { prev });
                 }
             }

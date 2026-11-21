@@ -594,6 +594,32 @@ namespace Parsek.Tests
             Assert.True(host.Called("Log:CommitTreeFlight: committed tree \"Decision Tree\""));
         }
 
+        // BATCH-B2: a committed vessel flown again commits through the RULE 3 union, which
+        // folds the live copy into the committed tree object; the leaf spawn (and the ledger
+        // notify) must read that committed tree, not the dropped live copy.
+        // MUTATION NOTE: passing host.activeTree back to SpawnTreeLeaves reds this.
+        [Fact]
+        public void CommitTreeFlight_FlownAgainUnion_SpawnsLeavesFromTheCommittedTree()
+        {
+            var committedLeg = Rec("a", TerminalState.Orbiting);
+            var other = Rec("b", TerminalState.Landed);
+            var committedTree = Tree(committedLeg, other);
+            RecordingStore.AddCommittedInternal(committedLeg);
+            RecordingStore.AddCommittedInternal(other);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+
+            var live = Rec("a", TerminalState.Orbiting);
+            live.Points.Add(new TrajectoryPoint { ut = 40, bodyName = "Kerbin" });
+            var liveTree = Tree(live);
+            var (host, flow) = Flow(liveTree);
+
+            flow.CommitTreeFlight();
+
+            Assert.Same(committedTree, RecordingStore.FindCommittedTreeById("tree-d"));
+            Assert.Same(committedTree, host.SpawnedLeavesTree);
+            Assert.True(Logged("RecordingStore", "ResolveCommittedTreeAfterCommit (in-flight-commit)"));
+        }
+
         [Fact]
         public void CommitTreeFlight_NoRecorder_StampsTheActiveVesselPid()
         {

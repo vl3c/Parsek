@@ -665,10 +665,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetChainPredecessorIndex_GapInChainIndex_ReturnsNegativeOne()
+        public void GetChainPredecessorIndex_GapInChainIndex_StepsOverTheHole()
         {
-            // Predecessor must exist at ChainIndex - 1 exactly; a chain with a missing
-            // segment (e.g. ChainIndex 0 then jumping to 2) has no immediate predecessor.
+            // A chain with a missing segment (ChainIndex 0 then 2): the piece before the
+            // ChainIndex 2 segment is ChainIndex 0 (BATCH-B5 mirror,
+            // RecordingChainQueries.PreviousChainIndexBefore), so the seam handoff runs from that
+            // piece's ghost, which IsChainMidSegment already holds as mid-chain.
             var rec0 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
             Assert.NotNull(rec0);
             rec0.ChainId = "gap-test";
@@ -681,7 +683,7 @@ namespace Parsek.Tests
             rec2.ChainIndex = 2;
             TreeCommitService.CommitRecordingDirect(rec2);
 
-            Assert.Equal(-1, RecordingChainQueries.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+            Assert.Equal(0, RecordingChainQueries.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
         }
 
         [Fact]
