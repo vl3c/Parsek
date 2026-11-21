@@ -98,6 +98,7 @@
     ragdollParts=count=0
     rcsActiveFrameCount=count=0
     recordingId=bg-split-parent
+    roboticMotionWindows=count=0
     sectionFrameWarpFlags=count=0
     sectionProximitySilences=count=0
     surfaceMobileClearanceSumThisSection=0
@@ -236,6 +237,7 @@
     ragdollParts=count=0
     rcsActiveFrameCount=count=0
     recordingId=bg-split-parent
+    roboticMotionWindows=count=0
     sectionFrameWarpFlags=count=0
     sectionProximitySilences=count=0
     surfaceMobileClearanceSumThisSection=0
@@ -355,6 +357,7 @@
     ragdollParts=count=0
     rcsActiveFrameCount=count=0
     recordingId=bg-split-parent
+    roboticMotionWindows=count=0
     sectionFrameWarpFlags=count=0
     sectionProximitySilences=count=0
     surfaceMobileClearanceSumThisSection=0
@@ -473,6 +476,7 @@
     ragdollParts=count=0
     rcsActiveFrameCount=count=0
     recordingId=bg-split-parent
+    roboticMotionWindows=count=0
     sectionFrameWarpFlags=count=0
     sectionProximitySilences=count=0
     surfaceMobileClearanceSumThisSection=0
@@ -592,6 +596,7 @@
     ragdollParts=count=0
     rcsActiveFrameCount=count=0
     recordingId=bg-split-parent
+    roboticMotionWindows=count=0
     sectionFrameWarpFlags=count=0
     sectionProximitySilences=count=0
     surfaceMobileClearanceSumThisSection=0
@@ -730,6 +735,7 @@
     ragdollParts=count=0
     rcsActiveFrameCount=count=0
     recordingId=bg-split-parent
+    roboticMotionWindows=count=0
     sectionFrameWarpFlags=count=0
     sectionProximitySilences=count=0
     surfaceMobileClearanceSumThisSection=0
