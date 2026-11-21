@@ -57,12 +57,14 @@ namespace Parsek
         /// <summary>
         /// Sample both semi-deployed (streamer) and fully deployed (dome) canopy states from animations.
         /// KSP parachute animations are sequential:
-        ///   semiDeployedAnimation@time=1 → streamer (textile on wires, no air)
-        ///   fullyDeployedAnimation@time=1 → inflated dome
+        ///   semiDeployedAnimation@time=1 -> streamer (textile on wires, no air)
+        ///   fullyDeployedAnimation@time=1 -> inflated dome
         /// Stowed state is invisible (canopy mesh starts at zero scale in prefabs).
+        /// Besides the canopy transform itself, every bone BELOW it that either clip moves away
+        /// from its rest pose is sampled too: a rigged canopy (ReStock's Mk16-XL) inflates by
+        /// moving child bones, and posing only the root leaves the skinned canopy folded.
         /// </summary>
-        private static (Vector3 sdScale, Vector3 sdPos, Quaternion sdRot, bool semiDeployedSampled,
-            Vector3 dScale, Vector3 dPos, Quaternion dRot) SampleCanopyStates(Part prefab, ModuleParachute chute)
+        private static CanopySample SampleCanopyStates(Part prefab, ModuleParachute chute)
         {
             string key = prefab.partInfo?.name ?? prefab.name;
             if (canopyCache.TryGetValue(key, out var cached))
@@ -74,12 +76,17 @@ namespace Parsek
             string deployedAnimName = !string.IsNullOrEmpty(fullAnim) ? fullAnim
                 : !string.IsNullOrEmpty(semiAnim) ? semiAnim : null;
 
-            Vector3 sdScale = Vector3.zero, sdPos = Vector3.zero;
-            Quaternion sdRot = Quaternion.identity;
-            bool semiDeployedSampled = false;
-
-            Vector3 dScale = Vector3.one, dPos = Vector3.zero;
-            Quaternion dRot = Quaternion.identity;
+            var result = new CanopySample
+            {
+                sdScale = Vector3.zero,
+                sdPos = Vector3.zero,
+                sdRot = Quaternion.identity,
+                semiDeployedSampled = false,
+                dScale = Vector3.one,
+                dPos = Vector3.zero,
+                dRot = Quaternion.identity,
+                bones = null
+            };
             bool deployedSampled = false;
 
             string canopyName = chute.canopyName;
@@ -94,6 +101,26 @@ namespace Parsek
                     Animation anim = tempClone.GetComponentInChildren<Animation>(true);
                     if (anim != null)
                     {
+                        Transform cloneCanopy = !string.IsNullOrEmpty(canopyName)
+                            ? FindTransformRecursive(tempClone.transform, canopyName) : null;
+                        List<Transform> boneTransforms = null;
+                        List<int[]> bonePaths = null;
+                        Vector3[] restPos = null, semiPos = null, deployedPos = null;
+                        Quaternion[] restRot = null, semiRot = null, deployedRot = null;
+                        Vector3[] restScale = null, semiScale = null, deployedScale = null;
+                        bool semiBonesSampled = false, deployedBonesSampled = false;
+                        if (cloneCanopy != null)
+                        {
+                            boneTransforms = new List<Transform>();
+                            bonePaths = new List<int[]>();
+                            CollectCanopyDescendants(cloneCanopy, new List<int>(), boneTransforms, bonePaths);
+                            int n = boneTransforms.Count;
+                            restPos = new Vector3[n]; restRot = new Quaternion[n]; restScale = new Vector3[n];
+                            semiPos = new Vector3[n]; semiRot = new Quaternion[n]; semiScale = new Vector3[n];
+                            deployedPos = new Vector3[n]; deployedRot = new Quaternion[n]; deployedScale = new Vector3[n];
+                            ReadLocalPoses(boneTransforms, restPos, restRot, restScale);
+                        }
+
                         // Sample semi-deployed state: semiDeployedAnimation@time=1 (streamer)
                         if (!string.IsNullOrEmpty(semiAnim))
                         {
@@ -108,14 +135,17 @@ namespace Parsek
                                 anim.Play(semiAnim);
                                 anim.Sample();
 
-                                Transform canopy = !string.IsNullOrEmpty(canopyName)
-                                    ? FindTransformRecursive(tempClone.transform, canopyName) : null;
-                                if (canopy != null && canopy.localScale.magnitude > 0.01f)
+                                if (cloneCanopy != null && cloneCanopy.localScale.magnitude > 0.01f)
                                 {
-                                    sdScale = canopy.localScale;
-                                    sdPos = tempClone.transform.InverseTransformPoint(canopy.position);
-                                    sdRot = Quaternion.Inverse(tempClone.transform.rotation) * canopy.rotation;
-                                    semiDeployedSampled = true;
+                                    result.sdScale = cloneCanopy.localScale;
+                                    result.sdPos = tempClone.transform.InverseTransformPoint(cloneCanopy.position);
+                                    result.sdRot = Quaternion.Inverse(tempClone.transform.rotation) * cloneCanopy.rotation;
+                                    result.semiDeployedSampled = true;
+                                }
+                                if (boneTransforms != null)
+                                {
+                                    ReadLocalPoses(boneTransforms, semiPos, semiRot, semiScale);
+                                    semiBonesSampled = true;
                                 }
                             }
                         }
@@ -134,16 +164,27 @@ namespace Parsek
                                 anim.Play(deployedAnimName);
                                 anim.Sample();
 
-                                Transform canopy = !string.IsNullOrEmpty(canopyName)
-                                    ? FindTransformRecursive(tempClone.transform, canopyName) : null;
-                                if (canopy != null)
+                                if (cloneCanopy != null)
                                 {
-                                    dScale = canopy.localScale;
-                                    dPos = tempClone.transform.InverseTransformPoint(canopy.position);
-                                    dRot = Quaternion.Inverse(tempClone.transform.rotation) * canopy.rotation;
+                                    result.dScale = cloneCanopy.localScale;
+                                    result.dPos = tempClone.transform.InverseTransformPoint(cloneCanopy.position);
+                                    result.dRot = Quaternion.Inverse(tempClone.transform.rotation) * cloneCanopy.rotation;
                                     deployedSampled = true;
                                 }
+                                if (boneTransforms != null)
+                                {
+                                    ReadLocalPoses(boneTransforms, deployedPos, deployedRot, deployedScale);
+                                    deployedBonesSampled = true;
+                                }
                             }
+                        }
+
+                        if (boneTransforms != null && (semiBonesSampled || deployedBonesSampled))
+                        {
+                            result.bones = SelectAnimatedCanopyBones(bonePaths,
+                                restPos, restRot, restScale,
+                                semiBonesSampled ? semiPos : null, semiRot, semiScale,
+                                deployedBonesSampled ? deployedPos : null, deployedRot, deployedScale);
                         }
                     }
                 }
@@ -154,16 +195,125 @@ namespace Parsek
             }
 
             // Deployed fallback: if animation produced near-zero scale
-            if (deployedSampled && dScale.magnitude < 0.01f)
+            if (deployedSampled && result.dScale.magnitude < 0.01f)
             {
-                dScale = Vector3.one;
-                dPos = Vector3.zero;
-                dRot = Quaternion.identity;
+                result.dScale = Vector3.one;
+                result.dPos = Vector3.zero;
+                result.dRot = Quaternion.identity;
             }
 
-            var result = (sdScale, sdPos, sdRot, semiDeployedSampled, dScale, dPos, dRot);
             canopyCache[key] = result;
             return result;
+        }
+
+        /// <summary>
+        /// Keeps the canopy bones a deploy clip moves away from their rest pose. A stage whose
+        /// clip was not sampled passes null positions; its pose then reads the rest pose.
+        /// Returns null when no bone moved (stock canopies).
+        /// </summary>
+        private static List<CanopyBoneSample> SelectAnimatedCanopyBones(
+            List<int[]> paths,
+            Vector3[] restPos, Quaternion[] restRot, Vector3[] restScale,
+            Vector3[] semiPos, Quaternion[] semiRot, Vector3[] semiScale,
+            Vector3[] deployedPos, Quaternion[] deployedRot, Vector3[] deployedScale)
+        {
+            bool semiSampled = semiPos != null;
+            bool deployedSampled = deployedPos != null;
+            List<CanopyBoneSample> bones = null;
+            for (int i = 0; i < paths.Count; i++)
+            {
+                bool semiMoved = semiSampled && CanopyBonePoseDiffers(
+                    restPos[i], restRot[i], restScale[i], semiPos[i], semiRot[i], semiScale[i]);
+                bool deployedMoved = deployedSampled && CanopyBonePoseDiffers(
+                    restPos[i], restRot[i], restScale[i],
+                    deployedPos[i], deployedRot[i], deployedScale[i]);
+                if (!semiMoved && !deployedMoved)
+                    continue;
+                if (bones == null)
+                    bones = new List<CanopyBoneSample>();
+                var sample = new CanopyBoneSample
+                {
+                    childIndexPath = paths[i],
+                    semiDeployedSampled = semiSampled,
+                    semiPos = restPos[i], semiRot = restRot[i], semiScale = restScale[i],
+                    deployedPos = restPos[i], deployedRot = restRot[i], deployedScale = restScale[i]
+                };
+                if (semiSampled)
+                {
+                    sample.semiPos = semiPos[i]; sample.semiRot = semiRot[i]; sample.semiScale = semiScale[i];
+                }
+                if (deployedSampled)
+                {
+                    sample.deployedPos = deployedPos[i]; sample.deployedRot = deployedRot[i];
+                    sample.deployedScale = deployedScale[i];
+                }
+                bones.Add(sample);
+            }
+            return bones;
+        }
+
+        private static void CollectCanopyDescendants(
+            Transform parent, List<int> pathSoFar, List<Transform> transforms, List<int[]> paths)
+        {
+            for (int c = 0; c < parent.childCount; c++)
+            {
+                Transform child = parent.GetChild(c);
+                pathSoFar.Add(c);
+                transforms.Add(child);
+                paths.Add(pathSoFar.ToArray());
+                CollectCanopyDescendants(child, pathSoFar, transforms, paths);
+                pathSoFar.RemoveAt(pathSoFar.Count - 1);
+            }
+        }
+
+        private static void ReadLocalPoses(
+            List<Transform> transforms, Vector3[] pos, Quaternion[] rot, Vector3[] scale)
+        {
+            for (int i = 0; i < transforms.Count; i++)
+            {
+                pos[i] = transforms[i].localPosition;
+                rot[i] = transforms[i].localRotation;
+                scale[i] = transforms[i].localScale;
+            }
+        }
+
+        /// <summary>
+        /// Resolves a child-index path below <paramref name="root"/>. Null when any index is
+        /// out of range (the source is not shaped like the sampled clone).
+        /// </summary>
+        private static Transform ResolveChildIndexPath(Transform root, int[] childIndexPath)
+        {
+            Transform current = root;
+            for (int i = 0; current != null && i < childIndexPath.Length; i++)
+            {
+                int index = childIndexPath[i];
+                current = index >= 0 && index < current.childCount ? current.GetChild(index) : null;
+            }
+            return current;
+        }
+
+        /// <summary>
+        /// True when an animated pose differs from the rest pose by more than sampling noise
+        /// (0.1 mm position, 1e-4 scale, about 0.5 deg rotation). Componentwise so it stays
+        /// pure for tests.
+        /// </summary>
+        internal static bool CanopyBonePoseDiffers(
+            Vector3 restPos, Quaternion restRot, Vector3 restScale,
+            Vector3 pos, Quaternion rot, Vector3 scale)
+        {
+            const float posEpsilon = 1e-4f;
+            const float scaleEpsilon = 1e-4f;
+            const float rotDotThreshold = 0.99999f;
+            if (System.Math.Abs(pos.x - restPos.x) > posEpsilon
+                || System.Math.Abs(pos.y - restPos.y) > posEpsilon
+                || System.Math.Abs(pos.z - restPos.z) > posEpsilon)
+                return true;
+            if (System.Math.Abs(scale.x - restScale.x) > scaleEpsilon
+                || System.Math.Abs(scale.y - restScale.y) > scaleEpsilon
+                || System.Math.Abs(scale.z - restScale.z) > scaleEpsilon)
+                return true;
+            float dot = restRot.x * rot.x + restRot.y * rot.y + restRot.z * rot.z + restRot.w * rot.w;
+            return System.Math.Abs(dot) < rotDotThreshold;
         }
 
         internal static void ClearAnimationSampleCache()

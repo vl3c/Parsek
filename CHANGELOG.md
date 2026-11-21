@@ -54,6 +54,9 @@ Not released yet.
 
 ### Fixed
 
+- **Ghosts of ReStock parts look like the real parts again.** The LV-T45 boosters of a replayed
+  Kerbal X no longer show a skirt and a second shroud, and a deployed Mk16-XL parachute opens to
+  its full size instead of staying small and folded. (RESTOCK-GHOST-SKIRT-AND-CHUTE)
 - **A rescue or tourism contract still works after you go back in time.** If you go back to before
   you accepted a rescue, the stranded kerbal or part reappears when the clock reaches the accept
   again (at your next Space Center or Tracking Station visit if you are flying then), and tourism
