@@ -396,8 +396,8 @@ namespace Parsek
                 ClearFlushedDestructionFlagForResume(promotedRec, "PromoteRecordingFromBackground");
                 // Owner ruling Q1b: the player flies the vessel again, so a predicted ending
                 // its recording kept is dropped before the recorder appends the real flight.
-                PredictedEndingTakeover.DropPredictedEndingForTakeover(
-                    promotedRec, SafeCurrentUtForResumeAnchor(), "PromoteRecordingFromBackground");
+                DropPredictedEndingForLiveTakeover(
+                    promotedRec, newVessel, SafeCurrentUtForResumeAnchor(), "PromoteRecordingFromBackground");
             }
 
             // Create a new recorder and start recording with isPromotion

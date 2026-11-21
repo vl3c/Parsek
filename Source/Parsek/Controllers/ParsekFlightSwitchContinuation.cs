@@ -545,15 +545,15 @@ namespace Parsek
         /// never plays a predicted fall beside the live vessel or the segment's own ghost.
         /// </summary>
         private void DropPredictedEndingOfContinuationParent(
-            string parentRecId, double switchUT, string routeTag)
+            string parentRecId, Vessel newVessel, double switchUT, string routeTag)
         {
             if (string.IsNullOrEmpty(parentRecId) || host.activeTree?.Recordings == null)
                 return;
             if (host.activeTree.Recordings.TryGetValue(parentRecId, out Recording parentRec)
                 && parentRec != null)
             {
-                PredictedEndingTakeover.DropPredictedEndingForTakeover(
-                    parentRec, switchUT, "SwitchSegment." + routeTag);
+                ParsekFlight.DropPredictedEndingForLiveTakeover(
+                    parentRec, newVessel, switchUT, "SwitchSegment." + routeTag);
             }
         }
 
@@ -575,7 +575,7 @@ namespace Parsek
             uint newPid = newVessel.persistentId;
             var scenario = ParsekScenario.Instance;
 
-            DropPredictedEndingOfContinuationParent(takeoverLeafId, switchUT, "ended-recording-takeover");
+            DropPredictedEndingOfContinuationParent(takeoverLeafId, newVessel, switchUT, "ended-recording-takeover");
 
             Guid sessionId = Guid.NewGuid();
             string newRecordingId = Guid.NewGuid().ToString("D", CultureInfo.InvariantCulture);
@@ -772,7 +772,7 @@ namespace Parsek
                 == SwitchContinuationParentStatus.UniqueTerminalLeafFound
                     ? resolution.TerminalLeafRecordingId
                     : null;
-            DropPredictedEndingOfContinuationParent(parentRecId, switchUT, "committed-spawned-clone");
+            DropPredictedEndingOfContinuationParent(parentRecId, newVessel, switchUT, "committed-spawned-clone");
 
             Guid sessionId = Guid.NewGuid();
             string newRecordingId = Guid.NewGuid().ToString("D",
@@ -999,8 +999,8 @@ namespace Parsek
             // Owner ruling Q1b: a predicted ending the member already carries is dropped
             // before the flush appends the boundary sample, so it never overlaps the
             // continuation.
-            PredictedEndingTakeover.DropPredictedEndingForTakeover(
-                bgRec, switchUT, "SwitchSegment.BgMemberContinuation");
+            ParsekFlight.DropPredictedEndingForLiveTakeover(
+                bgRec, newVessel, switchUT, "SwitchSegment.BgMemberContinuation");
 
             // 2. Plan §"Segment Creation" step 2: close+flush BG parent at switchUT.
             // The public OnVesselRemovedFromBackground samples the current UT

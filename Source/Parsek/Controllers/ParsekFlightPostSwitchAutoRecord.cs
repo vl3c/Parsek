@@ -1105,8 +1105,8 @@ namespace Parsek
             {
                 return;
             }
-            PredictedEndingTakeover.DropPredictedEndingForTakeover(
-                leaf, currentUT, "PostSwitchAutoRecord.StartFreshRecording");
+            ParsekFlight.DropPredictedEndingForLiveTakeover(
+                leaf, v, currentUT, "PostSwitchAutoRecord.StartFreshRecording");
         }
 
         private void SeedPostSwitchAlignmentWindow(Vessel v, ParsekFlight.PostSwitchAutoRecordState state)
