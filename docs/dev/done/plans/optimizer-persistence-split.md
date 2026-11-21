@@ -922,7 +922,11 @@ another version. The split recorder's fallback commit (`TreeCommitService.Commit
 stamps too. The RULE 3 fold of a covered split piece into a re-flown live recording
 (`CommittedListOptimizer.ReabsorbSplitPieceIntoLiveCopy`) refuses a piece cut under another
 version than the live recording and re-reads the survivor's pass role from its content after
-the fold.
+the fold. Forward gate (save-format policy, data newer than the build is held): a recording
+whose version is above the build's current one (`IsSplitRuleVersionNewerThanBuild`) is held
+verbatim: the split scan skips it before any normalization, `CanAutoMerge` refuses it, the
+boring-tail trim holds it (`newer-split-rules`) and the RULE 3 fold refuses it; the codec writes
+its version back. A rule version 3 can therefore ship without an older build re-cutting its rows.
 
 **Row roles.** Version-2 splits stamp `Recording.SegmentRole` on both halves: `ascent`, `space`,
 `aerobraking`, `reentry`, `approach`, `surface`, `atmosphere` (`RecordingOptimizer.SegmentRoles`;

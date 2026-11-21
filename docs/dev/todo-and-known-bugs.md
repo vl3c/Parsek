@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SPLIT-RULES-NO-FORWARD-GATE~~: an older build would cut, join and trim rows a newer build split under rules it does not know [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B3), by code reading. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit + mutation; no lane; latent until a split rule version 3 ships (must land in a build before it)]
+
+**Cause:** `RecordingOptimizer.UsesCurrentSplitRules` reads `SplitRuleVersion >= SplitRuleVersionCurrent`, so a row stamped 3 by a newer build would be judged by the version-2 rules here: cut again, glued back to its neighbours and tail-trimmed, against the save-format policy (data newer than the build is held, never coerced).
+
+**Fix:** `RecordingOptimizer.IsSplitRuleVersionNewerThanBuild` (version above the build's current one). Such a recording is held verbatim: `FindSplitCandidatesForOptimizer` skips it before the checkpoint normalization (Verbose `held N recording(s) whole: split rules newer than this build`), `SplitRulesKeepApart` makes `CanAutoMerge` refuse it (Verbose `... newer than this build (v2), held verbatim`), `DescribeTrimHold` holds it from the boring-tail trim (`newer-split-rules`, counted in the trim skip summary) and `SplitPieceFoldRefusal` keeps it beside a re-flown live recording. The codec already writes the number back unchanged.
+
+**Tests:** `OptimizerSplitRulesV2Tests.NewerSplitRuleVersion_IsNeverSplit_AndRoundTrips`, `NewerSplitRuleVersion_IsNeverMergedOrFolded` (both red before the fix; the second's mirror merges the same pair at version 2).
+
 ## ~~UNION-COMMIT-STALE-INCOMING-TREE~~: after a committed vessel was flown again, the ledger and the leaf spawn read the dropped live copy [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B2), by code reading. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit + mutation; no lane; medium (science and milestones past the cut of a re-flown row never reach the ledger; a leaf whose ending moved to the new tail is not spawned)]
 
 **Cause:** the RULE 3 union (`TreeCommitService.TryUnionFlownAgainCopy`, and the active Re-Fly union) folds the incoming copy INTO the existing committed tree object and reassigns only `CommitTree`'s local `tree`. The callers kept the incoming copy: `MergeDialog.MergeCommit`, `ParsekFlightMergeFlow.CommitTreeFlight` and the two outside-flight auto-commits in `ParsekScenario.AutoCommit.cs` passed it to `LedgerOrchestrator.NotifyLedgerTreeCommitted` (and the in-flight commit to `SpawnTreeLeaves`) after the optimizer pass, whose split tails exist only in the committed tree.

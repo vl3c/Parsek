@@ -544,5 +544,64 @@ namespace Parsek.Tests
                     $"boundary {s} used a version-2 reason {r0}");
             }
         }
+
+        // ------------------------------------------------------------ forward gate (BATCH-B3)
+
+        private static Recording Newer(Recording rec)
+        {
+            rec.SplitRuleVersion = RecordingOptimizer.SplitRuleVersionCurrent + 1;
+            return rec;
+        }
+
+        // A recording a newer build cut under rules this build does not know is held verbatim:
+        // the pass neither splits it (the version-2 predicate would cut this shape twice) nor
+        // trims it, and the codec writes its version back.
+        // MUTATION NOTE: dropping the newer-version skip in FindSplitCandidatesForOptimizer reds this.
+        [Fact]
+        public void NewerSplitRuleVersion_IsNeverSplit_AndRoundTrips()
+        {
+            var rec = Newer(Make("newer", 0, Exo(2000), Atmo(300), Ground(100)));
+            CommitAlone(rec);
+            CommittedListOptimizer.RunOptimizationPass();
+            var rows = ChainOf(rec.TreeId);
+            Assert.Single(rows);
+            Assert.Equal(0.0, rows[0].StartUT);
+            Assert.Equal(2400.0, rows[0].EndUT);
+            Assert.Equal(3, rows[0].SplitRuleVersion);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("held 1 recording(s) whole: split rules newer than this build"));
+            Assert.Equal("newer-split-rules",
+                CommittedListOptimizer.DescribeTrimHold(rec, null, null, null));
+
+            var node = new ConfigNode("RECORDING");
+            RecordingTreeRecordCodec.SaveRecordingResourceAndState(node, rec);
+            var back = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingResourceAndState(node, back);
+            Assert.Equal(3, back.SplitRuleVersion);
+        }
+
+        // The merge side: two rows of one chain cut under a newer version, with nothing else
+        // keeping them apart, are never joined, and a covered newer piece is never folded.
+        [Fact]
+        public void NewerSplitRuleVersion_IsNeverMergedOrFolded()
+        {
+            var c = Newer(Make("n-c", 0, Exo(100)));
+            var d = Newer(Make("n-d", 100, Exo(100)));
+            c.ChainId = d.ChainId = "chain-n";
+            c.ChainIndex = 0;
+            d.ChainIndex = 1;
+            c.SegmentPhase = d.SegmentPhase = "exo";
+            c.SegmentBodyName = d.SegmentBodyName = "Kerbin";
+            c.SegmentRole = d.SegmentRole = "space";
+            Assert.False(RecordingOptimizer.CanAutoMerge(c, d));
+            Assert.Contains(logLines, l => l.Contains("CanAutoMerge: rejecting merge of 'n-c' + 'n-d'")
+                && l.Contains("newer than this build"));
+            Assert.NotNull(CommittedListOptimizer.SplitPieceFoldRefusal(d, c));
+
+            // Mirror: the same pair at the current version still merges.
+            c.SplitRuleVersion = d.SplitRuleVersion = RecordingOptimizer.SplitRuleVersionCurrent;
+            Assert.True(RecordingOptimizer.CanAutoMerge(c, d));
+            Assert.Null(CommittedListOptimizer.DescribeTrimHold(c, null, null, null));
+        }
     }
 }

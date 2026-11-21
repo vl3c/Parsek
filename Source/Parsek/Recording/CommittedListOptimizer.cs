@@ -662,6 +662,8 @@ namespace Parsek
             IReadOnlyDictionary<string, string> heldByLiveReFlyMerge)
         {
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return null;
+            if (RecordingOptimizer.IsSplitRuleVersionNewerThanBuild(rec))
+                return "newer-split-rules";
             if (RecordingOptimizer.IsSupersededForOptimizer(rec, supersedes))
                 return "superseded";
             if (!string.IsNullOrEmpty(activeReFlyId)
@@ -943,6 +945,9 @@ namespace Parsek
         {
             if (piece == null || string.IsNullOrEmpty(piece.RecordingId))
                 return null;
+            if (RecordingOptimizer.IsSplitRuleVersionNewerThanBuild(piece)
+                || RecordingOptimizer.IsSplitRuleVersionNewerThanBuild(survivor))
+                return "it carries split rules newer than this build (held verbatim)";
             if (survivor != null)
             {
                 int pieceVersion = RecordingOptimizer.EffectiveSplitRuleVersion(piece);
