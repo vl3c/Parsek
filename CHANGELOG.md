@@ -90,6 +90,10 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **Painted tank and nose cone variants look right on their ghosts.** A variant's bump texture was
+  loaded the wrong way, which also spoiled that texture for the real parts until a restart. Ghosts
+  of Size3 tanks and the orange nose cones now match the real part, and the real part stays
+  unharmed. (GHOST-VARIANT-BUMPMAP-CONVERTED)
 - **Heat shield ghosts are no longer black.** Every heat shield replay, and the shields on the
   ReStock pods, drew the shield fully charred from the first frame. A shield now starts the colour
   the real one shows, from how much ablator it had left, and still darkens during reentry.

@@ -281,29 +281,88 @@ namespace Parsek
             return rules;
         }
 
-        internal static VariantPropertyType ClassifyVariantProperty(string key)
+        /// <summary>
+        /// Transcribes stock <c>PartMaterialInfo.PartMaterialCommand</c> (KSP 1.12.5,
+        /// decompiled): the command kind comes from the VALUE, not the key. A value starting
+        /// with '#' that parses as an html colour is a colour; else a value that parses as a
+        /// float (current culture, Float | AllowThousands; KSP pins "en") is a float; else it is
+        /// a texture url, loaded RAW through <c>GetTextureInfo(url).texture</c> (null when
+        /// missing, and stock still sets the null). Only four keys are renamed
+        /// (<c>PartMaterialInfo.Load</c>): mainTextureURL -> _MainTex, color -> _Color,
+        /// backTextureURL -> _BackTex, backColor -> _BackColor; every other key is the shader
+        /// property verbatim. <c>shader</c> / <c>materialName</c> / <c>transformName</c> are
+        /// rule filters, not commands.
+        /// </summary>
+        internal static VariantPropertyType ResolveVariantMaterialCommand(
+            string key, string value, out string shaderProperty, out Color color, out float number)
         {
+            shaderProperty = null;
+            color = Color.white;
+            number = 0f;
             if (string.IsNullOrEmpty(key))
                 return VariantPropertyType.Skip;
-
             if (key == "shader" || key == "materialName" || key == "transformName")
                 return VariantPropertyType.Skip;
 
-            if (key.EndsWith("URL", System.StringComparison.Ordinal))
-                return VariantPropertyType.Texture;
+            switch (key)
+            {
+                case "mainTextureURL": shaderProperty = "_MainTex"; break;
+                case "color": shaderProperty = "_Color"; break;
+                case "backTextureURL": shaderProperty = "_BackTex"; break;
+                case "backColor": shaderProperty = "_BackColor"; break;
+                default: shaderProperty = key; break;
+            }
 
-            if (key == "_BumpMap" || key == "_Emissive" || key == "_SpecMap")
-                return VariantPropertyType.Texture;
-
-            if (key == "_Shininess" || key == "_Opacity" || key == "_RimFalloff" ||
-                key == "_AmbientMultiplier" || key == "_TemperatureColor")
-                return VariantPropertyType.Float;
-
-            if (key == "color" || key == "_Color" ||
-                key.IndexOf("Color", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            string v = value ?? "";
+            if (v.StartsWith("#", System.StringComparison.Ordinal) && TryParseHtmlHexColor(v, out color))
                 return VariantPropertyType.Color;
 
-            return VariantPropertyType.Skip;
+            if (float.TryParse(v, NumberStyles.Float | NumberStyles.AllowThousands,
+                    CultureInfo.InvariantCulture, out number))
+                return VariantPropertyType.Float;
+
+            number = 0f;
+            return VariantPropertyType.Texture;
+        }
+
+        /// <summary>
+        /// Managed equivalent of Unity's <c>ColorUtility.TryParseHtmlString</c> for the '#'
+        /// forms it accepts (#RGB, #RGBA, #RRGGBB, #RRGGBBAA; a short form doubles each
+        /// nibble). Kept free of the Unity internal call so the variant command resolver runs
+        /// headless.
+        /// </summary>
+        internal static bool TryParseHtmlHexColor(string raw, out Color color)
+        {
+            color = Color.white;
+            if (string.IsNullOrEmpty(raw) || raw[0] != '#')
+                return false;
+            string hex = raw.Substring(1);
+            int len = hex.Length;
+            if (len != 3 && len != 4 && len != 6 && len != 8)
+                return false;
+            for (int i = 0; i < len; i++)
+            {
+                if (!System.Uri.IsHexDigit(hex[i]))
+                    return false;
+            }
+
+            int[] channel = { 255, 255, 255, 255 };
+            if (len == 3 || len == 4)
+            {
+                for (int i = 0; i < len; i++)
+                {
+                    int n = System.Convert.ToInt32(hex.Substring(i, 1), 16);
+                    channel[i] = n * 17;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < len / 2; i++)
+                    channel[i] = System.Convert.ToInt32(hex.Substring(i * 2, 2), 16);
+            }
+
+            color = new Color(channel[0] / 255f, channel[1] / 255f, channel[2] / 255f, channel[3] / 255f);
+            return true;
         }
 
         internal static bool DoesRendererMatchTextureRule(
@@ -327,28 +386,6 @@ namespace Parsek
             }
 
             return true;
-        }
-
-        internal static string TextureUrlToShaderProperty(string key)
-        {
-            if (key == "_BumpMap" || key == "_Emissive" || key == "_SpecMap")
-                return key;
-
-            if (key.EndsWith("URL", System.StringComparison.Ordinal))
-            {
-                string stripped = key.Substring(0, key.Length - 3);
-                if (stripped.Length == 0)
-                    return "_MainTex";
-
-                // KSP shader properties use abbreviated "Tex" suffix (e.g., _MainTex, _BackTex)
-                // so strip "ture" (4 chars) from "Texture" to keep "Tex"
-                if (stripped.EndsWith("Texture", System.StringComparison.Ordinal))
-                    stripped = stripped.Substring(0, stripped.Length - 4);
-
-                return "_" + char.ToUpperInvariant(stripped[0]) + stripped.Substring(1);
-            }
-
-            return key;
         }
 
         internal static int ApplyVariantTextureRules(
@@ -419,55 +456,42 @@ namespace Parsek
                             for (int pi = 0; pi < rule.properties.Count; pi++)
                             {
                                 var prop = rule.properties[pi];
-                                var propType = ClassifyVariantProperty(prop.key);
+                                var propType = ResolveVariantMaterialCommand(
+                                    prop.key, prop.value, out string shaderProp,
+                                    out Color color, out float floatVal);
 
                                 switch (propType)
                                 {
                                     case VariantPropertyType.Texture:
                                     {
-                                        string shaderProp = TextureUrlToShaderProperty(prop.key);
-                                        bool isNormalMap = prop.key == "_BumpMap";
-                                        Texture2D tex = GameDatabase.Instance.GetTexture(prop.value, isNormalMap);
-                                        if (tex != null)
+                                        // Raw lookup like stock: GetTexture(url, asNormalMap: true)
+                                        // would convert a readable non-NRM texture into a Unity
+                                        // normal map and overwrite the shared GameDatabase entry.
+                                        GameDatabase.TextureInfo info =
+                                            GameDatabase.Instance.GetTextureInfo(prop.value);
+                                        Texture tex = info != null ? info.texture : null;
+                                        cloned.SetTexture(shaderProp, tex);
+                                        totalApplied++;
+                                        if (tex == null)
                                         {
-                                            cloned.SetTexture(shaderProp, tex);
-                                            totalApplied++;
-                                        }
-                                        else
-                                        {
-                                            ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
-                                                $"texture not found: '{prop.value}'");
+                                            ParsekLog.VerboseRateLimited("GhostVisual",
+                                                $"variant-texture-missing-{partName}-{prop.key}",
+                                                $"Part '{partName}' pid={persistentId}: variant value " +
+                                                $"{prop.key}='{prop.value}' is no colour, float or loaded " +
+                                                $"texture; set {shaderProp}=null as stock does");
                                         }
                                         break;
                                     }
                                     case VariantPropertyType.Color:
                                     {
-                                        string colorProp = prop.key == "color" ? "_Color" : prop.key;
-                                        if (TryParseKspColor(prop.value, out Color color))
-                                        {
-                                            cloned.SetColor(colorProp, color);
-                                            totalApplied++;
-                                        }
-                                        else
-                                        {
-                                            ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
-                                                $"failed to parse color: {prop.key}={prop.value}");
-                                        }
+                                        cloned.SetColor(shaderProp, color);
+                                        totalApplied++;
                                         break;
                                     }
                                     case VariantPropertyType.Float:
                                     {
-                                        if (float.TryParse(prop.value, NumberStyles.Float,
-                                            CultureInfo.InvariantCulture, out float floatVal))
-                                        {
-                                            cloned.SetFloat(prop.key, floatVal);
-                                            totalApplied++;
-                                        }
-                                        else
-                                        {
-                                            ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
-                                                $"failed to parse float: {prop.key}={prop.value}");
-                                        }
+                                        cloned.SetFloat(shaderProp, floatVal);
+                                        totalApplied++;
                                         break;
                                     }
                                     case VariantPropertyType.Skip:
