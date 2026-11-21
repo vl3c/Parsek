@@ -25,6 +25,13 @@ namespace Parsek
     {
         internal const double DefaultCoalesceWindow = 0.5;  // seconds
 
+        /// <summary>
+        /// Split cause of a part whose joint broke under force (everything else reads it as
+        /// <c>SegmentBoundaryLogic.BrokeOffSplitCause</c>). Defined here so the
+        /// coalescer, which both recorders use, depends on no recorder type.
+        /// </summary>
+        internal const string BrokeOffSplitCause = "BROKE_OFF";
+
         private double windowStartUT = double.NaN;
         private double lastSplitUT = double.NaN;
         private double coalesceWindow;
@@ -63,7 +70,7 @@ namespace Parsek
         {
             return string.Equals(splitCause, "DECOUPLE", StringComparison.Ordinal)
                 || string.Equals(splitCause, "UNDOCK", StringComparison.Ordinal)
-                || string.Equals(splitCause, SegmentBoundaryLogic.BrokeOffSplitCause, StringComparison.Ordinal);
+                || string.Equals(splitCause, BrokeOffSplitCause, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -74,7 +81,7 @@ namespace Parsek
         internal static string CombineSeparationCause(string windowCause, string childCause)
         {
             if (string.Equals(windowCause, childCause, StringComparison.Ordinal)) return windowCause;
-            string brokeOff = SegmentBoundaryLogic.BrokeOffSplitCause;
+            string brokeOff = BrokeOffSplitCause;
             if (string.Equals(windowCause, brokeOff, StringComparison.Ordinal)
                 || string.Equals(childCause, brokeOff, StringComparison.Ordinal))
                 return brokeOff;
@@ -286,6 +293,12 @@ namespace Parsek
         /// the current window. Only valid while HasPendingBreakup is true.
         /// </summary>
         public IReadOnlyList<uint> ControlledChildPids => controlledChildPids;
+
+        /// <summary>
+        /// The debris PIDs accumulated during the current window. Only valid while
+        /// HasPendingBreakup is true.
+        /// </summary>
+        public IReadOnlyList<uint> DebrisPids => debrisPids;
 
         /// <summary>
         /// Returns the controlled child PIDs from the last emitted BREAKUP.

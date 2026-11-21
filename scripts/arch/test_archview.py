@@ -4118,13 +4118,16 @@ class RealTreeSmokeTests(unittest.TestCase):
         # sinks (FlightRecorder's and BackgroundRecorder's), each reaching its owner and
         # reached from it: 438. The dead-method removal (item 25) deleted
         # RouteOriginCargoCheck.RequiresInventoryDebit, the type's only reference into the
-        # knot, so RouteOriginCargoCheck leaves it: 437.
+        # knot, so RouteOriginCargoCheck leaves it: 437. The crash coalescer moved into the
+        # Recording module (the background recorder coalesces its own separations, owner
+        # ruling Q15) and owns the broke-off cause constant SegmentBoundaryLogic now reads,
+        # its only reference into the knot, so CrashCoalescer leaves it: 436.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [437, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [436, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4299,10 +4302,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (438 -> 406, 406 -> 384, 384 -> 365). Item 25's RouteOriginCargoCheck (out of the
         # knot, see above) sat on the uncut side until the route cut, so the first two land one
         # lower and the route cut starts one lower and lands where it did (437 -> 405,
-        # 405 -> 383, 383 -> 365).
+        # 405 -> 383, 383 -> 365). CrashCoalescer leaving the knot (see above) was on the cut
+        # side of the first cut, which therefore starts one lower and lands where it did
+        # (436 -> 405).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 437)
+        self.assertEqual(first["sizeBefore"], 436)
         self.assertEqual(first["sizeAfter"], 405)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",

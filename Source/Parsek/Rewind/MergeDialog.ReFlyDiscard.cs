@@ -14,8 +14,10 @@ namespace Parsek
         /// <para>Refuses with a Warn log + screen message if a merge journal
         /// is active (<see cref="ParsekScenario.ActiveMergeJournal"/>) -
         /// mirrors <see cref="RevertInterceptor.DiscardReFlyHandler"/>'s
-        /// guard so a discard mid-merge does not race the journal
-        /// finisher's rollback.</para>
+        /// guard so a discard mid-merge does not race the journal finisher,
+        /// which drives every phase forward (none rolls back). The refusal is
+        /// never permanent: a finisher that cannot complete the merge gives it
+        /// up and clears the journal (owner ruling 2026-11-18, RULE 4).</para>
         /// </summary>
         internal static void MergeDiscard(RecordingTree tree)
         {

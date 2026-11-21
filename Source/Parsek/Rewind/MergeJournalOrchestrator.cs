@@ -144,6 +144,7 @@ namespace Parsek
             DurableSaveForTesting = null;
             SaveGameForTesting = null;
             RecalcAfterMarkerClearedForTesting = null;
+            PostMergeOptimizationPassForTesting = null;
         }
 
         /// <summary>
@@ -267,8 +268,10 @@ namespace Parsek
             catch (Exception ex)
             {
                 // Inner already rolled back via its own catch + RollBackInMemory.
-                // Journal phase is TreeMerge on disk → next load drives
-                // forward through Split (idempotent re-run).
+                // The Begin save is the last one on disk (TreeMerge is in memory
+                // only until the next ordinary save); the next load's finisher
+                // drives forward from either, and gives up per RULE 4 when the
+                // split keeps failing.
                 ParsekLog.Warn(Tag,
                     $"Split step threw {ex.GetType().Name}: {ex.Message} — inner rolled back; re-throwing");
                 throw;
@@ -350,13 +353,29 @@ namespace Parsek
         /// surrounding OnLoad block when a journal is present on disk.
         ///
         /// <para>
-        /// Returns <c>false</c> if no journal is present (no work). Returns
-        /// <c>true</c> when the completion path drove the journal to cleared
+        /// Returns <c>false</c> if no journal is present (no work) or the merge was given
+        /// up. Returns <c>true</c> when the completion path drove the journal to cleared
         /// (every phase completes forward). Idempotent: re-entry after completion
         /// observes no journal and returns false.
         /// </para>
+        ///
+        /// <para>
+        /// Never throws (owner ruling 2026-11-18, RULE 4): a failed retry escalates to the
+        /// whole-recording fallback, and a failed fallback gives the merge up with the old
+        /// flight kept and the journal cleared, so the load always continues to the sweep,
+        /// the reaper and the file collector, and Discard is never refused for good.
+        /// </para>
         /// </summary>
         internal static bool RunFinisher()
+            => RunFinisherCore(startWithWholeRecordingFallback: false);
+
+        /// <summary>
+        /// <see cref="RunFinisher()"/> with the RULE 4 escalation state as locals of this one
+        /// call: it is never saved, because the finisher always ends with the journal cleared
+        /// in the load that started it. <paramref name="startWithWholeRecordingFallback"/> is a
+        /// test seam that enters stage 2 directly; production always passes false.
+        /// </summary>
+        internal static bool RunFinisherCore(bool startWithWholeRecordingFallback)
         {
             var scenario = ParsekScenario.Instance;
             if (ReferenceEquals(null, scenario))
@@ -396,24 +415,305 @@ namespace Parsek
                 journal.Phase = MergeJournal.Phases.Begin;
             }
 
+            // Owner ruling 2026-11-18 (RULE 4, "Both, in that order"): a merge that keeps
+            // failing must never abort the load (the sweep, the reaper and the file collector
+            // run after this, and a journal that never clears refuses Discard forever). The
+            // retry runs first; after one failed retry the whole old recording is hidden
+            // instead of cut (the split is skipped); when that fails too the merge is given
+            // up so Discard works again with the old flight as it was. Every attempt starts
+            // from the state this load read, so a failed one leaves nothing half-written.
+            var entrySupersedes = scenario.RecordingSupersedes != null
+                ? new List<RecordingSupersedeRelation>(scenario.RecordingSupersedes) : null;
+            var entryTombstones = scenario.LedgerTombstones != null
+                ? new List<LedgerTombstone>(scenario.LedgerTombstones) : null;
+            var entryMarker = scenario.ActiveReFlySessionMarker;
+            string entryMarkerTarget = entryMarker?.SupersedeTargetId;
+            Recording entryProvisional = FindCommittedRecordingQuiet(entryMarker?.ActiveReFlyRecordingId);
+            MergeState entryProvisionalState = entryProvisional != null
+                ? entryProvisional.MergeState : MergeState.NotCommitted;
+            string entryProvisionalTarget = entryProvisional?.SupersedeTargetId;
+            bool entryProvisionalPlayback = entryProvisional != null && entryProvisional.PlaybackEnabled;
+            string entryPhase = journal.Phase;
+            bool wholeRecording = startWithWholeRecordingFallback;
+            int retryFailures = 0;
+            while (true)
+            {
+                string stage = wholeRecording ? "whole-recording-fallback" : "retry";
+                try
+                {
+                    if (wholeRecording)
+                        PrepareWholeRecordingFallback(scenario, journal, entryPhase, sessionId);
+                    ParsekLog.Info(Tag,
+                        $"Finisher stage={stage} sess={sessionId} fromPhase={journal.Phase} " +
+                        $"retryFailures={retryFailures.ToString(CultureInfo.InvariantCulture)}");
+                    CompleteFromPostDurable(scenario, journal, sessionId, phase, wholeRecording);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"RunFinisher stage={stage} FAILED at phase={journal.Phase ?? "<none>"} " +
+                        $"(entered at {entryPhase}): {ex.GetType().Name}: {ex.Message} sess={sessionId} - " +
+                        "restoring the state this load read");
+                    bool restored;
+                    try
+                    {
+                        RestoreFinisherEntryState(scenario, journal, entryPhase,
+                            entrySupersedes, entryTombstones, entryMarker, entryMarkerTarget,
+                            entryProvisional, entryProvisionalState, entryProvisionalTarget,
+                            entryProvisionalPlayback);
+                        restored = true;
+                    }
+                    catch (Exception restoreEx)
+                    {
+                        restored = false;
+                        ParsekLog.Warn(Tag,
+                            $"RunFinisher: restoring the entry state threw {restoreEx.GetType().Name}: " +
+                            $"{restoreEx.Message} sess={sessionId} - giving the merge up without a fallback");
+                    }
+                    if (restored && !wholeRecording && !IsPostFinalizePhase(entryPhase))
+                    {
+                        retryFailures++;
+                        wholeRecording = true;
+                        ParsekLog.Warn(Tag,
+                            $"Finisher escalating sess={sessionId}: retry failed " +
+                            $"(retryFailures={retryFailures.ToString(CultureInfo.InvariantCulture)}); " +
+                            "hiding the whole old recording instead of cutting it");
+                        continue;
+                    }
+                    AbandonMerge(scenario, journal, sessionId, entryPhase, stage, retryFailures, ex);
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>True for the phases after Finalize: the merge state is already flipped.</summary>
+        internal static bool IsPostFinalizePhase(string phase)
+        {
+            return phase == MergeJournal.Phases.Durable1Done
+                || phase == MergeJournal.Phases.RpReap
+                || phase == MergeJournal.Phases.MarkerCleared
+                || phase == MergeJournal.Phases.Durable2Done
+                || phase == MergeJournal.Phases.Complete;
+        }
+
+        /// <summary>
+        /// Undoes what a failed finisher attempt changed before the next RULE 4 stage runs,
+        /// from the state the finisher read at entry: the supersede rows, the tombstones, the
+        /// marker (re-installed if the attempt cleared it) and its supersede target, the
+        /// journal phase and the provisional's merge fields. The split restores itself (it is
+        /// transactional); a split that succeeded before a later step failed stays, and
+        /// leaves HEAD and TIP both visible, which is the whole old flight. Plain parameters,
+        /// not a holder type, so nothing new joins the type graph's knot.
+        /// </summary>
+        private static void RestoreFinisherEntryState(
+            ParsekScenario scenario, MergeJournal journal, string entryPhase,
+            List<RecordingSupersedeRelation> supersedes, List<LedgerTombstone> tombstones,
+            ReFlySessionMarker marker, string markerSupersedeTargetId,
+            Recording provisional, MergeState provisionalMergeState,
+            string provisionalSupersedeTargetId, bool provisionalPlaybackEnabled)
+        {
+            RestoreList(scenario.RecordingSupersedes, supersedes);
+            RestoreList(scenario.LedgerTombstones, tombstones);
+            if (marker != null)
+            {
+                marker.SupersedeTargetId = markerSupersedeTargetId;
+                if (!ReferenceEquals(scenario.ActiveReFlySessionMarker, marker))
+                    scenario.ActiveReFlySessionMarker = marker;
+            }
+            if (provisional != null)
+            {
+                provisional.MergeState = provisionalMergeState;
+                provisional.SupersedeTargetId = provisionalSupersedeTargetId;
+                provisional.PlaybackEnabled = provisionalPlaybackEnabled;
+            }
+            if (!ReferenceEquals(scenario.ActiveMergeJournal, journal))
+                scenario.ActiveMergeJournal = journal;
+            journal.Phase = entryPhase;
+            journal.RecoveredSubtreeIds = null;
+            scenario.BumpSupersedeStateVersion();
+            scenario.BumpTombstoneStateVersion();
+        }
+
+        private static void RestoreList<T>(List<T> live, List<T> saved)
+        {
+            if (live == null || saved == null) return;
+            live.Clear();
+            live.AddRange(saved);
+        }
+
+        /// <summary>
+        /// The second RULE 4 stage: the split is skipped (see the Split block of
+        /// <see cref="CompleteFromPostDurable"/>), a split an earlier load completed gets
+        /// its closure root pointed back at HEAD so the whole old recording is superseded,
+        /// and a pre-Finalize entry re-runs every idempotent step from TreeMerge so the rows
+        /// and tombstones cover the wider set.
+        /// </summary>
+        private static void PrepareWholeRecordingFallback(
+            ParsekScenario scenario, MergeJournal journal, string entryPhase, string sessionId)
+        {
+            if (!IsPostFinalizePhase(entryPhase))
+                journal.Phase = MergeJournal.Phases.TreeMerge;
+            var marker = scenario.ActiveReFlySessionMarker;
+            Recording head = RecordingTreeSplitter.TryResolveHeadOfCompletedSplit(marker);
+            if (head != null)
+            {
+                ParsekLog.Info(Tag,
+                    $"Whole-recording fallback sess={sessionId}: earlier split left " +
+                    $"supersedeTarget={marker.SupersedeTargetId ?? "<none>"}; closure root moved back to " +
+                    $"HEAD={head.RecordingId ?? "<no-id>"} so the whole old recording is hidden");
+                marker.SupersedeTargetId = head.RecordingId;
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Whole-recording fallback sess={sessionId}: no completed split on the closure root " +
+                    $"({marker?.SupersedeTargetId ?? marker?.OriginChildRecordingId ?? "<none>"}); split will be skipped");
+            }
+        }
+
+        /// <summary>
+        /// The last RULE 4 stage: the merge could not finish in either form. Before
+        /// Finalize the old flight is put back as it was (this session's supersede rows and
+        /// tombstones are removed, the attempt stays uncommitted) and the journal is cleared
+        /// with the marker kept, so Discard is no longer refused; the load-time sweep that
+        /// runs next ends the session itself when its marker no longer validates. After
+        /// Finalize the merge state is already flipped and saved, so the merge is complete in
+        /// substance: the marker and journal are cleared. Never throws.
+        /// </summary>
+        private static void AbandonMerge(
+            ParsekScenario scenario, MergeJournal journal, string sessionId,
+            string entryPhase, string stage, int retryFailures, Exception cause)
+        {
+            var ic = CultureInfo.InvariantCulture;
             try
             {
-                CompleteFromPostDurable(scenario, journal, sessionId, phase);
-                return true;
+                var marker = scenario.ActiveReFlySessionMarker;
+                if (IsPostFinalizePhase(entryPhase))
+                {
+                    // The merge state is final, so this is a completed merge: its session
+                    // rewind points (the quicksaves of slots the merge left open) are promoted
+                    // as the Durable1Done step does, never left session-provisional for the
+                    // load-time sweep to delete once the marker is gone.
+                    bool rpsPromoted = PromoteSessionRewindPointsOnGiveUp(marker, scenario, sessionId);
+                    if (marker != null)
+                        scenario.ClearActiveReFlySessionMarker("marker-cleared");
+                    scenario.ActiveMergeJournal = null;
+                    scenario.BumpSupersedeStateVersion();
+                    ParsekLog.Warn(Tag,
+                        $"Finisher gave up sess={sessionId} after phase={entryPhase} (stage={stage}, " +
+                        $"{cause?.GetType().Name}: {cause?.Message}): merge state was already final, " +
+                        $"marker and journal cleared, session rewind points " +
+                        $"{(rpsPromoted ? "promoted like a completed merge" : "NOT promoted (tag pass threw)")}");
+                    RecalcAfterMarkerCleared(sessionId, "merge-journal-finisher-gave-up-after-finalize",
+                        "Give-up recalc");
+                    RunPostMergeOptimizationPass(scenario, sessionId, "finisher-gave-up-after-finalize");
+                    return;
+                }
+
+                string provisionalId = marker?.ActiveReFlyRecordingId;
+                int rowsRemoved = RemoveSessionRows(
+                    scenario.RecordingSupersedes, provisionalId, journal.StartedRealTime,
+                    r => r.NewRecordingId, r => r.CreatedRealTime);
+                int tombstonesRemoved = RemoveSessionRows(
+                    scenario.LedgerTombstones, provisionalId, journal.StartedRealTime,
+                    t => t.RetiringRecordingId, t => t.CreatedRealTime);
+                scenario.ActiveMergeJournal = null;
+                scenario.BumpSupersedeStateVersion();
+                scenario.BumpTombstoneStateVersion();
+                ParsekLog.Warn(Tag,
+                    $"Finisher gave up sess={sessionId} at phase={entryPhase} " +
+                    $"retryFailures={retryFailures.ToString(ic)} (stage={stage}, " +
+                    $"{cause?.GetType().Name}: {cause?.Message}): old flight kept as it was " +
+                    $"(rowsRemoved={rowsRemoved.ToString(ic)} tombstonesRemoved={tombstonesRemoved.ToString(ic)} " +
+                    $"provisional={provisionalId ?? "<none>"}), journal cleared, " +
+                    $"marker {(marker != null ? "kept" : "absent")} - Discard unlocked");
+                ParsekLog.ScreenMessage(
+                    "Re-Fly merge could not be finished - the old flight is kept", 5f);
+                // The load's own recalc ran before the finisher with these tombstones in place,
+                // so KSP state still reflects the abandoned attempt until a recalc re-derives it.
+                RecalcAfterMarkerCleared(sessionId, "merge-journal-finisher-gave-up", "Give-up recalc");
             }
             catch (Exception ex)
             {
-                // Drive-forward failure: surface a loud diagnostic with
-                // manual-recovery hints and re-throw. ParsekScenario.OnLoad's
-                // outer catch handles logging to Unity and degraded-load
-                // continuation.
-                ParsekLog.Warn(Tag,
-                    $"RunFinisher drive-forward FAILED at phase={phase}: {ex.GetType().Name}: {ex.Message}. " +
-                    $"Save is mid-merge and may be inconsistent. Manual recovery: copy save, " +
-                    $"clear scenario.ActiveMergeJournal and scenario.ActiveReFlySessionMarker, " +
-                    $"reload. sess={sessionId}");
-                throw;
+                scenario.ActiveMergeJournal = null;
+                ParsekLog.Error(Tag,
+                    $"Finisher give-up threw {ex.GetType().Name}: {ex.Message} sess={sessionId} - " +
+                    "journal cleared anyway so the load continues");
             }
+        }
+
+        /// <summary>
+        /// The completed-merge rewind point step for a give-up after Finalize:
+        /// <see cref="TagRpsForReap"/> then the reaper. Returns false when the tag pass threw
+        /// (logged; the give-up continues).
+        /// </summary>
+        private static bool PromoteSessionRewindPointsOnGiveUp(
+            ReFlySessionMarker marker, ParsekScenario scenario, string sessionId)
+        {
+            try
+            {
+                TagRpsForReap(marker, scenario);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Finisher give-up sess={sessionId}: TagRpsForReap threw {ex.GetType().Name}: " +
+                    $"{ex.Message} - session rewind points left as they are");
+                return false;
+            }
+            try
+            {
+                RewindPointReaper.ReapOrphanedRPs();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Finisher give-up sess={sessionId}: ReapOrphanedRPs threw {ex.GetType().Name}: " +
+                    $"{ex.Message} - the next reap pass retries");
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Removes the rows this merge wrote: rows naming <paramref name="provisionalId"/>
+        /// created at or after the journal's start (an in-place continuation's provisional is
+        /// the origin, which older merges may name too). Returns the count removed.
+        /// </summary>
+        internal static int RemoveSessionRows<T>(
+            List<T> rows, string provisionalId, string journalStartedRealTime,
+            Func<T, string> newId, Func<T, string> createdRealTime)
+        {
+            if (rows == null || string.IsNullOrEmpty(provisionalId)) return 0;
+            int removed = 0;
+            for (int i = rows.Count - 1; i >= 0; i--)
+            {
+                var row = rows[i];
+                if (row == null) continue;
+                if (!string.Equals(newId(row), provisionalId, StringComparison.Ordinal)) continue;
+                string created = createdRealTime(row);
+                if (!string.IsNullOrEmpty(journalStartedRealTime)
+                    && !string.IsNullOrEmpty(created)
+                    && string.CompareOrdinal(created, journalStartedRealTime) < 0)
+                    continue;
+                rows.RemoveAt(i);
+                removed++;
+            }
+            return removed;
+        }
+
+        private static Recording FindCommittedRecordingQuiet(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return null;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var r = committed[i];
+                if (r != null && string.Equals(r.RecordingId, id, StringComparison.Ordinal))
+                    return r;
+            }
+            return null;
         }
 
         // ------------------------------------------------------------------
@@ -421,7 +721,8 @@ namespace Parsek
         // ------------------------------------------------------------------
 
         private static void CompleteFromPostDurable(
-            ParsekScenario scenario, MergeJournal journal, string sessionId, string fromPhase)
+            ParsekScenario scenario, MergeJournal journal, string sessionId, string fromPhase,
+            bool wholeRecordingFallback = false)
         {
             int stepsDriven = 0;
 
@@ -462,6 +763,18 @@ namespace Parsek
                     scenario.ActiveReFlySessionMarker,
                     ResolveProvisional(scenario));
                 AdvancePhase(scenario, MergeJournal.Phases.Split);
+                stepsDriven++;
+            }
+
+            if (journal.Phase == MergeJournal.Phases.Split && wholeRecordingFallback)
+            {
+                // RULE 4 second stage: do not cut; the closure root (pointed back at HEAD
+                // by PrepareWholeRecordingFallback when an earlier split completed) hides
+                // the whole old recording, like a split SplitAtUT refuses.
+                ParsekLog.Info(Tag,
+                    $"Finisher sess={sessionId}: split skipped (whole-recording fallback) " +
+                    $"closureRoot={scenario.ActiveReFlySessionMarker?.SupersedeTargetId ?? scenario.ActiveReFlySessionMarker?.OriginChildRecordingId ?? "<none>"}");
+                AdvancePhase(scenario, MergeJournal.Phases.Supersede);
                 stepsDriven++;
             }
 
@@ -625,7 +938,8 @@ namespace Parsek
         /// missing.
         /// </para>
         /// </summary>
-        private static void RecalcAfterMarkerCleared(string sessionId, string reason)
+        private static void RecalcAfterMarkerCleared(
+            string sessionId, string reason, string label = "Post-marker-clear recalc")
         {
             var hook = RecalcAfterMarkerClearedForTesting;
             if (hook != null)
@@ -640,14 +954,14 @@ namespace Parsek
                     ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
                     reason);
                 ParsekLog.Info(Tag,
-                    $"Post-marker-clear recalc sess={sessionId ?? "<no-id>"} reason={reason}");
+                    $"{label} sess={sessionId ?? "<no-id>"} reason={reason}");
             }
             catch (Exception ex)
             {
                 // Non-fatal: the merge itself has already committed and been made
                 // durable. A failed re-derive is repaired by the next recalc.
                 ParsekLog.Warn(Tag,
-                    $"Post-marker-clear recalc threw {ex.GetType().Name}: {ex.Message} " +
+                    $"{label} threw {ex.GetType().Name}: {ex.Message} " +
                     $"— sess={sessionId ?? "<no-id>"} reason={reason}; merge stands, " +
                     "next recalc repairs the derived state");
             }
@@ -723,6 +1037,7 @@ namespace Parsek
             if (persistSynchronously)
             {
                 scenario.ActiveMergeJournal = null;
+                RunPostMergeOptimizationPass(scenario, sessionId, "merge");
                 DurableSave("durable3", persistSynchronously: true);
             }
             else
@@ -731,10 +1046,53 @@ namespace Parsek
                     scenario.ActiveMergeJournal.Phase = MergeJournal.Phases.Complete;
                 DurableSave("durable3", persistSynchronously: false);
                 scenario.ActiveMergeJournal = null;
+                RunPostMergeOptimizationPass(scenario, sessionId, "finisher");
             }
             ParsekLog.Verbose(Tag, $"sess={sessionId} cleared");
             ParsekLog.Info(Tag, $"Completed sess={sessionId}");
         }
+
+        /// <summary>
+        /// Owner ruling Q6 (2026-11-18, "Yes, right after merge"): once the merge is done
+        /// (journal cleared, marker cleared) one committed-list optimizer pass runs at once,
+        /// so the new attempt is split into its rows like a normal commit. The merge
+        /// dialog's own pass runs before the supersede step while the marker is live, which
+        /// defers the fork's split; without this pass the split waited for the next commit
+        /// or cold load. Runs before Durable Save #3 on the live merge, so that save holds
+        /// the split. Never while a journal or marker is live; never throws (the merge is
+        /// already final).
+        /// </summary>
+        private static void RunPostMergeOptimizationPass(
+            ParsekScenario scenario, string sessionId, string route)
+        {
+            if (!ReferenceEquals(null, scenario)
+                && (scenario.ActiveMergeJournal != null || scenario.ActiveReFlySessionMarker != null))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Post-merge optimization pass skipped sess={sessionId} route={route}: " +
+                    $"journal={(scenario.ActiveMergeJournal != null ? "live" : "none")} " +
+                    $"marker={(scenario.ActiveReFlySessionMarker != null ? "live" : "none")}");
+                return;
+            }
+            var hook = PostMergeOptimizationPassForTesting;
+            try
+            {
+                if (hook != null) hook(route);
+                else CommittedListOptimizer.RunOptimizationPass();
+                ParsekLog.Info(Tag,
+                    $"Post-merge optimization pass ran sess={sessionId} route={route}");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Post-merge optimization pass threw {ex.GetType().Name}: {ex.Message} " +
+                    $"sess={sessionId} route={route} - merge stands; the next pass splits the attempt");
+            }
+        }
+
+        /// <summary>Test seam for <see cref="RunPostMergeOptimizationPass"/>; receives the route.
+        /// Null = run the real pass.</summary>
+        internal static Action<string> PostMergeOptimizationPassForTesting;
 
         /// <summary>
         /// Phase 10 scope: tag the session-provisional RPs for reap (design

@@ -281,6 +281,337 @@ OPEN:
   fuel line spanning the servo keeps its snapshot endpoints; a servo locked in flight after moving
   with no save in between may have saved its children at an older pose (stock skips the
   coordinate refresh in OnSave for a locked servo).
+## ~~BG-SEPARATION-CLOSES-PARENT-RECORDING~~: a background vessel's staging closed its recording and started a second one [FIXED 2026-11-21, branch `rsr-wp8-bg-shape`; xUnit `BackgroundSeparationShapeTests`; low (two recordings-table rows for one vessel; no data lost)]
+
+Cause: a decouple or a broken-off part of a BACKGROUND vessel went through
+`BackgroundRecorder.HandleBackgroundVesselSplit`'s closing path: `CloseParentRecording` ended the
+parent recording at the split, a parent continuation recording (same pid) carried the vessel on,
+the pieces were anchored to the continuation, and each deferred scan (one per frame) made its own
+branch point. The focused vessel's decouple or breakup keeps one recording that runs past the
+split (`ParsekFlight.WireBreakupIntoTree`) and groups the pieces of a 0.5 s window into one
+branch point, so the same staging gave two different tree shapes depending on focus.
+
+Fix: owner ruling Q15 (2026-11-18), "One shape for both". `BackgroundRecorder.SeparationWindows.cs`
+keeps one `CrashCoalescer` per background parent pid (the class moved from `Rewind/` to
+`Recording/`, its own module, so the background recorder adds no backward module edge). The
+deferred scan feeds each new vessel (snapshot and pose captured at the scan) into the window;
+`ProcessPendingSplitChecks` ticks it; the emitted JointBreak branch point is wired with
+`WireBreakupIntoTree` onto the parent recording, which keeps its BackgroundMap entry and keeps
+sampling, gets its VesselSnapshot refreshed, and keeps the structural-event point the joint break
+wrote. Children go through `ParsekFlight.CreateBreakupChildRecording` anchored to the parent
+recording (a controlled piece gone before the window closed gets none, a debris piece gone gets
+the destroyed one-point row, as focused), live ones join the background recorder with the debris
+limit keyed on the branch point UT, and a split with two or more controllable vessels authors a
+rewind point whose parent slot is the parent recording itself. An undock keeps the closing shape
+(it is the focused undock shape), emitting a window the parent still holds first. Windows are
+emitted early (never drop one) from `FlushPendingSplits` (save, scene exit, revert, every
+recorder start), `FinalizeAllForCommit`, `Shutdown` (with a Warn), and when the parent stops
+being a background vessel: `OnVesselRemovedFromBackground` (promotion, switch, debris end, member
+reconcile), go-on-rails (before the identity-loss check), `OnBackgroundVesselWillDestroy` and
+`RetireDestroyedBackgroundEntry`. A piece still held by a window that acts on its own (separates
+again, undocks or is decoupled, or the player switches to it) emits its window first
+(`EmitSeparationWindowHoldingChild`, from `OnBackgroundPartJointBreak`, `OnBackgroundPartUndock`,
+`OnBackgroundPartDeCouple` and `OnVesselSwitchComplete`) so it is a background member with its
+own recording when it does, and an undock of it is still classed UNDOCK. A piece is held by one
+window only: two background parents splitting in one physics step both see each other's new
+vessel (a held piece is not in the BackgroundMap yet), so the new-vessel scan and the window feed
+skip a piece an open window holds (one recording per vessel). `DebrisParentStateGate` and the
+Re-Fly HEAD/TIP splitter already handle this shape (the focused breakup writes it).
+
+The vessel-line rule (`RecordingTree.ChildBranchLeavesVesselLineOpen`) read a recording whose
+`ExplicitEndUT` is at or before the branch UT as closed at the split. A background parent's end
+equals the branch UT from the joint break's structural point until its next ordinary sample (2 s
+close in, 3 s / 8 s for a steady parent at Medium / Low density), so an F5 in that span saved a
+parent that F9's `RebuildBackgroundMap` then dropped (never sampled again, no terminal). The
+branch point now says it: `BranchPoint.ParentContinues`, stamped by every
+`ParsekFlight.WireBreakupIntoTree` caller (focused and background), skips the end-UT rule. It is
+an additive optional key `parentContinues = True` on the BRANCH_POINT node (absent reads false,
+today's reading for older saves and for the background undock's close; no format bump), carried
+by both branch-point clones and `ScenarioWriter.SeparationBranch(parentContinues:)`.
+
+Tests: `BackgroundSeparationShapeTests` (shape with the parent's end at the branch UT, the map
+rebuild and the `parentContinues` round trip, the unstamped closed-at-split reading, the focused
+stamp, coalescing and BROKE_OFF combine, dead controlled piece, one recording for a piece two
+parents saw, flush / Shutdown / retire emission, recording change, missing parent, the held-piece
+emit, and source gates on every emission site; the stamp, the one-holder and the held-piece cells
+were red before their fixes, the earlier gate cells and the retire cell were mutation checked).
+The `BackgroundSplitTests` continuation / bug #285 simulation cells now pass the
+`UNDOCK` cause: they pinned the decouple continuation shape the ruling replaces, and the undock
+path is the one that still builds it.
+
+## ~~REFLY-ROUTE-SOURCE-REFUSED~~: Re-Fly was offered on a flight a supply route is built from [FILED 2026-11-18 by the recording split / trim / merge review (design question 13: the optimizer holds route sources, the Re-Fly splitter had no such hold); ruled by the owner 2026-11-18 (Q17 "Refuse Re-Fly"). FIXED 2026-11-21, branch `rsr-wp6-live-flight`; xUnit + mutation; no lane; medium (a merge would cut or supersede the route's source and pause the route for good)]
+
+**Cause:** the Re-Fly gate (`RewindInvoker.CanInvoke`) did not know about supply routes. Route candidates come only from fully sealed trees, but a slot of such a tree can open later, and nothing then stopped a Re-Fly whose merge splits the closure root and supersedes the slot's subtree, moving or hiding recordings the route's `SourceRefs` name (route reads `SourceChanged` / `MissingSourceRecording`).
+
+**Fix (Q17):** `RewindInvoker.SlotFlightIsRouteSource` (pure): the slot's origin recording's committed tree holds a recording id from `Logistics.RouteStore.CollectSourceRecordingIds()` (committed and dormant routes); with no slot, any slot of the rewind point. `EvaluateCanInvoke` refuses with `RouteSourceReFlyReason` ("A supply route is built from this flight - delete the route to re-fly it") after the session checks and before the value gate. Both Fly buttons (the Unfinished Flights row and the timeline row) read it through `RecordingsTableUI.CanInvokeRewindPointSlot`, grey the button and show the reason as its existing tooltip; `StartInvoke` re-reads the same gate on the confirm click, so the mark and the click-block share one predicate (stock-control annotation rule; no new UI). Seal stays available. Verbose `[Rewind] CanInvoke: refused rp=<id> slot=<n|all> tree=<id> routeSourceRec=<id> reason=route-source` (rate-limited per slot), plus the existing `CanInvoke: disabled ... reason=...` change line. Design `docs/parsek-rewind-to-separation-design.md` section 2.12 (after Rule 1).
+
+**Tests:** `RouteSourceReFlyGateTests` (a route on the slot's flight refuses the slot, the rewind-point-only overload and the table's slot gate with the tooltip reason, and logs the tree and source; a route on another flight does not refuse; the pure predicate table). The refusal cell red with the check disabled.
+
+## ~~LIVE-FLOWN-TREE-RECUT-DROPS-NEW-LEG~~: a committed vessel flown again lost its new leg to an optimizer re-cut and the duplicate skip [FILED 2026-11-18 by the recording split / trim / merge review (finding H7), by code reading; ruled by the owner 2026-11-18 (RULE 3 "My live flight wins"). FIXED 2026-11-21, branch `rsr-wp6-live-flight`; xUnit + mutation; no lane; high (the player's flight is dropped from the timeline)]
+
+**Cause:** flying a committed vessel again makes the live tree a copy of the committed tree (same tree id, another object; `TryTakeCommittedTreeForSpawnedVesselRestore`'s copy-on-write clone, a Re-Fly tree, or either one in a quicksave). The cold load restores that copy into the pending slot (Limbo, or a finalized pending tree) BEFORE the load's optimizer pass, and the pass then split, merged or trimmed the committed tree under it. The committed tree now held recording ids the copy lacked, so at commit `TreeCommitService.ShouldReplaceCommittedTree` refused (`incoming-missing-existing-ids`) and, with no Re-Fly marker, `CommitTreeCore` took the duplicate skip: since #2722 (MERGE-DUPLICATE-SKIP-TOASTS-MERGED) the pending tree is dropped honestly, but the new leg was still lost.
+
+**Definitions (code: `TreeCommitService.LiveFlownCopy.cs`, `IsCommittedTreeFlownAgain`).** A pending tree is **a committed vessel flown again** when its id names a committed tree, it is a different object, and it carries flight the committed tree does not have, first match wins: (1) a branch point id the committed tree lacks; (2) a recording both hold whose recorded data (points, track sections with samples, non-predicted orbit segments) runs past everything the committed tree holds for that recording's chain (an optimizer split moves the committed copy's end onto a later chain piece, so a re-cut alone is not new flight); (3) a recording only the copy holds whose recorded data runs past every committed recording of the tree. Predicted tails never count. A copy with none of these is a **true duplicate** and still takes the duplicate skip (the commit returns false, the pending tree is dropped, as #2722 made it). A **live copy exists** for a committed tree while the pending tree or the saved pending tree an active-tree restore parks beside it has its id and is not the committed object, or the committed-tree restore attempt is armed for it. The flight scene's own active tree is not read: after an in-flight commit it is still the copy object while the committed tree is the union result, and the commit's own pass must run.
+
+**Fix (RULE 3):** (a) `CommittedListOptimizer.RunOptimizationPass` adds every recording of a committed tree with a live copy to its held set (`TreeCommitService.HoldLiveCopiesForOptimizer`, one call in the pass that hands it the committed trees, both pending slots and the restore attempt id, so the helper reads no store: the set the route-source hold already uses, so the merge, split and trim phases all skip them; the per-phase "held for route source" Verbose lines count them too). Info `Optimization pass: tree '<id>' held whole while its live copy is flown (recordings=N pendingCopy=<b> savedPendingCopy=<b> restoreAttempt=<b>) - no split, merge or trim until the live flight is committed or discarded`. (b) `CommitTreeCore`, after the Re-Fly union and before the duplicate skip: a committed vessel flown again is unioned into the committed tree (`TryUnionLiveCopyIntoCommitted`, the Re-Fly union's core: incoming-only recordings and branch points added, shared recordings take the live instance with the player's settings kept (MERGE-REVERTS-PLAYER-SETTINGS), committed-only recordings kept, the live active recording id wins; `TryUnionFlownAgainCopy`). Committed-only recordings that are split pieces the live recording covers are re-absorbed instead of kept (`FindCoveredCommittedOnlySplitPieces`: a committed-only recording on the committed chain of a shared recording whose span lies inside the live recording's span, start to latest recorded data). An optimizer split while the copy lived keeps the original id as HEAD and moves the ending, snapshots, VesselDestroyed and MergeState to a new-id tail; kept beside the copy's whole recording that tail replayed twice and stayed the chain tip with the old ending. `CommittedListOptimizer.ReabsorbSplitPieceIntoLiveCopy` runs the optimizer merge's own steps on it: ledger rows, events and pending science retagged to the surviving id, an awaiting stock payout moved, Relative section anchors and parent anchors re-pointed (`RepointAnchorsAfterOptimizationMerge`), the tree drops it and its branch points and children name the survivor (`UpdateTreeStateAfterOptimizationMerge`), and it leaves the committed list through `RemoveCommittedAt` (index notifications fire); its sidecars are left to the orphan collector. Before the piece goes, what it owned as the chain tip (where later writes land) is carried onto the committed copy of the survivor's id, which the replace step then hands to the live recording (`TreeCommitService.CarryTipOwnedStateOnFold`): its `MergeState` outright (slot state is read from the tip, so a Seal or Stash taken there wins), the spawn claim and spawn counters and the crew death respawn stamp where the head has none, and every player setting the head left at its default. A piece a supersede row names (either side) or a supply route sources from is never folded (`CommittedListOptimizer.SplitPieceFoldRefusal`, Info `CommitTree: kept split piece '<id>' beside '<id>' although the live recording covers it: <reason>`). `CommitTree`'s own `VesselNameStore.ApplyAll("commit-tree")` runs right after the fold. The survivor keeps the committed HEAD's player settings (RULE 1), a live recording without a chain id takes the committed copy's, and the touched chains are re-indexed over the tree. Committed-only recordings the live span does not cover stay. Info `CommitTree: re-absorbed split piece '<id>' into '<id>' (...)` per piece and `CommitTree: committed vessel flown again - unioned the live copy of tree id=... (strictGateReason=..., evidence=..., addedRecordings=N addedBranchPoints=N reabsorbedSplitPieces=N keptCommittedOnlyRecordings=N activeRecordingIdSwapped=<b> restoreAttemptArmed=<b>)`; the duplicate skip's Verbose line now ends `flownAgain=false evidence=<why>`. `ParsekFlight.TryGetLatestRecordedUT` forwards to the shared `TreeCommitService.TryGetLatestRecordedDataUT`, which now also owns the section test. The helpers live on a `TreeCommitService` partial so they add no type to the architecture knot. Design `docs/parsek-flight-recorder-design.md` (the committed-tree clone branch).
+
+**Residue:** a committed-tree restore attempt left armed after a true-duplicate skip (an unflown copy dropped) keeps that tree held from the optimizer until the attempt is cleared (a cold load, a commit or discard of the tree, the next arm). Not cleared on the skip path because the clear there would need a choice between the discard purge and a bare clear of the clone's held events; a duplicate carries no new flight, so the hold only postpones optimizer cuts for the session.
+
+**Tests:** `LiveFlownCommittedTreeTests` (a flown-again copy after a re-cut commits with the new leg and re-absorbs the covered split tail: no other piece of the chain overlaps the live recording, the stale tail is gone so the chain tip carries the new ending, its ledger row, branch point and parent anchor name the survivor, the survivor keeps the committed player settings and takes the tip's seal, spawn claim and a loop only the tip had; a piece a supersede row or a route names is kept; the tip-state carry table; a committed-only piece the live span does not cover stays; the covered-piece finder table; an unflown copy of a re-cut tree is still a duplicate; the three evidence kinds, predicted tails, not-a-copy; the optimizer leaves a tree with a pending live copy whole and still merges it without one; the live-copy id collection). The commit cell red with the union disabled, the optimizer cell red with the hold line removed. Review follow-up (2026-11-21): the first version kept the covered tail beside the copy and its test pinned that (`..._KeepsTheNewLegAndTheCommittedOnlyPiece`); the reworked cell was red against a finder that returned nothing. Second review follow-up (same day): the fold dropped what only the tail carried (a Seal on the tip, the spawn stamp); the extended cell and the guard cells were red before the tip carry and the fold refusal.
+
+## ~~MERGE-REVERTS-PLAYER-SETTINGS~~: a merge of a live copy reverted the seal, stash, hide, ghost, loop and group settings the player made meanwhile [FILED 2026-11-18 by the recording split / trim / merge review (finding H5), by code reading; ruled by the owner 2026-11-18 (RULE 1 "Always keep them"). FIXED 2026-11-21, branch `rsr-wp6-live-flight`; xUnit; no lane; high (a sealed slot whose rewind point the seal deleted came back open with no rewind point, blocking routes)]
+
+**Cause:** a live tree that copies a committed tree (a Re-Fly tree, a resumed committed vessel, a quicksave of either) is a clone taken before the player's later clicks. At commit `TreeCommitService.UnionRecordingsInto` (the Re-Fly union and the merge journal's `TreeMerge` union) and `MergeTreeRecordingsIntoCommitted` (every replace commit) swapped the committed recording for the clone's copy, carrying only runtime fields (`PreserveLiveRuntimeFieldsOnReplace`), so `MergeState` (Seal / Stash), `Hidden`, `PlaybackEnabled`, the loop fields and `RecordingGroups` went back to the clone's values. Seal and Stash stay enabled during a Re-Fly.
+
+**Fix (RULE 1):** the committed side wins for the fields the player owns. `TreeCommitService.PreservePlayerOwnedFieldsOnReplace` copies onto the incoming copy, before it replaces the committed one: `MergeState`, `Hidden`, `PlaybackEnabled`, `LoopPlayback`, `LoopIntervalSeconds`, `LoopTimeUnit`, `LoopStartUT`, `LoopEndUT`, `LoopAnchorVesselId`, `LoopAnchorBodyName` and `RecordingGroups` (a copy of the list). It runs in both swap sites, so the Re-Fly union, the journal's `TreeMerge` union and every replace commit keep them. Exception: the re-flown slot's own recordings (the live marker's `ActiveReFlyRecordingId`, `OriginChildRecordingId`, `SupersedeTargetId`, `ReFlownSlotRecordingIds`) take the incoming `MergeState`, which the Re-Fly commit owns; their other settings are kept too. Logs: Verbose `... kept the player's settings of the committed copy rec=<id> fields=[...] mergeStateFromIncoming=<bool>` per recording, Info `CommitTree: tree '<id>' kept the player's settings (seal, hide, ghost, loop, groups) on N replaced committed recording(s)`. The split side of RULE 1 (both halves of an optimizer split) is a separate package. Design `docs/parsek-rewind-to-separation-design.md` section 2 (slot state paragraph).
+
+**Tests:** `TreeCommitPlayerFieldsTests` (a Re-Fly union keeps another slot's seal and settings while the re-flown origin keeps the incoming merge state; a strict replace keeps them; the `UnionRecordingsInto` journal path keeps them; the pure carry, its count and list copy; the marker id set). The behaviour cells were red before the fix.
+
+## REFLY-GHOST-ONLY-AUTOCOMMIT-NO-SUPERSEDE: a ghost-only auto-commit outside flight during a Re-Fly writes no supersede rows [FILED 2026-11-18 by the recording split / trim / merge review (finding L13), by code reading. NOT A BUG (by design), decided 2026-11-20 from the code and `docs/dev/done/plans/silent-full-fidelity-autocommit.md` section 4.2; comment added at the site, branch `rsr-wp2-refly-merge`]
+
+`ParsekScenario.AutoCommitPendingTreeOutsideFlight` routes an active Re-Fly to the ghost-only commit (`ClassifyAutoCommitFidelity` reason `re-fly-active`) on purpose: a full commit would run `MergeDialog.TryCommitReFlySupersede`, the irreversible supersede the plan forbids doing without the player's click. The ghost-only commit leaves the attempt `NotCommitted` (`ApplyRewindProvisionalMergeStates` only touches `Immutable` recordings). While the session marker validates, the session and its Discard stay alive; once it does not, `LoadTimeSweep` ends the session and discards the attempt as a zombie, keeping the old flight. That is the dialog-less equivalent of Discard, which is the safe default the plan chose. Nothing to fix; the comment at the ghost-only branch now says so.
+
+## ~~MERGE-DUPLICATE-SKIP-TOASTS-MERGED~~: a duplicate-commit skip dropped the pending flight while toasting "Merged" [FILED 2026-11-18 by the recording split / trim / merge review (finding M13), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; medium (a merge reported that never happened). The commit side of owner RULE 3 ("my live flight wins") is LIVE-FLOWN-TREE-RECUT-DROPS-NEW-LEG: a copy that carries new flight is unioned in, not skipped; this entry only makes the skip of a true duplicate honest. Approach changed after review the same day: the skipped tree is dropped, not kept pending]
+
+**Cause:** `TreeCommitService.CommitTreeCore` returns early when a different tree object with the same id is committed and the incoming tree is not a richer topology (`ShouldReplaceCommittedTree`), but `CommitPendingTree` still emptied the pending slot and `MergeDialog.MergeCommit` went on to notify the ledger, run the Re-Fly supersede and toast "Merged".
+
+**Fix:** `CommitTree` / `CommitPendingTree` return whether the tree reached the timeline (a reference-equal tree already committed counts as committed). A skipped tree is dropped from the pending slot as before (Warn `CommitPendingTree: tree id=... was skipped as a duplicate of the committed tree - nothing committed, pending slot cleared`): kept pending, every route would skip it again (the dialog, `AutoCommitPendingTreeOutsideFlight`, `SafetyNetAutoCommitPending` on every OnSave), the dialog would come back on each flight entry with a Merge that does nothing, and `RewindLauncher` would refuse Rewind and Fast-forward ("Merge or discard pending tree first") with nothing to discard it. `MergeCommit` stops before the ledger notify, the Re-Fly supersede and the toasts (Warn `... commit skipped as a duplicate of the committed tree; nothing merged, pending tree dropped, no success toast`); when the player clicked Merge it shows one plain message, "Nothing new to merge: this flight is already in the timeline", and a silent auto-commit shows none. The outside-flight seam `CommitPendingTreeAsApplied` returns false so the safety net and the ghost-only auto-commit skip their notify and toast (a call with no pending tree still marks the tree applied, as before).
+
+**Tests:** `MergeDialogResourcesAppliedTests.MergeCommit_DuplicateSkip_NoMergedToast_PendingDropped_RewindNotHeld` (a committed tree plus an unchanged pending clone, through the dialog click and a silent call: slot cleared, no "Merged", the plain message only on the click) and `ScenarioAutoCommitResourcesAppliedTests.AutoCommit_DuplicateSkip_ReturnsFalse_NothingMarked_PendingDropped`, both red on the keep-pending version; the source gate `CommitPendingTreeAsApplied_CommitsBeforeMarkingApplied` follows the new `bool` signature.
+
+## ~~REFLY-INTERRUPTED-MERGE-TOASTS-MERGED~~: an interrupted Re-Fly merge toasted "Merged" and offered the route prompt [FILED 2026-11-18 by the recording split / trim / merge review (part of finding H4), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; low (a wrong message)]
+
+**Cause:** `MergeDialog.MergeCommit` ran its success tail (route prompt, "Merged - N vessel(s) ..." toast) whatever `TryCommitReFlySupersede` returned, so an `Interrupted` result showed "Merge interrupted - will finish on next load" and then "Merged".
+
+**Fix:** on `Interrupted` the commit still fires `OnTreeCommitted` (the tree is committed; ghost chains must re-evaluate) but skips the route prompt and the success toast. Warn `User chose: Tree Merge (...) - Re-Fly supersede interrupted; route prompt and the merged toast suppressed`.
+
+**Tests:** `MergeDialogResourcesAppliedTests.MergeCommit_InterruptedReFlyPath_NoMergedToast_CommittedListenersStillRun` (red under a mutation that drops the early return).
+
+## ~~REFLY-MERGE-FINISHER-NEVER-CONVERGES~~: a Re-Fly merge that fails the same way every time blocked every later load of the save [FILED 2026-11-18 by the recording split / trim / merge review (finding H4), by code reading; ruled by the owner 2026-11-18 (RULE 4). FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; high (the load aborts before the sweep, the reaper and the file collector; the journal never clears and Discard stays refused)]
+
+**Cause:** `RecordingTreeSplitter` rolls back and rethrows, `MergeJournalOrchestrator.RunFinisher` rethrew, and `ParsekScenario.OnLoad` rethrows, so a merge step that throws deterministically (bad split data, or `SupersedeCommit.ClassifyMergeStateOrThrow` when an Orbiting provisional's slot never resolves) threw on every load and the journal never cleared.
+
+**Fix (RULE 4, "Both, in that order"):** `RunFinisher` never throws. Each attempt starts from the state the load read (`RestoreFinisherEntryState` puts back the supersede rows, tombstones, the marker and its supersede target, the phase and the provisional's merge fields after a failed attempt; the split is transactional itself). Stage 1 is the ordinary retry. When it fails before Finalize, stage 2 runs in the same load: the whole old recording is hidden instead of cut (the split is skipped; a split an earlier attempt completed gets its closure root pointed back at HEAD, `RecordingTreeSplitter.TryResolveHeadOfCompletedSplit`), re-running from `TreeMerge`. When that fails too, the merge is given up: the rows and tombstones this merge wrote are removed (`RemoveSessionRows`: rows naming the provisional created at or after the journal start, so an older merge's rows survive), the journal is cleared and the marker kept, so Discard is unlocked and the old flight plays as it was (the attempt then goes the way every dropped attempt goes: the player's Discard purges it and its session rewind points, or the sweep's nested-session cleanup does once the marker no longer validates); the ledger is recalculated at once (`Give-up recalc ... reason=merge-journal-finisher-gave-up`), because the load's own recalc ran before the finisher with the removed tombstones still in place. A failure after Finalize is a completed merge (the merge state is already final): the session's rewind points are promoted and reaped as the Durable1Done step does (`TagRpsForReap` + the reaper, so the quicksaves of slots the merge left open are not left session-provisional for the sweep to delete), then the marker and the journal are cleared and the ledger recalculated (`reason=merge-journal-finisher-gave-up-after-finalize`). The escalation state is local to the one `RunFinisher` call (never on `MergeJournal`, never saved): the journal is cleared in the load that started it. A game killed between stage 1 and stage 2 leaves the journal as the load read it (the finisher writes nothing to disk), so the next load starts at stage 1 again, one more retry before the fallback. Logs `[MergeJournal] Finisher stage=<retry|whole-recording-fallback>`, `Finisher escalating`, `Finisher gave up ... Discard unlocked` / `... session rewind points promoted like a completed merge`, one screen message "Re-Fly merge could not be finished - the old flight is kept". `MergeDialog.MergeDiscard`'s doc no longer says the journal finisher rolls back. Design `docs/parsek-rewind-to-separation-design.md` section 6.12.
+
+**Tests:** `MergeJournalFinisherFallbackTests` (a deterministic Finalize failure gives up with the old flight kept and older rows untouched; a split failing every time hides the whole old recording; the fallback after a completed split supersedes HEAD too; the escalation fields are not saved; `RemoveSessionRows`). The two convergence cells red under a mutation that restores the rethrow. Review follow-up (same day): the give-up cell now also pins the recalc, and `Finisher_GivesUpAfterFinalize_KeepsTheSessionRewindPointsLikeACompletedMerge` pins the rewind point promotion; both red before the follow-up.
+
+## ~~CUT-INSIDE-TIME-JUMP-OR-TELEPORT~~: optimizer splits and Re-Fly cuts never land inside a cheat teleport or time jump (owner ruling Q18) [FILED 2026-11-18 by the recording split / trim / merge review, ruled by the owner 2026-11-18 ("move the cut to the nearest point outside it"). FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane]
+
+**Cause:** a cut inside a stretch where the vessel did not move continuously (a time jump, or a teleport between the last sample and the boundary seam the recorder writes after it) interpolates between two unrelated states: `RecordingOptimizer.SplitAtUT` synthesizes a boundary point there, and an optimizer split there gives each half a bound inside the jump.
+
+**Fix:** `RecordingDiscontinuities` (pure) collects the windows from `TimeJump` segment events (`preUT` / `postUT`) and from `isBoundarySeam` sections (last sample before the seam to the seam), and moves a cut out of them. Re-Fly: `RecordingTreeSplitter.ResolveDiscontinuitySafeCutUT` cuts at the window's start, the last recorded point before it, so HEAD still ends at or before the rewind (the chain-head carve-out reads `HEAD.EndUT <= rewindUT`); the windows are read over the vessel's chain neighbours so a re-entry after the split resolves the same cut, and the span check, the existing-tip checks, the cut and the post-split retags all use it. Info `[Splitter] Re-Fly cut moved out of <kind>[a,b]: ... rewindUT=<ut> cutUT=<ut>`. Optimizer: `RecordingOptimizer.TryPlaceSplitOutsideDiscontinuity` moves a split whose boundary lies inside a window to the section boundary at its nearer edge (the other edge next), and refuses the split when no usable boundary sits there; Verbose `Split moved out of ...` / `Split refused: ... lies inside ...`, counted as `discontinuityKept=` on the split summary. A same-body cheat teleport's own boundary is a seam the optimizer never splits; a cross-body cheat teleport writes no marker, so it is not detected.
+
+**Tests:** `RecordingDiscontinuitiesTests` (collection, edge choice, the producer's details format, optimizer move / refuse / stay) and `RecordingTreeSplitterTests.SplitOriginAtRewindUT_RewindInsideATimeJump_CutsAtTheJumpStart_AndReentryIsIdempotent`; the splitter and optimizer cells red under mutations that skip the move.
+
+## ~~REFLY-CUT-ORPHANS-RELATIVE-ANCHORS~~: Relative-frame recordings anchored to a Re-Fly-cut origin after the rewind point anchored to HEAD, which ends at the rewind [FILED 2026-11-18 by the recording split / trim / merge review (finding L12), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; low (a ghost retires early for lack of an anchor)]
+
+**Cause:** `RecordingTreeSplitter` keeps the origin's id on HEAD (which now ends at the cut) and gives TIP a fresh id. It rewrote `TrackSection.anchorRecordingId` only on TIP's own sections and on reparented debris, so any other recording with a Relative section anchored to the origin after the cut resolved against HEAD, which no longer covers that time.
+
+**Fix:** step 2.8c, `RecordingTreeSplitter.RewriteOtherRecordingAnchorsToTip`: every other committed recording's Relative section anchored to the origin that starts at or after the cut points at TIP (on the split's rollback ledger, `FilesDirty` set). A section straddling the cut cannot be cut there and stays on HEAD, counted. The session's own attempt recordings (the provisional and every recording stamped with the session) are left alone. Verbose `Step8: anchor rewrites - ... otherSections=<n> otherStraddlersKeptOnHead=<n>`.
+
+A split that throws undoes these re-points with the rest of its rollback ledger. A split that completed is not undone by a later RULE 4 give-up, so when HEAD and TIP are joined again (the given-up merge left no supersede row, and the session ends), the re-pointed sections would name TIP's vanished id: the optimizer's merge pass now moves every other recording's reference to an absorbed recording onto the merge target (`CommittedListOptimizer.RepointAnchorsAfterOptimizationMerge`: Relative section anchors and `ParentAnchorRecordingId`; Info `Optimization: anchors re-pointed <absorbed> -> <target> (sections=N parentAnchors=N)`), which also covers any other optimizer merge of a recording something anchors to.
+
+**Tests:** `RecordingTreeSplitterTests.SplitOriginAtRewindUT_OtherRecordingsRelativeSectionsAfterTheCut_FollowTip` (red under a mutation that skips the walk); `OptimizerMergeAnchorRetagTests.OptimizerMerge_RepointsOtherRecordingsAnchorsFromTheAbsorbedIdToTheTarget` (red before the merge-pass re-point).
+
+## ~~REFLY-MERGE-OPTIMIZER-PASS-AFTER-MERGE~~: the optimizer pass right after a Re-Fly merge (owner ruling Q6) [FILED 2026-11-18 by the recording split / trim / merge review, ruled by the owner 2026-11-18 ("Yes, right after merge"). FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane]
+
+**Cause:** the merge dialog's optimizer pass runs before the supersede step while the Re-Fly marker is live, and `CommittedListOptimizer.RunOptimizationSplitPass` defers the active provisional while a marker is live, so the new attempt stayed one recording until the next commit or cold load.
+
+**Fix:** `MergeJournalOrchestrator.RunPostMergeOptimizationPass` runs one `CommittedListOptimizer.RunOptimizationPass` as soon as the journal and the marker are cleared: on the live merge before Durable Save #3 (so that save holds the split), and at the end of the load-time finisher. It never runs while a journal or a marker is live, and a throw is logged and the merge stands. Info `[MergeJournal] Post-merge optimization pass ran sess=<sid> route=<merge|finisher>`.
+
+**Tests:** `MergeJournalPostMergeOptimizationTests` (live merge, finisher, a throwing pass); all red under a mutation that skips the pass. `MergeJournalOrchestratorTests.CrashAtBegin_Finisher_KeepsOptimizerSplitTailOfTheFork` gives its optimizer-split tail a different phase from its head, the shape a real split leaves (with one phase the new pass rightly joins them).
+
+## ~~REFLY-FALLBACK-SEALS-SUBORBITAL~~: the slot-less merge fallback sealed a sub-orbital Re-Fly that the normal path keeps open [FILED 2026-11-18 by the recording split / trim / merge review (finding M11), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; low (reached only when the slot lookup fails)]
+
+**Cause:** when `SupersedeCommit` cannot resolve the Re-Fly's slot it falls back to `TerminalKindClassifier` and flipped every outcome but a crash to `Immutable`. The tip's `MergeState` is the slot's open / closed bit (design section 6.24), and the slot-aware path keeps a `SubOrbital` ending open (`CommittedProvisional`, section 4.9: a sub-orbital arc is still in flight), so the fallback sealed a slot the main path leaves open. `Orbiting` never reaches the fallback (`RequiresSlotAwareMergeClassification` refuses to fall back for it).
+
+**Fix:** `SupersedeCommit.FallbackMergeStateForTerminal`: `Destroyed` and `SubOrbital` keep the slot open (`CommittedProvisional`); every other terminal, and a recording with no terminal, commits `Immutable`.
+
+**Tests:** `SupersedeCommitTests.FallbackMergeStateForTerminal_AgreesWithTheSlotAwareVerdict` (theory); `SubOrbitalStableLeaf_SlotLookupFailure_DoesNotThrow_FallsBackToInFlight` now expects `CommittedProvisional` (its old `Immutable` pinned the bug). Red under a mutation that restores the old mapping.
+
+## ~~REFLY-HEAD-TIP-REGLUED-BEFORE-MERGE-ROWS~~: the optimizer could join a Re-Fly merge's HEAD and TIP back together before the merge finished [FILED 2026-11-18 by the recording split / trim / merge review (finding M8), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; medium (the old flight stays whole beside the new attempt: a duplicate ghost and untombstoned ledger rows)]
+
+**Cause:** the cold `ParsekScenario.OnLoad` runs the committed-list optimizer (phase `optimization`) before the merge journal finisher (phase `merge-journal`). Between the merge's `split` save and Durable Save #1 the supersede rows that keep `CanAutoMerge` off HEAD + TIP do not exist yet, so a HEAD and TIP with no ghosting-trigger event were offered as a merge candidate and glued back.
+
+**Fix:** `CanAutoMerge` refuses a pair naming a recording a live Re-Fly session names (the ids come from `CommittedListOptimizer.CollectLiveReFlyMergeHeldIds`, which the merge pass hands to `FindMergeCandidates` / `CanAutoMerge`: the Recording-module optimizer must not name Rewind types, a backward layer pair the architecture ratchet holds): the marker's supersede target (TIP once the split ran) and its origin (HEAD), and while a merge journal is active also the provisional. The marker and journal load in the OnLoad prologue, before the optimizer. Without a journal the provisional stays mergeable (a live commit pass may merge the attempt and `MergeDialog.ResolveOptimizedRecordingSurvivor` follows it), as does an in-place continuation whose provisional is the origin. Verbose `CanAutoMerge: rejecting merge of '<a>' + '<b>' - <marker supersede target|marker origin|merge journal provisional> sess=... journal=... (Re-Fly merge not finished)`.
+
+**Tests:** `RecordingOptimizerTests.CanAutoMerge_JournalActive_RejectsHeadPlusTipBeforeTheRowsExist` (red under a mutation that disables the check).
+
+## ~~OPTIMIZER-MERGE-INTO-DESTROYED-DELETES-RECORDING~~: the optimizer deleted a recording it "merged" into a destroyed one [FILED 2026-11-18 by the recording split / trim / merge review (finding M9), by code reading. FIXED 2026-11-20, branch `rsr-wp2-refly-merge`; xUnit + mutation; no lane; low reachability, high impact (a recording, its ledger tags and its sidecars deleted)]
+
+**Cause:** `RecordingOptimizer.MergeInto` skips a merge into a target with `VesselDestroyed` (a destroyed recording is sealed at its terminal UT) but returned the absorbed id as if it had merged, so `CommittedListOptimizer.RunOptimizationMergePass` retagged the absorbed recording's ledger rows, removed it from the committed list and deleted its sidecars. Reachable because a split moved the terminal state onto the second half but left `VesselDestroyed` on the first, so a split crashed flight had a head reading destroyed with no terminal, and `CanAutoMerge` offered it as a merge target.
+
+**Fix:** `MergeInto` returns null on that skip (Warn `MergeInto: refused - target is already destroyed ... nothing merged, nothing removed`) and the merge pass stops without touching either recording (Warn `Optimization: merge of ... refused - nothing removed`); `CanAutoMerge` refuses a destroyed target up front; the split moves `VesselDestroyed` with the terminal onto the second half (Verbose `Split: VesselDestroyed moved with the terminal onto the second half`).
+
+**Tests:** `RecordingOptimizerSplitAtUTTests.SplitAtUT_CrashedFlight_VesselDestroyedMovesWithTheTerminal`, `MergeInto_DestroyedTarget_RefusesAndCanAutoMergeRefusesUpFront`; `IdentityLossClassifierTests.RecordingOptimizer_MergeInto_SkipsDestroyedTarget` now expects null (its old expectation pinned the bug). All three red under a mutation that restores the old code.
+
+## ~~SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS~~: a probe left on an escape trajectory ended SubOrbital and never became real [FILED 2026-11-18 by the recording split / trim / merge review (design question 4), owner ruling Q10 "spawn on its path". FIXED 2026-11-20, branch `rsr-wp7-spawn-ends`; xUnit (`EscapeTrajectorySpawnTests`); no lane flies it yet; medium (a vessel the player left flying vanished at the end of its replay)]
+
+What the player saw: commit a flight with a probe on its way out of Kerbin (or the Mun), rewind,
+and watch the replay end: the probe's ghost disappears and no vessel is left on the path.
+
+Cause. KSP reports such a vessel ESCAPING (`Vessel.updateSituation`, decompiled 1.12.5: outside
+the atmosphere, `eccentricity >= 1` or `ApR >= sphereOfInfluence`, whatever the periapsis), and
+`RecordingTree.DetermineTerminalState` folds ESCAPING into `TerminalState.SubOrbital`, which
+`GhostPlaybackLogic.IsSpawnableTerminal` never admits (the #45 rule written for FLYING). The
+terminal orbit was captured (`ParsekFlight.CaptureTerminalOrbit` covers ESCAPING), but
+`VesselSpawner.HasRecordedTerminalOrbit` and the orbit seeds required `semiMajorAxis > 0`, so a
+hyperbolic orbit could not have been spawned anyway, and nothing carried an orbit across a sphere
+of influence change.
+
+Why no new `TerminalState` member (decided from the code). A dedicated `Escaping` member would be
+the cleaner label, but about 25 consumers switch on the terminal state, and the Re-Fly ones in
+`Rewind/` (`UnfinishedFlightClassifier`: an Orbiting / SubOrbital non-focus slot is an Unfinished
+Flight; `ReFlyAutoSealPreview`: Orbiting seals the focus slot) would silently change meaning for
+escaping vessels; `Orbiting` is wrong too (it means a stable bound orbit to the Re-Fly seal, the
+timeline "Ends orbiting X" text and route endpoints). A new member also could not reach recordings
+already committed. So the terminal state stays `SubOrbital` (in flight, unconcluded, labelled
+"Sub-orbital" as before) and only the spawn changes.
+
+Fix. `Recording.IsEscapeTrajectoryTerminal` / `EscapeTrajectoryTerminal.IsEscapeTerminal`: a
+`SubOrbital` terminal with a propagatable recorded terminal orbit and escape evidence (an open
+conic, or the snapshot's ESCAPING situation for a closed conic whose apoapsis is beyond the sphere)
+is admitted by `TryRejectSpawnForTerminalAndSituation` and deferred to the flight scene at the Space
+Center like an Orbiting one. It takes the orbit spawn route (`ShouldUseRecordedTerminalOrbitSpawnState`,
+`ShouldRouteThroughSpawnAtPosition`), seeded from the terminal orbit itself and carried from its
+epoch to the spawn UT by `EscapeTrajectoryTerminal.ResolveAtUT` (the scene-exit finalizer's
+two-body `BallisticExtrapolator` over the live bodies: sphere-of-influence exits and encounters);
+`VesselSpawner.ResolveEscapeSpawnBody` gives the end-of-recording, chain-tip and Ready-reference
+spawns the body the vessel is in at the spawn UT. A path that ends in an atmosphere or on a surface
+before the spawn UT, or cannot be followed, is refused (`Cannot spawn terminal orbit safely ...
+terminal-orbit-resolution-failed`, with the `escape path refused` line naming the reason). The
+terminal-orbit safety check runs on the spawn-UT orbit; for a conic that leaves the sphere and is
+past periapsis the periapsis it judges is the current altitude (`ResolveEscapeEffectivePeriapsisAltitude`),
+so a direct-ascent escape whose periapsis is inside the planet spawns, and the same conic flown
+inbound is refused. `ComputeSpawnMeanAnomaly` propagates a hyperbolic mean anomaly without wrapping.
+A spawned escape vessel that dies is abandoned like a terminal-orbit vessel (BUG-C path). Log lines:
+`Escape-trajectory terminal admitted for spawn`, `Escape spawn body resolved through patched conics`,
+`escape terminal orbit for rec=...`, `Escape spawn safety: ... judgedPeriapsis=`.
+
+Tests: `EscapeTrajectorySpawnTests` (evidence truth table, the spawn decision and KSC deferral
+(red on the old code), the spawn routes, the hyperbolic mean anomaly, the effective periapsis and
+the safety verdicts, `ResolveAtUT` in-sphere / after the sphere exit / diving into the atmosphere /
+unknown body).
+
+Review follow-ups (2026-11-20, same branch):
+- Chain tips. A chain tip that spawns on its recorded terminal orbit (Orbiting, or an escape)
+  and whose orbit cannot be resolved at the spawn UT fell back to the snapshot / last trajectory
+  point with no orbit override, so a refused escape path would have materialized mid-coast
+  (#45). Both chain-tip spawns (`VesselGhoster.SpawnAtChainTip`, `TrySpawnBlockedChain`) now
+  refuse through `StopChainTipForUnresolvedTerminalOrbit`, which stamps the end-of-recording
+  path's `terminal-orbit-resolution-failed` CannotSpawnSafely and releases the collision block
+  (`Chain tip spawn refused: recorded terminal orbit unresolved`). This also changes an Orbiting
+  tip whose orbit cannot be built: refused like the end-of-recording spawn, not placed at its
+  last point. To keep that refusal from catching good tips, the chain-tip, blocked-tip ghost and
+  Ready-reference spawns now pick the body as the end-of-recording spawn does
+  (`VesselSpawner.ResolveSpawnBodyName` / `ResolveSpawnBody`): an orbit-route spawn reads the
+  recording's preferred endpoint body before its last trajectory point, which can sit in another
+  sphere (a burn at the Mun, then a rails coast out to a Kerbin orbit adds no point).
+
+- Consumers. `GhostPlaybackLogic.HasSpawnableTerminal(Recording)` (a spawnable terminal or an
+  escape) is now the one "does this end in a vessel" test for the breakup-continuous effective
+  leaf (`TryRejectSpawnForTreeShape`, `IsFinalSpawnSegment`, `TimelineBuilder.IsBreakupContinuousSpawnLeaf`),
+  the stable-leaf snapshot refreshes (`ParsekFlight.Finalization`, `ShouldRefreshActiveEffectiveLeafSnapshot`),
+  the ghost CommNet continuation hold and the chain-tip route cargo scan; the lazy snapshot
+  re-hydration also reads a SubOrbital with a propagatable terminal orbit
+  (`Recording.IsEscapeTrajectoryTerminalCandidate`, since the closed-conic evidence is in the
+  snapshot); the auto-merge scene-exit release keeps an escape's snapshot
+  (`ShouldKeepVesselSnapshotForSpawnAtEnd`). Left Orbiting-only, noted: the terminal map-presence
+  retention (`ParsekPlaybackPolicy.ShouldRetainMapPresenceForTerminalRealSpawn`, whose map orbit
+  code assumes a closed conic in one sphere) and the optimizer's tail trim (`RecordingOptimizer`,
+  owned by another package; it refuses to trim a non-spawnable terminal, the safe side).
+
+- Patch-start epoch. A terminal orbit captured on rails carries the epoch of its patch start,
+  the last sphere-of-influence crossing, where the state sits on the boundary and the
+  extrapolator's immediate exit / entry tests are numerical noise (a Moon flyby could be carried
+  on the parent conic, or an escape bounced to the transition cap). `ResolveAtUT` now starts at the
+  recording's end UT when that is later than the epoch, and a start still at the epoch does not
+  take an immediate crossing of the boundary it sits on (`Extrapolate`'s new initial
+  suppressions, `EscapeTrajectoryTerminal.ResolveBoundarySuppressions`).
+
+Residue: (a) the label still reads Sub-orbital for an escaping vessel; (b) live-proven by no lane
+(recommended: a probe committed on a Kerbin escape, rewound, the end spawn read in flight before and
+after the sphere exit); (c) the extrapolator samples encounters at 3600 s, so a very short moon pass
+between the end and a much later spawn UT can be missed (the scene-exit finalizer shares the limit).
+
+## ~~SPAWN-RESTING-ON-ROCK~~: a vessel that ends sitting on an asteroid or comet spawned on its own orbit, not on the rock [FILED 2026-11-18 by the recording split / trim / merge review (design question 5), owner ruling Q11 "on the rock". FIXED 2026-11-21 by option B (owner ruling 2026-11-21, "Yes, both"), branch `rsr-wp9-orbit-spawn-clear`; xUnit `OrbitSpawnClearanceTests`; in-game `OrbitSpawnClearance` (never flown); low-medium (a lander parked on a rock reappeared inside it, beside it, or blocked)]
+
+Cause. "Landed on" a rock is not a KSP state: `Part.LandedCollisionChecks` (decompiled) sets
+`GroundContact` / `Vessel.Landed` only for terrain colliders, so a vessel resting on a rock ends
+ORBITING (or SUB_ORBITAL / ESCAPING) and spawns from its own terminal orbit. The ordinary overlap
+check skips SpaceObject vessels (`SpawnCollisionDetector.ClassifyLoadedVesselHit`), so a loaded rock
+never blocked the spawn, and an unloaded one has no colliders: the lander could appear inside the
+rock. Klaw-attached is different and was already right: a grab couples the rock part into the
+grabbing vessel, which records and spawns as one vessel with the rock (owner rulings 2026-11-15,
+ROCK-SPAWN-BOUNDS-TOO-SMALL). The Klaw is the supported way to stay attached to a rock.
+
+Fix (ruling: no new save data, no recording change, every use logged). Every recorded-terminal-
+orbit spawn site with a collision check (end-of-recording, both chain-tip sites) first looks for a
+rock at the propagated spawn point: a loaded part with `ModuleAsteroid` / `ModuleComet` (or a rock
+part name) whose colliders the spawn box reaches, or an unloaded SpaceObject whose size-class
+sphere (`RockHalfExtentForClass`, from the saved `prefabBaseURL` or `DISCOVERY size`) is that close
+(`SpawnCollisionDetector.TryFindRockBlocker`). Found: the spawn is pushed straight out from the
+rock's centre in 0.5 m steps until its bounds clear the rock's colliders by 1 m (unloaded: the
+size-class radius plus the bounds radius plus 1 m), and takes the rock's orbital velocity through a
+co-moving orbit built at the spawn UT (`ResolveRockPushOut`, `OrbitSpawnClearance.TryBuildCoMovingOrbit`),
+so it moves with the rock and drifts slowly like stock. The terminal-orbit spawn safety check is re-run
+on that orbit. A pushed spot another loaded vessel blocks takes the blocked retry; that final
+check leaves out the rock part itself, since a rock held by another vessel's Klaw is a part of that
+Ship / Probe vessel and would otherwise block every push-out at the 5 m padding (the holding
+vessel's other parts still block). Logged:
+`[SpawnCollision] Rock push-out: ...` and `Orbit spawn clearance: ... outcome=RockPushedOut`. Landed
+spawns are unchanged (the ordinary check still skips rocks). Not done (option A, not ordered): no
+rock identity or relative pose is recorded, so a rock that drifted after a rewind is not followed;
+the spawn reacts only to a rock that is at the spawn point.
+
+Tests: xUnit `OrbitSpawnClearanceTests` (push-out search, direction, clearance distance, wiring of
+the rock check before the phase search); in-game `OrbitSpawnClearance` cell
+`OrbitSpawnInsideARock_IsPushedOutAndCoMovesWithTheRock` (spawns a PotatoRoid, isolated only).
+Residue: no lane flies it (recommended: a lander resting on a loaded asteroid, rewound, end spawn in
+flight beside the rock).
+
+## ~~SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS~~: the end-spawn collision walkback for an orbit spawn tested positions the vessel is not placed at [FILED 2026-11-20 from the WP7 review (asteroid / comet second opinion), by code reading. FIXED 2026-11-21 by option (b) (owner ruling 2026-11-21, "Yes, both"), branch `rsr-wp9-orbit-spawn-clear`; xUnit `OrbitSpawnClearanceTests`; in-game `OrbitSpawnClearance` (never flown); low-medium (an orbit spawn blocked by a loaded vessel could still appear inside it, or be abandoned)]
+
+Cause. When an end-of-recording orbit spawn (an Orbiting terminal with a recorded terminal orbit,
+or an escape path) overlapped a loaded vessel, `VesselSpawner.CheckSpawnCollisions` walked back
+along the recorded trajectory, reading each body-fixed point at the spawn UT (so a candidate turned
+with the planet), and the spawn then went through `SpawnAtPosition` with the orbit override, which
+places a non-landed ProtoVessel by its ORBIT node: a "cleared" walk still spawned inside the
+blocker, and an exhausted walk abandoned a spawn whose blocker could have moved. The chain-tip
+walkback (`VesselGhoster.TryWalkbackSpawn`) had the same shape and spawned an orbital tip at an old
+body-fixed point with a reseeded orbit.
+
+Fix. An orbit-route spawn that overlaps a loaded vessel moves a little ahead or behind along its OWN
+orbit: same elements, the spawn epoch's mean anomaly shifted by the time the along-track offset
+takes (`OrbitSpawnClearance.TryBuildPhaseShiftedOrbit`). The bounded search tries +4, -4, +6, -6 m
+... growing by 1.5 per pair to 1000 m (30 candidates) and takes the first whose bounds overlap no
+loaded vessel and no rock (`SpawnCollisionDetector.SearchClearOrbitPhase`); the terminal-orbit spawn
+safety check is re-run on the shifted orbit. No clear spot within 1000 m takes today's blocked
+outcome for a spawn that cannot walk back: retry next frame, abandon after 150 blocked frames
+(`VesselSpawner.BlockOrbitRouteSpawn`); a chain tip stays blocked and retries every second at its
+orbit propagated to that second (`TrySpawnBlockedOrbitChainTip`, no ghost-extender position, no
+walkback). Never spawned overlapping. The duplicate-blocker recovery (#112) still runs first.
+Landed, splashed, EVA-endpoint and breakup spawns keep the walkback. The Space Center and Tracking
+Station spawns have no collision check (nothing is loaded there) and are unchanged. Logged:
+`CheckSpawnCollisions: orbit phase shift moved the spawn of #N ...`, `Orbit spawn clearance: ...`,
+`Orbit phase search: ...`, `Chain tip orbit spawn moved: ...`.
+
+Tests: xUnit `OrbitSpawnClearanceTests` (schedule, mean-anomaly shift and wrap, searches, the
+blocked retry and abandon, wiring gates at all three sites, red on the old sources); in-game
+`OrbitSpawnClearance` cell `OrbitSpawnOnTheActiveVessel_MovesAlongItsOwnOrbitToAClearSpot`.
+Residue: no lane flies it (recommended: an orbit spawn next to a parked station).
+`EX-2-single-point-held-ghost` reached its D18 hold through this path (its `single-point-hold`
+orbit spawn blocked by the co-orbiting probe): the phase search would now clear at about 230 m and
+spawn it, so EX-2 takes its own preset `single-point-hold-wide` (the same shape with the outriggers at
+1300 m instead of 150 m, so every phase candidate still covers the probe) and the lane is re-pinned to the orbit route's no-clear-spot block, with the same hold,
+retries and timeout; re-flight owed. The non-orbit single-point branch EX-2 used to read is now the
+in-game cell `SinglePointSpawnWithNoTerminalOrbit_KeepsTheSinglePointRetry` (a non-orbit single point
+cannot be held in LKO, and no committed fixture has a ground host outside the KSC circles).
+`SPW-11-rsc-warp-orbital-held-target` keeps `single-point-hold` and its 150 m box (live-proven
+2026-11-20 with the target spawned; the phase search still clears and spawns there).
+`SPW-5-physics-warp-end-spawn-near-active` would read a phase shift if its probe ever blocked, which
+its LeafPlacement verdict may report as `phase`.
+
 ## ~~DEBRIS-LIFETIME-LOST-ON-PROMOTION~~: a debris piece the player switched to lost its 60 s limit [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a promoted booster recorded until it crashed; GS-11 measured it)]
 
 Cause: the debris time limit lived only in `BackgroundRecorder.debrisTTLExpiry`. A promotion to the
@@ -968,7 +1299,7 @@ From the 2026-11-18 test-gaps list (Batch 2, the cheap lane items). All stock-mi
 - `S0.16-switch-segment-across-f5-f9-scoped-discard` (daily, new): S0.13's twin with an F5 / F9 between the arming switch and the scoped auto-discard; one session id by backreference from `armed` through `session saved` / `session loaded` to the auto-resolve and the prune (`ownedRecordingIds=1 removedRecordings=1`), one committed tree at the exit. The F9 needs `StopRecording` first (the seam refuses a load over a live recorder outside a Re-Fly).
 - `VN-14-refly-rename-merge` (nightly, new): VN-2's twin ending in Merge; both name decisions survive into the save and load back (`decisions=2`), the cold apply pass renames no leg, no `Revert undo` runs; report-only census of the merged legs' names.
 
-## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; OPEN: SUB-3's re-flight and its gate decision (step 4)]
+## SUBMARINE-TEST-KIT: no lane puts a vessel under the water [FILED 2026-11-17 (owner request), branch `wip/sub`, harness only, no C# change; FORGED 2026-11-18: FORGE-psub-pad PASS (run 2026-11-18_0056), `psub-pad` and `psub-splashed` committed, hand-over steps 1-3 done, SUB-1..3 tier operator; READ 2026-11-18 (hand-over a000551b): SUB-1 (run 2026-11-18_0110) and SUB-2 (_0112) PASS and pinned, SUB-3 (_0115 / _0117) INVALID x2 on a psub_dive rise defect, fixed; RE-FLOWN 2026-11-20 (run 2026-11-20_2149) PASS, LIVE-PROVEN; OPEN: SUB-3's gate decision (step 4)]
 
 The recorded-depth end spawn (`VesselSpawner.ResolveSplashedSpawnAltitude`, PR #2715) and the
 `LeafPlacement height:` depth check have no live subject below sea level: BOAT-1's Mallard floats.
@@ -1043,7 +1374,14 @@ THE HAND-OVER, in order (PC; the forge is operator tier):
      the flight's frames (the old machine settles at 66.24, the fix clicks ballast at 66.74, 78 m
      above the guard) and flies a model fitted to both flights at the pessimistic k = 0.67: the
      fixed rise turns at 98.5 m and surfaces; with the first-ballast rule alone it still reaches
-     164.8 m. OPEN: re-fly SUB-3, then decide which decouple / debris / section facts to gate.
+     164.8 m. ~~OPEN: re-fly SUB-3~~, then decide which decouple / debris / section facts to gate.
+   - SUB-3 RE-FLOWN 2026-11-20 `2026-11-20_2149` PASS attempt 1 (245 s, runner run
+     `tip-spawn-reflight-2026-11-20`, Debug DLL 72189e6d from main c11d6cde2), MISSION-OK: the
+     fixed rise turned at 88.9 m (one `rise-cut` at 88.0 m) and surfaced at UT 204.4 after five
+     separations (three floats, two ballast pairs). READ for the gate decision (nothing armed):
+     five `DECOUPLE emitted: ... controlledChildren=0 debris=2`, five JointBreak branch points,
+     recordings 5 (PSUB-1 1, PSUB-1 Debris 4, all Splashed) against ten debris vessels live,
+     rewindPoints 0. Tag `flown`, status row Live-proven. OPEN: which of these to gate.
 
 What the first flights check (build_psub_craft.py C1-C5, and the host): the craft loads whole on
 the pad (C1); each stage click drops exactly one pair, floats first (C2); the sub sinks inside three
@@ -1232,7 +1570,7 @@ leaves a past-end unspawned recording owed, and the scene's own end-spawn path m
 (recorded terminal orbit for Orbiting ends). Whether the crew unreserve should still run for a
 recording that will spawn is part of the design question.
 
-## END-SPAWN-LANES-2026-11-17: harness lanes for end spawns at far bodies, under high warp and with a busy player [FILED 2026-11-17, branch `wip/spawnlanes2`, harness only; eleven lanes AUTHORED; FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): eight LIVE-PROVEN, three re-pinned on spec errors; OPEN: the three re-flights, and two seam proposals]
+## END-SPAWN-LANES-2026-11-17: harness lanes for end spawns at far bodies, under high warp and with a busy player [FILED 2026-11-17, branch `wip/spawnlanes2`, harness only; eleven lanes AUTHORED; FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): eight LIVE-PROVEN, three re-pinned on spec errors; RE-FLOWN GREEN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20`): SPW-4 / SPW-6 / SPW-11 LIVE-PROVEN, all eleven green; OPEN: the two seam proposals]
 
 The lanes (each `tier = "operator"` until measured; rows in `docs/dev/autotest-status.md`):
 - `SPW-1` / `SPW-3` / `SPW-10`: a segment of a parked orbit at Laythe / Tylo / the Mun is recorded,
@@ -1278,8 +1616,14 @@ NOT GREEN, every one a SPEC error (no product defect; the deciding line is in ea
 Observation, not a defect: the same declutter removes `eva2-lko-crewed`'s four pad debris on
 every reload that does not turn it off, so a header that says a lane "flies the pad debris"
 (EVA-15, SPW-7, SPW-9) describes the authored intent; those lanes passed with whatever focus
-stock gave them. Re-fly order: SPW-11, then SPW-6 and SPW-4 (each ~20 min if the warp still
-crawls, ~3 min if the fix holds).
+stock gave them. ~~Re-fly order: SPW-11, then SPW-6 and SPW-4 (each ~20 min if the warp still
+crawls, ~3 min if the fix holds).~~
+RE-FLOWN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20`, 2 slots, Debug DLL sha256 prefix
+72189e6d from main c11d6cde2; read on branch `tip-spawn-flights`), each PASS attempt 1: `SPW-11`
+`2026-11-20_2152` (84 s; the target spawned again, so the collision branch is still unread),
+`SPW-6` `_2200` (231 s) and `SPW-4` `_2203` (233 s), both at `maxRate=100000` with DECLUTTER_KSC
+off (the fix held, ~4 min each). SPW-4 / SPW-6 batches pinned whole (`passed=1 failed=0
+skipped=0`), out of `INTERIM_PIN_IDS`; tags `flown`, status rows Live-proven.
 ## ~~SPAWN-TS-STACK-NO-DE-OVERLAP~~: two landed deliveries that end on one spot while the player is in the Tracking Station are spawned inside each other [FILED 2026-11-17 by the end-of-recording spawn audit (END-SPAWN-SCENE-LANES-2026-11-17), by code reading; lane `TSS-3-two-deliveries-same-spot-ts` authored to red on it, NEVER FLOWN. ~~done~~ 2026-11-17, branch `wip/spawnfix3`; NOT YET FLOWN (TSS-3 is its regression lane)]
 
 What the code does. The Space Center end spawn nudges a Landed / Splashed spawn clear of every
@@ -1324,7 +1668,7 @@ nudge patterns cover both sites. TSS-3 re-pinned: no longer an expected red, its
 pins kept, plus the de-overlap line. Tests: `TipSpawnPlacementTests` (`EndOfRecordingDeOverlap_*`,
 `Wiring_EndOfRecordingSpawn_DeOverlapsAgainstUnloadedLandedVesselsBeforeTheCollisionCheck`).
 
-## END-SPAWN-SCENE-LANES-2026-11-17: lanes for end-of-recording spawns in the Tracking Station and at the Space Center, and a placement check on the existing end-spawn lanes [FILED 2026-11-17 (the end-of-recording spawn audit). FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): KSS-1 LIVE-PROVEN, EVA-15 / SEAT-2 re-flown green, TSS-1..3, KSS-2 and SS-1 re-pinned on spec errors, re-flights owed. AUTHORED 2026-11-17, branch `wip/spawnlanes1`, harness and test-generator code only; NEVER FLOWN; OPEN for the first flights]
+## END-SPAWN-SCENE-LANES-2026-11-17: lanes for end-of-recording spawns in the Tracking Station and at the Space Center, and a placement check on the existing end-spawn lanes [FILED 2026-11-17 (the end-of-recording spawn audit). FLOWN 2026-11-17 (runner run `spawn-flight-2026-11-18`): KSS-1 LIVE-PROVEN, EVA-15 / SEAT-2 re-flown green, TSS-1..3, KSS-2 and SS-1 re-pinned on spec errors; ~~re-flights owed~~ RE-FLOWN GREEN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20` + TSS-1 serially after a re-host): all five LIVE-PROVEN, every batch pinned whole. AUTHORED 2026-11-17, branch `wip/spawnlanes1`, harness and test-generator code only; first flights done 2026-11-17, re-flights done 2026-11-20]
 
 Five new lanes, all `tier = "operator"`, tag `pending-flight`, one `RunTests LeafVesselPlacement`
 step each (loose interim batch pin, `INTERIM_PIN_IDS`):
@@ -1402,7 +1746,29 @@ prefix bd950021 from main 64c68379; read on branch `wip/spawnread`):
 - `KSS-2` `_2336` PARSEK-FAIL on one token, SPEC: the Tracking Station paid the spawn on its
   first handoff tick inside the load, 0.12 s before the `kss2-ts` mark the token was anchored
   on; re-anchored on the load's `loadgame start ... requestedScene=TrackingStation` line.
-Re-fly order: SS-1, TSS-2, KSS-2, TSS-3, TSS-1 (all short), each re-pin read off its own log.
+~~Re-fly order: SS-1, TSS-2, KSS-2, TSS-3, TSS-1 (all short), each re-pin read off its own log.~~
+RE-FLOWN 2026-11-20 (runner run `tip-spawn-reflight-2026-11-20`, 2 slots, Debug DLL sha256 prefix
+72189e6d from main c11d6cde2; read on branch `tip-spawn-flights`), each PASS attempt 1, each
+LeafVesselPlacement batch `total=1 passed=1 failed=0 skipped=0`, pinned whole, out of
+`INTERIM_PIN_IDS`, tag `flown` (SS-1 is nightly, untagged), status rows Live-proven:
+- `SS-1` `2026-11-20_2149` (153 s): both spawns, the census green after the new `SaveGame`.
+- `TSS-2` `_2153` (193 s): the handoff pid on the mark's rec0, placement ok at the Mun.
+- `KSS-2` `_2154` (205 s): deferred at the Space Center, paid in the Tracking Station.
+- `TSS-3` `_2157` (173 s): both probes >= 10 m from anything (2852 m / 2845 m), placement 2/2
+  in FLIGHT (distM 0.1 / 14.9), the live proof of SPAWN-TS-STACK-NO-DE-OVERLAP.
+- `TSS-1` `2026-11-20_2240` (227 s, serial `run.py`), its fifth flight. Flights 2-4 were
+  INVALID(driver-verdict-mismatch), each with its retry, the recorded drive moving nothing:
+  `_2157` / `_2159_a2` on `pad-runway-pair` (4.6 m; that rover, commanded from a stack probe
+  core, never drove in any lane), re-hosted on `miner-rover-landed` (RVC-1's rover);
+  `_2232` / `_2234_a2` 0.0 m (no reference part in the save, so `PartAction controlfrom` on
+  the probe core, as RVC-1 does); `_2236` / `_2237_a2` still 0.0 m with the control point
+  applied. The fifth flight added a 1x `WarpToUT` to UT 60 before the drive and moved 518.3 m.
+OBSERVATION, no product change: a DriveVessel issued ~1.5-2 s after a FLIGHT load did not move
+on two hosts (`pad-runway-pair`'s rover 4.6 m at 0.19 m/s, `miner-rover-landed`'s 0.0 m with
+its control point set, startUT 32.62); on `miner-rover-landed` a 1x wait to UT 60 (RVC-1's first
+drive time) fixed it (518.3 m at up to 25.09 m/s); `pad-runway-pair` was not re-tried with the
+wait. Not explained; a drive lane waits first (TSS-1 header). Filed here as an observation,
+not a defect.
 
 ---
 
@@ -4135,7 +4501,7 @@ in parallel in the cloud):
    commit `recordings=4`, both leaves Landed, the replay hid `pid=4129919072` on rec=2 and
    `pid=2576286852` on rec=3; ghost lifecycle 4 / 4 balanced (report-only). Recordings 4 now pinned
    exactly (count, commit line, mark); tag `flown`.
-3b. [ ] (AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
+3b. [x] ~~(AUTHORED 2026-11-17 as `AIR-3-plane-drone-midair-collision`; FLOWN TWICE 2026-11-17 INVALID,
    re-tuned on branch `air3tune`; RE-FLOWN TWICE 2026-11-17 INVALID (no release), the release
    fixed on branch `air3tune`; FLOWN A FIFTH TIME 2026-11-17, the collision flown, PARSEK-FAIL on
    one spec error, re-pinned on branch `wip/air3read`; FLOWN A SIXTH TIME 2026-11-17 (run
@@ -4144,7 +4510,10 @@ in parallel in the cloud):
    pid=839797731`) before its part deaths arrived, so no `Part death on background vessel` line
    for it (OnBackgroundPartDie skips a destroyed recording by design); the pin now also accepts
    the drone's `[Flight] Background vessel destroyed: pid=<drone> recId=` line, re-pinned on
-   branch `wip/spawnread`, re-flight owed.)
+   branch `wip/spawnread`; FLOWN A SEVENTH TIME 2026-11-20 (run `2026-11-20_2206`, runner run
+   `tip-spawn-reflight-2026-11-20`, 783 s) PASS attempt 1, LIVE-PROVEN: the drone destroyed
+   whole again, matched by that destruction branch; tag `flown`.)~~ Done 2026-11-20: LIVE-PROVEN
+   on its seventh flight, `2026-11-20_2206` PASS attempt 1 (783 s).
    Two airplanes flying into each other (owner request 2026-11-16): two recorded aircraft collide
    in the air; checks both recordings end at the impact and both ghosts replay it.
    Shape: the craft `AIR Drone Carrier` (`harness/tools/build_air_drone_carrier.py`, in

@@ -731,10 +731,10 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.Destroyed, target.TerminalStateValue);
             Assert.Equal(initialPointCount, target.Points.Count);
             Assert.Equal(initialPartEvents, target.PartEvents.Count);
-            // Caller pattern: MergeInto returns absorbed's id so the caller can
-            // delete it. Even on the skip path, returning the id keeps that
-            // contract intact.
-            Assert.Equal("merge-into-absorbed", returnedId);
+            // M9: a refused merge returns null so the caller removes nothing (the old
+            // contract returned absorbed's id and the optimizer deleted a recording
+            // that was never merged).
+            Assert.Null(returnedId);
         }
 
         [Fact]

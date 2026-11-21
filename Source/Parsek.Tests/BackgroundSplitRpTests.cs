@@ -9,8 +9,9 @@ namespace Parsek.Tests
     /// Phase 4 (Rewind-to-Staging, design §5.1 + §7.1): the background-split RP
     /// hook in <c>BackgroundRecorder.HandleBackgroundVesselSplit</c> mirrors the
     /// active-vessel path — when a background vessel structurally splits and
-    /// produces >=2 controllable outputs (the surviving parent continuation +
-    /// each <c>newVesselInfos</c> entry with <c>hasController=true</c>), it
+    /// produces >=2 controllable outputs (the surviving parent: its own recording after a
+    /// decouple or a broken-off part, owner ruling Q15, or its continuation after an undock;
+    /// plus each controllable separated vessel), it
     /// hands control to <see cref="RewindPointAuthor.Begin"/> with the same
     /// <see cref="RewindPointAuthorContext"/> contract the active-vessel path uses.
     ///
@@ -76,11 +77,12 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Contract: when <c>HandleBackgroundVesselSplit</c> produces a parent
-        /// continuation + 1 controllable child (total 2 controllable recordings),
+        /// Contract: when a background split leaves the surviving parent (its recording,
+        /// or its continuation after an undock) + 1 controllable child (total 2
+        /// controllable recordings),
         /// the hook calls <see cref="RewindPointAuthor.Begin"/> which appends a
         /// multi-slot RP to the scenario. We drive <c>Begin</c> directly with the
-        /// payload shape the hook constructs (slot 0 = parent continuation,
+        /// payload shape the hook constructs (slot 0 = the parent's recording,
         /// slot 1 = controllable spinoff; PIDs resolved via the per-call
         /// RecordingResolver).
         /// </summary>

@@ -2586,6 +2586,8 @@ namespace Parsek
             RecordingTree tree, string activeRecId, Recording activeRec, BranchPoint breakupBp)
         {
             breakupBp.ParentRecordingIds.Add(activeRecId);
+            // The parent keeps recording past this split (read by the vessel-line rule).
+            breakupBp.ParentContinues = true;
             tree.BranchPoints.Add(breakupBp);
             if (ShouldKeepLaterChildBranchLink(tree, activeRec, breakupBp, out double laterUT))
             {
