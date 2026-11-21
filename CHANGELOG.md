@@ -53,6 +53,10 @@ Not released yet.
   degrees away from the real hinge, at rest and through every swing. They now replay at the angle
   the real hinge showed; the other hinges and servos replay as before.
   (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
+- **Mirrored hinges and rotation servos start their replay at the right angle.** The mirrored
+  half of a symmetry pair, or a rotation servo set to Inverted, began its replay turned the
+  opposite way to the real part until it first moved. It now starts where the real part stood.
+  (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
 - **A rescue or tourism contract still works after you go back in time.** If you go back to before
   you accepted a rescue, the stranded kerbal or part reappears when the clock reaches the accept
   again (at your next Space Center or Tracking Station visit if you are flying then), and tourism

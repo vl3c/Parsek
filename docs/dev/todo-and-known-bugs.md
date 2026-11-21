@@ -413,13 +413,15 @@ OPEN:
   one-shot Verbose `Rotor spin applied in playback: pid= module= rpm= deltaDeg= followers=
   (first since build)` (`GhostPlaybackLogic.ConsumeFirstRotorSpin` / `FormatRotorSpinLine`,
   `ServoFollowerPoseTests`), since no playback line showed a rotor turning. The lane pins the
-  tracking line `source=servoRateOfMotion ... moving=rotor-rpm`, no rotor event before the
+  tracking line `source=servoRateOfMotion deadband=max(0.500,2%rpm) sampleHz=4.0
+  moving=rotor-rpm stopHold=0.25s stop=signal` (the shape after the merge of
+  RECORDER-ROBOTIC-MOTION-DEBOUNCE), no rotor event before the
   engage, exactly one `RoboticMotionStarted` and no `RoboticMotionStopped` before the spin-down
   mark, a Stopped after it, then the replay's follower plan / bind (servos=1 followers=1), a
   robotic apply, the first rotor spin and the rotor's first follower re-pose. The ServoFollowers
   in-game cell skips rotors (it poses a servo), so SRV-2 runs no batch.
 
-## ~~RECORDER-ROBOTIC-MOTION-DEBOUNCE~~: a slow servo flooded the recording with Started / Stopped pairs, and a rotor could end a spin-down still "moving" [FILED 2026-11-21 from the review of RECORDER-SERVO-ANGLE-PAW-ONLY / RECORDER-ROTOR-RPM-PAW-ONLY. FIXED 2026-11-21, branch `test-gaps-robotics-debounce`; xUnit `RoboticMotionDebounceTests` (21 red before the fix; mutating the rotor's signal-decides, the start deadband or the stop hold reds 9 / 4 / 3 cells); live proof owed (SRV-1 re-flight for the hinge; no rotor lane); medium (event volume on every Breaking Ground servo, and a spin-down that never stopped on the replay)]
+## ~~RECORDER-ROBOTIC-MOTION-DEBOUNCE~~: a slow servo flooded the recording with Started / Stopped pairs, and a rotor could end a spin-down still "moving" [FILED 2026-11-21 from the review of RECORDER-SERVO-ANGLE-PAW-ONLY / RECORDER-ROTOR-RPM-PAW-ONLY. FIXED 2026-11-21, branch `test-gaps-robotics-debounce`; xUnit `RoboticMotionDebounceTests` (21 red before the fix; mutating the rotor's signal-decides, the start deadband or the stop hold reds 9 / 4 / 3 cells); live proof owed: SRV-1's re-flight for the hinge (its spec now pins `stopHold=0.25s stop=debounced` and one Started / Stopped pair per swing) and SRV-2's first flight for the rotor (`deadband=max(0.500,2%rpm) ... stop=signal`); medium (event volume on every Breaking Ground servo, and a spin-down that never stopped on the replay)]
 
 Cause: `FlightRecorder.CheckRoboticTransition` (shared by both recorders) inferred motion from ONE
 frame's change against the last EMITTED value, at a quarter of the deadband (0.125 deg). A servo
@@ -482,11 +484,29 @@ OPEN:
 - Live proof: an offset hinge lane (or an in-game cell over a hinge_03 ghost) must show the
   `Servo pose offset` line and the ghost's moving transform within a degree of stock's at rest and
   after a swing.
-- Not fixed (pre-existing, separate): a hinge with `mirrorRotation` (stock mirrors it on a
-  symmetry counterpart) poses its moving transform at `-targetAngle - modelInitialAngle` and also
-  turns its base. The live recorded value (transform angle + offset) poses right after this fix,
-  but the snapshot baseline's `targetAngle` has the wrong sign for a mirrored hinge, and the base
-  turn is not modelled.
+- ~~Mirrored servo snapshot baseline~~ FIXED 2026-11-21 (branch `test-gaps-rotor`; xUnit
+  `RoboticMirroredServoPoseTests`, 11 red against today's behaviour; live proof owed: no lane
+  flies a mirrored servo). Cause: a hinge with `mirrorRotation` (stock sets it on a symmetry
+  counterpart) poses its moving transform at `-targetAngle - modelInitialAngle`
+  (`JointTargetAngle`), and `ModuleRoboticRotationServo` at `targetAngle` negated once per
+  `mirrorRotation` / `inverted` (both persisted), but the ghost's snapshot baseline read the
+  raw `targetAngle`, so a mirrored hinge or a mirrored / inverted rotation servo spawned (and
+  posed until its first recorded event) turned the wrong way. Fix:
+  `GhostVisualBuilder.ResolveSnapshotDisplayedServoAngle` turns the snapshot's `targetAngle`
+  into the displayed angle every other recorded value uses (hinge: `-targetAngle` when mirrored;
+  rotation servo: negated when exactly one of the two flags is set; a missing or malformed flag
+  reads false, stock's default), so `value - modelInitialAngle` poses exactly stock's
+  `JointTargetAngle`; one Verbose `Servo snapshot pose mirrored for '<part>' pid= ordinal=
+  module=: targetAngle= mirrorRotation= inverted= displayed=` line per flipped servo per ghost
+  build. The live recorded value (transform angle + offset) already posed right. The base turn
+  needs no model: stock's `VisualizeServo` (the only caller of `OnVisualizeServo(rotateBase)`)
+  runs in the editor alone (decompiled `BaseServo`: every call site is behind
+  `LoadedSceneIsEditor`), so the turn is baked into the part's saved rotation, which the ghost
+  already places the part at; in flight the moving transform is restored from
+  `servoTransformRotation`. Every unmirrored, uninverted servo spawns exactly as before. No
+  save-format change. Live proof: a lane (or an in-game cell over a ghost of a symmetry pair of
+  hinges) must show the mirrored line for the counterpart and both moving transforms within a
+  degree of stock's at spawn.
 
 ## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
 
