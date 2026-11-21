@@ -222,6 +222,7 @@ call CaptureSequence.CurrentHighWater
 call StockShadowTakeBack.NoteLoad
 call LiveOnlyIncome.DropAfterTimeTravelLoad
 call ParsekScenario.ReconcileRemovedReplayFlagsAtLoad
+call ParsekScenario.ForgetStockHeldVesselsAfterTimeTravel
 phase rewind
 call ParsekScenario.HandleRewindOnLoad
 coroutine ApplyRewindResourceAdjustment
@@ -325,6 +326,7 @@ call CaptureSequence.CurrentHighWater
 call StockShadowTakeBack.NoteLoad
 call LiveOnlyIncome.DropAfterTimeTravelLoad
 call ParsekScenario.ReconcileRemovedReplayFlagsAtLoad
+call ParsekScenario.ForgetStockHeldVesselsAfterTimeTravel
 call LoadReconcilePolicy.Decide
 call ParsekFlight.IsFreshLaunchStartupBehaviour
 call ParsekScenario.DecideFreshLaunchUtAction
@@ -471,6 +473,7 @@ call CaptureSequence.CurrentHighWater
 call StockShadowTakeBack.NoteLoad
 call LiveOnlyIncome.DropAfterTimeTravelLoad
 call ParsekScenario.ReconcileRemovedReplayFlagsAtLoad
+call ParsekScenario.ForgetStockHeldVesselsAfterTimeTravel
 call LoadReconcilePolicy.Decide
 phase vessel-names-revert-undo
 call VesselNameStore.UndoCurrentFlightEpoch
@@ -621,6 +624,7 @@ call CaptureSequence.CurrentHighWater
 call StockShadowTakeBack.NoteLoad
 call LiveOnlyIncome.DropAfterTimeTravelLoad
 call ParsekScenario.ReconcileRemovedReplayFlagsAtLoad
+call ParsekScenario.ForgetStockHeldVesselsAfterTimeTravel
 call LoadReconcilePolicy.Decide
 phase vessel-names-revert-undo
 call VesselNameStore.UndoCurrentFlightEpoch
@@ -781,6 +785,7 @@ call CaptureSequence.CurrentHighWater
 call StockShadowTakeBack.NoteLoad
 call LiveOnlyIncome.DropAfterTimeTravelLoad
 call ParsekScenario.ReconcileRemovedReplayFlagsAtLoad
+call ParsekScenario.ForgetStockHeldVesselsAfterTimeTravel
 call LoadReconcilePolicy.Decide
 call ParsekFlight.IsFreshLaunchStartupBehaviour
 call ParsekScenario.DecideFreshLaunchUtAction
@@ -928,6 +933,7 @@ call CaptureSequence.CurrentHighWater
 call StockShadowTakeBack.NoteLoad
 call LiveOnlyIncome.DropAfterTimeTravelLoad
 call ParsekScenario.ReconcileRemovedReplayFlagsAtLoad
+call ParsekScenario.ForgetStockHeldVesselsAfterTimeTravel
 call LoadReconcilePolicy.Decide
 call ParsekFlight.IsFreshLaunchStartupBehaviour
 call ParsekScenario.DecideFreshLaunchUtAction

@@ -333,6 +333,16 @@ namespace Parsek
         // StampTerminalState (the codec and the copy sites carry it); kept only with Destroyed.
         public bool QuietDestroyedEnd;
 
+        // The latest UT at which Parsek saw stock hold this recording's own vessel (its launch
+        // guid) in the current timeline: stamped when a predicted chute touchdown commits while
+        // the vessel is still in the game, and on every reconciler pass that finds it. NaN =
+        // not known in this timeline (an older recording, or a time-travel load to before the
+        // stamp cleared it). PredictedTouchdownStockFate reads it to tell "stock deleted the
+        // vessel" (it was here and is gone) from "this timeline has not reached it yet" (a
+        // rewind: the replay spawns it at its touchdown). Bookkeeping, not recorded content.
+        // Persisted sparse as stockHeldUT (written only when finite).
+        public double StockHeldVesselUT = double.NaN;
+
         // Terminal orbit (for Orbiting/SubOrbital terminal state)
         // Stored as Keplerian elements to avoid runtime Orbit object dependency in tests.
         public double TerminalOrbitInclination;
@@ -1151,6 +1161,7 @@ namespace Parsek
             TerminalPredicted = source.TerminalPredicted;
             TerminalRemnantSurvives = source.TerminalRemnantSurvives;
             QuietDestroyedEnd = source.QuietDestroyedEnd;
+            StockHeldVesselUT = source.StockHeldVesselUT;
             TerminalOrbitInclination = source.TerminalOrbitInclination;
             TerminalOrbitEccentricity = source.TerminalOrbitEccentricity;
             TerminalOrbitSemiMajorAxis = source.TerminalOrbitSemiMajorAxis;

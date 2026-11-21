@@ -39,6 +39,9 @@ namespace Parsek
             // Sparse too: only a quiet Destroyed end (a chuted craft stock deleted) carries it.
             if (rec.QuietDestroyedEnd)
                 recNode.AddValue("quietEnd", "True");
+            // Sparse too: only a predicted touchdown whose vessel stock held carries it.
+            if (!double.IsNaN(rec.StockHeldVesselUT) && !double.IsInfinity(rec.StockHeldVesselUT))
+                recNode.AddValue("stockHeldUT", rec.StockHeldVesselUT.ToString("R", ic));
             if (rec.EndpointPhase != RecordingEndpointPhase.Unknown)
                 recNode.AddValue("endpointPhase", ((int)rec.EndpointPhase).ToString(ic));
             if (!string.IsNullOrEmpty(rec.EndpointBodyName))
@@ -684,6 +687,13 @@ namespace Parsek
                 && ParseBoolOr(recNode, "terminalRemnantSurvives", false);
             rec.QuietDestroyedEnd = rec.TerminalStateValue == TerminalState.Destroyed
                 && ParseBoolOr(recNode, "quietEnd", false);
+            double stockHeldUT;
+            string stockHeldText = recNode.GetValue("stockHeldUT");
+            rec.StockHeldVesselUT = stockHeldText != null
+                && double.TryParse(stockHeldText, NumberStyles.Float, ic, out stockHeldUT)
+                && !double.IsNaN(stockHeldUT) && !double.IsInfinity(stockHeldUT)
+                ? stockHeldUT
+                : double.NaN;
 
             string endpointPhaseStr = recNode.GetValue("endpointPhase");
             if (endpointPhaseStr != null)

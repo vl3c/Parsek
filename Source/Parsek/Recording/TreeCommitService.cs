@@ -85,6 +85,12 @@ namespace Parsek
         public static bool CommitTree(RecordingTree tree)
         {
             if (tree == null) return false;
+            // A predicted chute touchdown committed while stock still holds its craft records
+            // that fact, so a later disappearance reads as stock's deletion, not as a timeline
+            // that has not reached the craft yet (PredictedTouchdownStockFate).
+            if (tree.Recordings != null)
+                foreach (Recording rec in tree.Recordings.Values)
+                    PredictedTouchdownStockFate.StampIfStockHoldsVesselNow(rec, "CommitTree");
             bool committed = CommitTreeCore(tree);
             // A commit (a merge, a Re-Fly union swapping older recordings in by reference, a
             // replace commit of a copy-on-write clone) can put back older names on legs a

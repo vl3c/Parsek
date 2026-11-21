@@ -192,7 +192,8 @@ namespace Parsek
         /// off the conic (it flew in physics through air, or burned) keeps today's cut.</para>
         internal static PredictedEndingDropResult DropPredictedEndingForTakeover(
             Recording rec, double takeoverUT, string context,
-            TakeoverCoastEvidence? coastEvidence = null)
+            TakeoverCoastEvidence? coastEvidence = null,
+            bool predictionContradicted = false)
         {
             var result = new PredictedEndingDropResult
             {
@@ -223,7 +224,8 @@ namespace Parsek
 
             bool hasLastReal = TryGetLastRealUT(rec, out double lastRealUT);
             result.LastRealUT = hasLastReal ? lastRealUT : double.NaN;
-            if (IsTakeoverAfterPredictedEnd(rec, takeoverUT, out double predictedEndUT))
+            if (!predictionContradicted
+                && IsTakeoverAfterPredictedEnd(rec, takeoverUT, out double predictedEndUT))
                 return KeepPredictedTailForTakeoverAfterEnd(rec, takeoverUT, predictedEndUT, context, result);
             double cutUT = hasLastReal ? lastRealUT : takeoverUT;
             if (IsFinite(takeoverUT) && (!IsFinite(cutUT) || takeoverUT < cutUT))
