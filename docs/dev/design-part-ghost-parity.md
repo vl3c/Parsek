@@ -85,34 +85,67 @@ and tags:
 
 ### 3.2 Skins
 
-Every skin a part offers is its own case:
+Under `skins=all` every skin a part offers is its own case (P3, `PartParitySkinRules`, pure over
+the part's `partConfig`; `skins=default` is the base case of each part only, exactly as P2):
 
-- Stock `ModulePartVariants`: every `VARIANT` of the prefab module, base first. Authored on the
-  real side in both places KSP reads: the module node's `selectedVariant` (what
+- **Base case** (skin ordinal 0): the P2 default case unchanged, same key and case id
+  (`PartParityCaseRules.DefaultCaseKey`): a part with a live `ModulePartVariants` names its base
+  variant (`prefab.baseVariant.Name`), any other part `default`. It authors the base variant in
+  both keys and no B9 subtype.
+- **Stock `ModulePartVariants`**: then every other `VARIANT` of the part's first
+  `ModulePartVariants` MODULE node, in config order (the base matched case-insensitively and
+  skipped; empty and duplicate names dropped; none when the prefab has no live variant module).
+  Authored on the real side in both places KSP reads: the module node's `selectedVariant` (what
   `ModulePartVariants.OnLoad` reads at a flight load) and the PART-level `moduleVariantName` (what
   `ProtoPartSnapshot` parses and what Parsek's own resolver falls back to,
   `GhostVisualBuilder.Variants.cs` `ResolveVariantNameFromSnapshot`). FGV config 4 already sets both
-  (`FairingGhostVisualInGameTests.cs` 975, 1040-1041).
-- `ModuleB9PartSwitch`: every `SUBTYPE` of each B9 module (selected by `moduleID` when a part has
-  several), one module at a time from the base combination (not the cross product). The persisted
-  field is `currentSubtypeName` (present in the installed `B9PartSwitch.dll`; `currentSubtype` is
-  not). The live subtype is read by reflection, no compile-time reference. In the modded-compat
-  install B9 is used only by the Waterfall engine configs (Bobcat, Cheetah, Vernier, Vector), whose
-  subtypes switch plumes: those cases are kept but carry little in the stowed state, and become real
-  in phase 7.
+  (`FairingGhostVisualInGameTests.cs` 975, 1040-1041). Case skin: the variant name.
+- **`ModuleB9PartSwitch`**: then, per B9 MODULE node in prefab order, EVERY one of its `SUBTYPE`s,
+  the default included (the base case authors no subtype, so the default's own case is the one
+  that proves the authoring), with every other module of the part at its base: one module at a
+  time, never the cross product. Case skin: `<moduleID>=<subtype>` (`b9=<subtype>` for an unnamed
+  module; B9 removes every unnamed module of a part that has several, so only a lone module is
+  unnamed). The case id maps `=` to `-` (`liquidenginelv-t91--plumeswitch-hypergoliccheetah--<hash>`);
+  the hash keeps the unmapped tuple apart. Authored into the k-th `ModuleB9PartSwitch` MODULE
+  node of the authored PART (the module nodes are in prefab order): `moduleID = <id>` (B9's
+  `CustomPartModule.OnLoad` routes a node by it) and `currentSubtype = <subtype>`. The persisted key
+  is `currentSubtype`, NOT `currentSubtypeName`: decompiled B9PartSwitch 2.21.0.4,
+  `[NodeData(name = "currentSubtype", persistent = true)] public string CurrentSubtypeName`, so the
+  key its `OnLoad` reads and its `OnSave` writes is `currentSubtype`, and `CurrentSubtypeName` is the
+  C# property. The live subtype is read by reflection, no compile-time reference: a field or
+  property named `currentSubtypeName` ignoring case (the installed DLL: property
+  `CurrentSubtypeName`), else `CurrentSubtype`'s `Name`; the member read is logged. In the
+  modded-compat install B9 is used only by the Waterfall engine configs (Bobcat, Cheetah, Vernier,
+  Vector), each one `plumeSwitch` module whose subtypes switch plumes: those cases are kept but
+  carry little in the stowed state, and become real in phase 7.
 - Other switchers: enumerated only through a known adapter; otherwise tagged and captured in the
   default skin.
 
-Skin proof per case, all recorded: `requested` (authored), `real` (the live module after OnStart:
-`ModulePartVariants.SelectedVariant.Name`, B9's current subtype), `snapshot` (what `TryBackupSnapshot`
-wrote), `ghost` (what the builder applied, through a NEW mandatory read accessor on
-`GhostBuildResult`; the builder's `LogPartVariantResolution` line is rate-limited per part name and
-fires only for GAMEOBJECTS rules, so it cannot serve). requested != real is a SETUP fault
-(`skin-not-applied`), reported apart. real != ghost is a ghost defect even when the pictures look
-alike.
+Skin proof per case, the sidecar's `skin` block, all recorded (`PartParitySkinProof`):
+`module` / `moduleId` (the option's; a base case of a variant part names `ModulePartVariants`, of a
+B9-only part its first B9 module with no request, of any other part nothing), `requested` (the
+authored value), `real` (the live module after OnStart: `ModulePartVariants.SelectedVariant.Name`,
+or the B9 module whose `moduleID` is the proof's by reflection), `snapshot` (what
+`TryBackupSnapshot` wrote: the PART's `moduleVariantName`, or that B9 MODULE node's
+`currentSubtype`), `ghost` (what the builder applied, through the mandatory read accessor
+`GhostBuildResult.TryGetAppliedSkin(persistentId, out GhostAppliedSkin)`, keyed by the snapshot
+PART's persistentId; the builder's `LogPartVariantResolution` line is rate-limited per part name and
+fires only for GAMEOBJECTS rules, so it cannot serve). `AddPartVisuals` records, for every part with
+a `ModulePartVariants` whose visuals it built, the `variantName` and `variantResolutionPath` it
+resolved (`snapshot` / `runtime` / `base` / `first-fallback` / `base-implicit`), a read-only record
+nothing in the build or playback reads (IL proof: insertions only, 12.P3 row). The builder applies
+no B9 subtype (nothing in `Source/Parsek/Ghost/` reads B9), so a B9 proof's `ghost` is null and
+the case is flagged `skin-not-modelled:b9`: a finding (the ghost of a B9 part always shows the
+prefab's own look), not a setup fault.
+
+requested != real (exact) is the SETUP fault `skin-not-applied`, reported apart. real != ghost
+(case-insensitive, the way the builder matches a VARIANT node) is the ghost-defect flag
+`skin-mismatch`, raised even when the pictures look alike; the flags are computed only for a case
+that built a ghost. Every case writes one Verbose `skin proof` line (5.2).
 
 Case-count estimate (measured on the first run): stock-minimal about 400 parts / 900 cases;
-modded-compat about 700 parts / 1500 cases.
+modded-compat about 700 parts / 1500 cases. Each step logs the counts it planned (`skin cases:`
+line, 7).
 
 ### 3.3 Later axes (designed in, built later)
 
@@ -372,6 +405,21 @@ colour metric, T, grid), per view `width` / `height`, the raw `realOnlyPx` / `gh
 finding). Diff entries are objects keyed by part path (`#k` for the k-th further renderer of a
 shared path); missing / extra entries carry `mesh` and `rendered`.
 
+The `skin` block (3.2) has the same six keys under every skin kind; a B9 case names
+`ModuleB9PartSwitch`, its `moduleID` and the subtype in `requested` / `real` / `snapshot`, with
+`ghost` null. Its flags join `flags`: `skin-mismatch` (real != ghost) and `skin-not-modelled:b9`
+(the builder applies no B9 subtype); `skin-not-applied` is the `setup.status`. A crash record
+(5.3) of a skin case carries the option's `module`, `moduleId` and `requested`. The manifest's
+`settings.skinsNote` says what the step's `skins=` covered.
+
+Per case the KSP.log carries, under `[PartParity]`: for a B9 case one Verbose `case <id>: authored
+B9 currentSubtype=<subtype> moduleID=<id> b9Index=<k> written=true|false` at spawn; for every case
+that built a ghost one Verbose `case <id>: skin proof module= moduleId= requested= real= snapshot=
+ghost= realMember= ghostPid= ghostRecord= ghostPath= flags=` (`realMember` names the live member
+read, `ModulePartVariants.SelectedVariant` or `property CurrentSubtypeName`); the per-case
+Verbose summary line (`skin=<requested>/<real> snapshotSkin= ghostSkin= skinModule=`); and a Warn
+`setup fault skin-not-applied` when the request did not take.
+
 Additive keys only after the first flight; a renamed key bumps the schema. As in the other two
 systems, the C# `SchemaId` / key table and hlib's reader keys are pinned by a source-sync cell, and
 `.part.json` is NOT added to `ARTIFACT_SHOTS_SUFFIXES` (it never lands in `Screenshots/`).
@@ -470,7 +518,11 @@ PNG codec), as an independent check of the C# instrument.
   the same tokens on a Verbose `step cleanup:` line. The in-game cell disposes the steps it drives
   the same way.
   A spec lists enough `op=run` steps for the measured case count; a step after completion answers
-  `done=true` at once.
+  `done=true` at once. `skins=all` is how a lane covers every skin of the full part list on an
+  install (3.2); each `op=run` step logs one Info `skin cases: skins=<all|default>
+  install=<n> (base= variant= b9=) planned=<n> (base= variant= b9=)` line after enumeration, the
+  install's cases by kind and the ones its selection planned, so the chunk size can be re-read
+  from a flight.
 - `shard=k/n` takes every case whose stable index mod n == k-1. The parallel runner dispatches
   distinct lanes, so a shard is its own committed spec (`PP-1a`, `PP-1b`, ...), added only after the
   single-slot runtime is measured.
@@ -572,13 +624,14 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
 | `Source/Parsek/TestCommands/PartParityImaging.cs` | Pure: the PNG encoder (`PartParityPng`), atlas and thumbnail (`PartParityImage`). |
 | `Source/Parsek/TestCommands/PartParityJsonReader.cs` | Pure: a minimal JSON reader, so each step rebuilds the manifest from the sidecars on disk. |
 | `Source/Parsek/TestCommands/PartParitySweepPlan.cs` | Pure: wave slots and the solo-wave cut, the settle rule, the controls' required outcomes and their judge, manifest summaries, the cleanup tokens. |
-| `Source/Parsek/TestCommands/PartParityCaseAuthoring.cs` | Pure rules (`PartParityCaseRules`: exclusions, model urls, source, tags) + live enumeration and part node authoring. |
+| `Source/Parsek/TestCommands/PartParityCaseAuthoring.cs` | Pure rules (`PartParityCaseRules`: exclusions, model urls, source, tags) + live enumeration, part node authoring (the variant in both keys, a B9 option's subtype) and the live skin read (`LiveSkinName`). |
+| `Source/Parsek/TestCommands/PartParitySkinRules.cs` | Pure (P3): the `skins=all` enumeration over ConfigNode part configs (`EnumerateSkinOptions`, `CaseKeys`), B9 authoring into the PART node, the snapshot read-back, the skin proof's request and flags (`skin-mismatch`, `skin-not-modelled:b9`, `skin-not-applied`), the reflection read of a B9 module's subtype, the per-step counts. |
 | `Source/Parsek/TestCommands/PartParityCapture.cs` | Live: camera, light rig, hide / render / read / restore (`PartParityCaptureMath` is its pure camera math). |
 | `Source/Parsek/TestCommands/PartParityCaseCapture.cs` | Live: one case in the order of 4.2 (records, seeds, ghost, framing, views, files) and the manifest writer. |
 | `Source/Parsek/TestCommands/PartParitySweepRunner.cs` | Live: the step and wave coroutine (`RunStep(args, onDone)`), shared by the seam verb and the in-game cell. |
 | `Source/Parsek/TestCommands/ParsekTestCommandAddon.PartParitySweep.cs` | Thin applier: starts `PartParitySweepRunner.RunStep` and answers the seam. |
 | `Source/Parsek/Ghost/GhostPlaybackEngine.*` | The extracted build-and-initialise seam (D2), `GhostPlaybackEngine.InitializeBuiltGhostVisuals(state, buildResult, traj)`, the engine's own load path (`TryPopulateGhostVisuals`) rewired through it. Proof of no behaviour change: `il_compare.py` before / after reports only the new method and the caller's body, and inlining the seam's body back at the call site gives the caller's old body exactly (`--fold` models moves between types, not an extract-method). The loop-reuse re-init (`SpawnDestroy`) and the KSC spawn run other subsets (no pivot; KSC passes no trajectory) and stay as they are. Activation stays the engine's deferred `ActivateGhostVisualsIfNeeded`. P2 adds the seed-prefix prime (4.2 step 3): `ApplyPartStateForFrame` and `StopVisualFxForFrame` extracted from `ApplyFrameVisuals` (proved the same way: the multi-seam inline fold of both gives the old body), composed by `PrimeHiddenPartStateAtUT`. |
-| `Source/Parsek/Ghost/GhostVisualBuilder*` | The `GhostBuildResult` applied-skin accessor. |
+| `Source/Parsek/Ghost/GhostVisualBuilder*`, `GhostTypes.cs` | The applied-skin record (P3): `AddPartVisuals` hands out a `GhostAppliedSkin` (variant name + resolution path) for each part with a `ModulePartVariants`, `AdvanceTimelineGhostBuild` keys it by persistentId on the pending build, `CompleteTimelineGhostBuild` moves it onto `GhostBuildResult.appliedSkins`, read through `TryGetAppliedSkin`. Read-only: nothing in the build or playback reads it. Proof of no behaviour change: `il_compare.py` before / after reports only the new type, the two fields, the accessor and the bodies of `AddPartVisuals`, `AdvanceTimelineGhostBuild`, `CompleteTimelineGhostBuild` and the pending build's constructor, and each of those bodies is the old one with instructions INSERTED only (locals mapped back, every branch target checked through the instruction map; the one substitution is the call's new `out` parameter). |
 | `Source/Parsek/InGameTests/GhostCoOrbitalRig.cs` | `SpawnCoOrbital` (log tag passed in), `UniqueFlightIds`, `AuthorPartNode` (writes `moduleVariantName` and the `ModulePartVariants` `selectedVariant`), `TryBuildGhostFromLiveVessel` (snapshot, throwaway recording, timeline build, the D2 seam) and `NeutralisePhysics`: moved out of `FairingGhostVisualInGameTests`, used by both, FGV's nodes and log lines unchanged. |
 | `Source/Parsek/InGameTests/PartParityInGameTests.cs` | Ctrl+Shift+T entry. |
 | `harness/lib/partparity.py` + tests | Pure manifest reader, verdicts, recompute, verifier row, baseline compare. |
@@ -601,7 +654,7 @@ summary; per-case Verbose lines; Warn for a setup fault.
 | P0 (DONE 2026-11-21, Appendix B) | Capture spike on both harness installs, stock and ReStock / ReStock+ parts: `Camera.Render` into an MSAA target, resolve, double clear, ortho with KSP shaders, light rig, `pixelLightCount`, `masterTextureLimit`, `forceRenderingOff`. | Pictures read by eye; every unknown in 4.4 answered and written into this doc. |
 | P1 | Pure halves + xUnit (measures on synthetic masks incl. shifted / rotated / missing-blob shapes, structural diff, sharding, case ids, resume decision, JSON writer, args); `GhostCoOrbitalRig` extraction; D2 seam extraction with the IL fold proof. | `dotnet test` green; FGV-1 flown green on the refactor. |
 | P2 (DONE 2026-11-21, Appendix C) | Capture engine + verb + in-game test + files; controls; default skins; a 20-part dev run. | Controls behave; per-wave wall time measured; chunk size set from it. |
-| P3 | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. | First full reading run on both installs; thresholds re-pinned; findings filed. |
+| P3 | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. C# half BUILT (not flown): `skins=all` enumerates every `ModulePartVariants` VARIANT and every `ModuleB9PartSwitch` SUBTYPE one module at a time (3.2), B9 authored as `moduleID` + `currentSubtype`, the full skin proof (`requested` / `real` / `snapshot` / `ghost`) through the new `GhostBuildResult.TryGetAppliedSkin` record (IL proof: insertions only, 11), flags `skin-mismatch` / `skin-not-modelled:b9`, per-step `skin cases:` counts. Finding: the ghost builder applies no B9 subtype, so every B9 case reads `skin-not-modelled:b9`. Harness half (verifier row, lanes) separate. | First full reading run on both installs; thresholds re-pinned; findings filed. |
 | P4 | Viewer (grid, filters, detail, blend difference, backdrop, structure table, regression mode). | Owner reads the full stock + ReStock site. |
 | P5 | Baseline + accepted list; gate armed after a second matching reading run. | A deliberately broken ghost (mutation) reds the armed lane. |
 | P6 | States and contexts (9.1); FGV configurations migrated. | Chute and deployables covered. |
@@ -634,7 +687,7 @@ Two clean-context reviews of rev 1. "Both" = raised independently by both review
 | Whole-image IoU and mean colour dilute local defects; thin parts false-fail | Both | Fixed: 1 px tolerance, largest blobs, colour blob / p99 / block max; verdicts in Python (6, D7). |
 | "Scoped ParsekLog sink" would empty KSP.log | Both | Fixed: `TestObserverForTesting` (5.2). Verified. |
 | Variant key: author both module `selectedVariant` and PART `moduleVariantName` | Both | Fixed (3.2). The Opus claim that FGV config 4 set only the PART key is refuted: `FairingGhostVisualInGameTests.cs` 975 sets the module key too. |
-| B9 field is `currentSubtypeName`, select by `moduleID`; B9 here only switches plumes | Opus | Fixed (3.2). Verified in the installed DLL. |
+| B9 field is `currentSubtypeName`, select by `moduleID`; B9 here only switches plumes | Opus | Fixed (3.2). Verified in the installed DLL. P3 correction: `CurrentSubtypeName` is the C# property; the key it persists under is `currentSubtype` (3.2). |
 | Builder variant log line is rate-limited and incomplete | Opus | Fixed: mandatory `GhostBuildResult` accessor (3.2). |
 | `textureQuality` settings key fights the closed `kspSettings` set; VRAM | Both | Fixed: in-process `masterTextureLimit`, P0 spike, one slot (4.4). |
 | Lights: Kopernicus stars and host lights; `pixelLightCount` at preset 0; rig shadows | Both | Fixed: all scene lights off and restored, pinned count, no rig shadows (D5). |

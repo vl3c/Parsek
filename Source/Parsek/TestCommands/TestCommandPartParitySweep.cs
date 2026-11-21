@@ -101,6 +101,10 @@ namespace Parsek.TestCommands
         /// <summary>The skin's position among the part's skins, 0 for the base skin.</summary>
         internal int SkinOrdinal;
 
+        /// <summary>What the skin case authors (design 3.2); null for the base skin. Not part
+        /// of the identity: the case id and order read <see cref="Skin"/> and <see cref="SkinOrdinal"/>.</summary>
+        internal PartParitySkinOption SkinOption;
+
         internal string State = TestCommandPartParitySweep.DefaultState;
         internal string Context = TestCommandPartParitySweep.DefaultContext;
     }

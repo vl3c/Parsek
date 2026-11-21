@@ -41,12 +41,9 @@ namespace Parsek.TestCommands
         {
             Part part = wc.Real.rootPart;
             Transform partT = part.transform;
-            wc.Skin = new PartParitySkinProof
-            {
-                Module = wc.RealVariant != null ? PartParityCaseRules.VariantModuleName : null,
-                Requested = wc.RealVariant,
-                Real = PartParityCaseAuthoring.LiveVariantName(part),
-            };
+            wc.Skin = PartParitySkinRules.NewProof(wc.SkinOption, wc.RealVariant, wc.Entry?.B9Modules);
+            wc.Skin.Real = PartParityCaseAuthoring.LiveSkinName(part, wc.Skin, out string realMember);
+            wc.SkinRealMember = realMember;
 
             if (wc.ControlId == TestCommandPartParitySweep.ControlGhostMissingMesh) PlantCube(ctx, wc, part);
 
@@ -103,7 +100,7 @@ namespace Parsek.TestCommands
             wc.Ghost = live;
             wc.SeedApplied = GhostCoOrbitalRig.ApplySeedPrefix(live, seedUT);
             ConfigNode snapPart = live.Snapshot != null ? live.Snapshot.GetNode("PART") : null;
-            wc.Skin.Snapshot = snapPart != null ? snapPart.GetValue("moduleVariantName") : null;
+            RecordSkinProof(wc, snapPart, live.Build);
 
             GameObject root = live.Build.root;
             root.transform.SetParent(part.transform, false);
@@ -115,6 +112,33 @@ namespace Parsek.TestCommands
             wc.GhostRootOffsetM = GhostRootOffset(root.transform, part.transform);
             if (wc.ControlId == null && wc.GhostRootOffsetM.HasValue && wc.GhostRootOffsetM.Value > GhostRootOffsetToleranceM)
                 wc.Flags.Add(FlagGhostRootOffset);
+        }
+
+        /// <summary>
+        /// The snapshot and ghost halves of the skin proof (design 3.2): what
+        /// <c>TryBackupSnapshot</c> wrote for the proof's module, and what the builder applied
+        /// to the snapshot part (<see cref="GhostBuildResult.TryGetAppliedSkin"/>, keyed by the
+        /// snapshot PART's persistentId); then the ghost-defect flags. One Verbose line names
+        /// every value and the live member the real side was read from.
+        /// </summary>
+        private static void RecordSkinProof(WaveCase wc, ConfigNode snapPart, GhostBuildResult build)
+        {
+            PartParitySkinProof proof = wc.Skin;
+            proof.Snapshot = PartParitySkinRules.SnapshotSkin(snapPart, proof);
+            uint pid = 0;
+            string pidText = snapPart != null ? snapPart.GetValue("persistentId") : null;
+            if (pidText != null) uint.TryParse(pidText, NumberStyles.Integer, Ic, out pid);
+            GhostAppliedSkin applied = null;
+            bool recorded = build != null && build.TryGetAppliedSkin(pid, out applied);
+            proof.Ghost = PartParitySkinRules.GhostSkin(proof, recorded ? applied.variantName : null);
+            foreach (string f in PartParitySkinRules.GhostFlags(proof))
+                if (!wc.Flags.Contains(f)) wc.Flags.Add(f);
+            ParsekLog.Verbose(PartParitySweepRunner.Tag, $"case {wc.CaseId}: skin proof module={proof.Module ?? "<none>"} " +
+                $"moduleId={proof.ModuleId ?? "<none>"} requested={proof.Requested ?? "<none>"} real={proof.Real ?? "<none>"} " +
+                $"snapshot={proof.Snapshot ?? "<none>"} ghost={proof.Ghost ?? "<none>"} realMember={wc.SkinRealMember ?? "<none>"} " +
+                $"ghostPid={pid.ToString(Ic)} ghostRecord={(recorded ? "true" : "false")} " +
+                $"ghostPath={(recorded ? applied.variantResolutionPath ?? "<none>" : "<none>")} " +
+                $"flags={string.Join(",", PartParitySkinRules.GhostFlags(proof).ToArray())}");
         }
 
         private static Quaternion ControlRotation(string controlId)
@@ -359,7 +383,7 @@ namespace Parsek.TestCommands
         internal static string ResolveStatus(WaveCase wc)
         {
             if (wc.Status != null) return wc.Status;
-            if (wc.Skin != null && wc.Skin.Requested != null && wc.Skin.Real != wc.Skin.Requested)
+            if (PartParitySkinRules.SkinNotApplied(wc.Skin))
                 return TestCommandPartParitySweep.SetupSkinNotApplied;
             return wc.StillAnimating ? TestCommandPartParitySweep.SetupStillAnimating : TestCommandPartParitySweep.SetupOk;
         }
@@ -375,7 +399,7 @@ namespace Parsek.TestCommands
                 Source = e?.Source ?? wc.Key?.Source,
                 PartUrl = e?.PartUrl,
                 Category = e?.Category,
-                Skin = wc.Skin ?? new PartParitySkinProof { Requested = wc.RealVariant },
+                Skin = wc.Skin ?? PartParitySkinRules.NewProof(wc.SkinOption, wc.RealVariant, e?.B9Modules),
                 State = wc.Key?.State ?? TestCommandPartParitySweep.DefaultState,
                 Context = wc.Key?.Context ?? TestCommandPartParitySweep.DefaultContext,
                 GhostRootOffsetM = wc.GhostRootOffsetM,
@@ -386,7 +410,6 @@ namespace Parsek.TestCommands
                 Setup = new PartParitySetup { Status = ResolveStatus(wc), Detail = wc.Detail },
                 Log = wc.Log,
             };
-            if (wc.ControlId != null && wc.GhostVariant != null) s.Skin.Ghost = wc.GhostVariant;
             if (e != null) { s.ModelUrls.AddRange(e.ModelUrls); s.Tags.AddRange(e.Tags); }
             if (wc.ControlId != null) s.Tags.Add(TagControl);
             s.Flags.AddRange(wc.Flags);
@@ -448,6 +471,8 @@ namespace Parsek.TestCommands
                 .Append(" part=").Append(s.Part ?? "<none>")
                 .Append(" skin=").Append(s.Skin?.Requested ?? "<default>").Append("/").Append(s.Skin?.Real ?? "<none>")
                 .Append(" snapshotSkin=").Append(s.Skin?.Snapshot ?? "<none>")
+                .Append(" ghostSkin=").Append(s.Skin?.Ghost ?? "<none>")
+                .Append(" skinModule=").Append(s.Skin?.Module ?? "<none>")
                 .Append(" alongTrack=").Append(wc.AlongTrackM.ToString("0", Ic)).Append("m")
                 .Append(" views=").Append(wc.CapturedViews.Count.ToString(Ic))
                 .Append(" seedEvents=").Append(wc.SeedEvents.ToString(Ic))
@@ -584,7 +609,9 @@ namespace Parsek.TestCommands
             s.Add(Kv("colorSpace", QualitySettings.activeColorSpace.ToString()));
             s.Add(Kv("graphicsDevice", SystemInfo.graphicsDeviceType.ToString()));
             s.Add(Kv("unity", Application.unityVersion));
-            s.Add(Kv("skinsNote", "P2 captures the default skin only"));
+            s.Add(Kv("skinsNote", a.Skins == PartParitySkinSelection.All
+                ? "every ModulePartVariants VARIANT and every ModuleB9PartSwitch SUBTYPE (one module at a time); other switchers default skin only"
+                : "the base skin of each part only"));
         }
 
         private static KeyValuePair<string, string> Kv(string k, string v) => new KeyValuePair<string, string>(k, v ?? string.Empty);

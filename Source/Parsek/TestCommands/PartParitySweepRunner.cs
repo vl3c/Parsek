@@ -205,9 +205,10 @@ namespace Parsek.TestCommands
             foreach (var e in ctx.Entries)
             {
                 ctx.EntriesByName[e.Name] = e;
-                keys.Add(PartParityCaseRules.DefaultCaseKey(e));
+                keys.AddRange(PartParitySkinRules.CaseKeys(e));
             }
             ctx.Planned = TestCommandPartParitySweep.SelectCases(keys, ctx.Args);
+            LogSkinCounts(ctx, keys);
             foreach (var p in ctx.Planned) LoadKnownSidecar(ctx, p.CaseId);
             if (ctx.Args.Controls)
                 foreach (string id in TestCommandPartParitySweep.ControlIds) LoadKnownSidecar(ctx, id);
@@ -221,6 +222,16 @@ namespace Parsek.TestCommands
                 $"tile={ctx.Args.Tile.ToString(Ic)} views={string.Join(",", ctx.Args.Views.ToArray())} " +
                 $"maxSeconds={ctx.Args.MaxSeconds.ToString(Ic)} staleInflight={ctx.StaleInflight ?? "<none>"} " +
                 $"isolate={ctx.Isolate.Count.ToString(Ic)}");
+        }
+
+        /// <summary>The per-step case counts by skin kind (design 3.2): every case the install
+        /// offers, and the cases this step's selection planned.</summary>
+        private static void LogSkinCounts(StepContext ctx, List<PartParityCaseKey> keys)
+        {
+            PartParitySkinCounts all = PartParitySkinRules.Count(keys);
+            PartParitySkinCounts planned = PartParitySkinRules.Count(ctx.Planned.ConvertAll(p => p.Key));
+            ParsekLog.Info(Tag, PartParitySkinRules.FormatCounts(
+                ctx.Args.Skins == PartParitySkinSelection.All ? "all" : "default", all, planned));
         }
 
         /// <summary>
@@ -412,8 +423,8 @@ namespace Parsek.TestCommands
             ctx.EntriesByName.TryGetValue(p.Key.Part, out PartParityPartEntry e);
             return new WaveCase
             {
-                CaseId = p.CaseId, Index = p.Index, Key = p.Key, Entry = e,
-                RealVariant = e?.BaseVariant, Views = ctx.Args.Views,
+                CaseId = p.CaseId, Index = p.Index, Key = p.Key, Entry = e, SkinOption = p.Key.SkinOption,
+                RealVariant = PartParitySkinRules.RealVariant(p.Key.SkinOption, e?.BaseVariant), Views = ctx.Args.Views,
             };
         }
 
@@ -497,7 +508,12 @@ namespace Parsek.TestCommands
                 wc.Detail = wc.Detail ?? "part not loaded";
                 return;
             }
-            ConfigNode node = PartParityCaseAuthoring.AuthorVesselNode(wc.Entry.Info, wc.RealVariant, wc.CaseId, ctx.Host);
+            ConfigNode node = PartParityCaseAuthoring.AuthorVesselNode(
+                wc.Entry.Info, wc.RealVariant, wc.SkinOption, wc.CaseId, ctx.Host, out bool b9Authored);
+            if (wc.SkinOption != null && wc.SkinOption.Module == PartParityCaseRules.B9ModuleName)
+                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: authored B9 {PartParitySkinRules.B9SubtypeKey}={wc.SkinOption.Value} " +
+                    $"moduleID={wc.SkinOption.ModuleId ?? "<none>"} b9Index={wc.SkinOption.ModuleIndex.ToString(Ic)} " +
+                    $"written={(b9Authored ? "true" : "false")}");
             wc.Pid = GhostCoOrbitalRig.SpawnCoOrbital(node, ctx.Host, wc.AlongTrackM, wc.CaseId, Tag);
             wc.SpawnRealtime = Time.realtimeSinceStartup;
             if (wc.Pid == 0)
@@ -846,6 +862,9 @@ namespace Parsek.TestCommands
             internal PartParityCaseKey Key;
             internal PartParityPartEntry Entry;
             internal string ControlId;
+
+            /// <summary>The skin case's option (design 3.2); null for a base case and a control.</summary>
+            internal PartParitySkinOption SkinOption;
             internal string RealVariant;
             internal string GhostVariant;
             internal List<string> Views;
@@ -883,6 +902,9 @@ namespace Parsek.TestCommands
             internal int SeedEvents;
             internal int SeedApplied;
             internal PartParitySkinProof Skin;
+
+            /// <summary>The live member the real skin was read from (the skin proof's log line).</summary>
+            internal string SkinRealMember;
 
             internal List<string> CapturedViews = new List<string>();
             internal List<byte[]> RealTiles = new List<byte[]>();

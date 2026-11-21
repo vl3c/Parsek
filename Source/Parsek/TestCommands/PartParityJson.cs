@@ -523,7 +523,7 @@ namespace Parsek.TestCommands
             {
                 CaseId = caseId,
                 Part = key.Part,
-                Skin = new PartParitySkinProof { Requested = key.Skin },
+                Skin = PartParitySkinRules.RequestOnlyProof(key),
                 State = key.State,
                 Context = key.Context,
                 Setup = new PartParitySetup

@@ -20,8 +20,15 @@ namespace Parsek.TestCommands
         internal List<string> Tags = new List<string>();
 
         /// <summary>The variant module's base variant, null when the part has no
-        /// <c>ModulePartVariants</c> (P2 captures the default skin only).</summary>
+        /// <c>ModulePartVariants</c> (the base case's skin).</summary>
         internal string BaseVariant;
+
+        /// <summary>The skin cases <c>skins=all</c> adds beyond the base one
+        /// (<see cref="PartParitySkinRules.EnumerateSkinOptions"/>), in ordinal order.</summary>
+        internal List<PartParitySkinOption> SkinOptions = new List<PartParitySkinOption>();
+
+        /// <summary>The part's <c>ModuleB9PartSwitch</c> modules in prefab order.</summary>
+        internal List<PartParityB9Module> B9Modules = new List<PartParityB9Module>();
 
         /// <summary>The prefab's largest mesh dimension, metres (the wave planner's size).</summary>
         internal double SizeMeters;
@@ -267,6 +274,8 @@ namespace Parsek.TestCommands
             e.Tags = PartParityCaseRules.ComputeTags(e.Modules, isStock, hidden);
             if (prefab.FindModuleImplementing<ModulePartVariants>() != null && prefab.baseVariant != null)
                 e.BaseVariant = prefab.baseVariant.Name;
+            e.B9Modules = PartParitySkinRules.B9Modules(info.partConfig);
+            e.SkinOptions = PartParitySkinRules.EnumerateSkinOptions(info.partConfig, e.BaseVariant);
             e.SizeMeters = PrefabSizeMeters(prefab);
             return e;
         }
@@ -303,12 +312,16 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>The one-part vessel node of a case: every prefab module in prefab order,
-        /// the variant written in both keys KSP reads (design 3.2), on a placeholder orbit
-        /// (the co-orbital spawn replaces it).</summary>
-        internal static ConfigNode AuthorVesselNode(AvailablePart info, string variantName, string caseId, Vessel anchor)
+        /// the variant written in both keys KSP reads and a B9 option's subtype into its
+        /// module's MODULE node (design 3.2), on a placeholder orbit (the co-orbital spawn
+        /// replaces it). <paramref name="b9Authored"/> is false when a B9 option found no MODULE
+        /// node to write into (the skin proof then reads it as not applied).</summary>
+        internal static ConfigNode AuthorVesselNode(AvailablePart info, string variantName, PartParitySkinOption skin,
+            string caseId, Vessel anchor, out bool b9Authored)
         {
             uint flightId = GhostCoOrbitalRig.UniqueFlightIds(1)[0];
             ConfigNode part = GhostCoOrbitalRig.AuthorPartNode(info, flightId, 0, Vector3.zero, null, variantName, null);
+            b9Authored = PartParitySkinRules.AuthorB9Subtype(part, skin);
             Orbit src = anchor.orbit;
             var placeholder = new Orbit(src.inclination, src.eccentricity, src.semiMajorAxis, src.LAN,
                 src.argumentOfPeriapsis, src.meanAnomalyAtEpoch, src.epoch, src.referenceBody);
@@ -321,6 +334,35 @@ namespace Parsek.TestCommands
         {
             ModulePartVariants mv = part != null ? part.FindModuleImplementing<ModulePartVariants>() : null;
             return mv != null && mv.SelectedVariant != null ? mv.SelectedVariant.Name : null;
+        }
+
+        /// <summary>
+        /// The live skin of the proof's module after OnStart: the selected variant, or the
+        /// current subtype of the B9 module whose <c>moduleID</c> is the proof's (the first B9
+        /// module when the proof names none), read by reflection
+        /// (<see cref="PartParitySkinRules.ReadB9Subtype"/>; no compile-time reference to
+        /// B9PartSwitch). <paramref name="member"/> names what was read: <c>ModulePartVariants.SelectedVariant</c>,
+        /// the reflected member, <c>no-module</c>, or null for a proof that names no module.
+        /// </summary>
+        internal static string LiveSkinName(Part part, PartParitySkinProof proof, out string member)
+        {
+            member = null;
+            if (part == null || proof == null || proof.Module == null) return null;
+            if (proof.Module == PartParityCaseRules.VariantModuleName)
+            {
+                member = "ModulePartVariants.SelectedVariant";
+                return LiveVariantName(part);
+            }
+            member = "no-module";
+            if (proof.Module != PartParityCaseRules.B9ModuleName) return null;
+            foreach (PartModule m in part.Modules)
+            {
+                if (m == null || m.moduleName != PartParityCaseRules.B9ModuleName) continue;
+                string id = PartParitySkinRules.ReadStringMember(m, PartParitySkinRules.B9ModuleIdKey);
+                if (!string.IsNullOrEmpty(proof.ModuleId) && id != proof.ModuleId) continue;
+                return PartParitySkinRules.ReadB9Subtype(m, out member);
+            }
+            return null;
         }
 
         /// <summary>Formats a size for a log line, metres.</summary>
