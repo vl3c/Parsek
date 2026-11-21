@@ -82,6 +82,15 @@ namespace Parsek
             out Vector3d bodyWorldPos,
             out double gravParameter);
 
+        /// <summary>
+        /// Live planet turn for a looped ground-ending predicted tail (owner ruling R4b), see
+        /// <see cref="GhostPlaybackLogic.TryResolveTailPlanetTurn"/>.
+        /// </summary>
+        internal delegate bool KscTailTurnLookup(
+            string bodyName,
+            double shiftSeconds,
+            out GhostPlaybackLogic.TailPlanetTurn turn);
+
         internal const int KscFlatPointFrameSourceKey = 0;
         internal const string KscOrbitTailBranch = "orbit-tail";
         internal const string KscOrbitTailSlideBranch = "orbit-tail-slide";
@@ -98,7 +107,9 @@ namespace Parsek
             KscSurfaceLookup surfaceLookup,
             KscRecordedAnchorLookup anchorLookup,
             out KscPoseResolution pose,
-            KscBodyStateLookup bodyStateLookup = null)
+            KscBodyStateLookup bodyStateLookup = null,
+            KscTailTurnLookup tailTurnLookup = null,
+            double replayOffsetSeconds = 0.0)
         {
             pose = KscPoseResolution.Failure("none", "recording-null", null);
             if (rec == null)
@@ -114,7 +125,8 @@ namespace Parsek
                 && GhostPlaybackLogic.TryFindTailSegment(rec, targetUT, out OrbitSegment tailSegment))
             {
                 return TryResolveKscTailPose(
-                    rec, tailSegment, targetUT, surfaceLookup, bodyStateLookup, out pose);
+                    rec, tailSegment, targetUT, surfaceLookup, bodyStateLookup, out pose,
+                    tailTurnLookup, replayOffsetSeconds);
             }
             // A predicted tail that starts past the bridge cap: slide to it across the gap.
             if (bodyStateLookup != null
@@ -122,7 +134,8 @@ namespace Parsek
                     rec, targetUT, out OrbitSegment slideSegment, out double slideLastPointUT))
             {
                 return TryResolveKscTailSlidePose(
-                    rec, slideSegment, slideLastPointUT, targetUT, surfaceLookup, bodyStateLookup, out pose);
+                    rec, slideSegment, slideLastPointUT, targetUT, surfaceLookup, bodyStateLookup, out pose,
+                    tailTurnLookup, replayOffsetSeconds);
             }
 
             int targetSectionIndex = FindKscTrackSectionIndex(rec, targetUT);
@@ -227,7 +240,9 @@ namespace Parsek
             double targetUT,
             KscSurfaceLookup surfaceLookup,
             KscBodyStateLookup bodyStateLookup,
-            out KscPoseResolution pose)
+            out KscPoseResolution pose,
+            KscTailTurnLookup tailTurnLookup = null,
+            double replayOffsetSeconds = 0.0)
         {
             if (!HomeWorld.IsHomeBodyName(tailSegment.bodyName))
             {
@@ -251,7 +266,9 @@ namespace Parsek
                 return false;
             }
 
-            Vector3d worldPos = bodyPos + offset;
+            GhostPlaybackLogic.TailPlanetTurn turn = ResolveKscTailTurn(
+                rec, tailSegment, targetUT, tailTurnLookup, replayOffsetSeconds);
+            Vector3d worldPos = turn.Apply(bodyPos, bodyPos + offset);
             TrajectoryPoint lastPoint = rec.Points[rec.Points.Count - 1];
             TrackSection? lastSection = FindKscTrackSection(rec, lastPoint.ut);
             bool lastPointBodyFixed = !lastSection.HasValue
@@ -278,7 +295,7 @@ namespace Parsek
                     && GhostPlaybackLogic.TryComputeTailWorldOffset(
                         tailSegment, mu, lastPoint.ut, out Vector3d anchorOffset, out _))
                 {
-                    Vector3d continuity = lastPointWorld - (bodyPos + anchorOffset);
+                    Vector3d continuity = lastPointWorld - turn.Apply(bodyPos, bodyPos + anchorOffset);
                     worldPos = worldPos + continuity * blendWeight;
                 }
                 else
@@ -291,7 +308,7 @@ namespace Parsek
             string attitude;
             if (GhostPlaybackLogic.TryResolveTailWorldRotation(tailSegment, offset, velocity, out Quaternion tailRot))
             {
-                worldRot = tailRot;
+                worldRot = turn.ApplyRotation(tailRot);
                 attitude = "orbital-frame";
             }
             else if (haveLastPointPose)
@@ -311,7 +328,7 @@ namespace Parsek
                 $"KSC orbit tail playback resolved: recording={rec.DebugName} targetUT={FormatUt(targetUT)} " +
                 $"segment=[{FormatUt(tailSegment.startUT)},{FormatUt(tailSegment.endUT)}] " +
                 $"predicted={tailSegment.isPredicted} continuityWeight={blendWeight.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"attitude={attitude}",
+                $"attitude={attitude} planetTurnDeg={(turn.AngleRad * (180.0 / Math.PI)).ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}",
                 2.0);
             return true;
         }
@@ -329,7 +346,9 @@ namespace Parsek
             double targetUT,
             KscSurfaceLookup surfaceLookup,
             KscBodyStateLookup bodyStateLookup,
-            out KscPoseResolution pose)
+            out KscPoseResolution pose,
+            KscTailTurnLookup tailTurnLookup = null,
+            double replayOffsetSeconds = 0.0)
         {
             if (!HomeWorld.IsHomeBodyName(slideSegment.bodyName))
             {
@@ -354,11 +373,15 @@ namespace Parsek
                 && !surfaceLookup(prev.bodyName, prev.latitude, prev.longitude, prev.altitude,
                     out prevWorld, out _))
                 hasPrev = false;
+            GhostPlaybackLogic.TailPlanetTurn turn = ResolveKscTailTurn(
+                rec, slideSegment, targetUT, tailTurnLookup, replayOffsetSeconds);
             if (!GhostPlaybackLogic.TryComputeTailWorldOffset(
                     slideSegment, mu, slideSegment.startUT, out Vector3d startOffset, out Vector3d startVelocity)
                 || !GhostPlaybackLogic.TryComputeTailSlideWorldPosition(
                     bodyPos, lastWorld, prevWorld, hasPrev, last.ut - prev.ut,
-                    startOffset, startVelocity, lastPointUT, slideSegment.startUT, targetUT,
+                    turn.Apply(bodyPos, bodyPos + startOffset) - bodyPos,
+                    (Vector3d)turn.ApplyVector((Vector3)startVelocity),
+                    lastPointUT, slideSegment.startUT, targetUT,
                     out Vector3d worldPos, out double fraction))
             {
                 pose = KscPoseResolution.Failure(KscOrbitTailSlideBranch, "slide-failed", null);
@@ -371,7 +394,7 @@ namespace Parsek
                 lastBodyRot, TrajectoryMath.SanitizeQuaternion(last.rotation));
             Quaternion endRot = GhostPlaybackLogic.TryResolveTailWorldRotation(
                 slideSegment, startOffset, startVelocity, out Quaternion tailRot)
-                ? tailRot
+                ? turn.ApplyRotation(tailRot)
                 : startRot;
             Quaternion worldRot = TrajectoryMath.PureSlerp(
                 startRot, endRot, (float)GhostPlaybackLogic.SmoothStep01(fraction));
@@ -383,6 +406,27 @@ namespace Parsek
                 $"fraction={fraction.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}",
                 2.0);
             return true;
+        }
+
+        /// <summary>
+        /// The planet turn for a KSC tail pose (owner ruling R4b): a replay
+        /// (<paramref name="replayOffsetSeconds"/> = target UT minus now, nonzero for a loop
+        /// cycle) of a ground-ending predicted tail turns with the planet; anything else, or
+        /// no lookup, is the identity.
+        /// </summary>
+        internal static GhostPlaybackLogic.TailPlanetTurn ResolveKscTailTurn(
+            Recording rec, OrbitSegment segment, double targetUT,
+            KscTailTurnLookup tailTurnLookup, double replayOffsetSeconds)
+        {
+            GhostPlaybackLogic.TailPlanetTurn turn = default(GhostPlaybackLogic.TailPlanetTurn);
+            if (tailTurnLookup == null)
+                return turn;
+            double shift = GhostPlaybackLogic.ResolveTailPlanetTurnSeconds(
+                rec, segment, isReplay: true, playbackUT: targetUT,
+                currentUT: targetUT - replayOffsetSeconds);
+            if (shift == 0.0 || !tailTurnLookup(segment.bodyName, shift, out turn))
+                return default(GhostPlaybackLogic.TailPlanetTurn);
+            return turn;
         }
 
         private static List<TrajectoryPoint> SelectKscInterpolationFrames(

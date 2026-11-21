@@ -1822,7 +1822,9 @@ namespace Parsek
                     TryLookupKscSurfacePose,
                     TryResolveRecordedKscAnchorFrame,
                     out pose,
-                    TryLookupKscBodyState))
+                    TryLookupKscBodyState,
+                    TryLookupKscTailTurn,
+                    ResolveKscReplayOffsetSeconds(targetUT)))
             {
                 if (pose.FailureReason == "relative-anchor-unresolved")
                 {
@@ -1897,6 +1899,20 @@ namespace Parsek
             bool hasValidPose)
         {
             return positioned || hasValidPose;
+        }
+
+        internal bool TryLookupKscTailTurn(
+            string bodyName,
+            double shiftSeconds,
+            out GhostPlaybackLogic.TailPlanetTurn turn)
+        {
+            return GhostPlaybackLogic.TryResolveTailPlanetTurn(LookupBody(bodyName), shiftSeconds, out turn);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ResolveKscReplayOffsetSeconds(double targetUT)
+        {
+            return Planetarium.fetch != null ? targetUT - Planetarium.GetUniversalTime() : 0.0;
         }
 
         internal bool TryLookupKscBodyState(

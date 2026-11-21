@@ -384,6 +384,181 @@ namespace Parsek
                 out worldPos, out _);
         }
 
+        // ---- Owner ruling R4b: a looped predicted crash turns with the planet ----
+        //
+        // A loop cycle replays its recording at a later UT. Recorded body-fixed points ride the
+        // planet, but an orbit tail is inertial: evaluated at the loop UT it sits where it was
+        // in space, so the planet has turned under it by the rotation between the recorded
+        // epoch and the playback epoch and the ghost hits the ground at a rotated spot (in the
+        // air or under the terrain). A predicted path that ends on the ground is turned with the
+        // planet by that rotation, so each repeat reaches the real crash site. The rotation is
+        // read from the body's own surface frame each frame (never cached across frames: the
+        // world frame turns with Planetarium.Zup) as the turn of the equator point at longitude
+        // 0 under TrajectoryMath.FrameTransform.ShiftLongitudeDegrees, the same longitude shift
+        // the phasing derotation uses. Orbiting tails are unchanged.
+
+        /// <summary>
+        /// True when <paramref name="segment"/> is part of a predicted path that ends on the
+        /// ground: the recording ended Destroyed, Landed or Splashed, the segment is predicted,
+        /// and the recording's final orbit segment is a predicted one around the same body. Pure.
+        /// </summary>
+        internal static bool IsGroundEndingPredictedTail(IPlaybackTrajectory traj, OrbitSegment segment)
+        {
+            if (traj == null || !segment.isPredicted)
+                return false;
+            TerminalState? terminal = traj.TerminalStateValue;
+            if (terminal != TerminalState.Destroyed
+                && terminal != TerminalState.Landed
+                && terminal != TerminalState.Splashed)
+                return false;
+            var segments = traj.OrbitSegments;
+            if (segments == null || segments.Count == 0)
+                return false;
+            int finalIdx = 0;
+            for (int i = 1; i < segments.Count; i++)
+            {
+                if (segments[i].endUT >= segments[finalIdx].endUT)
+                    finalIdx = i;
+            }
+            OrbitSegment final = segments[finalIdx];
+            return final.isPredicted
+                && string.Equals(final.bodyName, segment.bodyName, System.StringComparison.Ordinal);
+        }
+
+        /// <summary>Below this replay offset the tail is not turned (sub-millisecond noise).</summary>
+        internal const double TailPlanetTurnMinSeconds = 1e-3;
+
+        /// <summary>
+        /// The longitude shift (seconds of planet rotation, the
+        /// <see cref="TrajectoryMath.FrameTransform.ShiftLongitudeDegrees"/> argument) that turns
+        /// a ground-ending predicted tail replayed at <paramref name="playbackUT"/> into the
+        /// body-fixed frame it was recorded in: <c>playbackUT - currentUT</c> for a replay
+        /// (<paramref name="isReplay"/>), 0 otherwise or when the tail does not end on the
+        /// ground. <paramref name="bodyFixedShiftSeconds"/> is the replay's phasing derotation
+        /// of its recorded points (identity at 0), added so the turned tail stays on the points
+        /// it continues. Pure.
+        /// </summary>
+        internal static double ResolveTailPlanetTurnSeconds(
+            IPlaybackTrajectory traj, OrbitSegment segment, bool isReplay,
+            double playbackUT, double currentUT, double bodyFixedShiftSeconds = 0.0)
+        {
+            if (!isReplay)
+                return 0.0;
+            double offset = playbackUT - currentUT
+                + (double.IsNaN(bodyFixedShiftSeconds) || double.IsInfinity(bodyFixedShiftSeconds)
+                    ? 0.0 : bodyFixedShiftSeconds);
+            if (double.IsNaN(offset) || double.IsInfinity(offset)
+                || System.Math.Abs(offset) < TailPlanetTurnMinSeconds)
+                return 0.0;
+            return IsGroundEndingPredictedTail(traj, segment) ? offset : 0.0;
+        }
+
+        /// <summary>A rigid turn about the planet's spin axis through its centre.</summary>
+        internal struct TailPlanetTurn
+        {
+            public bool Active;
+            public Vector3d Axis;        // unit spin axis, world
+            public double AngleRad;      // signed, about Axis (right-hand rule on the standard cross)
+            public Quaternion Rotation;  // the same turn for attitudes and velocities
+
+            /// <summary>Turns a world position about the body centre. Pure.</summary>
+            public Vector3d Apply(Vector3d bodyPos, Vector3d worldPos)
+            {
+                if (!Active) return worldPos;
+                return bodyPos + RotateAboutAxis(worldPos - bodyPos, Axis, AngleRad);
+            }
+
+            /// <summary>The inverse of <see cref="Apply"/>. Pure.</summary>
+            public Vector3d Unapply(Vector3d bodyPos, Vector3d worldPos)
+            {
+                if (!Active) return worldPos;
+                return bodyPos + RotateAboutAxis(worldPos - bodyPos, Axis, -AngleRad);
+            }
+
+            /// <summary>Turns a world vector (a velocity). Pure.</summary>
+            public Vector3 ApplyVector(Vector3 v)
+            {
+                return Active ? TrajectoryMath.PureRotateVector(Rotation, v) : v;
+            }
+
+            /// <summary>Turns a world attitude. Pure.</summary>
+            public Quaternion ApplyRotation(Quaternion q)
+            {
+                return Active ? TrajectoryMath.PureMultiply(Rotation, q) : q;
+            }
+        }
+
+        /// <summary>Rodrigues rotation of <paramref name="v"/> about a unit axis. Pure.</summary>
+        internal static Vector3d RotateAboutAxis(Vector3d v, Vector3d unitAxis, double angleRad)
+        {
+            double c = System.Math.Cos(angleRad);
+            double s = System.Math.Sin(angleRad);
+            Vector3d cross = Vector3d.Cross(unitAxis, v);
+            double dot = Vector3d.Dot(unitAxis, v);
+            return v * c + cross * s + unitAxis * (dot * (1.0 - c));
+        }
+
+        /// <summary>
+        /// The signed angle (radians) that turns <paramref name="from"/> onto
+        /// <paramref name="to"/> about <paramref name="unitAxis"/>, measured in the plane normal
+        /// to the axis. Pure.
+        /// </summary>
+        internal static double SignedAngleAboutAxis(Vector3d from, Vector3d to, Vector3d unitAxis)
+        {
+            Vector3d a = from - unitAxis * Vector3d.Dot(from, unitAxis);
+            Vector3d b = to - unitAxis * Vector3d.Dot(to, unitAxis);
+            double sin = Vector3d.Dot(unitAxis, Vector3d.Cross(a, b));
+            double cos = Vector3d.Dot(a, b);
+            return System.Math.Atan2(sin, cos);
+        }
+
+        /// <summary>
+        /// Builds the turn from three body-relative world offsets the body's own surface frame
+        /// gives: its north pole, the equator point at longitude 0, and that point after the
+        /// longitude shift. Inactive when degenerate or the turn is below 1e-9 rad. Pure.
+        /// </summary>
+        internal static bool TryBuildTailPlanetTurn(
+            Vector3d poleOffset, Vector3d equatorOffset, Vector3d turnedEquatorOffset,
+            out TailPlanetTurn turn)
+        {
+            turn = default(TailPlanetTurn);
+            if (!IsFiniteTailVector(poleOffset) || !IsFiniteTailVector(equatorOffset)
+                || !IsFiniteTailVector(turnedEquatorOffset))
+                return false;
+            double poleMag = poleOffset.magnitude;
+            if (!(poleMag > 1e-6) || !(equatorOffset.magnitude > 1e-6))
+                return false;
+            Vector3d axis = poleOffset / poleMag;
+            double angle = SignedAngleAboutAxis(equatorOffset, turnedEquatorOffset, axis);
+            if (double.IsNaN(angle) || System.Math.Abs(angle) < 1e-9)
+                return false;
+            turn.Active = true;
+            turn.Axis = axis;
+            turn.AngleRad = angle;
+            turn.Rotation = TrajectoryMath.PureAngleAxis(
+                (float)(angle * (180.0 / System.Math.PI)), (Vector3)axis);
+            return true;
+        }
+
+        /// <summary>
+        /// Live: the planet turn for a longitude shift of <paramref name="shiftSeconds"/> around
+        /// <paramref name="body"/>, read from the body's surface frame this frame.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static bool TryResolveTailPlanetTurn(
+            CelestialBody body, double shiftSeconds, out TailPlanetTurn turn)
+        {
+            turn = default(TailPlanetTurn);
+            if (body == null || shiftSeconds == 0.0)
+                return false;
+            Vector3d center = body.position;
+            Vector3d pole = body.GetWorldSurfacePosition(90.0, 0.0, 0.0) - center;
+            Vector3d equator = body.GetWorldSurfacePosition(0.0, 0.0, 0.0) - center;
+            Vector3d turned = body.GetWorldSurfacePosition(
+                0.0, TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(0.0, shiftSeconds, body), 0.0) - center;
+            return TryBuildTailPlanetTurn(pole, equator, turned, out turn);
+        }
+
         private static bool IsFiniteTailVector(Vector3d v)
         {
             return !double.IsNaN(v.x) && !double.IsInfinity(v.x)

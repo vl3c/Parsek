@@ -405,7 +405,7 @@ namespace Parsek.Tests
 
             int body = orbit.IndexOf("private void PositionGhostOnPredictedTailSlide(", StringComparison.Ordinal);
             Assert.True(body >= 0);
-            string slideBody = orbit.Substring(body, 4000);
+            string slideBody = orbit.Substring(body, Math.Min(8000, orbit.Length - body));
             Assert.Contains("seg.startUT,", slideBody);
             Assert.Contains("Vector3.zero, seg.bodyName, body.GetAltitude(worldPos)", slideBody);
         }
