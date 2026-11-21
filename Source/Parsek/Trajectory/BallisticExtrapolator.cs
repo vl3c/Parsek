@@ -206,13 +206,13 @@ namespace Parsek
         {
             switch (situation)
             {
-                case Vessel.Situations.FLYING:
                 case Vessel.Situations.ESCAPING:
                     return true;
 
+                case Vessel.Situations.FLYING:
                 case Vessel.Situations.SUB_ORBITAL:
-                    // A bound SUB_ORBITAL coast whose low point clears the periapsis floor
-                    // (deletion altitude or highest terrain) is a stable orbit stock keeps,
+                    // A bound FLYING or SUB_ORBITAL coast whose low point clears the periapsis
+                    // floor (deletion altitude or highest terrain) is a stable orbit stock keeps,
                     // so it ends Orbiting the same way an ORBITING one does; extrapolating it
                     // only runs to the horizon.
                     if (double.IsNaN(periapsisAltitude) || double.IsInfinity(periapsisAltitude))
