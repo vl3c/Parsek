@@ -27,7 +27,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 - Seam verbs (of 62 implemented): none
 - Dimension values (2 of 251 registry values): D1 `sub-2-point-drop`, D13 `pid-dedup`
-- In-game test categories (1 of 144 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `GuiMock`
+- In-game test categories (2 of 145 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `GuiMock`, `OrbitSpawnClearance`
 
 ## Lanes per family
 
@@ -299,7 +299,6 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | looped-interplanetary | 2 |
 | pending-limbo-tree | 2 |
 | rewind-crew-loss | 2 |
-| single-point-hold | 2 |
 | spawn-safety | 2 |
 | background-claim | 1 |
 | drill-harvest-route | 1 |
@@ -311,6 +310,8 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | overlap-cap | 1 |
 | relative-loop | 1 |
 | rescan-substitute | 1 |
+| single-point-hold | 1 |
+| single-point-hold-wide | 1 |
 | spawn-room | 1 |
 | spawn-stack | 1 |
 | vessel-budget | 1 |

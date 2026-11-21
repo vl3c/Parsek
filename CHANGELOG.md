@@ -49,6 +49,12 @@ Not released yet.
 
 ### Fixed
 
+- **A vessel that ends in orbit next to another no longer appears inside it.** When the spot is
+  taken, it now appears a few metres ahead of or behind it on its own orbit. If no free spot is near,
+  it is held back, never placed overlapping. (SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS)
+- **A lander resting on an asteroid or comet no longer appears inside the rock.** It now appears
+  just clear of the rock's surface and moves with it, drifting slowly as in stock. A vessel holding
+  the rock with the Klaw is still one vessel with the rock. (SPAWN-RESTING-ON-ROCK)
 - **Changes you make during a Re-Fly are kept when it merges.** Sealing, stashing, hiding,
   looping, regrouping or turning off the ghost of another flight of the same mission while you
   re-fly one part of it was undone by the merge, and a sealed slot could come back open with no

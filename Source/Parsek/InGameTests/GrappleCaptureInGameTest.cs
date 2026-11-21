@@ -427,7 +427,7 @@ namespace Parsek.InGameTests
         ///
         /// Returns the spawned vessel pid, 0 on failure (callers skip loudly).
         /// </summary>
-        private static uint SpawnSinglePartVessel(
+        internal static uint SpawnSinglePartVessel(
             string partName, string vesselName, VesselType vtype, Vessel anchor, double offsetMeters)
         {
             CelestialBody body = anchor.mainBody;
@@ -559,7 +559,7 @@ namespace Parsek.InGameTests
         /// vessel via <paramref name="onLive"/>; leaves it null on timeout or
         /// mid-wait destruction (caller skips loudly).
         /// </summary>
-        private static IEnumerator WaitForSpawnedVesselLive(uint pid, string label, Action<Vessel> onLive)
+        internal static IEnumerator WaitForSpawnedVesselLive(uint pid, string label, Action<Vessel> onLive)
         {
             float deadline = Time.realtimeSinceStartup + SpawnLoadTimeoutSeconds;
             bool hardened = false;

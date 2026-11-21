@@ -154,8 +154,10 @@ RP_SIDECAR_BY_PRESET = {
     "pending-limbo-tree": None,
     # RL-1's live-PID loop-anchor recording: a committed tree only, no RP.
     "relative-loop": None,
-    # EX-2's single-point hold: one committed one-point recording, no RP.
+    # SPW-11's single-point-hold host: one committed one-point recording, no RP.
     "single-point-hold": None,
+    # EX-2's single-point hold with the widened spawn box: same shape, no RP.
+    "single-point-hold-wide": None,
     # SS-1's spawn-safety pair: two committed single-recording trees, no RP.
     "spawn-safety": None,
     # RSC-1's Real Spawn Control candidate: one committed landed recording, no RP.

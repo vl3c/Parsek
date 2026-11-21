@@ -329,10 +329,9 @@ namespace Parsek
                     tipId,
                     haveOrbitalSpawnState ? "propagated-orbit" : "snapshot",
                     spawnUT.ToString("F2", ic)));
-            var (overlap, distance, blockerName, _) =
-                SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                    spawnPos, spawnBounds, SpawnCollisionPadding,
-                    spawningRecording: tipRecording, site: "chain-tip");
+            var (overlap, distance, blockerName, _) = ResolveChainTipSpawnOverlap(
+                tipRecording, spawnBody, spawnUT, spawnBounds, spawnPos, haveOrbitalSpawnState,
+                ref orbitalSpawnOrbit, ref orbitalSpawnVelocity, ref orbitLat, ref orbitLon, ref orbitAlt);
 
             if (overlap)
             {
@@ -506,6 +505,10 @@ namespace Parsek
             TrajectoryPoint? tipPoint = tipRecording.Points != null && tipRecording.Points.Count > 0
                 ? (TrajectoryPoint?)tipRecording.Points[tipRecording.Points.Count - 1]
                 : null;
+
+            if (TrySpawnBlockedOrbitChainTip(chain, tipRecording, vesselSnapshot, tipPoint, currentUT,
+                    out uint orbitTipPid))
+                return orbitTipPid;
 
             // Propagate ghost position using GhostExtender
             Vector3d propagatedPos = ComputePropagatedPosition(tipRecording, currentUT);
@@ -700,6 +703,16 @@ namespace Parsek
                         allowExistingSourceDuplicate: allowExistingSourceDuplicate);
             }
 
+            return CompleteBlockedChainSpawn(chain, tipRecording, tipId, spawnedPid);
+        }
+
+        /// <summary>
+        /// The tail of a blocked chain tip's spawn at a clear position: a pid 0 ends the
+        /// collision block (logged as settled or failed); a vessel marks the tip spawned and
+        /// releases the chain.
+        /// </summary>
+        private uint CompleteBlockedChainSpawn(GhostChain chain, Recording tipRecording, string tipId, uint spawnedPid)
+        {
             if (spawnedPid == 0)
             {
                 if (IsChainTipSettledWithoutVessel(tipRecording))
@@ -734,6 +747,130 @@ namespace Parsek
             ReleaseChainClaims(chain);
 
             return spawnedPid;
+        }
+
+        /// <summary>
+        /// The collision check of the first chain-tip attempt. A tip with no orbit override is
+        /// checked at <paramref name="spawnPos"/>; an orbital tip is placed by its orbit, so the
+        /// orbit-route clearance moves it along that orbit or pushes it off a rock (owner ruling
+        /// 2026-11-21), and only a tip with no clear spot within the bound reads as overlapping.
+        /// </summary>
+        private static (bool overlap, float distance, string blockerName, Vessel blocker) ResolveChainTipSpawnOverlap(
+            Recording tip, CelestialBody body, double spawnUT, Bounds spawnBounds, Vector3d spawnPos,
+            bool orbital, ref Orbit orbit, ref Vector3d velocity, ref double lat, ref double lon, ref double alt)
+        {
+            if (!orbital)
+                return SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                    spawnPos, spawnBounds, SpawnCollisionPadding,
+                    spawningRecording: tip, site: "chain-tip");
+            bool clear = ApplyChainTipOrbitClearance(tip, body, spawnUT, spawnBounds, "chain-tip",
+                ref orbit, ref velocity, ref lat, ref lon, ref alt, out string orbitBlocker);
+            return clear
+                ? (false, float.MaxValue, (string)null, (Vessel)null)
+                : (true, 0f, orbitBlocker, (Vessel)null);
+        }
+
+        /// <summary>
+        /// Orbit-route clearance of an orbital chain tip (owner ruling 2026-11-21, todo
+        /// SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS / SPAWN-RESTING-ON-ROCK): the tip is placed
+        /// by its recorded terminal orbit, so a rock at the spawn point pushes it out with the
+        /// rock's velocity and another loaded vessel moves it a little along its own orbit. A
+        /// moved state replaces the orbit, velocity and coordinates (the caller's terminal-orbit
+        /// safety check then reads the moved orbit). False, with the blocker's name, when no clear
+        /// spot exists within the bound: the caller keeps the tip blocked and retries it.
+        /// </summary>
+        private static bool ApplyChainTipOrbitClearance(
+            Recording tip, CelestialBody body, double spawnUT, Bounds spawnBounds, string site,
+            ref Orbit orbit, ref Vector3d velocity, ref double lat, ref double lon, ref double alt,
+            out string blockerName)
+        {
+            string context = string.Format(ic, "tip '{0}' ({1})",
+                tip?.RecordingId ?? "(null)", tip?.VesselName ?? "(unknown)");
+            OrbitSpawnClearanceResult clearance = SpawnCollisionDetector.ResolveOrbitSpawnClearance(
+                orbit, body, spawnUT, spawnBounds, SpawnCollisionPadding, 0u, tip, site, context);
+            blockerName = clearance.BlockerName;
+            if (!clearance.CanSpawn)
+                return false;
+            if (!clearance.StateChanged)
+                return true;
+
+            orbit = clearance.Orbit;
+            velocity = clearance.VelocityZup;
+            lat = body.GetLatitude(clearance.WorldPos);
+            lon = body.GetLongitude(clearance.WorldPos);
+            alt = body.GetAltitude(clearance.WorldPos);
+            ParsekLog.Info("SpawnCollision",
+                string.Format(ic,
+                    "Chain tip orbit spawn moved: site={0} {1} outcome={2} shift={3}m pushOut={4}m lat={5} lon={6} alt={7}",
+                    site, context, clearance.Outcome,
+                    clearance.ShiftMeters.ToString("F1", ic), clearance.PushOutMeters.ToString("F1", ic),
+                    lat.ToString("F4", ic), lon.ToString("F4", ic), alt.ToString("F1", ic)));
+            return true;
+        }
+
+        /// <summary>
+        /// The blocked retry of an orbital chain tip: it re-runs the orbit-route clearance at
+        /// the tip's recorded terminal orbit propagated to <paramref name="currentUT"/> (where it
+        /// would spawn) instead of the ghost extender position and the trajectory walkback.
+        /// Returns false, leaving the ordinary retry to run, for a tip that is not orbit-route or
+        /// whose spawn body cannot be resolved; an unresolved orbit refuses the tip.
+        /// </summary>
+        private bool TrySpawnBlockedOrbitChainTip(
+            GhostChain chain, Recording tipRecording, ConfigNode vesselSnapshot,
+            TrajectoryPoint? tipPoint, double currentUT, out uint spawnedPid)
+        {
+            spawnedPid = 0;
+            if (!VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(tipRecording))
+                return false;
+            CelestialBody spawnBody = VesselSpawner.ResolveSpawnBody(tipRecording, tipPoint, currentUT);
+            if (spawnBody == null)
+                return false;
+
+            string tipId = chain.TipRecordingId;
+            bool resolved = VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(
+                tipRecording, spawnBody, currentUT,
+                out double lat, out double lon, out double alt,
+                out Vector3d velocity, out Orbit orbit);
+            if (StopChainTipForUnresolvedTerminalOrbit(
+                    chain, tipRecording, spawnBody, true, resolved, currentUT, "chain-tip-blocked"))
+                return true;
+
+            Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
+            if (!ApplyChainTipOrbitClearance(
+                    tipRecording, spawnBody, currentUT, spawnBounds, "chain-tip-blocked",
+                    ref orbit, ref velocity, ref lat, ref lon, ref alt, out string blockerName))
+            {
+                ParsekLog.VerboseRateLimited("SpawnCollision", "blocked-recheck-" + chain.OriginalVesselPid,
+                    string.Format(ic,
+                        "Spawn still blocked: vessel={0} overlaps with {1} (orbit spawn, no clear spot within {2}m along its orbit, blocked {3}s)",
+                        tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)",
+                        OrbitSpawnClearance.PhaseShiftMaxMeters.ToString("F0", ic),
+                        (currentUT - chain.BlockedSinceUT).ToString("F1", ic)));
+                return true;
+            }
+
+            ParsekLog.Info("SpawnCollision",
+                string.Format(ic,
+                    "Spawn cleared: vessel={0} - orbit spawn clear after {1}s",
+                    tipRecording.VesselName ?? "(unknown)", (currentUT - chain.BlockedSinceUT).ToString("F1", ic)));
+            if (!PassChainTipTerminalOrbitSafety(
+                    chain, tipRecording, spawnBody, orbit, currentUT, alt, "chain-tip-blocked"))
+                return true;
+
+            uint pid = SpawnChainTipWithResolvedState(
+                tipRecording,
+                vesselSnapshot,
+                string.Format(ic, "blocked chain tip '{0}'", tipId),
+                currentUT,
+                lat,
+                lon,
+                alt,
+                velocity,
+                tipPoint,
+                spawnBody,
+                orbit);
+            spawnedPid = CompleteBlockedChainSpawn(chain, tipRecording, tipId, pid);
+            return true;
         }
 
         // --- Private helpers ---
