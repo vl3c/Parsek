@@ -68,7 +68,7 @@ tier = "operator"
 description = "Rescue deferral kept across a rewind (todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD): on cs-career-mun4 a committed pad Flea and the rescue of Rayvan Kerman (RecoverAsset e8ba5ea6) accepted after its launch; after a Rewind-to-Launch a time jump in flight defers the stranded pod and lists the contract, a recording started then writes its rewind save with the list, the session's own Space Center visit regenerates the pod and empties the list, and a rewind to that recording's launch keeps the rewind save's list (landed=1 session=0), so the landed Space Center regenerates the pod once more in the landed world and a second visit adds nothing; the produced save holds Rayvan aboard one vessel."
 instanceProfile = "stock-tree"
 tags = ["RSQ-3", "career", "ledger", "rewind", "rewind-to-launch", "contracts", "contract-accept",
-        "rescue", "pending-flight", "time-jump", "ksc-marker", "editor", "timeline-ops", "save-load", "scene-change"]
+        "rescue", "reading-run", "time-jump", "ksc-marker", "editor", "timeline-ops", "save-load", "scene-change"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-mun4"
@@ -154,10 +154,11 @@ allowedAnomalies = []
 # The host's 34 recordings plus H and F.
 count = { min = 36, max = 36 }
 
-# Report-only until the first green flight reads it (then arm with `gating = true` and add the
-# id to ARMED_ALLOWLIST in harness/lib/test_hlib.py): Rayvan aboard exactly one vessel in the
+# ARMED 2026-11-21 off its first green flight `2026-11-21_1145` (crewAboard Rayvan Kerman = 1; the
+# first red flights of RSQ-1 / RSQ-2 read the same): Rayvan aboard exactly one vessel in the
 # landed world. Zero means the landed drain never regenerated; two means it regenerated twice.
 [expectations.recordings.structure]
+gating     = true
 crewAboard = { "Rayvan Kerman" = 1 }
 
 [expectations.logContracts]

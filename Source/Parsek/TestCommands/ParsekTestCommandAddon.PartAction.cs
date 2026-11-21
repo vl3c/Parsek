@@ -378,8 +378,12 @@ namespace Parsek.TestCommands
                         }
                     }
                     else if (c.Action != null)
+                    {
                         // The servo's own KSPAction, as an action group bound to it fires it.
                         c.Action.Invoke(new KSPActionParam(KSPActionGroup.None, KSPActionType.Activate));
+                        if (kind == PartActionKind.RotorOn)
+                            RaiseRotorTorqueIfZero(c.Part, kind, actArg, vesselPid);
+                    }
                     else if (c.Event != null)
                         // The part-menu button's own handler, as the PAW invokes it.
                         c.Event.Invoke();
@@ -646,9 +650,57 @@ namespace Parsek.TestCommands
                     && module.Fields["servoMotorIsEngaged"].GetValue(module) is bool engaged
                     && module.Fields["rpmLimit"] != null
                     && module.Fields["rpmLimit"].GetValue(module) is float rpmLimit)
-                    readings.Add(PartActionModuleReading.Rotor(engaged, rpmLimit));
+                    readings.Add(PartActionModuleReading.Rotor(engaged, rpmLimit,
+                        ReadRotorTorqueLimit(module)));
             }
             return readings;
+        }
+
+        /// <summary>The rotor's <c>servoMotorLimit</c> (percent), or NaN when the field is
+        /// missing or not a float.</summary>
+        private static float ReadRotorTorqueLimit(PartModule module)
+        {
+            BaseField f = module != null && module.Fields != null
+                ? module.Fields[TestCommandPartAction.RotorTorqueFieldName] : null;
+            return f != null && f.GetValue(module) is float limit ? limit : float.NaN;
+        }
+
+        /// <summary>After a <b>rotoron</b> press: stock zeroes a rotor's torque limit at every
+        /// FLIGHT start, so an engaged motor would drive no torque; press the rotor's own
+        /// <c>MotorPowerAction</c> (it sets the limit to 100) when the limit reads 0. One line
+        /// per rotor module either way.</summary>
+        private static void RaiseRotorTorqueIfZero(Part part, PartActionKind kind, string actArg, uint vesselPid)
+        {
+            if (part == null || part.Modules == null) return;
+            string pName = part.partInfo != null ? part.partInfo.name : part.name;
+            System.Globalization.CultureInfo ic = System.Globalization.CultureInfo.InvariantCulture;
+            for (int m = 0; m < part.Modules.Count; m++)
+            {
+                PartModule module = part.Modules[m];
+                if (!TestCommandPartAction.IsRotorModuleName(module?.moduleName)) continue;
+                float before = ReadRotorTorqueLimit(module);
+                if (!TestCommandPartAction.ShouldRaiseRotorTorque(kind, before))
+                {
+                    ParsekLog.Verbose(Tag, $"partaction rotor torque kept: button={actArg} pid={vesselPid} " +
+                        $"part='{pName}' partId={part.flightID} servoMotorLimit={before.ToString("F2", ic)}");
+                    continue;
+                }
+                BaseAction power = module.Actions != null
+                    ? module.Actions[TestCommandPartAction.RotorTorqueActionName] : null;
+                if (power == null)
+                {
+                    ParsekLog.Warn(Tag, $"partaction rotor torque not raised: button={actArg} pid={vesselPid} " +
+                        $"part='{pName}' partId={part.flightID} servoMotorLimit={before.ToString("F2", ic)} " +
+                        $"reason=no-{TestCommandPartAction.RotorTorqueActionName}");
+                    continue;
+                }
+                power.Invoke(new KSPActionParam(KSPActionGroup.None, KSPActionType.Activate));
+                float after = ReadRotorTorqueLimit(module);
+                ParsekLog.Info(Tag, $"partaction rotor torque raised: button={actArg} pid={vesselPid} " +
+                    $"part='{pName}' partId={part.flightID} action={TestCommandPartAction.RotorTorqueActionName} " +
+                    $"servoMotorLimit={before.ToString("F2", ic)}->{after.ToString("F2", ic)} " +
+                    "(stock zeroes a rotor's torque limit at every flight start)");
+            }
         }
 
         private static List<uint> ReadLivePids()

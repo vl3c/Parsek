@@ -129,11 +129,13 @@ allowedAnomalies = []
 # Measured 2 on `2026-10-25_1148` (the revert soft-unstashes the tree; nothing commits).
 count = { min = 2, max = 2 }
 
-# REPORT-ONLY (no `gating` key) until a reading run. The reverted flight's rewind point is
+# ARMED 2026-11-21 off `2026-11-21_1209` (matched first on `2026-11-21_1134`, both on the DLL
+# that deletes the file on revert). The reverted flight's rewind point is
 # gone from the save (`rewindPoints`) and its quicksave from `Parsek/RewindPoints`
 # (`rewindPointFiles`, `unlistedRewindPointFiles`: the folder beside the produced save); the
 # file facets read 1 on `2026-11-20_2256`, before the revert deleted the file (2026-11-21).
 [expectations.rewind]
+gating                   = true
 rewindPoints             = 0
 rewindPointFiles         = 0
 unlistedRewindPointFiles = 0

@@ -67,7 +67,7 @@ tier = "operator"
 description = "Rescue contract rebuilt at the Space Center after a rewind (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS): on cs-career-mun4 a committed pad Flea, then the rescue of Rayvan Kerman (RecoverAsset e8ba5ea6, low Kerbin orbit) accepted at the Space Center after its launch; a Rewind-to-Launch goes back before the accept, and the Space Center warp that reaches it rebuilds the contract and regenerates the stranded pod through stock's own GenerateOrbitalRecovery, exactly once: a save, a Cold reload and a second warp add no second pod, and the produced save holds Rayvan aboard one vessel."
 instanceProfile = "stock-tree"
 tags = ["RSQ-1", "career", "ledger", "rewind", "rewind-to-launch", "contracts", "contract-accept",
-        "rescue", "pending-flight", "ksc-marker", "editor", "timeline-ops", "save-load"]
+        "rescue", "reading-run", "ksc-marker", "editor", "timeline-ops", "save-load"]
 
 [fixture]
 saveTemplate = "fixtures/saves/cs-career-mun4"
@@ -132,10 +132,11 @@ allowedAnomalies = []
 # The host's 34 recordings plus H (RW-18's measured 35 on the same prefix).
 count = { min = 35, max = 35 }
 
-# Report-only until the first green flight reads it (then arm with `gating = true` and add the
-# id to ARMED_ALLOWLIST in harness/lib/test_hlib.py): Rayvan aboard exactly one vessel. Zero
+# ARMED 2026-11-21 off its first green flight `2026-11-21_1140` (crewAboard Rayvan Kerman = 1; the
+# first red flights of RSQ-1 / RSQ-2 read the same): Rayvan aboard exactly one vessel. Zero
 # means the pod was never regenerated; two means it was regenerated twice.
 [expectations.recordings.structure]
+gating     = true
 crewAboard = { "Rayvan Kerman" = 1 }
 
 [expectations.logContracts]

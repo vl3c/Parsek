@@ -36,10 +36,13 @@ id = "SRV-2-rotor-spin-ghost"
 #   30     LoadGame -> FLIGHT on the rover; StartRecording; mark srv2-recording.
 #   33     1x settle (the recorder's first robotic poll sets the 0 RPM baseline), then
 #          PartAction rotoron: BaseServo's MotorOnAction (Engage Motor, the action an action
-#          group fires). The EM-16 spools to 30 RPM in a few physics frames (rotorSpoolTime
+#          group fires), plus the rotor's own MotorPowerAction because stock zeroes the torque
+#          limit at every FLIGHT start (flight 1, 2026-11-21_1152: engaged, never turned). The EM-16 spools to 30 RPM in a few physics frames (rotorSpoolTime
 #          150) and HOLDS it; 1x to 38.
-#   38     PartAction rotoroff: MotorOffAction (Disengage Motor); the joint is driven to zero
-#          (at brakeTorque, lockPartOnPowerLoss) and the averaged rate falls to 0; 1x to 41.
+#   38     PartAction rotoroff: MotorOffAction (Disengage Motor). A disengaged rotor COASTS
+#          (stock drives it toward zero with a torque of 1: flight 2, 2026-11-21_1220, read
+#          30 RPM three seconds later and no Stopped), so PartAction rotorbrake presses the
+#          rotor's own BrakeAction (brakeTorque 60) and the averaged rate falls to 0; 1x to 41.
 #   41     StopRecording, CommitTree (VN-3's order, in FLIGHT), then Rewind-to-Launch
 #          (`tree=latest`); SaveGame + LoadGame of the rewound save lands FLIGHT on the watcher
 #          about 15 s before the recording start (GS-6 / CN-4 / MINE-6 / SRV-1 measured).
@@ -92,8 +95,8 @@ id = "SRV-2-rotor-spin-ghost"
 #     the rotor was locked, or EC ran out) or transformRateOfMotion was not read.
 #   - a Started before srv2-spin-up: the fixture's motor loaded engaged (the builder's verify
 #     gate) or the rover's own motion read as spin (relative rate should exclude it).
-#   - no Stopped after srv2-spin-down: the rotor freewheels on (the MotorOffAction did not stop
-#     the drive), or the averaged rate never falls to 0.5 RPM.
+#   - no Stopped after srv2-spin-down: the rotor freewheels on (the brake did not engage), or
+#     the averaged rate never falls to 0.5 RPM.
 #   - `followers=0` / no plan line: the planner did not see the battery on the moving node.
 #   - no `Rotor spin applied` line but robotic apply lines `applied=[1-9]`: the Started event
 #     applied and UpdateActiveRobotics never turned the rotor (info.active false, a zero
@@ -113,9 +116,15 @@ id = "SRV-2-rotor-spin-ghost"
 # flight_efficiency.py after the first green flight. No RunTests step: the ServoFollowers cell
 # skips rotors by design (it poses a servo, a rotor turns by RPM), so it proves nothing here.
 #
-# STATUS: AUTHORED 2026-11-21, NEVER FLOWN.
+# STATUS: AUTHORED 2026-11-21. Flight 1 `2026-11-21_1152` PARSEK-FAIL(expectation), a SEAM red:
+# the engaged motor had a torque limit of 0 (stock's FLIGHT OnStart), the rotor never turned and
+# the recorder correctly recorded nothing; `rotoron` now raises it. Flight 2 `2026-11-21_1220`
+# PARSEK-FAIL(expectation) on one token, a LANE red: the rotor spun (Started val=0.865, samples
+# to 30.000, the ghost's `Rotor spin applied` and re-pose lines) but coasted after `rotoroff`,
+# so no Stopped before the commit; the new `rotorbrake` press stops it. Flight 3
+# `2026-11-21_1227` PASS attempt 1 (98 s): Stopped `val=0.005` 0.4 s after the brake.
 tier = "operator"
-description = "AUTHORED 2026-11-21, NEVER FLOWN: a Breaking Ground EM-16 rotor on a landed rover's front (srv-rotor-rover, a Z-200 on the rotor's moving node, 820 m from the runway) engaged by PartAction rotoron, held at 30 RPM for 5 s and disengaged by rotoroff while recording, committed, Rewound-to-Launch and replayed in FLIGHT from a watcher 120 m away; the recorder must read the live rate of motion, emit one Started and no Stopped while the RPM holds and a Stopped after spin-down, and the ghost's rotor must spin and re-pose the battery riding it."
+description = "AUTHORED 2026-11-21, green on its third flight 2026-11-21_1227: a Breaking Ground EM-16 rotor on a landed rover's front (srv-rotor-rover, a Z-200 on the rotor's moving node, 820 m from the runway) engaged by PartAction rotoron, held at 30 RPM for 5 s and disengaged by rotoroff while recording, committed, Rewound-to-Launch and replayed in FLIGHT from a watcher 120 m away; the recorder must read the live rate of motion, emit one Started and no Stopped while the RPM holds and a Stopped after spin-down, and the ghost's rotor must spin and re-pose the battery riding it."
 instanceProfile = "stock-tree"
 tags = ["SRV-2", "robotics", "breaking-ground", "servo-followers", "rotor", "ghost-render",
         "part-events", "rewind-to-launch", "reading-run"]
@@ -148,6 +157,7 @@ steps = [
   { cmd = "WarpToUT",         args = { ut = "38", maxRate = "1" },                            expect = "OK", budget = 120 },
   { cmd = "MissionMark",      args = { label = "srv2-spin-down" },                            expect = "OK" },
   { cmd = "PartAction",       args = { button = "rotoroff", part = "rotor.01" },              expect = "OK" },
+  { cmd = "PartAction",       args = { button = "rotorbrake", part = "rotor.01" },            expect = "OK" },
   { cmd = "WarpToUT",         args = { ut = "41", maxRate = "1" },                            expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                                     expect = "OK" },
   { cmd = "CommitTree",                                                                        expect = "OK", budget = 120 },
@@ -183,13 +193,19 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-rails"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 1, max = 3 }
+# Measured 1 on all three flights (`2026-11-21_1152`, `_1220`, `_1227`).
+count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 required = [
   # ---- the recorded flight ----
-  "MISSIONMARK label=srv2-spin-up ut=[\\s\\S]*?partaction applied button=rotoron pid=[0-9]+ part='rotor\\.01' partId=[0-9]+ event=MotorOnAction [^\\r\\n]*state='rotor:engaged=1 rpmLimit=30\\.00'",
-  "MISSIONMARK label=srv2-spin-down ut=[\\s\\S]*?partaction applied button=rotoroff pid=[0-9]+ part='rotor\\.01' partId=[0-9]+ event=MotorOffAction [^\\r\\n]*state='rotor:engaged=0 rpmLimit=30\\.00'",
+  "MISSIONMARK label=srv2-spin-up ut=[\\s\\S]*?partaction applied button=rotoron pid=[0-9]+ part='rotor\\.01' partId=[0-9]+ event=MotorOnAction [^\\r\\n]*state='rotor:engaged=1 rpmLimit=30\\.00 torqueLimit=100\\.00'",
+  "MISSIONMARK label=srv2-spin-down ut=[\\s\\S]*?partaction applied button=rotorbrake pid=[0-9]+ part='rotor\\.01' partId=[0-9]+ event=BrakeAction ",
+  # Stock zeroes the rotor's torque limit at every FLIGHT start; the press raises it through
+  # the rotor's own MotorPowerAction (the first flight, 2026-11-21_1152, engaged a motor with
+  # no torque and the rotor never turned).
+  "MISSIONMARK label=srv2-spin-up ut=[\\s\\S]*?partaction rotor torque raised: button=rotoron pid=[0-9]+ part='rotor\\.01' partId=[0-9]+ action=MotorPowerAction servoMotorLimit=0\\.00->100\\.00 ",
+  "MISSIONMARK label=srv2-spin-down ut=[\\s\\S]*?partaction applied button=rotoroff pid=[0-9]+ part='rotor\\.01' partId=[0-9]+ event=MotorOffAction [^\\r\\n]*state='rotor:engaged=0 rpmLimit=30\\.00 torqueLimit=100\\.00'",
   # The recorder reads the live rate of motion, a rotor's moving signal is its RPM and decides
   # alone (stop=signal), and the sample deadband is relative to the RPM.
   "Robotics: tracking 'rotor\\.01' pid=[0-9]+ midx=0 module=ModuleRoboticServoRotor source=servoRateOfMotion deadband=max\\(0\\.500,2%rpm\\) sampleHz=4\\.0 moving=rotor-rpm stopHold=0\\.25s stop=signal",
@@ -212,6 +228,7 @@ required = [
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "partaction rejected ",
+  "partaction rotor torque not raised:",
   "invokerewindtolaunch refused",
   "warptout refused",
   "Robotics: tracking 'rotor\\.01' [^\\r\\n]*source=currentRPM",

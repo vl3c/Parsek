@@ -150,10 +150,10 @@ allowedAnomalies = []
 # (`2026-11-20_2307`, `2026-11-20_2339`).
 count = { min = 11, max = 11 }
 
-# REPORT-ONLY until a reading run. Predicted from RF-13's measured merge: one supersede row,
+# ARMED 2026-11-21 off `2026-11-21_1141` (matched first on `2026-11-20_2339`): one supersede row,
 # two tombstones (TIP's two Dead rows), the rewind point still listed (slot 0 open).
 [expectations.rewind]
-gating        = false
+gating        = true
 supersedeRows = { min = 1, max = 1 }
 tombstones    = { min = 2, max = 2 }
 rewindPoints  = { min = 1, max = 1 }

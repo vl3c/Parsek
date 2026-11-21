@@ -86,13 +86,14 @@ tier = "operator"
 #   6 Fail fast: every seam step answers or the run is driver INVALID by name.
 #   7 Tight windows: count {2,3} derived (the pod stack and the probe; one more if the
 #     pre-split root survives as its own recording), tighten after flight 1.
-#   8 Tier by measured cost: never flown, so "operator"; nominal ~200 wall s.
+#   8 Tier by measured cost: "operator" (calibration discipline); measured 126 wall s on its
+#     first green flight `2026-11-21_1138`, the promotion call is the ordinary one.
 #   9 Measure: run tools/flight_efficiency.py on the first green flight.
 # =====================================================================================
-description = "Test gap batch 3: a BACKGROUND vessel crossing an SOI boundary ON RAILS (SOI-2 covers only the loaded case). On mun-escape-probe-stack (gs2-orbital-stack's Kerbal X stack placed by construction on a Mun escape hyperbola, SOI exit at about UT 1316.9) the probe core is decoupled (a controlled child), both vessels are rails-warped to UT 1500, the tree is committed and the BgSoiCrossingPlayback cells read the probe's committed recording. Gates the on-rails background SOI line, the Mun and Kerbin checkpoint closes touching at the same UT for the same pid, a Kerbin terminal, and the batch (one Mun -> Kerbin seam, continuous across it, playback and map on Kerbin after it). Never flown."
+description = "Test gap batch 3: a BACKGROUND vessel crossing an SOI boundary ON RAILS (SOI-2 covers only the loaded case). On mun-escape-probe-stack (gs2-orbital-stack's Kerbal X stack placed by construction on a Mun escape hyperbola, SOI exit at about UT 1316.9) the probe core is decoupled (a controlled child), both vessels are rails-warped to UT 1500, the tree is committed and the BgSoiCrossingPlayback cells read the probe's committed recording. Gates the on-rails background SOI line, the Mun and Kerbin checkpoint closes touching at the same UT for the same pid, a Kerbin terminal, and the batch (one Mun -> Kerbin seam, continuous across it, playback and map on Kerbin after it). Green 2026-11-21_1138 (seam gap 0.0 m at the seam UT)."
 instanceProfile = "stock-minimal"
 tags = ["SOI3", "mun", "kerbin", "cross-soi", "on-rails-soi", "track-section", "recorder",
-        "background-recorder", "controlled-child", "orbit-start", "crewed", "pending-flight"]
+        "background-recorder", "controlled-child", "orbit-start", "crewed", "reading-run"]
 
 [fixture]
 # By construction from gs2-orbital-stack (harness/tools/build_mun_escape_probe_stack.py).
@@ -137,8 +138,9 @@ allowedAnomalies = []
 [expectations.recordings]
 # Derived: the pod stack and the probe (each crosses checkpoint to checkpoint, which the
 # optimizer keeps cohesive, IsSplittableEnvOrBodyBoundary step 3); 3 if the seconds-long
-# pre-split root survives as its own recording. Tighten after flight 1.
-count = { min = 2, max = 3 }
+# pre-split root survives as its own recording. Measured 2 on both flights (`2026-11-20_2310`,
+# `2026-11-21_1138`).
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required = [
@@ -158,7 +160,7 @@ required = [
   # (3) InGameTests/BgSoiCrossingPlaybackInGameTests.cs. Interim pin: total exact, the
   # split regexed until flight 1 (INTERIM_PIN_IDS). passed>=1 already proves the subject:
   # every cell skips together when it is absent.
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=BgSoiCrossingPlayback scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=BgSoiCrossingPlayback scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -172,15 +174,15 @@ forbidden = [
 # whether the commit keeps it (the probe leaf is a stable, unconcluded slot) is read, not
 # pinned. No supersede row, no tombstone: nothing is re-flown and nobody dies.
 [expectations.rewind]
-rewindPoints  = { max = 1 }
+rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 2, max = 3 }
-terminalStates = { Orbiting = { min = 2, max = 3 } }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Orbiting = { min = 2, max = 2 } }
 branchPoints   = { JointBreak = { min = 1, max = 1 } }
 vesselNames    = { "Kerbal X Probe" = { min = 1, max = 1 } }
 
