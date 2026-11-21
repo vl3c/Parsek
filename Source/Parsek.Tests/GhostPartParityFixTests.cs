@@ -294,5 +294,25 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Standalone ModuleAnimateGeneric endpoints
+
+        [Fact]
+        public void AnimateGeneric_StowedAndDeployedPoses_AreTheEndsTheRecorderClassifies()
+        {
+            // The ghost's stowed pose must be the clip time the recorder and the snapshot
+            // baseline read as retracted, and its deployed pose the one they read as deployed.
+            FlightRecorder.ClassifyLadderState(GhostVisualBuilder.AnimateGenericStowedNormalizedTime,
+                out bool stowedExtended, out bool stowedRetracted);
+            Assert.True(stowedRetracted);
+            Assert.False(stowedExtended);
+
+            FlightRecorder.ClassifyLadderState(GhostVisualBuilder.AnimateGenericDeployedNormalizedTime,
+                out bool deployedExtended, out bool deployedRetracted);
+            Assert.True(deployedExtended);
+            Assert.False(deployedRetracted);
+        }
+
+        #endregion
     }
 }

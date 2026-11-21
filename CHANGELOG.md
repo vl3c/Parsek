@@ -90,6 +90,10 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **Inflatable parts start deflated on their ghosts.** The stock inflatable heat shield and the
+  ReStock inflatable airlocks were replayed fully inflated even when the real part was packed.
+  They now start packed and inflate on the replay when the real part did.
+  (GHOST-INFLATABLE-SPAWNS-INFLATED)
 - **Hinge ghosts no longer show the piston arm.** The Alligator and G-32W hinges drew the bars
   and knuckles that the real hinge hides in flight. The ghost now shows the hinge as the real part
   does. (GHOST-HINGE-PISTON-ARM)

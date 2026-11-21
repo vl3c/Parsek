@@ -442,10 +442,12 @@ namespace Parsek
                     sampledStates, modelNodeTransform, persistentId, partName, "AnimationGroup", logUnresolved: true);
             }
 
-            // Detect standalone ModuleAnimateGeneric deploy animations (e.g. science/inflatable parts)
+            // Detect standalone ModuleAnimateGeneric deploy animations (e.g. science/inflatable parts).
+            // Fixed stock animTime endpoints, never endpoint scoring: an inflatable's model rest
+            // pose is the inflated one.
             if (deployableInfo == null && hasStandaloneAnimateGenericDeploy)
             {
-                var sampledStates = SampleLadderStates(prefab, standaloneAnimateGenericAnimName, null);
+                var sampledStates = SampleStandaloneAnimateGenericStates(prefab, standaloneAnimateGenericAnimName);
                 deployableInfo = ResolveSampledStatesToDeployableInfo(
                     sampledStates, modelNodeTransform, persistentId, partName, "AnimateGeneric", logUnresolved: true);
             }
