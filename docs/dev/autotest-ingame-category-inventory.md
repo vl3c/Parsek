@@ -141,6 +141,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KerbalInventorySpawn` | 2 | 2 | 0 | 0 | 0 | 2 | H72-kerbal-inventory-spawn (authored 2026-09-27, branch `lane-inventory-spawn`, NOT YET FLOWN: `total=2` literal with the split regexed, predicted `passed=2 skipped=0`, and both cells already required through the runner's `PASSED:` lines, over `b1-pad-craft`'s seated Jeb, whose roster entry carries a two-part inventory so neither self-skip can fire; A1, `H36`'s standing, like CN-2 / CN-3 before their reading runs; the end-to-end capture -> commit -> spawn-at-end restore is `EVA-7-crew-inventory-spawn-after-rewind`, a seam lane with no batch). Opened by KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN (2026-09-27, branch `kss2-inventory`). Two FLIGHT cells over the ACTIVE vessel: a `TryBackupSnapshot` captures one `INVENTORY` per crew member with a stored inventory (roster backing field, a live `KerbalInventoryScenario` instance or a loaded EVA kerbal's own module) without writing a default onto anyone who had none, and the spawn restore's roster applier replaces a kerbal's roster inventory and drops the live instance, then the spawn-failure rollback writer puts the prior back. Both self-skip without a crewed active vessel (the first also when no crew member has a stored inventory). Its OWN category for the standing reason - a cell added to a pinned category moves a committed `BATCH_COMPLETE` tally. NEVER FLOWN | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
+| `LadderGhost` | 1 | 1 | 0 | 0 | 0 | 1 | NOT DRIVEN (2026-11-21, todo GHOST-LADDER-SPAWNS-DEPLOYED, branch `ghost-ladder-stowed`). One FLIGHT cell: the stock `telescopicLadder` and `telescopicLadderBay` ghosts, built from a `Retracted` and an `Extended` one-part snapshot through the real spawn pipeline, must measure a retracted mesh box diagonal under 0.8 of the extended one. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips when PartLoader knows neither part | C |
 | `LeafVesselPlacement` | 1 | 1 | 1 | 1 | 0 | 1 | FAR-1-ike-rewind-to-launch-career (SPACECENTER), FAR-2-duna-relaunch-rewind-keeps-landed (SPACECENTER), FAR-3-ike-revert-to-launch (FLIGHT) and FAR-5-laythe-physics-warp-record (FLIGHT), all authored 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN: `total=1` literal with the split regexed. One scene-agnostic cell that reads every effective committed recording's live spawned vessel (Orbiting / Landed / Splashed terminal) against the recording's terminal place - body, orbit elements and mean-longitude phase at the clock, or great-circle distance to the terminal surface position (pure core `LeafVesselPlacement`, xUnit `LeafVesselPlacementTests`) - and fails on two live vessels holding one spawn pid. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips when no live spawned vessel is there to compare, which each driving lane reds by requiring `passed=` of at least 1. Bucket **B** until a lane flies it | B |
 | `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | H48 (flown 2026-08-28, executes 4 of 4) | A |
 | `LedgerGroundTruth` | 3 | 3 | 0 | 0 | 0 | 3 | L2, L4 (the third cell, `CurrencyTooltipLiveInvariantTest`, was added 2026-09-02 and both lanes' tallies were RE-DERIVED to total=3 ahead of a flight; all three members self-skip - career-only, singleton and live-tree guards) | B |
@@ -243,10 +244,11 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived from the table on 2026-11-21: **149 categories / 717 declarations**.
+Totals, re-derived from the table on 2026-11-21: **150 categories / 718 declarations**.
 Buckets **A 116 categories (419 declarations)**, **B 31 categories (291 declarations)**,
-**C 2 categories (7 declarations)**: the 2026-11-21 orbit-route spawn clearance added the
-undriven FLIGHT category `OrbitSpawnClearance` 3 to **C**. The 2026-11-16 test gap audit B11 wiring moved six of the
+**C 3 categories (8 declarations)**: the 2026-11-21 orbit-route spawn clearance added the
+undriven FLIGHT category `OrbitSpawnClearance` 3 to **C**, and the 2026-11-21 ladder ghost fix
+added the undriven FLIGHT category `LadderGhost` 1. The 2026-11-16 test gap audit B11 wiring moved six of the
 seven categories no committed spec ran into **A**, first on the interim standing (`total=`
 literal, split regexed) and the same evening as measured **A3** members: reading runs
 `2026-11-16_2036` (LT-5) and `2026-11-16_2038` (AH-1), both PASS attempt 1, ran every cell of
@@ -1834,9 +1836,9 @@ time verbatim and was taken WHOLE, `GUI-1-census-ksc` left
 `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, and the row moved to bucket **A** - which
 empties this sub-reason.
 
-### Bucket C - not batch-runnable (2 categories, 7 declarations)
+### Bucket C - not batch-runnable (3 categories, 8 declarations)
 
-The rows here are not batch-UNRUNNABLE; they are the categories with no lane yet: `GuiMock` (4, P1 of the GUI state gallery; the test gap audit B11 appended it to AH-1 on 2026-11-16 and took it out the same day, because the Space Center draws no Parsek window unless `ParsekKSC.showUI` is raised and its cells would fail there), and, until the moon lanes, `MoonArrivalHold` (1, the lone-moon arrival hold, 2026-11-07), whose table row the moon arrival lanes had already moved to **A**, and `ServoFollowers` (1, 2026-11-20) until SRV-1 wired it the same day. `GhostCommNet` sat here from its opening on 2026-09-26 until CN-1 / CN-1T drove it the same day (now B7). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
+The rows here are not batch-UNRUNNABLE; they are the categories with no lane yet: `LadderGhost` (1, the 2026-11-21 ladder ghost fix, todo GHOST-LADDER-SPAWNS-DEPLOYED; any FLIGHT host runs it, so the first lane that carries it promotes it), `GuiMock` (4, P1 of the GUI state gallery; the test gap audit B11 appended it to AH-1 on 2026-11-16 and took it out the same day, because the Space Center draws no Parsek window unless `ParsekKSC.showUI` is raised and its cells would fail there), and, until the moon lanes, `MoonArrivalHold` (1, the lone-moon arrival hold, 2026-11-07), whose table row the moon arrival lanes had already moved to **A**, and `ServoFollowers` (1, 2026-11-20) until SRV-1 wired it the same day. `GhostCommNet` sat here from its opening on 2026-09-26 until CN-1 / CN-1T drove it the same day (now B7). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
 
 The sub-reasons below were EMPTY since R12 closed C2 on 2026-07-30 - the header said
 "1 category, 10 declarations" until 2026-09-06 because it was never re-derived after
