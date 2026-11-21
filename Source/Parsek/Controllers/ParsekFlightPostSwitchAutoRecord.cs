@@ -1097,7 +1097,7 @@ namespace Parsek
         {
             if (host.activeTree == null || v == null)
                 return;
-            string leafId = PredictedEndingTakeover.ResolveTakeoverLeafInTree(
+            string leafId = PredictedTakeoverLeaf.ResolveInTree(
                 host.activeTree, v.persistentId,
                 v.id != Guid.Empty ? v.id.ToString("N") : null);
             if (string.IsNullOrEmpty(leafId)

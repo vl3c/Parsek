@@ -152,6 +152,68 @@ namespace Parsek.Tests
             Assert.Equal(KerbalEndState.Recovered, rec.CrewEndStates[Jeb]);
         }
 
+        // catches (review B2): a recovered breakup remnant bringing home every start-crew
+        // kerbal, including the one whose part stock destroyed (stock killed him; the recovery
+        // overwrite dropped the remnant's per-part answer and the Recovered branch recovered
+        // everyone). The kerbal in the surviving pod comes home, the one in the destroyed
+        // cabin stays dead.
+        [Fact]
+        public void Recovery_IdentityLossRemnant_KerbalInADestroyedPartStaysDead()
+        {
+            const string Bob = "Bob Kerman";
+            const uint PodPid = 1001, CabinPid = 2002;
+            var start = new ConfigNode("VESSEL");
+            ConfigNode pod = start.AddNode("PART");
+            pod.AddValue("persistentId", PodPid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            pod.AddValue("crew", Jeb);
+            ConfigNode cabin = start.AddNode("PART");
+            cabin.AddValue("persistentId", CabinPid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            cabin.AddValue("crew", Bob);
+            var rec = new Recording
+            {
+                RecordingId = "rec-stage",
+                TreeId = "tree-stage",
+                VesselName = Name,
+                VesselPersistentId = Pid,
+                RecordedVesselGuid = LaunchGuid,
+                GhostVisualSnapshot = start,
+                ExplicitStartUT = 100.0,
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 160.0, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 150.0, partPersistentId = CabinPid, eventType = PartEventType.Destroyed, partName = "cabin",
+            });
+            rec.MarkDestroyedAtTerminal(160.0, "test.identityLost", vesselSurvives: true);
+            KerbalsModule.PopulateCrewEndStates(rec);
+            Assert.Equal(KerbalEndState.Aboard, rec.CrewEndStates[Jeb]);
+            Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates[Bob]);
+            PendingTreeSlot.StashPendingTree(TreeOf(rec));
+
+            Assert.True(ParsekScenario.UpdateRecordingsForTerminalEvent(
+                RecoveredVesselIdentity.FromRawName(Name, LaunchGuid, Pid), TerminalState.Recovered, 900.0, Pid));
+            KerbalsModule.PopulateCrewEndStates(rec);
+
+            Assert.Equal(TerminalState.Recovered, rec.TerminalStateValue);
+            Assert.Equal(KerbalEndState.Recovered, rec.CrewEndStates[Jeb]);
+            Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates[Bob]);
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("crew='Bob Kerman'") && l.Contains("terminalState=Recovered")
+                && l.Contains("part destroyed -> Dead"));
+        }
+
+        // The per-part answer under Recovered: a kerbal whose part KSP destroyed is dead
+        // whatever happened to the rest of the vessel.
+        [Fact]
+        public void InferCrewEndState_Recovered_PartDestroyed_IsDead()
+        {
+            Assert.Equal(KerbalEndState.Dead, KerbalsModule.InferCrewEndState(
+                Jeb, TerminalState.Recovered, null, partDestroyed: true));
+            Assert.Equal(KerbalEndState.Recovered, KerbalsModule.InferCrewEndState(
+                Jeb, TerminalState.Recovered, null));
+        }
+
         // A destruction KSP carried out is final: a same-name recovery never revives it.
         [Fact]
         public void Recovery_ConfirmedCrash_StaysDestroyed()

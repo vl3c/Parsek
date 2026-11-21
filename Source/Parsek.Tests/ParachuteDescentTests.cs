@@ -698,7 +698,8 @@ namespace Parsek.Tests
 
         // ------------------------------------------------------------------ takeover
 
-        // catches: flying the stage again keeping the predicted descent and touchdown
+        // catches: flying the stage again mid-descent (before the predicted touchdown) keeping
+        // the predicted descent and touchdown
         [Fact]
         public void Takeover_DropsThePredictedDescent()
         {
@@ -712,8 +713,9 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(
                 rec, 990.0, false, r => true));
 
+            Assert.True(rec.EndUT > 1050.0);
             PredictedEndingDropResult drop = PredictedEndingTakeover.DropPredictedEndingForTakeover(
-                rec, 1200.0, "test");
+                rec, 1050.0, "test");
 
             Assert.True(drop.Dropped);
             Assert.Equal(1, drop.RemovedDescentPointCount);

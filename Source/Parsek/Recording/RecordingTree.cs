@@ -41,6 +41,13 @@ namespace Parsek
         // Rebuilt alongside BackgroundMap via RebuildBackgroundMap().
         public HashSet<uint> RecordedVesselPids = new HashSet<uint>();
 
+        // In-memory only (never serialized): the merged vessel's orbit at each Dock / Board
+        // branch point whose partner was no vessel of this tree, keyed by branch point id, for
+        // the coast-keep rule when the commit takes over the partner's committed predicted
+        // ending (TreeCommitService.TakeOverPredictedEndingsOfMergePartners). Missing after a
+        // reload; the take-over then cuts at the partner's last real sample.
+        internal Dictionary<string, TakeoverCoastEvidence> MergePartnerCoastEvidence;
+
         internal void AddOrReplaceRecording(Recording rec)
         {
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
@@ -70,7 +77,10 @@ namespace Parsek
                     : new Dictionary<uint, string>(),
                 RecordedVesselPids = source.RecordedVesselPids != null
                     ? new HashSet<uint>(source.RecordedVesselPids)
-                    : new HashSet<uint>()
+                    : new HashSet<uint>(),
+                MergePartnerCoastEvidence = source.MergePartnerCoastEvidence != null
+                    ? new Dictionary<string, TakeoverCoastEvidence>(source.MergePartnerCoastEvidence)
+                    : null
             };
 
             if (source.Recordings != null)

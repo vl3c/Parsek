@@ -35,6 +35,9 @@ namespace Parsek.Tests.SaveRoundTrip
             FieldSpec tree = new FieldSpec(typeof(RecordingTree))
                 .NotPersisted("in-memory undo slot of the #266 vessel-switch stash, never serialized",
                     "VesselSwitchPreTransitionActiveRecordingId", "VesselSwitchPreTransitionVesselPid")
+                .NotPersisted("the merged vessel's orbit at a merge, read by the commit that follows "
+                    + "in the same session (a reload cuts at the partner's last real sample)",
+                    "MergePartnerCoastEvidence")
                 .Derived("rebuilt from Recordings by RebuildBackgroundMap at the end of Load",
                     "BackgroundMap", "RecordedVesselPids")
                 // Load keys recordings by their own RecordingId, so the dictionary key must be it.

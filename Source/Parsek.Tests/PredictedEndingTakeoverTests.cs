@@ -234,17 +234,17 @@ namespace Parsek.Tests
             var core = new Recording { RecordingId = "rec_core", VesselPersistentId = 5u, TreeId = "tree_asr" };
             RecordingTree tree = MakeTreeWith(core, MakeAbandonedStage());
 
-            Assert.Equal("rec_stage", PredictedEndingTakeover.ResolveTakeoverLeafInTree(tree, StagePid, StageGuid));
-            Assert.Equal("rec_stage", PredictedEndingTakeover.ResolveTakeoverLeafInTree(tree, StagePid, null));
-            Assert.Null(PredictedEndingTakeover.ResolveTakeoverLeafInTree(tree, StagePid, OtherLaunchGuid));
-            Assert.Null(PredictedEndingTakeover.ResolveTakeoverLeafInTree(tree, 5u, null));
+            Assert.Equal("rec_stage", PredictedTakeoverLeaf.ResolveInTree(tree, StagePid, StageGuid));
+            Assert.Equal("rec_stage", PredictedTakeoverLeaf.ResolveInTree(tree, StagePid, null));
+            Assert.Null(PredictedTakeoverLeaf.ResolveInTree(tree, StagePid, OtherLaunchGuid));
+            Assert.Null(PredictedTakeoverLeaf.ResolveInTree(tree, 5u, null));
         }
 
         [Fact]
         public void ResolveTakeoverLeafInTree_TwoCandidates_IsNull()
         {
             RecordingTree tree = MakeTreeWith(MakeAbandonedStage("rec_a"), MakeAbandonedStage("rec_b"));
-            Assert.Null(PredictedEndingTakeover.ResolveTakeoverLeafInTree(tree, StagePid, StageGuid));
+            Assert.Null(PredictedTakeoverLeaf.ResolveInTree(tree, StagePid, StageGuid));
             Assert.Contains(logLines, l => l.Contains("[PredictedTakeover]") && l.Contains("Takeover leaf ambiguous"));
         }
 
@@ -268,7 +268,7 @@ namespace Parsek.Tests
                 ChildRecordingIds = new List<string> { "rec_child" },
             });
 
-            Assert.Null(PredictedEndingTakeover.ResolveTakeoverLeafInTree(tree, StagePid, StageGuid));
+            Assert.Null(PredictedTakeoverLeaf.ResolveInTree(tree, StagePid, StageGuid));
         }
 
         // catches: the predicted fall drawn while the stage it predicts is live (the
