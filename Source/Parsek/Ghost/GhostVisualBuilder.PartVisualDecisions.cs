@@ -139,6 +139,73 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Why one ModuleJettison's shroud starts hidden on the ghost, or None when it starts
+        /// shown. Mirrors what stock shows once the part has started in flight.
+        /// </summary>
+        internal enum JettisonSpawnHideReason
+        {
+            None,
+            BottomNodeEmpty,
+            Jettisoned,
+            HideOverride,
+        }
+
+        /// <summary>
+        /// Pure transcription of stock ModuleJettison's flight start (KSP 1.12.5, decompiled
+        /// OnStart + SetupJettisonState, run from the first LateUpdate): OnStart folds
+        /// shroudHideOverride into isJettisoned, then with ignoreNodes off a bottom node with no
+        /// attached part hides the jettison transform WITHOUT setting isJettisoned, and
+        /// otherwise a jettisoned shroud is hidden and an intact one shown. Stock reads only the
+        /// node's attachedPart, so a surface-attached child under the engine does not count.
+        /// The snapshot stands in for the live part: the bottom node is empty when its
+        /// "attN = node, index" row carries a negative index. No row (node absent, or a
+        /// snapshot without attN rows) is no evidence and leaves the shroud shown, as does a
+        /// missing MODULE node.
+        /// </summary>
+        internal static JettisonSpawnHideReason ResolveJettisonSpawnHideReason(
+            bool ignoreNodes, string bottomNodeName, ConfigNode partNode, ConfigNode snapshotModule)
+        {
+            if (!ignoreNodes && IsAttachNodeEmptyInSnapshot(partNode, bottomNodeName))
+                return JettisonSpawnHideReason.BottomNodeEmpty;
+            if (ReadSnapshotBool(snapshotModule, "isJettisoned"))
+                return JettisonSpawnHideReason.Jettisoned;
+            if (ReadSnapshotBool(snapshotModule, "shroudHideOverride"))
+                return JettisonSpawnHideReason.HideOverride;
+            return JettisonSpawnHideReason.None;
+        }
+
+        /// <summary>
+        /// Pure: true only when the snapshot has an "attN = nodeId, index" row for the node and
+        /// its index is negative (stock writes -1 for an empty node).
+        /// </summary>
+        internal static bool IsAttachNodeEmptyInSnapshot(ConfigNode partNode, string nodeId)
+        {
+            if (partNode == null || string.IsNullOrEmpty(nodeId)) return false;
+            string[] rows = partNode.GetValues("attN");
+            if (rows == null) return false;
+            for (int i = 0; i < rows.Length; i++)
+            {
+                if (string.IsNullOrEmpty(rows[i])) continue;
+                string[] fields = rows[i].Split(',');
+                if (fields.Length < 2) continue;
+                if (!string.Equals(fields[0].Trim(), nodeId, System.StringComparison.Ordinal)) continue;
+                int idx;
+                if (!int.TryParse(fields[1].Trim(), System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out idx))
+                    return false;
+                return idx < 0;
+            }
+            return false;
+        }
+
+        private static bool ReadSnapshotBool(ConfigNode module, string key)
+        {
+            if (module == null) return false;
+            string val = module.GetValue(key);
+            return val != null && val.Trim().Equals("True", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// Whether any of the three heat-driven animation modules (ModuleAnimateHeat,
         /// FXModuleAnimateThrottle, FXModuleAnimateRCS) was found.
         /// </summary>
