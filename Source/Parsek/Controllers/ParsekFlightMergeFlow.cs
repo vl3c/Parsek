@@ -679,6 +679,28 @@ namespace Parsek
             host.activeTree = null;
         }
 
+        /// <summary>
+        /// Drops the background recorder after an in-flight commit. Its recordings were
+        /// finalized and flushed before the commit (<c>FinalizeAllForCommit</c>) and now belong
+        /// to the committed tree, so nothing more may be written into them: the recorder is
+        /// torn down without a flush (<c>DiscardWithoutPersist</c>), which also unsubscribes its
+        /// part-event handlers. Nulling it alone left those handlers on GameEvents, holding the
+        /// committed tree, so a committed recording could still gain part events, and one
+        /// recorder leaked per commit.
+        /// </summary>
+        internal void ReleaseBackgroundRecorderAfterInFlightCommit(string treeNameForLog)
+        {
+            if (host.backgroundRecorder == null)
+                return;
+            host.backgroundRecorder.DiscardWithoutPersist(
+                "in-flight commit of tree '" + (treeNameForLog ?? "(null)") + "'");
+            Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+            host.backgroundRecorder = null;
+            ParsekLog.Info("Flight",
+                $"CommitTreeFlight: background recorder released after commit " +
+                $"(tree='{treeNameForLog ?? "(null)"}', part events unsubscribed)");
+        }
+
         internal void DiscardActiveTreeForSuppressedSceneExit(
             GameScenes scene,
             double commitUT,
@@ -912,11 +934,7 @@ namespace Parsek
             // Clear state
             var treeName = host.activeTree.TreeName;
             host.activeTree = null;
-            if (host.backgroundRecorder != null)
-            {
-                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
-                host.backgroundRecorder = null;
-            }
+            ReleaseBackgroundRecorderAfterInFlightCommit(treeName);
             host.recorder = null;
             host.lastPlaybackIndex = 0;
 
@@ -1809,7 +1827,10 @@ namespace Parsek
             if (rec?.Points == null || rec.Points.Count == 0)
                 return;
 
-            var lastPt = rec.Points[rec.Points.Count - 1];
+            // A RELATIVE-section point is a metre offset, not a latitude / longitude.
+            if (!ParsekFlight.TryResolveLastPointBodyFixed(
+                    rec, "TryCaptureTerrainHeightFromLastTrajectoryPoint", out TrajectoryPoint lastPt))
+                return;
             try
             {
                 CelestialBody body = FlightGlobals.GetBodyByName(lastPt.bodyName);

@@ -666,10 +666,13 @@ namespace Parsek
             if (rec.Points == null || rec.Points.Count == 0)
                 return TerminalState.SubOrbital;
 
-            var lastPt = rec.Points[rec.Points.Count - 1];
-
-            // Very low altitude → likely landed or about to land
-            if (lastPt.altitude < 50.0)
+            // Very low altitude -> likely landed or about to land. Read the altitude off the
+            // body-fixed reading of the last point: inside a RELATIVE section the flat point
+            // holds metre offsets from the anchor, and a probe still beside its parent would
+            // read as "under 50 m" wherever it is.
+            if (TryResolveLastPointBodyFixed(rec, "InferTerminalStateFromTrajectory",
+                    out TrajectoryPoint lastPt)
+                && lastPt.altitude < 50.0)
                 return TerminalState.Landed;
 
             // Check last track section environment for surface indication
@@ -741,6 +744,40 @@ namespace Parsek
         /// now-removed sibling chain segment — the SubOrbital default would be
         /// a fabricated guess, not measurement.
         /// </summary>
+        /// <summary>
+        /// The last flat point of <paramref name="rec"/> as a body-fixed reading. A point that
+        /// a RELATIVE section authored holds anchor-local metre offsets in its latitude /
+        /// longitude / altitude fields; it is replaced by the section's body-fixed shadow at
+        /// the same UT, and refused (false, one Verbose line) when the section has none.
+        /// False with no points. Pure.
+        /// </summary>
+        internal static bool TryResolveLastPointBodyFixed(
+            Recording rec, string context, out TrajectoryPoint point)
+        {
+            point = default(TrajectoryPoint);
+            if (rec?.Points == null || rec.Points.Count == 0)
+                return false;
+            TrajectoryPoint last = rec.Points[rec.Points.Count - 1];
+            FlatPointFrame frame = FlatPointFrameDispatch.Classify(rec.TrackSections, last, out point);
+            if (frame == FlatPointFrame.RelativeNoShadow)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"{context}: last point of '{rec.RecordingId ?? "(null)"}' at " +
+                    $"ut={last.ut.ToString("F2", CultureInfo.InvariantCulture)} is a Relative-section " +
+                    "offset with no body-fixed shadow - not read as an altitude or a position");
+                point = default(TrajectoryPoint);
+                return false;
+            }
+            if (frame == FlatPointFrame.RelativeWithShadow)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"{context}: last point of '{rec.RecordingId ?? "(null)"}' at " +
+                    $"ut={last.ut.ToString("F2", CultureInfo.InvariantCulture)} is a Relative-section " +
+                    $"offset - reading its body-fixed shadow (alt={point.altitude.ToString("F1", CultureInfo.InvariantCulture)}m)");
+            }
+            return true;
+        }
+
         internal static bool HasOnlySubOrbitalFallbackEvidence(Recording rec)
         {
             string reason;
@@ -758,7 +795,9 @@ namespace Parsek
 
             // Single low-altitude point = real landed evidence; let the inference run.
             if (rec.Points != null && rec.Points.Count == 1
-                && rec.Points[0].altitude < 50.0)
+                && TryResolveLastPointBodyFixed(rec, "HasOnlySubOrbitalFallbackEvidence",
+                    out TrajectoryPoint onlyPoint)
+                && onlyPoint.altitude < 50.0)
                 return false;
 
             // SurfaceMobile/Stationary last section = real landed evidence.
@@ -795,7 +834,11 @@ namespace Parsek
             if (inferredState != TerminalState.Landed && inferredState != TerminalState.Splashed)
                 return;
 
-            var lastPt = rec.Points[rec.Points.Count - 1];
+            // The landing spot must be body-fixed: a RELATIVE-section point is a metre offset
+            // from the anchor, never a latitude / longitude (todo B14).
+            if (!TryResolveLastPointBodyFixed(rec, "PopulateTerminalPositionFromLastPoint",
+                    out TrajectoryPoint lastPt))
+                return;
             rec.TerminalPosition = new SurfacePosition
             {
                 body = string.IsNullOrEmpty(lastPt.bodyName) ? "Kerbin" : lastPt.bodyName,
