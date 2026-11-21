@@ -800,6 +800,24 @@ dirs / 2 GiB), and a 20-PNG census is not small. The sheet lives inside that
 directory, so pruning takes the page with the pictures; the V3 `_contact.html`
 survives and then points at images that are gone.
 
+### The part parity viewer (`tools/part_parity_view.py`)
+
+The page over a part ghost parity sweep (`results/<runId>_partparity/<label>/`, or a copy of
+one): every part of the install, real against ghost, one continuous scroll grouped part >
+skin > view, each view a REAL | GHOST | DIFFERENCE row, flagged parts first. Verdicts and their
+trigger lines are `lib/partparity.py`'s, never typed on the page. It writes `index.html` +
+`data.js` (all sidecars as one JS literal, so it opens from `file://`), by default into
+`<sweep>/viewer/` with the images referenced in place; `--out <dir>` copies them. Two sweep
+directories show two profiles with cross links (`stock=<dir> restock=<dir>`), and
+`--baseline <dir>` marks the cases that moved. It refuses to write into the repository tree
+outside `results/`. Contract: `docs/dev/design-part-ghost-parity.md` section 8; tests
+`lib/test_part_parity_view.py`.
+
+```
+python tools/part_parity_view.py results/<runId>_partparity/pp1
+python tools/part_parity_view.py stock=<dir> restock=<dir> --baseline <older dir> --out ../../logs/partparity/<name>
+```
+
 ### The GUI mirror (`tools/gui_mirror.py`)
 
 The third page a census can produce, and the only one that is not a list of

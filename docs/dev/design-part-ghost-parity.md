@@ -594,22 +594,85 @@ same engine with a small default filter for dev-install runs; adding it re-runs
 
 ## 8. The viewer (web app)
 
-`harness/tools/part_parity_view.py <dir> [<dir> ...] [--baseline <dir>] [--out <dir>] [--gif]`,
-stdlib only. Inputs are sweep directories (shards, profiles). Output is a static site: `index.html`
-+ `data.js` (all sidecars as one JS literal, because `file://` cannot `fetch` JSON) + the images
-referenced in place (or copied with `--out`, e.g. to `<umbrella>/logs/partparity/<label>/`).
-Vanilla JS, no CDN, offline.
+Built in P4: `harness/tools/part_parity_view.py <dir> [<dir> ...] [--baseline <dir>] [--out <dir>]
+[--images auto|copy|in-place]`, stdlib only, tests in `harness/lib/test_part_parity_view.py` (CI
+discovers `lib/` only). Inputs are sweep directories (shards, or two profiles such as stock and
+ReStock); a `NAME=<dir>` argument names a sweep's profile. Output is a static site: `index.html`
+(vanilla JS and CSS inline, no CDN, offline from `file://`) and `data.js`, every manifest and
+sidecar as one JS literal (`window.PARITY_DATA = {...};`), because `file://` cannot `fetch` JSON.
+Images are never re-encoded: they are referenced in place by relative path (the default, output
+`<first dir>/viewer/`), or copied under `<out>/img/<k>/` (the default when `--out` is given, and
+the automatic fallback for a sweep on another drive, where no relative path exists). The tool
+refuses to write into the repository tree, except the gitignored `harness/results/`.
 
-Grid page: one card per case from the thumbnail (real and ghost side by side), title, name, source,
-skin, verdict chip, worst blob, tags. Filters: profile, source, category, verdict, setup status,
-tag, has skins; search; sort by worst blob, colour, IoU, name. Lazy-loaded thumbnails, so 1500 cards
-stay light. Regression mode (`--baseline`): moved cases marked and filterable.
+Layout: a pure core (`build_site_data` and its helpers: case rows, trigger lines, part and skin
+grouping, filter values, regression diff, cross-profile links, the `data.js` literal) and a thin
+I/O shell (`load_sweep`, `plan_images`, `main`). Every verdict comes from `partparity.py`
+(`judge_case` / `judge_view`), and the sweep header's gates are its `check_controls` /
+`check_completeness`. Nothing on the page records or overrides a verdict: the tool detects, the
+owner verifies.
 
-Detail page (`#case=<id>`, j / k to step): one row per view with real | ghost | difference (the two
-tiles stacked with `mix-blend-mode: difference`) | blink / slider overlay; backdrop selector
-(checker / black / white / grey); zoom to 1:1; the measures; the structural diff table; the skin
-proof; tags, model urls, modules, the captured log lines, the accepted-difference note; a link to the
-same part in another loaded profile (stock vs ReStock).
+The page is ONE continuous scroll, with no click per part (owner rulings, 2026-11-21):
+
+- **Sticky header**: the counter of part cases by verdict (fail / warn / error / pass) and the
+  controls ok count; three filters, verdict (with "flagged": fail, warn, error), source and a
+  search box; sort flagged-first or by name; a toggle for the difference tile. In regression
+  mode a fourth filter, baseline (moved / new / same). Filters hide whole part groups.
+- **Legend**: the two identity colours, blue `REAL part (stock KSP)` and magenta `GHOST (Parsek
+  reconstruction)`, chosen apart from the verdict colours (green pass, amber warn, red fail,
+  grey error). Every tile carries its side's caption bar and frame in its identity colour.
+- **Sweeps** (collapsed unless a sweep is incomplete or its manifest is bad): profile, label,
+  directory, DLL hash, GameData mods, tile and views, settings, completeness, exclusions, the
+  verifier row's recompute when `partparity-verdicts.json` sits in the directory, the view
+  limits of 4.3, and the verdict lines.
+- **Controls**: their own section, collapsed when all are ok, open with a red border when any
+  is not. Each control shows its views like a skin, with its subject and required outcome. A
+  control's chip is its recorded outcome, never a part verdict (6).
+- **Parts**: one block per (profile, part), its border the part's worst verdict, ordered fail,
+  warn, error, then pass (an error is a setup fault, not a ghost finding, so it ranks below
+  warn). The header holds the title, name, source, the skin count and the trigger line: what
+  fired, in plain words from `partparity.py`'s reasons ("ghost missing mesh X", "shape blob 312
+  px in side-b", "skin mismatch: real=Gold ghost=Bare", "colour blob 98 px in top"; a part with
+  several skins names the skin). It also links to the same part in another loaded profile.
+  Inside the block, one sub-block per skin in the order base, `ModulePartVariants` variants, B9
+  subtypes (the C# sorts a part's cases by skin ordinal, so manifest index order is that order),
+  each with its own thinner border in its own verdict colour and its own trigger line. Inside a
+  skin, one row per view: REAL | GHOST | DIFFERENCE, at the same size and crop, then the view's
+  verdict chip, its shape blob, colour blob and IoU, and its trigger. A collapsed "details"
+  disclosure under each skin holds the per-view measure table, the structural diff, the skin
+  proof (mismatched names highlighted), tags, flags, part and model urls, modules (when a
+  sidecar carries them), setup detail, the baseline changes and the captured log lines.
+- **Tiles** are CSS crops of the atlas (`background-size` of cols x 100 % by rows x 100 %,
+  `background-position` at the view's column and row). The difference tile stacks the two crops
+  on black with `mix-blend-mode: difference` inside `isolation: isolate`, so an identical pair
+  reads black. No canvas (pixel reads are blocked on `file://`). Clicking a tile opens that view
+  at 1:1 in a dialog. Per-tile PNG crops were not used: they would need a stdlib PNG decode and
+  re-encode of every atlas (minutes over a sweep) and multiply the files on disk, while one
+  atlas per case is one request for all of its tiles.
+- **Scale**: each part block has `content-visibility: auto` and a `contain-intrinsic-size`
+  estimate. An `IntersectionObserver` builds its body and sets its atlas as the tiles'
+  `background-image` 1500 px ahead of the viewport, and drops the images again when the block
+  scrolls away, so 1500 atlases never decode at once. Measured on a synthetic 1508-case sweep
+  cloned from the P2 directory: `data.js` 9.5 MB (about 6.3 KB per case, mostly the captured
+  log lines), written in 6 s; at load the page builds 3 of 500 part bodies (4573 DOM nodes) and
+  sets 48 tile layers.
+- **Navigation**: `#case=<profile>/<caseId>` scrolls to that skin (to the part header when it
+  is the part's first skin), clearing any filter that would hide it; `j` / `k` step part to
+  part through the visible groups and update the anchor; `/` focuses the search. Light and dark
+  follow `prefers-color-scheme`.
+- **Regression mode** (`--baseline <dir>`, repeatable): cases pair by case id within paired
+  profiles (same name, else the one unmatched profile on each side; two against one stays
+  unpaired, so nothing is compared by guess). A case is `moved` when its verdict, setup status,
+  rendered missing / extra counts or live skin names changed, or its worst shape blob or colour
+  blob moved by more than 8 px, or its minimum IoU by more than 0.002; else `same`; `new` when
+  the baseline lacks it. Baseline-only cases are listed as gone in the sweeps box.
+- **Profile name**: the manifest's `profile` when it is a plain name, else the sweep's `label`,
+  else the directory name, with a note. Finding (P4): the P2 / P3 writer records `..` on the
+  harness installs (`PartParityCaseCapture.ProfileName` takes the last segment of
+  `KSPUtil.ApplicationRootPath`, which ends in `KSP_x64_Data/../`), so today every sweep is
+  named after its label.
+- GIF / APNG strips (9.2) are not built: `--gif` is reserved and refuses, and a case row's
+  `strips` slot is where the page will read them from.
 
 Images are not published as an Artifact (a sweep is hundreds of MB; 16 MB page limit).
 
@@ -703,7 +766,7 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
 | `Source/Parsek/InGameTests/GhostCoOrbitalRig.cs` | `SpawnCoOrbital` (log tag passed in), `UniqueFlightIds`, `AuthorPartNode` (writes `moduleVariantName` and the `ModulePartVariants` `selectedVariant`), `TryBuildGhostFromLiveVessel` (snapshot, throwaway recording, timeline build, the D2 seam) and `NeutralisePhysics`: moved out of `FairingGhostVisualInGameTests`, used by both, FGV's nodes and log lines unchanged. |
 | `Source/Parsek/InGameTests/PartParityInGameTests.cs` | Ctrl+Shift+T entry. |
 | `harness/lib/partparity.py` + tests | Pure manifest reader, verdicts, recompute, verifier row, baseline compare. |
-| `harness/tools/part_parity_view.py` + tests | The viewer and the GIF / APNG writer. |
+| `harness/tools/part_parity_view.py` + `harness/lib/test_part_parity_view.py` | The viewer (8); the GIF / APNG writer later (9.2). |
 
 `Parsek.csproj` gains NO Unity module reference: PNGs are written by the P0 spike's own encoder
 (`PartParityPng`, zlib over `System.IO.Compression.DeflateStream`, filter 0, colour type 6; xUnit
@@ -723,7 +786,7 @@ summary; per-case Verbose lines; Warn for a setup fault.
 | P1 | Pure halves + xUnit (measures on synthetic masks incl. shifted / rotated / missing-blob shapes, structural diff, sharding, case ids, resume decision, JSON writer, args); `GhostCoOrbitalRig` extraction; D2 seam extraction with the IL fold proof. | `dotnet test` green; FGV-1 flown green on the refactor. |
 | P2 (DONE 2026-11-21, Appendix C) | Capture engine + verb + in-game test + files; controls; default skins; a 20-part dev run. | Controls behave; per-wave wall time measured; chunk size set from it. |
 | P3 | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. C# half BUILT (not flown): `skins=all` enumerates every `ModulePartVariants` VARIANT and every `ModuleB9PartSwitch` SUBTYPE one module at a time (3.2), B9 authored as `moduleID` + `currentSubtype`, the full skin proof (`requested` / `real` / `snapshot` / `ghost`) through the new `GhostBuildResult.TryGetAppliedSkin` record (IL proof: insertions only, 11), flags `skin-mismatch` / `skin-not-modelled:b9`, per-step `skin cases:` counts. Finding: the ghost builder applies no B9 subtype, so every B9 case reads `skin-not-modelled:b9`. Harness half (verifier row, lanes) separate. Harness half BUILT 2026-11-21 (5.1, 6, 10: the harvest leg, the row with its three instrument gates and the Python recompute, PP-1 widened and PP-2 authored); status in `autotest-status.md`. | First full reading run on both installs; thresholds re-pinned; findings filed. |
-| P4 | Viewer (grid, filters, detail, blend difference, backdrop, structure table, regression mode). | Owner reads the full stock + ReStock site. |
+| P4 | Viewer (8). BUILT 2026-11-21, not yet read by the owner on a full sweep: one continuous page grouped part > skin > view, REAL / GHOST / DIFFERENCE per view with fixed identity colours, verdicts and trigger lines from `partparity.py` only, flagged parts first, filters verdict / source / search, controls in their own section, the sweep header with partparity's gates, regression mode, cross-profile links, a lazy build for about 1500 cases; run on the P2 directory `pp1-2026-11-21-p2`. Finding: the manifest's `profile` reads `..` (8). | Owner reads the full stock + ReStock site. |
 | P5 | Baseline + accepted list; gate armed after a second matching reading run. | A deliberately broken ghost (mutation) reds the armed lane. |
 | P6 | States and contexts (9.1); FGV configurations migrated. | Chute and deployables covered. |
 | P7 | Animation strips + GIF / APNG (9.2). | Antennas, panels, robotics scrubbed in lock-step. |
