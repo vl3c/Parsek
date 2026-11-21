@@ -147,7 +147,7 @@ namespace Parsek.TestCommands
         /// judge the controls; part verdicts are Python's.</summary>
         internal const int ShapeBlobFailPx = 64;
         internal const double ShapeBlobFailPct = 0.2;
-        internal const int ColorBlobFailPx = 64;
+        internal const int ColorBlobFailPx = 256;
         internal const double MissingMeshMinIou = 0.99;
         internal const double WrongSkinMinIou = 0.98;
 

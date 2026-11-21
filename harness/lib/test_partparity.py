@@ -279,8 +279,8 @@ class ViewAndCaseVerdictTests(unittest.TestCase):
         self.assertEqual(pp.VERDICT_FAIL, j(self._view(realOnlyBlobPx=65)).verdict)
         self.assertEqual(pp.VERDICT_FAIL, j(self._view(ghostOnlyBlobPx=65)).verdict)
         self.assertEqual(pp.VERDICT_FAIL, j(self._view(ghostOnlyBlobPct=0.21)).verdict)
-        self.assertEqual(pp.VERDICT_FAIL, j(self._view(colorBlobPx=65)).verdict)
-        self.assertEqual(pp.VERDICT_WARN, j(self._view(colorBlobPx=64)).verdict)
+        self.assertEqual(pp.VERDICT_FAIL, j(self._view(colorBlobPx=257)).verdict)
+        self.assertEqual(pp.VERDICT_WARN, j(self._view(colorBlobPx=256)).verdict)
 
     def test_the_warn_lines_are_a_quarter(self):
         j = pp.judge_view
@@ -288,19 +288,18 @@ class ViewAndCaseVerdictTests(unittest.TestCase):
         self.assertEqual(pp.VERDICT_WARN, j(self._view(realOnlyBlobPx=17)).verdict)
         self.assertEqual(pp.VERDICT_PASS, j(self._view(realOnlyBlobPct=0.05)).verdict)
         self.assertEqual(pp.VERDICT_WARN, j(self._view(realOnlyBlobPct=0.051)).verdict)
-        self.assertEqual(pp.VERDICT_PASS, j(self._view(colorBlobPx=16)).verdict)
-        self.assertEqual(pp.VERDICT_WARN, j(self._view(colorBlobPx=17)).verdict)
+        self.assertEqual(pp.VERDICT_PASS, j(self._view(colorBlobPx=64)).verdict)
+        self.assertEqual(pp.VERDICT_WARN, j(self._view(colorBlobPx=65)).verdict)
 
     def test_an_unmeasured_percentage_is_not_judged(self):
         self.assertEqual(pp.VERDICT_PASS,
                          pp.judge_view(self._view(realOnlyBlobPct=None, ghostOnlyBlobPct=None)).verdict)
 
     def test_the_real_flight_part_cases_read_as_measured(self):
-        # decoupler.2: colour blobs 40 / 18 px -> warn on side-a; clydesdale still
-        # animating -> judged, not an error.
+        # decoupler.2: colour blobs 40 / 18 px, under the 64 px warn line -> pass;
+        # clydesdale still animating -> judged, not an error.
         dec = pp.judge_case(_load("decoupler.2--basic--6fabf1e2.part.json"))
-        self.assertEqual(pp.VERDICT_WARN, dec.verdict)
-        self.assertEqual("side-a", dec.worst_view)
+        self.assertEqual(pp.VERDICT_PASS, dec.verdict)
         self.assertEqual(40, dec.max_color_blob_px)
         cly = pp.judge_case(_load("clydesdale--default--89327fba.part.json"))
         self.assertEqual(pp.SETUP_STILL_ANIMATING, cly.setup_status)

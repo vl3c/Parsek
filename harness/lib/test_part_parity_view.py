@@ -124,7 +124,7 @@ def sweep_sidecars():
                                          skin=variant_skin("Basic")),
         "tank--gold--00000004": sidecar(
             "tank--gold--00000004", "Tank", skin=variant_skin("Gold"),
-            views=[view("side-a", color_blob=30), view("side-b"), view("top"), view("bottom")]),
+            views=[view("side-a", color_blob=100), view("side-b"), view("top"), view("bottom")]),
         "tank--plume-a--00000005": sidecar(
             "tank--plume-a--00000005", "Tank",
             skin={"module": "ModuleB9PartSwitch", "moduleId": "plume", "requested": "A",
@@ -192,7 +192,7 @@ class CaseRowTests(unittest.TestCase):
         self.assertEqual("ghost missing mesh model/skirt",
                          self.rows["bravo--default--00000002"]["trigger"])
         self.assertEqual(pp.VERDICT_FAIL, self.rows["bravo--default--00000002"]["verdict"])
-        self.assertEqual("colour blob 30 px in side-a", self.rows["tank--gold--00000004"]["trigger"])
+        self.assertEqual("colour blob 100 px in side-a", self.rows["tank--gold--00000004"]["trigger"])
         self.assertEqual(pp.VERDICT_WARN, self.rows["tank--gold--00000004"]["verdict"])
         self.assertEqual("setup fault: crashed", self.rows["crashy--default--00000006"]["trigger"])
         self.assertEqual("", self.rows["alpha--default--00000001"]["trigger"])
@@ -228,7 +228,7 @@ class CaseRowTests(unittest.TestCase):
     def test_each_view_carries_its_own_verdict_and_trigger(self):
         v = self.rows["tank--gold--00000004"]["views"][0]
         self.assertEqual(("side-a", pp.VERDICT_WARN), (v["view"], v["verdict"]))
-        self.assertEqual("colour blob 30 px in side-a", v["trigger"])
+        self.assertEqual("colour blob 100 px in side-a", v["trigger"])
 
 
 class TriggerTests(unittest.TestCase):
@@ -291,7 +291,7 @@ class GroupTests(unittest.TestCase):
     def test_group_verdict_is_the_worst_skin_and_its_trigger_names_the_skin(self):
         tank = self.groups["Tank"]
         self.assertEqual(pp.VERDICT_WARN, tank["verdict"])
-        self.assertEqual("skin Gold: colour blob 30 px in side-a (+1 more skin(s) warn)",
+        self.assertEqual("skin Gold: colour blob 100 px in side-a (+1 more skin(s) warn)",
                          tank["trigger"])
         # the B9 subtype warns skin-not-modelled:b9 (the builder applies no B9 subtype)
         self.assertEqual({"pass": 1, "warn": 2, "fail": 0, "error": 0}, tank["counts"])
@@ -337,7 +337,7 @@ class RegressionTests(unittest.TestCase):
         gold = rows["tank--gold--00000004"]["regression"]
         self.assertEqual(ppv.REG_MOVED, gold["status"])
         self.assertIn("verdict pass -> warn", gold["changes"])
-        self.assertIn("colorBlobPx 0 -> 30", gold["changes"])
+        self.assertIn("colorBlobPx 0 -> 100", gold["changes"])
         self.assertEqual(ppv.REG_NEW, rows["orphan--default--00000099"]["regression"]["status"])
         self.assertEqual(ppv.REG_SAME, rows["alpha--default--00000001"]["regression"]["status"])
         self.assertEqual(["old-label/zulu--default--00000010"], reg["gone"])

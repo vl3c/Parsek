@@ -149,7 +149,10 @@ SHAPE_BLOB_FAIL_PCT = 0.2
 # ...or this many pixels, or when the largest blob of over-T colour pixels exceeds
 # COLOR_BLOB_FAIL_PX.
 SHAPE_BLOB_FAIL_PX = 64
-COLOR_BLOB_FAIL_PX = 64
+# Re-pinned 64 -> 256 from the 2026-11-21 reading runs (PP-1 2306, PP-2 2317): one-pixel
+# texture-seam lines on otherwise identical parts join into 68-200 px blobs, while every
+# diagnosed colour defect was 2000 px or more and the wrong-skin control reads >= 28000.
+COLOR_BLOB_FAIL_PX = 256
 # warn at this fraction of every fail line.
 WARN_FRACTION = 0.25
 
