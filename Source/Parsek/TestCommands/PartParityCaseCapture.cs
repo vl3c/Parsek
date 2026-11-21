@@ -48,7 +48,8 @@ namespace Parsek.TestCommands
             if (wc.ControlId == TestCommandPartParitySweep.ControlGhostMissingMesh) PlantCube(ctx, wc, part);
 
             var realRenderers = new List<Renderer>(part.GetComponentsInChildren<Renderer>(true));
-            wc.RealRecords = Records(partT, realRenderers, wc.RealLayers, null);
+            wc.RealRecords = Records(partT, realRenderers, wc.RealLayers, null,
+                GhostVisualBuilder.GetDepthMaskTransformNames(part.partInfo?.partConfig));
 
             if (BuildsGhost(wc.ControlId)) BuildGhost(wc, part);
             if (wc.ControlId == TestCommandPartParitySweep.ControlRealVsReal)
@@ -258,7 +259,8 @@ namespace Parsek.TestCommands
         /// layer joins <paramref name="layers"/>. <paramref name="meshRenderersOut"/> (when
         /// given) receives the renderer of each record, in record order.</summary>
         internal static List<PartParityRendererRecord> Records(
-            Transform partT, IList<Renderer> renderers, SortedSet<int> layers, List<Renderer> meshRenderersOut)
+            Transform partT, IList<Renderer> renderers, SortedSet<int> layers, List<Renderer> meshRenderersOut,
+            HashSet<string> depthMaskNames = null)
         {
             var list = new List<PartParityRendererRecord>();
             foreach (Renderer r in renderers)
@@ -266,7 +268,12 @@ namespace Parsek.TestCommands
                 if (r == null) continue;
                 if (!(r is MeshRenderer) && !(r is SkinnedMeshRenderer)) continue;
                 layers?.Add(r.gameObject.layer);
-                list.Add(Record(partT, r));
+                PartParityRendererRecord rec = Record(partT, r);
+                // The ghost builder's own skip rule (config mask transforms, then the
+                // depth-mask shader), so a real renderer the builder leaves out by design is
+                // marked as such whatever its shader is called.
+                rec.DepthMask = GhostVisualBuilder.IsDepthMaskRenderer(r, depthMaskNames);
+                list.Add(rec);
                 meshRenderersOut?.Add(r);
             }
             return list;

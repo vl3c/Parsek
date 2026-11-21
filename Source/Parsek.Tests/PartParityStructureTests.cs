@@ -102,6 +102,20 @@ namespace Parsek.Tests
         // ----- pairing -----
 
         [Fact]
+        public void ABuilderSkippedDepthMask_IsNonVisualWhateverItsShader()
+        {
+            var mask = Rec("model/intake_mask", shader: "KSP/Unlit");
+            mask.DepthMask = true;
+            var real = new List<PartParityRendererRecord> { Rec("model/a"), mask, Rec("model/b", shader: "KSP/Unlit") };
+            var ghost = new List<PartParityRendererRecord> { Rec("model/a") };
+            var d = PartParityStructure.Diff(real, ghost);
+            Assert.Equal(2, d.MissingOnGhost.Count);
+            Assert.Equal(PartParityStructure.NonVisualDepthMask,
+                d.MissingOnGhost.Single(r => r.Key == "model/intake_mask").NonVisual);
+            Assert.Null(d.MissingOnGhost.Single(r => r.Key == "model/b").NonVisual);
+        }
+
+        [Fact]
         public void IdenticalSides_PairEverythingAndListNothing()
         {
             var real = new List<PartParityRendererRecord> { Rec("model/a"), Rec("model/b") };

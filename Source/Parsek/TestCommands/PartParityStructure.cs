@@ -26,6 +26,11 @@ namespace Parsek.TestCommands
         /// <c>forceRenderingOff</c>.</summary>
         internal bool Rendered;
 
+        /// <summary>True when the ghost builder's depth-mask rule
+        /// (<c>GhostVisualBuilder.IsDepthMaskRenderer</c>) skips this renderer; set on the real
+        /// side only.</summary>
+        internal bool DepthMask;
+
         internal double[] LocalPosition;
         internal double[] LocalRotation;
         internal double[] LocalScale;
@@ -387,7 +392,8 @@ namespace Parsek.TestCommands
         private static PartParityRendererRef Ref(string key, PartParityRendererRecord r)
             => new PartParityRendererRef
             {
-                Key = key, Mesh = r.Mesh, Rendered = r.Rendered, NonVisual = NonVisualReason(r.Shaders),
+                Key = key, Mesh = r.Mesh, Rendered = r.Rendered,
+                NonVisual = r.DepthMask ? NonVisualDepthMask : NonVisualReason(r.Shaders),
             };
 
         private static void ComparePair(
