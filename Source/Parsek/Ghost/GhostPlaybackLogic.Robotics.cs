@@ -21,6 +21,28 @@ namespace Parsek
             return rpm * 6f * (float)deltaSeconds;
         }
 
+        /// <summary>
+        /// True exactly once per ghost build: the first time playback turns a RotorRpm rotor
+        /// (<see cref="RoboticGhostInfo.rotorSpinLogged"/> starts false on every freshly built
+        /// info). One line per rotor per build, so the per-frame spin stays silent after it.
+        /// </summary>
+        internal static bool ConsumeFirstRotorSpin(RoboticGhostInfo rotor)
+        {
+            if (rotor == null || rotor.rotorSpinLogged) return false;
+            rotor.rotorSpinLogged = true;
+            return true;
+        }
+
+        /// <summary>The first-playback-spin line of a rotor (invariant culture).</summary>
+        internal static string FormatRotorSpinLine(uint pid, string moduleName, float rpm,
+            float deltaDegrees, int followers)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Rotor spin applied in playback: pid={0} module={1} rpm={2:F2} deltaDeg={3:F3} " +
+                "followers={4} (first since build)",
+                pid, moduleName ?? "unknown", rpm, deltaDegrees, followers);
+        }
+
         #region Wheel spin derived from ground speed
 
         /// <summary>
@@ -206,6 +228,22 @@ namespace Parsek
 
         #endregion
 
+        /// <summary>
+        /// Pure: the angle a Rotational servo's moving transform turns from its prefab rest
+        /// (<see cref="RoboticGhostInfo.stowedRot"/>) for a recorded value. Every recorded angle is
+        /// in stock's DISPLAYED convention (the live read, the part menu's <c>currentAngle</c> and
+        /// the snapshot's <c>targetAngle</c>), and the hinge displays its transform angle plus its
+        /// <c>modelInitialAngle</c>: stock poses the moving transform at
+        /// <c>AngleAxis(targetAngle - modelInitialAngle, mainAxis)</c>
+        /// (<c>ModuleRoboticServoHinge.JointTargetAngle</c>, decompiled KSP 1.12.5), so the prefab
+        /// rest is the displayed <c>modelInitialAngle</c>. Taking the offset back off poses a
+        /// hinge_03 / hinge_04 (offset 90) right; every offset-0 servo poses the value as before.
+        /// </summary>
+        internal static float ComputeRoboticPoseAngleDegrees(float recordedValue, float poseAngleOffsetDegrees)
+        {
+            return recordedValue - poseAngleOffsetDegrees;
+        }
+
         private static void ApplyRoboticPose(RoboticGhostInfo info, float value)
         {
             if (info == null || info.servoTransform == null)
@@ -221,8 +259,8 @@ namespace Parsek
             }
             else if (info.visualMode == RoboticVisualMode.Rotational)
             {
-                info.servoTransform.localRotation =
-                    info.stowedRot * Quaternion.AngleAxis(value, axis);
+                info.servoTransform.localRotation = info.stowedRot * Quaternion.AngleAxis(
+                    ComputeRoboticPoseAngleDegrees(value, info.poseAngleOffsetDegrees), axis);
             }
 
             if (info.followers != null)
@@ -324,6 +362,10 @@ namespace Parsek
                             info.servoTransform.localRotation * Quaternion.AngleAxis(deltaDegrees, axis);
                         if (info.followers != null)
                             PropagateServoFollowers(info);
+                        if (ConsumeFirstRotorSpin(info))
+                            ParsekLog.Verbose("GhostVisual", FormatRotorSpinLine(
+                                info.partPersistentId, info.moduleName, info.currentValue,
+                                deltaDegrees, info.followers?.Count ?? 0));
                     }
                 }
                 else if (info.visualMode == RoboticVisualMode.WheelGroundSpeed)

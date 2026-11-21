@@ -95,6 +95,8 @@ namespace Parsek
             public HashSet<ulong> activeRoboticKeys = new HashSet<ulong>();
             public Dictionary<ulong, float> lastRoboticPosition = new Dictionary<ulong, float>();
             public Dictionary<ulong, double> lastRoboticSampleUT = new Dictionary<ulong, double>();
+            public Dictionary<ulong, FlightRecorder.RoboticMotionWindow> roboticMotionWindows =
+                new Dictionary<ulong, FlightRecorder.RoboticMotionWindow>();
             public HashSet<ulong> loggedRoboticModuleKeys = new HashSet<ulong>();
             /// <summary>One-shot log guard for the M5 cached-module ownership guard: a cached
             /// engine / RCS / robotic entry whose part has left this BG vessel is reported once

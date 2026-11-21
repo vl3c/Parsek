@@ -636,6 +636,16 @@ the updates below record how each verb arrived.
 > modules only; a named part carrying neither refuses `partaction-servo-not-found`. It moves a servo
 > during a recording so the ghost's servo followers can be read on the replay (SRV-1).
 
+> Update (PartAction rotoron / rotoroff, 2026-11-21): no new verb. `PartAction` gains
+> `button=rotoron` / `button=rotoroff` (REQUIRE `part=`): a Breaking Ground rotor's "Engage Motor" /
+> "Disengage Motor", the `MotorOnAction` / `MotorOffAction` `KSPAction` `ModuleRoboticServoRotor`
+> inherits from `BaseServo` (KSP 1.12.5 decompiled; `EngageMotor()` / `DisengageMotor()`, not a
+> toggle, unlike the rotor's own `MotorPowerAction`), invoked the same way. The motor then spins
+> the rotor up to its `rpmLimit` (or lets it spin down) over later physics frames, so `state=` reads
+> the commanded `rotor:engaged=0|1 rpmLimit=<F2>`. Candidates come from that module only; a named
+> part carrying none refuses `partaction-rotor-not-found`. It spins a rotor during a recording so
+> the recorder's RPM read and the ghost's rotor spin can be read on the replay (SRV-2).
+
 > Update (CrewTransfer, 2026-10-17): one ADDITIVE verb, taking the table to **53 implemented / 4 reserved**,
 > for the crew-across-vessels coverage (crew moved between two pods of a docked pair):
 > `CrewTransfer kerbal= part=` runs stock's own crew transfer inside the active vessel. Full contract
@@ -4838,7 +4848,7 @@ way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
 stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode|chute|
-transfer|servomax|servomin> [part=<part name>]
+transfer|servomax|servomin|rotoron|rotoroff> [part=<part name>]
 [converter=<ConverterName>] [all=true] [pid=<persistentId>] [partPid=<part persistentId>]
 [resource=<R>] [expectSnapshot=true|false rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,
 case-sensitive (`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime
@@ -4883,6 +4893,14 @@ is `active`, `all=true` presses every one, and named parts carrying neither modu
 `partaction-servo-not-found` (driver-arg). The servo moves over later frames at its
 `traverseVelocity`; `state=` reads `servo:target=<F2>`, the commanded angle. A locked servo
 ignores the action and stock posts its own message.
+
+**Rotor (2026-11-21, lane SRV-2).** `button=rotoron|rotoroff part=<name>` invokes the named
+part's `ModuleRoboticServoRotor` `MotorOnAction` / `MotorOffAction` (BaseServo's `KSPAction`s,
+invoked exactly as the servo pair), engaging / disengaging the motor (`servoMotorIsEngaged`);
+candidates are the rotor modules whose action is `active`, `all=true` presses every one, and
+named parts carrying no rotor refuse `partaction-rotor-not-found` (driver-arg). The rotor spins
+up to its `rpmLimit` or down over later physics frames; `state=` reads
+`rotor:engaged=0|1 rpmLimit=<F2>`, the commanded motor state. A repeated press is a stock no-op.
 
 **Behavior.** Resolves a LOADED, non-ghost vessel (`-no-active-vessel`, `-vessel-not-found`,
 `-target-is-ghost`, `-vessel-unloaded`), then collects the candidate buttons: every module on the

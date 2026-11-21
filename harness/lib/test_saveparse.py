@@ -924,6 +924,14 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # carrying a Z-200 on its front (harness/tools/build_srv_hinge_rover.py, the SRV-1
         # host). Inherits the node.
         "srv-hinge-rover": True,
+        # `miner-rover-watched` with the rover renamed `SRV2 Rotor Rover` and an EM-16 rotor
+        # carrying a Z-200 on its front (harness/tools/build_srv_rotor_rover.py, the SRV-2
+        # host). Inherits the node.
+        "srv-rotor-rover": True,
+        # `miner-rover-watched` with the rover renamed `SRV3 Mirror Hinge Rover` and a
+        # mirrored G-11 pair plus an Alligator hinge, each carrying a Z-200, on its front
+        # (harness/tools/build_srv_mirror_hinge_rover.py, the SRV-3 host). Inherits the node.
+        "srv-mirror-hinge-rover": True,
         "fresh-science": False,
         # The scripted campaign's genuine stock new games (CS-0 harvests): stock's
         # CreateNewGame writes every AddToAllGames module, ParsekScenario among them.

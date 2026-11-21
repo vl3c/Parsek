@@ -158,5 +158,46 @@ namespace Parsek.Tests
                 System.Threading.Thread.CurrentThread.CurrentCulture = saved;
             }
         }
+
+        [Fact]
+        public void FirstRotorSpin_IsConsumedOncePerBuild()
+        {
+            var rotor = new RoboticGhostInfo
+            {
+                partPersistentId = 777u, moduleName = "ModuleRoboticServoRotor",
+                visualMode = RoboticVisualMode.RotorRpm,
+            };
+            Assert.False(rotor.rotorSpinLogged);
+            Assert.True(GhostPlaybackLogic.ConsumeFirstRotorSpin(rotor));
+            Assert.False(GhostPlaybackLogic.ConsumeFirstRotorSpin(rotor));
+            Assert.False(GhostPlaybackLogic.ConsumeFirstRotorSpin(rotor));
+            // A rebuilt ghost carries a fresh info, armed again.
+            Assert.True(GhostPlaybackLogic.ConsumeFirstRotorSpin(new RoboticGhostInfo()));
+            Assert.False(GhostPlaybackLogic.ConsumeFirstRotorSpin(null));
+        }
+
+        [Fact]
+        public void RotorSpinLine_IsInvariantAndCarriesTheLaneTokens()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                float delta = GhostPlaybackLogic.ComputeRotorDeltaDegrees(30f, 0.02);
+                string line = GhostPlaybackLogic.FormatRotorSpinLine(
+                    1234567u, "ModuleRoboticServoRotor", 30f, delta, 1);
+                // SRV-2 pins this shape (harness/scenarios/SRV-2-rotor-spin-ghost.toml).
+                Assert.Equal("Rotor spin applied in playback: pid=1234567 " +
+                    "module=ModuleRoboticServoRotor rpm=30.00 deltaDeg=3.600 followers=1 " +
+                    "(first since build)", line);
+                Assert.Contains("module=unknown",
+                    GhostPlaybackLogic.FormatRotorSpinLine(1u, null, 0f, 0f, 0));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
     }
 }

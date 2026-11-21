@@ -5041,6 +5041,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # previously green shape.
     # SRV-1-hinge-followers-ghost LEFT on run 2026-11-20_2314 (its first flight, red on its
     # host, but the ServoFollowers batch ran: passed=1 failed=0 skipped=0; pinned whole).
+    # SRV-3-mirrored-hinge-pair-ghost ENTERED on 2026-11-21 (todo
+    # GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE's owed flight: the new ServoMirroredPose category's
+    # one FLIGHT cell over the committed recording of a mirrored hinge pair, `total=1` literal
+    # with the split regexed). It leaves on its first flight.
     # SOI-3-bg-probe-mun-exit-on-rails ENTERED on 2026-11-20 (test gap batch 3: a background
     # probe crossing the Mun SOI exit on rails, read by the BgSoiCrossingPlayback category's
     # three cells, `total=3` literal with the split regexed). It leaves on its first flight.
@@ -5052,6 +5056,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     INTERIM_PIN_IDS: set = {
         "FGV-1-fairing-ghost-visual",
         "SOI-3-bg-probe-mun-exit-on-rails",
+        "SRV-3-mirrored-hinge-pair-ghost",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -10990,6 +10995,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1639`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1641`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "SRV-1-hinge-followers-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo GHOST-SERVO-CHILDREN-STATIC's flight lane on the derived fixture `srv-hinge-rover` (stock-tree by owner approval 2026-11-20, not in the nightly instance set): a G-11 Hinge carrying a Z-200 on its moving node, on a landed rover's front 820 m from the runway, swung +90 / -90 by PartAction servomax / servomin while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away, the recorder's live hinge angle, the ghost's follower plan / bind / first playback re-pose pinned, then the ServoFollowers cell. First flight 2026-11-20 red on the old pad host (lane design and todo RECORDER-SERVO-ANGLE-PAW-ONLY), REDESIGNED 2026-11-21, never flown since; owed: its re-flight",
+        "SRV-2-rotor-spin-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo RECORDER-ROTOR-RPM-PAW-ONLY's flight lane on the derived fixture `srv-rotor-rover` (stock-tree, SRV-1's install, not in the nightly instance set): an EM-16 rotor carrying a Z-200 on its moving node, on a landed rover's front 820 m from the runway, engaged by PartAction rotoron, held at 30 RPM and disengaged by rotoroff while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away; the recorder's live RPM read and steady-spin moving signal, the ghost's follower plan / bind, first rotor spin and first re-pose pinned. AUTHORED 2026-11-21, NEVER FLOWN; owed: its first flight",
+        "SRV-3-mirrored-hinge-pair-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE's flight lane on the derived fixture `srv-mirror-hinge-rover` (stock-tree, SRV-1's install, not in the nightly instance set): a symmetry pair of G-11 hinges (the left half mirrorRotation = True) posed to targetAngle 60 before recording plus a locked offset Alligator hinge, each carrying a Z-200, on a landed rover's front 820 m from the runway, swung by PartAction servomin / servomax all=true while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away; the mirrored snapshot baseline, the Alligator's pose offset, the follower plan / bind and both halves' playback re-poses pinned, then the new ServoMirroredPose cell. AUTHORED 2026-11-21, never flown; owed: its first flight",
         "FGV-1-fairing-ghost-visual.toml": "tier=operator by PURPOSE, NOT debt: a visual-confirmation lane whose product is a set of PNGs for the owner's eyes (four stock procedural fairings, an engine plate and an engine shroud beside their Parsek ghosts in LKO on `eva2-lko-crewed`, intact / jettisoned / separated) and whose gates are that the cells passed, every image was written and the ghost shows the same truss, shroud and mount meshes as the real part. Flown green 2026-11-07 (one-cell shape twice; two-cell shape `2026-11-07_2342`)",
         "FFC-1-time-jump-across-committed-ksc-rows.toml": "tier=operator by the calibration discipline, NOT debt: QL-14's route on `career-pad-craft` (stock-minimal) with the crossing of the committed Space Center rows made one in-flight `TimeJump` (the jump's own ledger recalculation, the hire promotion and the rewind-aware oracle). AUTHORED 2026-11-20 (test-gaps Batch 3, branch `test-gaps-b3-career-jumps`), never flown; owed: the first flight, then the ordinary promotion call",
         "PADX-1-pad-destroyed-by-flight-rewind.toml": "tier=operator by the calibration discipline, NOT debt: a recorded pad flight on `career-pad-craft` (stock-minimal) collapses the level-0 pad flag in FLIGHT (`KscAction demolish-building`), then a Rewind-to-Launch: the pad stands, and a Space Center warp across the crash brings it down once. AUTHORED 2026-11-20 (test-gaps Batch 3, branch `test-gaps-b3-career-jumps`), never flown; owed: the first flight, then the ordinary promotion call",
@@ -18075,7 +18082,8 @@ class PartActionSourceSyncTests(unittest.TestCase):
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
                   "RadiatorOffToken", "ActivateToken", "ExplodeToken", "ChuteToken",
-                  "RunTestToken", "TransferToken", "ServoMaxToken", "ServoMinToken")
+                  "RunTestToken", "TransferToken", "ServoMaxToken", "ServoMinToken",
+                  "RotorOnToken", "RotorOffToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
@@ -18134,13 +18142,23 @@ class PartActionSourceSyncTests(unittest.TestCase):
         # inherits it) and nothing else on the part, and counts the engine modules for its
         # engine-not-found gate.
         self.assertIn("if (!(module is ModuleEngines)) continue;", applier)
-        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : servoKind ? servoModules : -1", applier)
+        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : servoKind ? servoModules : rotorKind ? rotorModules : -1", applier)
         # The servo buttons press the hinge / rotation servo's own KSPAction, the one an
         # action group fires, on those two modules only.
         self.assertIn("if (!TestCommandPartAction.IsServoModuleName(module.moduleName)) continue;",
                       applier)
         self.assertIn("c.Action.Invoke(new KSPActionParam(KSPActionGroup.None, KSPActionType.Activate));",
                       applier)
+        # The rotor buttons press BaseServo's Engage / Disengage Motor KSPAction on the rotor
+        # module alone, named in the pure half.
+        self.assertIn("if (!TestCommandPartAction.IsRotorModuleName(module.moduleName)) continue;",
+                      applier)
+        pure_rotor = self._source("TestCommands", "TestCommandPartAction.cs")
+        self.assertIn('internal const string RotorModuleName = "ModuleRoboticServoRotor";', pure_rotor)
+        self.assertIn('case PartActionKind.RotorOn: return "MotorOnAction";', pure_rotor)
+        self.assertIn('case PartActionKind.RotorOff: return "MotorOffAction";', pure_rotor)
+        self.assertIn('if (IsRotorKind(kind) && typedModules == 0) return RotorNotFoundReason;',
+                      pure_rotor)
         # The transfer: partPid filters before the name, a destination must hold the
         # resource, the plan is refused before anything changes, and the move conserves.
         self.assertIn("if (hasPartPid && p.persistentId != partPid) continue;", applier)

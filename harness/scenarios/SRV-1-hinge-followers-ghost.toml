@@ -45,7 +45,7 @@ id = "SRV-1-hinge-followers-ghost"
 # stock-minimal junctions the same folder, so the lane would also fly there.
 #
 # THE TIMELINE (the fixture's clock is UT 30):
-#   30     LoadGame -> FLIGHT on the rover; StartRecording.
+#   30     LoadGame -> FLIGHT on the rover; StartRecording; mark srv1-recording.
 #   33     1x settle (the recorder's first robotic poll sets the baseline), then
 #          PartAction servomax: the hinge's own MaximumAngleAction KSPAction (the action an
 #          action group fires): targetAngle 0 -> +90, about 1 s at 90 deg/s; 1x to 38.
@@ -65,6 +65,8 @@ id = "SRV-1-hinge-followers-ghost"
 # THE LOG LINES (literals read from source, 2026-11-21):
 #   partaction applied button=servomax ... state='servo:target=90.00'   TestCommandPartAction
 #   Robotics: tracking 'hinge.01' ... module=ModuleRoboticServoHinge source=servoTransformAngle
+#     deadband=0.500 sampleHz=4.0 moving=inferred stopHold=0.25s stop=debounced
+#                                                    FlightRecorder.FormatRoboticTrackingLine
 #                                                    FlightRecorder.CheckRoboticState
 #   Part event: RoboticMotionStarted 'hinge.01' pid= midx=0 val=       FlightRecorder.CheckRoboticState
 #   Servo follower plan for '<vessel>': servos= followers= invertedServos=
@@ -86,8 +88,18 @@ id = "SRV-1-hinge-followers-ghost"
 # FLIGHT. The Space Center leg after the rewind advances no time (UT ~16), so it builds no
 # ghost and spends neither rate-limit key.
 #
+# THE DEBOUNCE (merged 2026-11-21, RECORDER-ROBOTIC-MOTION-DEBOUNCE, 15f347760): a resting
+# hinge starts only on a change of a whole 0.5 deg deadband, and while moving it stops only
+# after a 0.25 s stop hold with no quarter-deadband change, so each swing's Stopped lands about
+# 0.25 s after the hinge settles (swing-out ~34.3, swing-back ~40.3), well inside the 5 s
+# windows, and each swing is ONE Started / Stopped pair.
+#
 # PRE-REGISTERED READINGS:
 #   - `source=currentAngle` on the tracking line: the recorder fix is not in the DLL.
+#   - no `stopHold=0.25s stop=debounced` on the tracking line: the debounce is not in the DLL.
+#   - a second Started / Stopped pair inside one swing window: the stop hold is too short for
+#     the stock drive's settle (read the pair's UTs and values), or the hinge bounced.
+#   - a hinge event before srv1-swing-out: the load settle moved the hinge a whole deadband.
 #   - no `Part event: Robotic...` line with `source=servoTransformAngle`: the hinge did not
 #     move (locked, unpowered, the press landed packed) or MovingObject() was null.
 #   - `followers=0` / no plan line: the planner did not see the battery on the moving node
@@ -140,6 +152,7 @@ steps = [
 
   # ---- the recorded flight: the hinge swung out and back on the parked rover ----
   { cmd = "StartRecording",                                                                    expect = "OK", budget = 180 },
+  { cmd = "MissionMark",      args = { label = "srv1-recording" },                            expect = "OK" },
   { cmd = "WarpToUT",         args = { ut = "33", maxRate = "1" },                            expect = "OK", budget = 120 },
   { cmd = "MissionMark",      args = { label = "srv1-swing-out" },                            expect = "OK" },
   { cmd = "PartAction",       args = { button = "servomax", part = "hinge.01" },              expect = "OK" },
@@ -190,12 +203,14 @@ required = [
   "MISSIONMARK label=srv1-swing-out ut=[\\s\\S]*?partaction applied button=servomax pid=[0-9]+ part='hinge\\.01' partId=[0-9]+ event=MaximumAngleAction [^\\r\\n]*state='servo:target=90\\.00'",
   "MISSIONMARK label=srv1-swing-back ut=[\\s\\S]*?partaction applied button=servomin pid=[0-9]+ part='hinge\\.01' partId=[0-9]+ event=MinimumAngleAction [^\\r\\n]*state='servo:target=-90\\.00'",
   # The recorder reads the live transform angle, not the menu-only currentAngle field.
-  "Robotics: tracking 'hinge\\.01' pid=[0-9]+ midx=0 module=ModuleRoboticServoHinge source=servoTransformAngle ",
-  # Each swing starts, samples and settles inside its own window.
-  "MISSIONMARK label=srv1-swing-out ut=(?:(?!MISSIONMARK label=srv1-swing-back )[\\s\\S])*?Part event: RoboticMotionStarted 'hinge\\.01' pid=[0-9]+ midx=0 val=",
+  "Robotics: tracking 'hinge\\.01' pid=[0-9]+ midx=0 module=ModuleRoboticServoHinge source=servoTransformAngle deadband=0\\.500 sampleHz=4\\.0 moving=inferred stopHold=0\\.25s stop=debounced",
+  # At rest before the first press: no hinge event (sub-deadband settle creep is silent).
+  "MISSIONMARK label=srv1-recording ut=(?:(?!Part event: Robotic[A-Za-z]+ 'hinge\\.01')[\\s\\S])*?MISSIONMARK label=srv1-swing-out ut=",
+  # Each swing is ONE debounced Started / Stopped pair inside its own window (the stock drive's
+  # ease-in settle tail used to add a dozen pairs), and it samples on the way.
+  "MISSIONMARK label=srv1-swing-out ut=(?:(?!MISSIONMARK label=srv1-swing-back )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01')[\\s\\S])*?Part event: RoboticMotionStarted 'hinge\\.01' pid=[0-9]+ midx=0 val=(?:(?!MISSIONMARK label=srv1-swing-back )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01')[\\s\\S])*?Part event: RoboticMotionStopped 'hinge\\.01' pid=[0-9]+ midx=0 val=(?:(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01')[\\s\\S])*?MISSIONMARK label=srv1-swing-back ut=",
   "MISSIONMARK label=srv1-swing-out ut=(?:(?!MISSIONMARK label=srv1-swing-back )[\\s\\S])*?Part event: RoboticPositionSample 'hinge\\.01' pid=[0-9]+ midx=0 val=",
-  "MISSIONMARK label=srv1-swing-out ut=(?:(?!MISSIONMARK label=srv1-swing-back )[\\s\\S])*?Part event: RoboticMotionStopped 'hinge\\.01' pid=[0-9]+ midx=0 val=",
-  "MISSIONMARK label=srv1-swing-back ut=(?:(?!MISSIONMARK label=srv1-committed )[\\s\\S])*?Part event: RoboticMotionStarted 'hinge\\.01' pid=[0-9]+ midx=0 val=",
+  "MISSIONMARK label=srv1-swing-back ut=(?:(?!MISSIONMARK label=srv1-committed )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01')[\\s\\S])*?Part event: RoboticMotionStarted 'hinge\\.01' pid=[0-9]+ midx=0 val=(?:(?!MISSIONMARK label=srv1-committed )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01')[\\s\\S])*?Part event: RoboticMotionStopped 'hinge\\.01' pid=[0-9]+ midx=0 val=(?:(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01')[\\s\\S])*?MISSIONMARK label=srv1-committed ut=",
   "committree committed=true",
   "Rewind-to-Launch initiated to UT",
 

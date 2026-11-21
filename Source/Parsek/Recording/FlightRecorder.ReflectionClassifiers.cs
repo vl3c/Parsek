@@ -77,6 +77,21 @@ namespace Parsek
         bool TryGetServoTransformAngleDegrees(out float angleDegrees);
 
         /// <summary>
+        /// A Breaking Ground servo's LIVE rate of motion: stock's internal
+        /// <c>BaseServo.transformRateOfMotion</c>, which <c>BaseServo.FixedUpdate</c> refreshes
+        /// every physics frame (<c>CalculateAverageRateOfMovement</c>, averaged over 20 frames).
+        /// On a rotor it is unsigned RPM (<c>ModuleRoboticServoRotor.GetFrameDisplacement</c>).
+        /// False for a module that is not a <c>BaseServo</c> or when the field cannot be read.
+        /// <para>
+        /// Not name-keyed: the field carries no <c>[KSPField]</c>. The name-keyed copy,
+        /// <c>currentRPM</c>, is assigned (<c>currentRPM = transformRateOfMotion</c>) ONLY in
+        /// <c>ModuleRoboticServoRotor.UpdatePAWUI</c>, which runs while the part's menu is
+        /// open, so with the menu closed it holds its start value while the rotor spins.
+        /// </para>
+        /// </summary>
+        bool TryGetServoRateOfMotionRpm(out float rpm);
+
+        /// <summary>
         /// Aggregated deploy/retract UI-event availability under the given keyword vocabulary:
         /// whether any such event exists at all, and whether any matching one is currently active.
         /// </summary>
@@ -144,6 +159,11 @@ namespace Parsek
             public bool TryGetServoTransformAngleDegrees(out float angleDegrees)
             {
                 return TryReadServoTransformAngle(module, out angleDegrees);
+            }
+
+            public bool TryGetServoRateOfMotionRpm(out float rpm)
+            {
+                return TryReadServoRateOfMotion(module, out rpm);
             }
 
             public void ReadDeployRetractEventActivity(
@@ -215,6 +235,11 @@ namespace Parsek
                 return TryReadServoTransformAngle(module, out angleDegrees);
             }
 
+            public bool TryGetServoRateOfMotionRpm(out float rpm)
+            {
+                return TryReadServoRateOfMotion(module, out rpm);
+            }
+
             public void ReadDeployRetractEventActivity(
                 DeployEventKeywordSet keywordSet,
                 out bool sawDeployEvent, out bool sawRetractEvent,
@@ -281,6 +306,57 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("Recorder", "servo-transform-angle",
                     $"Servo transform angle read threw on {module.GetType().Name}: {ex.Message}");
                 angleDegrees = 0f;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Holder for the reflected <c>BaseServo.transformRateOfMotion</c> (an <c>internal</c>
+        /// field of Assembly-CSharp, so not reachable by name from Parsek). A nested class so the
+        /// lookup runs on the first live rotor read, never at <c>FlightRecorder</c> type init.
+        /// </summary>
+        internal static class ServoRateOfMotionReflection
+        {
+            internal static readonly System.Reflection.FieldInfo Field =
+                typeof(Expansions.Serenity.BaseServo).GetField(
+                    "transformRateOfMotion",
+                    System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.Public
+                    | System.Reflection.BindingFlags.NonPublic);
+        }
+
+        /// <summary>
+        /// The typed half of <see cref="IModuleFieldValues.TryGetServoRateOfMotionRpm"/>: reads
+        /// <c>BaseServo.transformRateOfMotion</c> by reflection. NoInlining keeps the game type
+        /// out of the pure cores' callers.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool TryReadServoRateOfMotion(PartModule module, out float rpm)
+        {
+            rpm = 0f;
+            var servo = module as Expansions.Serenity.BaseServo;
+            if (servo == null) return false;
+
+            try
+            {
+                System.Reflection.FieldInfo field = ServoRateOfMotionReflection.Field;
+                if (field == null || field.FieldType != typeof(float))
+                {
+                    ParsekLog.VerboseRateLimited("Recorder", "servo-rate-of-motion-missing",
+                        "Servo rate of motion unreadable: BaseServo.transformRateOfMotion " +
+                        "not found as a float field; rotors fall back to currentRPM");
+                    return false;
+                }
+
+                rpm = (float)field.GetValue(servo);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "servo-rate-of-motion",
+                    $"Servo rate of motion read threw on {module.GetType().Name}: {ex.Message}");
+                rpm = 0f;
                 return false;
             }
         }
@@ -995,6 +1071,46 @@ namespace Parsek
         }
 
         /// <summary>
+        /// A rotor spins when its measured RPM is above this: stock's
+        /// <c>ModuleRoboticServoRotor.IsMoving()</c> is <c>transformRateOfMotion &gt; 0.5f</c>.
+        /// </summary>
+        internal const float RotorSpinningRpmThreshold = 0.5f;
+
+        /// <summary>The moving-source label of a rotor sampled through a measured RPM.</summary>
+        internal const string RotorRpmMovingSource = "rotor-rpm";
+
+        /// <summary>
+        /// Pure: the moving signal <see cref="CheckRoboticTransition"/> receives, and the label the
+        /// tracking line logs for it. A rotor sampled through a MEASURED RPM
+        /// (<see cref="ServoRateOfMotionSourceField"/> or <c>currentRPM</c>) is moving while it
+        /// spins (above <see cref="RotorSpinningRpmThreshold"/>), label <c>rotor-rpm</c>: its value
+        /// is a speed, so the machine's "the value changed" inference would read a steady spin as
+        /// stopped and emit <c>RoboticMotionStopped</c>, which the ghost's RotorRpm mode plays as
+        /// "stop spinning". Every other module (and a rotor read through a setting such as
+        /// <c>rpmLimit</c>) keeps its module flag (<c>module-flag</c>) or, with none, false and the
+        /// value inference (<c>inferred</c>).
+        /// </summary>
+        internal static void ResolveRoboticMovingSignal(
+            string moduleName, string sourceField, float positionValue,
+            bool hasModuleFlag, bool moduleFlag,
+            out bool moving, out string movingSource)
+        {
+            bool isRotor = string.Equals(moduleName, "ModuleRoboticServoRotor", StringComparison.Ordinal);
+            bool measuredRpm = string.Equals(sourceField, ServoRateOfMotionSourceField, StringComparison.Ordinal)
+                || string.Equals(sourceField, "currentRPM", StringComparison.Ordinal);
+            if (isRotor && measuredRpm)
+            {
+                moving = !float.IsNaN(positionValue)
+                    && Math.Abs(positionValue) > RotorSpinningRpmThreshold;
+                movingSource = RotorRpmMovingSource;
+                return;
+            }
+
+            moving = hasModuleFlag && moduleFlag;
+            movingSource = hasModuleFlag ? "module-flag" : "inferred";
+        }
+
+        /// <summary>
         /// Per-module-name scalar-field plan for wheel robotics: which fields to probe, in order,
         /// and the position deadband that suits that quantity (suspension travel is finer-grained
         /// than steering degrees, which is finer-grained than motor RPM).
@@ -1183,7 +1299,8 @@ namespace Parsek
         /// the rotation servo shows the transform angle itself. So the value is what
         /// <c>currentAngle</c> reads with the part menu open, the same scale as
         /// <c>targetAngle</c> and the ghost's snapshot baseline. Pistons and rotors never
-        /// reach it (a piston's <c>currentExtension</c> is refreshed in OnFixedUpdate).
+        /// reach it (a piston's <c>currentExtension</c> is refreshed in OnFixedUpdate; a rotor
+        /// records RPM through <see cref="TryClassifyLiveRotorRpmFromFieldValues{TFields}"/>).
         /// </summary>
         internal static bool TryClassifyLiveServoAngleFromFieldValues<TFields>(
             TFields fields, string moduleName, out float positionValue, out string sourceField)
@@ -1210,11 +1327,44 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>Source name the recorder logs for the live rotor rate of motion.</summary>
+        internal const string ServoRateOfMotionSourceField = "servoRateOfMotion";
+
+        /// <summary>
+        /// The live RPM stage for the rotor, ahead of its field plan: stock's per-physics-frame
+        /// <c>transformRateOfMotion</c> (see
+        /// <see cref="IModuleFieldValues.TryGetServoRateOfMotionRpm"/> for why <c>currentRPM</c>
+        /// cannot be the signal). The value is exactly what <c>currentRPM</c> copies with the
+        /// part menu open, so the recorded scale and the ghost's RPM spin are unchanged. A
+        /// non-finite reading falls through to the field plan. Only the rotor reaches it: the
+        /// other servos record a pose, not a speed.
+        /// </summary>
+        internal static bool TryClassifyLiveRotorRpmFromFieldValues<TFields>(
+            TFields fields, string moduleName, out float positionValue, out string sourceField)
+            where TFields : IModuleFieldValues
+        {
+            positionValue = 0f;
+            sourceField = null;
+            if (!string.Equals(moduleName, "ModuleRoboticServoRotor", StringComparison.Ordinal))
+                return false;
+
+            if (!fields.TryGetServoRateOfMotionRpm(out float rpm))
+                return false;
+            if (float.IsNaN(rpm) || float.IsInfinity(rpm))
+                return false;
+
+            positionValue = rpm;
+            sourceField = ServoRateOfMotionSourceField;
+            return true;
+        }
+
         /// <summary>
         /// Pure interpretation half of <see cref="TryGetRoboticPositionValue"/>.
         /// Wheel module names route to the wheel core; a hinge or rotation servo first reads its
-        /// live transform angle (<see cref="TryClassifyLiveServoAngleFromFieldValues{TFields}"/>);
-        /// everything else (and a servo with no moving object yet) probes the module's scalar
+        /// live transform angle (<see cref="TryClassifyLiveServoAngleFromFieldValues{TFields}"/>)
+        /// and a rotor its live rate of motion
+        /// (<see cref="TryClassifyLiveRotorRpmFromFieldValues{TFields}"/>);
+        /// everything else (and a servo whose live read fails) probes the module's scalar
         /// plan, then the servo transform position magnitude, then the servo transform rotation
         /// expressed as an angle from identity.
         /// </summary>
@@ -1230,6 +1380,10 @@ namespace Parsek
             ResolveRoboticFieldPlan(moduleName, out deadband, out string[] scalarFieldNames);
 
             if (TryClassifyLiveServoAngleFromFieldValues(
+                    fields, moduleName, out positionValue, out sourceField))
+                return true;
+
+            if (TryClassifyLiveRotorRpmFromFieldValues(
                     fields, moduleName, out positionValue, out sourceField))
                 return true;
 

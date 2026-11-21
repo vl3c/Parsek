@@ -464,12 +464,19 @@ namespace Parsek
         public bool active;
         public double lastUpdateUT = double.NaN;
         /// <summary>
+        /// Rotational servos: the displayed angle of the prefab rest (the hinge's
+        /// <c>modelInitialAngle</c>, else 0), taken off every recorded angle before posing
+        /// (<see cref="GhostPlaybackLogic.ComputeRoboticPoseAngleDegrees"/>).
+        /// </summary>
+        public float poseAngleOffsetDegrees;
+        /// <summary>
         /// The pose this servo starts every playback cycle from: the M1 snapshot value
-        /// when one was read, else 0f — which by construction IS the prefab pose, because
-        /// <c>stowedPos</c>/<c>stowedRot</c> are captured from the prefab-mirrored ghost
-        /// transform and <c>ApplyRoboticPose(info, 0f)</c> is the identity offset. Never
-        /// seeded from the prefab's own scalar field: the transform already embodies it,
-        /// so applying it again would double-count.
+        /// when one was read, else the prefab pose, which the builder sets to
+        /// <see cref="poseAngleOffsetDegrees"/> for a Rotational servo and 0 otherwise
+        /// (<c>stowedPos</c>/<c>stowedRot</c> are captured from the prefab-mirrored ghost
+        /// transform, so that value poses the identity offset). Never seeded from the
+        /// prefab's own scalar field: the transform already embodies it, so applying it
+        /// again would double-count.
         /// </summary>
         public float spawnValue;
         /// <summary>True when <see cref="spawnValue"/> came from the snapshot rather than defaulting to the prefab pose.</summary>
@@ -513,6 +520,11 @@ namespace Parsek
         /// that first re-pose writes one Verbose line (GhostPlaybackLogic.ConsumeFirstFollowerRepose).
         /// </summary>
         public bool followerReposeLogged;
+        /// <summary>
+        /// RotorRpm mode only: false from each ghost build until playback first turns this
+        /// rotor; that first spin writes one Verbose line (GhostPlaybackLogic.ConsumeFirstRotorSpin).
+        /// </summary>
+        public bool rotorSpinLogged;
     }
 
     /// <summary>

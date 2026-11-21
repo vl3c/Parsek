@@ -1,0 +1,259 @@
+schema = 1
+id = "SRV-3-mirrored-hinge-pair-ghost"
+# =====================================================================================
+# SRV-3: A MIRRORED SYMMETRY PAIR OF BREAKING GROUND HINGES, POSED AT RECORDING START, SWUNG,
+# REPLAYED ON THE GHOST AS MIRROR IMAGES (todo GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE's owed
+# flight, both halves: the mirrored snapshot baseline and the modelInitialAngle pose offset).
+#
+# WHY. Stock poses a hinge's moving transform at JointTargetAngle = (mirrorRotation ?
+# -targetAngle : targetAngle) - modelInitialAngle (decompiled ModuleRoboticServoHinge, KSP
+# 1.12.5). Two ghost fixes on branch `test-gaps-rotor` follow that formula, xUnit only so far:
+# the hinge pose offset (15f347760: every recorded angle has `modelInitialAngle` taken off, logged
+# `Servo pose offset for '<part>' ... modelInitialAngle=90.0 taken off every recorded angle`) and
+# the mirrored snapshot baseline (e66a2e054: GhostVisualBuilder.ResolveSnapshotDisplayedServoAngle
+# turns the snapshot's raw targetAngle into the displayed angle, Verbose `Servo snapshot pose
+# mirrored for ...`). Before the second fix the mirrored half of a symmetry pair started its
+# replay turned the wrong way (+targetAngle instead of -targetAngle) until its first recorded
+# event. That only shows when the recording STARTS posed, so this lane's pair is posed at load.
+#
+# THE HOST. `srv-mirror-hinge-rover` (harness/tools/build_srv_mirror_hinge_rover.py), a SIBLING
+# of SRV-1's `srv-hinge-rover` and SRV-2's `srv-rotor-rover` (neither follower pin may move):
+# MINE-6's `miner-rover-watched` pair with the rover renamed `SRV3 Mirror Hinge Rover` and a
+# structural micronode on its front adapter carrying:
+#   - a symmetry pair of G-11 hinges (`hinge.01`) on its right / left nodes, the RIGHT half pid
+#     3632131370 `mirrorRotation = False`, the LEFT half pid 3912851324 `mirrorRotation = True`
+#     (stock CheckSymmetry's own answer for this placement: both pivots forward, the left half its
+#     mirror across x = 0), both `targetAngle = 60`, soft limits (-90, 90), each with a Z-200 on
+#     its moving (top) node. Both load at rest and the stock drive turns them to +60 / -60 (both
+#     arms up, mirror images) in the first second, before StartRecording.
+#   - a G-12L Alligator (`hinge.03`, pid 3599324923, `modelInitialAngle = 90`) on its forward
+#     node, LOCKED at its rest `targetAngle = 90`, with a Z-200 on its moving node. It never moves:
+#     its ghost build logs the pose offset and the in-game cell checks it spawns at stock's pose.
+#   The mirrored half is a G-11, not an Alligator: stock limits every hinge's joint to +/-90 deg
+#   about its rest, and a mirrored Alligator's JointTargetAngle (-targetAngle - 90) lies outside
+#   that for every target above 0 (the builder's docstring). The rover is LANDED 820 m from the
+#   runway threshold; `Miner Watcher` stands 120 m north and FLIGHT lands on it after the reload.
+#
+# THE INSTALL. stock-tree, as SRV-1 / SRV-2 (owner approval 2026-11-20). Breaking Ground is the
+# PREREQUISITE (`GameData/SquadExpansion/Serenity`: both hinge parts and their module).
+#
+# THE TIMELINE (the fixture's clock is UT 30):
+#   30     LoadGame -> FLIGHT on the rover; the pair drives to +60 / -60; 1x to 33.
+#   33     StartRecording (the start snapshot: targetAngle 60 on both, mirrorRotation True on the
+#          left one, stock's live servoTransformRotation); mark srv3-recording; 1x to 35.
+#   35     PartAction servomin all=true: both G-11s' MinimumAngleAction (targetAngle -90): the
+#          right half +60 -> -90, the left one -60 -> +90 (displayed), about 1.7 s; 1x to 40.
+#   40     PartAction servomax all=true: targetAngle +90: right -90 -> +90, left +90 -> -90,
+#          about 2 s; 1x to 45.
+#   45     StopRecording, CommitTree, Rewind-to-Launch (`tree=latest`); SaveGame + LoadGame of
+#          the rewound save lands FLIGHT on the watcher about 15 s before the recording start.
+#   ~18    5x rails to 29, then 1x to 49: the rover's ghost plays 120 m away over [33, 45]; its
+#          build logs the plan, the bind, the mirrored baseline for the left half and the
+#          Alligator's pose offset; the recorded events apply and re-pose each half's battery.
+#   49     RunTests ServoMirroredPose in the same FLIGHT scene (below).
+#
+# THE LOG LINES (literals read from source, 2026-11-21):
+#   partaction applied button=servomin ... state='<id>:servo:target=-90.00 | <id>:...' count=2
+#                                                    TestCommandPartAction.FormatAllState
+#   Robotics: tracking 'hinge.01' pid= midx=0 module=ModuleRoboticServoHinge
+#     source=servoTransformAngle deadband=0.500 sampleHz=4.0 moving=inferred stopHold=0.25s
+#     stop=debounced                                 FlightRecorder.FormatRoboticTrackingLine
+#   Part event: RoboticMotionStarted|Stopped 'hinge.01' pid= midx=0 val=<F3>
+#                                                    FlightRecorder.CheckRoboticState
+#   Servo snapshot pose mirrored for '<part>' pid= ordinal= module=: targetAngle=<F1>
+#     mirrorRotation= inverted= displayed=<F1>       GhostVisualBuilder.TryParseSnapshotRoboticPose
+#   Servo pose offset for '<part>' pid= midx= module=: modelInitialAngle=<F1> taken off every
+#     recorded angle                                 GhostVisualBuilder.TryBuildRoboticInfos
+#                                                    (VerboseRateLimited 30 s per part name)
+#   Servo follower plan / Servo followers bound / Servo followers re-posed in playback (SRV-1's)
+#   apply family=Robotic... surface=robotic rec= pid= applied=          GhostPartEventApplyLog
+#   ServoMirroredPose: rec= '<part>' plainPid= mirroredPid= linkedBySym= spawn plain= mirrored=
+#     stockOff= otherServosAtStock= sampleUT= applied= plain= mirrored= mirror images
+#                                                    ServoMirroredPoseInGameTests (Info, TestRunner)
+# The build-time lines (plan, bind, mirrored, pose offset) are scoped between the srv3-rewound
+# and srv3-replayed marks; apply and re-pose from srv3-reloaded (playback, UT >= 33).
+#
+# THE RECORDER HALF. Each half's own value is its moving transform's angle (plus 0, a G-11 has no
+# offset), so the mirrored half records the OPPOSITE sign of the unmirrored one: in the swing-in
+# window the right half stops near -90 and the left near +90; in the swing-out window the reverse.
+# Each swing is one debounced Started / Stopped pair per half (RECORDER-ROBOTIC-MOTION-DEBOUNCE).
+#
+# THE IN-GAME CELL (`ServoMirroredPose`, new 2026-11-21, one FLIGHT cell). ServoFollowers cannot
+# judge a pair (it builds one synthetic servo), so this category builds the ghost of the COMMITTED
+# recording through the real pipeline from its stock-written start snapshot and reads both moving
+# transforms: at spawn they must be mirror images within 0.05 deg (both come from the commanded
+# targetAngle; the defect is 120 deg) and each within 1.0 deg of stock's persisted
+# servoTransformRotation (the live pose; the drive's static error is under the 0.5 deg recorder
+# deadband), with every other posed servo (the Alligator) also at stock's pose (the offset fix,
+# which is 90 deg off without it); then, after replaying the pair's recorded robotic events
+# through the real applier to the later of their last stops, mirror images within 1.0 deg (two
+# live readings). It self-skips with no such recording, so `passed=[1-9]` proves the subject.
+#
+# PRE-REGISTERED READINGS:
+#   - no `Servo snapshot pose mirrored` line for pid 3912851324: the fix is not in the DLL, or the
+#     start snapshot carried targetAngle 0 (the pair never posed before StartRecording) or lost
+#     `mirrorRotation`; read the recording's ghost snapshot sidecar.
+#   - the mirrored line for pid 3632131370: the right half was saved mirrored (fixture or stock
+#     symmetry re-check), the lane's premise is broken.
+#   - a hinge event between srv3-recording and srv3-swing-in: the load drive had not settled by 33.
+#   - the left half's Stopped with the SAME sign as the right one: the recorder lost the
+#     mirrored half's sign (or the fixture's geometry is not a mirror placement).
+#   - a Stopped near 60 / a single swing pair missing: a press landed while the other swing was
+#     still moving, or a half hit its joint limit short of +/-90 (read the Stopped values).
+#   - `followers=2`: the Alligator's battery was not planned (its moving node), or `servos=2`:
+#     the Alligator's module did not resolve a servo transform.
+#   - `geometryPosed` below 3: stock did not persist servoTransformRotation on a hinge.
+#   - the cell failing `stockOff`: the ghost spawns a half away from stock's pose (the defect),
+#     or stock's live pose lags its command (read the Stopped values first).
+#   - the cell failing `otherServosAtStock`: the Alligator spawns off stock's pose (the offset fix).
+#   - `Part event: Robotic... 'hinge.03'`: the locked Alligator moved (fixture lock not honoured).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: SRV-1's host shape, rewind-and-reload
+# timeline and log anchors verbatim; a sibling fixture because SRV-1 / SRV-2 pins must not move.
+# (2) explicit-UT WarpToUT only (1x through the recording and the replay, 5x rails before it).
+# (3) the 2 s rest window proves a silent posed start; 5 s swing windows cover 150 / 180 deg at
+# 90 deg/s plus the 0.25 s stop hold; tighten from the first flight's Stopped UTs. (4)/(5) no burns
+# or coasts. (6) retry `once` for a new fixture's first flight; `none` once green. (7) recordings
+# window 1..3 until measured. (8) operator until measured. (9) flight_efficiency.py after the first
+# green flight.
+#
+# STATUS: AUTHORED 2026-11-21, NEVER FLOWN. The ServoMirroredPose batch pin is interim
+# (`total=1` literal, the split regexed) until the first flight.
+tier = "operator"
+description = "AUTHORED 2026-11-21, NEVER FLOWN: a mirrored symmetry pair of Breaking Ground G-11 hinges (srv-mirror-hinge-rover, the left half mirrorRotation = True, both posed to targetAngle 60 before recording, a Z-200 on each moving node) plus a locked offset Alligator hinge, on a landed rover 820 m from the runway, swung by PartAction servomin / servomax on both halves while recording, committed, Rewound-to-Launch and replayed in FLIGHT from a watcher 120 m away; the ghost must log the mirrored baseline for the mirrored half and the Alligator's pose offset, plan and bind three followers, apply the recorded events and re-pose both halves' batteries, and the ServoMirroredPose cell must find the halves mirror images at spawn and at a sampled UT, at stock's persisted pose."
+instanceProfile = "stock-tree"
+tags = ["SRV-3", "robotics", "breaking-ground", "servo-followers", "servo-mirror", "ghost-render",
+        "part-events", "rewind-to-launch", "ingame-batch", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/srv-mirror-hinge-rover"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 300 LoadGame + 120 settle warp + 180 StartRecording + 120 x 3 warps + 120
+# CommitTree + 300 rewind + 120 SaveGame + 300 LoadGame + 120 x 2 warps + 420 RunTests = 2460;
+# runtime 2800 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" },            expect = "OK", budget = 300 },
+  # MINE-6's preamble: drop any tree the load itself started.
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  # The tracking, part-event, plan / bind / mirrored / pose-offset / re-pose and applier lines
+  # are Verbose.
+  { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+  # The load drive turns the pair to +60 / -60; it must settle before the recording starts.
+  { cmd = "WarpToUT",         args = { ut = "33", maxRate = "1" },                            expect = "OK", budget = 120 },
+
+  # ---- the recorded flight: posed start, the pair swung in and out on the parked rover ----
+  { cmd = "StartRecording",                                                                    expect = "OK", budget = 180 },
+  { cmd = "MissionMark",      args = { label = "srv3-recording" },                            expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "35", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",      args = { label = "srv3-swing-in" },                             expect = "OK" },
+  { cmd = "PartAction",       args = { button = "servomin", part = "hinge.01", all = "true" }, expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "40", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",      args = { label = "srv3-swing-out" },                            expect = "OK" },
+  { cmd = "PartAction",       args = { button = "servomax", part = "hinge.01", all = "true" }, expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "45", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "CommitTree",                                                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "srv3-committed" },                            expect = "OK" },
+
+  # ---- the rewind, then FLIGHT on the watcher (a Space Center save focuses vessel 0) ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                                 expect = "OK", budget = 300 },
+  { cmd = "MissionMark",      args = { label = "srv3-rewound" },                              expect = "OK" },
+  { cmd = "SaveGame",         args = { name = "srv3-rewound" },                               expect = "OK", budget = 120 },
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "srv3-rewound" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "srv3-reloaded" },                             expect = "OK" },
+
+  # ---- the replay over [33, 45], then the in-game cell in the same scene ----
+  { cmd = "WarpToUT",         args = { ut = "29", maxRate = "5" },                            expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",         args = { ut = "49", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",      args = { label = "srv3-replayed" },                             expect = "OK" },
+  { cmd = "RunTests",         args = { category = "ServoMirroredPose" },                      expect = "OK", budget = 420 },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# D7 has no robotics value in the registry; the hinge events are backed by required tokens
+# below but claim nothing there.
+D6  = ["basic-playback"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ---- the recorded flight: both presses hit both halves ----
+  "MISSIONMARK label=srv3-swing-in ut=[\\s\\S]*?partaction applied button=servomin pid=[0-9]+ part='hinge\\.01' partId=[0-9]+ event=MinimumAngleAction [^\\r\\n]*state='[0-9]+:servo:target=-90\\.00 \\| [0-9]+:servo:target=-90\\.00' count=2",
+  "MISSIONMARK label=srv3-swing-out ut=[\\s\\S]*?partaction applied button=servomax pid=[0-9]+ part='hinge\\.01' partId=[0-9]+ event=MaximumAngleAction [^\\r\\n]*state='[0-9]+:servo:target=90\\.00 \\| [0-9]+:servo:target=90\\.00' count=2",
+  # The recorder reads each half's live transform angle.
+  "Robotics: tracking 'hinge\\.01' pid=3632131370 midx=0 module=ModuleRoboticServoHinge source=servoTransformAngle deadband=0\\.500 sampleHz=4\\.0 moving=inferred stopHold=0\\.25s stop=debounced",
+  "Robotics: tracking 'hinge\\.01' pid=3912851324 midx=0 module=ModuleRoboticServoHinge source=servoTransformAngle deadband=0\\.500 sampleHz=4\\.0 moving=inferred stopHold=0\\.25s stop=debounced",
+  # A posed start is a silent one: no hinge event before the first press.
+  "MISSIONMARK label=srv3-recording ut=(?:(?!Part event: Robotic[A-Za-z]+ 'hinge\\.0[13]')[\\s\\S])*?MISSIONMARK label=srv3-swing-in ut=",
+  # Swing-in: one Started / Stopped pair per half; the right half stops near -90, the mirrored
+  # left half near +90 (the opposite sign for the same command).
+  "MISSIONMARK label=srv3-swing-in ut=(?:(?!MISSIONMARK label=srv3-swing-out )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3632131370 )[\\s\\S])*?Part event: RoboticMotionStarted 'hinge\\.01' pid=3632131370 midx=0 val=(?:(?!MISSIONMARK label=srv3-swing-out )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3632131370 )[\\s\\S])*?Part event: RoboticMotionStopped 'hinge\\.01' pid=3632131370 midx=0 val=-(?:8[5-9]|9[0-4])\\.[0-9]{3}(?:(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3632131370 )[\\s\\S])*?MISSIONMARK label=srv3-swing-out ut=",
+  "MISSIONMARK label=srv3-swing-in ut=(?:(?!MISSIONMARK label=srv3-swing-out )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3912851324 )[\\s\\S])*?Part event: RoboticMotionStarted 'hinge\\.01' pid=3912851324 midx=0 val=(?:(?!MISSIONMARK label=srv3-swing-out )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3912851324 )[\\s\\S])*?Part event: RoboticMotionStopped 'hinge\\.01' pid=3912851324 midx=0 val=(?:8[5-9]|9[0-4])\\.[0-9]{3}(?:(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3912851324 )[\\s\\S])*?MISSIONMARK label=srv3-swing-out ut=",
+  # Swing-out: the reverse.
+  "MISSIONMARK label=srv3-swing-out ut=(?:(?!MISSIONMARK label=srv3-committed )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3632131370 )[\\s\\S])*?Part event: RoboticMotionStarted 'hinge\\.01' pid=3632131370 midx=0 val=(?:(?!MISSIONMARK label=srv3-committed )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3632131370 )[\\s\\S])*?Part event: RoboticMotionStopped 'hinge\\.01' pid=3632131370 midx=0 val=(?:8[5-9]|9[0-4])\\.[0-9]{3}(?:(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3632131370 )[\\s\\S])*?MISSIONMARK label=srv3-committed ut=",
+  "MISSIONMARK label=srv3-swing-out ut=(?:(?!MISSIONMARK label=srv3-committed )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3912851324 )[\\s\\S])*?Part event: RoboticMotionStarted 'hinge\\.01' pid=3912851324 midx=0 val=(?:(?!MISSIONMARK label=srv3-committed )(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3912851324 )[\\s\\S])*?Part event: RoboticMotionStopped 'hinge\\.01' pid=3912851324 midx=0 val=-(?:8[5-9]|9[0-4])\\.[0-9]{3}(?:(?!Part event: RoboticMotion(?:Started|Stopped) 'hinge\\.01' pid=3912851324 )[\\s\\S])*?MISSIONMARK label=srv3-committed ut=",
+  "committree committed=true",
+  "Rewind-to-Launch initiated to UT",
+
+  # ---- the replay's build: plan, bind, the mirrored baseline, the Alligator's offset ----
+  "MISSIONMARK label=srv3-rewound ut=[\\s\\S]*?\\[GhostVisual\\] Servo follower plan for 'SRV3 Mirror Hinge Rover': servos=3 followers=3 invertedServos=0[\\s\\S]*?MISSIONMARK label=srv3-replayed ut=",
+  "MISSIONMARK label=srv3-rewound ut=[\\s\\S]*?\\[GhostVisual\\] Servo followers bound: followers=3 servos=3 carryingServos=3 nestedServos=0 geometryPosed=3 missingServo=0 missingPart=0 notUnderContainer=0 \\(vessel='SRV3 Mirror Hinge Rover'\\)[\\s\\S]*?MISSIONMARK label=srv3-replayed ut=",
+  "MISSIONMARK label=srv3-rewound ut=[\\s\\S]*?\\[GhostVisual\\] Servo snapshot pose mirrored for 'hinge\\.01' pid=3912851324 ordinal=0 module=ModuleRoboticServoHinge: targetAngle=60\\.0 mirrorRotation=True inverted=False displayed=-60\\.0[\\s\\S]*?MISSIONMARK label=srv3-replayed ut=",
+  "MISSIONMARK label=srv3-rewound ut=[\\s\\S]*?\\[GhostVisual\\] Servo pose offset for 'hinge\\.03' pid=3599324923 midx=0 module=ModuleRoboticServoHinge: modelInitialAngle=90\\.0 taken off every recorded angle[\\s\\S]*?MISSIONMARK label=srv3-replayed ut=",
+
+  # ---- the replay's playback: each half's recorded events applied, its battery re-posed ----
+  "MISSIONMARK label=srv3-reloaded ut=[\\s\\S]*?\\[GhostPartEvents\\] apply family=Robotic(?:MotionStarted|PositionSample|MotionStopped) surface=robotic rec=[0-9]+ pid=3632131370 applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=srv3-replayed ut=",
+  "MISSIONMARK label=srv3-reloaded ut=[\\s\\S]*?\\[GhostPartEvents\\] apply family=Robotic(?:MotionStarted|PositionSample|MotionStopped) surface=robotic rec=[0-9]+ pid=3912851324 applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=srv3-replayed ut=",
+  "MISSIONMARK label=srv3-reloaded ut=[\\s\\S]*?\\[GhostVisual\\] Servo followers re-posed in playback: servoPid=3632131370 module=ModuleRoboticServoHinge followers=1 value=-?[0-9]+\\.[0-9]{2} \\(first since bind\\)[\\s\\S]*?MISSIONMARK label=srv3-replayed ut=",
+  "MISSIONMARK label=srv3-reloaded ut=[\\s\\S]*?\\[GhostVisual\\] Servo followers re-posed in playback: servoPid=3912851324 module=ModuleRoboticServoHinge followers=1 value=-?[0-9]+\\.[0-9]{2} \\(first since bind\\)[\\s\\S]*?MISSIONMARK label=srv3-replayed ut=",
+
+  # ---- the in-game cell, in the same FLIGHT scene ----
+  "MISSIONMARK label=srv3-replayed ut=[\\s\\S]*?\\[TestRunner\\] ServoMirroredPose: rec=[0-9A-Za-z]+ 'hinge\\.01' plainPid=3632131370 mirroredPid=3912851324 linkedBySym=true spawn plain=(?:59\\.9[5-9]|60\\.0[0-5]) mirrored=-(?:59\\.9[5-9]|60\\.0[0-5]) stockOff=[0-9]+\\.[0-9]{2}/[0-9]+\\.[0-9]{2} otherServosAtStock=1/1 sampleUT=[0-9]+\\.[0-9]{2} applied=[1-9][0-9]* plain=-?[0-9]+\\.[0-9]{2} mirrored=-?[0-9]+\\.[0-9]{2} mirror images",
+  # Interim pin until the first flight: one FLIGHT cell, the split regexed (it self-skips without
+  # the subject, so passed=[1-9] proves the recording carried the pair).
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=ServoMirroredPose scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected ",
+  "invokerewindtolaunch refused",
+  "warptout refused",
+  "Robotics: tracking 'hinge\\.0[13]' [^\\r\\n]*source=currentAngle",
+  # Only the mirrored half may flip its baseline.
+  "Servo snapshot pose mirrored for 'hinge\\.01' pid=3632131370 ",
+  "Servo snapshot pose mirrored for 'hinge\\.03'",
+  # The Alligator is locked at its rest.
+  "Part event: Robotic[A-Za-z]+ 'hinge\\.03'",
+  "Ghost hidden: vessel 'SRV3 Mirror Hinge Rover'",
+  "Servo follower re-pose skipped: servo chain does not resolve",
+  "Servo follower cascade stopped",
+  "\\[GhostPartEvents\\] apply family=Robotic[A-Za-z]+ surface=robotic rec=[0-9]+ pid=[0-9]+ applied=0 ",
+]
+
+[runtime]
+budgetSeconds = 2800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
