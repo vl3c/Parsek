@@ -816,6 +816,10 @@ namespace Parsek
                         if (KeepPlayerOwnedFieldsOnReplace(
                                 existing, rec, mergeStateFromIncomingIds, "CommitTree replace") > 0)
                             keptPlayerSettings++;
+                        // A predicted crash the player flew again (owner ruling Q1b): its crew
+                        // rows go, so the ledger commit after this files the real flight's.
+                        LedgerOrchestrator.RetireTakenOverPredictedCrashCrewRows(
+                            existing, rec, "CommitTree replace");
                         RecordingStore.ReplaceCommittedAt(existingIndex, rec);
                         replacedFromTree++;
                     }

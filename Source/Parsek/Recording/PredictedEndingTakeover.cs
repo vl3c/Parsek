@@ -20,6 +20,7 @@ namespace Parsek
         public bool PreviousTerminalPredicted;
         public double PreviousExplicitEndUT;
         public bool TerminalCleared;
+        public bool CrewEndStatesCleared;
     }
 
     /// <summary>
@@ -179,6 +180,18 @@ namespace Parsek
             {
                 rec.StampTerminalState(null, "PredictedEndingTakeover:" + (context ?? "(none)"));
                 result.TerminalCleared = true;
+                // The crew answer the dropped ending decided (a predicted crash kills the crew,
+                // owner ruling Q6c) is re-derived from the real flight's ending at its commit;
+                // the death respawn stamp belonged to that death.
+                result.CrewEndStatesCleared = rec.CrewEndStates != null || rec.CrewEndStatesResolved;
+                rec.CrewEndStates = null;
+                rec.CrewEndStatesResolved = false;
+                if (result.PreviousTerminal == TerminalState.Destroyed && rec.CrewDeathRespawns.HasValue)
+                {
+                    rec.CrewDeathRespawns = null;
+                    rec.CrewDeathRespawnSeconds = double.NaN;
+                    result.CrewEndStatesCleared = true;
+                }
             }
             rec.VesselDestroyed = false;
             ClearTerminalOrbit(rec);
@@ -197,7 +210,8 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "Predicted ending dropped for takeover: context={0} rec={1} vessel='{2}' pid={3} " +
                     "takeoverUT={4} lastRealUT={5} cutUT={6} removedSegments={7} clippedSegments={8} " +
-                    "previousTerminal={9} previousTerminalPredicted={10} previousExplicitEndUT={11}",
+                    "previousTerminal={9} previousTerminalPredicted={10} previousExplicitEndUT={11} " +
+                    "crewEndStatesCleared={12}",
                     context ?? "(none)",
                     rec.RecordingId ?? "(null)",
                     rec.VesselName ?? "",
@@ -209,7 +223,8 @@ namespace Parsek
                     result.ClippedSegmentCount,
                     result.PreviousTerminal.HasValue ? result.PreviousTerminal.Value.ToString() : "null",
                     result.PreviousTerminalPredicted ? "true" : "false",
-                    FormatUT(result.PreviousExplicitEndUT)));
+                    FormatUT(result.PreviousExplicitEndUT),
+                    result.CrewEndStatesCleared ? "true" : "false"));
             return result;
         }
 
