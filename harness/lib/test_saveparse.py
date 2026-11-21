@@ -916,10 +916,6 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "hitchhiker-pad": False,
         # `fresh-sandbox` plus the SEAT1 Seat Pod craft in the VAB (SEAT-1).
         "seat-pad": False,
-        # `fresh-sandbox` plus the SRV1 Hinge Rig and SRV1 Watcher craft in the VAB (SRV-1's
-        # first host, harness/tools/build_srv_hinge_pad.py; no committed spec flies it since
-        # SRV-1 moved to `srv-hinge-rover` 2026-11-21).
-        "srv-hinge-pad": False,
         # `miner-rover-watched` with the rover renamed `SRV1 Hinge Rover` and a G-11 hinge
         # carrying a Z-200 on its front (harness/tools/build_srv_hinge_rover.py, the SRV-1
         # host). Inherits the node.
