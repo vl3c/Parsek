@@ -1286,22 +1286,51 @@ namespace Parsek
         /// Live: the vessel the live-orbit fallback samples is still a living vessel (stock
         /// <c>Vessel.Die</c> sets <c>State.DEAD</c> before it tears the parts down). Only the
         /// active vessel has a patched-conic solver, so a missing solver alone says nothing
-        /// about destruction. Kept out of line so callers JIT headless.
+        /// about destruction. An UNLOADED vessel (on rails beyond the load range) has no
+        /// loaded parts at all (stock <c>Vessel.Unload</c> clears <c>parts</c>); its parts live
+        /// in its protoVessel, so it counts as alive through them. Kept out of line so callers
+        /// JIT headless.
         /// </summary>
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         internal static bool IsLiveVesselAlive(Vessel vessel)
         {
             try
             {
-                return vessel != null
-                    && vessel.state != Vessel.State.DEAD
-                    && vessel.parts != null
-                    && vessel.parts.Count > 0;
+                if (vessel == null)
+                    return false;
+                int loadedPartCount = vessel.parts != null ? vessel.parts.Count : 0;
+                int protoPartCount = vessel.protoVessel != null
+                    && vessel.protoVessel.protoPartSnapshots != null
+                    ? vessel.protoVessel.protoPartSnapshots.Count
+                    : 0;
+                return IsVesselAliveCore(
+                    vessel.state == Vessel.State.DEAD,
+                    vessel.loaded,
+                    loadedPartCount,
+                    protoPartCount);
             }
             catch
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Pure: the liveness rule <see cref="IsLiveVesselAlive"/> reads. A dead vessel is never
+        /// alive; a loaded one is alive while it still has parts; an unloaded one (no loaded
+        /// parts by construction) is alive while its protoVessel still carries part snapshots.
+        /// </summary>
+        internal static bool IsVesselAliveCore(
+            bool stateDead,
+            bool loaded,
+            int loadedPartCount,
+            int protoPartCount)
+        {
+            if (stateDead)
+                return false;
+            if (loadedPartCount > 0)
+                return true;
+            return !loaded && protoPartCount > 0;
         }
 
         /// <summary>
@@ -3672,7 +3701,10 @@ namespace Parsek
                 return;
 
             if (result.appendedOrbitSegments != null && result.appendedOrbitSegments.Count > 0)
-                recording.OrbitSegments.AddRange(result.appendedOrbitSegments);
+            {
+                recording.OrbitSegments.AddRange(ClipAppendedSegmentsToLastAuthoredUT(
+                    recording, result.appendedOrbitSegments, logContext));
+            }
 
             int descentPoints = ApplyPredictedDescent(recording, result, logContext);
 
@@ -3701,6 +3733,81 @@ namespace Parsek
 
             recording.MarkFilesDirty();
         }
+
+        /// <summary>
+        /// The predicted segments the scene-exit apply appends, clipped so none starts
+        /// before the recording's last authored UT (the cache apply does the same,
+        /// <c>RecordingFinalizationCacheApplier.BuildRetainedPredictedSegments</c>). A tail
+        /// reseeded from an earlier recorded point starts inside the recorded payload, and
+        /// the merge's predicted-suffix rule (<c>SessionMerger</c>) drops a suffix that does
+        /// not start at or after the payload end, so the tail would be lost at commit. A
+        /// segment that ends at or before that UT is dropped; one that straddles it starts
+        /// there (its elements are unchanged). Without a last authored UT the list is kept.
+        /// </summary>
+        internal static List<OrbitSegment> ClipAppendedSegmentsToLastAuthoredUT(
+            Recording recording,
+            IList<OrbitSegment> appended,
+            string logContext)
+        {
+            var kept = new List<OrbitSegment>();
+            if (appended == null || appended.Count == 0)
+                return kept;
+            if (recording == null
+                || !RecordingFinalizationCacheApplier.TryGetLastAuthoredUT(recording, out double lastAuthoredUT)
+                || !IsFinite(lastAuthoredUT))
+            {
+                kept.AddRange(appended);
+                return kept;
+            }
+
+            int dropped = 0;
+            int clipped = 0;
+            double firstOriginalStartUT = double.NaN;
+            for (int i = 0; i < appended.Count; i++)
+            {
+                OrbitSegment segment = appended[i];
+                if (!segment.isPredicted)
+                {
+                    kept.Add(segment);
+                    continue;
+                }
+                if (segment.endUT <= lastAuthoredUT + ClipUtEpsilon)
+                {
+                    dropped++;
+                    if (double.IsNaN(firstOriginalStartUT))
+                        firstOriginalStartUT = segment.startUT;
+                    continue;
+                }
+                if (segment.startUT < lastAuthoredUT - ClipUtEpsilon)
+                {
+                    if (double.IsNaN(firstOriginalStartUT))
+                        firstOriginalStartUT = segment.startUT;
+                    segment.startUT = lastAuthoredUT;
+                    clipped++;
+                }
+                kept.Add(segment);
+            }
+
+            if (dropped > 0 || clipped > 0)
+            {
+                ParsekLog.Info("Extrapolator",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "{0}: predicted tail clipped to the last authored UT for '{1}' " +
+                        "(lastAuthoredUT={2:F3}, firstOriginalStartUT={3:F3}, clipped={4}, dropped={5}, kept={6})",
+                        logContext ?? "SceneExitFinalizer",
+                        recording.RecordingId ?? "(null)",
+                        lastAuthoredUT,
+                        firstOriginalStartUT,
+                        clipped,
+                        dropped,
+                        kept.Count));
+            }
+
+            return kept;
+        }
+
+        private const double ClipUtEpsilon = 1e-6;
 
         /// <summary>
         /// Appends a predicted chute descent the result carries (a Landed / Splashed touchdown)
