@@ -90,6 +90,9 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **A flag part's ghost shows one flag, not all of them.** The replay of every flag part drew
+  every size, both orientations and the panel and plain flags on top of each other. It now shows
+  only the flag the real part shows. (GHOST-FLAG-ALL-MESHES)
 - **A part's flag keeps its look on the ghost when a paint variant is chosen.** Picking the gold
   or silver finish of the RoveMate also repainted its flag on the replay. The flag now stays a
   flag, as on the real part. (GHOST-VARIANT-RESKINS-FLAG)

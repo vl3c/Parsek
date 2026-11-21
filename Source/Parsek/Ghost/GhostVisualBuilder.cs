@@ -1130,6 +1130,18 @@ namespace Parsek
             HashSet<string> depthMaskNames = GetDepthMaskTransformNames(partConfig);
             LogPartRendererExclusionNames(depthMaskNames, partName, persistentId, damagedWheelNames);
 
+            // Transforms a stock module hides on every flight start (a flag part's other flag
+            // meshes): their renderers are left off the ghost, on the same name-or-ancestor
+            // test as the busted wheel names.
+            HashSet<string> stockHiddenNames = ResolveStockHiddenTransformNames(
+                prefab, partConfig, partNode, selectedVariantName, partName, persistentId);
+            if (stockHiddenNames.Count > 0)
+            {
+                if (damagedFilterNames != null)
+                    stockHiddenNames.UnionWith(damagedFilterNames);
+                damagedFilterNames = stockHiddenNames;
+            }
+
             // Asteroids and comets: stock builds the rock at runtime from the persisted seed and
             // destroys the prefab's placeholder lump, so the ghost does the same (null for any
             // other part).

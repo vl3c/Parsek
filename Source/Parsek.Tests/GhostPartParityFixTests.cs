@@ -158,5 +158,116 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Flag part meshes
+
+        private static ConfigNode FlagMesh(string name, string meshName, string orientation,
+            string variantNames)
+        {
+            var mesh = new ConfigNode("MESH");
+            mesh.AddValue("name", name);
+            mesh.AddValue("displayName", "#loc_" + name);
+            mesh.AddValue("meshName", meshName);
+            if (orientation != null) mesh.AddValue("orientation", orientation);
+            mesh.AddValue("variantNames", variantNames);
+            return mesh;
+        }
+
+        // The flagSize1 shape: two sizes, each with portrait / landscape and plain / panel meshes.
+        private static ConfigNode FlagSize1Config()
+        {
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "FlagDecalBackground");
+            const string plain = "White,Dark,Orange,TransparentBackground";
+            const string panel = "WhitePanel,DarkPanel,OrangePanel";
+            module.AddNode(FlagMesh("small", "SmallPortrait", "PORTRAIT", plain));
+            module.AddNode(FlagMesh("small", "SmallLandscape", "LANDSCAPE", plain));
+            module.AddNode(FlagMesh("small", "SmallPortraitPanel", "PORTRAIT", panel));
+            module.AddNode(FlagMesh("small", "SmallLandscapePanel", "LANDSCAPE", panel));
+            module.AddNode(FlagMesh("medium", "MediumPortrait", "PORTRAIT", plain));
+            module.AddNode(FlagMesh("medium", "MediumLandscape", "LANDSCAPE", plain));
+            module.AddNode(FlagMesh("medium", "MediumPortraitPanel", "PORTRAIT", panel));
+            module.AddNode(FlagMesh("medium", "MediumLandscapePanel", "LANDSCAPE", panel));
+            return module;
+        }
+
+        private static ConfigNode FlagSnapshot(string flagSize, string displayingPortrait)
+        {
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "FlagDecalBackground");
+            if (flagSize != null) module.AddValue("flagSize", flagSize);
+            if (displayingPortrait != null) module.AddValue("displayingPortrait", displayingPortrait);
+            return module;
+        }
+
+        private static void AssertOnlyShown(HashSet<string> hidden, string shown)
+        {
+            string[] all =
+            {
+                "SmallPortrait", "SmallLandscape", "SmallPortraitPanel", "SmallLandscapePanel",
+                "MediumPortrait", "MediumLandscape", "MediumPortraitPanel", "MediumLandscapePanel",
+            };
+            foreach (string name in all)
+                Assert.Equal(name != shown, hidden.Contains(name));
+        }
+
+        [Fact]
+        public void FlagMeshes_DefaultSnapshot_ShowsSmallPortraitOfTheVariant()
+        {
+            AssertOnlyShown(GhostVisualBuilder.ResolveFlagDecalHiddenMeshNames(
+                FlagSize1Config(), FlagSnapshot(null, null), "White"), "SmallPortrait");
+        }
+
+        [Fact]
+        public void FlagMeshes_SizeOneLandscape_IndexCountsDistinctNames()
+        {
+            AssertOnlyShown(GhostVisualBuilder.ResolveFlagDecalHiddenMeshNames(
+                FlagSize1Config(), FlagSnapshot("1", "False"), "Dark"), "MediumLandscape");
+        }
+
+        [Fact]
+        public void FlagMeshes_PanelVariant_ShowsThePanelMesh()
+        {
+            AssertOnlyShown(GhostVisualBuilder.ResolveFlagDecalHiddenMeshNames(
+                FlagSize1Config(), FlagSnapshot("0", "True"), "OrangePanel"), "SmallPortraitPanel");
+        }
+
+        [Fact]
+        public void FlagMeshes_NoPortraitMesh_DefaultsToLandscape()
+        {
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "FlagDecalBackground");
+            module.AddNode(FlagMesh("flat", "FlatA", null, "White"));
+            module.AddNode(FlagMesh("flat2", "FlatB", "LANDSCAPE", "White"));
+            HashSet<string> hidden = GhostVisualBuilder.ResolveFlagDecalHiddenMeshNames(
+                module, FlagSnapshot(null, null), "White");
+            Assert.DoesNotContain("FlatA", hidden);
+            Assert.Contains("FlatB", hidden);
+        }
+
+        [Fact]
+        public void FlagMeshes_IncompleteMeshNode_IsNotIndexed()
+        {
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "FlagDecalBackground");
+            var broken = new ConfigNode("MESH");
+            broken.AddValue("name", "first");
+            broken.AddValue("meshName", "Broken");
+            module.AddNode(broken);
+            module.AddNode(FlagMesh("second", "Second", "PORTRAIT", "White"));
+            HashSet<string> hidden = GhostVisualBuilder.ResolveFlagDecalHiddenMeshNames(
+                module, FlagSnapshot("0", "True"), "White");
+            // The node without a displayName is skipped, so "second" takes index 0.
+            Assert.DoesNotContain("Second", hidden);
+            Assert.DoesNotContain("Broken", hidden);
+        }
+
+        [Fact]
+        public void FlagMeshes_NoConfig_HidesNothing()
+        {
+            Assert.Empty(GhostVisualBuilder.ResolveFlagDecalHiddenMeshNames(null, null, "White"));
+        }
+
+        #endregion
     }
 }

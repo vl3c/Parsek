@@ -32,6 +32,134 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Every transform name whose renderers a stock module deactivates on its flight start,
+        /// so the ghost leaves them out: the FlagDecalBackground meshes other than the selected
+        /// one. One Verbose line per part when the set is non-empty.
+        /// </summary>
+        internal static HashSet<string> ResolveStockHiddenTransformNames(
+            Part prefab, ConfigNode partConfig, ConfigNode partNode, string selectedVariantName,
+            string partName, uint persistentId)
+        {
+            var names = new HashSet<string>(System.StringComparer.Ordinal);
+
+            ConfigNode flagConfig = FindModuleNode(partConfig, "FlagDecalBackground");
+            if (flagConfig != null)
+            {
+                HashSet<string> hiddenFlagMeshes = ResolveFlagDecalHiddenMeshNames(
+                    flagConfig, FindModuleNode(partNode, "FlagDecalBackground"), selectedVariantName);
+                names.UnionWith(hiddenFlagMeshes);
+                ParsekLog.VerboseRateLimited("GhostVisual", $"flag-meshes-{partName}",
+                    $"  Part '{partName}' pid={persistentId}: FlagDecalBackground hides " +
+                    $"{hiddenFlagMeshes.Count} flag mesh(es) (variant='{selectedVariantName ?? "<none>"}')", 60.0);
+            }
+
+            return names;
+        }
+
+        /// <summary>
+        /// The FlagDecalBackground meshes stock hides in flight, transcribed from
+        /// <c>FlagDecalBackground.OnLoad</c> / <c>EnableCurrentFlagMesh</c> (KSP 1.12.5,
+        /// decompiled). OnLoad keeps a MESH node only when it has a name, displayName and
+        /// meshName, and gives it the index of the first earlier MESH with the same
+        /// <c>name</c>, else one past the highest index so far (so the index counts distinct
+        /// names in order of first appearance); orientation defaults to LANDSCAPE. A mesh is
+        /// shown only when its index equals the persisted <c>flagSize</c> (default 0), its
+        /// comma-separated <c>variantNames</c> contain the selected variant, and its orientation
+        /// is PORTRAIT when <c>displayingPortrait</c> (default true; false when the module has
+        /// no PORTRAIT mesh) else LANDSCAPE; every other mesh is SetActive(false), in order, so
+        /// a repeated meshName ends in its last state. A null <paramref name="selectedVariantName"/>
+        /// leaves the variant test out (stock would hide every mesh; that shape does not occur
+        /// on a flag part, all of which carry variants). Returns the meshNames left hidden.
+        /// </summary>
+        internal static HashSet<string> ResolveFlagDecalHiddenMeshNames(
+            ConfigNode flagModuleConfig, ConfigNode snapshotFlagModule, string selectedVariantName)
+        {
+            var hidden = new HashSet<string>(System.StringComparer.Ordinal);
+            if (flagModuleConfig == null)
+                return hidden;
+            ConfigNode[] meshNodes = flagModuleConfig.GetNodes("MESH");
+            if (meshNodes == null || meshNodes.Length == 0)
+                return hidden;
+
+            var names = new List<string>();
+            var meshNames = new List<string>();
+            var indices = new List<int>();
+            var portrait = new List<bool>();
+            var variants = new List<string>();
+            int portraitCount = 0;
+            for (int i = 0; i < meshNodes.Length; i++)
+            {
+                ConfigNode mesh = meshNodes[i];
+                if (mesh == null) continue;
+                string name = mesh.GetValue("name");
+                string displayName = mesh.GetValue("displayName");
+                string meshName = mesh.GetValue("meshName");
+                if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(displayName)
+                    || string.IsNullOrEmpty(meshName))
+                    continue;
+
+                int index = -1;
+                for (int j = 0; j < names.Count; j++)
+                {
+                    if (string.Equals(names[j], name))
+                    {
+                        index = indices[j];
+                        break;
+                    }
+                }
+                if (index == -1)
+                {
+                    for (int j = 0; j < indices.Count; j++)
+                    {
+                        if (indices[j] > index)
+                            index = indices[j];
+                    }
+                    index++;
+                }
+
+                bool isPortrait = string.Equals(
+                    (mesh.GetValue("orientation") ?? "").Trim(), "PORTRAIT",
+                    System.StringComparison.OrdinalIgnoreCase);
+                if (isPortrait)
+                    portraitCount++;
+
+                names.Add(name);
+                meshNames.Add(meshName);
+                indices.Add(index);
+                portrait.Add(isPortrait);
+                variants.Add(mesh.GetValue("variantNames") ?? "");
+            }
+
+            int flagSize = 0;
+            string flagSizeRaw = snapshotFlagModule?.GetValue("flagSize");
+            if (!string.IsNullOrEmpty(flagSizeRaw))
+                int.TryParse(flagSizeRaw.Trim(), System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out flagSize);
+            bool displayingPortrait = ParseBoolOr(
+                snapshotFlagModule?.GetValue("displayingPortrait"), portraitCount > 0);
+
+            var finalState = new Dictionary<string, bool>(System.StringComparer.Ordinal);
+            for (int i = 0; i < meshNames.Count; i++)
+            {
+                bool show = false;
+                if (indices[i] == flagSize
+                    && (selectedVariantName == null
+                        || System.Array.IndexOf(variants[i].Split(','), selectedVariantName) > -1))
+                {
+                    show = displayingPortrait ? portrait[i] : !portrait[i];
+                }
+                finalState[meshNames[i]] = show;
+            }
+
+            foreach (var kv in finalState)
+            {
+                if (!kv.Value)
+                    hidden.Add(kv.Key);
+            }
+            return hidden;
+        }
+
+        /// <summary>
         /// The three variant-resolution lines of one part: the selected variant and its
         /// GAMEOBJECT rule count, the include-everything fallback, and the base-implicit variant.
         /// </summary>
