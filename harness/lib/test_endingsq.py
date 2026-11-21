@@ -40,10 +40,17 @@ def _mirror(rid, body):
     return "version = 1\nrecordingId = %s\n%s" % (rid, body)
 
 
-def _rec(rid, name, terminal=None, chain="", explicit_end=None):
+def _rec(rid, name, terminal=None, chain="", explicit_end=None, predicted=False,
+         quiet=False, orbit_body=""):
     lines = ["RECORDING", "{", "recordingId = %s" % rid, "vesselName = %s" % name]
     if terminal is not None:
         lines.append("terminalState = %d" % saveparse.TERMINAL_STATE_NAMES.index(terminal))
+    if predicted:
+        lines.append("terminalPredicted = True")
+    if quiet:
+        lines.append("quietEnd = True")
+    if orbit_body:
+        lines.append("tOrbBody = %s" % orbit_body)
     if chain:
         lines.append("chainId = %s" % chain)
     if explicit_end is not None:
@@ -99,6 +106,13 @@ class MirrorAndAltitudeTests(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
         self.assertIn("Predicted = " + endingsq.PREDICTED_SECTION_SRC, text)
+        # The ending flags the endings block reads are the keys the C# codec writes.
+        codec = os.path.join(LIB_DIR, "..", "..", "Source", "Parsek", "Recording",
+                             "RecordingTreeRecordCodec.cs")
+        with open(codec, encoding="utf-8") as fh:
+            ctext = fh.read()
+        for key in ("terminalPredicted", "quietEnd", "tOrbBody"):
+            self.assertIn('recNode.AddValue("%s"' % key, ctext)
 
     def test_flat_write_points_count_and_duplicate_segments_collapse(self):
         seg = _seg(20.0, 95.0, 700000.0, 0.01, 0.0, 20.0, True)
@@ -213,6 +227,36 @@ class FacetTests(unittest.TestCase):
             block, endingsq.observed_endings_facets(block, snap, data))
         self.assertTrue(any("Nobody.ended 0 < min 1" in m for m in mm), mm)
 
+    def test_ending_flags_and_terminal_orbit_body(self):
+        snap = saveparse.parse_parsek_scenario(_save(
+            _rec("q1", "Booster", terminal="Destroyed", predicted=True, quiet=True),
+            _rec("s1", "Escape", terminal="Orbiting", orbit_body="Sun"),
+            _rec("k1", "Kerbin Stage", terminal="Orbiting", orbit_body="Kerbin")))
+        data = samplingq.SamplingInput(prec_texts={})
+        block = {"vessels": {
+            "Booster": {"quietEnd": True, "terminalPredicted": True},
+            "Escape": {"terminalOrbitBodies": ["Sun"], "quietEnd": False},
+            "Kerbin Stage": {"terminalOrbitBodies": ["Sun"]}}}
+        f = endingsq.observed_endings_facets(block, snap, data)
+        b = f["vessels"]["Booster"]["endings"][0]
+        self.assertTrue(b["quietEnd"])
+        self.assertTrue(b["terminalPredicted"])
+        self.assertIsNone(b["terminalOrbitBody"])
+        self.assertEqual("Sun", f["vessels"]["Escape"]["endings"][0]["terminalOrbitBody"])
+        mm = endingsq.evaluate_endings(block, f)
+        self.assertEqual(1, len(mm), mm)
+        self.assertIn("Kerbin Stage[k1].terminalOrbitBody Kerbin not in ['Sun']", mm[0])
+        # The flags red when they differ, and a missing orbit reads (none).
+        snap2 = saveparse.parse_parsek_scenario(_save(
+            _rec("q2", "Booster", terminal="Destroyed"),
+            _rec("s2", "Escape", terminal="SubOrbital")))
+        mm2 = endingsq.evaluate_endings(
+            block, endingsq.observed_endings_facets(block, snap2, data))
+        self.assertTrue(any("Booster[q2].quietEnd False != True" in m for m in mm2), mm2)
+        self.assertTrue(any("Booster[q2].terminalPredicted False != True" in m for m in mm2), mm2)
+        self.assertTrue(any("Escape[s2].terminalOrbitBody (none) not in ['Sun']" in m
+                            for m in mm2), mm2)
+
     def test_unreadable_save_is_not_measured(self):
         self.assertEqual({}, endingsq.observed_endings_facets({"vessels": {"x": {}}}, None, None))
         self.assertTrue(endingsq.evaluate_endings({"vessels": {}}, {}))
@@ -237,6 +281,14 @@ class SpecSurfaceTests(unittest.TestCase):
         self.assertTrue(any("can never red" in e for e in v(
             {"gating": True, "vessels": {"A": {"tailSeconds": {"min": 0}}}})))
         self.assertTrue(any("must be a bool" in e for e in v({"gating": "yes"})))
+        self.assertEqual([], v({"gating": True, "vessels": {"A": {
+            "quietEnd": True, "terminalPredicted": False, "terminalOrbitBodies": ["Sun"]}}}))
+        self.assertTrue(any("quietEnd: 'yes' must be a bool" in e
+                            for e in v({"vessels": {"A": {"quietEnd": "yes"}}})))
+        self.assertTrue(any("non-empty array of body names" in e
+                            for e in v({"vessels": {"A": {"terminalOrbitBodies": []}}})))
+        self.assertTrue(any("non-empty array of body names" in e
+                            for e in v({"vessels": {"A": {"terminalOrbitBodies": "Sun"}}})))
 
     def test_hlib_validates_and_warns(self):
         exp = {"recordings": {"endings": {"vessels": {"A": {"tail": 1}}}}}
@@ -286,6 +338,16 @@ class SaveParseRouteTests(unittest.TestCase):
         snap2 = saveparse.parse_parsek_scenario(_save(_rec("t2", "S")))
         self.assertIsNone(snap2.trees[0].recordings[0].explicit_end_ut)
         self.assertEqual("", snap2.trees[0].recordings[0].chain_id)
+        r2 = snap2.trees[0].recordings[0]
+        self.assertFalse(r2.terminal_predicted)
+        self.assertFalse(r2.quiet_end)
+        self.assertEqual("", r2.terminal_orbit_body)
+        snap3 = saveparse.parse_parsek_scenario(_save(_rec(
+            "t3", "S", terminal="Orbiting", predicted=True, quiet=True, orbit_body="Sun")))
+        r3 = snap3.trees[0].recordings[0]
+        self.assertTrue(r3.terminal_predicted)
+        self.assertTrue(r3.quiet_end)
+        self.assertEqual("Sun", r3.terminal_orbit_body)
 
 
 if __name__ == "__main__":

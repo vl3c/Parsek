@@ -295,7 +295,8 @@ required = [
   # The abandoned future's booster ending: committed while still under canopy, so since
   # owner ruling Q4 (2026-11-21) its predicted chute touchdown (Landed / Splashed,
   # TerminalPredicted; SubOrbital before). Ordered before the F9 (QL-4's reason: the
-  # replay's finalize is Landed too).
+  # replay's finalize is Landed too). Owner ruling Q14 (2026-11-21) does not move it: a
+  # plain in-flight CommitTree keeps the predicted touchdown (Q14 is for leaving the flight).
   "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=(?:Landed|Splashed)[\\s\\S]*loadgame start save=\\S+ name=quicksave ",
 
   # GROUP 3 - THE F9 IS A SAVE-FILE LOAD (design 4.1).

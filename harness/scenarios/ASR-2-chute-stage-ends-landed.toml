@@ -1,15 +1,26 @@
 schema = 1
 id = "ASR-2-chute-stage-ends-landed"
 # =====================================================================================
-# ASR-2: A STAGE LEFT UNDER OPEN PARACHUTES ENDS LANDED AT TOUCHDOWN, ITS SLOT STILL
-# OPEN. AUTHORED 2026-11-21, NEVER FLOWN. Re-pinned the same day to the chute-descent C#
-# (owner rulings Q4 / Q4c: predicted touchdown, slot open as `predictedTouchdown`). The
-# saveParse blocks stay report-only until a reading run sizes the windows.
+# ASR-2: A STAGE LEFT UNDER OPEN PARACHUTES WHEN THE PLAYER LEAVES THE FLIGHT ENDS
+# DESTROYED AT THE EXIT, QUIETLY, ITS SLOT STILL OPEN AS A CRASH. AUTHORED 2026-11-21.
+# The id keeps its original wording ("ends-landed") so the flight history stays on one
+# lane; the subject moved with owner ruling Q14 (2026-11-21 ~23:20).
+# FLOWN on the Q4 / Q4c tokens (flight 2, `asr-final`, PASS: predicted touchdown, slot open
+# as `predictedTouchdown`, `canopy=Deployed openChutes=6` at the commit). RE-PINNED to
+# Q14, NOT FLOWN (the C# is branch asr-fix-exit). The saveParse blocks stay report-only.
 # =====================================================================================
 #
-# WHAT IT PROVES (owner ruling). When the player stops flying a stage whose chutes are
-# open, Parsek predicts its chute-speed descent and ends the recording `Landed` (or
-# `Splashed`) at touchdown instead of `SubOrbital` in mid-air.
+# WHAT IT PROVES (owner ruling Q14). Leaving the flight scene while a chuted craft is still
+# in the air is stock's "mission will be lost" case (P-LEAVE: the Abandon Mission path,
+# CheckKill deletes it on rails later). So the exit decides it: the craft ends `Destroyed`,
+# its crew dead (this booster is a probe: no crew), its replay ghost descends under its
+# canopies to the ground and ends quietly (no explosion, nothing spawns), and its Re-Fly
+# slot stays open as a crash. A predicted touchdown (Q4) stays only for an in-flight commit
+# where the player keeps flying (ASR-7).
+#
+# HISTORY. Q4 / Q4c (earlier on 2026-11-21) ended this booster `Landed` / `Splashed` on a
+# predicted chute touchdown, slot open as `predictedTouchdown`; before Q4 it closed
+# `SubOrbital` in mid-air (`stableLeafUnconcluded`).
 #
 # THE FLIGHT. RF-1's act 1 verbatim on `gs1-two-stage-pad`: the GS1 Auto-Chute Booster
 # hops to a ~700 m apoapsis, stages at the apex (the probe-cored booster's six Mk2-R
@@ -21,30 +32,25 @@ id = "ASR-2-chute-stage-ends-landed"
 # stage out of range), so this covers the COMMIT trigger with the stage still held by
 # KSP; ASR-1 covers the out-of-range triggers.
 #
-# BEFORE THE CHANGE (measured on RF-1's flights): the booster closed `terminal=SubOrbital`
-# and the classifier opened an Unfinished Flight for it (`IsUnfinishedFlight=true ...
-# reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital`). WITH THE CHANGE
-# (owner rulings Q4 / Q4c, 2026-11-21) it ends Landed / Splashed on its PREDICTED
-# touchdown (TerminalPredicted), and a predicted touchdown keeps the separation OPEN: the
-# classifier answers the new reason `predictedTouchdown` (`IsUnfinishedFlight=true ...
-# reason=predictedTouchdown slot=1 focusSlot=0 terminal=Landed predicted=True`), the slot
-# is promoted `CommittedProvisional` and the RewindPoint is NOT reaped (rewindPoints 1).
-# The booster is loaded and inside the bubble at the commit, so stock has not deleted it
-# and Q4d's Destroyed / quiet-end case does not apply. The open-slot lanes (RF-1, RB-4 /
-# RB-5, QL-4 family, RF-4, RF-C1, RF-L2, QL-2b / QL-2c, QL-7) were re-pinned to the new
-# reason with this change.
+# WITH Q14: the classifier's Destroyed branch answers `crashed`
+# (`IsUnfinishedFlight=true rec=<id> reason=crashed terminal=Destroyed side=child`,
+# Rewind/UnfinishedFlightClassifier.cs; that branch carries no slot detail), the slot is
+# promoted `CommittedProvisional` (`CommitTree promoted ... slot=1 ... reason=crashed`,
+# Recording/TreeCommitService.cs) and the RewindPoint is NOT reaped (rewindPoints 1). The
+# quiet end is read off the save (`quietEnd = True` on the booster's RECORDING node,
+# RecordingTreeRecordCodec) and off `Recording.StampTerminalState`'s Verbose
+# `terminal quiet-end flag false->true rec=<id> context=<site>` line (context not pinned:
+# the exit site is new in asr-fix-exit). The Q4 `predictedTouchdown` verdict is forbidden.
 #
 # WHAT IS READ. `[expectations.recordings.endings]` (harness/lib/endingsq.py) over the
-# produced save: the booster's ended recording terminal in {Landed, Splashed}, and its
-# end UT past its last watched datum (tailSeconds >= 5: the booster is still descending
-# at ~5-7 m/s under six canopies when the mission exits, from tens to hundreds of
-# metres). No predicted-segment or altitude window: a chute descent is not a two-body
-# arc and the change's representation of it is not specified, so the numbers are
-# REPORTED (`predictedSegments`, `endAltitudeMeters`) and not asserted.
+# produced save: the booster's ended recording terminal Destroyed with `quietEnd = true`,
+# and its end UT past its last watched datum (tailSeconds >= 5: the ghost still descends
+# under its canopies to the ground, at ~5-9 m/s from tens to hundreds of metres). The
+# pod's flown landing stays Landed / Splashed. No predicted-segment or altitude window: a
+# chute descent is not a two-body arc, so those numbers are REPORTED, not asserted.
 #
-# C#-DEPENDENT: the endings windows (save fields), the required predictedTouchdown pair
-# (Rewind/UnfinishedFlightClassifier.cs verdict line, Recording/TreeCommitService.cs
-# promotion line) and the forbidden SubOrbital classifier line (the pre-change verdict).
+# C#-DEPENDENT: the endings windows and flags (save fields), the required crashed pair, the
+# quiet-end flag line, and the forbidden predictedTouchdown / SubOrbital classifier lines.
 # NOT C#-dependent: the flight and the commit tokens.
 #
 # FAST-LANE CHECKLIST. 1 RF-1's act 1 is this flight, but RF-1 continues into a re-fly of
@@ -55,10 +61,10 @@ id = "ASR-2-chute-stage-ends-landed"
 # flight). 9 flight_efficiency.py on the first green flight.
 # =====================================================================================
 tier = "nightly"
-description = "A stage left under open chutes ends Landed at touchdown: RF-1's GS1 hop, the probe-cored booster still under its six canopies when the pod lands and ExitToSpaceCenter commits. Report-only endings block: the booster's recording ends Landed or Splashed, past its last watched sample; the predicted touchdown keeps the booster's slot open (reason predictedTouchdown, RewindPoint kept) and the old SubOrbital open-slot classifier line is forbidden."
+description = "Owner ruling Q14: a stage still in the air under open chutes when the player leaves the flight ends Destroyed at the exit, quietly. RF-1's GS1 hop, the probe-cored booster still under its six canopies when the pod lands and ExitToSpaceCenter commits. The booster's recording ends Destroyed with the quiet-end flag (its ghost descends to the ground, no explosion, no spawn), its slot stays open as a crash (reason crashed, RewindPoint kept); the Q4 predictedTouchdown and pre-Q4 SubOrbital verdicts are forbidden. Report-only endings block."
 instanceProfile = "stock-minimal"
-tags = ["ASR", "ASR-2", "predicted-tail", "parachute", "staging", "controlled-child",
-        "scene-exit", "kerbin", "sandbox", "reading-run"]
+tags = ["ASR", "ASR-2", "Q14", "predicted-tail", "parachute", "quiet-end", "staging",
+        "controlled-child", "scene-exit", "kerbin", "sandbox", "reading-run"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
@@ -111,29 +117,35 @@ required  = [
   "Recording started",
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
-  # C#-DEPENDENT (owner ruling Q4c): the predicted touchdown keeps the booster's slot open.
-  "IsUnfinishedFlight=true rec=\\S+ reason=predictedTouchdown slot=1 focusSlot=0 terminal=(?:Landed|Splashed) predicted=True",
-  "CommitTree promoted rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' slot=1 rp=\\S+ reason=predictedTouchdown to CommittedProvisional",
+  # C#-DEPENDENT (owner ruling Q14): the exit ends the booster Destroyed, slot open as a crash.
+  "IsUnfinishedFlight=true rec=\\S+ reason=crashed terminal=Destroyed",
+  "CommitTree promoted rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' slot=1 rp=\\S+ reason=crashed to CommittedProvisional",
+  # C#-DEPENDENT, UNVERIFIED against asr-fix-exit: the quiet end is stamped on the booster's
+  # recording (Recording.StampTerminalState's flag-change line; the context is not pinned).
+  "terminal quiet-end flag false->true rec=[0-9a-f]{32} context=",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # The pre-change open-slot verdict for the booster (a SubOrbital ending in mid-air).
+  # The Q4 / Q4c verdict (a predicted touchdown at the exit, the pre-Q14 build).
+  "IsUnfinishedFlight=true rec=\\S+ reason=predictedTouchdown slot=1 focusSlot=0 terminal=(?:Landed|Splashed)",
+  # The pre-Q4 open-slot verdict for the booster (a SubOrbital ending in mid-air).
   "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital",
 ]
 
 # REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
 [expectations.recordings.endings.vessels."GS1 Auto-Chute Booster Probe"]
 ended          = { min = 1, max = 1 }
-terminalStates = ["Landed", "Splashed"]
+terminalStates = ["Destroyed"]
+quietEnd       = true
 tailSeconds    = { min = 5 }
 
 [expectations.recordings.endings.vessels."GS1 Auto-Chute Booster"]
 ended          = { min = 1, max = 1 }
 terminalStates = ["Landed", "Splashed"]
 
-# REPORT-ONLY: the predicted touchdown keeps the booster's slot open (owner ruling Q4c),
-# so the RewindPoint the split authored is NOT reaped (RF-1's shape, not GS-1's); read,
-# not gated.
+# REPORT-ONLY: the crash keeps the booster's slot open (owner ruling Q14), so the
+# RewindPoint the split authored is NOT reaped (RF-1's shape, not GS-1's); read, not gated.
+# No tombstone: the booster is a probe, so its Destroyed kills nobody.
 [expectations.rewind]
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { max = 0 }
@@ -142,7 +154,7 @@ tombstones    = { max = 0 }
 [expectations.recordings.structure]
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
-terminalStates = { SubOrbital = { max = 0 } }
+terminalStates = { Landed = { min = 1 }, Destroyed = { min = 1 }, SubOrbital = { max = 0 } }
 
 [runtime]
 # LoadGame 660 + SetSetting x3 360 + mission 900 + ExitToSpaceCenter 240 + SaveGame 120

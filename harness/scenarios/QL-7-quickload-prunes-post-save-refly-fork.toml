@@ -11,8 +11,8 @@ id = "QL-7-quickload-prunes-post-save-refly-fork"
 # and the resumed-tree row rule of THE MECHANISM UNDER TEST below are FORBIDDEN after the
 # load; the save's tree resolves its F5-moment sidecars from `_versions` (the scene-exit
 # commit and the Re-Fly's split rewrote the heads) and resumes with `loadKind=Cold`. The
-# booster's ending stamped by the commit (its predicted touchdown since owner ruling Q4,
-# SubOrbital before) is not in the save either, so the
+# booster's ending stamped by the commit (Destroyed at the exit since owner ruling Q14, its
+# predicted touchdown under Q4 before that, SubOrbital before Q4) is not in the save either, so the
 # QUICKLOAD-RESUME-KEEPS-AN-ENDING-STAMPED-JUST-AFTER-THE-SAVE note below does not apply
 # to this shape (not pinned either way). The text below is the in-session shape this lane
 # flew before Phase 2, kept as history; this block is authoritative.
@@ -50,8 +50,9 @@ id = "QL-7-quickload-prunes-post-save-refly-fork"
 #     not `quicksave`: every merge-dialog merge overwrites quicksave.sfs with the post-merge
 #     game (QL-3's reason).
 #   - RF-1's commit and Re-Fly verbatim: ExitToSpaceCenter (scene-exit auto-merge; the booster
-#     closes on its predicted chute touchdown since owner ruling Q4, SubOrbital before,
-#     and its slot stays open), SaveGame / LoadGame persistent (RF-1's
+#     still in the air under canopy, ends Destroyed at the exit since owner ruling Q14
+#     (a predicted chute touchdown under Q4 before that, SubOrbital before Q4), and its
+#     slot stays open), SaveGame / LoadGame persistent (RF-1's
 #     reload-after-commit order), ListHandles, InvokeRewind slot 1, AnswerMergeDialog merge
 #     (which drives the re-fly's conclusion through a scene exit to the Space Center).
 #   - `LoadGame name=ql7-in-flight` from the Space Center: the in-flight save boots FLIGHT
@@ -80,7 +81,8 @@ id = "QL-7-quickload-prunes-post-save-refly-fork"
 #   - `loadgame rejected` after the merge: a recorder was live at the Space Center; add a
 #     StopRecording in FLIGHT before the load.
 #   - Report-only saveParse: predicted after the final commit 2 recordings (pod Landed, booster
-#     Landed on its predicted chute touchdown since owner ruling Q4; SubOrbital before), no Destroyed (RF-1 measured the fork as the tree's only Destroyed member),
+#     Destroyed: the final exit leaves it in the air under canopy again, owner ruling Q14; a
+#     predicted Landed under Q4 before that, SubOrbital before Q4), no fork,
 #     supersedeRows 0, tombstones 0. Re-pin and consider arming after the first flight.
 #
 # FAST-LANE CHECKLIST (harness/README.md): (1) reuse a flight - RF-1's flight is a prefix
@@ -190,15 +192,16 @@ allowedAnomalies = []
 # RF-1's window (pod and booster legs, touchdown debris, the re-fly's provisional).
 count = { min = 2, max = 8 }
 
-# REPORT-ONLY until a reading run (see the header's predictions). Since owner ruling Q4
-# (2026-11-21) the booster, still under canopy when the resumed tree commits, ends on its
-# predicted touchdown: pod Landed plus booster Landed (predicted), nothing SubOrbital.
+# REPORT-ONLY until a reading run (see the header's predictions). Since owner ruling Q14
+# (2026-11-21; RE-PINNED, NOT FLOWN) the booster, still in the air under canopy when the
+# final scene exit commits the resumed tree, ends Destroyed at the exit: pod Landed plus
+# booster Destroyed, nothing SubOrbital (Q4's predicted Landed before: Landed >= 2).
 [expectations.recordings.structure]
 gating         = false
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 2, max = 2 }
-terminalStates = { Landed = { min = 2 }, SubOrbital = { max = 0 }, Destroyed = { max = 0 } }
+terminalStates = { Landed = { min = 1, max = 1 }, SubOrbital = { max = 0 }, Destroyed = { min = 1, max = 1 } }
 
 [expectations.rewind]
 gating        = false
@@ -214,12 +217,12 @@ required = [
   # GROUP 2 - THE IN-FLIGHT SAVE, BEFORE THE COMMIT (the premise of the committed-copy rule).
   "savegame name=ql7-in-flight folder=.+ saved=true[\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
-  # The reason follows how the background booster ends at the commit. It is loaded and under
-  # its chutes, so since owner rulings Q4 / Q4c (2026-11-21) it ends on its PREDICTED
-  # touchdown (predictedTouchdown); the older readings were SubOrbital (stableLeafUnconcluded)
-  # or a predicted impact (crashed), kept in the alternation. Each is an Unfinished Flight;
-  # the promotion is what this lane needs.
-  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=(predictedTouchdown|stableLeafUnconcluded|crashed) to CommittedProvisional",
+  # The reason follows how the background booster ends at the commit. It is still in the air
+  # under its chutes at a SCENE EXIT, so since owner ruling Q14 (2026-11-21) it ends Destroyed
+  # at the exit (crashed); the older readings were a PREDICTED touchdown (predictedTouchdown,
+  # Q4 / Q4c) and SubOrbital (stableLeafUnconcluded), kept in the alternation. Each is an
+  # Unfinished Flight; the promotion is what this lane needs.
+  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=(crashed|predictedTouchdown|stableLeafUnconcluded) to CommittedProvisional",
   # GROUP 3 - THE RE-FLY MERGES AFTER THE SAVE (RF-1's and QL-3's).
   "listhandles kind=rewindpoints count=1 truncated=false",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",

@@ -302,7 +302,9 @@ required = [
   # commit runs the lifetime finalizer on the live non-active booster, which since owner
   # ruling Q4 (2026-11-21) predicts its chute descent to a touchdown (Landed / Splashed,
   # TerminalPredicted; SubOrbital before). ORDERED before the F9: the post-F9 finalize is
-  # Landed too, so an unordered token could be met by the replay's line alone.
+  # Landed too, so an unordered token could be met by the replay's line alone. Owner ruling
+  # Q14 (2026-11-21) does not move it: this is a plain in-flight CommitTree, not a scene
+  # exit, so the predicted touchdown stays (Q14's Destroyed is for leaving the flight).
   "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=(?:Landed|Splashed)[\\s\\S]*loadgame start save=\\S+ name=quicksave ",
   "committree committed=true",
 

@@ -69,6 +69,9 @@ id = "QL-4c-quickload-after-in-flight-save"
 # 1-entry background attach are missing (the booster keeps its abandoned-future ending; that
 # ending is a predicted chute touchdown since owner ruling Q4, 2026-11-21, so the post-F9
 # SubOrbital forbidden token, which matched it before, no longer does: the bg=0 lines carry it).
+# Owner ruling Q14 (2026-11-21) does not move this lane: its commit is a plain in-flight
+# CommitTree, which keeps the predicted touchdown; the final exit comes after the booster
+# has landed for real (WarpToUT 400).
 #
 # READING-RUN NOTES:
 #   - `route=space-center` on the decision line means the clone was not the live tree at the

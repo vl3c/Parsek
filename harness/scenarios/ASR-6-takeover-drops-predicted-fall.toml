@@ -1,0 +1,166 @@
+schema = 1
+id = "ASR-6-takeover-drops-predicted-fall"
+# =====================================================================================
+# ASR-6: FLYING AN IGNORED STAGE AGAIN DROPS ITS PREDICTED CRASH (TAKEOVER). AUTHORED
+# 2026-11-21, NEVER FLOWN. Report-only saveParse blocks until a reading run.
+# =====================================================================================
+#
+# WHAT IT PROVES (owner ruling Q1b, review finding P1; WP5). If KSP still has a stage
+# Parsek committed with a PREDICTED crash, and the player flies it again, the prediction
+# is dropped and the stage is recorded for real from there: one vessel, no ghost of the
+# predicted fall beside it, and the committed recording's predicted ending removed
+# (`Predicted ending dropped for takeover: ...`, Recording/PredictedEndingTakeover.cs).
+#
+# THE FLIGHT. ASR-1's act verbatim (RF-9's Kerbal X coast-exit ascent on
+# `gs1-two-stage-pad`, the 10 s Poodle burn after the core discard, the post-mission
+# WarpToUT 280 so the probe core goes on rails out of the stack's pack range), then
+# ExitToSpaceCenter commits the tree: the probe core (`Kerbal X Probe`, a controlled
+# child, on rails, sub-orbital near its ~100 km apex) ends Destroyed on a predicted
+# crash (ASR-1's measured shape, tail ~260-295 s). Then the player goes to the Tracking
+# Station and presses Fly on the falling probe core:
+#   - SaveGame persistent at the Space Center (the tree commits on arrival there, after
+#     the exit's own write; RF-1's order), then LoadGame persistent scene=trackstation
+#     (FLY-1's entry: the seam's `site=ts` needs the Tracking Station scene). The load
+#     restores the save's UT, so the core is still minutes above its predicted impact.
+#   - `SimulateStockSwitchClick site=ts vessel="Kerbal X Probe"` (FLY-3's verb: stock's
+#     Tracking Station Fly button through its own control). The patched FlyVessel arms the
+#     TrackingStationFly intent, the FLIGHT load consumes it, and the committed tree's
+#     clone takes the vessel over (FLY-1's `committed-spawned-clone` route or the
+#     predicted-leaf route; the route is not pinned, the drop is).
+#   - a short explicit-UT 2x physics dwell (UT 300) so the taken-over core records real
+#     samples, then StopRecording, CommitTree in flight, FlushAndQuit.
+#
+# GATES (C#-dependent where marked). The premise tokens are ASR-1's (split, the core on
+# rails, the exit commit). The TS Fly tokens are FLY-1 / FLY-3's literals with the target
+# read by name. The subject: `Predicted ending dropped for takeover: context=<any>
+# rec=<id> vessel='Kerbal X Probe'` after the Fly (C#-dependent, WP5 / WP11; the context
+# names the route and is not pinned). Forbidden: a flight-scene ghost of 'Kerbal X Probe'
+# spawned after the Fly (GhostPlaybackEngine's `Ghost #<i> "<vessel>" spawned (` /
+# `spawn-pending notify`, QL-4b's literal), and a Fly refusal. Save side (report-only):
+# one real 'Kerbal X Probe' vessel (`vesselNames`), the probe's ended recording no longer
+# a predicted Destroyed (its in-flight commit keeps the live situation, ASR-4's shape:
+# SubOrbital, terminalPredicted false).
+#
+# FAST-LANE CHECKLIST. 1 Reuses ASR-1's flight as the prefix (no shorter host has a probe
+# core on rails under a predicted crash); a separate lane because the takeover rewrites
+# the save ASR-1 reads. 2 Explicit-UT waits only (WarpToUT 280, 300). 3 The post-Fly
+# dwell is ~20 game s. 4 Burns at 1x (ASR-1's). 5 n/a. 6 the machine's give-ups and the
+# seam's typed refusals. 7 count {9,18}: ASR-1's {8,14} plus the takeover segment(s).
+# 8 nightly (ASR-1 plus two scene loads). 9 flight_efficiency.py on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "Owner ruling Q1b takeover: ASR-1's Kerbal X coast-exit flight commits the probe core on rails with a predicted crash at the Space Center exit, then the player loads the Tracking Station and presses Fly on the falling core; the prediction is dropped for the takeover, the core flies a few seconds and commits in flight. No ghost of the core beside the real vessel, one real core vessel in the save."
+instanceProfile = "stock-minimal"
+tags = ["ASR", "ASR-6", "Q1b", "predicted-tail", "takeover", "tracking-station-fly",
+        "stock-click", "controlled-child", "scene-exit", "scene-ts", "kerbin", "sandbox",
+        "reading-run"]
+
+[fixture]
+# ASR-1's host verbatim.
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+steps = [
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { phase = "mission",                                                                          expect = "MISSION-OK", budget = 1600 },
+  # ASR-1's out-of-range wait: the core packs past the stack's 10 km sub-orbital range.
+  { cmd = "WarpToUT",                 args = { ut = "280", maxRate = "2", ladder = "phys" },    expect = "OK", budget = 300 },
+  { cmd = "ExitToSpaceCenter",                                                                  expect = "OK", budget = 120 },
+  { cmd = "SaveGame",                 args = { name = "persistent" },                           expect = "OK" },
+  # THE TAKEOVER. No auto-record: only the Fly's consume starts a recording.
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { site = "ts", vessel = "Kerbal X Probe" },        expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                     expect = "OK" },
+  { cmd = "WarpToUT",                 args = { ut = "300", maxRate = "2", ladder = "phys" },    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                      expect = "OK" },
+  { cmd = "CommitTree",                                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                       expect = "OK" },
+]
+
+# ASR-1's params verbatim.
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+coastExitProfile = true
+coreDiscardApoapsisMeters   = 95000.0
+coreDiscardMaxFlightSeconds = 300.0
+coastSeconds                = 15.0
+coastExitUpperBurnSeconds   = 10.0
+coastExitMinAltitudeMeters  = 71000.0
+coastExitSituations         = ["SUB_ORBITAL"]
+coastExitDebounceFrames     = 2
+coastExitFrames             = 600
+flightMaxSeconds            = 700.0
+recordedSpanWindowSeconds   = { min = 60.0, max = 650.0 }
+
+[dimensionsCovered]
+# BASICS ONLY until the first green flight.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-ts"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 9, max = 18 }
+
+[expectations.logContracts]
+required = [
+  # --- ASR-1's act: the split, the core on rails, the exit commit ---
+  "Recording started",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  "ProcessBreakupEvent: controlled child created: pid=([0-9]+)[\\s\\S]*?Mode transition loaded\\S{1,3}on-rails: pid=\\1\\b",
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+  # --- THE TRACKING STATION FLY (FLY-1 / FLY-3's literals, the target read by name) ---
+  "switchclick fly gate site=ts targetPid=[0-9]+ targetName=Kerbal X Probe situation=SUB_ORBITAL [^\\r\\n]*decision=proceed",
+  "\\[SwitchIntentPatch\\] TS Fly intent armed: intentId=\\S+ action=TrackingStationFly targetPid=[0-9]+ sourceScene=TrackingStation",
+  "switchclick complete site=ts targetPid=[0-9]+ targetName=Kerbal X Probe intentId=\\S+ route=stock-fly-control activeVesselPid=[0-9]+ switched=true",
+  # --- THE SUBJECT (C#-DEPENDENT, owner ruling Q1b): the predicted crash is dropped ---
+  "switchclick fly gate site=ts [^\\r\\n]*targetName=Kerbal X Probe[\\s\\S]*Predicted ending dropped for takeover: context=\\S+ rec=[0-9a-f]{32} vessel='Kerbal X Probe' pid=[0-9]+ ",
+  "committree committed=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "switchclick refused",
+  "switchclick failed",
+  "committed-spawned-clone-restore-failed-start-standalone",
+  # NO GHOST BESIDE THE REAL VESSEL (owner ruling Q1b): after the Fly no flight-scene ghost
+  # of the core is built (GhostPlaybackEngine's spawn lines, QL-4b's literal).
+  "switchclick fly gate site=ts [^\\r\\n]*targetName=Kerbal X Probe[\\s\\S]*\\[Engine\\] Ghost #[0-9]+ \"Kerbal X Probe\" spawn(?:ed \\(|-pending notify)",
+]
+
+# REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
+# The core's ended recording is the taken-over flight's, committed in flight with its live
+# situation (ASR-4's shape for an active vessel): not a predicted ending any more.
+[expectations.recordings.endings.vessels."Kerbal X Probe"]
+ended             = { min = 1, max = 2 }
+terminalPredicted = false
+
+[expectations.rewind]
+tombstones = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+vesselNames    = { "Kerbal X Probe" = { min = 1, max = 1 } }
+
+[runtime]
+# ASR-1's 3400 (LoadGame 660 + SetSetting x3 360 + mission 1600 + WarpToUT 300 +
+#   ExitToSpaceCenter 240 + SaveGame 120 + FlushAndQuit 120) + LoadGame 660 + SetSetting
+#   120 + SimulateStockSwitchClick 360 + RecordingState 120 + WarpToUT 180 + StopRecording
+#   120 + CommitTree 180 = 5140. 5400 clears it.
+budgetSeconds = 5400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
