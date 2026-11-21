@@ -594,6 +594,46 @@ namespace Parsek.Tests
             Assert.Equal(1003.25, Recording.DeepClone(booster).StockHeldVesselUT, 9);
         }
 
+        // catches: a time-travel load (rewind, revert, quickload, Re-Fly) leaving a stamp from a
+        // stock state the game no longer holds, so a rewound craft reads as stock-deleted
+        [Fact]
+        public void OnLoad_EveryTimeTravelBreakSiteForgetsTheStamps()
+        {
+            string text = ParsekScenarioSourceFiles.ReadAll(
+                ParsekScenarioOnLoadCharacterizationTests.ParsekSourceRoot());
+            int breaks = 0, forgets = 0, at = 0;
+            while ((at = text.IndexOf("StockShadowTakeBack.NoteLoad(", at, StringComparison.Ordinal)) >= 0)
+            {
+                breaks++;
+                int next = text.IndexOf("ForgetStockHeldVesselsAfterTimeTravel(", at, StringComparison.Ordinal);
+                int nextBreak = text.IndexOf("StockShadowTakeBack.NoteLoad(", at + 1, StringComparison.Ordinal);
+                if (next > at && (nextBreak < 0 || next < nextBreak))
+                    forgets++;
+                at++;
+            }
+            Assert.Equal(2, breaks);
+            Assert.Equal(breaks, forgets);
+            Assert.Contains("PredictedTouchdownStockFate.ForgetStockHeldAfterTimeTravel(", text);
+        }
+
+        // catches: a live tree's dock / claw / boarding with the craft read as stock's deletion
+        // (the commit takes the predicted ending over, owner ruling Q1b)
+        [Fact]
+        public void MergePartnerOfLiveTree_DockNamingTheCraft_OwnsIt()
+        {
+            Recording booster = PredictedTouchdownBooster();
+            var live = new RecordingTree { Id = "tree-live" };
+            Assert.False(PredictedCrashReconcilerHost.IsMergePartnerOfLiveTree(booster, live));
+            live.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock", Type = BranchPointType.Dock, UT = 1200.0,
+                TargetVesselPersistentId = BoosterPid, TargetVesselGuid = BoosterGuid,
+            });
+            Assert.True(PredictedCrashReconcilerHost.IsMergePartnerOfLiveTree(booster, live));
+            live.BranchPoints[0].TargetVesselGuid = "fedcba9876543210fedcba9876543210";
+            Assert.False(PredictedCrashReconcilerHost.IsMergePartnerOfLiveTree(booster, live));
+        }
+
         // ------------------------------------------------------------------ recovery evidence
 
         // Q13 catches: a recovery of the craft before its predicted touchdown writing no
