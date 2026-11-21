@@ -506,7 +506,7 @@ namespace Parsek
                 FinalizationLiveVesselAccess access = liveVesselAccess ?? FinalizationLiveVesselAccess.Default;
                 Func<uint, Vessel> finder = findVesselByPid ?? FlightRecorder.FindVesselByPid;
                 PredictedTouchdownStockFate.ApplyFlightSceneLeave(
-                    tree,
+                    tree.Recordings?.Values,
                     commitUT,
                     isSceneExit ? "scene-exit" : "far-switch",
                     rec => IsLiveVesselOnSurfaceForSceneLeave(rec, finder, access));

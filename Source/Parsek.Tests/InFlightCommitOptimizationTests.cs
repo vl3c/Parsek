@@ -330,7 +330,7 @@ namespace Parsek.Tests
 
             // The body lives on ParsekFlightMergeFlow; ParsekFlight keeps a one-line forwarder of the
             // same signature, so the declaration is the one a line break follows.
-            const string decl = "public void CommitTreeFlight(bool abandonActiveVessel = false)\n";
+            const string decl = "public void CommitTreeFlight(bool abandonActiveVessel = false, bool leavesFlightScene = false)\n";
             int declIdx = prepared.IndexOf(decl, StringComparison.Ordinal);
             Assert.True(declIdx >= 0, "CommitTreeFlight declaration not found");
             Assert.Equal(declIdx, prepared.LastIndexOf(decl, StringComparison.Ordinal));

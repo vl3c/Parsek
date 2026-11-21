@@ -218,7 +218,7 @@ namespace Parsek.Tests
             Vessel landed = Stub(BoosterPid, Vessel.Situations.LANDED);
 
             PredictedTouchdownStockFate.ApplyFlightSceneLeave(
-                tree, 1000.0, "scene-exit",
+                tree.Recordings.Values, 1000.0, "scene-exit",
                 rec => ParsekFlight.IsLiveVesselOnSurfaceForSceneLeave(
                     rec, pid => pid == BoosterPid ? landed : null, Access));
 
@@ -238,7 +238,7 @@ namespace Parsek.Tests
             tooFast.StampTerminalState(TerminalState.Destroyed, "test-too-fast", predicted: true);
             RecordingTree tree = LiveTree(PredictedTouchdownStockFateTests.Core(), flown, tooFast);
 
-            int converted = PredictedTouchdownStockFate.ApplyFlightSceneLeave(tree, 1000.0, "scene-exit", null);
+            int converted = PredictedTouchdownStockFate.ApplyFlightSceneLeave(tree.Recordings.Values, 1000.0, "scene-exit", null);
 
             Assert.Equal(0, converted);
             Assert.Equal(TerminalState.Landed, flown.TerminalStateValue);

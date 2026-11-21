@@ -534,7 +534,8 @@ namespace Parsek
         /// Owner ruling Q14: a commit that takes the player out of the flight scene (a scene
         /// exit to the Space Center, the Tracking Station or the main menu, or the far Switch-To
         /// that reloads FLIGHT) decides every chuted craft still in the air as stock's "mission
-        /// will be lost" case: each predicted touchdown in <paramref name="tree"/> becomes
+        /// will be lost" case: each predicted touchdown in <paramref name="recordings"/> (the
+        /// finalized tree's) becomes
         /// Destroyed, not predicted, crew dead, ending quietly after its descent
         /// (<see cref="ConvertToStockDeleted"/>), whatever the player does next. A craft whose
         /// live vessel is already on the surface (<paramref name="liveVesselOnSurface"/>) keeps
@@ -542,17 +543,16 @@ namespace Parsek
         /// already a Destroyed crash, so neither is touched. Returns the number converted.
         /// </summary>
         internal static int ApplyFlightSceneLeave(
-            RecordingTree tree,
+            IEnumerable<Recording> recordings,
             double commitUT,
             string exitKind,
             Func<Recording, bool> liveVesselOnSurface)
         {
-            if (tree?.Recordings == null)
+            if (recordings == null)
                 return 0;
             int converted = 0;
-            foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
+            foreach (Recording rec in recordings)
             {
-                Recording rec = kvp.Value;
                 if (!IsPredictedTouchdown(rec))
                     continue;
                 TerminalState before = rec.TerminalStateValue.Value;
