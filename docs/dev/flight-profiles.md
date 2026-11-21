@@ -585,9 +585,9 @@ Lanes per family (rows) per timeline operation (columns).
 | DiscardTree | 252 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, SPW 9, TP 9 +40 |
 | WarpToUT | 252 | RW 25, V 21, LAB 18, MINE 14, QL 12, EVA 11, SPW 11, CI 8, VN 8 +62 |
 | RecordingState | 245 | RF 27, V 21, QL 16, LAB 14, MINE 12, VN 12, CS 11, EVA 11, L 11 +49 |
-| RunTests | 228 | H 71, RW 25, V 14, CS 10, SPW 9, L 8, CN 6, LT 5, S 5, FAR 4, RF 4 +44 |
-| MissionMark | 201 | RW 25, LAB 17, EVA 13, MINE 12, SPW 11, CS 10, QL 8, IR 6, L 6 +54 |
+| RunTests | 227 | H 71, RW 25, V 13, CS 10, SPW 9, L 8, CN 6, LT 5, S 5, FAR 4, RF 4 +44 |
 | StartRecording | 201 | B 23, RW 23, EVA 14, LAB 14, MINE 12, SPW 9, VN 8, S 7, FAR 6 +48 |
+| MissionMark | 200 | RW 25, LAB 17, EVA 13, MINE 12, SPW 11, CS 10, QL 8, IR 6, L 6 +53 |
 | CommitTree | 184 | RW 24, EVA 14, MINE 11, QL 9, SPW 9, VN 9, CS 8, L 8, LAB 8, B 7 +48 |
 | ListHandles | 173 | RF 23, QL 16, EVA 12, MINE 12, CI 11, SPW 11, VN 10, LAB 9, IR 6 +38 |
 | TimeJump | 126 | V 44, RVR 14, RF 9, TP 8, QL 6, S 6, GUI 5, H 5, IR 4, MINE 4 +19 |
@@ -642,7 +642,7 @@ Lanes per family (rows) per timeline operation (columns).
 
 ## Lanes per in-game test category
 
-Categories named by `RunTests` steps (`(all)`: a step with no category). 228 lanes run at least one batch.
+Categories named by `RunTests` steps (`(all)`: a step with no category). 227 lanes run at least one batch.
 
 | category | lanes | lane ids |
 |---|---|---|
@@ -656,7 +656,6 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 228 lan
 | Missions | 3 | H54-missions, LT-4-long-tail-route-flight, M1-mission-loop-unit |
 | StandaloneLoopMap | 3 | SLM-1-standalone-loop-map-position, SLM-1T-standalone-loop-ts-position +1 |
 | Contracts | 2 | CT-1-contracts-discard-economy, LT-3-long-tail-career-flight |
-| FlightGhostPosition | 2 | GPOS-1-kerbalx-ascent-ghost-position, V23M-mun-landing-player-loop |
 | GameActionsHealth | 2 | B10-career-passive-safety, L1-passive-sandbox |
 | GhostMap | 2 | H44-ghost-map-trackstation, S1.6-render-parity |
 | MissionPhasing | 2 | LT-1-long-tail-flight, M3-mission-phasing-airborne-anchor |
@@ -690,6 +689,7 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 228 lan
 | FinalizeBackfill | 1 | H10-finalize-backfill |
 | FinalizeLimbo | 1 | LT-1-long-tail-flight |
 | Flight | 1 | LT-1-long-tail-flight |
+| FlightGhostPosition | 1 | GPOS-1-kerbalx-ascent-ghost-position |
 | FlightIntegration | 1 | H17-flight-integration |
 | ForwardRender | 1 | LT-1-long-tail-flight |
 | FreeTechUnlock | 1 | AH-1-auto-hire-reserved-applicant |
@@ -1945,7 +1945,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V22K-kerbin-splashdown-ksc-arrival | operator | kerbin-splashdown-recorded | seam | Kerbin | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V22M-kerbin-splashdown-player-loop | operator | kerbin-splashdown-recorded | seam | Kerbin | warp, time-jump | - | LIVE-PROVEN 2026-07-20 |
 | V22T-kerbin-splashdown-ts-arrival | operator | kerbin-splashdown-recorded | seam | Kerbin | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-11-16, RE-FLOWN PASS 20... |
-| V23M-mun-landing-player-loop | operator | mun-landing-recorded | seam | Mun | warp, time-jump | FlightGhostPosition | FLOWN WITH THE STEP 2026-11-20: 2026-11-2... |
+| V23M-mun-landing-player-loop | operator | mun-landing-recorded | seam | Mun | warp, time-jump | - | FLOWN WITH THE STEP 2026-11-20: 2026-11-2... |
 | V23T-mun-landing-ts-arrival | operator | mun-landing-recorded | seam | Mun | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V24W-duna-one-warp-stair | operator | duna-one-recorded | m3_loop_arrival_dwell | Kerbin, Duna | - | - | DISCIPLINE-COMPLETE 2026-08-25 ACROSS SIX... |
 | V25M-duna-park-player-loop | nightly | duna-park-recorded | seam | Kerbin, Duna, Sun | time-jump | - | RE-FLOWN 2026-11-12 on the REAIM-PARKING-... |

@@ -27,7 +27,7 @@ Flown (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, D
 - SOI-3: PARSEK-FAIL(results), a 9.1 km seam gap (BG-SOI-SEAM-WORLD-GAP; settled 2026-11-21 as the cell measuring two instants in the Sun-anchored frame, cell fixed, re-flight owed).
 - RSQ-1 / RSQ-2: PARSEK-FAIL(expectation), the regeneration reads `added=0` (RESCUE-REGEN-COUNTS-PROTOVESSELS).
 - SRV-1: PARSEK-FAIL(expectation): the hinge never recorded motion (a recorder defect, RECORDER-SERVO-ANGLE-PAW-ONLY, fixed 2026-11-21) and the pad rig's ghost is hidden by the launch-site rule; REDESIGNED 2026-11-21 on `srv-hinge-rover`, re-flight owed (GHOST-SERVO-CHILDREN-STATIC).
-- V23M: PARSEK-FAIL(expectation) on its new FlightGhostPosition step only: the stock wheel NRE storm aborts the batch at `total=2` (FLIGHT-GHOST-POSITION-LANES-2026-11-20, authoring decision).
+- V23M: PARSEK-FAIL(expectation) on its new FlightGhostPosition step only: the stock wheel NRE storm aborts the batch at `total=2` (FLIGHT-GHOST-POSITION-LANES-2026-11-20; the step was dropped 2026-11-21 by owner ruling, V23M is back to its previously green shape).
 
 Report-only readings recorded, no block armed (an owner decision): STR-3 `rewindPointFiles=1 unlistedRewindPointFiles=1` (REVERT-LEAVES-REWIND-POINT-FILE, fixed 2026-11-21 by owner ruling: the revert now deletes the file; STR-3's re-flight owed); RSQ-1 / RSQ-2 `crewAboard` `Rayvan Kerman = 1` (in the final saves); VN-14 `legsRenamed=0` on the cold apply pass; SURV-2 no rewind point as predicted, but its structure block reads both recordings Destroyed (SURVIVOR-DESTROYED-AT-SCENE-EXIT, fixed 2026-11-21: an unloaded survivor is now read from its proto parts; SURV-2's re-flight owed).
 
@@ -1518,7 +1518,7 @@ variant, both matched) and whether FLY-2's committed-tree restore resumed a reco
 
 DONE 2026-11-20 (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): FLY-1 `2026-11-20_2259_..._run2`, FLY-3 `_2300`, FLY-4 `_2301`, FLY-5 `_2301` green on the first flight, FLY-2 green on its second (`2026-11-20_2338`) after one SPEC fix: its first flight (`_2300`) read `recordings.count 9 > max 8`, because the optimizer splits the fixture's 7 recordings into 9 at the first load (re-pinned {9,9}). Every count re-pinned exact.
 
-## FLIGHT-GHOST-POSITION-LANES-2026-11-20: no flight-scene ghost was ever read by position [FILED 2026-11-20 from the test-gap doc 2026-11-18 (Batch 3, high priority), branch `test-gaps-b3-ghost-pos`; the in-game category and its xUnit core BUILT, GPOS-1 FLOWN GREEN 2026-11-20, V23M's step FLOWN 2026-11-20 and red on a stock NRE storm; OPEN: where V23M's step goes, and the three hosts that cannot take the step (below)]
+## FLIGHT-GHOST-POSITION-LANES-2026-11-20: no flight-scene ghost was ever read by position [FILED 2026-11-20 from the test-gap doc 2026-11-18 (Batch 3, high priority), branch `test-gaps-b3-ghost-pos`; the in-game category and its xUnit core BUILT, GPOS-1 FLOWN GREEN 2026-11-20, V23M's step FLOWN 2026-11-20 and red on a stock NRE storm, DROPPED 2026-11-21 by owner ruling; OPEN: only the owner call on the three hosts that cannot take the step (below)]
 
 Only route ghosts (`RouteGhostPlacement`), map loops and end spawns (`LeafVesselPlacement`) were
 compared with their recording by position; every flight-scene replay lane pinned counts and log
@@ -1541,7 +1541,7 @@ a re-aim, descent-trigger or self-overlapping unit and an overlap loop likewise;
 grid swallows the signal (`InGameFixtureMath.ToleranceResolvesSignal` against max(50 m, one second of
 the ghost's travel)) is counted `unresolved`. A cell that compared nothing skips.
 
-**Lanes (both NEVER FLOWN, interim pins in `INTERIM_PIN_IDS`).**
+**Lanes (as authored 2026-11-20; V23M's step was dropped on 2026-11-21, see the end of this entry).**
 - `GPOS-1-kerbalx-ascent-ghost-position` (new, operator, stock-minimal): GS-4's staged Kerbal X ascent
   in RF-9's `coastExitProfile`, committed in flight, Rewind-to-Launch, the stock Mallard launched onto
   the Runway, `WarpToUT 72` (after GS-9's measured booster drops at UT 61.6-65.9, inside the four
@@ -1563,7 +1563,9 @@ the ghost's travel)) is counted `unresolved`. A cell that compared nothing skips
   no vessel near Laythe exists after LAY-1's rewind. A Space Center cell over `ParsekKSC`'s ghosts (the
   gap AIR-2's header names, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3) is separate work.
 
-Flown 2026-11-20 (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): GPOS-1 `2026-11-20_2302` green on the first flight, batch `total=3 passed=2 failed=0 skipped=1` (absolute 31/31 ok, parent-anchored 30/30 ok, worst 0.01 m; relative-anchor skipped), pinned whole and out of `INTERIM_PIN_IDS`. V23M `2026-11-20_2317` PARSEK-FAIL(expectation): the absolute cell passed (30/30 ok, worst 0.91 m, bodies=[Mun]), the parent-anchored cell skipped, then the test runner's NRE-storm guard aborted the batch (`NRE storm detected (2820+ unhandled exceptions)`), ending `total=2` against the tally-gated `total=3`. The flood is stock's `VehiclePhysics.VPWheelCollider.UpdateWheelCollider` NRE from the landed lander (11,853 NREs on the green `2026-11-16_2256` too), so this host cannot run a three-cell batch. Authoring decision owed: drop V23M's step (GPOS-1 already proves the category green), or move it to a host without wheel parts in physics range. V23M stays in `INTERIM_PIN_IDS`.
+Flown 2026-11-20 (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): GPOS-1 `2026-11-20_2302` green on the first flight, batch `total=3 passed=2 failed=0 skipped=1` (absolute 31/31 ok, parent-anchored 30/30 ok, worst 0.01 m; relative-anchor skipped), pinned whole and out of `INTERIM_PIN_IDS`. V23M `2026-11-20_2317` PARSEK-FAIL(expectation): the absolute cell passed (30/30 ok, worst 0.91 m, bodies=[Mun]), the parent-anchored cell skipped, then the test runner's NRE-storm guard aborted the batch (`NRE storm detected (2820+ unhandled exceptions)`), ending `total=2` against the tally-gated `total=3`. The flood is stock's `VehiclePhysics.VPWheelCollider.UpdateWheelCollider` NRE from the landed lander (11,853 NREs on the green `2026-11-16_2256` too), so this host cannot run a three-cell batch. Authoring decision owed: drop V23M's step (GPOS-1 already proves the category green), or move it to a host without wheel parts in physics range.
+
+Owner ruling (V, 2026-11-21): drop V23M's step; GPOS-1 covers the category. V23M is back to its previously green shape (the `MissionMark v23m-ghost-position` + `RunTests FlightGhostPosition` steps, the summary and `BATCH_COMPLETE` required lines and the `verdict=(?!ok)` forbid removed, budget 2700 -> 2400) and out of `INTERIM_PIN_IDS`; `FlightGhostPosition` is driven by GPOS-1 alone.
 
 ## ~~TEST-GAPS-B3-PAD-AND-JUMP-LANES~~: no lane destroys a KSC building in a recorded flight, and none jumps the clock across committed career rows [FILED 2026-11-20 from the test-gaps doc 2026-11-18, Batch 3; AUTHORED 2026-11-20, branch `test-gaps-b3-career-jumps`: PADX-1, PADX-2, FFC-1 (operator, never flown) plus one seam change; OPEN: the three first flights]
 

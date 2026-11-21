@@ -485,17 +485,6 @@ steps = [
   { cmd = "StartLoopPlayback", args = { tree = "0da22482a8a648c6835b7bcd6b0f200d" }, expect = "OK", budget = 300 },
   { cmd = "TimeJump", args = { ut = "1272813" }, expect = "OK", budget = 300 },
   { cmd = "TimeJump", args = { ut = "1272933" }, expect = "OK", budget = 300 },
-  # FLIGHT GHOST POSITION (added 2026-11-20, test-gap Batch 3, NEVER FLOWN with the step):
-  # ~60 s before the loop copy's touchdown (relaunch L1 + the measured 23,091.405 s offset
-  # = UT ~1,272,992.6) the lander ghost is on its powered descent near the real lander, a
-  # mission-loop unit member drawn through the unit's span clock and Mun body-fixed shift.
-  # The category's three cells sample at 1x for at most 8 s of real time each, so the
-  # clock leaves this step well before the next jump target 1273133. Only the `absolute`
-  # cell is expected to compare; `parent-anchored` and `relative-anchor` skip (no debris
-  # or anchored section is live at this UT, and a loop's anchor-local Relative section is
-  # unsupported by design).
-  { cmd = "MissionMark", args = { label = "v23m-ghost-position" }, expect = "OK" },
-  { cmd = "RunTests", args = { category = "FlightGhostPosition" }, expect = "OK", budget = 300 },
   { cmd = "TimeJump", args = { ut = "1273133" }, expect = "OK", budget = 300 },
   # 1x FLIGHT time to UT 1273145: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
@@ -564,11 +553,6 @@ required  = [
   "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
   "phase=MeshSpawned .*reason=ghost-created",
   "phase=MeshDestroyed .*reason=chain-loop unit",
-  # FLIGHT GHOST POSITION (2026-11-20, never flown with the step; interim pin in
-  # INTERIM_PIN_IDS): the descending lander ghost compared against its recorded Mun
-  # body-fixed trajectory at the loop clock (FlightGhostPosition.cs FormatSummary).
-  "MISSIONMARK label=v23m-ghost-position ut=[\\s\\S]*?FlightGhostPosition summary: kind=absolute scene=FLIGHT frames=[0-9]+ ghosts=[1-9][0-9]* compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 [^\\r\\n]*bodies=\\[Mun\\]",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=FlightGhostPosition scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -576,7 +560,6 @@ forbidden = [
   "ENGAGED re-aim",
   "FORCED FAITHFUL",
   "timejump refused reason=backward-jump",
-  "FlightGhostPosition: [^\\r\\n]*verdict=(?!ok)",
 ]
 
 [expectations.rewind]
@@ -618,9 +601,7 @@ maxParsekThrowSite = 0
 # READING PENDING - see the renderComposition arming ledger in this file's header.
 
 [runtime]
-# 2400 plus the FlightGhostPosition RunTests step (2026-11-20; at most ~24 s of real
-# sampling, 300 s step budget).
-budgetSeconds = 2700
+budgetSeconds = 2400
 
 [retry]
 policy = "once"

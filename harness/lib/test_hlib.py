@@ -5035,8 +5035,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # `total=`. Each leaves on its first flight with the step.
     # GPOS-1-kerbalx-ascent-ghost-position LEFT on run 2026-11-20_2302 (its first flight,
     # PASS attempt 1; passed=2 failed=0 skipped=1, the relative-anchor cell skipping; pinned
-    # whole). V23M stays: its first flight with the step ended `total=2` (the test runner's
-    # NRE-storm abort on the host's stock VPWheelCollider flood).
+    # whole). V23M LEFT on 2026-11-21 without a green flight with the step: its first flight
+    # with it ended `total=2` (the test runner's NRE-storm abort on the host's stock
+    # VPWheelCollider flood), and by owner ruling the step was dropped, V23M back to its
+    # previously green shape.
     # SRV-1-hinge-followers-ghost LEFT on run 2026-11-20_2314 (its first flight, red on its
     # host, but the ServoFollowers batch ran: passed=1 failed=0 skipped=0; pinned whole).
     # SOI-3-bg-probe-mun-exit-on-rails ENTERED on 2026-11-20 (test gap batch 3: a background
@@ -5048,7 +5050,6 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # after the re-host on miner-rover-landed); passed=1 failed=0 skipped=0 each, read off
     # each run's KSP.log BATCH_COMPLETE line, pinned whole.
     INTERIM_PIN_IDS: set = {
-        "V23M-mun-landing-player-loop",
         "FGV-1-fairing-ghost-visual",
         "SOI-3-bg-probe-mun-exit-on-rails",
     }
