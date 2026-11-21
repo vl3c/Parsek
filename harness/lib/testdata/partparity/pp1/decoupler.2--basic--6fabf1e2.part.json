@@ -1,0 +1,29 @@
+{
+  "schema": "parsek-part-parity-case/1",
+  "caseId": "decoupler.2--basic--6fabf1e2",
+  "part": "Decoupler.2",
+  "title": "TD-25 Decoupler",
+  "source": "Squad",
+  "partUrl": "Squad/Parts/Coupling/Decoupler_2/Decoupler_2",
+  "modelUrls": ["Squad/Parts/Coupling/Assets/Decoupler_2"],
+  "category": "Coupling",
+  "tags": ["unknown-module:KOSNameTag"],
+  "skin": {"module":"ModulePartVariants","moduleId":null,"requested":"Basic","real":"Basic","snapshot":"Basic","ghost":null},
+  "state": "stowed",
+  "context": "alone",
+  "measure": {"coverageAlpha":0.5,"tolerancePx":1,"blobConnectivity":4,"colorMetric":"euclidean-rgb-premultiplied","colorThreshold":24,"colorBlockGrid":16,"minBlockOverlapFraction":0.25},
+  "atlas": {"file":"decoupler.2--basic--6fabf1e2.png","thumb":"decoupler.2--basic--6fabf1e2.thumb.png","tile":512,"rows":["real","ghost"],"cols":["side-a","side-b","top","bottom"]},
+  "framing": {"real":{"center":[0,0,0],"extents":[1.2500007152557373,0.16000312566757202,1.2500011920928955]},"ghost":{"center":[0,0,0],"extents":[1.2500007152557373,0.16000312566757202,1.2500011920928955]},"shared":{"center":[0,0,0],"extents":[1.2500007152557373,0.16000312566757202,1.2500011920928955]},"orthoSize":1.3750013113021853},
+  "ghostRootOffsetM": 0,
+  "layers": {"real":[0],"ghost":[0]},
+  "flags": ["seed-events:0","seed-applied:0"],
+  "views": [
+    {"view":"side-a","width":512,"height":512,"realPx":26753,"ghostPx":26753,"andPx":26753,"orPx":26753,"realOnlyPx":0,"ghostOnlyPx":0,"realOnlyTolPx":0,"ghostOnlyTolPx":0,"realOnlyBlobPx":0,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0,"ghostOnlyBlobPct":0,"bbox":{"real":[23,226,466,60],"ghost":[23,226,466,60]},"centroid":{"real":[255.99878518297012,256.00117743804435],"ghost":[255.99878518297012,256.00117743804435]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":25653,"colorOverPx":53,"colorBlobPx":40,"colorP99":0,"colorBlockMax":0.98206266671969322,"iou":1,"matte":{"real":{"opaque":26110,"edge":700,"inverted":64},"ghost":{"opaque":26110,"edge":700,"inverted":0}}},
+    {"view":"side-b","width":512,"height":512,"realPx":26751,"ghostPx":26751,"andPx":26751,"orPx":26751,"realOnlyPx":0,"ghostOnlyPx":0,"realOnlyTolPx":0,"ghostOnlyTolPx":0,"realOnlyBlobPx":0,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0,"ghostOnlyBlobPct":0,"bbox":{"real":[23,226,466,60],"ghost":[23,226,466,60]},"centroid":{"real":[256.04136293970316,255.99796269298344],"ghost":[256.04136293970316,255.99796269298344]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":25652,"colorOverPx":56,"colorBlobPx":18,"colorP99":0,"colorBlockMax":1.0602512401922903,"iou":1,"matte":{"real":{"opaque":26050,"edge":760,"inverted":40},"ghost":{"opaque":26102,"edge":708,"inverted":4}}},
+    {"view":"top","width":512,"height":512,"realPx":61018,"ghostPx":61018,"andPx":61018,"orPx":61018,"realOnlyPx":0,"ghostOnlyPx":0,"realOnlyTolPx":0,"ghostOnlyTolPx":0,"realOnlyBlobPx":0,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0,"ghostOnlyBlobPct":0,"bbox":{"real":[23,23,466,466],"ghost":[23,23,466,466]},"centroid":{"real":[255.98569274640269,256.01106230948244],"ghost":[255.98569274640269,256.01106230948244]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":57628,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":1,"matte":{"real":{"opaque":60089,"edge":1868,"inverted":0},"ghost":{"opaque":60089,"edge":1868,"inverted":0}}},
+    {"view":"bottom","width":512,"height":512,"realPx":61022,"ghostPx":61022,"andPx":61022,"orPx":61022,"realOnlyPx":0,"ghostOnlyPx":0,"realOnlyTolPx":0,"ghostOnlyTolPx":0,"realOnlyBlobPx":0,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0,"ghostOnlyBlobPct":0,"bbox":{"real":[23,23,466,466],"ghost":[23,23,466,466]},"centroid":{"real":[255.98744715020811,256.02297532037625],"ghost":[255.98744715020811,256.02297532037625]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":57632,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":1,"matte":{"real":{"opaque":60088,"edge":1868,"inverted":0},"ghost":{"opaque":60088,"edge":1868,"inverted":0}}}
+  ],
+  "structure": {"realRenderers":1,"ghostRenderers":1,"pairs":1,"missingOnGhost":[],"extraOnGhost":[],"transformDiffers":[],"materialDiffers":[],"meshDiffers":[],"renderedDiffers":[]},
+  "setup": {"status":"ok","detail":null},
+  "log": ["[Parsek][VERBOSE][PartParity] Initial state seeding complete: fairings=0 shrouds=0 parachutes=0 deployables=0 brokenDeployables=0 lights=0 blinks=0 gear=0 cargo=0 ladders=0 animGroups=0 animGeneric=0 heat=0 engines=0 rcs=0 converters=0 damagedWheels=0 evaJetpack=0 evaRagdoll=0","[Parsek][INFO][PartParity] Seed events emitted: 0 events at UT=1909.42","[Parsek][VERBOSE][GhostVisual]   Part 'Decoupler.2' pid=1582979646: modelRoot='model' modelScale=(1.0, 1.0, 1.0) modelPos=(0.0, 0.0, 0.0) modelRot=(0.0, 0.0, 0.0, 1.0), 1 MeshRenderers, 0 SkinnedMeshRenderers (has ModulePartVariants)","[Parsek][VERBOSE][GhostVisual]   Variant fallback: no active variant renderers and no GAMEOBJECT rules — including all renderers (active MR=0, active SMR=0)","[Parsek][VERBOSE][GhostVisual]   Variant 'Basic' not in VARIANT nodes — using base variant (prefab default materials)","[Parsek][VERBOSE][GhostVisual]   Part 'Decoupler.2' pid=1582979646: cloned 1 MeshRenderers, 0 SkinnedMeshRenderers, skipped 0 null-mesh SMRs, skipped 0 damaged-wheel renderers, skipped 0 depth-mask renderers","[Parsek][VERBOSE][GhostVisual] Ghost built: 1/1 parts with visuals"]
+}

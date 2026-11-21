@@ -363,11 +363,31 @@ Per sweep directory:
   (5.3).
 - `isolate.txt` - the cases still owed a solo run, one id per line (5.3); absent when none.
 
-Harvest: a new `run.py` leg MOVES (same-volume rename, while the instance lock is still held) the
-label directory into `results/<runId>_partparity/` instead of copying 1 GB into the verifier's
-private copy; the verifier reads it in place. It has its own retention pass (the `_shots` pass only
-prunes names ending `_shots`, `run.py` near 5327). Only `manifest.json` and the sidecars go to the
-results archive, under `<runId>/partparity/` (the archive already owns `<runId>/manifest.json`).
+Harvest (built in P3, `run.py` `_harvest_part_parity`, pure decisions in `hlib`): right after the
+drive returns (the lane's KSP has exited) and while the instance lock is still held, before the
+pipelined post-quit copy or the serial verifier chain, the leg MOVES
+`<instance>/parsek-partparity/<label>/` for every label the spec's `PartParitySweep` steps name
+(`partparity.sweep_labels`: literal labels in the label alphabet, first-use order) into
+`results/<runId>_partparity/<label>/`, instead of copying up to 1 GB into the verifier's private
+copy; the verifier reads it in place.
+
+- The move is `os.rename`; a rename that fails only because the two paths are on different volumes
+  (`hlib.partparity_move_needs_copy`: errno EXDEV, Windows ERROR_NOT_SAME_DEVICE) falls back to
+  copy then delete. Any other failure is recorded on its label (`result=failed`, the exception) and
+  never retried by a copy; a label the instance does not hold is recorded `absent`
+  (`hlib.plan_part_parity_harvest`). Either way the row reads the label as not harvested, so the
+  lane reds INVALID(parity-incomplete). The record rides the result JSON at
+  `verifiers.partParity.harvest`; the log line is Info `[PartParity] harvest run= label= result=
+  files= bytes= wall=`.
+- Its own retention pass (`hlib.select_partparity_dirs_to_prune`: the `_shots` rule, newest first,
+  stop on the first budget trip, the current run's dir always kept, over `PARTPARITY_KEEP_DIRS = 6`
+  and `PARTPARITY_MAX_TOTAL_BYTES = 8 GiB`) runs after every harvest, skipped in a `--slot` child
+  like the shots pass, and once in `run.py --sweep-results`.
+- Only `manifest.json` and the `*.part.json` sidecars go to the results archive
+  (`hlib.select_partparity_archive_files` into `plan_results_archive`), under
+  `<runId>/partparity/<label>/` (the archive already owns `<runId>/manifest.json`); the atlases,
+  thumbnails and `partparity-verdicts.json` stay in `results/` (the verdicts are also summarised in
+  the archived result JSON).
 
 ### 5.2 Case sidecar (`parsek-part-parity-case/1`)
 
@@ -488,13 +508,48 @@ pixels blend with the clear colour, so a sub-pixel silhouette offset would other
 full-edge colour blob (review of P1); the shape measures own the edge, and a part thinner than 3 px
 has no colour measure.
 
-Verdicts (`harness/lib/partparity.py`, constants in one place, starting guesses re-pinned after the
-first reading run against the controls and a hand-checked sample): `fail` when either largest
-shape blob exceeds 0.2 % of the box area or 64 px, or the largest colour blob exceeds 64 px, or the
-structural diff lists a missing / extra rendered mesh; `warn` at a quarter of those; else `pass`.
-Case verdict = worst view; `error` for a setup fault. The verifier also recomputes the shape
-measures in Python from the atlas for the controls and a random 2 % sample (the `gui_mirror.py`
-PNG codec), as an independent check of the C# instrument.
+Verdicts (`harness/lib/partparity.py`, built in P3; every threshold is a constant at the top of
+the module, starting guesses re-pinned after the first reading run against the controls and a
+hand-checked sample, a re-pin needs no flight):
+
+| Level | Rule |
+| --- | --- |
+| view `fail` | either largest shape blob (real-only or ghost-only, tolerance applied) exceeds 0.2 % of the projected box area (`SHAPE_BLOB_FAIL_PCT`) or 64 px (`SHAPE_BLOB_FAIL_PX`), or the largest colour blob exceeds 64 px (`COLOR_BLOB_FAIL_PX`); "exceeds" is strict, and a percentage the C# side wrote as null is not judged |
+| view `warn` | the same lines at a quarter (`WARN_FRACTION`) |
+| case `fail` | the worst view, raised to `fail` by a RENDERED entry in `structure.missingOnGhost` / `extraOnGhost`, or by the skin proof's `real != ghost` (`skin-mismatch`, compared only when both names were read; a P2 sidecar's `ghost` is null) |
+| case `error` | a setup fault (`TestCommandPartParitySweep.IsSetupFault`: any status but `ok` and `still-animating`), the skin proof's `requested != real` (`skin-not-applied`), or a non-fault case with no measured view; `still-animating` is judged on its measures |
+
+The control cases are not judged as parts: the C# judge's recorded outcomes are the controls'
+verdicts (below). Three INSTRUMENT gates run on every sweeping lane from the start, armed or not:
+
+- Controls: every id of 4.5 recorded with outcome `ok`, and `progress.controls = ok` (a sweep run
+  with `controls=false` proves nothing and fails this too). Else INVALID(parity-controls).
+- Completeness: `progress.complete = true`; every planned case (the manifest's `cases[]`, which
+  leaves the exclusions out) and every control has a complete sidecar (schema, matching `caseId`, a
+  known `setup.status`, at least one view unless the status is a setup fault) or a recorded setup
+  fault; `isolate.txt` owes nothing and no `inflight.txt` is left. Else INVALID(parity-incomplete).
+- Python recompute: every control with an atlas plus `ceil(2 %)` of the part cases with an atlas
+  (at least one), drawn by `random.Random(<runId>)` from the sorted ids, so a run's sample is
+  reproducible from its id. The atlas is decoded with `harness/tools/gui_mirror.py`'s `read_png`;
+  per view the two tiles (row 0 real, row 1 ghost, column = the view's index in `atlas.cols`) give
+  coverage at alpha byte >= 128, the tolerant mismatch (a real-only pixel counts only with no
+  ghost-covered pixel in its 8-neighbourhood, and the mirror), the largest 4-connected blob of each,
+  the bboxes, the centroids at pixel centres, the border touch and IoU (1 when both sides are
+  empty), exactly `PartParityMetrics.Measure`'s definitions. Every count, bbox and border flag must
+  equal the sidecar's; centroids and IoU agree within 1e-9. Rows are Python integers, so the
+  dilation and the counts are whole-row bit operations and the blobs are found over row runs
+  (about 0.02 s per 4-view 512 px case). Any difference, an unreadable atlas or an atlas whose
+  layout disagrees with the sidecar is INVALID(parity-instrument). Measured on the green P2 flight's
+  `pp1` directory: all 28 sidecars (8 controls, 20 parts) recompute with zero differences.
+
+The row's status: INVALID when any gate fails (controls first, then the recompute, then
+completeness); else REPORT, or, armed, FAIL on any `fail` case and PASS otherwise. An `error` case
+never fails an armed lane (it is a setup fault, not a ghost finding). The row logs one Info line
+`verify partParity status= gating= subkind= label= status= cases= pass= warn= fail= error=
+controls= complete= recompute= mismatches= worst=[<id>(<verdict>:<first reason>),...]` (the five
+worst cases), one Warn per problem, and writes `partparity-verdicts.json`
+(`parsek-part-parity-verdicts/1`: thresholds, counts, the three gates, the recompute sample and
+mismatches, every part case's verdict and reasons) beside each sweep.
 
 ## 7. The seam verb
 
@@ -601,6 +656,19 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
   `PartParitySweep op=reset`, N x `op=run skins=all controls=true`, quit without saving.
 - Phase-1 gating: every step answered OK, the controls behaved, the sweep reached `done=true`, every
   non-excluded case has a complete sidecar or a recorded setup fault. Parity verdicts are report-only.
+- As built (P3): PP-1 sweeps `skins=all` in TWO `op=run maxSeconds=480` steps (budget 540 each,
+  `runtime.budgetSeconds = 1800`), sized from Appendix C (about 0.7 s per case, 468 parts after the
+  11 exclusions, about 940 cases with every skin: about 660 s against 960 s of steps). PP-2 is the
+  same shape with label `pp2` and THREE run steps (`budgetSeconds = 2400`; about 1500 cases, about
+  1050 s against 1440 s). Both declare `[expectations.partParity] gating = false` and keep the P2
+  log pins (the run-step line with `crashed=0 controls=ok`, the applier's OK line) as a second
+  guard; `[retry] policy = "none"` (a retry's `op=reset` would discard the sweep). A last step that
+  still answers `done=false` reads INVALID(parity-incomplete): add a step. The verdict classes are
+  terminal INVALID(`parity-controls` / `parity-instrument` / `parity-incomplete`), placed after the
+  analyzer and ahead of the contract verifiers in `hlib.classify_verdict` (a bad control also
+  misses the step-line pin, and must not read as a log-contract red), and PARSEK-FAIL(`part-parity`)
+  for an armed failing case. The armed set is pinned by `PARTPARITY_ARMED_SPECS` in
+  `harness/lib/test_hlib.py`, empty as shipped.
 - `[Parsek][ERROR]` stays forbidden by the log validator; an ERROR a modded part provokes is a finding
   to file, never a suppression.
 - Verifier row `partParity` (`harness/lib/partparity.py`, pure): controls, completeness, verdicts,
@@ -654,7 +722,7 @@ summary; per-case Verbose lines; Warn for a setup fault.
 | P0 (DONE 2026-11-21, Appendix B) | Capture spike on both harness installs, stock and ReStock / ReStock+ parts: `Camera.Render` into an MSAA target, resolve, double clear, ortho with KSP shaders, light rig, `pixelLightCount`, `masterTextureLimit`, `forceRenderingOff`. | Pictures read by eye; every unknown in 4.4 answered and written into this doc. |
 | P1 | Pure halves + xUnit (measures on synthetic masks incl. shifted / rotated / missing-blob shapes, structural diff, sharding, case ids, resume decision, JSON writer, args); `GhostCoOrbitalRig` extraction; D2 seam extraction with the IL fold proof. | `dotnet test` green; FGV-1 flown green on the refactor. |
 | P2 (DONE 2026-11-21, Appendix C) | Capture engine + verb + in-game test + files; controls; default skins; a 20-part dev run. | Controls behave; per-wave wall time measured; chunk size set from it. |
-| P3 | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. C# half BUILT (not flown): `skins=all` enumerates every `ModulePartVariants` VARIANT and every `ModuleB9PartSwitch` SUBTYPE one module at a time (3.2), B9 authored as `moduleID` + `currentSubtype`, the full skin proof (`requested` / `real` / `snapshot` / `ghost`) through the new `GhostBuildResult.TryGetAppliedSkin` record (IL proof: insertions only, 11), flags `skin-mismatch` / `skin-not-modelled:b9`, per-step `skin cases:` counts. Finding: the ghost builder applies no B9 subtype, so every B9 case reads `skin-not-modelled:b9`. Harness half (verifier row, lanes) separate. | First full reading run on both installs; thresholds re-pinned; findings filed. |
+| P3 | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. C# half BUILT (not flown): `skins=all` enumerates every `ModulePartVariants` VARIANT and every `ModuleB9PartSwitch` SUBTYPE one module at a time (3.2), B9 authored as `moduleID` + `currentSubtype`, the full skin proof (`requested` / `real` / `snapshot` / `ghost`) through the new `GhostBuildResult.TryGetAppliedSkin` record (IL proof: insertions only, 11), flags `skin-mismatch` / `skin-not-modelled:b9`, per-step `skin cases:` counts. Finding: the ghost builder applies no B9 subtype, so every B9 case reads `skin-not-modelled:b9`. Harness half (verifier row, lanes) separate. Harness half BUILT 2026-11-21 (5.1, 6, 10: the harvest leg, the row with its three instrument gates and the Python recompute, PP-1 widened and PP-2 authored); status in `autotest-status.md`. | First full reading run on both installs; thresholds re-pinned; findings filed. |
 | P4 | Viewer (grid, filters, detail, blend difference, backdrop, structure table, regression mode). | Owner reads the full stock + ReStock site. |
 | P5 | Baseline + accepted list; gate armed after a second matching reading run. | A deliberately broken ghost (mutation) reds the armed lane. |
 | P6 | States and contexts (9.1); FGV configurations migrated. | Chute and deployables covered. |

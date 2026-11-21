@@ -5218,6 +5218,112 @@ PARTPARITY_ERROR_REASONS: Tuple[str, ...] = ("partparity-step-failed", "partpari
 # The literal the capture engine's per-step summary Info line carries (design 11
 # "Logging"); a lane's logContract anchors on it.
 PARTPARITY_STEP_LINE_LITERAL = "PartParity step"
+
+# The partParity verifier row's verdict classes (partparity.py owns the evaluation;
+# literals here because classify_verdict reads them, pinned equal by
+# PartParityVerdictWiringTests). All three INVALID subkinds are terminal (absent from
+# RETRYABLE_INVALID_SUBKINDS: a retry's `op=reset` would discard the sweep) and NOT
+# flake-exempt (a misbehaving instrument is this lane's own instability).
+#   parity-controls    a control case did not reach its required outcome (design 4.5)
+#   parity-instrument  the Python recompute of the shape measures disagrees with C#
+#   parity-incomplete  the sweep did not reach done, or a planned case has neither a
+#                      complete sidecar nor a recorded setup fault
+PARTPARITY_INVALID_SUBKINDS: Tuple[str, ...] = (
+    "parity-controls", "parity-instrument", "parity-incomplete",
+)
+PARTPARITY_PARSEK_FAIL_SUBKIND = "part-parity"
+
+# ---------------------------------------------------------------------------
+# The part parity harvest leg (design-part-ghost-parity.md section 5.1). After the
+# lane's KSP exits, while the instance lock is still held, run.py MOVES each sweep
+# directory the spec's PartParitySweep steps name,
+#   <instance>/parsek-partparity/<label>/  ->  results/<runId>_partparity/<label>/
+# instead of copying up to a GB into the pipelined verifier's private copy; the
+# partParity row reads it in place. A same-volume rename; across volumes a copy
+# then a delete. Its own retention pass (the `_shots` pass only prunes names ending
+# `_shots`), and only manifest.json and the sidecars go to the results archive, under
+# `<runId>/partparity/<label>/` (the archive already owns `<runId>/manifest.json`).
+# ---------------------------------------------------------------------------
+
+PARTPARITY_RESULTS_DIR_SUFFIX = "_partparity"
+PARTPARITY_INSTANCE_ROOT = "parsek-partparity"
+PARTPARITY_ARCHIVE_SUBDIR = "partparity"
+PARTPARITY_ARCHIVE_MANIFEST = "manifest.json"
+PARTPARITY_ARCHIVE_SIDECAR_SUFFIX = ".part.json"
+# A full stock sweep is ~0.7 MB per case (atlas + thumbnail), so 500-1500 MB per
+# install; keep the newest few whole.
+PARTPARITY_KEEP_DIRS = 6
+PARTPARITY_MAX_TOTAL_BYTES = 8 * 1024 * 1024 * 1024
+# errno / winerror values of a rename across volumes, the one failure the harvest
+# answers with copy + delete (EXDEV on POSIX; ERROR_NOT_SAME_DEVICE on Windows).
+PARTPARITY_CROSS_DEVICE_ERRNOS: Tuple[int, ...] = (18,)
+PARTPARITY_CROSS_DEVICE_WINERRORS: Tuple[int, ...] = (17,)
+
+
+def partparity_results_dir_name(run_id: str) -> str:
+    """``<runId>_partparity``: the run's harvested sweep directories live below it."""
+    return "%s%s" % (run_id, PARTPARITY_RESULTS_DIR_SUFFIX)
+
+
+@dataclass(frozen=True)
+class PartParityHarvestEntry:
+    label: str
+    # "move" (the source exists) or "absent" (the sweep never wrote the label dir)
+    action: str
+
+
+def plan_part_parity_harvest(labels: Sequence[str],
+                             present_labels: Iterable[str]) -> Tuple[PartParityHarvestEntry, ...]:
+    """One entry per spec label, in spec order: ``move`` when the instance holds
+    ``parsek-partparity/<label>/``, else ``absent`` (recorded; the verifier's
+    completeness check turns it into INVALID(parity-incomplete))."""
+    present = set(present_labels or ())
+    return tuple(PartParityHarvestEntry(l, "move" if l in present else "absent")
+                 for l in labels)
+
+
+def partparity_move_needs_copy(errno_value: Optional[int],
+                               winerror: Optional[int] = None) -> bool:
+    """True when a rename failed only because source and destination are on different
+    volumes, the one case the harvest falls back to copy + delete. Any other rename
+    error is the harvest failing (recorded, never a silent copy of a locked tree)."""
+    return (errno_value in PARTPARITY_CROSS_DEVICE_ERRNOS
+            or winerror in PARTPARITY_CROSS_DEVICE_WINERRORS)
+
+
+def select_partparity_dirs_to_prune(entries: Sequence[Tuple[str, float, int]],
+                                    protect_name: Optional[str] = None,
+                                    keep_dirs: Optional[int] = None,
+                                    max_total_bytes: Optional[int] = None) -> List[str]:
+    """Which ``*_partparity`` dirs the retention pass removes: the ``_shots`` rule
+    (``select_shots_dirs_to_prune``: newest first, stop-on-trip, the current run's dir
+    always kept) over its own budgets. Entries whose name does not end in the suffix
+    are ignored, so a caller cannot hand it a sibling dir to delete."""
+    own = [e for e in entries if e[0].endswith(PARTPARITY_RESULTS_DIR_SUFFIX)]
+    return select_shots_dirs_to_prune(
+        own, protect_name=protect_name,
+        keep_dirs=PARTPARITY_KEEP_DIRS if keep_dirs is None else keep_dirs,
+        max_total_bytes=(PARTPARITY_MAX_TOTAL_BYTES if max_total_bytes is None
+                         else max_total_bytes))
+
+
+def select_partparity_archive_files(label_dirs: Dict[str, Iterable[str]]
+                                    ) -> List[Tuple[str, str]]:
+    """``(label, file name)`` rows of a harvested ``<runId>_partparity`` dir that go to
+    the results archive: each label's ``manifest.json`` and every ``*.part.json``,
+    sorted; atlases, thumbnails and every other file stay out (a sweep is hundreds of
+    MB of PNGs). Names with a path separator are refused."""
+    rows: List[Tuple[str, str]] = []
+    for label in sorted(label_dirs):
+        if not _is_plain_name(label):
+            continue
+        for name in sorted(label_dirs[label] or ()):
+            if not _is_plain_name(name):
+                continue
+            if (name == PARTPARITY_ARCHIVE_MANIFEST
+                    or name.endswith(PARTPARITY_ARCHIVE_SIDECAR_SUFFIX)):
+                rows.append((label, name))
+    return rows
 _PARTPARITY_DECIMAL_RE = re.compile(r"[0-9]+")
 _PARTPARITY_ID_CHARS_RE = re.compile(r"[A-Za-z0-9._-]+")
 _PARTPARITY_FILTER_RE = re.compile(r"[A-Za-z0-9._*?-]+")
@@ -8993,6 +9099,14 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     warnings.extend(ghostlife.ghost_lifecycle_expectation_warnings(
         expectations, steps))
 
+    # Part ghost parity verifier spec surface: [expectations.partParity]
+    # (partparity.py, design-part-ghost-parity.md section 10). Only `gating` is a key;
+    # a declared block with no PartParitySweep step naming a literal label is refused,
+    # because the row would have no sweep directory to judge.
+    if partparity.PART_PARITY_BLOCK in expectations:
+        errors.extend(partparity.validate_part_parity_expectations(
+            expectations.get(partparity.PART_PARITY_BLOCK), steps))
+
     # VERB / BLOCK COUPLING. `PARSEK_RENDER_MANIFEST` is armed at launch by the
     # DECLARATION of [expectations.renderComposition] and by nothing else, so a
     # spec that drives ExportRenderManifest expecting OK without declaring the
@@ -9239,6 +9353,7 @@ import saveparse  # noqa: E402  (the M-C2/R9 pure sibling; save-parse spec-surfa
 import savepatch  # noqa: E402  (the pure FLIGHTSTATE patcher behind [[fixture.liveState]]; same rule - the module that APPLIES the block validates its spec surface)
 import rendercompose  # noqa: E402  (the M-A7 pure sibling; same reason - the render-composition spec surface is validated by the module that evaluates it)
 import ghostlife  # noqa: E402  (the ghost-lifecycle pure sibling; same reason - the [expectations.ghostLifecycle] surface is validated by the module that evaluates it)
+import partparity  # noqa: E402  (the part ghost parity pure sibling; same reason - the [expectations.partParity] surface is validated by the module that evaluates it)
 import samplingq  # noqa: E402  (the recording-sampling pure sibling; same reason - the [expectations.recordings.sampling] surface is validated by the module that evaluates it)
 
 
@@ -12359,6 +12474,12 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # Ships REPORT-ONLY with NO committed spec arming it; the GHOSTLIFE_ARMED_SPECS
     # sweep in test_hlib.py keeps that set deliberate.
     "ghost-lifecycle",
+    # A GATING-armed [expectations.partParity] block with a failing part case
+    # (partparity.evaluate_sweep). Its own class: a red names a part whose ghost looks
+    # different from the real part, which no log line states. Ships REPORT-ONLY with
+    # NO committed spec arming it; the PARTPARITY_ARMED_SPECS sweep in test_hlib.py
+    # keeps that set deliberate.
+    "part-parity",
     # DRIVER-VALIDITY-PASSES-WITH-UNMET-STEPS: the driver stage stayed valid but a
     # driven seam step missed its expect (a post-mission recording verb answered
     # ERROR). The last red before PASS, so a run never reads green over an unmet step.
@@ -13548,9 +13669,10 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
       post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
+      part-parity instrument (controls / recompute / completeness) -> INVALID (no retry)
       log-contract / results / anomaly / unity-exception / expectation /
-          save-structure / render-composition / ghost-lifecycle / ledger
-          -> PARSEK-FAIL
+          save-structure / render-composition / ghost-lifecycle / part-parity /
+          ledger -> PARSEK-FAIL
       else -> PASS
     ``retryable`` is a recommendation; ``should_retry`` is the authority
     combining attempt + policy.
@@ -13616,6 +13738,16 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
             elif analyzer.status == "PARSEK-FAIL":
                 base = V(VERDICT_PARSEK_FAIL, analyzer.subkind,
                          "analyzer red topRule=%s" % (analyzer.top_rule,))
+        if base is None and verifiers.get("part_parity_invalid", False):
+            # The part ghost parity instrument did not prove itself (a control not
+            # `ok`, a Python recompute that disagrees with the C# measures, or a sweep
+            # that did not finish). Nothing the row measured is evidence about the
+            # ghost, and the lane's step-line pins would read the same fault as a
+            # log-contract red, so this INVALID is placed ahead of every contract
+            # verifier. Terminal: a retry re-runs `op=reset` and discards the sweep.
+            base = V(VERDICT_INVALID,
+                     verifiers.get("part_parity_subkind") or PARTPARITY_INVALID_SUBKINDS[0],
+                     "part parity instrument: %s" % (verifiers.get("part_parity_reason") or "-"))
         if base is None:
             if verifiers.get("mission_outcome_unmet", False):
                 # EVA-4 2026-07-25: a post-mission OUTCOME step failed on a run whose
@@ -13675,6 +13807,13 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                 # career ledger.
                 base = V(VERDICT_PARSEK_FAIL, "ghost-lifecycle",
                          "gating ghost-lifecycle expectations mismatch")
+            elif verifiers.get("part_parity_mismatch", False):
+                # Only reachable for a scenario that DECLARED [expectations.partParity]
+                # with gating = true; the part verdicts are report-only otherwise (the
+                # PARTPARITY_ARMED_SPECS sweep in test_hlib.py keeps that set
+                # deliberate). A red names a part whose ghost differs from the real part.
+                base = V(VERDICT_PARSEK_FAIL, PARTPARITY_PARSEK_FAIL_SUBKIND,
+                         "gating part-parity verdicts: a part case failed")
             elif verifiers.get("ledger_drift", False):
                 base = V(VERDICT_PARSEK_FAIL, "ledger", "world/ledger oracle drift")
             elif verifiers.get("unmet_step", False):
@@ -15797,7 +15936,9 @@ def _is_plain_name(name: str) -> bool:
 
 def plan_results_archive(run_id: str, present_names: Iterable[str],
                          shots_ksp_log_present: bool,
-                         harness_log_name: Optional[str]) -> ResultsArchivePlan:
+                         harness_log_name: Optional[str],
+                         partparity_files: Sequence[Tuple[str, str]] = ()
+                         ) -> ResultsArchivePlan:
     """Which of a run's artifacts go into its archive dir, and under which names.
 
     ``present_names`` is the results-dir listing (file names; the caller does
@@ -15806,6 +15947,9 @@ def plan_results_archive(run_id: str, present_names: Iterable[str],
     the invocation's harness log, or None when there is none to copy. A run
     with no result JSON archives nothing: the result is what names the verdict,
     and an archive without one cannot be told apart from a stray copy.
+    ``partparity_files`` are ``(label, name)`` rows of the run's harvested part
+    parity sweeps (``select_partparity_archive_files``); each is archived as
+    ``partparity/<label>/<name>``, never reported missing (most lanes sweep none).
     """
     if not _is_plain_name(run_id or ""):
         return ResultsArchivePlan(run_id, (), (), "invalid run id")
@@ -15831,6 +15975,10 @@ def plan_results_archive(run_id: str, present_names: Iterable[str],
                                     RESULTS_ARCHIVE_KSP_LOG_NAME, gzip=True))
     else:
         missing.append(run_id + "_shots/KSP.log")
+    for label, name in partparity_files or ():
+        if _is_plain_name(label) and _is_plain_name(name):
+            entries.append(ArchiveEntry((partparity_results_dir_name(run_id), label, name),
+                                        "/".join((PARTPARITY_ARCHIVE_SUBDIR, label, name))))
     return ResultsArchivePlan(run_id, tuple(entries), tuple(missing), None)
 
 
