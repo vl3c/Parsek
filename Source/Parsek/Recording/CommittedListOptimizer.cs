@@ -60,6 +60,12 @@ namespace Parsek
             // its id, a split or a trim moves its EndUT, and RouteStore.RevalidateSources would
             // pause the route for good (design 4.7, source immutability).
             HashSet<string> routeSourceIds = Logistics.RouteStore.CollectSourceRecordingIds();
+            // Owner RULE 3: a committed tree whose live copy is being flown is held the same way
+            // until that copy is committed or discarded.
+            routeSourceIds = TreeCommitService.HoldLiveCopiesForOptimizer(
+                routeSourceIds, RecordingStore.CommittedTrees, PendingTreeSlot.PendingTree,
+                PendingTreeSlot.SavedPendingTreeDuringActiveRestore,
+                CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId);
 
             int mergeCount = RunOptimizationMergePass(recordings, routeSourceIds);
             int splitCount = RunOptimizationSplitPass(recordings, routeSourceIds);
@@ -847,6 +853,84 @@ namespace Parsek
                 $"Optimization split: tree={tree.Id} active recording moved from the head " +
                 $"'{original.RecordingId}' to the split tail '{second.RecordingId}'");
             return true;
+        }
+
+        /// <summary>
+        /// Owner RULE 3: folds a committed split piece back into the live recording of a
+        /// committed vessel flown again (the reverse of the optimizer split that cut it off while
+        /// the live copy held the recording whole; <c>TreeCommitService.TryUnionFlownAgainCopy</c>).
+        /// The optimizer merge's own steps: the ledger rows, events and pending science tagged to
+        /// <paramref name="absorbed"/> are retagged to <paramref name="survivor"/>, an awaiting
+        /// stock payout moves, every Relative section anchor and parent anchor naming it is
+        /// re-pointed, the tree drops it and its branch points and children name the survivor,
+        /// and it leaves the committed list through <see cref="RecordingStore.RemoveCommittedAt"/>
+        /// (the index notifications fire). Its sidecar files are left to the orphan collector.
+        /// </summary>
+        internal static void ReabsorbSplitPieceIntoLiveCopy(Recording survivor, Recording absorbed, string context)
+        {
+            if (survivor == null || absorbed == null || ReferenceEquals(survivor, absorbed))
+                return;
+            var recordings = RecordingStore.CommittedRecordings;
+            int index = -1;
+            Recording mergeTarget = survivor;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (ReferenceEquals(recordings[i], absorbed))
+                    index = i;
+                else if (recordings[i] != null
+                         && string.Equals(recordings[i].RecordingId, survivor.RecordingId, StringComparison.Ordinal))
+                    mergeTarget = recordings[i];
+            }
+
+            // The piece was the chain tip, where later writes land (a Seal, the spawn stamp
+            // MoveChainSpawnStampsToTip moves there, settings set on its row). They go onto the
+            // committed copy of the survivor's id: the commit's replace step then hands the
+            // committed copy's player settings and runtime fields to the live recording.
+            string carried = TreeCommitService.CarryTipOwnedStateOnFold(absorbed, mergeTarget);
+
+            RetagLedgerActionsAfterOptimizationMerge(survivor, absorbed);
+            InFlightRecoveryRequest.MoveAwaitingStockPayout(
+                absorbed.RecordingId, survivor.RecordingId, context);
+            RepointAnchorsAfterOptimizationMerge(recordings, survivor, absorbed);
+            UpdateTreeStateAfterOptimizationMerge(survivor, absorbed);
+            if (index >= 0)
+                RecordingStore.RemoveCommittedAt(index, mergeTarget);
+            ParsekLog.Info("RecordingStore",
+                $"CommitTree: re-absorbed split piece '{absorbed.RecordingId}' into '{survivor.RecordingId}' " +
+                $"(tree={survivor.TreeId ?? "<none>"} " +
+                $"pieceSpan=[{absorbed.StartUT.ToString("F1", CultureInfo.InvariantCulture)}," +
+                $"{absorbed.EndUT.ToString("F1", CultureInfo.InvariantCulture)}] " +
+                $"liveSpan=[{survivor.StartUT.ToString("F1", CultureInfo.InvariantCulture)}," +
+                $"{survivor.EndUT.ToString("F1", CultureInfo.InvariantCulture)}] " +
+                $"removedFromCommittedList={index >= 0} carried=[{carried}] context={context ?? "<none>"}) - " +
+                "the live recording covers it");
+        }
+
+        /// <summary>
+        /// Why a covered split piece must NOT be folded into a re-flown live recording, or null
+        /// when it may be: a supersede row names it (either side: the fold would leave the row
+        /// pointing at nothing), or a supply route sources from it (the optimizer merge holds
+        /// route sources the same way, <see cref="ChooseMergeCandidateIndex"/>).
+        /// </summary>
+        internal static string SplitPieceFoldRefusal(Recording piece)
+        {
+            if (piece == null || string.IsNullOrEmpty(piece.RecordingId))
+                return null;
+            var supersedes = ParsekScenario.Instance?.RecordingSupersedes;
+            if (supersedes != null)
+            {
+                for (int i = 0; i < supersedes.Count; i++)
+                {
+                    var row = supersedes[i];
+                    if (row == null) continue;
+                    if (string.Equals(row.OldRecordingId, piece.RecordingId, StringComparison.Ordinal)
+                        || string.Equals(row.NewRecordingId, piece.RecordingId, StringComparison.Ordinal))
+                        return "a supersede row names it (relation=" + (row.RelationId ?? "<no-id>") + ")";
+                }
+            }
+            if (IsRouteSource(piece, Logistics.RouteStore.CollectSourceRecordingIds()))
+                return "a supply route sources from it (route source)";
+            return null;
         }
 
         internal static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)
