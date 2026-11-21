@@ -464,6 +464,8 @@ namespace Parsek
                 if (!hasPosition) continue;
 
                 bool hasMovingSignal = FlightRecorder.TryGetRoboticMovingState(module, out bool movingSignal);
+                FlightRecorder.ResolveRoboticMovingSignal(moduleName, sourceField, positionValue,
+                    hasMovingSignal, movingSignal, out movingSignal, out _);
 
                 var events = FlightRecorder.CheckRoboticTransition(
                     key, part.persistentId, moduleIndex,

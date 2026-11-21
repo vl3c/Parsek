@@ -41,6 +41,10 @@ Not released yet.
   servo was only seen moving while its part menu was open, so most replays showed it frozen at
   its start angle. Its motion is now recorded however you move it, and the parts riding it
   follow it on the replay. (RECORDER-SERVO-ANGLE-PAW-ONLY)
+- **Rotors keep spinning on the replay.** A Breaking Ground rotor was only seen spinning while its
+  part menu was open, and even then its replay stopped turning as soon as it reached a steady
+  speed. Its spin is now recorded however you run it, and the replayed rotor keeps turning until
+  the real one slows to a stop. (RECORDER-ROTOR-RPM-PAW-ONLY)
 - **A rescue or tourism contract still works after you go back in time.** If you go back to before
   you accepted a rescue, the stranded kerbal or part reappears when the clock reaches the accept
   again (at your next Space Center or Tracking Station visit if you are flying then), and tourism

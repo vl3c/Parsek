@@ -25,6 +25,9 @@ namespace Parsek.Tests
         private bool hasServoTransformAngle;
         private float servoTransformAngle;
 
+        private bool hasServoRateOfMotion;
+        private float servoRateOfMotionRpm;
+
         private bool sawDeployEvent;
         private bool sawRetractEvent;
         private bool canDeploy;
@@ -89,6 +92,19 @@ namespace Parsek.Tests
         }
 
         internal int ServoTransformAngleReadCount;
+
+        /// <summary>
+        /// Registers the module as a Breaking Ground servo whose live (per-physics-frame) rate of
+        /// motion currently reads the given RPM. A fake that never calls this has no live rate.
+        /// </summary>
+        internal FakeModuleFieldValues WithServoRateOfMotionRpm(float rpm)
+        {
+            hasServoRateOfMotion = true;
+            servoRateOfMotionRpm = rpm;
+            return this;
+        }
+
+        internal int ServoRateOfMotionReadCount;
 
         /// <summary>Registers the aggregated deploy/retract event availability of the module.</summary>
         internal FakeModuleFieldValues WithEventActivity(
@@ -155,6 +171,13 @@ namespace Parsek.Tests
             ServoTransformAngleReadCount++;
             angleDegrees = servoTransformAngle;
             return hasServoTransformAngle;
+        }
+
+        public bool TryGetServoRateOfMotionRpm(out float rpm)
+        {
+            ServoRateOfMotionReadCount++;
+            rpm = servoRateOfMotionRpm;
+            return hasServoRateOfMotion;
         }
 
         public void ReadDeployRetractEventActivity(
@@ -1310,6 +1333,198 @@ namespace Parsek.Tests
             Assert.False(FlightRecorder.TrySelectServoMainAxisAngle(
                 "X", float.NaN, 0f, 0f, out float angle));
             Assert.Equal(0f, angle);
+        }
+
+        // Stock refreshes a rotor's `currentRPM` only in ModuleRoboticServoRotor.UpdatePAWUI
+        // (`currentRPM = transformRateOfMotion`, every 0.3 s while the part menu is open; KSP
+        // 1.12.5 decompiled). With the menu closed it keeps its start value (0) while the rotor
+        // spins. The live signal is BaseServo.transformRateOfMotion, which FixedUpdate refreshes
+        // every physics frame (CalculateAverageRateOfMovement, RPM averaged over 20 frames):
+        // the same quantity and scale currentRPM copies, so the ghost's RPM spin is unchanged.
+
+        [Fact]
+        public void RoboticCore_RotorReadsTheLiveRateOfMotionOverTheStaleMenuField()
+        {
+            var fields = new FakeModuleFieldValues()
+                .WithFloat("currentRPM", 0f)
+                .WithFloat("rpmLimit", 230f)
+                .WithServoRateOfMotionRpm(118.25f);
+
+            bool ok = FlightRecorder.TryClassifyRoboticPositionFromFieldValues(
+                fields, "ModuleRoboticServoRotor",
+                out float positionValue, out float deadband, out string sourceField);
+
+            Assert.True(ok);
+            Assert.Equal("servoRateOfMotion", sourceField);
+            Assert.Equal(118.25, positionValue, 3);
+            Assert.True(deadband > 0f);
+        }
+
+        [Fact]
+        public void RoboticCore_RotorAtRestReadsZeroFromTheLiveRateNotTheRpmLimit()
+        {
+            // A stopped rotor reads 0 RPM live; the plan's rpmLimit fallback (a setting, not a
+            // motion) must not be reached while the live rate answers.
+            var fields = new FakeModuleFieldValues()
+                .WithFloat("rpmLimit", 230f)
+                .WithServoRateOfMotionRpm(0f);
+
+            Assert.True(FlightRecorder.TryClassifyRoboticPositionFromFieldValues(
+                fields, "ModuleRoboticServoRotor",
+                out float positionValue, out _, out string sourceField));
+            Assert.Equal("servoRateOfMotion", sourceField);
+            Assert.Equal(0f, positionValue);
+            Assert.DoesNotContain("rpmLimit", fields.ProbedFieldNames);
+        }
+
+        [Theory]
+        [InlineData(float.NaN)]
+        [InlineData(float.PositiveInfinity)]
+        [InlineData(float.NegativeInfinity)]
+        public void RoboticCore_RotorWithANonFiniteLiveRateFallsBackToItsFieldPlan(float rate)
+        {
+            var fields = new FakeModuleFieldValues()
+                .WithFloat("currentRPM", 12f)
+                .WithServoRateOfMotionRpm(rate);
+
+            Assert.True(FlightRecorder.TryClassifyRoboticPositionFromFieldValues(
+                fields, "ModuleRoboticServoRotor",
+                out float positionValue, out _, out string sourceField));
+            Assert.Equal("currentRPM", sourceField);
+            Assert.Equal(12.0, positionValue, 3);
+        }
+
+        [Fact]
+        public void RoboticCore_RotorWithoutALiveRateFallsBackToItsFieldPlan()
+        {
+            var fields = new FakeModuleFieldValues().WithFloat("currentRPM", 12f);
+
+            Assert.True(FlightRecorder.TryClassifyRoboticPositionFromFieldValues(
+                fields, "ModuleRoboticServoRotor",
+                out float positionValue, out _, out string sourceField));
+            Assert.Equal("currentRPM", sourceField);
+            Assert.Equal(12.0, positionValue, 3);
+        }
+
+        // A rotor's recorded value is a SPEED, but the transition machine infers "moving" from
+        // the value changing, so a rotor holding a steady RPM read as stopped and emitted
+        // RoboticMotionStopped, which the ghost's RotorRpm mode treats as "stop spinning". For
+        // a measured rotor RPM the moving signal is the spin itself: stock's
+        // ModuleRoboticServoRotor.IsMoving() is `transformRateOfMotion > 0.5f`.
+
+        [Theory]
+        [InlineData("servoRateOfMotion", 230f, true)]
+        [InlineData("servoRateOfMotion", 0.6f, true)]
+        [InlineData("servoRateOfMotion", 0.5f, false)]
+        [InlineData("servoRateOfMotion", 0f, false)]
+        [InlineData("currentRPM", 120f, true)]
+        [InlineData("currentRPM", 0f, false)]
+        public void RoboticMovingSignal_RotorRpmIsSpinningAboveStocksThreshold(
+            string sourceField, float rpm, bool expectMoving)
+        {
+            FlightRecorder.ResolveRoboticMovingSignal(
+                "ModuleRoboticServoRotor", sourceField, rpm,
+                hasModuleFlag: false, moduleFlag: false,
+                out bool moving, out string movingSource);
+
+            Assert.Equal(expectMoving, moving);
+            Assert.Equal("rotor-rpm", movingSource);
+        }
+
+        [Fact]
+        public void RoboticMovingSignal_RotorRpmLimitIsASettingNotASpin()
+        {
+            // rpmLimit is the slider, constant while the motor is off: never a spin signal.
+            FlightRecorder.ResolveRoboticMovingSignal(
+                "ModuleRoboticServoRotor", "rpmLimit", 230f,
+                hasModuleFlag: false, moduleFlag: false,
+                out bool moving, out string movingSource);
+
+            Assert.False(moving);
+            Assert.Equal("inferred", movingSource);
+        }
+
+        [Theory]
+        [InlineData("ModuleRoboticServoHinge", "servoTransformAngle", false, false, false, "inferred")]
+        [InlineData("ModuleRoboticRotationServo", "servoTransformAngle", true, true, true, "module-flag")]
+        [InlineData("ModuleRoboticServoPiston", "currentExtension", true, false, false, "module-flag")]
+        public void RoboticMovingSignal_PoseServosKeepTheirModuleFlagOrInference(
+            string moduleName, string sourceField, bool hasFlag, bool flag,
+            bool expectMoving, string expectSource)
+        {
+            FlightRecorder.ResolveRoboticMovingSignal(
+                moduleName, sourceField, 200f, hasFlag, flag,
+                out bool moving, out string movingSource);
+
+            Assert.Equal(expectMoving, moving);
+            Assert.Equal(expectSource, movingSource);
+        }
+
+        [Fact]
+        public void RoboticTransition_ARotorHoldingASteadyRpmStaysMovingUntilItSpinsDown()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(400, 0);
+            var movingSet = new HashSet<ulong>();
+            var positions = new Dictionary<ulong, float>();
+            var sampleUT = new Dictionary<ulong, double>();
+            var events = new List<PartEvent>();
+
+            // 0.02 s physics frames: spin up 0 -> 230 RPM over 1 s, hold 3 s, spin down over 1 s,
+            // then rest 1 s.
+            double ut = 100.0;
+            for (int frame = 0; frame <= 300; frame++, ut += 0.02)
+            {
+                float rpm;
+                if (frame <= 50) rpm = 230f * frame / 50f;
+                else if (frame <= 200) rpm = 230f;
+                else if (frame <= 250) rpm = 230f * (250 - frame) / 50f;
+                else rpm = 0f;
+
+                FlightRecorder.ResolveRoboticMovingSignal(
+                    "ModuleRoboticServoRotor", "servoRateOfMotion", rpm,
+                    hasModuleFlag: false, moduleFlag: false, out bool moving, out _);
+                events.AddRange(FlightRecorder.CheckRoboticTransition(
+                    key, 400, 0, "rotor.01", moving, rpm, 0.5f, ut,
+                    movingSet, positions, sampleUT, 0.25));
+            }
+
+            Assert.Single(events, e => e.eventType == PartEventType.RoboticMotionStarted);
+            PartEvent stopped = Assert.Single(events, e => e.eventType == PartEventType.RoboticMotionStopped);
+            Assert.True(stopped.value <= 0.5f);
+            Assert.True(stopped.ut > 104.0, "the rotor must not read as stopped while it holds 230 RPM");
+            Assert.Contains(events, e => e.eventType == PartEventType.RoboticPositionSample
+                && System.Math.Abs(e.value - 230f) < 0.5f);
+        }
+
+        [Fact]
+        public void ServoRateOfMotionReflection_FindsTheStockFloatField()
+        {
+            // The live read names an internal Assembly-CSharp field; a renamed or retyped field
+            // would silently send every rotor back to the stale currentRPM.
+            System.Reflection.FieldInfo field = FlightRecorder.ServoRateOfMotionReflection.Field;
+
+            Assert.NotNull(field);
+            Assert.Equal(typeof(float), field.FieldType);
+            Assert.False(field.IsStatic);
+        }
+
+        [Theory]
+        [InlineData("ModuleRoboticServoHinge")]
+        [InlineData("ModuleRoboticRotationServo")]
+        [InlineData("ModuleRoboticServoPiston")]
+        public void RoboticCore_OnlyTheRotorReadsTheRateOfMotion(string moduleName)
+        {
+            // A hinge, rotation servo or piston records a pose, not a speed.
+            var fields = new FakeModuleFieldValues()
+                .WithFloat("currentAngle", 5f)
+                .WithFloat("currentExtension", 0.5f)
+                .WithServoRateOfMotionRpm(60f);
+
+            FlightRecorder.TryClassifyRoboticPositionFromFieldValues(
+                fields, moduleName, out _, out _, out string sourceField);
+
+            Assert.NotEqual("servoRateOfMotion", sourceField);
+            Assert.Equal(0, fields.ServoRateOfMotionReadCount);
         }
 
         [Fact]

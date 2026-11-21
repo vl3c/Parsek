@@ -351,9 +351,50 @@ same convention as `targetAngle` and the ghost's snapshot baseline, so playback 
 The tracking line reads `source=servoTransformAngle`. A servo with no moving object yet falls
 back to the old plan. No save-format change (the event values keep their meaning).
 
-Not fixed here, same shape: the rotor's `currentRPM` is also refreshed only in `UpdatePAWUI`
-(`refreshRPMReadouts`), so a rotor's recorded RPM likely stays at its start value too; unmeasured,
-no lane flies a rotor (see GHOST-SERVO-CHILDREN-STATIC's SRV-2 note).
+The rotor has the same shape (its `currentRPM` is refreshed only in `UpdatePAWUI`): fixed
+separately, RECORDER-ROTOR-RPM-PAW-ONLY below.
+
+## ~~RECORDER-ROTOR-RPM-PAW-ONLY~~: a rotor recorded no spin unless its part menu was open, and a steady spin read as stopped [FILED 2026-11-21 from the decompile (RECORDER-SERVO-ANGLE-PAW-ONLY's follow-up). FIXED 2026-11-21, branch `test-gaps-rotor`; xUnit `ReflectionClassifierCoreTests` (2 red before the RPM read, 7 red under a mutation of the spin signal); live proof owed: no lane flies a rotor; medium (a Breaking Ground rotor's blades replayed still)]
+
+Cause 1 (the read): the robotic position probe sampled a rotor through its plan
+`currentRPM` / `rpm` / `rpmLimit`. Decompiled KSP 1.12.5: `ModuleRoboticServoRotor` assigns
+`currentRPM = transformRateOfMotion` only in `UpdatePAWUI`, and only when the 0.3 s
+`refreshRPMReadouts` flag (set in `OnFixedUpdate`) is up; `UpdatePAWUI` runs from `OnStart`,
+`OnPartMenuOpen` and `Update` while the part menu is open. `currentRPM` is not persistent, so with
+the menu closed it reads 0 for the whole flight and no spin is ever recorded. The live value is
+`BaseServo.transformRateOfMotion` (an `internal float`, no KSPField), refreshed every physics frame
+by `BaseServo.FixedUpdate` -> `CalculateAverageRateOfMovement` (20-frame average of
+`GetFrameDisplacement() / fixedDeltaTime`; on the rotor that is `|delta angle| * 60 / 360` per
+frame, i.e. unsigned RPM, exactly what `currentRPM` copies).
+
+Cause 2 (the moving signal): no servo carries a moving-flag KSPField (`servoIsMoving` and the
+other names in `RoboticMovingFieldNames` do not exist on `BaseServo`; `IsMoving()` is a method),
+so `CheckRoboticTransition` inferred motion from the VALUE changing. For a rotor the value is a
+speed: once the RPM held steady the machine emitted `RoboticMotionStopped`, and the ghost's
+`RotorRpm` mode (`GhostPlaybackLogic.ApplyRoboticEvent`) plays a Stopped event as "stop
+spinning", so even a menu-open recording spun the ghost only while the rotor spun up or down.
+
+Fix: a live stage ahead of the rotor's field plan. `IModuleFieldValues.TryGetServoRateOfMotionRpm`,
+live half `TryReadServoRateOfMotion` (NoInlining; the `FieldInfo` lives in the nested
+`ServoRateOfMotionReflection` holder, resolved on the first rotor read; a missing or non-float
+field logs `Servo rate of motion unreadable` rate-limited Verbose and falls back to the plan), pure
+stage `TryClassifyLiveRotorRpmFromFieldValues` (rotor only; a non-finite reading falls back). The
+recorded value is the same RPM `currentRPM` holds with the menu open, so the ghost's spin rate is
+unchanged. The pure `ResolveRoboticMovingSignal`, used by both the active and the background
+recorder, makes a rotor sampled through a measured RPM (`servoRateOfMotion` or `currentRPM`)
+moving while it spins above 0.5 RPM (stock's `IsMoving()` threshold); every other module keeps
+its module flag or the inference, and a rotor read through `rpmLimit` (a setting) stays inferred.
+A steady spin now records Started, samples while the RPM changes, and Stopped only once it spins
+down. The tracking line reads `Robotics: tracking 'rotor...' ... module=ModuleRoboticServoRotor
+source=servoRateOfMotion ... moving=rotor-rpm`. No save-format change (the event values keep their
+meaning). Not changed: the recorded RPM is unsigned, as `currentRPM` is, so the ghost spins in its
+snapshot's direction.
+
+OPEN:
+- Live proof: no lane flies a rotor (GHOST-SERVO-CHILDREN-STATIC's SRV-2 note: no seam button
+  engages a rotor's motor). A rotor lane must show `source=servoRateOfMotion ... moving=rotor-rpm`,
+  one `RoboticMotionStarted` for the rotor, no `RoboticMotionStopped` while it holds its RPM, and
+  the ghost's blades turning on the replay.
 
 ## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
 

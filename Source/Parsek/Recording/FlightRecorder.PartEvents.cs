@@ -1555,9 +1555,11 @@ namespace Parsek
                     continue;
                 }
 
+                ResolveRoboticMovingSignal(moduleName, sourceField, positionValue,
+                    hasMovingSignal, movingSignal, out movingSignal, out string movingSource);
+
                 if (loggedRoboticModuleKeys.Add(key))
                 {
-                    string movingSource = hasMovingSignal ? "module-flag" : "inferred";
                     ParsekLog.Verbose("Recorder", $"Robotics: tracking '{part.partInfo?.name}' pid={part.persistentId} " +
                         $"midx={moduleIndex} module={moduleName} source={sourceField} " +
                         $"deadband={deadband:F3} sampleHz=4.0 moving={movingSource}");
