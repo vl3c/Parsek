@@ -1,0 +1,118 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = debce1a4cbd34a0e82f42429e922a2ef
+sidecarEpoch = 2
+sectionAuthoritative = True
+TRACK_SECTION
+{
+	env = 2
+	ref = 1
+	startUT = 157914.18643329004
+	endUT = 157914.22643329002
+	sampleRate = 50
+	src = 1
+	minAlt = -0.7510822
+	maxAlt = -0.7510822
+	anchorRecordingId = 39b3f5d641a24f4da6d65d51dec9b438
+	POINT
+	{
+		ut = 157914.18643329004
+		lat = 0.0008538313559256494
+		lon = 0.21889197826385498
+		alt = -0.751082181930542
+		rotX = 0.164752275
+		rotY = 2.149765E-05
+		rotZ = -4.25331973E-06
+		rotW = 0.986335
+		body = Mun
+		velX = 466.665039
+		velY = -9.143754
+		velZ = 251.320129
+		funds = 142661.00284910202
+		science = 6.5
+		rep = 112.996056
+	}
+	POINT
+	{
+		ut = 157914.18643329004
+		lat = 0.0008538313559256494
+		lon = 0.21889197826385498
+		alt = -0.751082181930542
+		rotX = 0.164752275
+		rotY = 2.149765E-05
+		rotZ = -4.25331973E-06
+		rotW = 0.986335
+		body = Mun
+		velX = 466.665039
+		velY = -9.143754
+		velZ = 251.320129
+		funds = 142661.00284910202
+		science = 6.5
+		rep = 112.996056
+	}
+	BODY_FIXED_POINT
+	{
+		ut = 157914.18643329004
+		lat = -0.36276377843823676
+		lon = 100.56880637543583
+		alt = 29989.489882598544
+		rotX = -0.706443667
+		rotY = -0.7007742
+		rotZ = 0.09627956
+		rotW = 0.02415178
+		body = Mun
+		velX = 466.665039
+		velY = -9.143754
+		velZ = 251.320129
+		funds = 142661.00284910202
+		science = 6.5
+		rep = 112.996056
+	}
+	BODY_FIXED_POINT
+	{
+		ut = 157914.18643329004
+		lat = -0.36276377843823676
+		lon = 100.56880637543583
+		alt = 29989.489882598544
+		rotX = -0.706443667
+		rotY = -0.7007742
+		rotZ = 0.09627956
+		rotW = 0.02415178
+		body = Mun
+		velX = 466.665039
+		velY = -9.143754
+		velZ = 251.320129
+		funds = 142661.00284910202
+		science = 6.5
+		rep = 112.996056
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 157914.22643329002
+	endUT = 157914.24643329
+	sampleRate = 0
+	bdisc = 31.8079376
+	minAlt = 29989.5156
+	maxAlt = 29989.5156
+	POINT
+	{
+		ut = 157914.24643329
+		lat = -0.36290041948229895
+		lon = 100.57672945674364
+		alt = 29989.516548308136
+		rotX = -0.706450939
+		rotY = -0.7007509
+		rotZ = 0.09639019
+		rotW = 0.0241704863
+		body = Mun
+		velX = 466.628448
+		velY = -9.148687
+		velZ = 251.408249
+		funds = 142661.00284910202
+		science = 6.5
+		rep = 112.996056
+	}
+}

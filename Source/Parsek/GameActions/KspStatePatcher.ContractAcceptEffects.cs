@@ -65,8 +65,17 @@ namespace Parsek
             Func<string, ProtoCrewMember> lookup = BuildRosterLookup();
             StrandedAssetWorldFacts facts = BuildStrandedAssetWorldFacts(w, lookup, kerbals, contractId);
             GameScenes scene = HighLogic.LoadedScene;
+            ContractAcceptWorldEffect effect = ContractAcceptWorldEffects.Classify(typeName);
+            // A construction / repair contract is read from its LIVE save: stock's OnLoad (run
+            // by Contract.Load) has already re-pointed its vessel id at a same-named vessel.
+            ConfigNode planNode = effect == ContractAcceptWorldEffect.PrebuiltShip
+                ? (SaveLiveContract(contractId, contract) ?? snapshot)
+                : snapshot;
+            ExperimentalPartFacts experimentalFacts = effect == ContractAcceptWorldEffect.ExperimentalPart
+                ? BuildExperimentalPartFacts(contractId)
+                : default(ExperimentalPartFacts);
             ContractAcceptWorldEffectPlan plan = ContractAcceptWorldEffects.Plan(
-                typeName, snapshot, facts,
+                typeName, planNode, facts,
                 name =>
                 {
                     ProtoCrewMember pcm = lookup(name);
@@ -78,7 +87,7 @@ namespace Parsek
                         Reserved = pcm != null && IsKerbalHeldFromAcceptEffect(kerbals, name)
                     };
                 },
-                scene);
+                scene, BuildPrebuiltShipWorldFacts(w), experimentalFacts);
             ParsekLog.Info(Tag,
                 $"PatchContracts: accept-side world effect not run on rebuild: contractId='{contractId}' " +
                 $"type='{typeName}' effect={plan.Effect} outcome={plan.Outcome} " +
@@ -86,9 +95,11 @@ namespace Parsek
                 $"skip={plan.RepairSkipReason ?? "none"} ({plan.Detail}; " +
                 $"vessels={w.VesselCount.ToString(IC)} scene={scene})");
 
-            // The rebuild decided this rescue again; an earlier deferral of it is spent.
-            if (plan.Effect == ContractAcceptWorldEffect.StrandedAsset
-                && plan.Repair != ContractAcceptRepair.DeferStrandedAsset)
+            // The rebuild decided this contract again; an earlier deferral of it is spent.
+            if ((plan.Effect == ContractAcceptWorldEffect.StrandedAsset
+                    || plan.Effect == ContractAcceptWorldEffect.PrebuiltShip)
+                && plan.Repair != ContractAcceptRepair.DeferStrandedAsset
+                && plan.Repair != ContractAcceptRepair.DeferPrebuiltShip)
                 RescueAcceptDeferrals.Remove(contractId, "rebuilt again: outcome=" + plan.Outcome + " repair=" + plan.Repair);
 
             switch (plan.Repair)
@@ -112,8 +123,53 @@ namespace Parsek
                     if (ConvertRebuiltContractTourists(contractId, lookup, plan.Tourists) > 0)
                         repaired++;
                     break;
+                case ContractAcceptRepair.SpawnPrebuiltShip:
+                    if (SpawnRebuiltPrebuiltShip(contractId, typeName, contract, plan.Prebuilt))
+                    {
+                        repaired++;
+                        world = null;
+                    }
+                    break;
+                case ContractAcceptRepair.DeferPrebuiltShip:
+                    // Spawned at the next Space Center visit, under the same guards.
+                    RescueAcceptDeferrals.Add(contractId, "rebuild scene=" + scene + " type=" + typeName);
+                    EnsureRescueDeferralDrainSubscribed();
+                    break;
+                case ContractAcceptRepair.AddExperimentalPart:
+                    if (AddRebuiltExperimentalPart(contractId, plan.Experimental))
+                        repaired++;
+                    break;
             }
             return plan.WorldEffectMissing;
+        }
+
+        private static ConfigNode SaveLiveContract(string contractId, Contract contract)
+        {
+            if (contract == null)
+                return null;
+            try
+            {
+                var live = new ConfigNode("CONTRACT");
+                contract.Save(live);
+                return live;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchContracts: could not save the live rebuilt contract '{contractId}' " +
+                    $"({ex.GetType().Name}: {ex.Message}); reading its accept snapshot instead");
+                return null;
+            }
+        }
+
+        private static PrebuiltShipWorldFacts BuildPrebuiltShipWorldFacts(ContractAcceptWorldIndex w)
+        {
+            return new PrebuiltShipWorldFacts
+            {
+                VesselPidInWorld = pid => pid != 0u && w.VesselPersistentIds.Contains(pid),
+                VesselNamedInWorld = name => !string.IsNullOrEmpty(name) && w.VesselNames.Contains(name),
+                VesselRecordedByCommittedFlight = CommittedFutureIndexCache.CommittedFlightRecordsVessel
+            };
         }
 
         private static Func<string, ProtoCrewMember> BuildRosterLookup()
@@ -220,11 +276,14 @@ namespace Parsek
             {
                 string id = ids[i];
                 Contract contract = FindContractById(current, id);
-                bool activeRescue = contract is RecoverAsset && contract.ContractState == Contract.State.Active;
+                ContractAcceptWorldEffect effect = DeferredEffectOf(contract);
+                bool activeRescue = effect != ContractAcceptWorldEffect.None
+                    && contract.ContractState == Contract.State.Active;
                 bool? ledgerActive = null;
                 if (ledger != null && current != null)
                     ledgerActive = IsLedgerActiveByNow(ledger, id, nowUT);
                 DeferredRescueDrainStep step = ContractAcceptWorldEffects.DecideDeferredRescueDrainStep(
+                    effect == ContractAcceptWorldEffect.None ? ContractAcceptWorldEffect.StrandedAsset : effect,
                     scene, loadOrPatchPending, activeRescue, ledgerActive);
                 switch (step)
                 {
@@ -245,7 +304,10 @@ namespace Parsek
                 evaluated++;
                 if (world == null)
                     world = BuildContractAcceptWorldIndex();
-                if (EvaluateDeferredRescue(id, (RecoverAsset)contract, world, scene))
+                bool added = effect == ContractAcceptWorldEffect.PrebuiltShip
+                    ? EvaluateDeferredPrebuiltShip(id, contract, world, scene)
+                    : EvaluateDeferredRescue(id, (RecoverAsset)contract, world, scene);
+                if (added)
                 {
                     regenerated++;
                     world = null;
@@ -282,6 +344,43 @@ namespace Parsek
                 && RegenerateRebuiltStrandedAsset(contractId, contract, plan.Target);
             RescueAcceptDeferrals.Remove(contractId,
                 "drain evaluated: outcome=" + plan.Outcome + " regenerated=" + added);
+            return added;
+        }
+
+        /// <summary>The deferrable accept-side effect of a listed contract: a RecoverAsset's
+        /// stranded asset or a construction / repair contract's craft; None for anything else
+        /// (or no contract), which the drain drops.</summary>
+        private static ContractAcceptWorldEffect DeferredEffectOf(Contract contract)
+        {
+            if (contract is RecoverAsset)
+                return ContractAcceptWorldEffect.StrandedAsset;
+            if (contract != null
+                && ContractAcceptWorldEffects.Classify(contract.GetType().Name) == ContractAcceptWorldEffect.PrebuiltShip)
+                return ContractAcceptWorldEffect.PrebuiltShip;
+            return ContractAcceptWorldEffect.None;
+        }
+
+        /// <summary>Re-plans one deferred construction / repair contract from its live save,
+        /// spawns its craft on Regenerate, and takes it off the list. Returns true when stock
+        /// added a vessel.</summary>
+        private static bool EvaluateDeferredPrebuiltShip(
+            string contractId, Contract contract, ContractAcceptWorldIndex world, GameScenes scene)
+        {
+            string typeName = contract.GetType().Name;
+            ConfigNode live = SaveLiveContract(contractId, contract) ?? new ConfigNode("CONTRACT");
+            StrandedAssetWorldFacts facts = BuildStrandedAssetWorldFacts(
+                world, BuildRosterLookup(), LedgerOrchestrator.Kerbals, contractId);
+            ContractAcceptWorldEffectPlan plan = ContractAcceptWorldEffects.Plan(
+                typeName, live, facts, null, scene, BuildPrebuiltShipWorldFacts(world),
+                default(ExperimentalPartFacts));
+            ParsekLog.Info(Tag,
+                $"Rescue accept deferral evaluated: contractId='{contractId}' type='{typeName}' " +
+                $"outcome={plan.Outcome} repair={plan.Repair} skip={plan.RepairSkipReason ?? "none"} " +
+                $"({plan.Detail}; vessels={world.VesselCount.ToString(IC)} scene={scene})");
+            bool added = plan.Repair == ContractAcceptRepair.SpawnPrebuiltShip
+                && SpawnRebuiltPrebuiltShip(contractId, typeName, contract, plan.Prebuilt);
+            RescueAcceptDeferrals.Remove(contractId,
+                "drain evaluated: outcome=" + plan.Outcome + " spawned=" + added);
             return added;
         }
 
@@ -491,6 +590,162 @@ namespace Parsek
                 }
             }
             return converted;
+        }
+
+        /// <summary>
+        /// Runs a rebuilt construction / repair contract's own stock <c>OnAccepted</c> once
+        /// (decompiled KSP 1.12.5: it rebuilds the same <c>VesselSituation</c> from the contract's
+        /// saved body, orbit seed or start coordinates and vessel name, sets
+        /// <c>waitingForVslSpawn</c> and calls <c>ContractSystem.SpawnPreBuiltShip</c>, nothing
+        /// else). The coroutine runs to its end inside the call, and the contract's
+        /// <c>onContractPreBuiltVesselSpawned</c> handler (subscribed by the rebuild's
+        /// <c>Register</c>) stores the new vessel's id in the contract and its parameter. The
+        /// craft carries no crew. Returns true when a vessel was added.
+        /// </summary>
+        private static bool SpawnRebuiltPrebuiltShip(
+            string contractId, string typeName, Contract contract, PrebuiltShipTarget target)
+        {
+            if (contract == null || ContractSystem.Instance == null)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchContracts: prebuilt ship not spawned for '{contractId}': " +
+                    (contract == null ? "no rebuilt contract" : "no ContractSystem"));
+                return false;
+            }
+            MethodInfo onAccepted = contract.GetType().GetMethod(
+                "OnAccepted", RecoverAssetPrivate, null, Type.EmptyTypes, null);
+            if (onAccepted == null)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchContracts: prebuilt ship not spawned for '{contractId}': {typeName}.OnAccepted not found");
+                return false;
+            }
+            HashSet<object> keysBefore = CaptureWorldVesselKeys();
+            List<WorldVesselFact> added;
+            try
+            {
+                onAccepted.Invoke(contract, null);
+            }
+            catch (TargetInvocationException ex)
+            {
+                Exception inner = ex.InnerException ?? ex;
+                added = ReadAddedWorldVessels(keysBefore);
+                ParsekLog.Warn(Tag,
+                    $"PatchContracts: {typeName}.OnAccepted threw for rebuilt contract '{contractId}' " +
+                    $"({inner.GetType().Name}: {inner.Message}); vessels added before the throw=" +
+                    $"{added.Count.ToString(IC)} [{ContractAcceptWorldIndexer.Describe(added)}]");
+                if (added.Count == 0) ClearPrebuiltSpawnWaitLogged(contractId, typeName, contract);
+                return added.Count > 0;
+            }
+            added = ReadAddedWorldVessels(keysBefore);
+            if (added.Count == 0) ClearPrebuiltSpawnWaitLogged(contractId, typeName, contract);
+            ConfigNode after = SaveLiveContract(contractId, contract);
+            PrebuiltShipTarget now = ContractAcceptWorldEffects.ReadPrebuiltShipTarget(typeName, after);
+            ParsekLog.Info(Tag,
+                $"PatchContracts: spawned prebuilt ship for rebuilt contract '{contractId}' through " +
+                $"{typeName}.OnAccepted: added={added.Count.ToString(IC)} " +
+                $"[{ContractAcceptWorldIndexer.Describe(added)}] (craft='{target.CraftUrl}'; " +
+                $"vesselPid {target.VesselPid.ToString(IC)} -> {now.VesselPid.ToString(IC)})");
+            return added.Count > 0;
+        }
+
+        private static void ClearPrebuiltSpawnWaitLogged(string contractId, string typeName, Contract contract)
+        {
+            string outcome = ContractAcceptWorldEffects.ClearPrebuiltSpawnWait(contract);
+            ParsekLog.Warn(Tag,
+                $"PatchContracts: prebuilt ship not spawned for rebuilt contract '{contractId}' " +
+                $"({typeName}.OnAccepted added no vessel); {ContractAcceptWorldEffects.PrebuiltSpawnWaitField} " +
+                $"outcome={outcome}");
+        }
+
+        /// <summary>
+        /// The R&amp;D facts of the experimental-part guard: the part, whether its tech node lists
+        /// it purchased, R&amp;D's experimental count (the private <c>experimentalPartsStock</c>
+        /// map; -1 when R&amp;D is not loaded or the map cannot be read) and how many other Active
+        /// PartTest contracts hold a count for it (stock matches a PartTest to its part by
+        /// <c>PartName</c> = the part title, <c>PartTest.OnPartResearched</c>).
+        /// </summary>
+        private static ExperimentalPartFacts BuildExperimentalPartFacts(string contractId)
+        {
+            ResearchAndDevelopment rnd = ResearchAndDevelopment.Instance;
+            return new ExperimentalPartFacts
+            {
+                PartKnown = name => !string.IsNullOrEmpty(name) && PartLoader.getPartInfoByName(name) != null,
+                PartPurchased = name =>
+                {
+                    AvailablePart ap = PartLoader.getPartInfoByName(name);
+                    if (rnd == null || ap == null || string.IsNullOrEmpty(ap.TechRequired))
+                        return false;
+                    ProtoTechNode node = rnd.GetTechState(ap.TechRequired);
+                    return node != null && node.partsPurchased != null && node.partsPurchased.Contains(ap);
+                },
+                ExperimentalCount = name => ReadExperimentalCount(rnd, PartLoader.getPartInfoByName(name)),
+                OtherExperimentalTests = name =>
+                {
+                    AvailablePart ap = PartLoader.getPartInfoByName(name);
+                    return ap != null ? CountOtherExperimentalPartTests(contractId, ap.title) : 0;
+                }
+            };
+        }
+
+        private static int ReadExperimentalCount(ResearchAndDevelopment rnd, AvailablePart ap)
+        {
+            if (rnd == null || ap == null)
+                return -1;
+            FieldInfo field = typeof(ResearchAndDevelopment).GetField(
+                "experimentalPartsStock", BindingFlags.Instance | BindingFlags.NonPublic);
+            var stock = field != null ? field.GetValue(rnd) as Dictionary<AvailablePart, int> : null;
+            if (stock == null)
+            {
+                ParsekLog.Warn(Tag,
+                    "PatchContracts: R&D experimental count not readable (experimentalPartsStock " +
+                    (field == null ? "missing" : "not a Dictionary<AvailablePart,int>") + ")");
+                return -1;
+            }
+            int count;
+            return stock.TryGetValue(ap, out count) ? count : 0;
+        }
+
+        private static int CountOtherExperimentalPartTests(string contractId, string partTitle)
+        {
+            List<Contract> contracts = ContractSystem.Instance != null ? ContractSystem.Instance.Contracts : null;
+            if (contracts == null)
+                return 0;
+            int n = 0;
+            for (int i = 0; i < contracts.Count; i++)
+            {
+                var test = contracts[i] as global::Contracts.Templates.PartTest;
+                if (test == null || test.ContractState != Contract.State.Active || !test.PartIsExperimental)
+                    continue;
+                if (string.Equals(test.ContractGuid.ToString(), contractId, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (string.Equals(test.PartName, partTitle, StringComparison.Ordinal))
+                    n++;
+            }
+            return n;
+        }
+
+        /// <summary><c>PartTest.OnAccepted</c>'s R&amp;D change for a rebuilt PartTest: the part
+        /// becomes experimental once (<c>ResearchAndDevelopment.AddExperimentalPart</c>, a count
+        /// the contract's stock <c>OnFinished</c> takes back). Returns true when the count rose.</summary>
+        private static bool AddRebuiltExperimentalPart(string contractId, ExperimentalPartTarget target)
+        {
+            ResearchAndDevelopment rnd = ResearchAndDevelopment.Instance;
+            AvailablePart ap = PartLoader.getPartInfoByName(target.PartName);
+            if (rnd == null || ap == null)
+            {
+                ParsekLog.Warn(Tag,
+                    $"PatchContracts: experimental part '{target.PartName}' of rebuilt contract '{contractId}' " +
+                    $"not added: {(rnd == null ? "R&D not loaded" : "part not loaded")}");
+                return false;
+            }
+            int before = ReadExperimentalCount(rnd, ap);
+            ResearchAndDevelopment.AddExperimentalPart(ap);
+            int after = ReadExperimentalCount(rnd, ap);
+            ParsekLog.Info(Tag,
+                $"PatchContracts: experimental part '{target.PartName}' of rebuilt contract '{contractId}' " +
+                $"added to R&D the way PartTest.OnAccepted does: count {before.ToString(IC)} -> {after.ToString(IC)}");
+            return after > before;
         }
 
         /// <summary>A committed ContractComplete / Fail / Cancel row of this contract at any UT

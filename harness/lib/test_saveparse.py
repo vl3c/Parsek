@@ -4393,6 +4393,11 @@ class CommittedFixtureSweepTests(unittest.TestCase):
     # the ParsekScenario node and every recording sidecar stay byte-identical (gated by
     # lib/test_tourist_splashdown_career.py), so it pins its source's payload.
     RECORDED_FIXTURES["tourist-splashdown-career"] = RECORDED_FIXTURES["kerbin-splashdown-recorded"]
+    # CT-3's host, built by harness/tools/build_cs_career_mun4_vessel_repair.py: cs-career-mun4
+    # plus one Offered VesselRepairContract and an R&D ExpParts count; the ParsekScenario node and
+    # every Parsek/ sidecar stay byte-identical (gated by lib/test_cs_career_mun4_vessel_repair.py),
+    # so it pins its source's payload.
+    RECORDED_FIXTURES["cs-career-mun4-vessel-repair"] = RECORDED_FIXTURES["cs-career-mun4"]
 
     def test_fixture_set_is_exactly_the_committed_set(self):
         found = sorted(d for d in os.listdir(FIXTURE_SAVES_DIR)

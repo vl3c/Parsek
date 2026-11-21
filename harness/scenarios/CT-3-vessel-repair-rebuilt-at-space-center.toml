@@ -1,0 +1,202 @@
+schema = 1
+id = "CT-3-vessel-repair-rebuilt-at-space-center"
+# =====================================================================================
+# CT-3: A VESSEL REPAIR CONTRACT REBUILT AT THE SPACE CENTER AFTER A REWIND GETS ITS DAMAGED
+# SATELLITE BACK, ONCE (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4; the live proof of
+# the reflection shell `KspStatePatcher.SpawnRebuiltPrebuiltShip`, which has no headless or
+# in-game test: the pure guard is `ContractAcceptWorldEffects.DecidePrebuiltShip`).
+#
+# THE DEFECT. Stock's accept of a repair contract (`Contracts.Templates.VesselRepairContract`)
+# runs `OnAccepted`, which spawns the damaged craft through `ContractSystem.SpawnPreBuiltShip`
+# (synchronously: `ConstructShip` has no yield return) and stores its persistent id in
+# `repairVslId`. After a rewind to before the accept, the ledger rebuilds the committed accept
+# from its snapshot (`Contract.Load`), which never runs `OnAccepted`: the rewind world has an
+# Active repair naming a satellite nobody can reach, so it fails at its deadline. THE FIX: right
+# after the rebuild, at the Space Center only, Parsek invokes the contract's own `OnAccepted`
+# (`repair=SpawnPrebuiltShip`), under the pure guard (never twice: a vessel with the contract's
+# id or saved name reads `TargetPresent`).
+#
+# HOST (cs-career-mun4-vessel-repair, derived by harness/tools/build_cs_career_mun4_vessel_repair.py
+# from RSQ-1's cs-career-mun4, UT ~185734): one Offered stock VesselRepairContract
+# df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe (agent O.M.B. Demolition Enterprises, Kerbin orbit, craft
+# `Repair Contract Sat 9`, vessel `Damaged Kerbin AS-P Satellite NV5SQ`, offer until 228934), and
+# an R&D experimental count of evaRepairKit so the contract's requirement holds (the career has
+# not researched spaceExploration). Everything else is cs-career-mun4's to the byte.
+#
+# PLAN (RSQ-1's prefix and UTs):
+#   boot       LoadGame persistent at the Space Center; warp to 185800.
+#   H          a Jumping Flea on the pad, recorded to 185840, committed, recovered at its marker
+#              (so a Rewind-to-Launch has a launch before the accept to go back to).
+#   accept     warp to 185900; accept-contract df927e5a at the Space Center. Stock's own
+#              OnAccepted spawns the satellite in THIS timeline (`[ContractSystem]: Constructing
+#              Ship (`, no Parsek line).
+#   rewind     InvokeRewindToLaunch tree=latest: the rewind save holds the repair Offered and no
+#              satellite; the accept row is committed future.
+#   crossing   warp to 185920 at the Space Center: the clock cursor reaches the accept, the patch
+#              rebuilds the contract, plans `repair=SpawnPrebuiltShip` and
+#              `VesselRepairContract.OnAccepted` adds ONE vessel (`added=1`).
+#   reload     SaveGame ct3-01-after-crossing, LoadGame it with playerLoad=true (a Cold load at
+#              the Space Center): the save holds the contract Active and the satellite, so nothing
+#              is rebuilt and nothing spawned.
+#   warp 2     warp to 185980: no second satellite.
+#   save       the default slot (persistent), read by saveParse: exactly one vessel named
+#              `Damaged Kerbin AS-P Satellite NV5SQ` (`vesselNames`, report-only until the first
+#              green flight arms it).
+#
+# STEP SAVES (temporary analysis artifacts): ct3-01-after-crossing.
+#
+# PINNED LITERALS (read 2026-11-21 on branch test-gaps-contract-templates 0b230eafd):
+#   PatchContracts: accept-side world effect not run on rebuild: contractId='...' type='...'
+#     effect=... outcome=... worldMissing=... repair=... skip=... (<detail>; vessels=N scene=S)
+#                                                GameActions/KspStatePatcher.ContractAcceptEffects.cs
+#   detail "craft='<url>' vesselPid=N vesselName='<name>'"
+#                                                GameActions/ContractAcceptWorldEffects.cs DescribePrebuiltTarget
+#   PatchContracts: spawned prebuilt ship for rebuilt contract '...' through <Type>.OnAccepted:
+#     added=N ['<name>' pid=N crew=(...) parts=N live|saved] (craft='<url>'; vesselPid a -> b)
+#                                                KspStatePatcher.ContractAcceptEffects.cs SpawnRebuiltPrebuiltShip
+#   PatchContracts: prebuilt ship not spawned for '...' / <Type>.OnAccepted threw for rebuilt
+#     contract '...'                              same method
+#   PatchContracts: N rebuilt contract(s) name world objects ... repaired=N
+#                                                LogRestoredContractAcceptWorldEffectsSummary
+#   Rescue accept deferral listed: contractId='...'   GameActions/RescueAcceptDeferrals.cs
+#   Clock-crossing reached committed-future rows: crossed=N [<Type>@<UT>, ...]
+#                                                GameActions/LedgerOrchestrator.Recalculate.cs
+#   [ContractSystem]: Constructing Ship (<shipName>)   stock ContractSystem.ConstructShip (decompile)
+#
+# ASSUMPTIONS THE FIRST FLIGHT MUST CONFIRM (all read from the decompile, none flown):
+#   1. The offer survives to the accept: MeetRequirements reads the ExpParts count through
+#      partTechAvailable / partModelPurchased with spaceExploration absent from R&D.
+#   2. The install-relative `roverCraftDef` resolves through PreBuiltCraft.CraftByURL (it compares
+#      only the substring from the last `GameData`), so OnAccepted has a craft definition.
+#   3. The live accept stores the new vessel id before Parsek snapshots the accept, so the
+#      rebuild plans outcome=Regenerate (vesselPid != 0), not NoSpawnRecorded.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): 1 considered, not applied:
+# RSQ-1 flies the same prefix on cs-career-mun4, which holds no Offered construction or repair
+# contract, and a lane reaches a given rebuild once per rewind. 2 applied: every wait is an
+# explicit-UT WarpToUT. 3-5 n/a (no dwell, no burn, no coast). 6: `[retry] policy = "once"`.
+# 7: the recordings count pinned (RSQ-1's 35: 34 host recordings + H); vesselNames pinned to
+# the one satellite. 8-9 owed on the first flight.
+#
+# STATUS: AUTHORED 2026-11-21 (branch `test-gaps-contract-templates`), NEVER FLOWN.
+# =====================================================================================
+tier = "operator"
+description = "Vessel repair contract rebuilt at the Space Center after a rewind (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4): on cs-career-mun4-vessel-repair a committed pad Flea, then the repair of the damaged satellite (VesselRepairContract df927e5a, Kerbin orbit) accepted at the Space Center after its launch; a Rewind-to-Launch goes back before the accept, and the Space Center warp that reaches it rebuilds the contract and re-spawns the satellite through stock's own VesselRepairContract.OnAccepted, exactly once: a save, a Cold reload and a second warp add no second satellite, and the produced save holds one vessel of its name."
+instanceProfile = "stock-tree"
+tags = ["CT-3", "career", "ledger", "rewind", "rewind-to-launch", "contracts", "contract-accept",
+        "vessel-repair", "reading-run", "ksc-marker", "editor", "timeline-ops", "save-load"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4-vessel-repair"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 2 x 300 LoadGame + 5 x 120 warps + 120 GoToEditor + 180 LaunchFromEditor
+# + 180 StartRecording + 120 CommitTree + 120 ExitToSpaceCenter + 60 KscMarkerRecover + 60
+# KscAction + 300 rewind + 2 x 120 SaveGame = 2580; runtime 3300 adds the inert steps and
+# FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # ---- H: the Flea on the pad, recorded, committed, recovered at its marker ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185840" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ct3-h-committed" },                          expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${h.pid}" },                                 expect = "OK", budget = 60 },
+  # ---- the accept, after H's launch: stock spawns the damaged satellite in this timeline ----
+  { cmd = "WarpToUT",       args = { ut = "185900", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ct3-before-accept" },                        expect = "OK" },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "ct3-accepted" },                             expect = "OK" },
+  # ---- the rewind onto H's launch: the accept is committed future, no satellite in the world ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "ct3-rewound" },                              expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  # ---- the crossing at the Space Center: the rebuild re-spawns the satellite ----
+  { cmd = "WarpToUT",       args = { ut = "185920", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ct3-crossed" },                              expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "ct3-01-after-crossing" },                    expect = "OK", budget = 120 },
+  # ---- a Cold reload of that save and a second warp: no second satellite ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "ct3-01-after-crossing", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "ct3-reloaded" },                             expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185980", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ct3-second-warp" },                          expect = "OK" },
+  # The DEFAULT slot (persistent): the one saveParse reads.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["contracts", "recalc-engine", "ksp-state-patcher"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus H (RSQ-1's measured 35 on the same prefix and host payload).
+count = { min = 35, max = 35 }
+
+# REPORT-ONLY until the first green flight: the satellite exists exactly once. Zero means it was
+# never re-spawned; two means it was re-spawned twice (or the first timeline's copy survived the
+# rewind).
+[expectations.recordings.structure]
+vesselNames = { "Damaged Kerbin AS-P Satellite NV5SQ" = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required = [
+  # ---- the live accept at the Space Center, after H's launch: stock builds the satellite ----
+  "MISSIONMARK label=ct3-before-accept ut=(?:(?!MISSIONMARK label=ct3-accepted )[\\s\\S])*?\\[ContractSystem\\]: Constructing Ship \\(",
+  "MISSIONMARK label=ct3-before-accept ut=(?:(?!MISSIONMARK label=ct3-accepted )[\\s\\S])*?kscaction action=accept-contract target=df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe applied=true",
+  "MISSIONMARK label=ct3-accepted ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=ct3-rewound ut=1857[0-9]{2}\\.",
+
+  # ---- the crossing at the Space Center: the accept row reached, the contract rebuilt and its
+  # satellite re-spawned through stock's own OnAccepted, one vessel ----
+  "MISSIONMARK label=ct3-rewound ut=(?:(?!MISSIONMARK label=ct3-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@(?:18589|18590)[0-9]\\.",
+  "MISSIONMARK label=ct3-rewound ut=(?:(?!MISSIONMARK label=ct3-crossed )[\\s\\S])*?PatchContracts: accept-side world effect not run on rebuild: contractId='df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe' type='VesselRepairContract' effect=PrebuiltShip outcome=Regenerate worldMissing=True repair=SpawnPrebuiltShip skip=none \\(craft='[^'\\r\\n]*GameData/Squad/Contracts/PreBuiltCraft/RepairContract/Repair Contract Sat 9\\.craft' vesselPid=[1-9][0-9]* vesselName='Damaged Kerbin AS-P Satellite NV5SQ'; vessels=[0-9]+ scene=SPACECENTER\\)",
+  "MISSIONMARK label=ct3-rewound ut=(?:(?!MISSIONMARK label=ct3-crossed )[\\s\\S])*?PatchContracts: spawned prebuilt ship for rebuilt contract 'df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe' through VesselRepairContract\\.OnAccepted: added=1 \\['Damaged Kerbin AS-P Satellite NV5SQ' pid=[0-9]+ crew=\\(\\) parts=[1-9][0-9]* (?:live|saved)\\] \\(craft='[^'\\r\\n]*Repair Contract Sat 9\\.craft'; vesselPid [1-9][0-9]* -> [1-9][0-9]*\\)",
+  "MISSIONMARK label=ct3-rewound ut=(?:(?!MISSIONMARK label=ct3-crossed )[\\s\\S])*?PatchContracts: [1-9][0-9]* rebuilt contract\\(s\\) name world objects their stock accept created and this world lacked; repaired=[1-9]",
+
+  # ---- the Cold reload: the player's load of the save written after the crossing ----
+  "MISSIONMARK label=ct3-crossed ut=(?:(?!MISSIONMARK label=ct3-reloaded )[\\s\\S])*?loadgame start save=\\S+ name=ct3-01-after-crossing [^\\r\\n]*playerLoad=true",
+  "MISSIONMARK label=ct3-reloaded ut=[\\s\\S]*?MISSIONMARK label=ct3-second-warp ut=1859[0-9]{2}\\.",
+]
+forbidden = [
+  # The satellite is re-spawned once: a second spawn of this contract anywhere is the
+  # double-spawn the TargetPresent guard exists to stop.
+  "spawned prebuilt ship for rebuilt contract 'df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe'[\\s\\S]*spawned prebuilt ship for rebuilt contract 'df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe'",
+  # After the crossing the contract is never rebuilt-and-spawned again (the reload's save holds
+  # it Active, which the patch leaves alone).
+  "MISSIONMARK label=ct3-crossed ut=[\\s\\S]*repair=SpawnPrebuiltShip",
+  # At the Space Center the rebuild spawns at once, it never defers.
+  "Rescue accept deferral listed: contractId='df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe'",
+  # The reflection shell's failure lines.
+  "prebuilt ship not spawned for 'df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe'",
+  "VesselRepairContract\\.OnAccepted threw for rebuilt contract 'df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe'",
+  "accept-side world effect check for 'df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe' threw",
+  # Stock's spawn failures (the craft definition or the assembly).
+  "\\[ContractSystem\\] Failed to load vessel: ",
+  "Unable to Assemble Vessel :Damaged Kerbin AS-P Satellite NV5SQ",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 3300
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

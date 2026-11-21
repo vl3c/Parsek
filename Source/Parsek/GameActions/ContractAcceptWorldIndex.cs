@@ -35,6 +35,12 @@ namespace Parsek
     {
         internal readonly HashSet<uint> PartFlightIds = new HashSet<uint>();
         internal readonly HashSet<string> CrewAboard = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>Every vessel's persistent id (0 dropped): the prebuilt-ship guard's "is the
+        /// contract's craft in the world".</summary>
+        internal readonly HashSet<uint> VesselPersistentIds = new HashSet<uint>();
+        /// <summary>Every vessel's name (stock's own construction / repair <c>OnLoad</c>
+        /// fallback matches the craft by name).</summary>
+        internal readonly HashSet<string> VesselNames = new HashSet<string>(StringComparer.Ordinal);
         /// <summary>Distinct vessels, a vessel in both sources counted once.</summary>
         internal int VesselCount;
         /// <summary>Vessels only <c>FlightGlobals.Vessels</c> holds: created since
@@ -87,6 +93,10 @@ namespace Parsek
                     if (liveOnly)
                         index.LiveOnlyCount++;
                 }
+                if (f.PersistentId != 0u)
+                    index.VesselPersistentIds.Add(f.PersistentId);
+                if (!string.IsNullOrEmpty(f.Name))
+                    index.VesselNames.Add(f.Name);
                 // Flight id 0 is no real part (ShipConstruction.GetUniqueFlightID never draws
                 // it); Parsek's ghost map vessels carry one such part.
                 for (int i = 0; i < f.PartFlightIds.Count; i++)

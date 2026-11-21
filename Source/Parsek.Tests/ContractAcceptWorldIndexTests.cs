@@ -57,6 +57,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Index_HoldsEveryVesselsPersistentIdAndName_FromBothLists_DroppingPidZero()
+        {
+            World w = DebrisWorld();
+            var craft = Fact(new object(), Guid.NewGuid(), "Damaged Kerbin AS-P Satellite NV5SQ", true, 2817366511u);
+            w.Live.Add(craft);
+            w.Saved.Add(Fact(new object(), Guid.NewGuid(), "Ghostless", false, 0u));
+
+            ContractAcceptWorldIndex index = ContractAcceptWorldIndexer.Build(w.Saved, w.Live);
+
+            Assert.Contains(2817366511u, index.VesselPersistentIds);
+            Assert.Contains(1000u, index.VesselPersistentIds);
+            Assert.DoesNotContain(0u, index.VesselPersistentIds);
+            Assert.Contains("Damaged Kerbin AS-P Satellite NV5SQ", index.VesselNames);
+            Assert.Contains("Ghostless", index.VesselNames);
+            Assert.Contains("CS Mun Science Debris", index.VesselNames);
+        }
+
+        [Fact]
         public void Index_SeesAVesselStockCreatedThisScene_ThatFlightStateDoesNotHoldYet()
         {
             World w = DebrisWorld();
