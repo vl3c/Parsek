@@ -48,7 +48,7 @@ namespace Parsek.Tests
 
         private static Recording V2(Recording rec)
         {
-            rec.SplitRuleVersion = RecordingOptimizer.SplitRuleVersionCurrent;
+            rec.SplitRuleVersion = RecordingOptimizer.SplitRuleVersionPassRules;
             return rec;
         }
 
@@ -409,10 +409,11 @@ namespace Parsek.Tests
             var old = new Recording { RecordingId = "old", SplitRuleVersion = 1 };
             RecordingStore.AppendCommittedUnbumped(fresh);
             RecordingStore.AppendCommittedUnbumped(old);
-            Assert.Equal(2, fresh.SplitRuleVersion);
+            Assert.Equal(RecordingOptimizer.SplitRuleVersionCurrent, fresh.SplitRuleVersion);
+            Assert.Equal(3, RecordingOptimizer.SplitRuleVersionCurrent);
             Assert.Equal(1, old.SplitRuleVersion);
             Assert.Contains(logLines, l => l.Contains("[Optimizer]")
-                && l.Contains("stamped version 2 on rec=fresh at tree commit"));
+                && l.Contains("stamped version 3 on rec=fresh at tree commit"));
         }
 
         [Fact]
@@ -425,7 +426,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(resumed);
 
             Assert.Equal(1, RecordingOptimizer.StampSplitRulesForSave(tree, "active tree save"));
-            Assert.Equal(2, fresh.SplitRuleVersion);
+            Assert.Equal(RecordingOptimizer.SplitRuleVersionCurrent, fresh.SplitRuleVersion);
             Assert.Equal(1, resumed.SplitRuleVersion);
             Assert.Contains(logLines, l => l.Contains("on 1 recording(s) of tree live at active tree save"));
         }
@@ -435,26 +436,26 @@ namespace Parsek.Tests
         {
             var provisional = new Recording { RecordingId = "prov", MergeState = MergeState.NotCommitted };
             RecordingStore.AddProvisional(provisional);
-            Assert.Equal(2, provisional.SplitRuleVersion);
+            Assert.Equal(RecordingOptimizer.SplitRuleVersionCurrent, provisional.SplitRuleVersion);
         }
 
         [Fact]
         public void Codec_VersionAndRole_RoundTrip_AbsentKeyIsVersionOne()
         {
-            foreach (int version in new[] { 0, 1, 2 })
+            foreach (int version in new[] { 0, 1, 2, 3 })
             {
                 var rec = new Recording
                 {
                     RecordingId = "codec" + version,
                     SplitRuleVersion = version,
-                    SegmentRole = version == 2 ? "reentry" : null,
+                    SegmentRole = version >= 2 ? (version == 3 ? "circularization" : "reentry") : null,
                 };
                 var node = new ConfigNode("RECORDING");
                 RecordingTreeRecordCodec.SaveRecordingResourceAndState(node, rec);
-                Assert.Equal(version == 2, node.HasValue("splitRuleVersion"));
+                Assert.Equal(version >= 2, node.HasValue("splitRuleVersion"));
                 var back = new Recording();
                 RecordingTreeRecordCodec.LoadRecordingResourceAndState(node, back);
-                Assert.Equal(version == 2 ? 2 : 1, back.SplitRuleVersion);
+                Assert.Equal(version >= 2 ? version : 1, back.SplitRuleVersion);
                 Assert.Equal(rec.SegmentRole, back.SegmentRole);
             }
             var legacy = new Recording();
@@ -567,7 +568,7 @@ namespace Parsek.Tests
             Assert.Single(rows);
             Assert.Equal(0.0, rows[0].StartUT);
             Assert.Equal(2400.0, rows[0].EndUT);
-            Assert.Equal(3, rows[0].SplitRuleVersion);
+            Assert.Equal(RecordingOptimizer.SplitRuleVersionCurrent + 1, rows[0].SplitRuleVersion);
             Assert.Contains(logLines, l => l.Contains("[Optimizer]")
                 && l.Contains("held 1 recording(s) whole: split rules newer than this build"));
             Assert.Equal("newer-split-rules",
@@ -577,7 +578,7 @@ namespace Parsek.Tests
             RecordingTreeRecordCodec.SaveRecordingResourceAndState(node, rec);
             var back = new Recording();
             RecordingTreeRecordCodec.LoadRecordingResourceAndState(node, back);
-            Assert.Equal(3, back.SplitRuleVersion);
+            Assert.Equal(RecordingOptimizer.SplitRuleVersionCurrent + 1, back.SplitRuleVersion);
         }
 
         // The merge side: two rows of one chain cut under a newer version, with nothing else

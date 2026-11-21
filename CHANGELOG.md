@@ -30,6 +30,10 @@ Not released yet.
   touch-and-go and an SOI change in space add no rows. New rows are named by their part of the
   mission (ascent, space, aerobraking, reentry). Flights already on the timeline keep their rows,
   and a big mission is split in one go. (OPTIMIZER-SPLIT-RULES-V2)
+- **New flights also split where a burn changes the orbit.** Reaching orbit, leaving it for
+  another body, being captured and deorbiting each start a new row: circularization, orbit,
+  transfer, deorbit or descent. Small corrections stay inside their row, a trip between planets
+  stays one row, and flights already on the timeline keep their rows. (OPTIMIZER-SPLIT-RULES-V3)
 - **No Re-Fly on a flight a supply route uses.** Re-flying it would take the route's recorded
   trip away, so the Fly button is greyed out and its tooltip says to delete the route first.
   (REFLY-ROUTE-SOURCE-REFUSED)
