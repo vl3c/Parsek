@@ -114,8 +114,9 @@ this; its vessel is in that save).
    deferral listed: contractId='<id>' (rebuild scene=FLIGHT)`). The list is saved in the PARSEK node
    (`RESCUE_ACCEPT_DEFERRALS { contractId = <guid> }`, an additive child, no format bump) and each
    load takes the loaded save's copy (`LoadStateCategory.RescueAcceptDeferrals`: Save on Cold,
-   Re-Fly start and the three in-session kinds; Clear on a plain rewind and a Discard Re-fly, whose
-   OnLoad node is not the landed world's; a scene change reads the copy OnSave just wrote). A
+   Re-Fly start, the three in-session kinds, and a plain rewind and a Discard Re-fly, whose
+   persistent.sfs splice keeps the landed file's own list (RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD);
+   a scene change reads the copy OnSave just wrote). A
    non-empty list subscribes `KspStatePatcher.DrainRescueAcceptDeferrals` to stock's
    `onContractsLoaded` (stock fires it once a scene's contracts are loaded, and the contract patch
    fires it at its end). The drain, per listed id (`DecideDeferredRescueDrainStep`, first match):
@@ -168,8 +169,8 @@ The reflection shell and the drain have no headless or in-game test; the PC lane
 accept snapshot names the snapshot's stale part id (the snapshot is never rewritten), so its part
 parameter cannot complete; reaching that needs a second rebuild of a contract whose regenerated
 vessel survived, which a rewind to before the accept does not produce (that world lacks both
-targets and regenerates afresh). A Discard Re-fly clears the deferral list; a rescue the rewind
-point's own save had deferred and that is still Active in the landed world is not regenerated.
+targets and regenerates afresh). The rescue a rewind save or rewind point had deferred is closed by
+~~RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD~~.
 
 **PC lane (owed).** On cs-career-mun4 (RecoverAsset `e8ba5ea6`, Rayvan Kerman, low Kerbin orbit,
 Offered, Rayvan Unowned in the roster), RW-10's shape: launch and commit a pad Flea, at the Space
@@ -185,9 +186,9 @@ Cold): pending=1`), and the next Space Center scene must log `Rescue accept defe
 contractId='e8ba5ea6-... outcome=Regenerate repair=RegenerateStrandedAsset`, the `regenerated
 stranded asset` line with `added=1` and `drained (onContractsLoaded, scene=SPACECENTER):
 evaluated=1 regenerated=1`; a second Space Center visit must add nothing (`pending=0`).
-## RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD: a rescue the landed save already holds Active with its stranded vessel missing is not regenerated after a plain rewind or Discard Re-fly [FILED 2026-11-20 from the batch-1 re-review of the CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS follow-up; low (needs a rescue rebuilt in Flight before a rewind save or rewind point was written, then a rewind or Discard Re-fly to that save)]
+## ~~RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD~~: a rescue the landed save already holds Active with its stranded vessel missing is not regenerated after a plain rewind or Discard Re-fly [FILED 2026-11-20 from the batch-1 re-review of the CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS follow-up; FIXED 2026-11-21 on branch `test-gaps-rescue-rewind` (xUnit; lane owed, RSQ-3); low (needs a rescue rebuilt in Flight before a rewind save or rewind point was written, then a rewind or Discard Re-fly to that save)]
 
-**What happens.** `RESCUE_ACCEPT_DEFERRALS` describes the world of the `.sfs` that carries it. A plain rewind's OnLoad
+**What happened.** `RESCUE_ACCEPT_DEFERRALS` describes the world of the `.sfs` that carries it. A plain rewind's OnLoad
 node is persistent.sfs carrying the session's PARSEK node, and a Discard Re-fly's is the session's node carried around
 the rewind point's world, so both loads clear the list (`LoadReconcilePolicy.DecideRescueAcceptDeferrals`). When the
 rewind save (written at launch) or the rewind point (written at a separation) already holds the rescue Active with its
@@ -199,6 +200,28 @@ A missed regeneration, never a duplicate.
 rewind point file), or re-derive pending ids at the landed Space Center for rescues whose accept snapshot the ledger
 holds and whose target is absent, with the same guards. Owner rulings 2026-11-20 also leave the related
 `KerbalNotInRoster` case as an accepted gap (the kerbal is never recreated).
+
+**Fix (2026-11-21).** The first direction. Both loads already write the landed file to persistent.sfs
+through one splice, `RevertInterceptor.SpliceLiveParsekScenarioNode` (plain rewind:
+`RewindLauncher.WriteRewindGameAsPersistent`; Discard Re-fly: `WriteRewindPointGameAsPersistent`), which
+carries the session's PARSEK node but keeps the landed file's own `STOCK_POOL_REFERENCE` and ledger
+held-through UT. It now keeps the landed file's own `RESCUE_ACCEPT_DEFERRALS` the same way (none when it
+had none, so a session-only deferral describing the abandoned world is dropped), logging
+`persistent.sfs splice kept the landed save's own RESCUE_ACCEPT_DEFERRALS: landed=N session=M` on the
+`RewindSave` tag. The OnLoad node then carries the landed world's list, so the PlainRewind and DiscardReFly
+cells of `LoadReconcilePolicy.DecideRescueAcceptDeferrals` are now `Save` (no OnLoad body change; the
+token golden is untouched). No double spawn: the drain re-plans each id against the landed world (target
+present or half present, committed resolution, reserved kerbal, ledger accepted by the landed clock),
+drops it when stock or the ledger no longer holds it Active, and an id the landed Space Center's patch
+rebuilds leaves the list there. A failed splice or write lands on the session's last persistent.sfs, whose
+own node carries that world's list. Tests: `RescueAcceptDeferralsTests` (policy cells,
+`LoadPolicy_RewindAndDiscardCells_NameTheSplice`, `Splice_KeepsTheLandedSavesOwnList_NotTheSessions`,
+`Splice_LandedSaveWithoutAList_DropsTheSessions`, `Splice_Refused_LeavesTheLandedListUntouched`), red on
+the pre-fix code (6 cells). Owed: a lane (RSQ-3) that builds the deferral in Flight, saves a rewind point or
+rewind save with it, then rewinds / discards and shows `landed=1`, `Rescue accept deferrals installed (load
+PlainRewind): pending=1` (or `DiscardReFly`), the `Rescue accept deferral evaluated: ... outcome=Regenerate`
+line, `regenerated stranded asset ... added=1` and `drained (onContractsLoaded, scene=SPACECENTER):
+evaluated=1 regenerated=1`.
 
 ## ~~SAVE-FREEZE-ON-MISSING-SIDECAR~~: one recording whose sidecar cannot be written froze its whole tree in every later save [FILED 2026-11-18 by code reading (test-gap pass, branch `test-gaps-savefreeze`); CONFIRMED 2026-11-20 by two red xUnit cells on the pre-fix code. FIXED 2026-11-20, same branch; xUnit; ST-4 re-pinned by code read, re-flight owed; high (silent loss of every later change to the tree; the sidecars of recordings the save no longer named were left as orphans on disk)]
 

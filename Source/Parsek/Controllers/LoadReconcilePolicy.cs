@@ -1224,14 +1224,22 @@ namespace Parsek
             "ParsekScenario.LoadRescueAcceptDeferrals -> RescueAcceptDeferrals.LoadFrom installs the loaded node's "
             + "RESCUE_ACCEPT_DEFERRALS: the rescues Active in the save's world whose stranded vessel that world lacks";
 
+        private const string RescueAcceptDeferralsSpliceKeepsLanded =
+            "; the OnLoad node is persistent.sfs carrying the session's node around the landed world, but "
+            + "RevertInterceptor.SpliceLiveParsekScenarioNode keeps the landed file's own RESCUE_ACCEPT_DEFERRALS "
+            + "(none when it had none), so the loaded copy is the landed world's; the drain re-plans each id against "
+            + "that world (target present or half present, committed resolution, reserved kerbal, ledger accepted by "
+            + "the landed clock) and an id the landed Space Center's patch rebuilds leaves the list there, so nothing "
+            + "is regenerated twice";
+
         // Todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS (owner ruling 2026-11-20): the list
-        // describes the world of the .sfs that carries it, so every load whose node is that world's
-        // takes the loaded copy (a scene change reads the copy OnSave just wrote). A plain rewind's
-        // OnLoad node is persistent.sfs carrying the session's node, and a Discard Re-fly's carries
-        // the session's node around the rewind point's world: neither describes the landed world,
-        // so both clear it. The landed Space Center's own contract patch regenerates what it
-        // rebuilds there; a rescue the landed save already holds Active with its vessel missing
-        // (its own list named it) is todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD.
+        // describes the world of the .sfs that carries it, so every load takes the loaded copy (a
+        // scene change reads the copy OnSave just wrote). A plain rewind's and a Discard Re-fly's
+        // OnLoad node is the session's node spliced around the landed world, and the splice keeps
+        // the landed file's own list (todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD), so a rescue the
+        // rewind save or the rewind point already held Active with its vessel missing is
+        // regenerated at the landed Space Center. A failed splice or write lands on the session's
+        // last persistent.sfs, whose own node (written with that world) carries its own list.
         private static LoadReconcileDecision DecideRescueAcceptDeferrals(LoadKind kind)
         {
             switch (kind)
@@ -1240,16 +1248,13 @@ namespace Parsek
                 case LoadKind.ReFlyStart:
                     return Today(LoadReconcileAction.Save, RescueAcceptDeferralsFromSave);
                 case LoadKind.PlainRewind:
-                    return Today(LoadReconcileAction.Clear,
-                        "cleared in the prologue: the node is persistent.sfs carrying the session's node, not the rewind "
-                        + "save's world; a rescue the patch rebuilds in the landed Space Center regenerates there, but "
-                        + "one the rewind save already holds Active with its vessel missing is skipped as existing "
-                        + "(todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD)");
+                    return Today(LoadReconcileAction.Save,
+                        RescueAcceptDeferralsFromSave + RescueAcceptDeferralsSpliceKeepsLanded
+                        + " (the rewind save's, through RewindLauncher.WriteRewindGameAsPersistent)");
                 case LoadKind.DiscardReFly:
-                    return Today(LoadReconcileAction.Clear,
-                        "cleared in the prologue: the node is the session's, carried around the rewind point's world, so "
-                        + "a rescue the rewind point's own save had deferred is not regenerated "
-                        + "(todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD)");
+                    return Today(LoadReconcileAction.Save,
+                        RescueAcceptDeferralsFromSave + RescueAcceptDeferralsSpliceKeepsLanded
+                        + " (the rewind point's, through RevertInterceptor.WriteRewindPointGameAsPersistent)");
                 // Consumed in the prologue, before the revert detector: one cell for all three.
                 case LoadKind.StockRevert:
                 case LoadKind.QuickloadFlight:

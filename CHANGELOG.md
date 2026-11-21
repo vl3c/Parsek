@@ -54,6 +54,10 @@ Not released yet.
   again (at your next Space Center or Tracking Station visit if you are flying then), and tourism
   passengers become tourists again, unless your recorded future already ends that contract.
   (CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS)
+- **A stranded rescue vessel still appears after a rewind or a discarded Re-fly.** When the moment
+  you went back to was already waiting to bring back a rescue's stranded kerbal or part, it now
+  appears at your next Space Center visit instead of never, so the contract can still be finished.
+  (RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD)
 - **One missing recording file no longer stops a mission from saving.** When one recording of a
   mission had lost its file, every later save kept that mission exactly as it was before:
   new flights in it, renames and other changes were silently not saved. The mission now saves
