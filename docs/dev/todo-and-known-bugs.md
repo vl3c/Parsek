@@ -254,6 +254,14 @@ Flown (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, D
 - V23M: PARSEK-FAIL(expectation) on its new FlightGhostPosition step only: the stock wheel NRE storm aborts the batch at `total=2` (FLIGHT-GHOST-POSITION-LANES-2026-11-20; the step was dropped 2026-11-21 by owner ruling, V23M is back to its previously green shape).
 
 Report-only readings recorded, no block armed (an owner decision): STR-3 `rewindPointFiles=1 unlistedRewindPointFiles=1` (REVERT-LEAVES-REWIND-POINT-FILE, fixed 2026-11-21 by owner ruling: the revert now deletes the file; STR-3's re-flight owed); RSQ-1 / RSQ-2 `crewAboard` `Rayvan Kerman = 1` (in the final saves); VN-14 `legsRenamed=0` on the cold apply pass; SURV-2 no rewind point as predicted, but its structure block reads both recordings Destroyed (SURVIVOR-DESTROYED-AT-SCENE-EXIT, fixed 2026-11-21: an unloaded survivor is now read from its proto parts; SURV-2's re-flight owed).
+## ~~GHOST-LADDER-SPAWNS-DEPLOYED~~: a stowed retractable ladder is drawn extended on its ghost [FILED 2026-11-21 from the part ghost parity sweep (harness run `2026-11-21_1645` on stock-minimal, branch `part-parity-p2`, control `ctl-ghost-missing-mesh`; evidence in `<umbrella>/logs/flights/pp1-ladder-evidence-2026-11-21/`), owner confirms every ladder ghost in play; confirmed by decompile; FIXED 2026-11-21, branch `ghost-ladder-stowed`; xUnit `RetractableLadderGhostPoseTests`; in-game `LadderGhost` (never run); NOT FLOWN; medium (visual only, on every craft with a ladder)]
+
+What: the one-part `telescopicLadder` spawned in orbit shows only the retracted cover (box 0.571x0.224x0.630), and its ghost built from that vessel's own snapshot shows the bay and the ladder fully out (box 0.651x1.535x0.630; side-b coverage 11613 px real vs 29500 px ghost). Stock `RetractableLadder` (KSP 1.12.5, decompiled) holds its `ladderRetractAnimationName` clip at `normalizedTime = 1` in `st_retracted` and `0` in `st_extended` (extending plays it at speed -1, retracting at +1), and the model's rest pose is the extended ladder. `GhostVisualBuilder.SampleLadderStates` scores the two clip ends and calls the one closer to the rest pose "stowed", so for this module it picked time 0, the extended pose (`Ladder 'telescopicLadder': sampled 13 animated transforms from 'Retract' (stowed=time0)`). The spawn baseline (`PopulateDeployableInfos`) then stowed every ladder to that pose, which is extended. The seeder (`PartStateSeeder.SeedLadders`) only seeds an already-deployed ladder, so a stowed one never got an event to fix it.
+
+Fix (build-time, so every existing recording heals). The `RetractableLadder` branch of `TryBuildDeployableInfo` now samples through `SampleRetractableLadderStates`, at stock's fixed rest-state times (`RetractableLadderRetractedNormalizedTime = 1` stowed, `RetractableLadderExtendedNormalizedTime = 0` deployed, no scoring; its own cache key, one Verbose line naming the endpoints). The other families that share `SampleLadderStates` (animation group, standalone animate-generic, robot-arm scanner, the Breaking Ground deployed-science parts) keep the scoring. The snapshot baseline now reads stock's persisted `RetractableLadder.StateName` (`isPersistant`; an inventory store forces `Retracted`): `Extended` -> `ladderExtended = true`, `Retracted` -> false, `Extending` / `Retracting` / unreadable -> no opinion, still suppressing the standalone animate-generic read; the resolver ranks it after explicit deploy state and gear and before the cargo bay. So a ghost built from a snapshot with the ladder out (a split tip, a continuation, a part parity capture: no seed event) spawns out too. Mirror direction: a ladder extended at the recording start still gets its `DeployableExtended` seed and shows extended (deployed pose = clip time 0, the extended pose), and recorded extend / retract events animate between the two corrected poses; the loop-cycle reset re-stows and re-applies the snapshot baseline as before.
+
+Proof owed: the in-game cell `LadderGhost` (`RetractableLadderGhostSpawnsInTheSnapshotState`) builds `telescopicLadder` and `telescopicLadderBay` ghosts from a `Retracted` and an `Extended` snapshot through the real spawn pipeline and asserts the retracted mesh box diagonal is under 0.8 of the extended one. Not run yet; the part parity lane `PP-1-part-parity-stock` (PR #2741, unmerged) would read the control's iou.
+
 ## ~~GHOST-SHROUD-EMPTY-BOTTOM-NODE~~: the ghost draws an engine shroud the real craft hides because nothing is attached below the engine [FILED 2026-11-21 from the part ghost parity P0 capture spike (`PPS-0a` `2026-11-21_1242`, `PPS-0b` `2026-11-21_1244`, throwaway branch `part-parity-spike`), confirmed by decompile; FIXED 2026-11-21, branch `ghost-shroud-empty-bottom`; xUnit `GhostShroudEmptyBottomNodeTests`; LIVE-PROVEN 2026-11-21 on the spike lanes (fix merged locally into `part-parity-spike`, never pushed): `PPS-0a` `2026-11-21_1327` PASS, LV-T45 iou 1.0000 xor=0 in all four views, and `PPS-0b` `2026-11-21_1329` PASS, ReStock Size1 LV-T45 iou 0.975-0.997 with equal coverage (xor 4-30 px of about 1200, edge aliasing at the spike's 10 m framing); every other case unchanged; medium (visual only, but on the commonest rocket shape: the bottom engine of a stack)]
 
 What: a one-part LV-T45 (stock, and ReStock Size1) shows the bare engine on the real side and a solid shroud on its ghost (`pps-liquidengine2-side-a-real.png` / `-ghost.png`, side-view iou 0.40-0.54). Stock `ModuleJettison.SetupJettisonState` (KSP 1.12.5, decompiled) deactivates the jettison transform when `FindAttachNode(bottomNodeName).attachedPart == null` and `ignoreNodes` is off, without setting `isJettisoned`. `GhostVisualBuilder` (`PartInfoBuilders.cs`, the jettison resolver) forces every jettison transform active and leaves hiding to `ShroudJettisoned` events, and `PartStateSeeder.SeedJettisons` seeds only `isJettisoned = True`, so no event hides it. Any recorded vessel whose bottom engine has nothing below plays back with a shroud.
@@ -427,7 +435,7 @@ Mirror check: S1.8's `SoiCrossingPlaybackInGameTests.SoiSeamWorldPositionsAreCon
 
 Owed: SOI-3's re-flight on a DLL from this branch; expected `bg probe seam Mun->Kerbin ut=1317.090 gap=<1 m (tolerance 1000m, both sides at the seam UT) kerbinEpoch=1316.656 seamMinusKerbinEpoch=0.434s munSideFromMun=2429672m` (the seam UT moves if the warp lands the event on another frame).
 
-## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; FIX 2026-11-21, same branch: the regeneration's witness and the double-spawn world index read the live vessels too (RESCUE-REGEN-COUNTS-PROTOVESSELS), xUnit only; the PC lanes RSQ-1 / RSQ-2 / RSQ-3 / RSQ-4 LIVE-PROVEN 2026-11-21 (TEST-GAPS-BATCH3-FLIGHTS-2026-11-21); OPEN: the prebuilt-ship / experimental-part templates (measure first, item 4); high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
+## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; FIX 2026-11-21, same branch: the regeneration's witness and the double-spawn world index read the live vessels too (RESCUE-REGEN-COUNTS-PROTOVESSELS), xUnit only; the PC lanes RSQ-1 / RSQ-2 / RSQ-3 / RSQ-4 LIVE-PROVEN 2026-11-21 (TEST-GAPS-BATCH3-FLIGHTS-2026-11-21); FIXED 2026-11-21 (prebuilt ship, experimental part; item 4), branch `test-gaps-contract-templates`, measured from the decompile, xUnit only; every stock template surveyed, nothing else left; OWED: lanes CT-2 and CT-3 (authored 2026-11-21, never flown; CT-3 on the derived fixture `cs-career-mun4-vessel-repair` is the prebuilt-ship spawn's live proof); high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
 
 **What happens.** The player accepts a rescue contract (`Contracts.Templates.RecoverAsset`) at UT
 T, rewinds to before T, and the clock reaches T again. `KspStatePatcher.PatchContractsCore`
@@ -448,7 +456,7 @@ kerbal is not expunged. Result: an Active rescue naming a kerbal no vessel holds
 tourist (created Unowned / Assigned at offer) into a Tourist and Available, so after the rebuild
 the tourists stay Unowned and cannot be seated; `OrbitalConstructionContract`,
 `RoverConstructionContract` and `VesselRepairContract` call `ContractSystem.SpawnPreBuiltShip`
-(the snapshot also carries `waitingForVslSpawn`); `PartTest` makes the part experimental
+(the snapshot carries the spawned vessel's id, never `waitingForVslSpawn`: see item 4); `PartTest` makes the part experimental
 (`ResearchAndDevelopment.AddExperimentalPart`). `BaseContract`, `SatelliteContract`,
 `StationContract` and `GrandTour` only stamp a launch id into a parameter the snapshot carries.
 Nothing else in Parsek re-creates any of these (grep `RecoverAsset`, `OnAccepted`,
@@ -543,9 +551,107 @@ this; its vessel is in that save).
    not recreated. Owner ruling 2026-11-20: when the committed timeline completes, fails or cancels
    the contract (the same `CommittedResolution` fact the rescue side reads), nobody is converted and
    the line reads `skip=CommittedResolution`.
-4. Prebuilt ship and experimental part: still detection only; measure first (does
-   `SpawnPreBuiltShip` finish for a rebuilt contract with `waitingForVslSpawn = True`; does R&D keep
-   the experimental part across the rewind).
+4. Prebuilt ship and experimental part (FIXED 2026-11-21, branch `test-gaps-contract-templates`).
+   Measured from the decompile (`logs/decompile/2026-10-26_full/`, KSP 1.12.5):
+   - Construction / repair (`OrbitalConstructionContract`, `RoverConstructionContract`,
+     `VesselRepairContract`). `OnAccepted` builds a `VesselSituation` from the contract's own
+     saved values (body, the orbit regenerated from the mission seed, the rover / repair start
+     lat / lon, the vessel name), sets `waitingForVslSpawn` and calls
+     `ContractSystem.SpawnPreBuiltShip`; nothing else. `SpawnPreBuiltShip` is
+     `StartCoroutine(ConstructShip(...))` and `ConstructShip` has no `yield return`, so the craft
+     is assembled (`ShipConstruction.AssembleForLaunch`), added (non-FLIGHT branch:
+     `protoVessels.Add` + `ProtoVessel.Load`) and announced (`onContractPreBuiltVesselSpawned`)
+     inside the accept, and the contract's handler (subscribed in `OnRegister`) stores the vessel's
+     persistent id (`constructionVslId` / `roverVslId` / `repairVslId`) before `onAccepted` fires.
+     So the accept snapshot names the first timeline's vessel id. `waitingForVslSpawn` is NEVER
+     saved or loaded (OnSave / OnLoad do not name it), so the premise of the old question is wrong:
+     a rebuilt contract has it false and never spawns on its own. Its `OnLoad` looks the id up and
+     falls back to a vessel of the saved (or seed-derived) name; after a rewind to before the accept
+     neither exists, so the Active contract names a vessel nobody can reach and fails at its
+     deadline (`OnVesselDestroy` never fires for it).
+   - Part test (`PartTest`). `OnAccepted` sets `PartIsExperimental = !purchased || experimental`
+     and, when set, calls `ResearchAndDevelopment.AddExperimentalPart` (a per-part COUNT in R&D's
+     `ExpParts` node; `RemoveExperimentalPart`, run by `OnFinished` and on purchase, decrements and
+     is a no-op when the part is absent). The snapshot carries `exp = True` when the accept added
+     one. R&D is not ledger state: the rewind save's `ExpParts` lacks the count, so after the
+     rebuild the player cannot build with the part (`PartModelPurchased` / `PartTechAvailable` read
+     the count). Parsek's committed-outcome retirement removes a contract without `OnFinished`, so
+     a count added for a contract the committed timeline resolves would never be taken back.
+   Fix, the rescue pattern (pure `ContractAcceptWorldEffects.Plan`, a guard, logging):
+   - `PrebuiltShipDecision` (first match): `NotReadable` (no craft definition), `NoSpawnRecorded`
+     (vessel id 0: the first accept built nothing), `TargetPresent` (a vessel with the id, or with
+     the saved name, in `flightState.protoVessels` or `FlightGlobals.Vessels`; the index now holds
+     every vessel's persistent id and name), `CommittedResolution`, `VesselRecordedByCommittedFlight`
+     (an ERS recording's `VesselPersistentId` is the contract's vessel id,
+     `CommittedFutureIndexCache.CommittedFlightRecordsVessel`; a `ConstructShip` pid is drawn with
+     `GetUniquepersistentId`, not craft-baked), `Regenerate`. The guard reads the LIVE rebuilt
+     contract's save (stock's OnLoad has already re-pointed the id at a same-named vessel). On
+     `Regenerate` in SPACECENTER only (`IsPrebuiltShipSpawnScene`; stock's own accept runs at
+     Mission Control, the Tracking Station path is unproven) the shell invokes the contract's own
+     `OnAccepted` by reflection (`repair=SpawnPrebuiltShip`): the same situation, so the same orbit
+     or site and name as the first timeline, a new persistent id, which the contract's handler
+     stores. Any other scene plans `DeferPrebuiltShip` (`skip=scene=<scene>`) and lists the id in
+     `RescueAcceptDeferrals` (same node, ids only; the drain dispatches by the live contract's type
+     and keeps a construction id until the Space Center, `DecideDeferredRescueDrainStep(effect, ...)`).
+     Lines: `PatchContracts: spawned prebuilt ship for rebuilt contract '<id>' through
+     <Type>.OnAccepted: added=N [...] (craft='<url>'; vesselPid a -> b)`, `Rescue accept deferral
+     evaluated: contractId='<id>' type='<Type>' outcome=... repair=...`, and the Warn lines
+     `prebuilt ship not spawned for '<id>'` / `<Type>.OnAccepted threw`. Double-spawn guards: the
+     spawned craft is live at once and the contract names it (TargetPresent by id); a later rebuild
+     from the old snapshot finds it by name (stock's OnLoad, and the index); a drained id leaves the
+     list whatever it decides. When the re-run `OnAccepted` adds no vessel (`ConstructShip` returns
+     early on a missing craft file or launch site, or it throws), the shell clears the contract's
+     protected `waitingForVslSpawn` (`ContractAcceptWorldEffects.ClearPrebuiltSpawnWait`, Warn
+     `prebuilt ship not spawned ... waitingForVslSpawn outcome=cleared`), because a flag left set
+     makes the contract adopt the next prebuilt craft any other contract spawns.
+   - `ExperimentalPartDecision` (first match): `NotReadable`, `NotExperimentalAtAccept`
+     (`exp = False`), `RnDNotReadable` (R&D not loaded or its private `experimentalPartsStock` map
+     unreadable), `Present` (R&D's count >= 1 + the other Active PartTests of the same part with
+     `PartIsExperimental`, matched by `PartName` as stock's `OnPartResearched` does; also the
+     double-add guard, since stock counts and never dedups), `PartPurchased` (stock's accept in this
+     world would add nothing), `CommittedResolution`, `Add`. On `Add`, any scene: one
+     `ResearchAndDevelopment.AddExperimentalPart`, `PatchContracts: experimental part '<part>' of
+     rebuilt contract '<id>' added to R&D the way PartTest.OnAccepted does: count a -> b`. A
+     contract the patch later retires on its committed outcome keeps the count only if no committed
+     outcome existed when it was rebuilt (that case reads `CommittedResolution`).
+   Tests: `ContractAcceptWorldEffectsTests` 90 cases, `ContractAcceptWorldIndexTests` 10. Red before
+   the fix with Plan's two new branches stubbed to the old `outcome=unchecked`: 27 failures, e.g.
+   `RebuiltRepairContract_InTheRewindSaveWorld_AtTheSpaceCenter_SpawnsItsCraft` and
+   `RebuiltPartTest_InTheRewindSaveRnD_AddsItsExperimentalPart_InAnyScene` (`Assert.Equal() Failure`
+   Expected `Regenerate` / `Add`, Actual `unchecked`). The reflection shells have no headless test:
+   lane `CT-2-parttest-rebuilt-experimental-part` (cs-career-mun3, stock-tree, authored 2026-11-21,
+   never flown) is the experimental part's live proof. The prebuilt spawn's is lane
+   `CT-3-vessel-repair-rebuilt-at-space-center` (stock-tree, authored 2026-11-21, never flown) on the
+   derived fixture `cs-career-mun4-vessel-repair` (`harness/tools/build_cs_career_mun4_vessel_repair.py`,
+   drift cells `harness/lib/test_cs_career_mun4_vessel_repair.py`): RSQ-1's `cs-career-mun4` plus one
+   Offered stock `VesselRepairContract` `df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe` (the dev career `c1`'s
+   saved node, guid re-keyed, offer extended, `roverCraftDef` written install-relative, which
+   `PreBuiltCraft.CraftByURL` resolves from the last `GameData`; craft `Repair Contract Sat 9`, Kerbin
+   orbit, vessel `Damaged Kerbin AS-P Satellite NV5SQ`) and an R&D `ExpParts { evaRepairKit = 1 }`:
+   `MeetRequirements` is `PartModelPurchased(evaRepairKit)`, the career lacks spaceExploration, and
+   with the node absent stock reads the experimental count (a hand-added tech node or purchased part
+   would be taken back by the ledger's tech / part patches). The lane accepts at the Space Center,
+   rewinds onto a committed pad Flea and pins `repair=SpawnPrebuiltShip`, the `spawned prebuilt ship
+   ... through VesselRepairContract.OnAccepted: added=1` line, no second spawn after a Cold reload
+   and one vessel of the satellite's name (report-only). Its first flight must confirm three
+   decompile-read premises: the offer survives on the experimental count, the relative craft URL
+   resolves, and the accept snapshot carries the spawned vessel id (`vesselPid` != 0, else the
+   rebuild reads `NoSpawnRecorded`). Construction contracts (orbital, rover) stay xUnit-only: their
+   requirements are tech nodes (advConstruction / advExploration) the ledger would re-lock.
+
+   Survey of every stock contract template (2026-11-21, decompile; `Contract.SetState(Active)` runs
+   `Register`, `ContractSystem.AdjustWeight` (generation weights only), `AwardAdvance` (the
+   ledger's), `OnAccepted`, `onAccepted.Fire`; the only stock `onAccepted` subscribers are UI lists):
+   | Template | OnAccepted world effect | Decision |
+   | --- | --- | --- |
+   | `RecoverAsset` | stranded vessel (`Game.AddVessel`) | regenerated (items 1-1a) |
+   | `TourismContract` | tourists Unowned -> Tourist, Available | converted (item 3) |
+   | `OrbitalConstructionContract`, `RoverConstructionContract`, `VesselRepairContract` | craft via `SpawnPreBuiltShip` | re-spawned / deferred (item 4) |
+   | `PartTest` | `AddExperimentalPart` | count re-added (item 4) |
+   | `BaseContract`, `SatelliteContract`, `StationContract`, `GrandTour` | `launchID` into `VesselSystemsParameter` | none: a parameter field the snapshot carries |
+   | `CollectScience`, `PlantFlag`, `ARMContract`, `CometSampleContract`, `ExplorationContract`, `ISRUContract`, `SurveyContract`, `SentinelContract`, `CometDetectionContract` | no `OnAccepted` override | none |
+   | Breaking Ground (`DeployedScienceContract`, `ROCScienceArmContract`, `ROCScienceRetrievalContract`; in Assembly-CSharp) | no `OnAccepted` override | none |
+   | Making History | ships no contract template (its missions are not contracts; the dev install's `GameData/SquadExpansion` holds no DLL) | none |
 
 Tests: `ContractAcceptWorldEffectsTests` (45 cases). Red before the fix with the repair assignments
 and the `KerbalNotUnowned` guard stubbed out: 5 failures, e.g.
@@ -566,7 +672,14 @@ accept snapshot names the snapshot's stale part id (the snapshot is never rewrit
 parameter cannot complete; reaching that needs a second rebuild of a contract whose regenerated
 vessel survived, which a rewind to before the accept does not produce (that world lacks both
 targets and regenerates afresh). The rescue a rewind save or rewind point had deferred is closed by
-~~RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD~~.
+~~RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD~~. A re-spawned construction / repair craft has a new
+persistent id while the accept snapshot keeps the first one; a later rebuild of the same contract
+finds the craft by name (stock's own OnLoad fallback and the index's name set), so a player rename
+of that craft would let a second rebuild spawn a second one (needs a rename, a survival of the craft
+and a second rebuild). Experimental counts are stock R&D state outside the ledger: a contract the
+patch takes off the active list in-session without stock's `OnFinished` (the accepted-later
+removal) leaves its count behind, as it already did for a live accept; the Present guard keeps a
+rebuild from adding on top of such a count.
 
 **PC lanes (authored 2026-11-20, never flown; branch `test-gaps-b3-rescue-lane`).** Both on
 cs-career-mun4 (RecoverAsset `e8ba5ea6`, Rayvan Kerman, low Kerbin orbit, Offered, Rayvan Unowned
@@ -2160,7 +2273,7 @@ From the 2026-11-18 test-gaps list (Batch 2, the cheap lane items). All stock-mi
 
 Flown 2026-11-20 (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): STR-3 `2026-11-20_2256` and KB-5 `2026-11-20_2323` green on the first flight; S0.16 green on its second (`2026-11-20_2341`) after one SPEC fix (its first flight, `_2309` / `_2310_a2`, was INVALID: the click back 2.3 s after the F9 met `Active Vessel is under acceleration (G = 0.51)` and stock refused the switch, so a 1x settle to UT 430 was added); VN-14 `2026-11-20_2314` green (`legsRenamed=0` on the cold apply pass). STR-3's report-only facets read `rewindPointFiles=1 unlistedRewindPointFiles=1` (`rewindPoints=0`): the reverted point's quicksave outlives the revert, because step B dropped the point (`FollowSave:dropped-memory-only`) and the collector skipped `rate-limited` in-session and `zero-known-ids` on both cold loads. Owner question: should a revert collect it sooner (a 1 is design 4.5's keep-until-a-named-collection), or is the facet window 1? The block stays unarmed.
 
-## TEST-GAPS-B3-REFLY-F5-AND-CRASH-SURVIVOR: four lanes for an F5 inside a Re-Fly and for a crash that leaves a second controllable piece [FILED 2026-11-20 from the test-gap list of 2026-11-18 (Batch 3, two high-priority rows), branch `test-gaps-b3-refly-f5`, harness only, no C# change; all four FLOWN GREEN 2026-11-20; SURV-2's report-only reading found SURVIVOR-DESTROYED-AT-SCENE-EXIT (fixed, LIVE-PROVEN 2026-11-21); the four lanes' report-only blocks armed 2026-11-21 by owner ruling; OPEN: the one owner question]
+## ~~TEST-GAPS-B3-REFLY-F5-AND-CRASH-SURVIVOR~~: four lanes for an F5 inside a Re-Fly and for a crash that leaves a second controllable piece [FILED 2026-11-20 from the test-gap list of 2026-11-18 (Batch 3, two high-priority rows), branch `test-gaps-b3-refly-f5`, harness only, no C# change; all four FLOWN GREEN 2026-11-20; SURV-2's report-only reading found SURVIVOR-DESTROYED-AT-SCENE-EXIT (fixed, LIVE-PROVEN 2026-11-21); the four lanes' report-only blocks armed 2026-11-21 by owner ruling; the owner question CLOSED 2026-11-20 by owner ruling (no Re-Fly point)]
 
 Lanes (all `stock-minimal`, tier nightly, rewind / structure blocks report-only until a reading run):
 
@@ -2192,10 +2305,14 @@ could not be re-flown out of its own death, so this reads as correct; a crash wh
 first and one dies after the 0.5 s window authors a two-slot point and an Unfinished Flight as usual.
 If the owner wants a point there, SURV-2's `Single-controllable` pin flips with the fix.
 
+Owner ruling (V, 2026-11-20, "Yes, no Re-Fly point"): a crash that destroys the recorded half at
+the split instant makes no Re-Fly point. SURV-2's `Single-controllable split: no RP` pin is the
+shipping behaviour; nothing to build. Question closed.
+
 A red reading on any lane is filed as its own entry; each spec header lists its pre-registered
 readings.
 
-Flown 2026-11-20 (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): SURV-1 `2026-11-20_2312` and SURV-2 `2026-11-20_2313` green on the first flight; QL-15 (`2026-11-20_2339`) and QL-16 (`2026-11-20_2340`) green on their second after a SPEC fix each. QL-15's first flight (`_2307`) red on two unbounded forbids that caught the second merge's own scene-exit load (`supersedes=1 tombstones=2`, by design); the F9's load read `supersedes=0 tombstones=0`. QL-16's first flight (`_2307`) red on a wrong prediction: after the F9 the rebound recorder records the booster (terminal Landed), so the merge adds one supersede row, auto-seals slot 1 and the point reaps with both slots closed (`ql16-merged-0`); the gate itself (discard keeps the point, the F9 brings back `marker=True rewindPoints=1 supersedes=0`) held. SURV-2's rewind outcome is the predicted `Single-controllable split: no RP` (the owner question above stands), but its report-only structure block reads both recordings Destroyed: filed as SURVIVOR-DESTROYED-AT-SCENE-EXIT (top of this file; fixed 2026-11-21, SURV-2's re-flight owed).
+Flown 2026-11-20 (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): SURV-1 `2026-11-20_2312` and SURV-2 `2026-11-20_2313` green on the first flight; QL-15 (`2026-11-20_2339`) and QL-16 (`2026-11-20_2340`) green on their second after a SPEC fix each. QL-15's first flight (`_2307`) red on two unbounded forbids that caught the second merge's own scene-exit load (`supersedes=1 tombstones=2`, by design); the F9's load read `supersedes=0 tombstones=0`. QL-16's first flight (`_2307`) red on a wrong prediction: after the F9 the rebound recorder records the booster (terminal Landed), so the merge adds one supersede row, auto-seals slot 1 and the point reaps with both slots closed (`ql16-merged-0`); the gate itself (discard keeps the point, the F9 brings back `marker=True rewindPoints=1 supersedes=0`) held. SURV-2's rewind outcome is the predicted `Single-controllable split: no RP` (the owner question above, since closed by the ruling: no point), but its report-only structure block reads both recordings Destroyed: filed as SURVIVOR-DESTROYED-AT-SCENE-EXIT (top of this file; fixed 2026-11-21, SURV-2's re-flight owed).
 
 ## ~~FLY-SITES-LANES-OWED~~: Fly from the Tracking Station, Fly from a KSC marker and the alarm Jump from those scenes were unit-tested only [FILED 2026-11-20 (test-gaps Batch 3), branch `test-gaps-b3-fly-sites`; seam sites BUILT (xUnit); FLY-1..FLY-5 AUTHORED, NEVER FLOWN; OPEN: the first flights]
 
@@ -2235,7 +2352,7 @@ variant, both matched) and whether FLY-2's committed-tree restore resumed a reco
 
 DONE 2026-11-20 (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): FLY-1 `2026-11-20_2259_..._run2`, FLY-3 `_2300`, FLY-4 `_2301`, FLY-5 `_2301` green on the first flight, FLY-2 green on its second (`2026-11-20_2338`) after one SPEC fix: its first flight (`_2300`) read `recordings.count 9 > max 8`, because the optimizer splits the fixture's 7 recordings into 9 at the first load (re-pinned {9,9}). Every count re-pinned exact.
 
-## FLIGHT-GHOST-POSITION-LANES-2026-11-20: no flight-scene ghost was ever read by position [FILED 2026-11-20 from the test-gap doc 2026-11-18 (Batch 3, high priority), branch `test-gaps-b3-ghost-pos`; the in-game category and its xUnit core BUILT, GPOS-1 FLOWN GREEN 2026-11-20, V23M's step FLOWN 2026-11-20 and red on a stock NRE storm, DROPPED 2026-11-21 by owner ruling; OPEN: only the owner call on the three hosts that cannot take the step (below)]
+## FLIGHT-GHOST-POSITION-LANES-2026-11-20: no flight-scene ghost was ever read by position [FILED 2026-11-20 from the test-gap doc 2026-11-18 (Batch 3, high priority), branch `test-gaps-b3-ghost-pos`; the in-game category and its xUnit core BUILT, GPOS-1 FLOWN GREEN 2026-11-20, V23M's step FLOWN 2026-11-20 and red on a stock NRE storm, DROPPED 2026-11-21 by owner ruling; the host call DECIDED 2026-11-21 (below), GPOS-2 AUTHORED 2026-11-21, branch `test-gaps-gpos2`, NEVER FLOWN; OPEN: GPOS-2's first flight]
 
 Only route ghosts (`RouteGhostPlacement`), map loops and end spawns (`LeafVesselPlacement`) were
 compared with their recording by position; every flight-scene replay lane pinned counts and log
@@ -2268,7 +2385,7 @@ the ghost's travel)) is counted `unresolved`. A cell that compared nothing skips
   loop copy's Mun touchdown. Expected `absolute` passes (a mission-loop unit member drawn through the
   span clock and the Mun body-fixed shift), the other two skip: `total=3 passed=1 failed=0 skipped=2`.
 
-**Hosts that cannot take the step (owner call on whether more lanes are wanted).**
+**Hosts that cannot take the step (the owner call, decided 2026-11-21 at the end of this entry).**
 - GS-4 / GS-9: GS-4 was absorbed into GS-9, whose `kx_rewind_watch` PLAYBACK-WAIT ends only past the
   recorded end, so a post-mission batch sees no live ghost, and a third rewind cycle would move GS-9's
   armed per-cycle census. GPOS-1 flies the GS-4 subject instead.
@@ -2283,6 +2400,12 @@ the ghost's travel)) is counted `unresolved`. A cell that compared nothing skips
 Flown 2026-11-20 (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): GPOS-1 `2026-11-20_2302` green on the first flight, batch `total=3 passed=2 failed=0 skipped=1` (absolute 31/31 ok, parent-anchored 30/30 ok, worst 0.01 m; relative-anchor skipped), pinned whole and out of `INTERIM_PIN_IDS`. V23M `2026-11-20_2317` PARSEK-FAIL(expectation): the absolute cell passed (30/30 ok, worst 0.91 m, bodies=[Mun]), the parent-anchored cell skipped, then the test runner's NRE-storm guard aborted the batch (`NRE storm detected (2820+ unhandled exceptions)`), ending `total=2` against the tally-gated `total=3`. The flood is stock's `VehiclePhysics.VPWheelCollider.UpdateWheelCollider` NRE from the landed lander (11,853 NREs on the green `2026-11-16_2256` too), so this host cannot run a three-cell batch. Authoring decision owed: drop V23M's step (GPOS-1 already proves the category green), or move it to a host without wheel parts in physics range.
 
 Owner ruling (V, 2026-11-21): drop V23M's step; GPOS-1 covers the category. V23M is back to its previously green shape (the `MissionMark v23m-ghost-position` + `RunTests FlightGhostPosition` steps, the summary and `BATCH_COMPLETE` required lines and the `verdict=(?!ok)` forbid removed, budget 2700 -> 2400) and out of `INTERIM_PIN_IDS`; `FlightGhostPosition` is driven by GPOS-1 alone.
+
+Host call (2026-11-21, decided under V's standing delegation of engineering details, 2026-11-21: "decide engineering details yourself"):
+- GS-4 / GS-9: GS-9 stays as is; GPOS-1 flies its subject.
+- BDOCK-1 / BDOCK-2: stay as they are (no rewind save, a docking replay only as a loop, whose Relative sections bind the live anchor); the non-loop anchor-local Relative subject they could not supply is GPOS-2's, below.
+- AIR-2 / LAY-1: their replay plays in SPACECENTER / TRACKSTATION, which this FLIGHT category cannot judge. A KSC (and Tracking Station) ghost position check over `ParsekKSC` / `ParsekTrackingStation` ghosts would be a separate future category with its own host lanes (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3 names the AIR-2 gap); not built here.
+- The `relative-anchor` cell (`RelativeSectionGhostsLandOnTheirRecordedShadow`) gets its own host lane, `GPOS-2-eva-chute-relative-ghost-position` (operator, stock-minimal, never flown, `INTERIM_PIN_IDS`). Host search over every archived KSP.log (`RELATIVE mode entered`) and the specs: only an undock or EVA child near an eligible anchor recording (a lower-TreeOrder member of the same tree, a loaded background vessel or the active recording, not debris / EVA / space object / landed) authors a non-parent-anchored Relative section. AST-2's released rock (an Undock child, 20.6 s Relative on the probe) does, and the BDOCK / SD-1 / VN-4 / LAB-13b dock approaches and undocks enter Relative mode too, each at a flight-dependent UT no seam step can warp to; the RVC-1 / MINE-4 rover undocks last ~1 s before the surface gate. EVA-4's mid-air EVA does, for ~108 s at a stable UT: eight green archived runs (2026-10-11 to 2026-11-15) read the kerbal's active-recorder Relative section on the pod's recording at UT 123.60-124.26 to 231.34-232.84, and its pad launch carries the launch rewind save. GPOS-2 flies EVA-4's flight verbatim, commits in flight, Rewinds-to-Launch, launches the stock Mallard onto the Runway (~1.5 km from the EVA point), `WarpToUT 150` at 10x and runs the batch. Expected `absolute` (the pod) and `relative-anchor` (the kerbal placed from the pod recording's pose, compared with its body-fixed shadow) pass, `parent-anchored` skips: `total=3 passed=2 failed=0 skipped=1`. Required: both summaries `compared>=1 ok>=1 bad=0 bodies=[Kerbin]`, the active `[Anchor] RELATIVE mode entered` line and the interim batch line. EVA-4 itself is unchanged.
 
 ## ~~TEST-GAPS-B3-PAD-AND-JUMP-LANES~~: no lane destroys a KSC building in a recorded flight, and none jumps the clock across committed career rows [FILED 2026-11-20 from the test-gaps doc 2026-11-18, Batch 3; AUTHORED 2026-11-20, branch `test-gaps-b3-career-jumps`: PADX-1, PADX-2, FFC-1 (operator, never flown) plus one seam change; OPEN: the three first flights]
 

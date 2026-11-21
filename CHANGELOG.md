@@ -127,6 +127,10 @@ Not released yet.
   half of a symmetry pair, or a rotation servo set to Inverted, began its replay turned the
   opposite way to the real part until it first moved. It now starts where the real part stood.
   (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
+- **A stowed ladder no longer shows extended on its ghost.** Every retractable ladder's replay drew
+  the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
+  recorded, folded or extended, and still slides out and back on the replay when it moved.
+  (GHOST-LADDER-SPAWNS-DEPLOYED)
 - **A ghost engine with nothing below it no longer shows a shroud.** The real engine at the bottom
   of a stack, or a lone engine, has no shroud, but its replay drew one, stock and ReStock alike.
   An engine with a tank or decoupler under it keeps its shroud as before.
@@ -160,6 +164,11 @@ Not released yet.
   you went back to was already waiting to bring back a rescue's stranded kerbal or part, it now
   appears at your next Space Center visit instead of never, so the contract can still be finished.
   (RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD)
+- **Construction, repair and part test contracts still work after you go back in time.** If you
+  go back to before you accepted one, the craft to build on or repair reappears when the clock
+  reaches the accept again (at your next Space Center visit if you are elsewhere then), and the
+  part to test becomes usable again, unless your recorded future already ends that contract.
+  (CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS)
 - **One missing recording file no longer stops a mission from saving.** When one recording of a
   mission had lost its file, every later save kept that mission exactly as it was before:
   new flights in it, renames and other changes were silently not saved. The mission now saves

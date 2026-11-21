@@ -248,7 +248,7 @@ namespace Parsek
         /// <c>DeployableGhostInfo</c> a part owns (the singular out-param of
         /// <c>AddPartVisuals</c>), so exactly one opinion may be applied or they would
         /// silently overwrite each other in dictionary order. The order is: explicit deploy
-        /// state, then gear, then cargo bay, then animation group, then the generic
+        /// state, then gear, then retractable ladder, then cargo bay, then animation group, then the generic
         /// animation (which the parser already suppresses whenever a dedicated handler
         /// exists).
         ///
@@ -283,6 +283,8 @@ namespace Parsek
                 actions.deployableTarget = baseline.deployableExtended;
             else if (baseline.gearDeployed.HasValue)
                 actions.deployableTarget = baseline.gearDeployed;
+            else if (baseline.ladderExtended.HasValue)
+                actions.deployableTarget = baseline.ladderExtended;
             else if (baseline.cargoBayOpen.HasValue)
             {
                 actions.deployableTarget = baseline.cargoBayOpen;

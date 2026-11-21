@@ -1,0 +1,199 @@
+schema = 1
+id = "GPOS-2-eva-chute-relative-ghost-position"
+# =====================================================================================
+# GPOS-2: A GHOST ON AN ANCHOR-LOCAL RELATIVE SECTION, READ BY POSITION IN FLIGHT.
+# AUTHORED 2026-11-21, NEVER FLOWN. Host lane for the `relative-anchor` cell of the
+# FlightGhostPosition category (`RelativeSectionGhostsLandOnTheirRecordedShadow`), which
+# GPOS-1 skips by design (todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: the owner call on the
+# hosts that cannot take the step, decided 2026-11-21 under V's standing delegation of
+# engineering details).
+#
+# WHAT THE CELL NEEDS. A live, NON-loop flight ghost whose recording is NOT parent-anchored
+# (`Recording.ParentAnchorRecordingId` null: only breakup children, debris and
+# controlled-decoupled ones, carry it) and whose section at the played UT is
+# `ReferenceFrame.Relative` with a covering `bodyFixedFrames` shadow. The positioner places
+# such a ghost from the anchor recording's resolved pose plus the anchor-local offsets; the
+# cell compares the rendered root with the body-fixed shadow the recorder wrote beside the
+# offsets (`FlightRecorder.CommitRecordedPoint` with `relativeApplied`), so the check is not
+# circular. A Relative section is only authored against an anchor RECORDING: a live vessel in
+# the active tree's background map that is not debris / EVA / a space object / landed, with
+# a lower TreeOrder (`AnchorDetector.IsRecordingAnchorDAGOrderEligible`), or a ghost during a
+# Re-Fly.
+#
+# WHY EVA-4'S FLIGHT. Searched 2026-11-21 over the machine-wide results archive
+# (`RELATIVE mode entered` in every archived KSP.log) and the specs:
+#   - AST-1 / GS-2 / SOI-2 / GS-11 / GPOS-1: no non-parent-anchored Relative section (the
+#     rock is no anchor candidate; the probe, the wingman and the boosters are breakup
+#     children, so they read parent-anchored).
+#   - AST-2 (the released rock, an Undock child, 20.6 s Relative on the probe) does, and the
+#     BDOCK / SD-1 / VN-4 / LAB-13b dock approaches and undocks enter Relative mode too, but
+#     each window sits at a flight-dependent UT (the Klaw approach is a P-controller; the
+#     docks are seam / MechJeb driven) and no seam step can warp to a UT measured
+#     mid-mission.
+#   - the RVC-1 / MINE-4 rover undocks author ~1 s Relative sections before the surface
+#     gate exits them.
+#   - EVA-4-atmo-chute (nightly, b1-pad-craft): Jebediah's EVA kerbal (an EVA child, not
+#     parent-anchored) records an ACTIVE-recorder Relative section on the pod's post-EVA
+#     recording for ~108 s while both fall under canopies. Eight green archived runs (2026-10-11 to 2026-11-15) read
+#     it at UT 123.60-124.26 -> 231.34-232.84 (`TrackSection closed: env=Atmospheric
+#     ref=Relative frames=84..87 ... warpRuns=1x:...`), the pod launched by the mission from
+#     the pad with autoRecordOnLaunch, so the root carries the launch rewind save (`Captured
+#     rewind save at UT 11.08`) and Rewind-to-Launch works. The EVA point is ~360 m west of
+#     the pad at 1.66 km, about 1.5 km horizontally from the Runway spawn.
+#
+# THE ROAD.
+#   1. EVA-4's flight verbatim: mission `eva4_atmo_chute` (the Jumping Flea hop, craft chute
+#      armed at apoapsis), then EvaExit (release + 30 m standoff) and EvaChuteDeploy
+#      awaitDown (the kerbal lands alive).
+#   2. SEAM: StopRecording, CommitTree, StopRecording (AIR-2's / GPOS-1's commit-in-flight
+#      recipe), InvokeRewindToLaunch tree=latest: the Space Center before the launch, the
+#      tree kept as a future ghost.
+#   3. GoToEditor SPH craft=Mallard + LaunchFromEditor: the stock Mallard on the RUNWAY, a
+#      live viewer about 1.5-2.5 km from the kerbal and the pod during the replay, with no
+#      vessel on the pad the ghost launches from.
+#   4. WarpToUT 150 at up to 10x: 26 s after the earliest measured EVA (123.60), 81 s
+#      before the earliest measured Relative end (231.34). The three cells take at most
+#      8 s of real time each at 1x, so the batch ends by about UT 175.
+#   5. RunTests FlightGhostPosition. `absolute`: the pod's post-EVA recording (Absolute,
+#      background-recorded in physics). `relative-anchor`: the kerbal's Relative section,
+#      placed from the pod recording's pose. `parent-anchored`: nothing (no breakup child
+#      exists before the pod's touchdown), skips by design.
+#
+# PRE-REGISTERED (the reading run classifies into one; a Parsek-side outcome is a FINDING
+# filed in docs/dev/todo-and-known-bugs.md, never re-flown away):
+#   (P1) the expected shape: absolute and relative-anchor compared >= 1, bad=0, the batch
+#        `total=3 passed=2 failed=0 skipped=1`.
+#   (P2) a `verdict=horizontal` / `verdict=vertical` sample line on the relative-anchor
+#        cell: the anchor-placed kerbal ghost off its recorded shadow. Read horizM / dAltM
+#        and the sample's playbackUT first: kilometres means an offset applied in the
+#        wrong frame or an anchor resolved at the wrong instant (a product defect); a few
+#        metres at one UT is interpolation between the two recordings' sample times
+#        (anchor ~1.3 s, kerbal avgGap ~1.3 s) and is a tolerance question to read, not a
+#        re-flight.
+#   (P3) relative-anchor skipped with compared=0: read the skip's counts. otherKind only
+#        (the kerbal's section is not Relative at the played UT: the window moved, re-read
+#        `TrackSection closed: ... ref=Relative` and re-aim the WarpToUT), hidden (the
+#        kerbal ghost not drawn), unsupported (no covering shadow).
+#   (P4) the mission or an EVA seam step INVALID by EVA-4's named ends: not a Parsek
+#        outcome.
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) EVA-4's flight is reused unchanged; EVA-4
+# itself stays as is (nightly, green), since a rewind and a batch would change its claim
+# and add ~3 min to every nightly run. (2) every wait is the mission's own gate, the seam
+# verb's own await, or an explicit-UT WarpToUT. (3) no dwell keys. (4) the replay wait is
+# 10x rails warp; the kerbal's chuted descent is 1x because EvaChuteDeploy awaits the
+# touchdown (EVA-4: ~215 s), which the recording needs for a terminal state. (5) b5 coast
+# keys do not apply. (6) EVA-4's mission fails fast with named ends (eva-window-missed).
+# (7) the count window is EVA-4's measured exact 3. (8) operator by the calibration
+# discipline. (9) flight_efficiency.py owed after the first green flight.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-21, NEVER FLOWN (todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: the host for the relative-anchor cell). EVA-4's atmospheric EVA flown verbatim (the Jumping Flea hop, Jebediah's mid-air EVA and chuted landing, whose kerbal recording holds a ~108 s anchor-local Relative section on the pod's recording), committed in flight and Rewound-to-Launch; the stock Mallard is launched onto the Runway and the clock warped to UT 150, inside that Relative section; the FlightGhostPosition category then compares the pod ghost with its Absolute frames and the anchor-placed kerbal ghost with its recorded body-fixed shadow (the parent-anchored cell skips on this subject)."
+instanceProfile = "stock-minimal"
+tags = ["GPOS2", "EVA4", "ghost-position", "ghost-render", "rewind-to-launch", "relative-anchor",
+        "eva", "ingame-batch"]
+
+[fixture]
+# EVA-4's host, unchanged (see EVA-4-atmo-chute.toml [fixture]).
+saveTemplate       = "fixtures/saves/b1-pad-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "eva4_atmo_chute"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { phase = "mission",                                                    expect = "MISSION-OK", budget = 900 },
+  # EVA-4's two EVA steps verbatim (see EVA-4-atmo-chute.toml for why release=true and the
+  # standoff are load-bearing).
+  { cmd = "EvaExit",        args = { release = "true", minStandoffMeters = "30", standoffFloorAltMeters = "500" }, expect = "OK", budget = 120 },
+  { cmd = "EvaChuteDeploy", args = { awaitDown = "true" },                expect = "OK", budget = 420 },
+  { cmd = "StopRecording",                                                expect = "OK" },
+  { cmd = "CommitTree",                                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },             expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "gpos2-rewound" },           expect = "OK" },
+  { cmd = "GoToEditor",     args = { facility = "SPH", craft = "Mallard" }, expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                             expect = "OK", budget = 180 },
+  # Inside the kerbal's Relative section (header step 4). At most 10x so the ghosts stay
+  # drawn (hidden above 50x).
+  { cmd = "WarpToUT",       args = { ut = "150", maxRate = "10" },        expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "gpos2-sampling" },          expect = "OK" },
+  { cmd = "RunTests",       args = { category = "FlightGhostPosition" },  expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                 expect = "OK" },
+]
+
+# EVA-4's mission parameters, verbatim (see EVA-4-atmo-chute.toml for each number's reason).
+[driver.missionParams]
+throttle                      = 1.0
+apoapsisWindowMeters          = { min = 6000, max = 30000 }
+craftChuteArmMaxRateMps       = 30
+craftChuteFullDeployAltMeters = 2500
+evaWindowMaxAltMeters         = 2100
+evaWindowMinAltMeters         = 700
+evaMaxDescentRateMps          = 25
+ascentTimeoutSeconds          = 90
+coastTimeoutSeconds           = 180
+descentTimeoutSeconds         = 240
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# EVA-4's measured exact 3 (the pod root, the kerbal's EVA recording, the pod's post-EVA
+# continuation); this lane commits in flight as EVA-4 does, and the rewind adds none.
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  "Tree branch created: type=EVA",
+  # FlightRecorder.RelativeAnchors.cs (UpdateAnchorDetection): the ACTIVE recorder's
+  # Relative entry for the kerbal (EVA-4 reads it at 0.9 m on the pod's recording), the
+  # section the relative-anchor cell reads.
+  "\\[Anchor\\] RELATIVE mode entered: anchorRecordingId=[0-9a-f]+ source=Live ",
+  "evachutedeploy complete",
+  "down=true situation=",
+  "committree committed=true",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "launchfromeditor complete scene=FLIGHT vessel=Mallard pid=[0-9]+ site=Runway situation=PRELAUNCH ",
+  # FlightGhostPositionInGameTests.cs (FormatSummary in FlightGhostPosition.cs): the two
+  # surfaces this subject puts on screen, each compared at least once with no bad sample.
+  "MISSIONMARK label=gpos2-sampling ut=[\\s\\S]*?FlightGhostPosition summary: kind=absolute scene=FLIGHT frames=[0-9]+ ghosts=[1-9][0-9]* compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 [^\\r\\n]*bodies=\\[Kerbin\\]",
+  "MISSIONMARK label=gpos2-sampling ut=[\\s\\S]*?FlightGhostPosition summary: kind=relative-anchor scene=FLIGHT frames=[0-9]+ ghosts=[1-9][0-9]* compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 [^\\r\\n]*bodies=\\[Kerbin\\]",
+  # Interim pin (INTERIM_PIN_IDS): total literal, split regexed until the reading run
+  # (pre-registered P1: passed=2 skipped=1).
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=FlightGhostPosition scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "goeditor (?:rejected|error) ",
+  "launchfromeditor refused",
+  "FlightGhostPosition: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+# Boot + LoadGame 300 + 3 SetSetting + the mission 900 + EvaExit 120 + EvaChuteDeploy 420
+# (EVA-4: 1920 for these) + commit 120 + rewind 300 + 2 SetSetting / 2 MissionMark
+# + editor 120 + launch 180 + warp 120 + RunTests 300 + quit, rounded up with boot margin.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -17,6 +17,15 @@ namespace Parsek
     /// gap is permanent: every later patch keeps the Active contract as it is.
     ///
     /// <para>
+    /// The list also holds construction and repair contracts (<c>OrbitalConstructionContract</c>,
+    /// <c>RoverConstructionContract</c>, <c>VesselRepairContract</c>) whose craft a rebuild outside
+    /// the Space Center could not re-spawn (<see cref="ContractAcceptRepair.DeferPrebuiltShip"/>);
+    /// the drain re-spawns those in the Space Center only
+    /// (<see cref="ContractAcceptWorldEffects.IsPrebuiltShipSpawnScene"/>) and dispatches by the
+    /// live contract's type. The node keeps its name (ids only, no shape change).
+    /// </para>
+    ///
+    /// <para>
     /// The list describes the world of the save that carries it (the contract is Active and its
     /// vessel is missing in that save's world), so it is saved in the PARSEK node
     /// (<see cref="NodeName"/>, an additive child) and each load takes the loaded save's copy
