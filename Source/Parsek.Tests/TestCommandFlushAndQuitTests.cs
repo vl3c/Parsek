@@ -89,6 +89,8 @@ namespace Parsek.Tests
         // DumpMapGeometry writes one json and nothing else; MapCamera moves the live map camera.
         [InlineData("DumpMapGeometry", false)]
         [InlineData("MapCamera", true)]
+        // PartParitySweep spawns and removes vessels.
+        [InlineData("PartParitySweep", true)]
         public void IsStateMutatingVerb_ClassifiesTheSeamVerbs(string verb, bool expected)
         {
             Assert.Equal(expected, TestCommandVerbs.IsStateMutatingVerb(verb));
