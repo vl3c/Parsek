@@ -55,8 +55,18 @@ namespace Parsek
 
         /// <summary>How the recording starts, read from its chain predecessor: a recording cut
         /// at an atmosphere exit starts at the floor even though its own first section is in
-        /// space.</summary>
-        internal enum BurnStartContext { None = 0, FloorExit }
+        /// space. An approach-band exit is kept apart: orbit can be reached inside the band
+        /// (the approach debounce), so only a burn that starts right there reads falling.</summary>
+        internal enum BurnStartContext { None = 0, FloorExit, ApproachExit }
+
+        /// <summary>The chain pieces before and after the recording (same chain, primary branch,
+        /// same tree), so the interplanetary guard reads the whole line a vessel flew and an
+        /// earlier cut can never make a later suppressed cut appear.</summary>
+        internal sealed class BurnLineContext
+        {
+            internal readonly List<Recording> Before = new List<Recording>();
+            internal readonly List<Recording> After = new List<Recording>();
+        }
 
         /// <summary>What the kind rules need of a body. Unknown body -> no kind.</summary>
         internal struct BodyFacts
@@ -67,6 +77,9 @@ namespace Parsek
             internal double SoiRadius;
             internal double GravParameter;
             internal string ParentName;
+            /// <summary>The body's own orbit around its parent (NaN for the root).</summary>
+            internal double OrbitSma;
+            internal double OrbitEcc;
         }
 
         private enum BurnItemType { Floor, Coast, Burn }
@@ -138,13 +151,38 @@ namespace Parsek
             ref Dictionary<string, List<Recording>> chains)
         {
             if (map == null || !UsesBurnCutRules(rec)) return;
-            map.Burns = BuildBurnMap(rec, map, ResolveBurnStartContext(committed, rec, ref chains));
+            BurnStartContext start = ResolveBurnStartContext(committed, rec, ref chains);
+            map.Burns = BuildBurnMap(rec, map, start, ResolveBurnLineContext(rec, chains));
+        }
+
+        /// <summary>The chain pieces before and after <paramref name="rec"/>, in time order, from
+        /// the per-scan chain cache (null when the recording is in no chain).</summary>
+        internal static BurnLineContext ResolveBurnLineContext(
+            Recording rec, Dictionary<string, List<Recording>> chains)
+        {
+            if (rec == null || chains == null || string.IsNullOrEmpty(rec.ChainId) || rec.ChainBranch != 0)
+                return null;
+            if (!chains.TryGetValue(rec.ChainId, out var pieces) || pieces.Count < 2) return null;
+            var line = new BurnLineContext();
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                var p = pieces[i];
+                if (ReferenceEquals(p, rec) || p.TrackSections == null || p.TrackSections.Count == 0
+                    || !string.Equals(p.TreeId, rec.TreeId, StringComparison.Ordinal))
+                    continue;
+                if (p.EndUT <= rec.StartUT + 1.0) line.Before.Add(p);
+                else if (p.StartUT >= rec.EndUT - 1.0) line.After.Add(p);
+            }
+            line.Before.Sort((x, y) => x.StartUT.CompareTo(y.StartUT));
+            line.After.Sort((x, y) => x.StartUT.CompareTo(y.StartUT));
+            return line.Before.Count == 0 && line.After.Count == 0 ? null : line;
         }
 
         /// <summary>
         /// FloorExit when the recording's chain predecessor (same chain, primary branch, the
-        /// piece that ends where this one starts) ends below the floor (atmosphere, approach
-        /// band or ground) on the body this one starts on, and this one starts in space.
+        /// piece that ends where this one starts) ends in the atmosphere or on the ground on the
+        /// body this one starts on, and this one starts in space; ApproachExit when it ends in
+        /// the approach band.
         /// </summary>
         internal static BurnStartContext ResolveBurnStartContext(
             IReadOnlyList<Recording> committed, Recording rec, ref Dictionary<string, List<Recording>> chains)
@@ -180,7 +218,8 @@ namespace Parsek
                 string pb = GetSectionBody(p, last);
                 string rb = GetSectionBody(rec, rec.TrackSections[0]);
                 if (!string.IsNullOrEmpty(pb) && !string.IsNullOrEmpty(rb) && pb != rb) continue;
-                return BurnStartContext.FloorExit;
+                return SplitEnvironmentClass(last.environment) == ApproachSplitClass
+                    ? BurnStartContext.ApproachExit : BurnStartContext.FloorExit;
             }
             return BurnStartContext.None;
         }
@@ -206,7 +245,8 @@ namespace Parsek
 
         // ------------------------------------------------------------ the map
 
-        internal static BurnMap BuildBurnMap(Recording rec, PassMap passMap, BurnStartContext context)
+        internal static BurnMap BuildBurnMap(
+            Recording rec, PassMap passMap, BurnStartContext context, BurnLineContext line = null)
         {
             var result = new BurnMap();
             var sections = rec?.TrackSections;
@@ -216,6 +256,8 @@ namespace Parsek
             var facts = new Dictionary<string, BodyFacts>(StringComparer.Ordinal);
             AnnotateCoasts(rec, items, context, facts);
             List<double> otherCuts = CollectNonBurnCutUTs(rec, passMap);
+            int lineOffset;
+            List<BurnItem> lineItems = BuildLineItems(items, line, out lineOffset);
             double lastKept = rec.TrackSections[0].startUT;
             for (int i = 0; i < items.Count; i++)
             {
@@ -223,11 +265,26 @@ namespace Parsek
                 var d = JudgeBurn(rec, items, i, context, facts, result);
                 result.Burns.Add(d);
                 if (d.Kind == BurnCutKind.None) continue;
-                ApplyCutGuards(rec, items, i, d, facts, otherCuts, ref lastKept, result);
+                ApplyCutGuards(rec, lineItems, i + lineOffset, d, facts, otherCuts, ref lastKept, result);
                 if (d.CutSection > 0) result.AtSection[d.CutSection] = d;
                 LogBurnDecision(rec, d);
             }
             return result;
+        }
+
+        /// <summary>The recording's items with the chain pieces before and after it around them
+        /// (for the guard's body walks only); <paramref name="offset"/> is where the recording's
+        /// own items start.</summary>
+        private static List<BurnItem> BuildLineItems(List<BurnItem> items, BurnLineContext line, out int offset)
+        {
+            offset = 0;
+            if (line == null) return items;
+            var all = new List<BurnItem>();
+            foreach (var p in line.Before) all.AddRange(BuildBurnItems(p));
+            offset = all.Count;
+            all.AddRange(items);
+            foreach (var p in line.After) all.AddRange(BuildBurnItems(p));
+            return all;
         }
 
         private static bool HasBurn(List<BurnItem> items)
@@ -321,7 +378,7 @@ namespace Parsek
                 if (c.Type != BurnItemType.Coast) continue;
                 BurnItem prev = i > 0 ? items[i - 1] : null;
                 BurnItem next = i + 1 < items.Count ? items[i + 1] : null;
-                c.StartsAtFloorExit = prev != null ? prev.Type == BurnItemType.Floor
+                c.StartsAtFloorExit = prev != null ? IsAtmosphereOrGroundExit(rec, prev)
                     : context == BurnStartContext.FloorExit;
                 c.EndsAtFloorEntry = next != null && next.Type == BurnItemType.Floor
                     && IsFloorEntryFalling(rec, next);
@@ -347,7 +404,7 @@ namespace Parsek
                 while (k - 2 >= 0 && items[k - 1].Type == BurnItemType.Burn
                     && items[k - 2].Type == BurnItemType.Coast
                     && string.Equals(items[k - 2].Body, c.Body, StringComparison.Ordinal)
-                    && IsCorrectionBurn(items[k - 2], items[k]))
+                    && IsCorrectionBurn(items[k - 2], items[k], c.LeavingTarget, c.Body, facts))
                 {
                     items[k - 2].LeavingByLookahead = true;
                     items[k - 2].LeavingTarget = c.LeavingTarget;
@@ -403,16 +460,58 @@ namespace Parsek
             c.ElementsFromTerminal = true;
         }
 
-        /// <summary>True when the burn between <paramref name="before"/> and
-        /// <paramref name="after"/> only corrected the orbit: both sides carry elements on the
-        /// same body and the semi-major axis moved by at most <see cref="BurnCorrectionRelSma"/>.</summary>
-        private static bool IsCorrectionBurn(BurnItem before, BurnItem after)
+        /// <summary>A floor run the coast after it leaves from the atmosphere or the ground (not
+        /// the approach band: orbit can be reached inside the band).</summary>
+        private static bool IsAtmosphereOrGroundExit(Recording rec, BurnItem floor)
         {
-            if (!before.HasElements || !after.HasElements) return false;
+            if (floor.Type != BurnItemType.Floor) return false;
+            int last = SplitEnvironmentClass(rec.TrackSections[floor.Last].environment);
+            return last == AtmosphericSplitClass || last == SurfaceSplitClass;
+        }
+
+        /// <summary>
+        /// True when the burn between <paramref name="before"/> and <paramref name="after"/>
+        /// (on <paramref name="body"/>, the leaving coast ending in <paramref name="target"/>'s
+        /// SOI) only corrected the orbit. With elements on both sides: the semi-major axis moved
+        /// by at most <see cref="BurnCorrectionRelSma"/>. With elements only before it: the
+        /// orbit before already got there (it reaches a moon's orbit band, or it already leaves
+        /// for the parent), so the burn before it is the departure. Otherwise false.
+        /// </summary>
+        private static bool IsCorrectionBurn(
+            BurnItem before, BurnItem after, string target, string body, Dictionary<string, BodyFacts> facts)
+        {
+            if (!before.HasElements) return false;
+            if (!after.HasElements) return OrbitAlreadyReaches(before, target, body, facts);
             double a0 = before.LastElements.semiMajorAxis;
             double a1 = after.FirstElements.semiMajorAxis;
             if (double.IsNaN(a0) || double.IsNaN(a1) || Math.Sign(a0) != Math.Sign(a1)) return false;
             return Math.Abs(a1 - a0) / Math.Max(1.0, Math.Abs(a0)) <= BurnCorrectionRelSma;
+        }
+
+        /// <summary>True when the orbit of coast <paramref name="c"/> around <paramref name="body"/>
+        /// already gets to <paramref name="target"/>: for a moon, its apoapsis and periapsis span
+        /// part of the band the moon's SOI sweeps; for the parent, the orbit already leaves.</summary>
+        private static bool OrbitAlreadyReaches(
+            BurnItem c, string target, string body, Dictionary<string, BodyFacts> facts)
+        {
+            if (string.IsNullOrEmpty(target) || string.IsNullOrEmpty(body)) return false;
+            var bodyFacts = ResolveFacts(body, facts);
+            var seg = c.LastElements;
+            if (string.Equals(bodyFacts.ParentName, target, StringComparison.Ordinal))
+                return ClassifyOrbitKind(seg, c.EndUT, bodyFacts) == OrbitKind.Leaving;
+            var t = ResolveFacts(target, facts);
+            if (!t.Known || !string.Equals(t.ParentName, body, StringComparison.Ordinal)
+                || double.IsNaN(t.OrbitSma) || double.IsNaN(t.SoiRadius))
+                return false;
+            double a = seg.semiMajorAxis;
+            double e = seg.eccentricity;
+            if (double.IsNaN(a) || double.IsNaN(e)) return false;
+            double ap = e < 1 && a > 0 ? a * (1 + e) : double.PositiveInfinity;
+            double pe = a * (1 - e);
+            double ecc = double.IsNaN(t.OrbitEcc) ? 0 : t.OrbitEcc;
+            double low = t.OrbitSma * (1 - ecc) - t.SoiRadius;
+            double high = t.OrbitSma * (1 + ecc) + t.SoiRadius;
+            return ap >= low && pe <= high;
         }
 
         // ------------------------------------------------------------ the kind
@@ -513,7 +612,8 @@ namespace Parsek
         private static OrbitKind KindBeforeBurn(
             BurnItem b, BurnItem prev, BurnStartContext context, Dictionary<string, BodyFacts> facts)
         {
-            if (prev == null) return context == BurnStartContext.FloorExit ? OrbitKind.Falling : OrbitKind.Unknown;
+            if (prev == null)
+                return context != BurnStartContext.None ? OrbitKind.Falling : OrbitKind.Unknown;
             if (prev.Type == BurnItemType.Floor) return OrbitKind.Falling;
             if (prev.Type != BurnItemType.Coast || !string.Equals(prev.Body, b.Body, StringComparison.Ordinal))
                 return OrbitKind.Unknown;
@@ -602,8 +702,11 @@ namespace Parsek
         /// recording, and the loiter cut compresses the parking orbit of that recording (todo
         /// REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS). So no kind cut is made for a burn around
         /// the parent between two of its children, for a departure / injection after which the
-        /// recording reaches the parent and then a sibling, or for a capture / descent at a
-        /// body the recording reached from a sibling through the parent.
+        /// vessel goes through the parent to a sibling, or for any arrival-side kind cut
+        /// (insertion, injection, capture, capture into the atmosphere, direct descent) at a
+        /// body the vessel reached from a sibling through the parent and has not touched down
+        /// on since. <paramref name="items"/> is the whole chain line, so a piece cut off the
+        /// rest of its line is judged as the line.
         /// </summary>
         private static bool IsInterplanetaryTransferCut(
             List<BurnItem> items, int i, BurnDecision d, Dictionary<string, BodyFacts> facts)
@@ -618,18 +721,12 @@ namespace Parsek
                 return true;
             string parent = body.ParentName;
             if (string.IsNullOrEmpty(parent)) return false;
-            switch (d.Kind)
-            {
-                case BurnCutKind.Departure:
-                case BurnCutKind.Injection:
-                    return ReachesSiblingThroughParent(items, i, b, parent, +1, facts);
-                case BurnCutKind.Capture:
-                case BurnCutKind.CaptureToAtmosphere:
-                case BurnCutKind.DirectDescent:
-                    return ReachesSiblingThroughParent(items, i, b, parent, -1, facts);
-                default:
-                    return false;
-            }
+            bool arrivalSide = d.Kind == BurnCutKind.Insertion || d.Kind == BurnCutKind.Injection
+                || d.Kind == BurnCutKind.Capture || d.Kind == BurnCutKind.CaptureToAtmosphere
+                || d.Kind == BurnCutKind.DirectDescent;
+            if (arrivalSide && GoesBetweenSiblings(items, i, b, parent, -1, facts)) return true;
+            bool departureSide = d.Kind == BurnCutKind.Departure || d.Kind == BurnCutKind.Injection;
+            return departureSide && GoesBetweenSiblings(items, i, b, parent, +1, facts);
         }
 
         /// <summary>The first body other than <paramref name="body"/> walking from item
@@ -649,21 +746,36 @@ namespace Parsek
             return null;
         }
 
-        /// <summary>True when, walking from item <paramref name="i"/> in <paramref name="dir"/>,
-        /// the recording is at some point around <paramref name="parent"/> next to a time at
-        /// another child of it (later: parent then sibling; earlier: sibling then parent).</summary>
-        private static bool ReachesSiblingThroughParent(
+        /// <summary>
+        /// True when, walking from item <paramref name="i"/> in <paramref name="dir"/> (-1:
+        /// where the vessel came from, +1: where it goes), it stays in space around
+        /// <paramref name="body"/> (or flies by one of its moons), then around
+        /// <paramref name="parent"/>, and then is at another child of the parent. A touchdown
+        /// on the way (a floor run) ends the walk: the vessel landed or reentered, so this is
+        /// no transfer.
+        /// </summary>
+        private static bool GoesBetweenSiblings(
             List<BurnItem> items, int i, string body, string parent, int dir, Dictionary<string, BodyFacts> facts)
         {
             bool atParent = false;
             for (int k = i + dir; k >= 0 && k < items.Count; k += dir)
             {
-                string kb = items[k].Body;
+                var item = items[k];
+                string kb = item.Body;
                 if (string.IsNullOrEmpty(kb)) continue;
-                if (string.Equals(kb, parent, StringComparison.Ordinal)) { atParent = true; continue; }
-                if (atParent && !string.Equals(kb, body, StringComparison.Ordinal) && IsChildOf(kb, parent, facts))
-                    return true;
-                if (atParent) atParent = false;
+                bool here = string.Equals(kb, body, StringComparison.Ordinal) || IsChildOf(kb, body, facts);
+                if (!atParent && here)
+                {
+                    if (item.Type == BurnItemType.Floor) return false;
+                    continue;
+                }
+                if (string.Equals(kb, parent, StringComparison.Ordinal))
+                {
+                    if (item.Type == BurnItemType.Floor) return false;
+                    atParent = true;
+                    continue;
+                }
+                return atParent && !string.Equals(kb, body, StringComparison.Ordinal) && IsChildOf(kb, parent, facts);
             }
             return false;
         }
@@ -830,6 +942,7 @@ namespace Parsek
             if (object.ReferenceEquals(body, null)) return false;
             CelestialBody parent = body.referenceBody;
             bool hasParent = !object.ReferenceEquals(parent, null) && !object.ReferenceEquals(parent, body);
+            Orbit own = hasParent ? body.orbit : null;
             facts = new BodyFacts
             {
                 Known = true,
@@ -838,33 +951,36 @@ namespace Parsek
                 SoiRadius = hasParent ? body.sphereOfInfluence : double.PositiveInfinity,
                 GravParameter = body.gravParameter,
                 ParentName = hasParent ? parent.name : null,
+                OrbitSma = own != null ? own.semiMajorAxis : double.NaN,
+                OrbitEcc = own != null ? own.eccentricity : double.NaN,
             };
             return true;
         }
 
-        // The stock KSP system (KSP 1.12): radius, atmosphere top, SOI, GM, parent. Filled once
+        // The stock KSP system (KSP 1.12): radius, atmosphere top, SOI, GM, parent, and the
+        // body's own orbit (semi-major axis, eccentricity). Filled once
         // by the type initializer and only read after it.
         private static readonly Dictionary<string, BodyFacts> StockBodies =
             new Dictionary<string, BodyFacts>(StringComparer.Ordinal)
             {
-                { "Sun", Stock(261600000, 600000, double.PositiveInfinity, 1.1723328e18, null) },
-                { "Kerbol", Stock(261600000, 600000, double.PositiveInfinity, 1.1723328e18, null) },
-                { "Moho", Stock(250000, 0, 9646663.0, 1.6860938e11, "Sun") },
-                { "Eve", Stock(700000, 90000, 85109365, 8.1717302e12, "Sun") },
-                { "Gilly", Stock(13000, 0, 126123.27, 8289449.8, "Eve") },
-                { "Kerbin", Stock(600000, 70000, 84159286, 3.5316e12, "Sun") },
-                { "Mun", Stock(200000, 0, 2429559.1, 6.5138398e10, "Kerbin") },
-                { "Minmus", Stock(60000, 0, 2247428.4, 1.7658e9, "Kerbin") },
-                { "Duna", Stock(320000, 50000, 47921949, 3.0136321e11, "Sun") },
-                { "Ike", Stock(130000, 0, 1049598.9, 1.8568369e10, "Duna") },
-                { "Dres", Stock(138000, 0, 32832840, 2.1484489e10, "Sun") },
-                { "Jool", Stock(6000000, 200000, 2.4559852e9, 2.82528e14, "Sun") },
-                { "Laythe", Stock(500000, 50000, 3723645.8, 1.962e12, "Jool") },
-                { "Vall", Stock(300000, 0, 2406401.4, 2.074815e11, "Jool") },
-                { "Tylo", Stock(600000, 0, 10856518, 2.82528e12, "Jool") },
-                { "Bop", Stock(65000, 0, 1221060.9, 2.4868349e9, "Jool") },
-                { "Pol", Stock(44000, 0, 1042138.9, 7.2170208e8, "Jool") },
-                { "Eeloo", Stock(210000, 0, 1.1908294e8, 7.4410815e10, "Sun") },
+                { "Sun", Stock(261600000, 600000, double.PositiveInfinity, 1.1723328e18, null, double.NaN, double.NaN) },
+                { "Kerbol", Stock(261600000, 600000, double.PositiveInfinity, 1.1723328e18, null, double.NaN, double.NaN) },
+                { "Moho", Stock(250000, 0, 9646663.0, 1.6860938e11, "Sun", 5263138304, 0.2) },
+                { "Eve", Stock(700000, 90000, 85109365, 8.1717302e12, "Sun", 9832684544, 0.01) },
+                { "Gilly", Stock(13000, 0, 126123.27, 8289449.8, "Eve", 31500000, 0.55) },
+                { "Kerbin", Stock(600000, 70000, 84159286, 3.5316e12, "Sun", 13599840256, 0) },
+                { "Mun", Stock(200000, 0, 2429559.1, 6.5138398e10, "Kerbin", 12000000, 0) },
+                { "Minmus", Stock(60000, 0, 2247428.4, 1.7658e9, "Kerbin", 47000000, 0) },
+                { "Duna", Stock(320000, 50000, 47921949, 3.0136321e11, "Sun", 20726155264, 0.051) },
+                { "Ike", Stock(130000, 0, 1049598.9, 1.8568369e10, "Duna", 3200000, 0.03) },
+                { "Dres", Stock(138000, 0, 32832840, 2.1484489e10, "Sun", 40839348203, 0.145) },
+                { "Jool", Stock(6000000, 200000, 2.4559852e9, 2.82528e14, "Sun", 68773560320, 0.05) },
+                { "Laythe", Stock(500000, 50000, 3723645.8, 1.962e12, "Jool", 27184000, 0) },
+                { "Vall", Stock(300000, 0, 2406401.4, 2.074815e11, "Jool", 43152000, 0) },
+                { "Tylo", Stock(600000, 0, 10856518, 2.82528e12, "Jool", 68500000, 0) },
+                { "Bop", Stock(65000, 0, 1221060.9, 2.4868349e9, "Jool", 128500000, 0.235) },
+                { "Pol", Stock(44000, 0, 1042138.9, 7.2170208e8, "Jool", 179890000, 0.171) },
+                { "Eeloo", Stock(210000, 0, 1.1908294e8, 7.4410815e10, "Sun", 90118820000, 0.26) },
             };
 
         /// <summary>The stock KSP system's facts for <paramref name="name"/>; unknown body ->
@@ -875,7 +991,8 @@ namespace Parsek
             return StockBodies.TryGetValue(name, out var f) ? f : default(BodyFacts);
         }
 
-        private static BodyFacts Stock(double radius, double atmo, double soi, double mu, string parent)
+        private static BodyFacts Stock(
+            double radius, double atmo, double soi, double mu, string parent, double orbitSma, double orbitEcc)
         {
             return new BodyFacts
             {
@@ -885,6 +1002,8 @@ namespace Parsek
                 SoiRadius = soi,
                 GravParameter = mu,
                 ParentName = parent,
+                OrbitSma = orbitSma,
+                OrbitEcc = orbitEcc,
             };
         }
     }

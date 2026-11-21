@@ -162,6 +162,52 @@ namespace Parsek.Tests
             return parts;
         }
 
+        /// <summary>The re-aim verdicts of every recording of <paramref name="rec"/>'s tree after
+        /// one optimization pass under <paramref name="version"/>.</summary>
+        private static List<string> SyntheticVerdicts(Func<Recording> make, int version, IBodyInfo bodies,
+            out int rows)
+        {
+            OptimizerRepeatPassSweepTests.Reset();
+            var rec = make();
+            rec.SplitRuleVersion = version;
+            OptimizerSplitShapes.CommitAlone(rec);
+            CommittedListOptimizer.RunOptimizationPass();
+            var verdicts = new List<string>();
+            rows = OptimizerSplitShapes.ChainOf(rec.TreeId).Count;
+            foreach (var r in OptimizerSplitShapes.ChainOf(rec.TreeId))
+            {
+                string v = Verdict(r.OrbitSegments, bodies, out bool ok);
+                if (ok) verdicts.Add(v);
+            }
+            return verdicts;
+        }
+
+        [Fact]
+        public void Phase0_LowPeriapsisArrival_TheTransferStillClassifies()
+        {
+            // Review B2: an arrival path whose low point is under the floor reads falling; a
+            // correction lifting it and the capture after it must not cut the transfer.
+            var bodies = new StockBodies();
+            Func<Recording> withCorrection = () => OptimizerBurnCutsTests.DunaTransfer("p0-lowpe-mcc",
+                OptimizerBurnCutsTests.Rails(20000, "Duna", -800000, 1.3, -20.0),
+                OptimizerBurnCutsTests.BurnS(60, "Duna"),
+                OptimizerBurnCutsTests.Rails(20000, "Duna", -800000, 1.625, -1.0),
+                OptimizerBurnCutsTests.BurnS(200, "Duna"),
+                OptimizerBurnCutsTests.Rails(20000, "Duna", 700000, 0.1));
+            Func<Recording> straight = () => OptimizerBurnCutsTests.DunaTransfer("p0-lowpe",
+                OptimizerBurnCutsTests.Rails(20000, "Duna", -800000, 1.3, -20.0),
+                OptimizerBurnCutsTests.BurnS(200, "Duna"),
+                OptimizerBurnCutsTests.Rails(20000, "Duna", 700000, 0.1));
+            foreach (var make in new[] { withCorrection, straight })
+            {
+                var v2 = SyntheticVerdicts(make, RecordingOptimizer.SplitRuleVersionPassRules, bodies, out _);
+                var v3 = SyntheticVerdicts(make, RecordingOptimizer.SplitRuleVersionBurnCuts, bodies, out int rows);
+                Assert.Single(v2);
+                Assert.Equal(v2, v3);
+                Assert.Equal(1, rows); // the transfer, arrival included, is one row
+            }
+        }
+
         [Fact]
         public void Phase0_EveryTransferThatClassifiesUnderVersionTwo_StillClassifiesUnderVersionThree()
         {

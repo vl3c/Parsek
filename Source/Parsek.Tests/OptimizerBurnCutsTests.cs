@@ -47,7 +47,7 @@ namespace Parsek.Tests
 
         // ------------------------------------------------------------ shapes
 
-        private struct Sec
+        internal struct Sec
         {
             internal SegmentEnvironment Env;
             internal double Duration;
@@ -58,18 +58,18 @@ namespace Parsek.Tests
             internal double MeanAnomaly;
         }
 
-        private static Sec S(SegmentEnvironment env, double d, string body)
+        internal static Sec S(SegmentEnvironment env, double d, string body)
             => new Sec { Env = env, Duration = d, Body = body };
 
-        private static Sec PadS(double d, string body = "Kerbin") => S(SegmentEnvironment.SurfaceStationary, d, body);
-        private static Sec GroundS(double d, string body = "Kerbin") => S(SegmentEnvironment.SurfaceMobile, d, body);
-        private static Sec AtmoS(double d, string body = "Kerbin") => S(SegmentEnvironment.Atmospheric, d, body);
-        private static Sec ApproachS(double d, string body = "Mun") => S(SegmentEnvironment.Approach, d, body);
-        private static Sec CoastS(double d, string body = "Kerbin") => S(SegmentEnvironment.ExoBallistic, d, body);
-        private static Sec BurnS(double d, string body = "Kerbin") => S(SegmentEnvironment.ExoPropulsive, d, body);
+        internal static Sec PadS(double d, string body = "Kerbin") => S(SegmentEnvironment.SurfaceStationary, d, body);
+        internal static Sec GroundS(double d, string body = "Kerbin") => S(SegmentEnvironment.SurfaceMobile, d, body);
+        internal static Sec AtmoS(double d, string body = "Kerbin") => S(SegmentEnvironment.Atmospheric, d, body);
+        internal static Sec ApproachS(double d, string body = "Mun") => S(SegmentEnvironment.Approach, d, body);
+        internal static Sec CoastS(double d, string body = "Kerbin") => S(SegmentEnvironment.ExoBallistic, d, body);
+        internal static Sec BurnS(double d, string body = "Kerbin") => S(SegmentEnvironment.ExoPropulsive, d, body);
 
         /// <summary>An on-rails coast with exact elements (a time-warped stretch).</summary>
-        private static Sec Rails(double d, string body, double sma, double ecc, double meanAnomaly = 1.0)
+        internal static Sec Rails(double d, string body, double sma, double ecc, double meanAnomaly = 1.0)
             => new Sec
             {
                 Env = SegmentEnvironment.ExoBallistic, Duration = d, Body = body, Rails = true,
@@ -77,17 +77,17 @@ namespace Parsek.Tests
             };
 
         // Kerbin: floor 670 km radius, SOI 84,159 km. Mun: floor 200 km, SOI 2,430 km.
-        private static Sec KerbinSuborbital(double d) => Rails(d, "Kerbin", 440890, 0.54, 2.8);
-        private static Sec Lko(double d) => Rails(d, "Kerbin", 680000, 0.006);
-        private static Sec HighKerbinOrbit(double d) => Rails(d, "Kerbin", 900000, 0.02);
-        private static Sec MunTransferEllipse(double d, double sma = 6378363) => Rails(d, "Kerbin", sma, 0.894, 0.01);
-        private static Sec KerbinEscape(double d) => Rails(d, "Kerbin", -5000000, 1.2, 0.5);
-        private static Sec MunArrival(double d) => Rails(d, "Mun", -509906, 1.666, -3.6);
-        private static Sec MunDeparture(double d) => Rails(d, "Mun", -509906, 1.666, 0.5);
-        private static Sec MunOrbit(double d) => Rails(d, "Mun", 230000, 0.01);
-        private static Sec MunFalling(double d) => Rails(d, "Mun", 190000, 0.1, 4.0);
+        internal static Sec KerbinSuborbital(double d) => Rails(d, "Kerbin", 440890, 0.54, 2.8);
+        internal static Sec Lko(double d) => Rails(d, "Kerbin", 680000, 0.006);
+        internal static Sec HighKerbinOrbit(double d) => Rails(d, "Kerbin", 900000, 0.02);
+        internal static Sec MunTransferEllipse(double d, double sma = 6378363) => Rails(d, "Kerbin", sma, 0.894, 0.01);
+        internal static Sec KerbinEscape(double d) => Rails(d, "Kerbin", -5000000, 1.2, 0.5);
+        internal static Sec MunArrival(double d) => Rails(d, "Mun", -509906, 1.666, -3.6);
+        internal static Sec MunDeparture(double d) => Rails(d, "Mun", -509906, 1.666, 0.5);
+        internal static Sec MunOrbit(double d) => Rails(d, "Mun", 230000, 0.01);
+        internal static Sec MunFalling(double d) => Rails(d, "Mun", 190000, 0.1, 4.0);
 
-        private static Recording Build(string id, double startUT, params Sec[] sections)
+        internal static Recording Build(string id, double startUT, params Sec[] sections)
         {
             var rec = new Recording
             {
@@ -497,6 +497,95 @@ namespace Parsek.Tests
             var debris = Build("debris", 0, Lko(3000), BurnS(120), MunTransferEllipse(20000), MunArrival(3000));
             debris.IsDebris = true;
             Assert.Single(Optimize(debris));
+        }
+
+        // ------------------------------------------------------------ review fixes
+
+        [Fact]
+        public void MidCourseCorrection_WithNoElementsAfterIt_TheDepartureIsStillTheTransferBurn()
+        {
+            // Review B1: the coast after the correction is in physics to the Mun SOI. The ellipse
+            // before the correction already reaches the Mun's orbit, so the correction is not the
+            // departure.
+            var rows = Optimize(Build("mcc-nowarp", 0,
+                Lko(3000), BurnS(120), MunTransferEllipse(4000), BurnS(20),
+                CoastS(16000), MunArrival(3000)));
+            Assert.Equal(new[] { 0.0, 3000.0 }, Starts(rows));
+            Assert.Equal(new[] { "orbit", "transfer" }, Roles(rows));
+        }
+
+        [Fact]
+        public void DepartureWithNoWarpAfterIt_IsStillCutAtTheTransferBurn()
+        {
+            var rows = Optimize(Build("tmi-nowarp", 0,
+                Lko(3000), BurnS(120), CoastS(16000), MunArrival(3000)));
+            Assert.Equal(new[] { 0.0, 3000.0 }, Starts(rows));
+            Assert.Equal(new[] { "orbit", "transfer" }, Roles(rows));
+        }
+
+        /// <summary>Kerbin to Duna: LKO, departure, escape, Sun coast, then the given arrival.</summary>
+        internal static Recording DunaTransfer(string id, params Sec[] arrival)
+        {
+            var secs = new List<Sec>
+            {
+                Lko(3000), BurnS(300), KerbinEscape(20000), Rails(9000000, "Sun", 1.7e10, 0.2),
+            };
+            secs.AddRange(arrival);
+            return Build(id, 0, secs.ToArray());
+        }
+
+        [Fact]
+        public void InterplanetaryArrival_LowPeriapsisThenACorrectionThenCapture_KeptWhole()
+        {
+            // Review B2: the arrival path dips below the floor (falling), a correction lifts it
+            // (an injection by kind), then the capture. All of it is the arrival of the transfer.
+            var rows = Optimize(DunaTransfer("duna-lowpe-mcc",
+                Rails(20000, "Duna", -800000, 1.3, -20.0), BurnS(60, "Duna"),
+                Rails(20000, "Duna", -800000, 1.625, -1.0), BurnS(200, "Duna"),
+                Rails(20000, "Duna", 700000, 0.1)));
+            Assert.Single(rows);
+        }
+
+        [Fact]
+        public void InterplanetaryArrival_LowPeriapsisStraightIntoOrbit_KeptWhole()
+        {
+            var rows = Optimize(DunaTransfer("duna-lowpe",
+                Rails(20000, "Duna", -800000, 1.3, -20.0), BurnS(200, "Duna"),
+                Rails(20000, "Duna", 700000, 0.1)));
+            Assert.Single(rows);
+        }
+
+        [Fact]
+        public void InterplanetaryArrival_GuardReadsTheWholeChainLine_NotOnlyThePiece()
+        {
+            // The arrival is its own chain piece (cut earlier, or recorded as a continuation):
+            // the Sun and Kerbin before it sit in the piece before.
+            var a = DunaTransfer("line-a");
+            var b = Build("line-b", a.EndUT, Rails(20000, "Duna", -800000, 1.6, -2.0),
+                BurnS(200, "Duna"), Rails(20000, "Duna", 700000, 0.1));
+            a.ChainId = b.ChainId = "chain-line";
+            a.ChainIndex = 0;
+            b.ChainIndex = 1;
+            a.SegmentRole = "transfer";
+            b.SegmentRole = "space"; // a different role: the merge pass leaves the two apart
+            CommitAlone(a, "tree-line");
+            b.TreeId = "tree-line";
+            RecordingStore.FindCommittedTreeById("tree-line").AddOrReplaceRecording(b);
+            RecordingStore.AddRecordingWithTreeForTesting(b);
+            CommittedListOptimizer.RunOptimizationPass();
+            Assert.False(Logged("Split candidate (CaptureBurnEnd)"));
+            Assert.True(Logged("Burn kind change:", "SuppressedInterplanetaryTransfer"));
+        }
+
+        [Fact]
+        public void AirlessCoastFromTheApproachBandExit_WithNoElements_ProvesNoFall()
+        {
+            // Review low item: orbit can be reached inside the band (the approach debounce), so a
+            // coast starting at the band exit is not known to be falling.
+            var rows = Optimize(Build("mun-band-exit", 0,
+                GroundS(300, "Mun"), ApproachS(120), CoastS(600, "Mun"), BurnS(60, "Mun"),
+                MunDeparture(3000), Rails(20000, "Kerbin", 7000000, 0.9, 1.0)));
+            Assert.False(Logged("Split candidate (InjectionBurnEnd)"));
         }
 
         // ------------------------------------------------------------ version pins

@@ -997,13 +997,16 @@ atmosphere top or the ground, and not yet passed; a closed path inside the SOI a
 back to it), in orbit (closed, inside the SOI, low point above the floor), leaving (open, or
 beyond the SOI and not coming down first; or the recording's own later SOI change before the
 next burn, walked back over the burns that only corrected the orbit: a semi-major-axis step
-of at most 25 %, `BurnCorrectionRelSma`). The evidence, strongest first: the coast's own
+of at most 25 %, `BurnCorrectionRelSma`, or, when the coast after the burn has no elements, an
+orbit before it that already reaches the target: the moon's orbit band, or leaving for the
+parent). The evidence, strongest first: the coast's own
 SOI change; the elements of a non-predicted on-rails checkpoint in the coast, or the terminal
 orbit when the coast reaches the recording's end (`ClassifyOrbitKind`); an SOI crossed from
 the parent with no burn since (leaving unless the coast comes down); an atmosphere or ground
 entry at the coast's end, or an approach band run that ends on the ground (falling); an
-atmosphere / ground / approach exit at the coast's start, or the chain piece before the
-recording ending there (`ResolveBurnStartContext`; falling). Recorded point velocities are
+atmosphere / ground exit at the coast's start, or the chain piece before the recording ending
+there (`ResolveBurnStartContext`; falling). An approach-band exit counts only for a burn that
+starts right there: orbit can be reached inside the band (the approach debounce). Recorded point velocities are
 never read. A burn with no evidence on both sides is never cut. Body facts come from the live
 `CelestialBody` (a planet pack's bodies included) and, headless, from the stock table.
 
@@ -1038,8 +1041,13 @@ trees whose transfer re-aims under version 2 the re-aim or its parking-orbit loi
 member holding the parking orbit and the one holding the coast and the arrival are then two
 recordings, todo REAIM-CLASSIFIER-FRAGILE-TO-MEMBER-SPLITS), so such a transfer stays
 one row (`SuppressedInterplanetaryTransfer`): no kind cut for a burn around the parent between
-two of its children, a departure after which the recording reaches the parent and then a
-sibling, or a capture / direct descent at a body reached from a sibling through the parent.
+two of its children, a departure / injection after which the vessel goes through the parent to
+a sibling, or any arrival-side kind cut (insertion, injection, capture, capture into the
+atmosphere, direct descent) at a body reached from a sibling through the parent with no
+touchdown since: an arrival whose low point is under the floor reads falling, so a capture
+from it is an insertion and a correction lifting it an injection. The guard walks the whole
+chain line (`ResolveBurnLineContext`: the pieces of the same chain before and after), so an
+earlier cut never makes a later suppressed cut appear.
 With the guard every transfer that classified under version 2 still classifies with the same
 loiter cuts; the insertion cut at the launch body keeps the parking orbit in the transfer row.
 
