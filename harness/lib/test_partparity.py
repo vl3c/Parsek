@@ -5,11 +5,13 @@ Design: docs/dev/design-part-ghost-parity.md sections 5, 6 and 10.
 
 Fixtures. ``testdata/partparity/pp1/`` is COPIED from the real green P2 flight
 (``automation/stock-minimal/parsek-partparity/pp1/``, run ``2026-11-21_1739``, automation
-DLL sha256 prefix a46e8133): the manifest and ten of its sidecars verbatim, and five atlases.
-``ctl-empty.png`` is the C# encoder's own file. The four others
-(``ctl-ghost-missing-mesh``, ``ctl-ghost-scale90``, ``ctl-ghost-rot90``,
-``decoupler.2--basic--6fabf1e2``) keep the alpha channel byte for byte and zero RGB,
-re-encoded with gui_mirror.write_png so they cost ~25 KB instead of ~1 MB: the shape
+DLL sha256 prefix a46e8133): the manifest and ten of its sidecars verbatim, and five atlases
+(``ctl-empty``, ``ctl-ghost-missing-mesh``, ``ctl-ghost-scale90``, ``ctl-ghost-rot90``,
+``decoupler.2--basic--6fabf1e2``) whose alpha channel is kept byte for byte with zero RGB.
+No image file is committed (test_gui_mirror_fidelity.NoCommittedImagesTests), so each atlas
+is stored as ``<caseId>.alpha.gz`` (its alpha plane, ``_partparity_fixture.read_alpha_fixture``)
+and ``setUpModule`` rebuilds the label dir in a temp dir with real RGBA PNGs written by
+gui_mirror.write_png; PP1 names that temp dir and PP1_COMMITTED the committed one. The shape
 measures read alpha only, so the recompute must still match the C# numbers exactly.
 Synthetic sweeps come from ``_partparity_fixture.py``, whose measures are a
 pixel-by-pixel transcription of ``PartParityMetrics.Measure``.
@@ -18,6 +20,7 @@ Run: ``cd harness && python -m unittest discover -s lib -q``.
 """
 
 import copy
+import gzip
 import json
 import os
 import random
@@ -36,10 +39,27 @@ import gui_mirror  # noqa: E402
 import hlib  # noqa: E402
 import partparity as pp  # noqa: E402
 
-PP1 = os.path.join(HERE, "testdata", "partparity", "pp1")
+PP1_COMMITTED = os.path.join(HERE, "testdata", "partparity", "pp1")
+# The materialized label dir (setUpModule): the committed files plus a PNG per atlas.
+PP1 = None
+_PP1_TMP = None
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 CS_DIR = os.path.join(REPO_ROOT, "Source", "Parsek", "TestCommands")
 RUN_ID = "2026-11-21_1739_PP-1-part-parity-stock"
+
+
+def setUpModule():
+    global PP1, _PP1_TMP
+    _PP1_TMP = tempfile.mkdtemp(prefix="parsek-partparity-pp1-")
+    PP1 = os.path.join(_PP1_TMP, "pp1")
+    fx.materialize_alpha_fixtures(PP1_COMMITTED, PP1)
+
+
+def tearDownModule():
+    global PP1, _PP1_TMP
+    if _PP1_TMP:
+        shutil.rmtree(_PP1_TMP, ignore_errors=True)
+    PP1 = _PP1_TMP = None
 
 
 def _load(name):
@@ -68,6 +88,48 @@ def _read_dir(label_dir, label="pp1"):
     atlases = tuple(n for n in names if n.endswith(pp.ATLAS_SUFFIX)
                     and not n.endswith(pp.THUMB_SUFFIX))
     return pp.SweepInput(label, True, manifest, None, sidecars, atlases)
+
+
+class AlphaFixtureRoundTripTests(unittest.TestCase):
+    """The committed alpha fixtures rebuild to PNGs that read back to the same alpha
+    plane through gui_mirror.read_png, with zero RGB, so the recompute below reads what
+    the C# capture wrote."""
+
+    def test_the_committed_atlases_are_exactly_the_alpha_fixtures(self):
+        names = sorted(os.listdir(PP1_COMMITTED))
+        alpha = sorted(n[:-len(fx.ALPHA_FIXTURE_SUFFIX)] for n in names
+                       if n.endswith(fx.ALPHA_FIXTURE_SUFFIX))
+        self.assertEqual(sorted(RecomputeMatchesTheCSharpSidecarsTests.ATLASES), alpha)
+        rebuilt = sorted(n[:-len(pp.ATLAS_SUFFIX)] for n in os.listdir(PP1)
+                         if n.endswith(pp.ATLAS_SUFFIX) and not n.endswith(pp.THUMB_SUFFIX))
+        self.assertEqual(alpha, rebuilt)
+
+    def test_every_rebuilt_png_round_trips_to_its_alpha_bytes(self):
+        for cid in RecomputeMatchesTheCSharpSidecarsTests.ATLASES:
+            with self.subTest(case=cid):
+                w, h, alpha = fx.read_alpha_fixture(
+                    os.path.join(PP1_COMMITTED, cid + fx.ALPHA_FIXTURE_SUFFIX))
+                rw, rh, bpp, px = gui_mirror.read_png(os.path.join(PP1, cid + pp.ATLAS_SUFFIX))
+                self.assertEqual((w, h, 4), (rw, rh, bpp))
+                self.assertEqual(alpha, px[3::4])
+                self.assertEqual(px, fx.alpha_to_rgba(w, h, alpha))
+                side = _load(cid + pp.SIDECAR_SUFFIX)
+                self.assertEqual(w, len(side["atlas"]["cols"]) * side["atlas"]["tile"])
+
+    def test_a_corrupt_alpha_fixture_is_refused(self):
+        tmp = tempfile.mkdtemp(prefix="parsek-partparity-alpha-")
+        try:
+            bad = os.path.join(tmp, "x" + fx.ALPHA_FIXTURE_SUFFIX)
+            with open(bad, "wb") as fh:
+                fh.write(gzip.compress(fx.ALPHA_FIXTURE_MAGIC + bytes([0, 0, 0, 2, 0, 0, 0, 2, 0])))
+            with self.assertRaises(ValueError):
+                fx.read_alpha_fixture(bad)
+            with open(bad, "wb") as fh:
+                fh.write(gzip.compress(b"XXXX" + bytes(12)))
+            with self.assertRaises(ValueError):
+                fx.read_alpha_fixture(bad)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class RecomputeMatchesTheCSharpSidecarsTests(unittest.TestCase):

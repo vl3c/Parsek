@@ -8,12 +8,24 @@ measures of each sidecar are computed by a pixel-by-pixel transcription of
 ``PartParityMetrics.Measure`` (``reference_measure``), not by the module under test,
 so a synthetic sweep checks partparity's recompute against an independent reading of
 the C# definitions. Stdlib only; the PNG writer is gui_mirror's.
+
+It also rebuilds the committed real-flight atlases. No image file is committed under
+``harness/`` (test_gui_mirror_fidelity.NoCommittedImagesTests), so each atlas of
+``testdata/partparity/pp1/`` is stored as ``<caseId>.alpha.gz``: gzip of the magic
+``PPA1``, big-endian uint32 width and height, then the alpha plane (width * height
+bytes, row-major, top row first, as the PNG stores it). The shape measures read alpha
+only and the flight atlases were already re-encoded with zero RGB, so
+``materialize_alpha_fixtures`` writes back an RGBA PNG whose pixels equal the original
+file's, and the recompute still reads a real PNG through ``gui_mirror.read_png``.
 """
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
+import shutil
+import struct
 import sys
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -25,6 +37,53 @@ import gui_mirror  # noqa: E402
 import partparity  # noqa: E402
 
 VIEWS: Tuple[str, ...] = ("side-a", "side-b", "top", "bottom")
+
+ALPHA_FIXTURE_SUFFIX = ".alpha.gz"
+ALPHA_FIXTURE_MAGIC = b"PPA1"
+_ALPHA_HEADER = struct.Struct(">II")
+
+
+def read_alpha_fixture(path: str) -> Tuple[int, int, bytes]:
+    """Decode one ``.alpha.gz`` atlas fixture -> (width, height, alpha plane)."""
+    with open(path, "rb") as fh:
+        raw = gzip.decompress(fh.read())
+    head = len(ALPHA_FIXTURE_MAGIC) + _ALPHA_HEADER.size
+    if raw[:len(ALPHA_FIXTURE_MAGIC)] != ALPHA_FIXTURE_MAGIC:
+        raise ValueError("not a part parity alpha fixture: %s" % path)
+    w, h = _ALPHA_HEADER.unpack(raw[len(ALPHA_FIXTURE_MAGIC):head])
+    alpha = raw[head:]
+    if len(alpha) != w * h:
+        raise ValueError("alpha fixture %s holds %d bytes, %dx%d needs %d"
+                         % (path, len(alpha), w, h, w * h))
+    return w, h, alpha
+
+
+def alpha_to_rgba(w: int, h: int, alpha: bytes) -> bytes:
+    """The RGBA pixels of an atlas with zero RGB and the given alpha plane."""
+    px = bytearray(w * h * 4)
+    px[3::4] = alpha
+    return bytes(px)
+
+
+def materialize_alpha_fixtures(src_dir: str, dst_dir: str) -> List[str]:
+    """Copy a committed fixture label dir into ``dst_dir``, rebuilding every
+    ``<caseId>.alpha.gz`` as ``<caseId>.png``. Image files in ``src_dir`` are skipped,
+    so the result never depends on one. Returns the rebuilt case ids, sorted."""
+    os.makedirs(dst_dir, exist_ok=True)
+    rebuilt = []
+    for name in sorted(os.listdir(src_dir)):
+        src = os.path.join(src_dir, name)
+        if not os.path.isfile(src) or name.lower().endswith(".png"):
+            continue
+        if name.endswith(ALPHA_FIXTURE_SUFFIX):
+            case_id = name[:-len(ALPHA_FIXTURE_SUFFIX)]
+            w, h, alpha = read_alpha_fixture(src)
+            with open(os.path.join(dst_dir, case_id + partparity.ATLAS_SUFFIX), "wb") as fh:
+                fh.write(gui_mirror.write_png(w, h, 4, alpha_to_rgba(w, h, alpha)))
+            rebuilt.append(case_id)
+        else:
+            shutil.copyfile(src, os.path.join(dst_dir, name))
+    return rebuilt
 
 Mask = List[List[bool]]
 
