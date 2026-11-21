@@ -86,6 +86,10 @@ Not released yet.
   half of a symmetry pair, or a rotation servo set to Inverted, began its replay turned the
   opposite way to the real part until it first moved. It now starts where the real part stood.
   (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
+- **A stowed ladder no longer shows extended on its ghost.** Every retractable ladder's replay drew
+  the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
+  recorded, folded or extended, and still slides out and back on the replay when it moved.
+  (GHOST-LADDER-SPAWNS-DEPLOYED)
 - **A ghost engine with nothing below it no longer shows a shroud.** The real engine at the bottom
   of a stack, or a lone engine, has no shroud, but its replay drew one, stock and ReStock alike.
   An engine with a tank or decoupler under it keeps its shroud as before.

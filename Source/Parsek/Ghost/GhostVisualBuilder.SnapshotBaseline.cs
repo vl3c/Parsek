@@ -51,6 +51,11 @@ namespace Parsek
         public bool? gearDeployed;
         /// <summary>Cargo/service bay open state, resolved from the paired ModuleAnimateGeneric animTime against the prefab's closedPosition.</summary>
         public bool? cargoBayOpen;
+        /// <summary>
+        /// RetractableLadder.StateName (persisted by stock): Extended / Retracted; null for
+        /// the mid-travel Extending / Retracting states or an unreadable value.
+        /// </summary>
+        public bool? ladderExtended;
         /// <summary>Standalone ModuleAnimateGeneric animTime endpoint (mid-travel → null). Only read when the part has no dedicated animate handler.</summary>
         public bool? animateGenericDeployed;
         /// <summary>ModuleAnimationGroup.isDeployed.</summary>
@@ -73,6 +78,7 @@ namespace Parsek
             || deployableBroken
             || wheelDamaged
             || gearDeployed.HasValue
+            || ladderExtended.HasValue
             || cargoBayOpen.HasValue
             || animateGenericDeployed.HasValue
             || animationGroupDeployed.HasValue
@@ -240,6 +246,12 @@ namespace Parsek
                     // suppress the standalone ModuleAnimateGeneric read, exactly as
                     // FlightRecorder.HasDedicatedAnimateHandler does on the live side.
                     case "RetractableLadder":
+                        hasDedicatedAnimateHandler = true;
+                        if (!baseline.ladderExtended.HasValue
+                            && FlightRecorder.TryClassifyRetractableLadderStateName(
+                                module.GetValue("StateName"), out bool ladderDeployed, out bool ladderRetracted))
+                            baseline.ladderExtended = ladderDeployed && !ladderRetracted;
+                        continue;
                     case "ModuleAeroSurface":
                     case "ModuleControlSurface":
                     case "ModuleRobotArmScanner":

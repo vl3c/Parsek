@@ -833,6 +833,52 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Where stock <c>RetractableLadder</c> holds its clip in each rest state (decompiled
+        /// KSP 1.12.5 FSM): <c>st_retracted</c> sets <c>normalizedTime = 1</c> and
+        /// <c>st_extended</c> sets <c>normalizedTime = 0</c>; extending plays the clip at
+        /// speed -1, retracting at +1. The model's rest pose is the EXTENDED one, so the
+        /// endpoint scoring <see cref="SampleLadderStates"/> uses (the end closer to the rest
+        /// pose is stowed) picks the wrong end for this module and every ladder ghost spawned
+        /// deployed (todo GHOST-LADDER-SPAWNS-DEPLOYED).
+        /// </summary>
+        internal const float RetractableLadderRetractedNormalizedTime = 1f;
+        internal const float RetractableLadderExtendedNormalizedTime = 0f;
+
+        /// <summary>
+        /// Samples a stock <c>RetractableLadder</c> clip at stock's own rest-state times
+        /// (stowed = retracted, deployed = extended) instead of scoring the endpoints.
+        /// </summary>
+        private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleRetractableLadderStates(
+            Part prefab, string animationName, string animationRootName)
+        {
+            string partKey = prefab.partInfo?.name ?? prefab.name;
+            string cacheKey = partKey + "|retractableLadder|" + (animationName ?? string.Empty)
+                + "|" + (animationRootName ?? string.Empty);
+            if (animationSampleCache.TryGetValue(cacheKey, out var cached))
+                return cached;
+
+            if (string.IsNullOrEmpty(animationName))
+            {
+                ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': no ladderRetractAnimationName - skipping animation sampling");
+                animationSampleCache[cacheKey] = null;
+                return null;
+            }
+
+            var result = SampleAnimationStates(prefab, animationName, "Ladder",
+                AnimLookup.ByTransformThenClipSearch, animationRootName,
+                RetractableLadderRetractedNormalizedTime, RetractableLadderExtendedNormalizedTime,
+                useScoring: false);
+            if (result != null)
+                ParsekLog.Verbose("GhostVisual",
+                    $"  Ladder '{partKey}': RetractableLadder poses from stock rest states " +
+                    $"(stowed=retracted normalizedTime={RetractableLadderRetractedNormalizedTime:0}, " +
+                    $"deployed=extended normalizedTime={RetractableLadderExtendedNormalizedTime:0})");
+            animationSampleCache[cacheKey] = result;
+            return result;
+        }
+
         private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
             Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleLadderStates(
             Part prefab, string animationName, string animationRootName)
