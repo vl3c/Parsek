@@ -38,6 +38,9 @@ namespace Parsek
             new Dictionary<string, double>(StringComparer.Ordinal);
         private readonly HashSet<string> failedIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> goneLogged = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, double> touchdownFirstObserved =
+            new Dictionary<string, double>(StringComparer.Ordinal);
+        private readonly HashSet<string> touchdownFailedIds = new HashSet<string>(StringComparer.Ordinal);
 
         protected abstract string SceneName { get; }
 
@@ -148,9 +151,15 @@ namespace Parsek
                         "stock did, nothing changes");
             }
 
+            PredictedTouchdownPassResult touchdown = RunTouchdownPass(
+                ut, now, ownedElsewhere, lookup, () => liveByGuid, out int tdDeleted, out int tdContradicted,
+                out int tdFailed);
+
             nextDueUT = pass.NextDueUT;
-            nextRecheckRealtime = pass.NeedsRecheck
-                ? now + (pass.Count(PredictedCrashReconcileOutcome.AwaitingConfirmation) > 0
+            bool awaiting = pass.Count(PredictedCrashReconcileOutcome.AwaitingConfirmation) > 0
+                || touchdown.AwaitingConfirmation;
+            nextRecheckRealtime = pass.NeedsRecheck || touchdown.NeedsRecheck
+                ? now + (awaiting
                     ? (float)PredictedCrashReconciler.ConfirmRealSeconds + 0.5f
                     : PendingRecheckRealSeconds)
                 : float.PositiveInfinity;
@@ -160,6 +169,113 @@ namespace Parsek
                 ParsekLog.Info(Tag, summary);
             else
                 ParsekLog.VerboseRateLimited(Tag, "pass-" + SceneName, summary);
+        }
+
+        /// <summary>
+        /// The predicted-touchdown half of a pass (owner rulings P-STOCK / Q4c / Q4d,
+        /// <see cref="PredictedTouchdownStockFate"/>): stamps every candidate stock holds now,
+        /// records stock's deletion of a craft it held in this timeline, and drops a touchdown
+        /// stock contradicted. A live tree that docked with or boarded the craft owns it (the
+        /// commit takes the predicted ending over); a recovery or termination row explains a
+        /// disappearance (Q13).
+        /// </summary>
+        private PredictedTouchdownPassResult RunTouchdownPass(
+            double ut, float now, Func<Recording, bool> ownedBySession,
+            Func<Recording, PredictedCrashLiveFacts> lookup, Func<Dictionary<string, Vessel>> liveMap,
+            out int deleted, out int contradicted, out int failed)
+        {
+            deleted = 0;
+            contradicted = 0;
+            failed = 0;
+            RecordingTree activeTree = ParsekFlight.Instance != null
+                ? ParsekFlight.Instance.ActiveTreeForSerialization
+                : null;
+            RecordingTree pendingTree = PendingTreeSlot.PendingTree;
+            Func<Recording, bool> ownedElsewhere = rec =>
+                ownedBySession(rec)
+                || IsMergePartnerOfLiveTree(rec, activeTree)
+                || IsMergePartnerOfLiveTree(rec, pendingTree);
+            Func<Recording, bool> removedByPlayer = rec =>
+                EffectiveState.IsRecoveredByLedgerRowLive(rec) || EffectiveState.IsTerminatedByLedgerRowLive(rec);
+
+            PredictedTouchdownPassResult pass = PredictedTouchdownStockFate.EvaluatePass(
+                EffectiveState.ComputeERS(), ownedElsewhere, removedByPlayer, lookup, ut,
+                sceneSettled: true, realtimeNow: now, firstObserved: touchdownFirstObserved,
+                skipIds: touchdownFailedIds);
+
+            int stamped = 0;
+            for (int i = 0; i < pass.Sighted.Count; i++)
+                if (PredictedTouchdownStockFate.NoteStockHeld(pass.Sighted[i], ut))
+                    stamped++;
+
+            for (int i = 0; i < pass.StockDeleted.Count; i++)
+            {
+                Recording rec = pass.StockDeleted[i];
+                RecordingTree tree = RecordingStore.FindCommittedTreeById(rec.TreeId);
+                PredictedCrashContradictionResult result = tree != null
+                    ? PredictedCrashReconciler.ApplyStockDeletion(
+                        tree, rec.RecordingId, ut, PredictedTouchdownStockFate.LogTag + ":" + SceneName)
+                    : default(PredictedCrashContradictionResult);
+                if (result.Applied)
+                    deleted++;
+                else
+                {
+                    failed++;
+                    touchdownFailedIds.Add(rec.RecordingId);
+                    if (tree == null)
+                        ParsekLog.Warn(PredictedTouchdownStockFate.LogTag,
+                            $"Predicted touchdown stock deletion not applied: rec={rec.RecordingId} " +
+                            $"tree={rec.TreeId ?? "(null)"} treeFound=false");
+                }
+                touchdownFirstObserved.Remove(rec.RecordingId + "|gone");
+            }
+
+            for (int i = 0; i < pass.Contradicted.Count; i++)
+            {
+                Recording rec = pass.Contradicted[i];
+                if (ApplyOne(rec, liveMap(), ut))
+                    contradicted++;
+                else
+                {
+                    failed++;
+                    touchdownFailedIds.Add(rec.RecordingId);
+                }
+                touchdownFirstObserved.Remove(rec.RecordingId + "|contradicted");
+            }
+
+            string summary = PredictedTouchdownStockFate.FormatPassSummary(
+                pass, SceneName, ut, deleted, contradicted, failed) +
+                " stamped=" + stamped.ToString(CultureInfo.InvariantCulture);
+            if (deleted > 0 || contradicted > 0 || failed > 0)
+                ParsekLog.Info(PredictedTouchdownStockFate.LogTag, summary);
+            else if (pass.Candidates > 0)
+                ParsekLog.VerboseRateLimited(PredictedTouchdownStockFate.LogTag, "pass-" + SceneName, summary);
+            return pass;
+        }
+
+        /// <summary>
+        /// Pure: <paramref name="tree"/> (a live tree) docked with or boarded the vessel of
+        /// <paramref name="rec"/> (a Dock / Board branch point whose partner stamp names its
+        /// launch or its Parsek spawn): the merge, not stock, took the craft out of the world.
+        /// </summary>
+        internal static bool IsMergePartnerOfLiveTree(Recording rec, RecordingTree tree)
+        {
+            if (rec == null || tree?.BranchPoints == null)
+                return false;
+            if (string.Equals(rec.TreeId, tree.Id, StringComparison.Ordinal))
+                return false;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                BranchPoint bp = tree.BranchPoints[i];
+                if (bp == null || (bp.Type != BranchPointType.Dock && bp.Type != BranchPointType.Board))
+                    continue;
+                if (bp.TargetVesselPersistentId == 0u)
+                    continue;
+                if (VesselLaunchIdentity.CandidateMatchesRecording(
+                        rec, bp.TargetVesselPersistentId, bp.TargetVesselGuid, matchSource: true, matchSpawn: true))
+                    return true;
+            }
+            return false;
         }
 
         private bool ApplyOne(Recording rec, Dictionary<string, Vessel> liveByGuid, double ut)

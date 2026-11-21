@@ -43,6 +43,36 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: the end UT that decides whether <paramref name="rec"/> ended before a
+        /// recovery. A predicted chute touchdown (Landed / Splashed, predicted) ends at its
+        /// touchdown, after its last real sample: stock held the vessel from then on, so a
+        /// recovery before the touchdown recovers this recording's vessel and is measured
+        /// against the start of the predicted descent. Every other recording uses its end.
+        /// </summary>
+        internal static double OwnerEndUT(Recording rec)
+        {
+            if (rec == null)
+                return double.NaN;
+            double end = rec.EndUT;
+            if (!rec.TerminalPredicted
+                || (rec.TerminalStateValue != TerminalState.Landed
+                    && rec.TerminalStateValue != TerminalState.Splashed)
+                || rec.TrackSections == null)
+                return end;
+            double start = double.NaN;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                TrackSection section = rec.TrackSections[i];
+                if (section.source != TrackSectionSource.Predicted
+                    || double.IsNaN(section.startUT) || double.IsInfinity(section.startUT))
+                    continue;
+                if (double.IsNaN(start) || section.startUT < start)
+                    start = section.startUT;
+            }
+            return double.IsNaN(start) || start > end ? end : start;
+        }
+
+        /// <summary>
         /// The committed recordings the recovered vessel continues, one per tree: among the
         /// matches (<see cref="IsRecoveredVesselRecording"/>) that ended at or before the
         /// recovery, the one with the latest end in each tree (a recording with no tree is
@@ -65,7 +95,7 @@ namespace Parsek
                 var rec = effectiveRecordings[i];
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
                 if (!IsRecoveredVesselRecording(rec, livePid, liveGuid)) continue;
-                if (rec.EndUT > recoveryUT + KerbalsModule.RecoveryClosureEndToleranceSeconds)
+                if (OwnerEndUT(rec) > recoveryUT + KerbalsModule.RecoveryClosureEndToleranceSeconds)
                     continue;
 
                 string group = string.IsNullOrEmpty(rec.TreeId)

@@ -177,14 +177,8 @@ namespace Parsek
         internal static bool TrajectoryReachesStockRemoval(
             double eccentricity, double periapsisAltitude, bool descending, double stockRemovalAltitude)
         {
-            if (!IsFinite(eccentricity) || !IsFinite(periapsisAltitude))
-                return true;
-            double line = IsFinite(stockRemovalAltitude) && stockRemovalAltitude > 0.0
-                ? stockRemovalAltitude
-                : 0.0;
-            if (periapsisAltitude > line)
-                return false;
-            return eccentricity < 1.0 || descending;
+            return PredictedTouchdownStockFate.TrajectoryReachesStockRemoval(
+                eccentricity, periapsisAltitude, descending, stockRemovalAltitude);
         }
 
         /// <summary>
@@ -323,7 +317,9 @@ namespace Parsek
                 result.Reason = "recording-not-in-tree";
                 return LogRefused(result, committedTree, recordingId, context);
             }
-            if (committedRec.TerminalStateValue != TerminalState.Destroyed || !committedRec.TerminalPredicted)
+            bool predictedTouchdown = PredictedTouchdownStockFate.IsPredictedTouchdown(committedRec);
+            if (!predictedTouchdown
+                && (committedRec.TerminalStateValue != TerminalState.Destroyed || !committedRec.TerminalPredicted))
             {
                 result.Reason = "not-a-predicted-crash";
                 return LogRefused(result, committedTree, recordingId, context);
@@ -337,8 +333,10 @@ namespace Parsek
                 return LogRefused(result, committedTree, recordingId, context);
             }
 
+            // A touchdown stock contradicted (the craft still in the air past it) never keeps
+            // the predicted descent the way a takeover after the touchdown does.
             result.Drop = PredictedEndingTakeover.DropPredictedEndingForTakeover(
-                rec, nowUT, context, coastEvidence);
+                rec, nowUT, context, coastEvidence, predictionContradicted: predictedTouchdown);
             if (!result.Drop.Dropped)
             {
                 result.Reason = "drop-refused:" + (result.Drop.Reason ?? "(none)");
@@ -361,7 +359,7 @@ namespace Parsek
             result.Reason = "applied";
             ParsekLog.Info(LogTag,
                 string.Format(CultureInfo.InvariantCulture,
-                    "Predicted crash contradicted by stock: context={0} tree={1} rec={2} vessel='{3}' " +
+                    "Predicted {9} contradicted by stock: context={0} tree={1} rec={2} vessel='{3}' " +
                     "predictedCrashUT={4} nowUT={5} cutUT={6} coast={7} newTerminal={8} - " +
                     "stock kept the vessel, the prediction is dropped and the ending follows the live vessel",
                     context ?? "(none)",
@@ -372,7 +370,98 @@ namespace Parsek
                     FormatUT(nowUT),
                     FormatUT(result.Drop.CutUT),
                     result.Drop.CoastKeptToTakeover ? "kept-to-takeover" : "cut-at-last-real",
-                    result.NewTerminal.HasValue ? result.NewTerminal.Value.ToString() : "null"));
+                    result.NewTerminal.HasValue ? result.NewTerminal.Value.ToString() : "null",
+                    predictedTouchdown ? "touchdown" : "crash"));
+            return result;
+        }
+
+        /// <summary>
+        /// The committed-history half of a predicted touchdown stock deleted (owner rulings
+        /// P-STOCK / Q4d, <see cref="PredictedTouchdownOutcome.StockDeleted"/>): deep-clones
+        /// <paramref name="committedTree"/>, turns the recording on the clone into stock's
+        /// verdict (<see cref="PredictedTouchdownStockFate.ConvertToStockDeleted"/>: Destroyed,
+        /// confirmed, crew dead, a quiet end after the chute descent), commits the clone over
+        /// the committed tree (same-id replace, which retires the touchdown's Aboard crew rows,
+        /// <see cref="LedgerOrchestrator.ShouldRefreshCrewRowsOnReplace"/>) and files the tree's
+        /// ledger rows (the Dead ones). The separation stays open for a Re-Fly as for any crash.
+        /// The committed tree is untouched when anything before the commit refuses.
+        /// </summary>
+        internal static PredictedCrashContradictionResult ApplyStockDeletion(
+            RecordingTree committedTree,
+            string recordingId,
+            double nowUT,
+            string context)
+        {
+            var result = new PredictedCrashContradictionResult();
+            if (committedTree?.Recordings == null || string.IsNullOrEmpty(recordingId)
+                || !committedTree.Recordings.TryGetValue(recordingId, out Recording committedRec)
+                || committedRec == null)
+            {
+                result.Reason = "recording-not-in-tree";
+                return LogDeletionRefused(result, committedTree, recordingId, context);
+            }
+            if (!PredictedTouchdownStockFate.IsPredictedTouchdown(committedRec))
+            {
+                result.Reason = "not-a-predicted-touchdown";
+                return LogDeletionRefused(result, committedTree, recordingId, context);
+            }
+
+            RecordingTree clone = RecordingTree.DeepClone(committedTree);
+            if (clone?.Recordings == null
+                || !clone.Recordings.TryGetValue(recordingId, out Recording rec) || rec == null)
+            {
+                result.Reason = "clone-failed";
+                return LogDeletionRefused(result, committedTree, recordingId, context);
+            }
+
+            double touchdownUT = rec.EndUT;
+            TerminalState? previous = rec.TerminalStateValue;
+            if (!PredictedTouchdownStockFate.ConvertToStockDeleted(rec, context))
+            {
+                result.Reason = "convert-refused";
+                return LogDeletionRefused(result, committedTree, recordingId, context);
+            }
+            result.NewTerminal = rec.TerminalStateValue;
+
+            if (!TreeCommitService.CommitTree(clone))
+            {
+                result.Reason = "commit-refused";
+                return LogDeletionRefused(result, committedTree, recordingId, context);
+            }
+            RecordingTree committed = TreeCommitService.ResolveCommittedTreeAfterCommit(clone, context);
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(committed);
+
+            result.Applied = true;
+            result.Reason = "applied";
+            ParsekLog.Info(PredictedTouchdownStockFate.LogTag,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Predicted touchdown overruled by stock: context={0} tree={1} rec={2} vessel='{3}' " +
+                    "previousTerminal={4} touchdownUT={5} nowUT={6} stockHeldUT={7} newTerminal={8} " +
+                    "quietEnd={9} - stock deleted the vessel in the air (crew killed); the recording ends " +
+                    "Destroyed as stock decided, its ghost descends and ends quietly, nothing spawns",
+                    context ?? "(none)",
+                    committedTree.Id ?? "(null)",
+                    recordingId,
+                    rec.VesselName ?? "",
+                    previous.HasValue ? previous.Value.ToString() : "null",
+                    FormatUT(touchdownUT),
+                    FormatUT(nowUT),
+                    FormatUT(rec.StockHeldVesselUT),
+                    result.NewTerminal.HasValue ? result.NewTerminal.Value.ToString() : "null",
+                    rec.QuietDestroyedEnd ? "true" : "false"));
+            return result;
+        }
+
+        private static PredictedCrashContradictionResult LogDeletionRefused(
+            PredictedCrashContradictionResult result, RecordingTree tree, string recordingId, string context)
+        {
+            ParsekLog.Warn(PredictedTouchdownStockFate.LogTag,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Predicted touchdown stock deletion not applied: context={0} tree={1} rec={2} reason={3}",
+                    context ?? "(none)",
+                    tree?.Id ?? "(null)",
+                    recordingId ?? "(null)",
+                    result.Reason ?? "(none)"));
             return result;
         }
 

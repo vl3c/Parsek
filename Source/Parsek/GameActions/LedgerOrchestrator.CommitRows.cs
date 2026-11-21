@@ -14,14 +14,19 @@ namespace Parsek
         /// (<see cref="Recording.TerminalPredicted"/>) and the incoming copy ends differently
         /// (another ending, a confirmed one, or another end UT): the player flew the stage again
         /// (owner ruling Q1b) and the forecast that killed the crew (Q6c) was replaced by what
-        /// the vessel did. A confirmed ending is history and never qualifies, and an untouched
-        /// copy (same ending, same end) does not either.
+        /// the vessel did. A predicted chute touchdown (Landed / Splashed, predicted) qualifies
+        /// the same way: its Aboard rows give way when stock deleted the craft (owner ruling Q4d,
+        /// the crew died with it) or contradicted the touchdown. A confirmed ending is history
+        /// and never qualifies, and an untouched copy (same ending, same end) does not either.
         /// </summary>
         internal static bool ShouldRefreshCrewRowsOnReplace(Recording existing, Recording incoming)
         {
             if (existing == null || incoming == null || ReferenceEquals(existing, incoming))
                 return false;
-            if (existing.TerminalStateValue != TerminalState.Destroyed || !existing.TerminalPredicted)
+            if (!existing.TerminalPredicted
+                || (existing.TerminalStateValue != TerminalState.Destroyed
+                    && existing.TerminalStateValue != TerminalState.Landed
+                    && existing.TerminalStateValue != TerminalState.Splashed))
                 return false;
             if (incoming.TerminalStateValue != existing.TerminalStateValue
                 || incoming.TerminalPredicted != existing.TerminalPredicted)
@@ -66,7 +71,8 @@ namespace Parsek
             }
             ParsekLog.Info(Tag,
                 $"{context ?? "(none)"}: predicted crash taken over for recording='{recordingId}' " +
-                $"(committed ending Destroyed predicted endUT={existing.EndUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                $"(committed ending {(existing.TerminalStateValue.HasValue ? existing.TerminalStateValue.Value.ToString() : "null")} " +
+                $"predicted endUT={existing.EndUT.ToString("R", CultureInfo.InvariantCulture)}, " +
                 $"incoming ending={(incoming.TerminalStateValue.HasValue ? incoming.TerminalStateValue.Value.ToString() : "null")} " +
                 $"predicted={incoming.TerminalPredicted} endUT={incoming.EndUT.ToString("R", CultureInfo.InvariantCulture)}) - " +
                 $"retired {assignments.ToString(CultureInfo.InvariantCulture)} crew assignment row(s) and " +
