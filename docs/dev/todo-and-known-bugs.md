@@ -215,7 +215,7 @@ Mirror check: S1.8's `SoiCrossingPlaybackInGameTests.SoiSeamWorldPositionsAreCon
 
 Owed: SOI-3's re-flight on a DLL from this branch; expected `bg probe seam Mun->Kerbin ut=1317.090 gap=<1 m (tolerance 1000m, both sides at the seam UT) kerbinEpoch=1316.656 seamMinusKerbinEpoch=0.434s munSideFromMun=2429672m` (the seam UT moves if the warp lands the event on another frame).
 
-## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; FIX 2026-11-21, same branch: the regeneration's witness and the double-spawn world index read the live vessels too (RESCUE-REGEN-COUNTS-PROTOVESSELS), xUnit only; the PC lanes RSQ-1 / RSQ-2 / RSQ-3 / RSQ-4 LIVE-PROVEN 2026-11-21 (TEST-GAPS-BATCH3-FLIGHTS-2026-11-21); FIXED 2026-11-21 (prebuilt ship, experimental part; item 4), branch `test-gaps-contract-templates`, measured from the decompile, xUnit only; every stock template surveyed, nothing else left; OWED: lane CT-2 (authored, never flown) and a live proof of the prebuilt-ship spawn, which no committed fixture can host; high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
+## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; FIX 2026-11-21, same branch: the regeneration's witness and the double-spawn world index read the live vessels too (RESCUE-REGEN-COUNTS-PROTOVESSELS), xUnit only; the PC lanes RSQ-1 / RSQ-2 / RSQ-3 / RSQ-4 LIVE-PROVEN 2026-11-21 (TEST-GAPS-BATCH3-FLIGHTS-2026-11-21); FIXED 2026-11-21 (prebuilt ship, experimental part; item 4), branch `test-gaps-contract-templates`, measured from the decompile, xUnit only; every stock template surveyed, nothing else left; OWED: lanes CT-2 and CT-3 (authored 2026-11-21, never flown; CT-3 on the derived fixture `cs-career-mun4-vessel-repair` is the prebuilt-ship spawn's live proof); high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
 
 **What happens.** The player accepts a rescue contract (`Contracts.Templates.RecoverAsset`) at UT
 T, rewinds to before T, and the clock reaches T again. `KspStatePatcher.PatchContractsCore`
@@ -396,9 +396,24 @@ this; its vessel is in that save).
    `RebuiltPartTest_InTheRewindSaveRnD_AddsItsExperimentalPart_InAnyScene` (`Assert.Equal() Failure`
    Expected `Regenerate` / `Add`, Actual `unchecked`). The reflection shells have no headless test:
    lane `CT-2-parttest-rebuilt-experimental-part` (cs-career-mun3, stock-tree, authored 2026-11-21,
-   never flown) is the experimental part's live proof; the prebuilt spawn has none, because no
-   committed fixture holds an Offered construction or repair contract (a fixture from a career
-   past the Advanced Construction / repair requirements is owed for it).
+   never flown) is the experimental part's live proof. The prebuilt spawn's is lane
+   `CT-3-vessel-repair-rebuilt-at-space-center` (stock-tree, authored 2026-11-21, never flown) on the
+   derived fixture `cs-career-mun4-vessel-repair` (`harness/tools/build_cs_career_mun4_vessel_repair.py`,
+   drift cells `harness/lib/test_cs_career_mun4_vessel_repair.py`): RSQ-1's `cs-career-mun4` plus one
+   Offered stock `VesselRepairContract` `df927e5a-b1e6-5ae7-ad39-c1d1d7fb82fe` (the dev career `c1`'s
+   saved node, guid re-keyed, offer extended, `roverCraftDef` written install-relative, which
+   `PreBuiltCraft.CraftByURL` resolves from the last `GameData`; craft `Repair Contract Sat 9`, Kerbin
+   orbit, vessel `Damaged Kerbin AS-P Satellite NV5SQ`) and an R&D `ExpParts { evaRepairKit = 1 }`:
+   `MeetRequirements` is `PartModelPurchased(evaRepairKit)`, the career lacks spaceExploration, and
+   with the node absent stock reads the experimental count (a hand-added tech node or purchased part
+   would be taken back by the ledger's tech / part patches). The lane accepts at the Space Center,
+   rewinds onto a committed pad Flea and pins `repair=SpawnPrebuiltShip`, the `spawned prebuilt ship
+   ... through VesselRepairContract.OnAccepted: added=1` line, no second spawn after a Cold reload
+   and one vessel of the satellite's name (report-only). Its first flight must confirm three
+   decompile-read premises: the offer survives on the experimental count, the relative craft URL
+   resolves, and the accept snapshot carries the spawned vessel id (`vesselPid` != 0, else the
+   rebuild reads `NoSpawnRecorded`). Construction contracts (orbital, rover) stay xUnit-only: their
+   requirements are tech nodes (advConstruction / advExploration) the ledger would re-lock.
 
    Survey of every stock contract template (2026-11-21, decompile; `Contract.SetState(Active)` runs
    `Register`, `ContractSystem.AdjustWeight` (generation weights only), `AwardAdvance` (the
