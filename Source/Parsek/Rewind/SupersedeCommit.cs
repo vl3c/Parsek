@@ -1876,6 +1876,8 @@ namespace Parsek
             return string.Equals(classifierReason, "stableLeafUnconcluded",
                     StringComparison.Ordinal)
                 || string.Equals(classifierReason, "stashedStableLeaf",
+                    StringComparison.Ordinal)
+                || string.Equals(classifierReason, UnfinishedFlightClassifier.PredictedTouchdownReason,
                     StringComparison.Ordinal);
         }
 

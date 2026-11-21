@@ -74,6 +74,11 @@ PER_RECORDING_WINDOW_KEYS: Tuple[str, ...] = (PREDICTED_KEY, TAIL_KEY, ALTITUDE_
 # Reference frames whose POINT samples are real (TrackSection.ReferenceFrame).
 REAL_SAMPLE_REFS: Tuple[str, ...] = ("0", "1")
 
+# TrackSectionSource.Predicted (Source/Parsek/Trajectory/TrackSection.cs): a section Parsek
+# predicted past the last real sample (a chute descent to touchdown). Its POINTs are never
+# real samples, whatever its frame. The text codec writes `src` only when not Active.
+PREDICTED_SECTION_SRC = "3"
+
 # Stock body (gravitational parameter m^3/s^2, radius m), KSP 1.12.5. A body not
 # listed leaves the altitude unmeasured (a defined mismatch when it is asserted).
 BODY_GM_AND_RADIUS: Dict[str, Tuple[float, float]] = {
@@ -161,6 +166,7 @@ def parse_mirror(text: Optional[str]) -> MirrorFacts:
     sections = root.nodes_named("TRACK_SECTION")
     for sec in sections:
         ref = sec.value("ref") or "0"
+        predicted = (sec.value("src") or "") == PREDICTED_SECTION_SRC
         end = _f(sec.value("endUT"))
         if end is not None:
             every.append(end)
@@ -169,7 +175,7 @@ def parse_mirror(text: Optional[str]) -> MirrorFacts:
             if ut is None:
                 continue
             every.append(ut)
-            if ref in REAL_SAMPLE_REFS:
+            if ref in REAL_SAMPLE_REFS and not predicted:
                 real.append(ut)
         add_segments(sec)
     top_points = [u for u in (_f(p.value("ut")) for p in root.nodes_named("POINT"))

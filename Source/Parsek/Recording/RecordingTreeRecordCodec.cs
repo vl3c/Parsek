@@ -29,13 +29,16 @@ namespace Parsek
 
             if (rec.TerminalStateValue.HasValue)
                 recNode.AddValue("terminalState", ((int)rec.TerminalStateValue.Value).ToString(ic));
-            // Sparse: only a predicted Destroyed ending carries it, so every other recording
+            // Sparse: only a predicted crash or touchdown carries it, so every other recording
             // stays byte-identical and an older save reads as confirmed (its crew stay Dead).
             if (rec.TerminalPredicted)
                 recNode.AddValue("terminalPredicted", "True");
             // Sparse too: only an identity-loss Destroyed over a surviving remnant carries it.
             if (rec.TerminalRemnantSurvives)
                 recNode.AddValue("terminalRemnantSurvives", "True");
+            // Sparse too: only a quiet Destroyed end (a chuted craft stock deleted) carries it.
+            if (rec.QuietDestroyedEnd)
+                recNode.AddValue("quietEnd", "True");
             if (rec.EndpointPhase != RecordingEndpointPhase.Unknown)
                 recNode.AddValue("endpointPhase", ((int)rec.EndpointPhase).ToString(ic));
             if (!string.IsNullOrEmpty(rec.EndpointBodyName))
@@ -673,12 +676,14 @@ namespace Parsek
                             "is unknown to this build (a newer ending kind); held verbatim and written back");
                 }
             }
-            // Read with the terminal it qualifies: kept only beside a Destroyed ending
-            // (an absent key, or any other ending, reads false).
-            rec.TerminalPredicted = rec.TerminalStateValue == TerminalState.Destroyed
+            // Read with the terminal it qualifies: kept only beside a Destroyed, Landed or
+            // Splashed ending (an absent key, or any other ending, reads false).
+            rec.TerminalPredicted = Recording.IsPredictableTerminal(rec.TerminalStateValue)
                 && ParseBoolOr(recNode, "terminalPredicted", false);
             rec.TerminalRemnantSurvives = rec.TerminalStateValue == TerminalState.Destroyed
                 && ParseBoolOr(recNode, "terminalRemnantSurvives", false);
+            rec.QuietDestroyedEnd = rec.TerminalStateValue == TerminalState.Destroyed
+                && ParseBoolOr(recNode, "quietEnd", false);
 
             string endpointPhaseStr = recNode.GetValue("endpointPhase");
             if (endpointPhaseStr != null)

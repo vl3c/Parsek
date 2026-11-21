@@ -84,6 +84,22 @@ class MirrorAndAltitudeTests(unittest.TestCase):
         self.assertEqual(1, len(mf.segments))
         self.assertTrue(mf.segments[0].predicted)
 
+    def test_a_predicted_section_is_not_a_real_sample(self):
+        # A chute descent Parsek predicted to touchdown (src = 3): its points end the
+        # recording but are not watched, so the tail past the last real sample is measured.
+        predicted = _section("0", _point(20.0) + _point(90.0, alt=70.0), 20.0, 90.0)
+        predicted = predicted.replace("ref = 0\n", "ref = 0\nsrc = 3\n")
+        text = _mirror("r1", _section("0", _point(10.0) + _point(20.0), 10.0, 20.0) + predicted)
+        mf = endingsq.parse_mirror(text)
+        self.assertEqual(20.0, mf.last_real_sample_ut)
+        self.assertEqual(90.0, mf.max_ut)
+
+    def test_the_predicted_source_is_the_csharp_enum_value(self):
+        path = os.path.join(LIB_DIR, "..", "..", "Source", "Parsek", "Trajectory", "TrackSection.cs")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("Predicted = " + endingsq.PREDICTED_SECTION_SRC, text)
+
     def test_flat_write_points_count_and_duplicate_segments_collapse(self):
         seg = _seg(20.0, 95.0, 700000.0, 0.01, 0.0, 20.0, True)
         text = _mirror("r1", _point(5.0) + _point(15.0) + seg

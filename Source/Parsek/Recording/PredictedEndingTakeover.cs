@@ -17,6 +17,7 @@ namespace Parsek
         public int RemovedSegmentCount;
         public int ClippedSegmentCount;
         public int KeptCoastSegmentCount;
+        public int RemovedDescentPointCount;
         public TerminalState? PreviousTerminal;
         public bool PreviousTerminalPredicted;
         public double PreviousExplicitEndUT;
@@ -126,6 +127,8 @@ namespace Parsek
                 return false;
             if (CountPredictedSegmentsPast(rec, lastRealUT) > 0)
                 return true;
+            if (RecordingFinalizationCacheApplier.TryGetPredictedSectionStartUT(rec, out _))
+                return true;
             return rec.TerminalStateValue.HasValue
                 && IsFinite(rec.ExplicitEndUT)
                 && rec.ExplicitEndUT > lastRealUT + PredictedTerminalUTToleranceSeconds;
@@ -216,6 +219,9 @@ namespace Parsek
                     result.KeptCoastSegmentCount = MarkKeptCoastRecorded(rec, cutUT);
             }
 
+            result.RemovedDescentPointCount = RecordingFinalizationCacheApplier.RemovePredictedDescent(
+                rec, "PredictedEndingTakeover:" + (context ?? "(none)"));
+
             if (rec.TerminalStateValue.HasValue)
             {
                 rec.StampTerminalState(null, "PredictedEndingTakeover:" + (context ?? "(none)"));
@@ -240,7 +246,8 @@ namespace Parsek
                     "Predicted ending dropped for takeover: context={0} rec={1} vessel='{2}' pid={3} " +
                     "takeoverUT={4} lastRealUT={5} cutUT={6} removedSegments={7} clippedSegments={8} " +
                     "previousTerminal={9} previousTerminalPredicted={10} previousExplicitEndUT={11} " +
-                    "crewEndStatesCleared={12} coast={13} coastReason={14} coastMiss={15} keptCoastSegments={16}",
+                    "crewEndStatesCleared={12} coast={13} coastReason={14} coastMiss={15} keptCoastSegments={16} " +
+                    "removedDescentPoints={17}",
                     context ?? "(none)",
                     rec.RecordingId ?? "(null)",
                     rec.VesselName ?? "",
@@ -258,7 +265,8 @@ namespace Parsek
                     result.CoastDecision ?? "(none)",
                     IsFinite(result.CoastMissMeters)
                         ? result.CoastMissMeters.ToString("F1", CultureInfo.InvariantCulture) : "NaN",
-                    result.KeptCoastSegmentCount));
+                    result.KeptCoastSegmentCount,
+                    result.RemovedDescentPointCount));
             return result;
         }
 

@@ -51,10 +51,9 @@ namespace Parsek.Tests
             Assert.False(result);
         }
 
-        // SUB_ORBITAL is not here: a bound SUB_ORBITAL coast whose periapsis clears the cutoff
-        // is a stable orbit (AbandonedStageAccuracyTests.ShouldExtrapolate_SubOrbital_*).
+        // FLYING and SUB_ORBITAL are not here: a bound coast in either whose periapsis clears
+        // the cutoff is a stable orbit (AbandonedStageAccuracyTests.ShouldExtrapolate_*).
         [Theory]
-        [InlineData((int)Vessel.Situations.FLYING)]
         [InlineData((int)Vessel.Situations.ESCAPING)]
         public void ShouldExtrapolate_UnstableFlightStates_ReturnTrue(int situationValue)
         {

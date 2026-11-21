@@ -2129,6 +2129,7 @@ namespace Parsek.Tests
                     ReferenceBodyName = "Kerbin",
                     ReferenceBodyHasAtmosphere = true,
                     ReferenceBodyAtmosphereDepth = 70000.0,
+                    ReferenceBodyPeriapsisFloorAltitude = OrbitClearanceTestValues.KerbinDeletionAltitude,
                     Inclination = 1.0,
                     Eccentricity = 0.2,
                     SemiMajorAxis = 650000.0,

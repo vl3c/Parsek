@@ -44,6 +44,8 @@ namespace Parsek
         // leave them at 0 so callers can log the status without branching.
         public int AppendedSegmentCount;
         public int RemovedPredictedSegmentCount;
+        public int AppendedDescentPointCount;
+        public int RemovedDescentPointCount;
 
         public bool Applied => Status == RecordingFinalizationCacheApplyStatus.Applied;
     }
@@ -104,13 +106,35 @@ namespace Parsek
                 ? RemoveExistingPredictedTail(recording, lastAuthoredUT)
                 : 0;
 
+            bool carriesDescent = IsPredictedDescentCache(cache);
+            int removedDescentPoints = options.AllowAlreadyFinalizedRepair || carriesDescent
+                ? RemovePredictedDescent(recording, "RecordingFinalizationCacheApplier")
+                : 0;
+
             if (retainedSegments.Count > 0)
                 recording.OrbitSegments.AddRange(retainedSegments);
 
+            int appendedDescentPoints = carriesDescent
+                ? AppendPredictedDescent(
+                    recording, cache.PredictedDescentPoints, lastAuthoredUT, cache.TerminalUT,
+                    "RecordingFinalizationCacheApplier")
+                : 0;
+
             recording.StampTerminalState(
                 cache.TerminalState.Value, "RecordingFinalizationCacheApplier",
-                predicted: IsPredictedDestroyedTerminal(cache, options));
+                predicted: IsPredictedDestroyedTerminal(cache, options)
+                    || (appendedDescentPoints > 0 && IsPredictedTouchdownCache(cache)),
+                quietEnd: cache.QuietEnd && appendedDescentPoints > 0);
             ApplyTerminalMetadata(recording, cache, retainedSegments);
+            if (appendedDescentPoints > 0 && recording.TerminalPosition.HasValue)
+            {
+                ApplyPredictedTouchdownToSnapshot(
+                    recording.VesselSnapshot,
+                    recording.TerminalPosition.Value,
+                    cache.TerminalState.Value,
+                    recording.RecordingId,
+                    "RecordingFinalizationCacheApplier");
+            }
 
             recording.ExplicitEndUT = cache.TerminalUT;
             DebrisRelativeRecorderPolicy.NormalizeParentAnchoredRelativeRecording(
@@ -129,6 +153,8 @@ namespace Parsek
             result.NewExplicitEndUT = recording.ExplicitEndUT;
             result.AppendedSegmentCount = retainedSegments.Count;
             result.RemovedPredictedSegmentCount = removedPredictedSegments;
+            result.AppendedDescentPointCount = appendedDescentPoints;
+            result.RemovedDescentPointCount = removedDescentPoints;
 
             ParsekLog.Info(LogTag,
                 string.Format(
@@ -149,6 +175,311 @@ namespace Parsek
                     cache.TerminalState.Value,
                     cache.TerminalUT));
             return true;
+        }
+
+        /// <summary>
+        /// True when the cache carries a predicted chute descent (owner ruling Q4): descent
+        /// points to a touchdown (Landed / Splashed) or, too fast under the canopies, to a
+        /// ground impact (Destroyed). Pure.
+        /// </summary>
+        internal static bool IsPredictedDescentCache(RecordingFinalizationCache cache)
+        {
+            return cache != null
+                && (cache.TerminalState == TerminalState.Landed
+                    || cache.TerminalState == TerminalState.Splashed
+                    || cache.TerminalState == TerminalState.Destroyed)
+                && cache.PredictedDescentPoints != null
+                && cache.PredictedDescentPoints.Count > 0;
+        }
+
+        /// <summary>A predicted chute descent that ends in a survived touchdown. Pure.</summary>
+        internal static bool IsPredictedTouchdownCache(RecordingFinalizationCache cache)
+        {
+            return IsPredictedDescentCache(cache)
+                && cache.TerminalState != TerminalState.Destroyed;
+        }
+
+        /// <summary>A section Parsek predicted rather than recorded. Pure.</summary>
+        internal static bool IsPredictedSection(TrackSection section)
+        {
+            return section.source == TrackSectionSource.Predicted;
+        }
+
+        /// <summary>
+        /// Pure: the earliest start of a predicted section (the predicted tail is a suffix of
+        /// the recording), false when the recording carries none.
+        /// </summary>
+        internal static bool TryGetPredictedSectionStartUT(Recording recording, out double startUT)
+        {
+            startUT = double.NaN;
+            if (recording?.TrackSections == null)
+                return false;
+            bool found = false;
+            for (int i = 0; i < recording.TrackSections.Count; i++)
+            {
+                TrackSection section = recording.TrackSections[i];
+                if (!IsPredictedSection(section) || !IsFinite(section.startUT))
+                    continue;
+                if (!found || section.startUT < startUT)
+                    startUT = section.startUT;
+                found = true;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Appends a predicted chute descent to <paramref name="recording"/>: one Absolute,
+        /// Atmospheric <see cref="TrackSectionSource.Predicted"/> section from
+        /// <paramref name="lastAuthoredUT"/> to the last descent point at or before
+        /// <paramref name="terminalUT"/>, with the same points in the flat list. The section's
+        /// first frame anchors it at the last real sample: that sample itself when it is
+        /// body-fixed at that UT (no jump; the flat list dedupes it), its body-fixed shadow
+        /// when it is a Relative offset, else the descent evaluated there. Every appended point
+        /// carries the last real sample's career resources, so the tail moves no funds,
+        /// science or reputation. Returns the number of points added to the flat list.
+        /// </summary>
+        internal static int AppendPredictedDescent(
+            Recording recording,
+            IList<TrajectoryPoint> descentPoints,
+            double lastAuthoredUT,
+            double terminalUT,
+            string context)
+        {
+            if (recording == null || descentPoints == null || descentPoints.Count == 0
+                || !IsFinite(lastAuthoredUT))
+            {
+                return 0;
+            }
+
+            var kept = new List<TrajectoryPoint>(descentPoints.Count);
+            for (int i = 0; i < descentPoints.Count; i++)
+            {
+                TrajectoryPoint p = descentPoints[i];
+                if (!IsFinite(p.ut) || p.ut <= lastAuthoredUT + UtEpsilon)
+                    continue;
+                if (IsFinite(terminalUT) && p.ut > terminalUT + UtEpsilon)
+                    continue;
+                kept.Add(p);
+            }
+            if (kept.Count == 0)
+            {
+                ParsekLog.Verbose(LogTag, string.Format(CultureInfo.InvariantCulture,
+                    "Predicted descent not appended: context={0} rec={1} reason=no-point-past-last-authored " +
+                    "lastAuthoredUT={2:F3} descentEndUT={3:F3}",
+                    context ?? "(none)", recording.DebugName, lastAuthoredUT,
+                    descentPoints[descentPoints.Count - 1].ut));
+                return 0;
+            }
+
+            if (recording.Points == null)
+                recording.Points = new List<TrajectoryPoint>();
+            if (recording.TrackSections == null)
+                recording.TrackSections = new List<TrackSection>();
+
+            TrajectoryPoint anchor = ResolveDescentAnchor(
+                recording, descentPoints, lastAuthoredUT, out bool anchorIsRealSample, out string anchorSource);
+            bool hasResources = recording.Points.Count > 0;
+            TrajectoryPoint resourceSource = hasResources
+                ? recording.Points[recording.Points.Count - 1]
+                : default(TrajectoryPoint);
+
+            var frames = new List<TrajectoryPoint>(kept.Count + 1);
+            frames.Add(anchorIsRealSample ? anchor : WithResources(anchor, hasResources, resourceSource));
+            for (int i = 0; i < kept.Count; i++)
+                frames.Add(WithResources(kept[i], hasResources, resourceSource));
+
+            float minAlt = float.NaN;
+            float maxAlt = float.NaN;
+            for (int i = 0; i < frames.Count; i++)
+            {
+                float a = (float)frames[i].altitude;
+                if (float.IsNaN(minAlt) || a < minAlt) minAlt = a;
+                if (float.IsNaN(maxAlt) || a > maxAlt) maxAlt = a;
+            }
+            double endUT = frames[frames.Count - 1].ut;
+            double span = endUT - lastAuthoredUT;
+            recording.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = lastAuthoredUT,
+                endUT = endUT,
+                frames = frames,
+                source = TrackSectionSource.Predicted,
+                sampleRateHz = span > 0.0 ? (float)((frames.Count - 1) / span) : 0f,
+                boundaryDiscontinuityMeters = 0f,
+                minAltitude = minAlt,
+                maxAltitude = maxAlt,
+            });
+
+            int appended = 0;
+            for (int i = anchorIsRealSample ? 1 : 0; i < frames.Count; i++)
+            {
+                recording.Points.Add(frames[i]);
+                appended++;
+            }
+            recording.CachedStats = null;
+            recording.CachedStatsPointCount = 0;
+
+            TrajectoryPoint last = frames[frames.Count - 1];
+            ParsekLog.Info(LogTag, string.Format(CultureInfo.InvariantCulture,
+                "Predicted descent appended: context={0} rec={1} startUT={2:F3} touchdownUT={3:F3} " +
+                "startAlt={4:F1} touchdownAlt={5:F1} body={6} frames={7} flatPoints={8} anchor={9}",
+                context ?? "(none)",
+                recording.DebugName,
+                lastAuthoredUT,
+                last.ut,
+                frames[0].altitude,
+                last.altitude,
+                last.bodyName ?? "(null)",
+                frames.Count,
+                appended,
+                anchorSource));
+            return appended;
+        }
+
+        /// <summary>
+        /// Removes every predicted section and the flat points it added: the points after its
+        /// start, and an anchor frame at its start that is not the real last sample. Returns
+        /// the number of flat points removed. Logs once when it removed a section.
+        /// </summary>
+        internal static int RemovePredictedDescent(Recording recording, string context)
+        {
+            if (recording?.TrackSections == null || recording.TrackSections.Count == 0)
+                return 0;
+
+            int removedSections = 0;
+            int removedPoints = 0;
+            for (int s = recording.TrackSections.Count - 1; s >= 0; s--)
+            {
+                TrackSection section = recording.TrackSections[s];
+                if (!IsPredictedSection(section))
+                    continue;
+                recording.TrackSections.RemoveAt(s);
+                removedSections++;
+                if (recording.Points == null)
+                    continue;
+
+                double startUT = section.startUT;
+                for (int i = recording.Points.Count - 1; i >= 0; i--)
+                {
+                    if (recording.Points[i].ut > startUT + UtEpsilon)
+                    {
+                        recording.Points.RemoveAt(i);
+                        removedPoints++;
+                    }
+                }
+                // A non-real anchor frame sits at the start UT right after the real last sample.
+                int lastIndex = recording.Points.Count - 1;
+                if (section.frames != null && section.frames.Count > 0 && lastIndex >= 1)
+                {
+                    TrajectoryPoint candidate = recording.Points[lastIndex];
+                    TrajectoryPoint before = recording.Points[lastIndex - 1];
+                    if (Math.Abs(candidate.ut - startUT) <= UtEpsilon
+                        && Math.Abs(before.ut - startUT) <= UtEpsilon
+                        && PointsEqual(candidate, section.frames[0]))
+                    {
+                        recording.Points.RemoveAt(lastIndex);
+                        removedPoints++;
+                    }
+                }
+            }
+
+            if (removedSections == 0)
+                return 0;
+
+            recording.CachedStats = null;
+            recording.CachedStatsPointCount = 0;
+            ParsekLog.Info(LogTag, string.Format(CultureInfo.InvariantCulture,
+                "Predicted descent removed: context={0} rec={1} sections={2} flatPoints={3}",
+                context ?? "(none)", recording.DebugName, removedSections, removedPoints));
+            return removedPoints;
+        }
+
+        /// <summary>
+        /// Writes a predicted touchdown into the end vessel snapshot so the end spawn places
+        /// the vessel where the descent comes down, sitting on the ground, instead of where it
+        /// hung under its canopy: lat / lon / alt and the LANDED / SPLASHED situation.
+        /// </summary>
+        internal static bool ApplyPredictedTouchdownToSnapshot(
+            ConfigNode snapshot,
+            SurfacePosition touchdown,
+            TerminalState terminal,
+            string recordingId,
+            string context)
+        {
+            if (snapshot == null)
+                return false;
+            string oldAlt = snapshot.GetValue("alt") ?? "?";
+            string oldSit = snapshot.GetValue("sit") ?? "?";
+            snapshot.SetValue("lat", touchdown.latitude.ToString("R", CultureInfo.InvariantCulture), true);
+            snapshot.SetValue("lon", touchdown.longitude.ToString("R", CultureInfo.InvariantCulture), true);
+            snapshot.SetValue("alt", touchdown.altitude.ToString("R", CultureInfo.InvariantCulture), true);
+            VesselSnapshotOps.ApplySituationToNode(
+                snapshot, terminal == TerminalState.Splashed ? "SPLASHED" : "LANDED");
+            snapshot.SetValue("landedAt", string.Empty, true);
+            snapshot.SetValue("displaylandedAt", string.Empty, true);
+            ParsekLog.Info(LogTag, string.Format(CultureInfo.InvariantCulture,
+                "Predicted touchdown written to the end snapshot: context={0} rec={1} sit {2} -> {3} " +
+                "alt {4} -> {5:F1} lat={6:F5} lon={7:F5}",
+                context ?? "(none)", recordingId ?? "(null)", oldSit, snapshot.GetValue("sit"),
+                oldAlt, touchdown.altitude, touchdown.latitude, touchdown.longitude));
+            return true;
+        }
+
+        private static TrajectoryPoint ResolveDescentAnchor(
+            Recording recording,
+            IList<TrajectoryPoint> descentPoints,
+            double lastAuthoredUT,
+            out bool isRealSample,
+            out string source)
+        {
+            isRealSample = false;
+            string descentBody = descentPoints[0].bodyName;
+            if (recording.Points != null && recording.Points.Count > 0)
+            {
+                TrajectoryPoint last = recording.Points[recording.Points.Count - 1];
+                if (Math.Abs(last.ut - lastAuthoredUT) <= UtEpsilon
+                    && string.Equals(last.bodyName, descentBody, StringComparison.Ordinal))
+                {
+                    FlatPointFrame frame = FlatPointFrameDispatch.Classify(
+                        recording.TrackSections, last, out TrajectoryPoint bodyFixed);
+                    if (frame == FlatPointFrame.BodyFixed)
+                    {
+                        isRealSample = true;
+                        source = "last-sample";
+                        return last;
+                    }
+                    if (frame == FlatPointFrame.RelativeWithShadow)
+                    {
+                        source = "last-sample-shadow";
+                        return bodyFixed;
+                    }
+                }
+            }
+
+            source = "descent-evaluated";
+            TrajectoryPoint? evaluated = ParachuteDescentPlanner.EvaluateAt(descentPoints, lastAuthoredUT);
+            return evaluated ?? descentPoints[0];
+        }
+
+        private static TrajectoryPoint WithResources(TrajectoryPoint p, bool hasSource, TrajectoryPoint source)
+        {
+            if (!hasSource)
+                return p;
+            p.funds = source.funds;
+            p.science = source.science;
+            p.reputation = source.reputation;
+            return p;
+        }
+
+        private static bool PointsEqual(TrajectoryPoint a, TrajectoryPoint b)
+        {
+            return a.ut == b.ut
+                && a.latitude == b.latitude
+                && a.longitude == b.longitude
+                && a.altitude == b.altitude
+                && string.Equals(a.bodyName, b.bodyName, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -191,10 +522,18 @@ namespace Parsek
             if (DebrisRelativeRecorderPolicy.ShouldNormalizeParentAnchoredDebris(recording))
                 return false;
 
+            // A predicted section (a chute descent) is not authored data, and neither are the
+            // flat points it added after its start.
+            bool hasPredictedSection = TryGetPredictedSectionStartUT(recording, out double predictedStartUT);
             if (recording?.Points != null)
             {
                 for (int i = 0; i < recording.Points.Count; i++)
-                    ConsiderUT(recording.Points[i].ut, ref lastAuthoredUT, ref found);
+                {
+                    double ut = recording.Points[i].ut;
+                    if (hasPredictedSection && ut > predictedStartUT + UtEpsilon)
+                        continue;
+                    ConsiderUT(ut, ref lastAuthoredUT, ref found);
+                }
             }
 
             if (recording?.OrbitSegments != null)
@@ -212,6 +551,8 @@ namespace Parsek
                 for (int i = 0; i < recording.TrackSections.Count; i++)
                 {
                     TrackSection section = recording.TrackSections[i];
+                    if (IsPredictedSection(section))
+                        continue;
                     bool hasAuthoredPayload = false;
                     if (section.frames != null)
                     {

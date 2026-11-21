@@ -47,6 +47,7 @@ namespace Parsek.Tests.Generators
         private bool? crewDeathRespawns;
         private bool terminalPredicted;
         private bool terminalRemnantSurvives;
+        private bool quietDestroyedEnd;
         private double crewDeathRespawnSeconds = double.NaN;
         private MergeState? mergeState;
         private double terrainHeightAtEnd = double.NaN;
@@ -462,6 +463,18 @@ namespace Parsek.Tests.Generators
             terminalState = (int)TerminalState.Destroyed;
             terminalPredicted = true;
             terminalRemnantSurvives = true;
+            return this;
+        }
+
+        /// <summary>
+        /// A Destroyed ending stock decided for a chuted craft it deleted out of range
+        /// (Recording.QuietDestroyedEnd; key quietEnd): the ghost comes down under its chutes
+        /// and ends with no explosion.
+        /// </summary>
+        public RecordingBuilder WithQuietDestroyedEnd()
+        {
+            terminalState = (int)TerminalState.Destroyed;
+            quietDestroyedEnd = true;
             return this;
         }
 
@@ -1023,6 +1036,8 @@ namespace Parsek.Tests.Generators
                 node.AddValue("terminalPredicted", "True");
             if (terminalRemnantSurvives)
                 node.AddValue("terminalRemnantSurvives", "True");
+            if (quietDestroyedEnd)
+                node.AddValue("quietEnd", "True");
             if (crewDeathRespawns.HasValue)
             {
                 node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());
@@ -1204,6 +1219,8 @@ namespace Parsek.Tests.Generators
                 node.AddValue("terminalPredicted", "True");
             if (terminalRemnantSurvives)
                 node.AddValue("terminalRemnantSurvives", "True");
+            if (quietDestroyedEnd)
+                node.AddValue("quietEnd", "True");
             if (crewDeathRespawns.HasValue)
             {
                 node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());

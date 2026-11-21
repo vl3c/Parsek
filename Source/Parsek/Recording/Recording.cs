@@ -303,12 +303,14 @@ namespace Parsek
         // --- Terminal state ---
         public TerminalState? TerminalStateValue;      // null = not yet terminated (still recording or legacy)
 
-        // True when the Destroyed terminal is Parsek's own prediction (an extrapolated crash
-        // stamped while KSP still had the vessel, or one it never saw destroyed), false when
-        // KSP actually destroyed the vessel. Only meaningful with a Destroyed terminal; every
-        // other terminal keeps it false. It does NOT spare the crew: a Destroyed ending kills
+        // True when the terminal is Parsek's own prediction, false when KSP or the player
+        // reached it. Destroyed: an extrapolated crash stamped while KSP still had the vessel,
+        // or one it never saw destroyed. It does NOT spare the crew: a Destroyed ending kills
         // them whether KSP destroyed the vessel or Parsek predicted the crash (owner ruling
-        // Q6c); the takeover (Q1b) and the playback read it. Persisted sparse as
+        // Q6c); the takeover (Q1b) and the playback read it. Landed / Splashed: a chute
+        // descent Parsek predicted to touchdown (owner ruling Q4), which keeps the separation
+        // open for a Re-Fly (Q4c); the crew stay Aboard as on any landing. Every other
+        // terminal keeps it false (Recording.IsPredictableTerminal). Persisted sparse as
         // terminalPredicted (written only when true; absent = false). Decided only through
         // StampTerminalState (the codec and the copy sites carry it).
         public bool TerminalPredicted;
@@ -320,6 +322,16 @@ namespace Parsek
         // longer aboard the remnant, dies. Only with a Destroyed terminal; persisted sparse as
         // terminalRemnantSurvives. Decided only through StampTerminalState.
         public bool TerminalRemnantSurvives;
+
+        // True on a Destroyed ending whose replay ends without the destroyed-vessel explosion
+        // (owner ruling 2026-11-21): a chuted craft stock deleted out of range is recorded as
+        // stock decided (vessel gone, crew dead, no spawn), but its ghost comes down under its
+        // canopies to the ground and ends there quietly. A marker, not derived: a chute descent
+        // that ends Destroyed is otherwise a crash (too fast under its canopies, which explodes),
+        // and the stock deletion that tells them apart is not visible in the recorded data.
+        // Persisted sparse as quietEnd (written only when true). Decided only through
+        // StampTerminalState (the codec and the copy sites carry it); kept only with Destroyed.
+        public bool QuietDestroyedEnd;
 
         // Terminal orbit (for Orbiting/SubOrbital terminal state)
         // Stored as Keplerian elements to avoid runtime Orbit object dependency in tests.
@@ -901,6 +913,18 @@ namespace Parsek
         internal static TerminalStampObserver OnTerminalStamped;
 
         /// <summary>
+        /// The endings a prediction can write: a crash (Destroyed) and a chute touchdown
+        /// (Landed / Splashed, owner ruling Q4). <see cref="TerminalPredicted"/> is kept only
+        /// with one of them.
+        /// </summary>
+        internal static bool IsPredictableTerminal(TerminalState? value)
+        {
+            return value == TerminalState.Destroyed
+                || value == TerminalState.Landed
+                || value == TerminalState.Splashed;
+        }
+
+        /// <summary>
         /// THE seam every production site that DECIDES a terminal verdict for a
         /// recording goes through. Assigns <see cref="TerminalStateValue"/> and hands
         /// the (previous -> updated) transition to <see cref="OnTerminalStamped"/>, the
@@ -931,25 +955,38 @@ namespace Parsek
         ///
         /// Returns true when crew end states were invalidated by this stamp.
         /// </summary>
-        /// <para><paramref name="predicted"/> says whether a Destroyed verdict is Parsek's
-        /// own prediction (see <see cref="TerminalPredicted"/>). Every stamp sets the flag, so
-        /// a site that does not pass it (every confirmed destruction, every other terminal,
-        /// a retraction) leaves it false; it is kept only with a Destroyed value. A change of
-        /// the flag alone (a predicted crash later confirmed, or the reverse) is handed to the
-        /// observer too, because the crew end states read it.</para>
+        /// <para><paramref name="predicted"/> says whether a Destroyed (or chute-touchdown
+        /// Landed / Splashed) verdict is Parsek's own prediction (see
+        /// <see cref="TerminalPredicted"/>). Every stamp sets the flag, so a site that does not
+        /// pass it (every confirmed destruction, every other terminal, a retraction) leaves it
+        /// false; it is kept only with a value <see cref="IsPredictableTerminal"/> accepts. A
+        /// change of the flag alone (a predicted crash later confirmed, or the reverse) is
+        /// handed to the observer too, because the crew end states read it.</para>
         /// <para><paramref name="remnantSurvives"/> says whether a Destroyed verdict sealed an
         /// identity loss over a remnant KSP keeps (see <see cref="TerminalRemnantSurvives"/>);
         /// kept only with a Destroyed value, and a change of it alone is handed to the observer
         /// as well, because the per-part crew answer reads it.</para>
+        /// <para><paramref name="quietEnd"/> says whether a Destroyed replay ends without the
+        /// explosion (see <see cref="QuietDestroyedEnd"/>); kept only with a Destroyed value.
+        /// It does not touch the crew answer, so a change of it alone is only logged.</para>
         internal bool StampTerminalState(TerminalState? value, string context, bool predicted = false,
-            bool remnantSurvives = false)
+            bool remnantSurvives = false, bool quietEnd = false)
         {
             TerminalState? previous = TerminalStateValue;
             bool previousPredicted = TerminalPredicted;
             bool previousRemnant = TerminalRemnantSurvives;
             TerminalStateValue = value;
-            TerminalPredicted = predicted && value == TerminalState.Destroyed;
+            TerminalPredicted = predicted && IsPredictableTerminal(value);
             TerminalRemnantSurvives = remnantSurvives && value == TerminalState.Destroyed;
+            bool previousQuietEnd = QuietDestroyedEnd;
+            QuietDestroyedEnd = quietEnd && value == TerminalState.Destroyed;
+            if (previousQuietEnd != QuietDestroyedEnd)
+            {
+                ParsekLog.Verbose("Recording",
+                    "terminal quiet-end flag " + (previousQuietEnd ? "true" : "false") + "->"
+                    + (QuietDestroyedEnd ? "true" : "false") + " rec=" + (RecordingId ?? "(null)")
+                    + " context=" + (context ?? "null"));
+            }
             bool predictedChanged = previousPredicted != TerminalPredicted;
             bool remnantChanged = previousRemnant != TerminalRemnantSurvives;
             if (predictedChanged || remnantChanged)
@@ -1113,6 +1150,7 @@ namespace Parsek
             TerminalStateValue = source.TerminalStateValue;
             TerminalPredicted = source.TerminalPredicted;
             TerminalRemnantSurvives = source.TerminalRemnantSurvives;
+            QuietDestroyedEnd = source.QuietDestroyedEnd;
             TerminalOrbitInclination = source.TerminalOrbitInclination;
             TerminalOrbitEccentricity = source.TerminalOrbitEccentricity;
             TerminalOrbitSemiMajorAxis = source.TerminalOrbitSemiMajorAxis;
@@ -1690,6 +1728,7 @@ namespace Parsek
         double IPlaybackTrajectory.LoopStartUT => LoopStartUT;
         double IPlaybackTrajectory.LoopEndUT => LoopEndUT;
         TerminalState? IPlaybackTrajectory.TerminalStateValue => TerminalStateValue;
+        bool IPlaybackTrajectory.QuietDestroyedEnd => QuietDestroyedEnd;
         SurfacePosition? IPlaybackTrajectory.SurfacePos => SurfacePos;
         double IPlaybackTrajectory.TerrainHeightAtEnd => TerrainHeightAtEnd;
         bool IPlaybackTrajectory.PlaybackEnabled => GhostVisible;

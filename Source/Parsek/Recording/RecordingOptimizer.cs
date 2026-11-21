@@ -1428,7 +1428,8 @@ namespace Parsek
                 target.StampTerminalState(
                     absorbed.TerminalStateValue, "RecordingOptimizer.AbsorbInto",
                     predicted: absorbed.TerminalPredicted,
-                    remnantSurvives: absorbed.TerminalRemnantSurvives);
+                    remnantSurvives: absorbed.TerminalRemnantSurvives,
+                    quietEnd: absorbed.QuietDestroyedEnd);
 
                 // Mirror of the split's MergeState carry (see
                 // TransferTerminalFieldsToSecondHalf): open/closed for a Re-Fly slot is
@@ -2088,6 +2089,8 @@ namespace Parsek
             original.TerminalPredicted = false;
             second.TerminalRemnantSurvives = original.TerminalRemnantSurvives;
             original.TerminalRemnantSurvives = false;
+            second.QuietDestroyedEnd = original.QuietDestroyedEnd;
+            original.QuietDestroyedEnd = false;
 
             // The destroyed flag is part of the terminal verdict and travels with it: left on
             // the first half it would read destroyed with no terminal, and the merge pass

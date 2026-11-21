@@ -179,6 +179,12 @@ namespace Parsek
                         continue;
                     }
 
+                    // A predicted section (a chute descent past the last real sample) is
+                    // renderable but never recorder-authored.
+                    if (!includePredictedOrbitSegments
+                        && section.source == TrackSectionSource.Predicted)
+                        continue;
+
                     bool hasSectionPayload = false;
                     if (section.frames != null)
                     {

@@ -656,5 +656,26 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.Orbiting, RecordingTree.DetermineTerminalStateFromOrbitEvidence(
                 (int)Vessel.Situations.SUB_ORBITAL, 0.05, KerbinRadius + 40000.0, KerbinRadius, floor));
         }
+
+        [Fact]
+        public void ShouldExtrapolate_FlyingBoundClearOfTheFloor_IsAStableOrbit()
+        {
+            double floor = OrbitClearanceTestValues.KerbinDeletionAltitude;
+            // A FLYING coast whose low point clears the floor is the orbit stock keeps.
+            Assert.False(BallisticExtrapolator.ShouldExtrapolate(
+                Vessel.Situations.FLYING, 0.05, 40000.0, floor));
+            // Under the floor (every vessel flying in the low air), unbound, or unknown:
+            // still followed.
+            Assert.True(BallisticExtrapolator.ShouldExtrapolate(
+                Vessel.Situations.FLYING, 0.05, floor - 1.0, floor));
+            Assert.True(BallisticExtrapolator.ShouldExtrapolate(
+                Vessel.Situations.FLYING, 0.9, -500000.0, floor));
+            Assert.True(BallisticExtrapolator.ShouldExtrapolate(
+                Vessel.Situations.FLYING, 1.2, 40000.0, floor));
+            Assert.True(BallisticExtrapolator.ShouldExtrapolate(
+                Vessel.Situations.FLYING, 0.05, double.NaN, floor));
+            Assert.True(BallisticExtrapolator.ShouldExtrapolate(
+                Vessel.Situations.FLYING, 0.05, double.PositiveInfinity, floor));
+        }
     }
 }

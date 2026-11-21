@@ -11,7 +11,12 @@ namespace Parsek
     {
         Active = 0,          // From focused vessel's FlightRecorder
         Background = 1,      // From BackgroundRecorder (physics bubble)
-        Checkpoint = 2       // From orbital checkpoint propagation
+        Checkpoint = 2,      // From orbital checkpoint propagation
+        // Parsek's prediction past the last real sample (a chute descent to touchdown),
+        // never recorded: every reader that looks for real data skips it, and a takeover
+        // or a repaired finalization removes it. Additive member: an older build's text
+        // reader logs it as unknown and reads Active; its binary reader keeps the int.
+        Predicted = 3
     }
 
     /// <summary>

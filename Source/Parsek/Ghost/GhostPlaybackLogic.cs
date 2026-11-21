@@ -223,8 +223,9 @@ namespace Parsek
         /// reads (FLIGHT's playback flags, the Space Center pass): should the non-looping ghost
         /// of <paramref name="rec"/> stay hidden at <paramref name="currentUT"/> because it is
         /// past the last real sample, on the recording's predicted tail (the suffix of orbit
-        /// segments marked <c>isPredicted</c>), while the vessel that tail predicts is still in
-        /// the world (<paramref name="realVesselExists"/>, the launch-gated check)? The live
+        /// segments marked <c>isPredicted</c>, or a predicted chute descent section), while the
+        /// vessel that tail predicts is still in the world (<paramref name="realVesselExists"/>,
+        /// the launch-gated check)? The live
         /// vessel is then the truth, and a ghost on the prediction would duplicate it. Before
         /// the tail the recorded flight replays as before, and a loop replays on its own clock
         /// and keeps drawing. The map presence of FLIGHT and the Tracking Station hides more:
@@ -237,9 +238,15 @@ namespace Parsek
         {
             if (loopingLike)
                 return false;
-            if (rec?.OrbitSegments == null || rec.OrbitSegments.Count == 0 || realVesselExists == null)
+            if (rec == null || realVesselExists == null)
                 return false;
             if (double.IsNaN(currentUT) || double.IsInfinity(currentUT))
+                return false;
+            // A predicted chute descent is a tail too (a predicted section past the last real
+            // sample).
+            if (RecordingFinalizationCacheApplier.TryGetPredictedSectionStartUT(rec, out double descentStartUT))
+                return currentUT > descentStartUT + 1e-6 && realVesselExists(rec);
+            if (rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
                 return false;
             // The predicted tail is a suffix: an untouched last segment means no tail.
             if (!rec.OrbitSegments[rec.OrbitSegments.Count - 1].isPredicted)

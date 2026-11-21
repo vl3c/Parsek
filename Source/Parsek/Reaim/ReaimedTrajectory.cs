@@ -109,6 +109,7 @@ namespace Parsek.Reaim
         public double LoopStartUT => inner.LoopStartUT;
         public double LoopEndUT => inner.LoopEndUT;
         public TerminalState? TerminalStateValue => inner.TerminalStateValue;
+        public bool QuietDestroyedEnd => inner.QuietDestroyedEnd;
         public SurfacePosition? SurfacePos => inner.SurfacePos;
         public double TerrainHeightAtEnd => inner.TerrainHeightAtEnd;
         public bool PlaybackEnabled => inner.PlaybackEnabled;

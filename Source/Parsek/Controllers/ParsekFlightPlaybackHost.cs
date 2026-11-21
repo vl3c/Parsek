@@ -757,6 +757,7 @@ namespace Parsek
                 // explosionAlreadyFired=false is safe: preview is one-shot (StopPlayback called immediately after)
                 if (previewRecording != null && host.ghostObject != null
                     && !GhostPlaybackLogic.ShouldSuppressVisualFx(TimeWarp.CurrentRate)
+                    && !GhostPlaybackLogic.IsQuietDestroyedEnd(previewRecording)
                     && GhostPlaybackLogic.ShouldTriggerExplosion(false, previewRecording.TerminalStateValue,
                            true, previewRecording.VesselName, -1))
                 {
