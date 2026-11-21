@@ -103,6 +103,12 @@ namespace Parsek
     /// stamp therefore means "stock held this vessel in the timeline the game is in now", so
     /// its absence from stock is stock's decision unless a recovery / termination row or a
     /// live merge explains it.</para>
+    /// <para>A final orbit a predicted tail reached (owner ruling Q8, <see cref="IsPredictedFinalOrbit"/>)
+    /// runs through the same pass with the same "gone" rules (two sightings, the stock-held
+    /// stamp): gone from stock in this timeline with no recovery, termination or merge, stock
+    /// destroyed it (an encounter or a deletion the predictor missed) and it ends Destroyed,
+    /// crew dead, quietly. A vessel stock still holds is left as committed: its orbit is not
+    /// compared with the prediction.</para>
     /// <para>Pure decisions plus two guarded live reads (the guid lookup and the clock), each
     /// behind a test override; the committed-history change is
     /// <c>PredictedCrashReconciler.ApplyStockDeletion</c>, the scene host is

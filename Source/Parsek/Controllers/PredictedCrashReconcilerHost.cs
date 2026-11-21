@@ -177,7 +177,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The predicted-touchdown half of a pass (owner rulings P-STOCK / Q4c / Q4d,
+        /// The predicted-touchdown and final-orbit half of a pass (owner rulings P-STOCK / Q4c / Q4d / Q8,
         /// <see cref="PredictedTouchdownStockFate"/>): stamps every candidate stock holds now,
         /// records stock's deletion of a craft it held in this timeline, and drops a touchdown
         /// stock contradicted. A live tree that docked with or boarded the craft owns it (the

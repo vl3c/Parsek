@@ -272,6 +272,37 @@ namespace Parsek.Tests
             Assert.False(PredictedTouchdownStockFate.IsPredictedFinalOrbit(stable));
         }
 
+        // The scene-exit finalizer's own apply (not only the cache applier) marks the final orbit.
+        [Theory]
+        [InlineData(TerminalState.Orbiting, true)]
+        [InlineData(TerminalState.SubOrbital, true)]
+        [InlineData(TerminalState.Landed, false)]
+        public void SceneExitApply_MarksAFinalOrbitAPredictedTailReached(TerminalState terminal, bool expected)
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-exit-orbit", VesselPersistentId = OrbiterPid, RecordedVesselGuid = OrbiterGuid,
+                ExplicitStartUT = 900.0,
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 900.0, bodyName = "Kerbin", altitude = 90000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 1000.0, bodyName = "Kerbin", altitude = 150000.0 });
+            IncompleteBallisticSceneExitFinalizer.TryFinalizeOverrideForTesting =
+                (Recording r, Vessel v, double commitUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        appendedOrbitSegments = new List<OrbitSegment> { Segment(1000.0, 3000.0, true, "Sun") },
+                        terminalState = terminal,
+                        terminalUT = 3000.0,
+                        extrapolatedSegmentCount = 1,
+                    };
+                    return true;
+                };
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryApply(rec, null, 1000.0, "FinalizeIndividualRecording"));
+            Assert.Equal(terminal, rec.TerminalStateValue);
+            Assert.Equal(expected, PredictedTouchdownStockFate.IsPredictedFinalOrbit(rec));
+        }
+
         [Fact]
         public void MarkPredictedFinalOrbit_OnlyOrbitEndingsWithAPredictedTail()
         {
