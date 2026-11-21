@@ -131,6 +131,9 @@ namespace Parsek
                         "Nothing new to merge: this flight is already in the timeline", 4f);
                 return;
             }
+            // A RULE 3 union folds the incoming copy into the committed tree object; the
+            // optimizer's split tails land only there, so everything below reads that one.
+            tree = TreeCommitService.ResolveCommittedTreeAfterCommit(tree, "merge-dialog");
             // Phase C/F: mark recordings fully applied after the tree moves
             // from pending to committed state.
             RecordingStore.MarkTreeAsApplied(tree);

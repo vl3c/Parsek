@@ -338,8 +338,16 @@ namespace Parsek.Tests
 
             int commitIdx = body.IndexOf("TreeCommitService.CommitTree(host.activeTree);", StringComparison.Ordinal);
             int passIdx = body.IndexOf("RunInFlightCommitOptimizationPass(activeRec, activeRecId)", StringComparison.Ordinal);
-            int ledgerIdx = body.IndexOf("LedgerOrchestrator.NotifyLedgerTreeCommitted(host.activeTree);", StringComparison.Ordinal);
-            int spawnIdx = body.IndexOf("SpawnTreeLeaves(host.activeTree, activeTipId);", StringComparison.Ordinal);
+            // The notify and the spawn read the committed tree the commit resolved (a RULE 3
+            // union folds the live copy into it, BATCH-B2), never the dropped live copy.
+            int resolveIdx = body.IndexOf("TreeCommitService.ResolveCommittedTreeAfterCommit(host.activeTree,", StringComparison.Ordinal);
+            int ledgerIdx = body.IndexOf("LedgerOrchestrator.NotifyLedgerTreeCommitted(committedTree);", StringComparison.Ordinal);
+            int spawnIdx = body.IndexOf("SpawnTreeLeaves(committedTree, activeTipId);", StringComparison.Ordinal);
+            Assert.True(resolveIdx > 0 && ledgerIdx > resolveIdx && spawnIdx > resolveIdx,
+                "CommitTreeFlight must resolve the committed tree before the ledger notify and the leaf spawn");
+            // The route prompt classifies the same committed tree, never the dropped live copy.
+            Assert.Contains("RouteRunPrompt.NotifyTreeCommitted(committedTree);", body);
+            Assert.DoesNotContain("committedTreeForPrompt = host.activeTree", body);
             Assert.True(commitIdx >= 0, "CommitTreeFlight no longer commits through TreeCommitService.CommitTree");
             Assert.True(passIdx > commitIdx, "CommitTreeFlight does not run the optimization pass after the commit");
             Assert.True(ledgerIdx > passIdx, "the optimization pass must run before the ledger notify (MergeCommit order)");

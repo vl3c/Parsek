@@ -576,7 +576,7 @@ namespace Parsek
             // the next chain member to reach the segment that carries the BP.
             if (!string.IsNullOrEmpty(rec.ChainId))
             {
-                int nextIdx = rec.ChainIndex + 1;
+                int nextIdx = RecordingChainQueries.NextChainIndexAfter(rec, tree.Recordings);
                 foreach (var kvp in tree.Recordings)
                 {
                     if (kvp.Value.ChainId == rec.ChainId

@@ -922,7 +922,11 @@ another version. The split recorder's fallback commit (`TreeCommitService.Commit
 stamps too. The RULE 3 fold of a covered split piece into a re-flown live recording
 (`CommittedListOptimizer.ReabsorbSplitPieceIntoLiveCopy`) refuses a piece cut under another
 version than the live recording and re-reads the survivor's pass role from its content after
-the fold.
+the fold. Forward gate (save-format policy, data newer than the build is held): a recording
+whose version is above the build's current one (`IsSplitRuleVersionNewerThanBuild`) is held
+verbatim: the split scan skips it before any normalization, `CanAutoMerge` refuses it, the
+boring-tail trim holds it (`newer-split-rules`) and the RULE 3 fold refuses it; the codec writes
+its version back. A rule version 3 can therefore ship without an older build re-cutting its rows.
 
 **Row roles.** Version-2 splits stamp `Recording.SegmentRole` on both halves: `ascent`, `space`,
 `aerobraking`, `reentry`, `approach`, `surface`, `atmosphere` (`RecordingOptimizer.SegmentRoles`;
@@ -933,8 +937,15 @@ half gets the role of the cut. `CanAutoMerge` refuses different roles, and for t
 rows any join the version-2 split predicate would cut again (`WouldSplitRulesCutJoin`): the
 merge pass runs before the split pass on every pass and would otherwise glue, for example, an
 aerobraking row and the reentry row after it (both phase `atmo`, same body) and cut them again
-on the next load, with a fresh id each time. `SegmentPhase` keeps its four values; the row
-label reads the role, the table's phase sort still reads the phase.
+on the next load, with a fresh id each time. Every pass also re-reads each version-2 row's
+role from its content (`CommittedListOptimizer.ReReadRowRoles`, review B6): a row no cut ever
+touched gets the role of how it starts (`ResolveStartRole`), so a mission's labels never mix a
+phase with roles, and a pass role its content now contradicts (a resumed reentry row that climbs
+back to orbit, which no cut touches because its own pass entry and a braking exit are never cut)
+is re-read (`ResolveHeadRoleAfterCut`); other roles stay. Version-1, EVA, newer-rule and held
+rows are left alone. `SegmentPhase` keeps its four values; the row label reads the role, the
+table's phase sort and `Recording.IsLoopableRecording` still read the phase (a later role
+registry moves loopability onto roles).
 
 **Version-2 predicate**, the section 3 steps with these changes:
 
@@ -962,7 +973,11 @@ label reads the role, the table's phase sort still reads the phase.
   the airless approach band keep steps 6 and 7.
 - The split summary line appends `passKept=N touchdownKept=N rules=v2` on a version-2 row.
 
-**One pass (ruling Q19).** The split loop runs until no candidate remains, bounded by the
+**One pass (ruling Q19).** The merge phase, the split phase and the role re-read repeat until a
+round changes nothing (`CommittedListOptimizer.RunMergeSplitToFixedPoint`, review B7, at most
+`MaxMergeSplitRounds` = 16 rounds, Warn `merge/split did not settle after N round(s)`): a split
+can leave a piece beside one it may join, which the merge phase, run first, joined only on the
+next pass (a later load, with new ids). Running the pass twice equals running it once. The split loop runs until no candidate remains, bounded by the
 committed list's section plus recording count (`ComputeSplitSafetyBound`, Warn
 `hit split safety bound`); the merge loop is bounded by the list size. This holds for both
 versions.
