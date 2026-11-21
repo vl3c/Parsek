@@ -119,6 +119,11 @@ Not released yet.
   you went back to was already waiting to bring back a rescue's stranded kerbal or part, it now
   appears at your next Space Center visit instead of never, so the contract can still be finished.
   (RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD)
+- **Construction, repair and part test contracts still work after you go back in time.** If you
+  go back to before you accepted one, the craft to build on or repair reappears when the clock
+  reaches the accept again (at your next Space Center visit if you are elsewhere then), and the
+  part to test becomes usable again, unless your recorded future already ends that contract.
+  (CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS)
 - **One missing recording file no longer stops a mission from saving.** When one recording of a
   mission had lost its file, every later save kept that mission exactly as it was before:
   new flights in it, renames and other changes were silently not saved. The mission now saves

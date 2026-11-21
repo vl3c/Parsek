@@ -215,7 +215,7 @@ Mirror check: S1.8's `SoiCrossingPlaybackInGameTests.SoiSeamWorldPositionsAreCon
 
 Owed: SOI-3's re-flight on a DLL from this branch; expected `bg probe seam Mun->Kerbin ut=1317.090 gap=<1 m (tolerance 1000m, both sides at the seam UT) kerbinEpoch=1316.656 seamMinusKerbinEpoch=0.434s munSideFromMun=2429672m` (the seam UT moves if the warp lands the event on another frame).
 
-## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; FIX 2026-11-21, same branch: the regeneration's witness and the double-spawn world index read the live vessels too (RESCUE-REGEN-COUNTS-PROTOVESSELS), xUnit only; the PC lanes RSQ-1 / RSQ-2 / RSQ-3 / RSQ-4 LIVE-PROVEN 2026-11-21 (TEST-GAPS-BATCH3-FLIGHTS-2026-11-21); OPEN: the prebuilt-ship / experimental-part templates (measure first, item 4); high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
+## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; FIX 2026-11-21, same branch: the regeneration's witness and the double-spawn world index read the live vessels too (RESCUE-REGEN-COUNTS-PROTOVESSELS), xUnit only; the PC lanes RSQ-1 / RSQ-2 / RSQ-3 / RSQ-4 LIVE-PROVEN 2026-11-21 (TEST-GAPS-BATCH3-FLIGHTS-2026-11-21); FIXED 2026-11-21 (prebuilt ship, experimental part; item 4), branch `test-gaps-contract-templates`, measured from the decompile, xUnit only; every stock template surveyed, nothing else left; OWED: lane CT-2 (authored, never flown) and a live proof of the prebuilt-ship spawn, which no committed fixture can host; high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
 
 **What happens.** The player accepts a rescue contract (`Contracts.Templates.RecoverAsset`) at UT
 T, rewinds to before T, and the clock reaches T again. `KspStatePatcher.PatchContractsCore`
@@ -236,7 +236,7 @@ kerbal is not expunged. Result: an Active rescue naming a kerbal no vessel holds
 tourist (created Unowned / Assigned at offer) into a Tourist and Available, so after the rebuild
 the tourists stay Unowned and cannot be seated; `OrbitalConstructionContract`,
 `RoverConstructionContract` and `VesselRepairContract` call `ContractSystem.SpawnPreBuiltShip`
-(the snapshot also carries `waitingForVslSpawn`); `PartTest` makes the part experimental
+(the snapshot carries the spawned vessel's id, never `waitingForVslSpawn`: see item 4); `PartTest` makes the part experimental
 (`ResearchAndDevelopment.AddExperimentalPart`). `BaseContract`, `SatelliteContract`,
 `StationContract` and `GrandTour` only stamp a launch id into a parameter the snapshot carries.
 Nothing else in Parsek re-creates any of these (grep `RecoverAsset`, `OnAccepted`,
@@ -331,9 +331,88 @@ this; its vessel is in that save).
    not recreated. Owner ruling 2026-11-20: when the committed timeline completes, fails or cancels
    the contract (the same `CommittedResolution` fact the rescue side reads), nobody is converted and
    the line reads `skip=CommittedResolution`.
-4. Prebuilt ship and experimental part: still detection only; measure first (does
-   `SpawnPreBuiltShip` finish for a rebuilt contract with `waitingForVslSpawn = True`; does R&D keep
-   the experimental part across the rewind).
+4. Prebuilt ship and experimental part (FIXED 2026-11-21, branch `test-gaps-contract-templates`).
+   Measured from the decompile (`logs/decompile/2026-10-26_full/`, KSP 1.12.5):
+   - Construction / repair (`OrbitalConstructionContract`, `RoverConstructionContract`,
+     `VesselRepairContract`). `OnAccepted` builds a `VesselSituation` from the contract's own
+     saved values (body, the orbit regenerated from the mission seed, the rover / repair start
+     lat / lon, the vessel name), sets `waitingForVslSpawn` and calls
+     `ContractSystem.SpawnPreBuiltShip`; nothing else. `SpawnPreBuiltShip` is
+     `StartCoroutine(ConstructShip(...))` and `ConstructShip` has no `yield return`, so the craft
+     is assembled (`ShipConstruction.AssembleForLaunch`), added (non-FLIGHT branch:
+     `protoVessels.Add` + `ProtoVessel.Load`) and announced (`onContractPreBuiltVesselSpawned`)
+     inside the accept, and the contract's handler (subscribed in `OnRegister`) stores the vessel's
+     persistent id (`constructionVslId` / `roverVslId` / `repairVslId`) before `onAccepted` fires.
+     So the accept snapshot names the first timeline's vessel id. `waitingForVslSpawn` is NEVER
+     saved or loaded (OnSave / OnLoad do not name it), so the premise of the old question is wrong:
+     a rebuilt contract has it false and never spawns on its own. Its `OnLoad` looks the id up and
+     falls back to a vessel of the saved (or seed-derived) name; after a rewind to before the accept
+     neither exists, so the Active contract names a vessel nobody can reach and fails at its
+     deadline (`OnVesselDestroy` never fires for it).
+   - Part test (`PartTest`). `OnAccepted` sets `PartIsExperimental = !purchased || experimental`
+     and, when set, calls `ResearchAndDevelopment.AddExperimentalPart` (a per-part COUNT in R&D's
+     `ExpParts` node; `RemoveExperimentalPart`, run by `OnFinished` and on purchase, decrements and
+     is a no-op when the part is absent). The snapshot carries `exp = True` when the accept added
+     one. R&D is not ledger state: the rewind save's `ExpParts` lacks the count, so after the
+     rebuild the player cannot build with the part (`PartModelPurchased` / `PartTechAvailable` read
+     the count). Parsek's committed-outcome retirement removes a contract without `OnFinished`, so
+     a count added for a contract the committed timeline resolves would never be taken back.
+   Fix, the rescue pattern (pure `ContractAcceptWorldEffects.Plan`, a guard, logging):
+   - `PrebuiltShipDecision` (first match): `NotReadable` (no craft definition), `NoSpawnRecorded`
+     (vessel id 0: the first accept built nothing), `TargetPresent` (a vessel with the id, or with
+     the saved name, in `flightState.protoVessels` or `FlightGlobals.Vessels`; the index now holds
+     every vessel's persistent id and name), `CommittedResolution`, `VesselRecordedByCommittedFlight`
+     (an ERS recording's `VesselPersistentId` is the contract's vessel id,
+     `CommittedFutureIndexCache.CommittedFlightRecordsVessel`; a `ConstructShip` pid is drawn with
+     `GetUniquepersistentId`, not craft-baked), `Regenerate`. The guard reads the LIVE rebuilt
+     contract's save (stock's OnLoad has already re-pointed the id at a same-named vessel). On
+     `Regenerate` in SPACECENTER only (`IsPrebuiltShipSpawnScene`; stock's own accept runs at
+     Mission Control, the Tracking Station path is unproven) the shell invokes the contract's own
+     `OnAccepted` by reflection (`repair=SpawnPrebuiltShip`): the same situation, so the same orbit
+     or site and name as the first timeline, a new persistent id, which the contract's handler
+     stores. Any other scene plans `DeferPrebuiltShip` (`skip=scene=<scene>`) and lists the id in
+     `RescueAcceptDeferrals` (same node, ids only; the drain dispatches by the live contract's type
+     and keeps a construction id until the Space Center, `DecideDeferredRescueDrainStep(effect, ...)`).
+     Lines: `PatchContracts: spawned prebuilt ship for rebuilt contract '<id>' through
+     <Type>.OnAccepted: added=N [...] (craft='<url>'; vesselPid a -> b)`, `Rescue accept deferral
+     evaluated: contractId='<id>' type='<Type>' outcome=... repair=...`, and the Warn lines
+     `prebuilt ship not spawned for '<id>'` / `<Type>.OnAccepted threw`. Double-spawn guards: the
+     spawned craft is live at once and the contract names it (TargetPresent by id); a later rebuild
+     from the old snapshot finds it by name (stock's OnLoad, and the index); a drained id leaves the
+     list whatever it decides.
+   - `ExperimentalPartDecision` (first match): `NotReadable`, `NotExperimentalAtAccept`
+     (`exp = False`), `RnDNotReadable` (R&D not loaded or its private `experimentalPartsStock` map
+     unreadable), `Present` (R&D's count >= 1 + the other Active PartTests of the same part with
+     `PartIsExperimental`, matched by `PartName` as stock's `OnPartResearched` does; also the
+     double-add guard, since stock counts and never dedups), `PartPurchased` (stock's accept in this
+     world would add nothing), `CommittedResolution`, `Add`. On `Add`, any scene: one
+     `ResearchAndDevelopment.AddExperimentalPart`, `PatchContracts: experimental part '<part>' of
+     rebuilt contract '<id>' added to R&D the way PartTest.OnAccepted does: count a -> b`. A
+     contract the patch later retires on its committed outcome keeps the count only if no committed
+     outcome existed when it was rebuilt (that case reads `CommittedResolution`).
+   Tests: `ContractAcceptWorldEffectsTests` 90 cases, `ContractAcceptWorldIndexTests` 10. Red before
+   the fix with Plan's two new branches stubbed to the old `outcome=unchecked`: 27 failures, e.g.
+   `RebuiltRepairContract_InTheRewindSaveWorld_AtTheSpaceCenter_SpawnsItsCraft` and
+   `RebuiltPartTest_InTheRewindSaveRnD_AddsItsExperimentalPart_InAnyScene` (`Assert.Equal() Failure`
+   Expected `Regenerate` / `Add`, Actual `unchecked`). The reflection shells have no headless test:
+   lane `CT-2-parttest-rebuilt-experimental-part` (cs-career-mun3, stock-tree, authored 2026-11-21,
+   never flown) is the experimental part's live proof; the prebuilt spawn has none, because no
+   committed fixture holds an Offered construction or repair contract (a fixture from a career
+   past the Advanced Construction / repair requirements is owed for it).
+
+   Survey of every stock contract template (2026-11-21, decompile; `Contract.SetState(Active)` runs
+   `Register`, `ContractSystem.AdjustWeight` (generation weights only), `AwardAdvance` (the
+   ledger's), `OnAccepted`, `onAccepted.Fire`; the only stock `onAccepted` subscribers are UI lists):
+   | Template | OnAccepted world effect | Decision |
+   | --- | --- | --- |
+   | `RecoverAsset` | stranded vessel (`Game.AddVessel`) | regenerated (items 1-1a) |
+   | `TourismContract` | tourists Unowned -> Tourist, Available | converted (item 3) |
+   | `OrbitalConstructionContract`, `RoverConstructionContract`, `VesselRepairContract` | craft via `SpawnPreBuiltShip` | re-spawned / deferred (item 4) |
+   | `PartTest` | `AddExperimentalPart` | count re-added (item 4) |
+   | `BaseContract`, `SatelliteContract`, `StationContract`, `GrandTour` | `launchID` into `VesselSystemsParameter` | none: a parameter field the snapshot carries |
+   | `CollectScience`, `PlantFlag`, `ARMContract`, `CometSampleContract`, `ExplorationContract`, `ISRUContract`, `SurveyContract`, `SentinelContract`, `CometDetectionContract` | no `OnAccepted` override | none |
+   | Breaking Ground (`DeployedScienceContract`, `ROCScienceArmContract`, `ROCScienceRetrievalContract`; in Assembly-CSharp) | no `OnAccepted` override | none |
+   | Making History | ships no contract template (its missions are not contracts; the dev install's `GameData/SquadExpansion` holds no DLL) | none |
 
 Tests: `ContractAcceptWorldEffectsTests` (45 cases). Red before the fix with the repair assignments
 and the `KerbalNotUnowned` guard stubbed out: 5 failures, e.g.
@@ -354,7 +433,14 @@ accept snapshot names the snapshot's stale part id (the snapshot is never rewrit
 parameter cannot complete; reaching that needs a second rebuild of a contract whose regenerated
 vessel survived, which a rewind to before the accept does not produce (that world lacks both
 targets and regenerates afresh). The rescue a rewind save or rewind point had deferred is closed by
-~~RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD~~.
+~~RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD~~. A re-spawned construction / repair craft has a new
+persistent id while the accept snapshot keeps the first one; a later rebuild of the same contract
+finds the craft by name (stock's own OnLoad fallback and the index's name set), so a player rename
+of that craft would let a second rebuild spawn a second one (needs a rename, a survival of the craft
+and a second rebuild). Experimental counts are stock R&D state outside the ledger: a contract the
+patch takes off the active list in-session without stock's `OnFinished` (the accepted-later
+removal) leaves its count behind, as it already did for a live accept; the Present guard keeps a
+rebuild from adding on top of such a count.
 
 **PC lanes (authored 2026-11-20, never flown; branch `test-gaps-b3-rescue-lane`).** Both on
 cs-career-mun4 (RecoverAsset `e8ba5ea6`, Rayvan Kerman, low Kerbin orbit, Offered, Rayvan Unowned
