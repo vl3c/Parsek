@@ -157,6 +157,7 @@ contractStateReflectionWarnEmitted = "process: once-per-process Warn latch"
 ContractReEvaluationDeferForTesting = "test-hook"
 IC = "process: constant culture"
 stockContractsLoadedHandler = "process: GameEvents subscription; the deferred patch state it reads is reset"
+rescueDeferralDrainHandler = "process: GameEvents subscription; the RescueAcceptDeferrals list it drains is replaced by every Cold load"
 DeferredContractPatchState = "save: readonly holder whose pending patch ResetForSaveLoad cancels"
 PartPurchaseLiveUtProviderForTesting = "test-hook"
 protoTechNodesReflectionWarnEmitted = "process: once-per-process Warn latch"
@@ -327,6 +328,11 @@ reason = "InstallAfterLoad replaces it from the loaded save on every load kind"
 name = "Parsek.RewindVesselHold"
 default = "save"
 reason = "Replace installs the save's held vessels on every load kind"
+
+[[type]]
+name = "Parsek.RescueAcceptDeferrals"
+default = "save"
+reason = "Replace installs the save's pending rescue deferrals on a cold load (LoadRescueAcceptDeferrals)"
 
 [[type]]
 name = "Parsek.RemovedReplayFlags"

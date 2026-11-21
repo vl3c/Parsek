@@ -94,7 +94,10 @@ required = [
   "\\[SafeWrite\\] crash-after-temp fired phase=after-temp path='[^']*1d611e7533a64508ae6f3b305a51615e\\.prec\\.stage\\.[0-9a-f]{32}' tmp='[^']*\\.tmp' tmpBytes=[1-9][0-9]* destExists=False destUntouched=True",
   # The product's own catch path.
   "\\[RecordingStore\\] SaveRecordingFiles failed: .*SafeWriteInjectedCrashException",
-  "OnSave: carried forward last-known-good RECORDING_TREE node for 'Jumping Flea'",
+  # The tree is written from memory with the crashed recording's sidecar keys taken from the
+  # on-disk save (SAVE-FREEZE-ON-MISSING-SIDECAR reworded the old carried-forward line;
+  # re-pinned 2026-11-20 by code read, not yet re-flown).
+  "OnSave: tree 'Jumping Flea' id=\\S+ written from memory with 1 unwritable recording\\(s\\)",
   # Before the reload: the crash residue is on disk and the final .prec is untouched.
   "safewritecrash probe recording=1d611e7533a64508ae6f3b305a51615e fired=1 armed=false digest=[0-9a-f]{16} unchanged=true residue=1 loaded=true loadFailed=false points=510 baselinePoints=510",
   "safewritecrash coldreload prepare scenarioPresent=true",
