@@ -212,6 +212,7 @@ namespace Parsek
             int abandoned = 0;
             int recovered = 0;
             int terminated = 0;
+            int stockDeleted = 0;
             int skippedTimelineInactive = 0;
             int staleStampOtherLaunch = 0;
 
@@ -272,6 +273,21 @@ namespace Parsek
                     ParsekLog.Info("Policy",
                         $"Spawned vessel terminated by the player: #{i} \"{rec.VesselName}\" " +
                         $"pid={terminatedOldPid} - spawn claim cleared, no respawn");
+                    continue;
+                }
+
+                // A predicted touchdown stock held and then deleted (owner rulings P-STOCK /
+                // Q4d): the end-spawn gate refuses it, so a death counted here would only ask for
+                // a re-spawn that never comes. Ask the same gate first; clear the claim without a
+                // death and name the reason (once: the cleared claim is not checked again).
+                if (TryClearStockDeletedSpawnClaim(
+                        rec, StockDeletedTouchdownReason,
+                        out uint stockDeletedOldPid, out string stockDeletedReason))
+                {
+                    stockDeleted++;
+                    ParsekLog.Info("Policy",
+                        $"Spawned vessel deleted by stock: #{i} \"{rec.VesselName}\" pid={stockDeletedOldPid} " +
+                        $"reason={stockDeletedReason} - no spawn death counted, spawn claim cleared, no respawn");
                     continue;
                 }
 
@@ -346,10 +362,11 @@ namespace Parsek
                 }
             }
 
-            if (detected > 0 || recovered > 0 || terminated > 0 || abandoned > 0)
+            if (detected > 0 || recovered > 0 || terminated > 0 || abandoned > 0 || stockDeleted > 0)
                 ParsekLog.Info("Policy",
                     $"RunSpawnDeathChecks: {detected} death(s) detected, {abandoned} abandoned, " +
                     $"{recovered} recovered, {terminated} terminated by the player, " +
+                    $"{stockDeleted} deleted by stock (predicted touchdown), " +
                     $"{staleStampOtherLaunch} adoption stamp(s) held by another launch");
             if (skippedTimelineInactive > 0)
                 ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-timeline-inactive",
@@ -446,6 +463,34 @@ namespace Parsek
             else
                 return false;
 
+            rec.VesselSpawned = false;
+            rec.SpawnedVesselPersistentId = 0;
+            return true;
+        }
+
+        private static string StockDeletedTouchdownReason(Recording rec)
+        {
+            return PredictedTouchdownStockFate.IsStockDeletedTouchdown(rec, out string reason) ? reason : null;
+        }
+
+        /// <summary>
+        /// Pure: the stock-deletion twin of <see cref="TryClearTerminatedSpawnClaim"/>. When
+        /// <paramref name="stockDeletedReason"/> (the end-spawn gate's own question,
+        /// <see cref="PredictedTouchdownStockFate.IsStockDeletedTouchdown"/>; null = no) names a
+        /// reason, stock deleted the recording's predicted-touchdown craft: clears the spawn
+        /// claim without counting a death and reports the reason. Leaves the recording
+        /// untouched otherwise.
+        /// </summary>
+        internal static bool TryClearStockDeletedSpawnClaim(
+            Recording rec,
+            Func<Recording, string> stockDeletedReason,
+            out uint priorSpawnedPid,
+            out string reason)
+        {
+            priorSpawnedPid = rec != null ? rec.SpawnedVesselPersistentId : 0u;
+            reason = rec != null && stockDeletedReason != null ? stockDeletedReason(rec) : null;
+            if (reason == null)
+                return false;
             rec.VesselSpawned = false;
             rec.SpawnedVesselPersistentId = 0;
             return true;

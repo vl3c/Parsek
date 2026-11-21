@@ -261,6 +261,40 @@ namespace Parsek
         /// </summary>
         internal const double RecoveryClosureEndToleranceSeconds = 1.0;
 
+        /// <summary>
+        /// Pure: the end UT that decides whether a recovery ended <paramref name="rec"/>'s
+        /// flight, for the recovery owner pick (<c>CrewRecoveryReservationClose</c>) and for
+        /// the crew hold the recovery closes (<see cref="RecoveryClosesHold"/>), so the row
+        /// writer and the walk read one rule. A predicted chute touchdown (Landed / Splashed,
+        /// <see cref="Recording.TerminalPredicted"/>) ends at its touchdown, after its last
+        /// real sample: stock held the vessel from the start of the predicted descent on, so a
+        /// recovery before the touchdown recovers this recording's vessel and is measured
+        /// against the descent start. Every other recording (a real ending included) uses its
+        /// end. NaN for a null recording.
+        /// </summary>
+        internal static double RecoveryHoldEndUT(Recording rec)
+        {
+            if (rec == null)
+                return double.NaN;
+            double end = rec.EndUT;
+            if (!rec.TerminalPredicted
+                || (rec.TerminalStateValue != TerminalState.Landed
+                    && rec.TerminalStateValue != TerminalState.Splashed)
+                || rec.TrackSections == null)
+                return end;
+            double start = double.NaN;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                TrackSection section = rec.TrackSections[i];
+                if (section.source != TrackSectionSource.Predicted
+                    || double.IsNaN(section.startUT) || double.IsInfinity(section.startUT))
+                    continue;
+                if (double.IsNaN(start) || section.startUT < start)
+                    start = section.startUT;
+            }
+            return double.IsNaN(start) || start > end ? end : start;
+        }
+
         // ── Walk clock (captured once per walk in PrePass) ──
 
         /// <summary>
@@ -347,6 +381,9 @@ namespace Parsek
             public string TreeId;
             public double StartUT;
             public double EndUT;
+            // The end a recovery is measured against (RecoveryHoldEndUT): EndUT except for a
+            // predicted chute touchdown, which reads its predicted descent start.
+            public double RecoveryEndUT;
             public string ParentBranchPointId;
             public string ChildBranchPointId;
             public uint VesselPid;

@@ -461,6 +461,23 @@ namespace Parsek
         /// </summary>
         internal static bool ShouldRefuseSpawnAsStockDeleted(Recording rec, out string reason)
         {
+            if (!IsStockDeletedTouchdown(rec, out reason))
+                return false;
+            ParsekLog.InfoRateLimited(LogTag, "spawn-refused|" + (rec.RecordingId ?? "(null)"),
+                $"Spawn refused: rec={rec.RecordingId ?? "(null)"} vessel='{rec.VesselName ?? ""}' - " + reason +
+                "; the reconciler records stock's verdict (Destroyed, crew dead)");
+            return true;
+        }
+
+        /// <summary>
+        /// The question behind <see cref="ShouldRefuseSpawnAsStockDeleted"/>, without its log
+        /// line: a predicted touchdown whose vessel stock held in this timeline
+        /// (<see cref="Recording.StockHeldVesselUT"/>) and no longer holds. The spawn-death check
+        /// asks it before counting a death, so an adopted craft stock deleted is never counted
+        /// (or reset for a re-spawn the gate would refuse). An unknown live answer is false.
+        /// </summary>
+        internal static bool IsStockDeletedTouchdown(Recording rec, out string reason)
+        {
             reason = null;
             if (!IsPredictedTouchdown(rec) || !IsFinite(rec.StockHeldVesselUT))
                 return false;
@@ -471,9 +488,6 @@ namespace Parsek
                 return false;
             reason = "predicted touchdown of a vessel stock deleted (held at ut=" +
                 FormatUT(rec.StockHeldVesselUT) + ", now gone with no recovery)";
-            ParsekLog.InfoRateLimited(LogTag, "spawn-refused|" + (rec.RecordingId ?? "(null)"),
-                $"Spawn refused: rec={rec.RecordingId ?? "(null)"} vessel='{rec.VesselName ?? ""}' - " + reason +
-                "; the reconciler records stock's verdict (Destroyed, crew dead)");
             return true;
         }
 

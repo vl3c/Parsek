@@ -44,32 +44,13 @@ namespace Parsek
 
         /// <summary>
         /// Pure: the end UT that decides whether <paramref name="rec"/> ended before a
-        /// recovery. A predicted chute touchdown (Landed / Splashed, predicted) ends at its
-        /// touchdown, after its last real sample: stock held the vessel from then on, so a
-        /// recovery before the touchdown recovers this recording's vessel and is measured
-        /// against the start of the predicted descent. Every other recording uses its end.
+        /// recovery (<see cref="KerbalsModule.RecoveryHoldEndUT"/>, the rule the crew hold
+        /// closure reads too: a predicted chute touchdown is measured from its predicted
+        /// descent start, every other recording from its end).
         /// </summary>
         internal static double OwnerEndUT(Recording rec)
         {
-            if (rec == null)
-                return double.NaN;
-            double end = rec.EndUT;
-            if (!rec.TerminalPredicted
-                || (rec.TerminalStateValue != TerminalState.Landed
-                    && rec.TerminalStateValue != TerminalState.Splashed)
-                || rec.TrackSections == null)
-                return end;
-            double start = double.NaN;
-            for (int i = 0; i < rec.TrackSections.Count; i++)
-            {
-                TrackSection section = rec.TrackSections[i];
-                if (section.source != TrackSectionSource.Predicted
-                    || double.IsNaN(section.startUT) || double.IsInfinity(section.startUT))
-                    continue;
-                if (double.IsNaN(start) || section.startUT < start)
-                    start = section.startUT;
-            }
-            return double.IsNaN(start) || start > end ? end : start;
+            return KerbalsModule.RecoveryHoldEndUT(rec);
         }
 
         /// <summary>
@@ -186,7 +167,7 @@ namespace Parsek
                     Recording held;
                     if (!recordingsById.TryGetValue(action.RecordingId, out held)) continue;
                     if (!KerbalsModule.RecoveryClosesHold(
-                            held.RecordingId, held.TreeId, held.EndUT,
+                            held.RecordingId, held.TreeId, OwnerEndUT(held),
                             owner.RecordingId, owner.TreeId, recoveryUT))
                         continue;
 

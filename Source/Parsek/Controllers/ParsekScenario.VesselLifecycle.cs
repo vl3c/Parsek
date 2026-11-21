@@ -244,6 +244,14 @@ namespace Parsek
             if (updated)
                 ParsekLog.Info("Scenario", $"Vessel '{identity.DisplayName}' recovered — recording(s) updated with Recovered terminal state");
 
+            // Owner ruling Q13: a COMMITTED recording of this launch that ends in a crash or
+            // chute touchdown Parsek only predicted, recovered before the predicted UT, follows
+            // the recovery (stock still had the vessel). Before the ledger rows below, so the
+            // funds pick, the crew close and the VesselRecovered row read the Recovered ending.
+            // Parsek's own programmatic recoveries are not the player's outcome.
+            if (!GameStateRecorder.SuppressCrewEvents)
+                ReconcileRecoveredCommittedPredictions(VesselLaunchIdentity.ReadLaunchGuid(pv), now);
+
             // #444: when recovery happens outside the Flight scene (tracking station or
             // post-flight summary at KSC), KSP's FundsChanged(VesselRecovery) event lies
             // between the committed recording's points window — CreateVesselCostActions
@@ -331,6 +339,108 @@ namespace Parsek
                 VesselLaunchIdentity.ReadLaunchGuid(pv),
                 identity.DisplayName,
                 names);
+        }
+
+        /// <summary>
+        /// Owner ruling Q13, the live shell of <see cref="ApplyRecoveryOfCommittedPredictions"/>:
+        /// the trees a live session owns (the flight's active tree, the pending tree) are left
+        /// to that session's commit, and nothing is touched while a Re-Fly session runs (its
+        /// Merge / Discard decide). Matches by launch guid only.
+        /// </summary>
+        private void ReconcileRecoveredCommittedPredictions(string launchGuid, double now)
+        {
+            if (string.IsNullOrEmpty(launchGuid))
+                return;
+            if (ActiveReFlySessionMarker != null)
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"Committed predicted-ending recovery skipped for guid={launchGuid}: a Re-Fly session is active");
+                return;
+            }
+            var flight = ParsekFlight.Instance;
+            string activeTreeId = flight != null ? flight.ActiveTreeForSerialization?.Id : null;
+            string pendingTreeId = PendingTreeSlot.PendingTree?.Id;
+            Func<Recording, bool> ownedElsewhere = rec =>
+                (activeTreeId != null && string.Equals(rec.TreeId, activeTreeId, StringComparison.Ordinal))
+                || (pendingTreeId != null && string.Equals(rec.TreeId, pendingTreeId, StringComparison.Ordinal));
+            int converted;
+            try
+            {
+                converted = ApplyRecoveryOfCommittedPredictions(
+                    EffectiveState.ComputeERS(), launchGuid, now, ownedElsewhere,
+                    "OnVesselRecovered:" + HighLogic.LoadedScene);
+            }
+            catch (Exception ex)
+            {
+                // The recovery's own ledger rows below must still be written.
+                ParsekLog.Warn("Scenario",
+                    $"Committed predicted-ending recovery threw for guid={launchGuid}: " +
+                    $"{ex.GetType().Name}: {ex.Message}");
+                return;
+            }
+            if (converted > 0)
+                ParsekLog.Info("Scenario",
+                    $"Recovery of guid={launchGuid} at ut={now.ToString("F1", CultureInfo.InvariantCulture)}: " +
+                    $"{converted.ToString(CultureInfo.InvariantCulture)} committed predicted ending(s) now end Recovered");
+        }
+
+        /// <summary>
+        /// The committed-history half of owner ruling Q13: for every recording
+        /// <see cref="PredictedEndingRecovery.SelectRecoveryTargets"/> picks, deep-clones its
+        /// committed tree, converts the recording on the clone
+        /// (<see cref="PredictedEndingRecovery.ConvertToRecovered"/>), commits the clone over the
+        /// committed tree (same-id replace, which retires the forecast's crew rows and death
+        /// penalty, <see cref="LedgerOrchestrator.ShouldRefreshCrewRowsOnReplace"/>) and files
+        /// the tree's ledger rows (the crew Recovered). A committed tree is untouched when
+        /// anything before its commit refuses. Returns the recordings converted.
+        /// </summary>
+        internal static int ApplyRecoveryOfCommittedPredictions(
+            IReadOnlyList<Recording> effectiveRecordings, string launchGuid, double recoveryUT,
+            Func<Recording, bool> ownedElsewhere, string context)
+        {
+            List<Recording> targets = PredictedEndingRecovery.SelectRecoveryTargets(
+                effectiveRecordings, launchGuid, recoveryUT, ownedElsewhere, context);
+            int applied = 0;
+            for (int i = 0; i < targets.Count; i++)
+            {
+                Recording target = targets[i];
+                RecordingTree committedTree = RecordingStore.FindCommittedTreeById(target.TreeId);
+                if (committedTree?.Recordings == null
+                    || !committedTree.Recordings.TryGetValue(target.RecordingId, out Recording committedRec)
+                    || committedRec == null)
+                {
+                    PredictedEndingRecovery.LogRefused(context, target.TreeId, target.RecordingId, "tree-not-found");
+                    continue;
+                }
+                TerminalState? previous = committedRec.TerminalStateValue;
+                bool touchdown = PredictedTouchdownStockFate.IsPredictedTouchdown(committedRec);
+                double predictedEndUT = committedRec.EndUT;
+
+                RecordingTree clone = RecordingTree.DeepClone(committedTree);
+                if (clone?.Recordings == null
+                    || !clone.Recordings.TryGetValue(target.RecordingId, out Recording rec) || rec == null)
+                {
+                    PredictedEndingRecovery.LogRefused(context, committedTree.Id, target.RecordingId, "clone-failed");
+                    continue;
+                }
+                if (!PredictedEndingRecovery.ConvertToRecovered(
+                        rec, recoveryUT, context, out PredictedEndingDropResult drop, out string reason))
+                {
+                    PredictedEndingRecovery.LogRefused(context, committedTree.Id, target.RecordingId, reason);
+                    continue;
+                }
+                if (!TreeCommitService.CommitTree(clone))
+                {
+                    PredictedEndingRecovery.LogRefused(context, committedTree.Id, target.RecordingId, "commit-refused");
+                    continue;
+                }
+                RecordingTree committed = TreeCommitService.ResolveCommittedTreeAfterCommit(clone, context);
+                LedgerOrchestrator.NotifyLedgerTreeCommitted(committed);
+                applied++;
+                PredictedEndingRecovery.LogApplied(
+                    context, committedTree.Id, rec, previous, touchdown, predictedEndUT, recoveryUT, drop.CutUT);
+            }
+            return applied;
         }
 
         private void OnVesselTerminated(ProtoVessel pv)
