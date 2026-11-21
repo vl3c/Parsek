@@ -25,6 +25,9 @@ Not released yet.
 
 ### Changed
 
+- **No Re-Fly on a flight a supply route uses.** Re-flying it would take the route's recorded
+  trip away, so the Fly button is greyed out and its tooltip says to delete the route first.
+  (REFLY-ROUTE-SOURCE-REFUSED)
 - **Deleting a supply route mid-trip now warns that its cargo will be lost.** When a route has
   already taken cargo on its current trip, the delete confirmation adds "Cargo already taken on
   this trip and not yet delivered will be lost." The cargo is still lost on delete, as before.
@@ -42,6 +45,14 @@ Not released yet.
 
 ### Fixed
 
+- **Changes you make during a Re-Fly are kept when it merges.** Sealing, stashing, hiding,
+  looping, regrouping or turning off the ghost of another flight of the same mission while you
+  re-fly one part of it was undone by the merge, and a sealed slot could come back open with no
+  rewind point. These settings now always survive a merge. (MERGE-REVERTS-PLAYER-SETTINGS)
+- **Flying a finished vessel again keeps the new flight.** If the game reloaded while you flew
+  a vessel from an earlier flight again, Parsek could re-cut that earlier flight and then throw
+  your new flight away as a duplicate when you merged. The earlier flight now stays as it is
+  while you fly, and the merge keeps what you flew. (LIVE-FLOWN-TREE-RECUT-DROPS-NEW-LEG)
 - **A merge that adds nothing no longer says "Merged".** When the flight was already on the
   timeline, the merge still reported success. Clicking Merge now says "Nothing new to merge:
   this flight is already in the timeline", and an automatic merge says nothing.

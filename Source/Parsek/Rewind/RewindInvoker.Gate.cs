@@ -101,6 +101,18 @@ namespace Parsek
                 return false;
             }
 
+            // Owner ruling Q17: a Re-Fly cuts and supersedes recordings of the slot's flight,
+            // and a supply route built from that flight would lose its source (design 4.7,
+            // source immutability), so the flight is not re-flyable while a route names it.
+            if (SlotFlightIsRouteSource(rp, selected,
+                    RecordingStore.CommittedTrees, Logistics.RouteStore.CollectSourceRecordingIds(),
+                    out string routeTreeId, out string routeSourceId))
+            {
+                LogRouteSourceRefusal(rp, selected, routeTreeId, routeSourceId);
+                reason = RouteSourceReFlyReason;
+                return false;
+            }
+
             string sealingSummary;
             if (SlotRetireSetHoldsSealingRow(rp, selected, out sealingSummary))
             {
@@ -124,6 +136,88 @@ namespace Parsek
 
             reason = null;
             return true;
+        }
+
+        /// <summary>
+        /// The refusal the Fly button's tooltip shows (the Unfinished Flights row and the
+        /// timeline row) for a flight a supply route is built from, and the message a stale
+        /// confirm click gets from <see cref="StartInvoke"/>.
+        /// </summary>
+        internal const string RouteSourceReFlyReason =
+            "A supply route is built from this flight - delete the route to re-fly it";
+
+        /// <summary>
+        /// Owner ruling Q17: true when the flight (the committed tree) of the selected slot's
+        /// origin recording holds a recording a supply route sources from
+        /// (<paramref name="routeSourceIds"/>, committed and dormant routes). With no slot every
+        /// slot of <paramref name="rp"/> is checked. Names the tree and the first source
+        /// recording found. A slot whose origin is in no committed tree is not refused here.
+        /// Pure over its inputs.
+        /// </summary>
+        internal static bool SlotFlightIsRouteSource(
+            RewindPoint rp, ChildSlot selected,
+            IReadOnlyList<RecordingTree> committedTrees, ICollection<string> routeSourceIds,
+            out string treeId, out string sourceRecordingId)
+        {
+            treeId = null;
+            sourceRecordingId = null;
+            if (rp == null || committedTrees == null || routeSourceIds == null || routeSourceIds.Count == 0)
+                return false;
+
+            if (selected != null)
+                return SlotOriginTreeHoldsRouteSource(selected, committedTrees, routeSourceIds,
+                    out treeId, out sourceRecordingId);
+            if (rp.ChildSlots == null)
+                return false;
+            for (int i = 0; i < rp.ChildSlots.Count; i++)
+            {
+                if (SlotOriginTreeHoldsRouteSource(rp.ChildSlots[i], committedTrees, routeSourceIds,
+                        out treeId, out sourceRecordingId))
+                    return true;
+            }
+            return false;
+        }
+
+        private static void LogRouteSourceRefusal(
+            RewindPoint rp, ChildSlot selected, string treeId, string sourceRecordingId)
+        {
+            string rpId = rp?.RewindPointId ?? "<no-id>";
+            string slot = selected != null
+                ? selected.SlotIndex.ToString(CultureInfo.InvariantCulture)
+                : "all";
+            // CanInvoke runs on every draw of every Fly button: rate-limited per slot.
+            ParsekLog.VerboseRateLimited(InvokeTag,
+                "caninvoke-route-source|" + rpId + "|" + slot,
+                $"CanInvoke: refused rp={rpId} slot={slot} tree={treeId} " +
+                $"routeSourceRec={sourceRecordingId} reason=route-source");
+        }
+
+        private static bool SlotOriginTreeHoldsRouteSource(
+            ChildSlot slot, IReadOnlyList<RecordingTree> committedTrees, ICollection<string> routeSourceIds,
+            out string treeId, out string sourceRecordingId)
+        {
+            treeId = null;
+            sourceRecordingId = null;
+            string origin = slot?.OriginChildRecordingId;
+            if (string.IsNullOrEmpty(origin))
+                return false;
+            for (int t = 0; t < committedTrees.Count; t++)
+            {
+                RecordingTree tree = committedTrees[t];
+                if (tree?.Recordings == null || !tree.Recordings.ContainsKey(origin))
+                    continue;
+                foreach (string id in tree.Recordings.Keys)
+                {
+                    if (!string.IsNullOrEmpty(id) && routeSourceIds.Contains(id))
+                    {
+                        treeId = tree.Id;
+                        sourceRecordingId = id;
+                        return true;
+                    }
+                }
+                return false;
+            }
+            return false;
         }
 
         /// <summary>

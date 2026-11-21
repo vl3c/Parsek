@@ -72,8 +72,10 @@ namespace Parsek
         /// (b) confirm their use case wants the union semantics.</para>
         /// </summary>
         /// <returns>
-        /// False only when a different tree object with the same id is already committed and
-        /// the incoming tree is not a richer topology to replace it with (the duplicate skip):
+        /// False only when a different tree object with the same id is already committed, the
+        /// incoming tree is not a richer topology to replace it with, and it carries no flight
+        /// the committed tree lacks (the duplicate skip; a copy that does is a committed vessel
+        /// flown again and is unioned in, owner RULE 3, <see cref="IsCommittedTreeFlownAgain"/>):
         /// nothing of <paramref name="tree"/> reached the timeline. True when the tree is on
         /// the timeline after the call, an already-committed reference-equal tree included.
         /// </returns>
@@ -172,9 +174,23 @@ namespace Parsek
                             break;
                         }
 
+                        // Owner RULE 3 ("my live flight wins"): a copy of this committed tree
+                        // that carries flight the committed tree does not have is a committed
+                        // vessel flown again, not a duplicate. The committed side may hold ids
+                        // the copy lacks (an optimizer pass re-cut it while the copy lived), so
+                        // the strict gate refuses; union instead (TryUnionFlownAgainCopy).
+                        if (TryUnionFlownAgainCopy(
+                                RecordingStore.CommittedTrees[i], tree, replaceReason, out string flownEvidence))
+                        {
+                            tree = RecordingStore.CommittedTrees[i];
+                            replaceCommittedTreeIndex = i;
+                            break;
+                        }
+
                         RecordingStore.Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
                         ParsekLog.Verbose("RecordingStore",
-                            $"CommitTree: duplicate tree id='{tree.Id}' skipped reason={replaceReason}");
+                            $"CommitTree: duplicate tree id='{tree.Id}' skipped reason={replaceReason} " +
+                            $"flownAgain=false evidence={flownEvidence}");
                         // Scoped-drop only the incoming duplicate tree's own pending science
                         // subjects (the helper skips committed ids), PRESERVING a DIFFERENT
                         // live recording's still-uncommitted tagged science. See the
@@ -700,7 +716,8 @@ namespace Parsek
             MergeTreeRecordingsIntoCommitted(
                 tree, liveVesselPids, liveVesselGuidsByPid,
                 out addedFromTree, out replacedFromTree, out preservedRewindSaves, out preservedRuntimeFields,
-                unchangedRouteSourceIds);
+                unchangedRouteSourceIds,
+                ReFlownSlotRecordingIds(ParsekScenario.Instance?.ActiveReFlySessionMarker, tree.Id));
             if (addedFromTree > 0 || replacedFromTree > 0)
                 RecordingStore.BumpStateVersion();
 
@@ -753,7 +770,10 @@ namespace Parsek
         /// carried. A recording in <paramref name="unchangedRouteSourceIds"/> (an unchanged
         /// route source, <see cref="CollectUnchangedRouteSourceIds"/>) is not forced dirty: its
         /// sidecars already hold its content, and a rewrite would advance the epoch its route
-        /// compares.
+        /// compares. A replaced recording keeps the player's settings of the committed copy
+        /// (owner RULE 1, <see cref="PreservePlayerOwnedFieldsOnReplace"/>); ids in
+        /// <paramref name="mergeStateFromIncomingIds"/> (the re-flown slot) keep the incoming
+        /// merge state.
         /// </summary>
         internal static void MergeTreeRecordingsIntoCommitted(
             RecordingTree tree,
@@ -763,12 +783,14 @@ namespace Parsek
             out int replacedFromTree,
             out int preservedRewindSaves,
             out int preservedRuntimeFields,
-            ICollection<string> unchangedRouteSourceIds = null)
+            ICollection<string> unchangedRouteSourceIds = null,
+            ICollection<string> mergeStateFromIncomingIds = null)
         {
             addedFromTree = 0;
             replacedFromTree = 0;
             preservedRewindSaves = 0;
             preservedRuntimeFields = 0;
+            int keptPlayerSettings = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 if (unchangedRouteSourceIds == null
@@ -788,6 +810,9 @@ namespace Parsek
                             liveVesselPids, liveVesselGuidsByPid);
                         if (savePreserved) preservedRewindSaves++;
                         preservedRuntimeFields += otherPreserved;
+                        if (KeepPlayerOwnedFieldsOnReplace(
+                                existing, rec, mergeStateFromIncomingIds, "CommitTree replace") > 0)
+                            keptPlayerSettings++;
                         RecordingStore.ReplaceCommittedAt(existingIndex, rec);
                         replacedFromTree++;
                     }
@@ -797,6 +822,10 @@ namespace Parsek
                 RecordingStore.AppendCommittedUnbumped(rec);
                 addedFromTree++;
             }
+            if (keptPlayerSettings > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"CommitTree: tree '{tree.Id ?? "<no-id>"}' kept the player's settings " +
+                    $"(seal, hide, ghost, loop, groups) on {keptPlayerSettings} replaced committed recording(s)");
         }
 
         /// <summary>True when <paramref name="index"/> names an existing committed tree slot.</summary>
@@ -1389,16 +1418,16 @@ namespace Parsek
         ///     authored the more recent state); existing-only ids are
         ///     kept untouched (the pre-Re-Fly debris / pre-rewind chain
         ///     content that the session never touched).
-        ///     <para><b>Overwrite-loss caveat</b>: the shared-id swap is
-        ///     by-reference. Any mutations the existing committed
-        ///     Recording received between the active session's fork
-        ///     (snapshot capture) and this commit — e.g. rename, group
-        ///     reassignment, ledger-driven field updates — are silently
-        ///     replaced with the active session's older view. For the
-        ///     Re-Fly contract this is fine (the active session is the
-        ///     authority on its own recordings), but DO NOT add fields
-        ///     to <c>Recording</c> that are user-mutable outside the
-        ///     active session without revisiting this overwrite policy.</para>
+        ///     <para><b>Player-owned fields</b>: the shared-id swap is
+        ///     by-reference, so every field the existing committed copy
+        ///     gained after the live copy was taken would be replaced with
+        ///     the live copy's older value. The settings the player owns
+        ///     (seal / stash, hide, ghost on / off, loop, groups) are copied
+        ///     back from the existing copy first (owner RULE 1,
+        ///     <see cref="PreservePlayerOwnedFieldsOnReplace"/>); the
+        ///     re-flown slot's own recordings keep the incoming merge state.
+        ///     A new field the player can change on a committed recording
+        ///     belongs in that list.</para>
         ///   </description></item>
         ///   <item><description>
         ///     <c>BranchPoints</c> keyed by <c>Id</c>: same union shape.
@@ -1432,10 +1461,35 @@ namespace Parsek
             addedRecs = 0;
             addedBps = 0;
             activeIdSwapped = false;
-            if (existing == null || incoming == null || marker == null) return false;
+            if (marker == null) return false;
+            return TryUnionLiveCopyIntoCommitted(
+                existing, incoming, ReFlownSlotRecordingIds(marker, existing?.Id ?? incoming?.Id),
+                out addedRecs, out addedBps, out activeIdSwapped);
+        }
+
+        /// <summary>
+        /// The union both live-copy commits share (an active Re-Fly tree,
+        /// <see cref="TryUnionActiveReFlyTreeIntoCommitted"/>, and a committed vessel flown
+        /// again, owner RULE 3): incoming-only recordings and branch points are added, shared
+        /// recordings take the incoming instance with the player's settings kept
+        /// (<see cref="UnionRecordingsInto"/>), existing-only ids stay, the root id is adopted
+        /// only when missing and the incoming active id wins. False (outs zeroed) on null input.
+        /// </summary>
+        internal static bool TryUnionLiveCopyIntoCommitted(
+            RecordingTree existing,
+            RecordingTree incoming,
+            ICollection<string> mergeStateFromIncomingIds,
+            out int addedRecs,
+            out int addedBps,
+            out bool activeIdSwapped)
+        {
+            addedRecs = 0;
+            addedBps = 0;
+            activeIdSwapped = false;
+            if (existing == null || incoming == null) return false;
             if (existing.Recordings == null || incoming.Recordings == null) return false;
 
-            addedRecs = UnionRecordingsInto(existing, incoming);
+            addedRecs = UnionRecordingsInto(existing, incoming, mergeStateFromIncomingIds);
             addedBps = UnionBranchPointsInto(existing, incoming);
             AdoptMissingRootRecordingId(existing, incoming);
             activeIdSwapped = AdoptIncomingActiveRecordingId(existing, incoming);
@@ -1448,9 +1502,13 @@ namespace Parsek
         /// <summary>
         /// Union of the recordings: adds incoming-only ids, overwrites a shared id with the
         /// incoming instance, keeps existing-only ids. Skips empty keys and null values.
+        /// A shared id keeps the player's settings of the replaced instance (owner RULE 1,
+        /// <see cref="PreservePlayerOwnedFieldsOnReplace"/>); ids in
+        /// <paramref name="mergeStateFromIncomingIds"/> keep the incoming merge state.
         /// Returns how many ids were added.
         /// </summary>
-        internal static int UnionRecordingsInto(RecordingTree existing, RecordingTree incoming)
+        internal static int UnionRecordingsInto(RecordingTree existing, RecordingTree incoming,
+            ICollection<string> mergeStateFromIncomingIds = null)
         {
             int addedRecs = 0;
             // Union recordings: add incoming-only, overwrite shared, keep
@@ -1461,7 +1519,12 @@ namespace Parsek
                 if (existing.Recordings.ContainsKey(kvp.Key))
                 {
                     if (!ReferenceEquals(existing.Recordings[kvp.Key], kvp.Value))
+                    {
+                        KeepPlayerOwnedFieldsOnReplace(
+                            existing.Recordings[kvp.Key], kvp.Value, mergeStateFromIncomingIds,
+                            "UnionRecordingsInto");
                         existing.Recordings[kvp.Key] = kvp.Value;
+                    }
                 }
                 else
                 {
@@ -1470,6 +1533,145 @@ namespace Parsek
                 }
             }
             return addedRecs;
+        }
+
+        /// <summary>
+        /// Owner RULE 1 ("Always keep them"): the settings the player owns on a committed
+        /// recording win over the copy that replaces it. A live copy of a committed tree (a
+        /// Re-Fly tree, a resumed committed vessel, a quicksave of either) holds the values
+        /// from before the player changed them, so without this a union or replace commit
+        /// reverts a Seal or Stash (<see cref="Recording.MergeState"/>), hide, ghost on / off,
+        /// loop and group changes made meanwhile. The fields, copied from
+        /// <paramref name="existing"/> onto <paramref name="incoming"/>:
+        /// <see cref="Recording.MergeState"/> (unless <paramref name="keepIncomingMergeState"/>,
+        /// set for the re-flown slot's own recordings, whose merge state the Re-Fly commit
+        /// owns), <see cref="Recording.Hidden"/>, <see cref="Recording.PlaybackEnabled"/>,
+        /// <see cref="Recording.LoopPlayback"/>, <see cref="Recording.LoopIntervalSeconds"/>,
+        /// <see cref="Recording.LoopTimeUnit"/>, <see cref="Recording.LoopStartUT"/>,
+        /// <see cref="Recording.LoopEndUT"/>, <see cref="Recording.LoopAnchorVesselId"/>,
+        /// <see cref="Recording.LoopAnchorBodyName"/> and <see cref="Recording.RecordingGroups"/>
+        /// (a copy of the list). Returns how many fields differed and were restored, and names
+        /// them in <paramref name="fields"/> (comma-separated, empty when none). Pure.
+        /// </summary>
+        internal static int PreservePlayerOwnedFieldsOnReplace(
+            Recording existing, Recording incoming, bool keepIncomingMergeState, out string fields)
+        {
+            fields = "";
+            if (existing == null || incoming == null || ReferenceEquals(existing, incoming))
+                return 0;
+
+            var restored = new List<string>();
+            if (!keepIncomingMergeState && incoming.MergeState != existing.MergeState)
+            {
+                incoming.MergeState = existing.MergeState;
+                restored.Add("MergeState");
+            }
+            if (incoming.Hidden != existing.Hidden)
+            {
+                incoming.Hidden = existing.Hidden;
+                restored.Add("Hidden");
+            }
+            if (incoming.PlaybackEnabled != existing.PlaybackEnabled)
+            {
+                incoming.PlaybackEnabled = existing.PlaybackEnabled;
+                restored.Add("PlaybackEnabled");
+            }
+            if (incoming.LoopPlayback != existing.LoopPlayback)
+            {
+                incoming.LoopPlayback = existing.LoopPlayback;
+                restored.Add("LoopPlayback");
+            }
+            if (!SameDouble(incoming.LoopIntervalSeconds, existing.LoopIntervalSeconds))
+            {
+                incoming.LoopIntervalSeconds = existing.LoopIntervalSeconds;
+                restored.Add("LoopIntervalSeconds");
+            }
+            if (incoming.LoopTimeUnit != existing.LoopTimeUnit)
+            {
+                incoming.LoopTimeUnit = existing.LoopTimeUnit;
+                restored.Add("LoopTimeUnit");
+            }
+            if (!SameDouble(incoming.LoopStartUT, existing.LoopStartUT))
+            {
+                incoming.LoopStartUT = existing.LoopStartUT;
+                restored.Add("LoopStartUT");
+            }
+            if (!SameDouble(incoming.LoopEndUT, existing.LoopEndUT))
+            {
+                incoming.LoopEndUT = existing.LoopEndUT;
+                restored.Add("LoopEndUT");
+            }
+            if (incoming.LoopAnchorVesselId != existing.LoopAnchorVesselId)
+            {
+                incoming.LoopAnchorVesselId = existing.LoopAnchorVesselId;
+                restored.Add("LoopAnchorVesselId");
+            }
+            if (!string.Equals(incoming.LoopAnchorBodyName, existing.LoopAnchorBodyName, StringComparison.Ordinal))
+            {
+                incoming.LoopAnchorBodyName = existing.LoopAnchorBodyName;
+                restored.Add("LoopAnchorBodyName");
+            }
+            if (!SameOrderedStrings(incoming.RecordingGroups, existing.RecordingGroups))
+            {
+                incoming.RecordingGroups = existing.RecordingGroups != null
+                    ? new List<string>(existing.RecordingGroups)
+                    : null;
+                restored.Add("RecordingGroups");
+            }
+
+            fields = string.Join(",", restored.ToArray());
+            return restored.Count;
+        }
+
+        private static bool SameOrderedStrings(List<string> left, List<string> right)
+        {
+            int leftCount = left?.Count ?? 0;
+            int rightCount = right?.Count ?? 0;
+            if (leftCount != rightCount) return false;
+            for (int i = 0; i < leftCount; i++)
+                if (!string.Equals(left[i], right[i], StringComparison.Ordinal))
+                    return false;
+            return true;
+        }
+
+        /// <summary>
+        /// The recordings of the slot a live Re-Fly re-flies (the marker's provisional, origin
+        /// and supersede target) when <paramref name="marker"/> names <paramref name="treeId"/>:
+        /// the Re-Fly commit owns their merge state, so the player-field carry leaves it alone.
+        /// Null when there is no marker or it names another tree. Pure.
+        /// </summary>
+        internal static HashSet<string> ReFlownSlotRecordingIds(ReFlySessionMarker marker, string treeId)
+        {
+            if (marker == null || string.IsNullOrEmpty(treeId)
+                || !string.Equals(marker.TreeId, treeId, StringComparison.Ordinal))
+                return null;
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (!string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)) ids.Add(marker.ActiveReFlyRecordingId);
+            if (!string.IsNullOrEmpty(marker.OriginChildRecordingId)) ids.Add(marker.OriginChildRecordingId);
+            if (!string.IsNullOrEmpty(marker.SupersedeTargetId)) ids.Add(marker.SupersedeTargetId);
+            return ids;
+        }
+
+        /// <summary>
+        /// Runs <see cref="PreservePlayerOwnedFieldsOnReplace"/> for one replaced recording and
+        /// logs what it kept (one Verbose line per recording that had something to keep; a
+        /// tree commit replaces at most the tree's recordings). Returns the restored count.
+        /// </summary>
+        private static int KeepPlayerOwnedFieldsOnReplace(
+            Recording existing, Recording incoming, ICollection<string> mergeStateFromIncomingIds,
+            string context)
+        {
+            bool keepIncomingMergeState = mergeStateFromIncomingIds != null
+                && incoming?.RecordingId != null
+                && mergeStateFromIncomingIds.Contains(incoming.RecordingId);
+            int restored = PreservePlayerOwnedFieldsOnReplace(
+                existing, incoming, keepIncomingMergeState, out string fields);
+            if (restored > 0)
+                ParsekLog.Verbose("RecordingStore",
+                    $"{context}: kept the player's settings of the committed copy " +
+                    $"rec={incoming.RecordingId ?? "<no-id>"} fields=[{fields}] " +
+                    $"mergeStateFromIncoming={keepIncomingMergeState}");
+            return restored;
         }
 
         /// <summary>
