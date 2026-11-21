@@ -26,7 +26,7 @@ Flown (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, D
 
 - SOI-3: PARSEK-FAIL(results), a 9.1 km seam gap (BG-SOI-SEAM-WORLD-GAP).
 - RSQ-1 / RSQ-2: PARSEK-FAIL(expectation), the regeneration reads `added=0` (RESCUE-REGEN-COUNTS-PROTOVESSELS).
-- SRV-1: PARSEK-FAIL(expectation), a lane-design red: the hinge never recorded motion and the pad rig's ghost is hidden by the launch-site rule (GHOST-SERVO-CHILDREN-STATIC, redesign owed).
+- SRV-1: PARSEK-FAIL(expectation): the hinge never recorded motion (a recorder defect, RECORDER-SERVO-ANGLE-PAW-ONLY, fixed 2026-11-21) and the pad rig's ghost is hidden by the launch-site rule; REDESIGNED 2026-11-21 on `srv-hinge-rover`, re-flight owed (GHOST-SERVO-CHILDREN-STATIC).
 - V23M: PARSEK-FAIL(expectation) on its new FlightGhostPosition step only: the stock wheel NRE storm aborts the batch at `total=2` (FLIGHT-GHOST-POSITION-LANES-2026-11-20, authoring decision).
 
 Report-only readings recorded, no block armed (an owner decision): STR-3 `rewindPointFiles=1 unlistedRewindPointFiles=1`; RSQ-1 / RSQ-2 `crewAboard` `Rayvan Kerman = 1` (in the final saves); VN-14 `legsRenamed=0` on the cold apply pass; SURV-2 no rewind point as predicted, but its structure block reads both recordings Destroyed (SURVIVOR-DESTROYED-AT-SCENE-EXIT).
@@ -262,7 +262,7 @@ Tests: `UnserializableTreeCarryForwardTests`
 load-back mirror, the key-set pin against the codec and the splice units). ST-4 pins the reworded
 Warn line; re-flown green 2026-11-20 (`2026-11-20_2317_ST-4-safe-write-crash-after-temp`).
 
-## ~~GHOST-SERVO-CHILDREN-STATIC~~: parts mounted on a Breaking Ground servo stay frozen on the ghost while the servo moves [FILED 2026-11-20 by code reading (test-gap pass). FIXED 2026-11-20, branch `test-gaps-servoghost`; xUnit + mutation; in-game cell `ServoFollowers` PASSED in game 2026-11-20; lane SRV-1 AUTHORED 2026-11-20 (branch `test-gaps-b3-servo-lane`, stock-tree), FIRST FLIGHT 2026-11-20 RED on a lane-design problem: a redesign is owed; low (visual only: a hinge arm, a rotor's blades or a piston's payload does not move on the replay)]
+## ~~GHOST-SERVO-CHILDREN-STATIC~~: parts mounted on a Breaking Ground servo stay frozen on the ghost while the servo moves [FILED 2026-11-20 by code reading (test-gap pass). FIXED 2026-11-20, branch `test-gaps-servoghost`; xUnit + mutation; in-game cell `ServoFollowers` PASSED in game 2026-11-20; lane SRV-1 AUTHORED 2026-11-20 (branch `test-gaps-b3-servo-lane`, stock-tree), FIRST FLIGHT 2026-11-20 RED (no hinge motion recorded: RECORDER-SERVO-ANGLE-PAW-ONLY; a pad rig's ghost hidden by the launch-site rule), REDESIGNED 2026-11-21 on `srv-hinge-rover`, re-flight owed; low (visual only: a hinge arm, a rotor's blades or a piston's payload does not move on the replay)]
 
 What the code did: the ghost builder parents every part (`ghost_part_<pid>`) directly to the ghost's
 part container at its snapshot pose (`GhostVisualBuilder.AddPartVisuals`), and the robotic
@@ -299,8 +299,9 @@ Proof: `ServoFollowerPlannerTests` (which parts follow, nested, base side, inver
 and `ServoFollowerPoseTests` (the pose math, nested composition, scale). Red against the pre-fix
 behaviour by mutation (planner yields nothing, follower pose ignores the servo): 9 of 21 cells red.
 
-Lane (2026-11-20, branch `test-gaps-b3-servo-lane`): `SRV-1-hinge-followers-ghost` (operator,
-stock-tree by owner approval 2026-11-20) on the derived fixture `srv-hinge-pad`
+Lane (2026-11-20, branch `test-gaps-b3-servo-lane`; REDESIGNED 2026-11-21, see the last
+paragraph): `SRV-1-hinge-followers-ghost` (operator, stock-tree by owner approval 2026-11-20) on
+the derived fixture `srv-hinge-pad`
 (`harness/tools/build_srv_hinge_pad.py`: fresh-sandbox plus `SRV1 Hinge Rig`, an OKTO2 on an
 FL-T100 with a G-11 Hinge `hinge.01` whose moving (top) node carries a Z-200 `batteryBankMini`,
 and `SRV1 Watcher`). The rig records on the pad from UT 100 while the new seam buttons
@@ -312,8 +313,9 @@ then the `ServoFollowers` cell runs in the same FLIGHT scene (interim batch pin)
 Breaking Ground (`GameData/SquadExpansion/Serenity`) on the install.
 
 OPEN:
-- Live proof: SRV-1's first flight (owed). Read its plan / bind / re-pose lines, then pin the
-  batch split whole and drop it from `INTERIM_PIN_IDS`. A rotor lane (SRV-2) was not authored:
+- Live proof: SRV-1's re-flight on `srv-hinge-rover` (owed; see the last paragraph). The batch
+  split is pinned whole from the first flight (`passed=1 skipped=0`) and the lane left
+  `INTERIM_PIN_IDS`. A rotor lane (SRV-2) was not authored:
   a rotor's spin is driven by its motor engagement and RPM limit, which no seam button reaches
   (the servo buttons press the angle actions only; a rotor's stock actions are motor power /
   direction / brake toggles), so whether and how fast it would spin on the pad is unmeasured;
@@ -324,6 +326,34 @@ OPEN:
   coordinate refresh in OnSave for a locked servo).
 
 SRV-1's first flight 2026-11-20 (`2026-11-20_2314_SRV-1-hinge-followers-ghost`, runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): PARSEK-FAIL(expectation) attempt 1, with no Parsek defect shown. The `ServoFollowers` cell passed on its synthetic rig (`carried its moving-side part through 45`), but the flight itself recorded nothing to replay: both `PartAction servomax` / `servomin` set the target (`state='servo:target=90.00'` / `-90.00`) and the recorder tracked the hinge (`Robotics: tracking 'hinge.01' ... source=currentAngle`), yet 0 part events were recorded (no `RoboticMotionStarted` / `RoboticPositionSample`), and the committed pad rig's ghost is hidden by the launch-site rule (`LaunchSiteGhost: Ghost hidden: vessel 'SRV1 Hinge Rig' ... never left the launch site`), so no `Servo follower plan for 'SRV1 Hinge Rig'` was ever logged. Two lane problems: the derived craft (`build_srv_hinge_pad.py`) writes no MODULE nodes, so the hinge runs on prefab defaults (KSPCF `ModuleIndexingMismatch`) and was not seen to move (read the hinge's state next flight: locked, motor disengaged, or unpowered); and a rig that never leaves the pad has its ghost hidden by design. Redesign: give the craft its hinge MODULE (unlocked, motor engaged) and fly the rig off the pad (a hop), or replay away from the launch-site circle.
+
+Reading the decompile (2026-11-21) moved the first problem from the lane to the product: the hinge's prefab defaults are already free (`servoIsLocked` false, `servoIsMotorized` / `servoMotorIsEngaged` true), but the field the recorder sampled, `currentAngle`, is refreshed only by `UpdatePAWUI`, so the recorder could not see ANY hinge move with its part menu closed (RECORDER-SERVO-ANGLE-PAW-ONLY, below). SRV-1 REDESIGNED 2026-11-21 (same branch) on the new derived fixture `srv-hinge-rover` (`harness/tools/build_srv_hinge_rover.py`, drift test `harness/lib/test_srv_hinge_rover.py`): MINE-6's `miner-rover-watched` pair with the rover renamed `SRV1 Hinge Rover` and a G-11 Hinge stacked on its front adapter's top node (the `miner-rover-depot` port precedent) carrying a Z-200 on the hinge's moving node, both turned 90 deg about the stack axis so the battery swings sideways; the hinge's `ModuleRoboticServoHinge` node written unlocked, motorized and engaged at 90 deg/s (no `servoTransform*` / `jointParentRotation` keys: `BaseServo.OnLoad` applies them only when present). The rover is LANDED 820 m from the runway threshold, so the launch-site rule cannot hide it, and after Rewind-to-Launch strips it a reload lands FLIGHT on `Miner Watcher` 120 m north (MINE-6's measured shape). The lane records from UT 30, swings the hinge at 33 and 38, commits in FLIGHT at 43, rewinds, reloads and replays at 1x to 48, then runs the cell. The re-flight must show `Robotics: tracking 'hinge.01' ... source=servoTransformAngle`, RoboticMotionStarted / PositionSample / Stopped in the swing-out window and Started in the swing-back window, then `Servo follower plan for 'SRV1 Hinge Rover': servos=1 followers=1 invertedServos=0`, `Servo followers bound: followers=1 ... geometryPosed=1 ...`, a robotic `apply ... applied=[1-9]` and `Servo followers re-posed in playback: ... module=ModuleRoboticServoHinge followers=1 ... (first since bind)`. The old fixture `srv-hinge-pad`, its builder and drift test are no longer flown by any spec and stay until their deletion is approved.
+
+## ~~RECORDER-SERVO-ANGLE-PAW-ONLY~~: a hinge or rotation servo recorded no motion unless its part menu was open [FILED 2026-11-21 from SRV-1's first flight and the decompile. FIXED 2026-11-21, branch `test-gaps-b3-servo-lane`; xUnit `ReflectionClassifierCoreTests` (3 red before the fix); live proof owed: SRV-1's re-flight; medium (most player hinge and rotation servo moves replayed frozen)]
+
+Cause: the robotic position probe (`FlightRecorder.TryClassifyRoboticPositionFromFieldValues`,
+shared by the active and background recorders) read the angular servos' `currentAngle` KSPField
+first. Decompiled KSP 1.12.5: `ModuleRoboticServoHinge` / `ModuleRoboticRotationServo` write
+`currentAngle` only in `UpdatePAWUI`, which `BaseServo` calls from `OnStart`, `OnPartMenuOpen`
+and `Update` while `partActionMenuOpen`. With the part menu closed the field holds its start
+value, so `CheckRoboticTransition` never saw a delta: SRV-1's first flight tracked the hinge
+(`source=currentAngle`) through two full swings and recorded zero robotic events. The piston is
+not affected (`UpdateCurrentExtension` runs in `OnFixedUpdate`).
+
+Fix: a live stage ahead of the field plan for the hinge and the rotation servo. The reader
+gained `IModuleFieldValues.TryGetServoTransformAngleDegrees`; its live half
+(`TryReadServoTransformAngle`, NoInlining) rebuilds stock's protected
+`BaseServo.currentTransformAngle()` from the public `MovingObject()` and `mainAxis`, and the pure
+`TrySelectServoMainAxisAngle` picks the axis and wraps above 180 the same way. The new stage
+(`TryClassifyLiveServoAngleFromFieldValues`) adds the hinge's `modelInitialAngle` (the
+rotation servo adds nothing), so the value is what `currentAngle` shows with the menu open: the
+same convention as `targetAngle` and the ghost's snapshot baseline, so playback is unchanged.
+The tracking line reads `source=servoTransformAngle`. A servo with no moving object yet falls
+back to the old plan. No save-format change (the event values keep their meaning).
+
+Not fixed here, same shape: the rotor's `currentRPM` is also refreshed only in `UpdatePAWUI`
+(`refreshRPMReadouts`), so a rotor's recorded RPM likely stays at its start value too; unmeasured,
+no lane flies a rotor (see GHOST-SERVO-CHILDREN-STATIC's SRV-2 note).
 
 ## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
 

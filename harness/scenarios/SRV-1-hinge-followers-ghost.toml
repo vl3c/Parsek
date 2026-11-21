@@ -11,45 +11,61 @@ id = "SRV-1-hinge-followers-ghost"
 # (ServoFollowerPlanner), binds each follower's pose in its servo's frame
 # (GhostPlaybackLogic.BindServoFollowers) and re-poses the followers wherever the servo
 # transform is written (PropagateServoFollowers). xUnit proves the plan and the pose math;
-# the in-game ServoFollowers cell proves the live bind over a SYNTHETIC snapshot. No flight
-# ever recorded a moving servo and replayed it: this lane does.
+# the in-game ServoFollowers cell proves the live bind over a SYNTHETIC snapshot. This lane
+# records a real hinge swing and replays it.
 #
-# THE HOST. `srv-hinge-pad` (harness/tools/build_srv_hinge_pad.py): fresh-sandbox plus two VAB
-# craft. `SRV1 Hinge Rig` is an OKTO2 on an FL-T100, a G-11 Hinge (`hinge.01`) on the OKTO2's
-# top node by its bottom (base) node, and a Z-200 (`batteryBankMini`) on the hinge's top node,
-# which is the hinge's MOVING side (hinge_01.cfg `servoAttachNodes = top`). So the plan must
-# read servos=1 followers=1: the battery follows, the OKTO2 and the tank (base side) do not.
-# `SRV1 Watcher` (OKTO2 on FL-T100, its own baked persistentIds) is the live vessel the rewound
-# flight watches the replay from.
+# REDESIGNED 2026-11-21 after the first flight (`2026-11-20_2314`, PARSEK-FAIL(expectation)),
+# which showed two problems with the old pad host `srv-hinge-pad`:
+#   1. The recorder never saw the hinge move: it tracked `source=currentAngle`, a field stock
+#      refreshes ONLY in UpdatePAWUI (OnStart, OnPartMenuOpen, Update while the part menu is
+#      open; KSP 1.12.5 decompiled BaseServo / ModuleRoboticServoHinge), so with the menu
+#      closed every hinge and rotation servo recorded zero motion events. A product defect,
+#      fixed with this redesign (todo RECORDER-SERVO-ANGLE-PAW-ONLY): the recorder now reads
+#      the moving transform's main-axis angle, stock's own currentTransformAngle(), and
+#      logs `source=servoTransformAngle`.
+#   2. A rig that never leaves the pad has its ghost hidden by design (LaunchSiteOnlyGhost:
+#      every point inside the 50 m pad / runway circle, climb under 15 m, ended parked
+#      there; `Ghost hidden: vessel 'SRV1 Hinge Rig' ... never left the launch site`).
+#
+# THE HOST. `srv-hinge-rover` (harness/tools/build_srv_hinge_rover.py): MINE-6's proven
+# `miner-rover-watched` pair with the rover renamed `SRV1 Hinge Rover` and a G-11 Hinge
+# (`hinge.01`) stacked on its front adapter's top node, carrying a Z-200 (`batteryBankMini`)
+# on the hinge's top node, its MOVING side (hinge_01.cfg `servoAttachNodes = top`). So the
+# plan must read servos=1 followers=1: the battery follows, the rest of the rover does not.
+# Both new parts are turned 90 deg about the stack axis so the battery swings sideways, level
+# with the rover. The hinge's MODULE loads it unlocked, motorized and engaged at 90 deg/s.
+# The rover is LANDED 820 m from the runway threshold, far outside every launch-site circle,
+# so its ghost is drawn and its end spawn is not retired. `Miner Watcher` stands 120 m north:
+# after Rewind-to-Launch strips the rover, a reload of the rewound save lands FLIGHT on the
+# watcher (vessel 0), inside the physics bubble of the replay (MINE-6, live-proven).
 #
 # THE INSTALL. stock-tree (owner approval 2026-11-20). Breaking Ground is the PREREQUISITE:
 # the hinge part, its module and the ServoFollowers cell's candidate all come from
-# `GameData/SquadExpansion/Serenity`, which the CLONE step junctions into automation/stock-tree
-# from the dev install (verified present 2026-11-20 beside MakingHistory). Without it the VAB
-# load of the rig fails and the cell skips. stock-minimal junctions the same folder, so the
-# lane would also fly there; the profile is the owner's call, not a technical need. Sandbox,
-# so the stock tech tree (stock-tree has no CommunityTechTree) gates nothing.
+# `GameData/SquadExpansion/Serenity`, junctioned in by the CLONE step (first flight: present).
+# stock-minimal junctions the same folder, so the lane would also fly there.
 #
-# THE TIMELINE (UTs are the spec's own; fresh-sandbox starts at UT 0):
-#   0      LoadGame -> Space Center (no vessel); the rig from the VAB onto the pad.
-#   100    WarpToUT on rails, then StartRecording on the pad (captures the rewind save).
-#   100    PartAction servomax: the hinge's own MaximumAngleAction KSPAction (the action an
-#          action group fires): targetAngle 0 -> +90. At the default 90 deg/s it gets there in
-#          about a second; 1x to 106 lets it settle (RoboticMotionStarted / samples / Stopped).
-#   106    PartAction servomin: +90 -> -90, 1x to 112.
-#   112    StopRecording, CommitTree (VN-3's order), then Rewind-to-Launch (`tree=latest`).
-#   rewind Space Center before UT 100; the watcher from the VAB onto the pad (the rig's own
-#          recording ends on the pad, where its end spawn is retired or held, EX-1's ruling,
-#          so the pad is free at the relaunch). 1x to UT 118: the rig's ghost plays on the pad
-#          over [100, 112] at distance ~0 (Physics zone: part events applied), its build logs
-#          the follower plan and bind, the recorded hinge events move the servo transform and
-#          the first re-pose of the battery logs once.
-#   118    RunTests ServoFollowers in the same FLIGHT scene: the cell builds its own three-part
+# THE TIMELINE (the fixture's clock is UT 30):
+#   30     LoadGame -> FLIGHT on the rover; StartRecording.
+#   33     1x settle (the recorder's first robotic poll sets the baseline), then
+#          PartAction servomax: the hinge's own MaximumAngleAction KSPAction (the action an
+#          action group fires): targetAngle 0 -> +90, about 1 s at 90 deg/s; 1x to 38.
+#   38     PartAction servomin: +90 -> -90, about 2 s; 1x to 43.
+#   43     StopRecording, CommitTree (VN-3's order, in FLIGHT), then Rewind-to-Launch
+#          (`tree=latest`) to the Space Center; SaveGame + LoadGame of the rewound save
+#          lands FLIGHT on the watcher about 15 s before the recording start (GS-6 / CN-4 /
+#          MINE-6 measured).
+#   ~16    5x rails to 26 (still before the ghost's window), then 1x to 48: the rover's
+#          ghost plays 120 m away over [30, 43] (Physics zone: part events applied), its build
+#          logs the follower plan and bind, the recorded hinge events move the servo
+#          transform and the first re-pose of the battery logs once; at its end the rover
+#          spawns where it stood.
+#   48     RunTests ServoFollowers in the same FLIGHT scene: the cell builds its own three-part
 #          servo snapshot from PartLoader and moves it through the real applier.
 #
-# THE LOG LINES (literals read from source, 2026-11-20):
+# THE LOG LINES (literals read from source, 2026-11-21):
 #   partaction applied button=servomax ... state='servo:target=90.00'   TestCommandPartAction
-#   Robotics: tracking 'hinge.01' ... module=ModuleRoboticServoHinge   FlightRecorder.CheckRoboticState
+#   Robotics: tracking 'hinge.01' ... module=ModuleRoboticServoHinge source=servoTransformAngle
+#                                                    FlightRecorder.CheckRoboticState
 #   Part event: RoboticMotionStarted 'hinge.01' pid= midx=0 val=       FlightRecorder.CheckRoboticState
 #   Servo follower plan for '<vessel>': servos= followers= invertedServos=
 #                                                    GhostVisualBuilder.ResolveServoFollowerPlan
@@ -58,92 +74,98 @@ id = "SRV-1-hinge-followers-ghost"
 #                                                    GhostPlaybackLogic.BindServoFollowersCore
 #   Servo followers re-posed in playback: servoPid= module= followers= value= (first since bind)
 #                                                    GhostPlaybackLogic.PropagateServoFollowers
-#                                                    (added with this lane: one Verbose line per
-#                                                    servo per ghost build, the first playback
-#                                                    re-pose; the per-write path stays silent)
+#                                                    (one Verbose line per servo per ghost
+#                                                    build, the first PLAYBACK re-pose: the bind
+#                                                    suppresses it for its own baseline re-pose,
+#                                                    commit f7642d235)
 #   apply family=Robotic... surface=robotic rec= pid= applied=          GhostPartEventApplyLog
 # Plan and bind are VerboseRateLimited (60 s, keyed by the ghost's name), so their FIRST line
-# per key always prints; both are scoped between the srv1-rewound and srv1-replayed marks (a
-# ghost pre-build may start before the relaunched mark). The applier and re-pose lines are
-# scoped from srv1-relaunched: they happen during playback (UT >= 100), in FLIGHT. The rewind
-# lands about 15 s before the recording start (GS-6 / CN-4 measured), so the Space Center
-# leg is out of the ghost's window and builds nothing; if a first flight shows the rewind
-# landing AT the start UT instead, the swing-back (106..109) still plays live in FLIGHT.
+# per key always prints; both are scoped between the srv1-rewound and srv1-replayed marks (the
+# reload's own load may pre-build the ghost before the srv1-reloaded mark). The applier and
+# re-pose lines are scoped from srv1-reloaded: they happen during playback (UT >= 30), in
+# FLIGHT. The Space Center leg after the rewind advances no time (UT ~16), so it builds no
+# ghost and spends neither rate-limit key.
 #
 # PRE-REGISTERED READINGS:
+#   - `source=currentAngle` on the tracking line: the recorder fix is not in the DLL.
+#   - no `Part event: Robotic...` line with `source=servoTransformAngle`: the hinge did not
+#     move (locked, unpowered, the press landed packed) or MovingObject() was null.
 #   - `followers=0` / no plan line: the planner did not see the battery on the moving node
 #     (snapshot attN shape, or the prefab's servoAttachNodes not read). Product defect.
 #   - `geometryPosed=0`: the recorded snapshot carried no servoTransformPosition / Rotation
-#     (stock persists both); the bind fell back to the baseline pose. Read the snapshot sidecar.
+#     (stock persists both from the live transform); read the snapshot sidecar.
 #   - `missingPart=1`: the follower's ghost part was not a direct child of the part container.
 #   - no re-pose line but robotic apply lines `applied=[1-9]`: the servo moved and propagation
 #     never ran (the regression this lane exists for).
-#   - `partaction rejected reason=partaction-servo-not-found`: the rig loaded without its
+#   - `partaction rejected reason=partaction-servo-not-found`: the rover loaded without its
 #     hinge module (Breaking Ground missing on the install).
-#   - no `Part event: Robotic...` line: the recorder did not see the hinge move (EC, a locked
-#     servo, or the press landed before the vessel unpacked); the replay then has nothing to do.
+#   - `Ghost hidden: vessel 'SRV1 Hinge Rover'`: the launch-site rule fired off-site (defect).
 #
-# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: considered, not applied - no committed
-# lane flies a servo (GS-6's sweep craft carries none and its applier tokens are
-# Kerbal-X-shaped); the shape is SEAT-1's VAB launch plus CN-4's rewind-and-relaunch.
-# (2) explicit-UT WarpToUT only (rails to 100, 1x through each swing and the replay). (3) the
-# 6 s holds cover a 180 deg swing at 90 deg/s with settle; tighten from the first flight's
-# Stopped UTs. (4)/(5) no burns or coasts. (6) retry `once`: the first flight of a new craft;
-# switch to `none` once it has flown green. (7) recordings window 1..3 until measured (the
-# rig's one recording, plus any committed-restore clone the rewind makes, CN-4's note).
-# (8) operator until measured. (9) flight_efficiency.py after the first green flight.
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: the host is MINE-6's pair with two parts
+# added, its rewind-and-reload shape reused verbatim; no committed lane flies a servo.
+# (2) explicit-UT WarpToUT only (1x through each swing and the replay, 5x rails before it).
+# (3) the 5 s holds cover a 180 deg swing at 90 deg/s with settle; tighten from the first
+# flight's Stopped UTs. (4)/(5) no burns or coasts. (6) retry `once`: the first flight of a
+# new fixture; switch to `none` once it has flown green. (7) recordings window 1..3 until
+# measured (the rover's one recording, plus any segment its end spawn opens). (8) operator
+# until measured. (9) flight_efficiency.py after the first green flight.
 #
-# STATUS: AUTHORED 2026-11-20, NEVER FLOWN. The batch pin is INTERIM (`total=1` literal, the
-# split regexed) per IngameBatchWiringGroupTests.INTERIM_PIN_IDS until the first flight.
+# STATUS: FIRST FLIGHT 2026-11-20 RED on the old host (lane design + the recorder defect
+# above); REDESIGNED 2026-11-21, the redesign NEVER FLOWN. The ServoFollowers batch pin is
+# pinned whole from that first flight (`total=1 passed=1 failed=0 skipped=0`).
 tier = "operator"
-description = "AUTHORED 2026-11-20, NEVER FLOWN: a Breaking Ground hinge swung +90 then -90 while recording a pad rig (srv-hinge-pad, a Z-200 on the hinge's moving node), committed, Rewound-to-Launch and replayed in FLIGHT beside a watcher; the ghost's servo-follower plan and bind must find the one follower, the recorded hinge events must apply and the follower must be re-posed in playback, then the ServoFollowers in-game cell runs in the same scene."
+description = "REDESIGNED 2026-11-21, NEVER FLOWN: a Breaking Ground hinge on a landed rover's front (srv-hinge-rover, a Z-200 on the hinge's moving node, 820 m from the runway) swung +90 then -90 while recording, committed, Rewound-to-Launch and replayed in FLIGHT from a watcher 120 m away; the recorder must read the hinge's live transform angle, the ghost's servo-follower plan and bind must find the one follower, the recorded hinge events must apply and the follower must be re-posed in playback, then the ServoFollowers in-game cell runs in the same scene."
 instanceProfile = "stock-tree"
 tags = ["SRV-1", "robotics", "breaking-ground", "servo-followers", "ghost-render", "part-events",
         "rewind-to-launch", "ingame-batch", "reading-run"]
 
 [fixture]
-saveTemplate = "fixtures/saves/srv-hinge-pad"
+saveTemplate = "fixtures/saves/srv-hinge-rover"
 injectedRecordings = "none"
 craft = []
 
 [driver]
 kind = "seam"
-# Budget arithmetic: 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor + 120 x 3 warps +
-# 180 StartRecording + 120 CommitTree + 300 rewind + 120 GoToEditor + 180 LaunchFromEditor +
-# 120 warp + 420 RunTests = 2400; runtime 2700 adds the inert steps and FlushAndQuit.
+# Budget arithmetic: 300 LoadGame + 180 StartRecording + 120 x 3 warps + 120 CommitTree +
+# 300 rewind + 120 SaveGame + 300 LoadGame + 120 x 2 warps + 420 RunTests = 2340; runtime
+# 2700 adds the inert steps and FlushAndQuit.
 steps = [
   { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" },            expect = "OK", budget = 300 },
-  # The plan / bind / re-pose and applier lines are Verbose.
+  # MINE-6's preamble: drop any tree the load itself started.
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  # The plan / bind / re-pose, tracking and applier lines are Verbose.
   { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" },             expect = "OK" },
   { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
 
-  # ---- the recorded flight: the rig on the pad, the hinge swung out and back ----
-  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "SRV1 Hinge Rig" },          expect = "OK", budget = 120 },
-  { cmd = "LaunchFromEditor",                                                                  expect = "OK", budget = 180 },
-  { cmd = "WarpToUT",         args = { ut = "100" },                                          expect = "OK", budget = 120 },
+  # ---- the recorded flight: the hinge swung out and back on the parked rover ----
   { cmd = "StartRecording",                                                                    expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",         args = { ut = "33", maxRate = "1" },                            expect = "OK", budget = 120 },
   { cmd = "MissionMark",      args = { label = "srv1-swing-out" },                            expect = "OK" },
   { cmd = "PartAction",       args = { button = "servomax", part = "hinge.01" },              expect = "OK" },
-  { cmd = "WarpToUT",         args = { ut = "106", maxRate = "1" },                           expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",         args = { ut = "38", maxRate = "1" },                            expect = "OK", budget = 120 },
   { cmd = "MissionMark",      args = { label = "srv1-swing-back" },                           expect = "OK" },
   { cmd = "PartAction",       args = { button = "servomin", part = "hinge.01" },              expect = "OK" },
-  { cmd = "WarpToUT",         args = { ut = "112", maxRate = "1" },                           expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",         args = { ut = "43", maxRate = "1" },                            expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                                     expect = "OK" },
   { cmd = "CommitTree",                                                                        expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                                     expect = "OK" },
   { cmd = "MissionMark",      args = { label = "srv1-committed" },                            expect = "OK" },
 
-  # ---- the rewind, then the watcher onto the pad ----
+  # ---- the rewind, then FLIGHT on the watcher (a Space Center save focuses vessel 0) ----
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                                 expect = "OK", budget = 300 },
+  { cmd = "MissionMark",      args = { label = "srv1-rewound" },                              expect = "OK" },
+  { cmd = "SaveGame",         args = { name = "srv1-rewound" },                               expect = "OK", budget = 120 },
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "srv1-rewound" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
   { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" },             expect = "OK" },
   { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
-  { cmd = "MissionMark",      args = { label = "srv1-rewound" },                              expect = "OK" },
-  { cmd = "GoToEditor",       args = { facility = "VAB", craft = "SRV1 Watcher" },            expect = "OK", budget = 120 },
-  { cmd = "LaunchFromEditor",                                                                  expect = "OK", budget = 180 },
-  { cmd = "MissionMark",      args = { label = "srv1-relaunched" },                           expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "srv1-reloaded" },                             expect = "OK" },
 
-  # ---- the replay over [100, 112], then the in-game cell in the same scene ----
-  { cmd = "WarpToUT",         args = { ut = "118", maxRate = "1" },                           expect = "OK", budget = 120 },
+  # ---- the replay over [30, 43], then the in-game cell in the same scene ----
+  { cmd = "WarpToUT",         args = { ut = "26", maxRate = "5" },                            expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",         args = { ut = "48", maxRate = "1" },                            expect = "OK", budget = 120 },
   { cmd = "MissionMark",      args = { label = "srv1-replayed" },                             expect = "OK" },
   { cmd = "RunTests",         args = { category = "ServoFollowers" },                         expect = "OK", budget = 420 },
   { cmd = "FlushAndQuit",                                                                      expect = "OK" },
@@ -154,7 +176,7 @@ steps = [
 # below but claim nothing there.
 D6  = ["basic-playback"]
 D9  = ["rewind-to-launch"]
-D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-editor"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-rails"]
 
 [expectations]
 allowedAnomalies = []
@@ -165,36 +187,36 @@ count = { min = 1, max = 3 }
 [expectations.logContracts]
 required = [
   # ---- the recorded flight ----
-  # Every part survived the craft load (a craft whose links are wrong loses parts silently,
-  # GS-6's GS6-SWEEP-CRAFT-PARTS-DROPPED-AT-LOAD lesson).
-  "goeditor complete facility=VAB craft=SRV1 Hinge Rig scene=EDITOR parts=4 ship=SRV1 Hinge Rig ",
-  "goeditor complete facility=VAB craft=SRV1 Watcher scene=EDITOR parts=2 ship=SRV1 Watcher ",
   "MISSIONMARK label=srv1-swing-out ut=[\\s\\S]*?partaction applied button=servomax pid=[0-9]+ part='hinge\\.01' partId=[0-9]+ event=MaximumAngleAction [^\\r\\n]*state='servo:target=90\\.00'",
   "MISSIONMARK label=srv1-swing-back ut=[\\s\\S]*?partaction applied button=servomin pid=[0-9]+ part='hinge\\.01' partId=[0-9]+ event=MinimumAngleAction [^\\r\\n]*state='servo:target=-90\\.00'",
-  "Robotics: tracking 'hinge\\.01' pid=[0-9]+ midx=0 module=ModuleRoboticServoHinge ",
-  "MISSIONMARK label=srv1-swing-out ut=[\\s\\S]*?Part event: RoboticMotionStarted 'hinge\\.01' pid=[0-9]+ midx=0 val=",
-  "MISSIONMARK label=srv1-swing-out ut=[\\s\\S]*?Part event: RoboticPositionSample 'hinge\\.01' pid=[0-9]+ midx=0 val=",
+  # The recorder reads the live transform angle, not the menu-only currentAngle field.
+  "Robotics: tracking 'hinge\\.01' pid=[0-9]+ midx=0 module=ModuleRoboticServoHinge source=servoTransformAngle ",
+  # Each swing starts, samples and settles inside its own window.
+  "MISSIONMARK label=srv1-swing-out ut=(?:(?!MISSIONMARK label=srv1-swing-back )[\\s\\S])*?Part event: RoboticMotionStarted 'hinge\\.01' pid=[0-9]+ midx=0 val=",
+  "MISSIONMARK label=srv1-swing-out ut=(?:(?!MISSIONMARK label=srv1-swing-back )[\\s\\S])*?Part event: RoboticPositionSample 'hinge\\.01' pid=[0-9]+ midx=0 val=",
+  "MISSIONMARK label=srv1-swing-out ut=(?:(?!MISSIONMARK label=srv1-swing-back )[\\s\\S])*?Part event: RoboticMotionStopped 'hinge\\.01' pid=[0-9]+ midx=0 val=",
+  "MISSIONMARK label=srv1-swing-back ut=(?:(?!MISSIONMARK label=srv1-committed )[\\s\\S])*?Part event: RoboticMotionStarted 'hinge\\.01' pid=[0-9]+ midx=0 val=",
   "committree committed=true",
   "Rewind-to-Launch initiated to UT",
 
   # ---- the replay: plan, bind, the recorded events applied, the follower re-posed ----
-  "MISSIONMARK label=srv1-rewound ut=[\\s\\S]*?\\[GhostVisual\\] Servo follower plan for 'SRV1 Hinge Rig': servos=1 followers=1 invertedServos=0[\\s\\S]*?MISSIONMARK label=srv1-replayed ut=",
-  "MISSIONMARK label=srv1-rewound ut=[\\s\\S]*?\\[GhostVisual\\] Servo followers bound: followers=1 servos=1 carryingServos=1 nestedServos=0 geometryPosed=1 missingServo=0 missingPart=0 notUnderContainer=0 \\(vessel='SRV1 Hinge Rig'\\)[\\s\\S]*?MISSIONMARK label=srv1-replayed ut=",
-  "MISSIONMARK label=srv1-relaunched ut=[\\s\\S]*?\\[GhostPartEvents\\] apply family=Robotic(?:MotionStarted|PositionSample|MotionStopped) surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=srv1-replayed ut=",
-  "MISSIONMARK label=srv1-relaunched ut=[\\s\\S]*?\\[GhostVisual\\] Servo followers re-posed in playback: servoPid=[0-9]+ module=ModuleRoboticServoHinge followers=1 value=-?[0-9]+\\.[0-9]{2} \\(first since bind\\)[\\s\\S]*?MISSIONMARK label=srv1-replayed ut=",
+  "MISSIONMARK label=srv1-rewound ut=[\\s\\S]*?\\[GhostVisual\\] Servo follower plan for 'SRV1 Hinge Rover': servos=1 followers=1 invertedServos=0[\\s\\S]*?MISSIONMARK label=srv1-replayed ut=",
+  "MISSIONMARK label=srv1-rewound ut=[\\s\\S]*?\\[GhostVisual\\] Servo followers bound: followers=1 servos=1 carryingServos=1 nestedServos=0 geometryPosed=1 missingServo=0 missingPart=0 notUnderContainer=0 \\(vessel='SRV1 Hinge Rover'\\)[\\s\\S]*?MISSIONMARK label=srv1-replayed ut=",
+  "MISSIONMARK label=srv1-reloaded ut=[\\s\\S]*?\\[GhostPartEvents\\] apply family=Robotic(?:MotionStarted|PositionSample|MotionStopped) surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=srv1-replayed ut=",
+  "MISSIONMARK label=srv1-reloaded ut=[\\s\\S]*?\\[GhostVisual\\] Servo followers re-posed in playback: servoPid=[0-9]+ module=ModuleRoboticServoHinge followers=1 value=-?[0-9]+\\.[0-9]{2} \\(first since bind\\)[\\s\\S]*?MISSIONMARK label=srv1-replayed ut=",
 
   # ---- the in-game cell, in the same FLIGHT scene ----
   "MISSIONMARK label=srv1-replayed ut=[\\s\\S]*?\\[TestRunner\\] ServoFollowers: '[^']+' \\(ModuleRobotic[A-Za-z]+, moving node '[^']+'\\) carried its moving-side part",
-  # INTERIM until the first flight (IngameBatchWiringGroupTests.INTERIM_PIN_IDS): total is the
-  # attribute count (one FLIGHT cell); the split is measured on the first flight.
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=ServoFollowers scene=FLIGHT",
+  # Pinned whole from the first flight (`2026-11-20_2314`): the one FLIGHT cell passed.
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=ServoFollowers scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "partaction rejected ",
   "invokerewindtolaunch refused",
-  "launchfromeditor refused ",
-  "goeditor rejected",
+  "warptout refused",
+  "Robotics: tracking 'hinge\\.01' [^\\r\\n]*source=currentAngle",
+  "Ghost hidden: vessel 'SRV1 Hinge Rover'",
   "Servo follower re-pose skipped: servo chain does not resolve",
   "Servo follower cascade stopped",
   "\\[GhostPartEvents\\] apply family=Robotic[A-Za-z]+ surface=robotic rec=[0-9]+ pid=[0-9]+ applied=0 ",

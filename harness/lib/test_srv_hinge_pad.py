@@ -6,6 +6,10 @@ what SRV-1 depends on: the rig is an OKTO2 on an FL-T100 with a G-11 Hinge whose
 (top) node carries a Z-200, so exactly one part rides the hinge on the replay, and the
 watcher shares no baked persistentId with it.
 
+No committed spec flies this fixture since 2026-11-21: SRV-1 moved to `srv-hinge-rover`
+(a pad rig's ghost is hidden by the launch-site rule). The fixture and these cells stay
+until their removal is approved.
+
 Stdlib only; ASCII only; no em dashes.
 """
 
@@ -55,15 +59,6 @@ class SrvHingePadFixtureTests(unittest.TestCase):
         self.assertNotEqual(rig, swapped)
         files[self.builder.RIG_REL] = swapped.encode("utf-8")
         self.assertTrue(any("moving" in p for p in self.builder.verify(files)))
-
-    def test_the_spec_names_both_craft_and_the_hinge_part(self):
-        spec = os.path.join(_HARNESS, "scenarios", "SRV-1-hinge-followers-ghost.toml")
-        with open(spec, encoding="utf-8") as fh:
-            text = fh.read()
-        self.assertIn('craft = "%s"' % self.builder.RIG_NAME, text)
-        self.assertIn('craft = "%s"' % self.builder.WATCHER_NAME, text)
-        self.assertIn('part = "%s"' % self.builder.HINGE, text)
-        self.assertIn('saveTemplate = "fixtures/saves/srv-hinge-pad"', text)
 
 
 if __name__ == "__main__":

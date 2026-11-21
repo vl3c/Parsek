@@ -22,6 +22,9 @@ namespace Parsek.Tests
         private bool hasScalarModuleScalar;
         private float scalarModuleScalar;
 
+        private bool hasServoTransformAngle;
+        private float servoTransformAngle;
+
         private bool sawDeployEvent;
         private bool sawRetractEvent;
         private bool canDeploy;
@@ -73,6 +76,19 @@ namespace Parsek.Tests
             scalarModuleScalar = value;
             return this;
         }
+
+        /// <summary>
+        /// Registers the module as a Breaking Ground servo whose moving transform currently sits
+        /// at the given main-axis angle. A fake that never calls this reads as "not a servo".
+        /// </summary>
+        internal FakeModuleFieldValues WithServoTransformAngle(float angleDegrees)
+        {
+            hasServoTransformAngle = true;
+            servoTransformAngle = angleDegrees;
+            return this;
+        }
+
+        internal int ServoTransformAngleReadCount;
 
         /// <summary>Registers the aggregated deploy/retract event availability of the module.</summary>
         internal FakeModuleFieldValues WithEventActivity(
@@ -132,6 +148,13 @@ namespace Parsek.Tests
             ScalarModuleReadCount++;
             scalar = scalarModuleScalar;
             return hasScalarModuleScalar;
+        }
+
+        public bool TryGetServoTransformAngleDegrees(out float angleDegrees)
+        {
+            ServoTransformAngleReadCount++;
+            angleDegrees = servoTransformAngle;
+            return hasServoTransformAngle;
         }
 
         public void ReadDeployRetractEventActivity(
@@ -1174,6 +1197,119 @@ namespace Parsek.Tests
             Assert.Equal(15.0, positionValue, 3);
             Assert.Equal(steeringDeadband, deadband);
             Assert.NotEqual(angularDeadband, deadband);
+        }
+
+        // Stock refreshes a hinge's / rotation servo's `currentAngle` only in UpdatePAWUI
+        // (OnStart, OnPartMenuOpen, Update while the menu is open; KSP 1.12.5 decompiled), so
+        // with the part menu closed it holds its start value while the servo turns. The live
+        // signal is the moving transform's main-axis angle (stock's currentTransformAngle()).
+        // SRV-1's first flight (2026-11-20) tracked a hinge `source=currentAngle` through two
+        // full swings and recorded zero robotic events.
+
+        [Fact]
+        public void RoboticCore_HingeReadsTheLiveTransformAngleOverTheStaleMenuField()
+        {
+            var fields = new FakeModuleFieldValues()
+                .WithFloat("currentAngle", 0f)
+                .WithFloat("targetAngle", 90f)
+                .WithServoTransformAngle(37.5f);
+
+            bool ok = FlightRecorder.TryClassifyRoboticPositionFromFieldValues(
+                fields, "ModuleRoboticServoHinge",
+                out float positionValue, out float deadband, out string sourceField);
+
+            Assert.True(ok);
+            Assert.Equal("servoTransformAngle", sourceField);
+            Assert.Equal(37.5, positionValue, 3);
+            Assert.True(deadband > 0f);
+        }
+
+        [Fact]
+        public void RoboticCore_HingeLiveAngleAddsTheModelInitialAngleAsStockDisplaysIt()
+        {
+            // ModuleRoboticServoHinge.UpdatePAWUI: currentAngle = currentTransformAngle() +
+            // modelInitialAngle, the same convention as targetAngle and the ghost's baseline.
+            var fields = new FakeModuleFieldValues()
+                .WithFloat("modelInitialAngle", 90f)
+                .WithFloat("currentAngle", 90f)
+                .WithServoTransformAngle(-30f);
+
+            Assert.True(FlightRecorder.TryClassifyRoboticPositionFromFieldValues(
+                fields, "ModuleRoboticServoHinge",
+                out float positionValue, out _, out string sourceField));
+            Assert.Equal("servoTransformAngle", sourceField);
+            Assert.Equal(60.0, positionValue, 3);
+        }
+
+        [Fact]
+        public void RoboticCore_RotationServoReadsTheLiveTransformAngleWithNoOffset()
+        {
+            // ModuleRoboticRotationServo.UpdatePAWUI: currentAngle = currentTransformAngle().
+            var fields = new FakeModuleFieldValues()
+                .WithFloat("modelInitialAngle", 90f)
+                .WithFloat("currentAngle", 0f)
+                .WithServoTransformAngle(-120f);
+
+            Assert.True(FlightRecorder.TryClassifyRoboticPositionFromFieldValues(
+                fields, "ModuleRoboticRotationServo",
+                out float positionValue, out _, out string sourceField));
+            Assert.Equal("servoTransformAngle", sourceField);
+            Assert.Equal(-120.0, positionValue, 3);
+        }
+
+        [Theory]
+        [InlineData("ModuleRoboticServoPiston")]
+        [InlineData("ModuleRoboticServoRotor")]
+        public void RoboticCore_PistonAndRotorDoNotReadTheTransformAngle(string moduleName)
+        {
+            // A piston's currentExtension is refreshed in OnFixedUpdate, and a rotor samples
+            // RPM: neither is an angle, so the angular live probe must not be consulted.
+            var fields = new FakeModuleFieldValues().WithServoTransformAngle(45f);
+
+            FlightRecorder.TryClassifyRoboticPositionFromFieldValues(
+                fields, moduleName, out _, out _, out string sourceField);
+
+            Assert.NotEqual("servoTransformAngle", sourceField);
+            Assert.Equal(0, fields.ServoTransformAngleReadCount);
+        }
+
+        [Fact]
+        public void RoboticCore_HingeWithoutALiveTransformFallsBackToItsFieldPlan()
+        {
+            var fields = new FakeModuleFieldValues().WithFloat("currentAngle", 12f);
+
+            Assert.True(FlightRecorder.TryClassifyRoboticPositionFromFieldValues(
+                fields, "ModuleRoboticServoHinge",
+                out float positionValue, out _, out string sourceField));
+            Assert.Equal("currentAngle", sourceField);
+            Assert.Equal(12.0, positionValue, 3);
+        }
+
+        [Theory]
+        [InlineData("X", 10f, 20f, 30f, true, 10f)]
+        [InlineData("Y", 10f, 20f, 30f, true, 20f)]
+        [InlineData("Z", 10f, 20f, 30f, true, 30f)]
+        [InlineData("X", 270f, 0f, 0f, true, -90f)]
+        [InlineData("X", 180f, 0f, 0f, true, 180f)]
+        [InlineData("X", 180.5f, 0f, 0f, true, -179.5f)]
+        [InlineData("x", 10f, 0f, 0f, false, 0f)]
+        [InlineData("", 10f, 0f, 0f, false, 0f)]
+        [InlineData(null, 10f, 0f, 0f, false, 0f)]
+        public void ServoMainAxisAngle_SelectsAndWrapsLikeStock(
+            string axis, float x, float y, float z, bool expectOk, float expected)
+        {
+            bool ok = FlightRecorder.TrySelectServoMainAxisAngle(axis, x, y, z, out float angle);
+
+            Assert.Equal(expectOk, ok);
+            Assert.Equal((double)expected, (double)angle, 3);
+        }
+
+        [Fact]
+        public void ServoMainAxisAngle_RefusesANonFiniteAngle()
+        {
+            Assert.False(FlightRecorder.TrySelectServoMainAxisAngle(
+                "X", float.NaN, 0f, 0f, out float angle));
+            Assert.Equal(0f, angle);
         }
 
         [Fact]
