@@ -102,7 +102,8 @@ Not released yet.
   ghost now hides and drops the shroud the variant shows. (GHOST-JETTISON-STALE-ACTIVE-NAME)
 - **A switched-off light's lens no longer glows on its ghost.** The old spotlight's replay lit
   its lens even while the real light was off. A light's lens and flare now follow the light:
-  dark when it is off, lit in the light's colour when it is on. (GHOST-LIGHT-LENS-GLOWS-OFF)
+  dark when it is off, lit in the light's colour when it is on, and lights and cabin windows
+  keep switching after the replay flies fast through the air. (GHOST-LIGHT-LENS-GLOWS-OFF)
 - **The MEM lander's adapter only shows when something is attached below it.** Its ghost always
   drew the lower adapter, even with nothing under the lander. It now follows the same rule as the
   real part. (GHOST-STRUCTURAL-NODE-FAIRINGS-ONLY)

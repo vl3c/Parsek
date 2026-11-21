@@ -912,6 +912,84 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: whether the lens / flare materials need a write. The light driver calls
+        /// <see cref="SetLightState"/> every frame for every light (blinking or not), so the
+        /// material writes run only when the on / off state differs from the last one written
+        /// (the on colour is fixed at build).
+        /// </summary>
+        internal static bool ShouldWriteLightLensAndFlare(bool hasWritten, bool lastWrittenOn, bool on)
+            => !hasWritten || lastWrittenOn != on;
+
+        /// <summary>
+        /// Forgets the last lens / flare write of every light on the ghost, so the next
+        /// <see cref="SetLightState"/> writes again (called after the reentry FX build touches
+        /// the ghost's materials).
+        /// </summary>
+        internal static void InvalidateLightLensAndFlareWrites(GhostPlaybackState state)
+        {
+            if (state == null || state.lightInfos == null) return;
+            foreach (var kvp in state.lightInfos)
+            {
+                if (kvp.Value != null)
+                    kvp.Value.lensFlareWritten = false;
+            }
+        }
+
+        /// <summary>
+        /// Every material a ghost info holds as a per-ghost instance and writes during
+        /// playback, with the shader property its owner drives: light lens
+        /// (<c>_EmissiveColor</c>) and flare (<c>_TintColor</c>), colour-changer materials
+        /// (their <c>shaderProperty</c>). The reentry glow reuses these instead of re-cloning
+        /// them (<see cref="GhostVisualBuilder.DecideReentryGlowMaterial"/>). HeatGhostInfo
+        /// materials are not listed: the glow skips heat-managed parts outright.
+        /// </summary>
+        internal static Dictionary<Material, string> CollectGhostOwnedMaterials(GhostPlaybackState state)
+        {
+            var owned = new Dictionary<Material, string>();
+            if (state == null) return owned;
+            if (state.lightInfos != null)
+            {
+                foreach (var kvp in state.lightInfos)
+                {
+                    LightGhostInfo info = kvp.Value;
+                    if (info == null) continue;
+                    AddOwned(owned, info.lensMaterials, "_EmissiveColor");
+                    AddOwned(owned, info.flareMaterials, "_TintColor");
+                }
+            }
+            if (state.colorChangerInfos != null)
+            {
+                foreach (var kvp in state.colorChangerInfos)
+                {
+                    if (kvp.Value == null) continue;
+                    for (int c = 0; c < kvp.Value.Count; c++)
+                    {
+                        ColorChangerGhostInfo cc = kvp.Value[c];
+                        if (cc == null || cc.materials == null) continue;
+                        for (int i = 0; i < cc.materials.Count; i++)
+                        {
+                            Material m = cc.materials[i].material;
+                            if (m != null && !owned.ContainsKey(m))
+                                owned[m] = cc.shaderProperty;
+                        }
+                    }
+                }
+            }
+            return owned;
+        }
+
+        private static void AddOwned(Dictionary<Material, string> owned, List<Material> materials, string property)
+        {
+            if (materials == null) return;
+            for (int i = 0; i < materials.Count; i++)
+            {
+                Material m = materials[i];
+                if (m != null && !owned.ContainsKey(m))
+                    owned[m] = property;
+            }
+        }
+
+        /// <summary>
         /// Pure: stock ModuleLight's settled lens emissive, the light colour when on and
         /// black when off.
         /// </summary>
@@ -930,6 +1008,10 @@ namespace Parsek
         internal static void WriteLightLensAndFlare(LightGhostInfo info, bool on)
         {
             if (info == null) return;
+            if (!ShouldWriteLightLensAndFlare(info.lensFlareWritten, info.lensFlareWrittenOn, on))
+                return;
+            info.lensFlareWritten = true;
+            info.lensFlareWrittenOn = on;
             if (info.lensMaterials != null)
             {
                 Color emissive = ResolveLightLensEmissive(on, info.lensOnColor);
