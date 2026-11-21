@@ -791,6 +791,61 @@ namespace Parsek.Tests
             });
         }
 
+        [Fact]
+        public void PredictedTouchdown_NonFocusSlot_StaysUnfinished()
+        {
+            // Owner ruling Q4c: a chute descent Parsek predicted to touchdown keeps the
+            // separation open (Re-Fly offered) until flown or dismissed.
+            const string bpId = "bp_chute_split";
+            var booster = Rec(
+                "rec_chute_booster",
+                MergeState.CommittedProvisional,
+                TerminalState.Landed,
+                parentBranchPointId: bpId);
+            booster.TerminalPredicted = true;
+            InstallTree("tree_chute", booster);
+            var rp = RpWithFocus("rp_chute", bpId, 0, "rec_pod", "rec_chute_booster");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.True(UnfinishedFlightClassifier.IsUnfinishedFlightCandidateShape(booster));
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                booster, rp.ChildSlots[1], rp, out string reason));
+            Assert.Equal(UnfinishedFlightClassifier.PredictedTouchdownReason, reason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("IsUnfinishedFlight=true rec=rec_chute_booster reason=predictedTouchdown "
+                    + "slot=1 focusSlot=0 terminal=Landed predicted=True"));
+
+            // The Re-Fly focus override does not seal it either (it is still in flight).
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                booster, rp.ChildSlots[1], rp, out string overrideReason,
+                treeContext: null, allowNotCommitted: false, focusSlotOverride: 1));
+            Assert.Equal(UnfinishedFlightClassifier.PredictedTouchdownReason, overrideReason);
+            Assert.Equal(TerminalKind.InFlight, TerminalKindClassifier.Classify(booster));
+        }
+
+        [Fact]
+        public void FlownTouchdown_NonFocusSlot_ClosesAsStableTerminal()
+        {
+            const string bpId = "bp_flown_split";
+            var booster = Rec(
+                "rec_flown_booster",
+                MergeState.CommittedProvisional,
+                TerminalState.Splashed,
+                parentBranchPointId: bpId);
+            InstallTree("tree_flown", booster);
+            var rp = RpWithFocus("rp_flown", bpId, 0, "rec_pod", "rec_flown_booster");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.False(UnfinishedFlightClassifier.IsUnfinishedFlightCandidateShape(booster));
+            Assert.False(UnfinishedFlightClassifier.TryQualify(
+                booster, rp.ChildSlots[1], rp, out string reason));
+            Assert.Equal("stableTerminal", reason);
+            Assert.Equal(TerminalKind.Landed, TerminalKindClassifier.Classify(booster));
+        }
+
         private static Recording Rec(
             string id,
             MergeState state,
