@@ -90,6 +90,10 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **Heat shield ghosts are no longer black.** Every heat shield replay, and the shields on the
+  ReStock pods, drew the shield fully charred from the first frame. A shield now starts the colour
+  the real one shows, from how much ablator it had left, and still darkens during reentry.
+  (GHOST-HEATSHIELD-BLACK)
 - **A ghost engine with nothing below it no longer shows a shroud.** The real engine at the bottom
   of a stack, or a lone engine, has no shroud, but its replay drew one, stock and ReStock alike.
   An engine with a tank or decoupler under it keeps its shroud as before.

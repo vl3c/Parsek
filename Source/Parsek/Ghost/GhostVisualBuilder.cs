@@ -1602,11 +1602,28 @@ namespace Parsek
                     continue;
                 }
 
-                // Evaluate color curves from config to get off/on colors
-                // Pattern A: off = curves at t=0 (black), on = curves at t=1 (warm glow)
-                // Pattern B: off = curves at t=0 (unburnt), on = curves at t=1 (fully charred)
-                Color offColor = EvaluateColorCurves(colorChangerNodes[m], 0f);
-                Color onColor = EvaluateColorCurves(colorChangerNodes[m], 1f);
+                // Pattern A: off = curves at t=0 (black), on = curves at t=1 (warm glow).
+                // Pattern B: stock ModuleAblator drives the char module with
+                // charMin + (charMax - charMin) * remainingAblatorFraction, so an unburnt
+                // shield sits near t=charMax and a spent one at t=charMin; off is the
+                // snapshot's current char, on is fully charred. A _BurnColor module no
+                // ablator drives keeps stock's own Start colour, the curves at t=0.
+                float offScalar = 0f;
+                float onScalar = 1f;
+                bool ablatorDriven = false;
+                if (isAblationChar)
+                {
+                    string moduleId = colorChangerNodes[m].GetValue("moduleID");
+                    ablatorDriven = TryResolveAblationCharScalars(
+                        partNode, prefabPartConfig, moduleId, out offScalar, out onScalar);
+                    if (!ablatorDriven)
+                    {
+                        offScalar = 0f;
+                        onScalar = 0f;
+                    }
+                }
+                Color offColor = EvaluateColorCurves(colorChangerNodes[m], offScalar);
+                Color onColor = EvaluateColorCurves(colorChangerNodes[m], onScalar);
 
                 // Find renderers on the ghost model that have this shader property
                 var renderers = ghostModelNode.GetComponentsInChildren<Renderer>(true);
@@ -1650,6 +1667,98 @@ namespace Parsek
                 $"unrecognisedPattern={skippedUnrecognisedPattern}", 60.0);
 
             return results;
+        }
+
+        /// <summary>
+        /// Resolves the char scalars stock ModuleAblator writes into the ModuleColorChanger
+        /// whose moduleID equals the ablator's <c>charModuleName</c>: the snapshot's current
+        /// char (<c>charMin + (charMax - charMin) * fraction</c>, fraction = remaining ablator
+        /// amount times the persisted <c>nominalAmountRecip</c>, capped at 1) and the fully
+        /// charred end (<c>charMin</c>). Config-only ablator fields come from the prefab config.
+        /// Returns false when no ablator with <c>useChar</c> and a non-empty
+        /// <c>ablativeResource</c> drives this colour changer (stock then never calls SetScalar).
+        /// </summary>
+        internal static bool TryResolveAblationCharScalars(
+            ConfigNode snapshotPartNode, ConfigNode prefabPartConfig, string colorChangerModuleId,
+            out float currentScalar, out float charredScalar)
+        {
+            currentScalar = 0f;
+            charredScalar = 0f;
+            string moduleId = string.IsNullOrEmpty(colorChangerModuleId)
+                ? "colorChanger" : colorChangerModuleId;
+
+            ConfigNode ablatorConfig = FindModuleNode(prefabPartConfig, "ModuleAblator");
+            ConfigNode ablatorSnapshot = FindModuleNode(snapshotPartNode, "ModuleAblator");
+            if (ablatorConfig == null)
+                ablatorConfig = ablatorSnapshot;
+            if (ablatorConfig == null)
+                return false;
+
+            bool useChar = true;
+            string useCharStr = ablatorConfig.GetValue("useChar");
+            if (!string.IsNullOrEmpty(useCharStr) && bool.TryParse(useCharStr, out bool parsedUseChar))
+                useChar = parsedUseChar;
+            if (!useChar)
+                return false;
+
+            string charModuleName = ablatorConfig.GetValue("charModuleName");
+            if (string.IsNullOrEmpty(charModuleName))
+                charModuleName = "shieldChar";
+            if (!string.Equals(charModuleName, moduleId, System.StringComparison.Ordinal))
+                return false;
+
+            string ablativeResource = ablatorConfig.GetValue("ablativeResource");
+            if (string.IsNullOrEmpty(ablativeResource))
+                return false;
+
+            float charMax = ParseFloatOr(ablatorConfig.GetValue("charMax"), 0.85f);
+            float charMin = ParseFloatOr(ablatorConfig.GetValue("charMin"), 0.1f);
+
+            float fraction = 1f;
+            ConfigNode resourceNode = FindResourceNode(snapshotPartNode, ablativeResource);
+            if (resourceNode != null
+                && double.TryParse(resourceNode.GetValue("amount"), NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out double amount))
+            {
+                double recip = -1.0;
+                if (ablatorSnapshot != null)
+                    double.TryParse(ablatorSnapshot.GetValue("nominalAmountRecip"), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out recip);
+                if (recip <= 0.0
+                    && double.TryParse(resourceNode.GetValue("maxAmount"), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out double maxAmount)
+                    && maxAmount > 0.0)
+                {
+                    recip = 1.0 / maxAmount;
+                }
+                if (recip > 0.0)
+                    fraction = (float)System.Math.Max(0.0, System.Math.Min(1.0, amount * recip));
+            }
+
+            currentScalar = charMin + (charMax - charMin) * fraction;
+            charredScalar = charMin;
+            return true;
+        }
+
+        private static ConfigNode FindResourceNode(ConfigNode partNode, string resourceName)
+        {
+            if (partNode == null) return null;
+            ConfigNode[] resources = partNode.GetNodes("RESOURCE");
+            if (resources == null) return null;
+            for (int i = 0; i < resources.Length; i++)
+            {
+                if (resources[i] != null && resources[i].GetValue("name") == resourceName)
+                    return resources[i];
+            }
+            return null;
+        }
+
+        private static float ParseFloatOr(string value, float fallback)
+        {
+            if (!string.IsNullOrEmpty(value)
+                && float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed))
+                return parsed;
+            return fallback;
         }
 
         /// <summary>
