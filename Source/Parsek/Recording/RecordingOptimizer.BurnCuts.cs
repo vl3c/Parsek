@@ -92,6 +92,8 @@ namespace Parsek
             internal string Body;
             internal double StartUT;
             internal double EndUT;
+            // Floor facts: the run holds a real surface section (a landing or a splashdown).
+            internal bool HasSurface;
             // Coast facts.
             internal bool LeavingByLookahead;
             internal string LeavingTarget;
@@ -333,11 +335,14 @@ namespace Parsek
             while (i < n)
             {
                 int j = i;
+                bool surface = false;
                 BurnItemType type;
                 if (SplitEnvironmentClass(sections[i].environment) != ExoSplitClass)
                 {
                     type = BurnItemType.Floor;
                     while (j + 1 < n && SplitEnvironmentClass(sections[j + 1].environment) != ExoSplitClass) j++;
+                    for (int k = i; k <= j && !surface; k++)
+                        surface = SplitEnvironmentClass(sections[k].environment) == SurfaceSplitClass;
                 }
                 else if (IsBurnSection(sections[i]))
                 {
@@ -359,6 +364,7 @@ namespace Parsek
                     Body = GetSectionBody(rec, sections[i]),
                     StartUT = sections[i].startUT,
                     EndUT = sections[j].endUT,
+                    HasSurface = surface,
                 });
                 i = j + 1;
             }
@@ -775,8 +781,9 @@ namespace Parsek
         /// where the vessel came from, +1: where it goes), it stays in space around
         /// <paramref name="body"/> (or flies by one of its moons), then around
         /// <paramref name="parent"/>, and then is at another child of the parent. A touchdown
-        /// on the way (a floor run) ends the walk: the vessel landed or reentered, so this is
-        /// no transfer.
+        /// on the way (a floor run with a surface section) ends the walk: the vessel landed, so
+        /// this is no transfer. An atmosphere dip or a low pass through a moon's approach band
+        /// does not.
         /// </summary>
         private static bool GoesBetweenSiblings(
             List<BurnItem> items, int i, string body, string parent, int dir, Dictionary<string, BodyFacts> facts)
@@ -790,12 +797,12 @@ namespace Parsek
                 bool here = string.Equals(kb, body, StringComparison.Ordinal) || IsChildOf(kb, body, facts);
                 if (!atParent && here)
                 {
-                    if (item.Type == BurnItemType.Floor) return false;
+                    if (item.HasSurface) return false;
                     continue;
                 }
                 if (string.Equals(kb, parent, StringComparison.Ordinal))
                 {
-                    if (item.Type == BurnItemType.Floor) return false;
+                    if (item.HasSurface) return false;
                     atParent = true;
                     continue;
                 }

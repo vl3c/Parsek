@@ -578,6 +578,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void InterplanetaryDeparture_PieceStartingOnThePad_ReadsItsLineToo()
+        {
+            // Re-review F1: the departing piece starts on the ground (its first section is not in
+            // space) and is first in the committed list; the Sun and Duna sit in the next piece.
+            var a = Launch(Build("pad-line-a", 0, PadS(30), Lko(3000), BurnS(300), KerbinEscape(20000)));
+            var b = Build("pad-line-b", a.EndUT, Rails(9000000, "Sun", 1.7e10, 0.2),
+                Rails(20000, "Duna", -800000, 1.6, -2.0));
+            a.ChainId = b.ChainId = "chain-pad-line";
+            a.ChainIndex = 0;
+            b.ChainIndex = 1;
+            a.SegmentRole = "ascent";
+            b.SegmentRole = "transfer";
+            CommitAlone(a, "tree-pad-line");
+            b.TreeId = "tree-pad-line";
+            RecordingStore.FindCommittedTreeById("tree-pad-line").AddOrReplaceRecording(b);
+            RecordingStore.AddRecordingWithTreeForTesting(b);
+            CommittedListOptimizer.RunOptimizationPass();
+            Assert.False(Logged("Split candidate (DepartureBurnStart)"));
+            Assert.True(Logged("Burn kind change:", "SuppressedInterplanetaryTransfer"));
+        }
+
+        [Fact]
+        public void InterplanetaryDeparture_ALowMunAssistThroughItsApproachBand_IsNoTouchdown()
+        {
+            // Re-review small 1: only a real surface run ends the transfer walk.
+            var rows = Optimize(Build("mun-assist-low", 0,
+                Lko(3000), BurnS(300), MunTransferEllipse(20000), MunArrival(2000), ApproachS(60),
+                MunDeparture(2000), Rails(20000, "Kerbin", -5000000, 1.2, 0.5),
+                Rails(9000000, "Sun", 1.7e10, 0.2), Rails(20000, "Duna", -800000, 1.6, -2.0)));
+            Assert.False(Logged("Split candidate (DepartureBurnStart)"));
+        }
+
+        [Fact]
         public void AirlessCoastFromTheApproachBandExit_WithNoElements_ProvesNoFall()
         {
             // Review low item: orbit can be reached inside the band (the approach debounce), so a

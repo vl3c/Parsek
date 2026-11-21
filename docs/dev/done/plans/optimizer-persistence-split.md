@@ -1059,7 +1059,8 @@ one row (`SuppressedInterplanetaryTransfer`): no kind cut for a burn around the 
 two of its children, a departure / injection after which the vessel goes through the parent to
 a sibling, or any arrival-side kind cut (insertion, injection, capture, capture into the
 atmosphere, direct descent) at a body reached from a sibling through the parent with no
-touchdown since: an arrival whose low point is under the floor reads falling, so a capture
+landing or splashdown since (an atmosphere dip or a low pass through a moon's approach band
+does not count): an arrival whose low point is under the floor reads falling, so a capture
 from it is an insertion and a correction lifting it an injection. The guard walks the whole
 chain line (`ResolveBurnLineContext`: the pieces of the same chain before and after), so an
 earlier cut never makes a later suppressed cut appear.
