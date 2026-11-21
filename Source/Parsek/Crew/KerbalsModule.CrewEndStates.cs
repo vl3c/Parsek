@@ -276,6 +276,17 @@ namespace Parsek
             // Vessel recovered -> all crew are recovered
             if (ts == TerminalState.Recovered)
             {
+                // Except a kerbal whose part KSP destroyed before the recovery (a breakup
+                // remnant the player recovered): stock killed him, so he stays dead (owner
+                // rulings Q6b, P-STOCK). The recovery nulls the end snapshot, so his part is
+                // his start seat.
+                if (partDestroyed)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"InferCrewEndState: crew='{crewName}' terminalState=Recovered " +
+                        "part destroyed -> Dead (KSP destroyed his part before the recovery)");
+                    return KerbalEndState.Dead;
+                }
                 ParsekLog.Verbose(Tag,
                     $"InferCrewEndState: crew='{crewName}' terminalState=Recovered -> Recovered");
                 return KerbalEndState.Recovered;
