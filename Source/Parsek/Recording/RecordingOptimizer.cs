@@ -1429,7 +1429,8 @@ namespace Parsek
                     absorbed.TerminalStateValue, "RecordingOptimizer.AbsorbInto",
                     predicted: absorbed.TerminalPredicted,
                     remnantSurvives: absorbed.TerminalRemnantSurvives,
-                    quietEnd: absorbed.QuietDestroyedEnd);
+                    quietEnd: absorbed.QuietDestroyedEnd,
+                    recoveredCrew: absorbed.RecoveredCrewNames);
                 target.StockHeldVesselUT = absorbed.StockHeldVesselUT;
 
                 // Mirror of the split's MergeState carry (see
@@ -1888,6 +1889,16 @@ namespace Parsek
             {
                 secondFlatSyncMode = "track-sections-preserved-flat-tail:" +
                     CountPredictedOrbitSegments(second.OrbitSegments).ToString(CultureInfo.InvariantCulture);
+            }
+            else if (TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSectionsPreservingPredictedOrbitTail(
+                second, secondFlatTailSource, allowRelativeSections: true, out int preservedPredictedTail))
+            {
+                // The flat list does not match the sections sample for sample (a section
+                // whose first frame precedes its start, an equal-UT seam sample, an
+                // interpolated boundary), but the finalizer's predicted orbit tail past the
+                // sections is the recording's ending and must not be rebuilt away.
+                secondFlatSyncMode = "track-sections-preserved-predicted-orbit-tail:" +
+                    preservedPredictedTail.ToString(CultureInfo.InvariantCulture);
             }
             else
             {

@@ -566,6 +566,107 @@ namespace Parsek
             return true;
         }
 
+        private const double PredictedTailUtTolerance = 1e-6;
+
+        /// <summary>
+        /// Rebuilds <paramref name="target"/>'s flat lists from its TrackSections and appends
+        /// the finalizer's predicted orbit tail from <paramref name="source"/>'s flat orbit list:
+        /// the trailing run of <c>isPredicted</c> segments that start at or after the end of the
+        /// recorded (non-<see cref="TrackSectionSource.Predicted"/>) section payload. Predicted
+        /// segments live only in the flat list (the checkpoint bridge never wraps them), so a
+        /// plain section rebuild drops them. Unlike
+        /// <see cref="TrySyncFlatTrajectoryFromTrackSectionsPreservingFlatTail"/> this does not
+        /// require the source's flat points to match the sections sample for sample, so a flat
+        /// list that opens with a sample its first section does not hold (an equal-UT body seam,
+        /// an interpolated split boundary) or misses one the section does hold (a section whose
+        /// first frame precedes its start) still keeps the tail. Returns false, changing
+        /// nothing, when there is no such tail or the sections carry no complete payload.
+        /// </summary>
+        internal static bool TrySyncFlatTrajectoryFromTrackSectionsPreservingPredictedOrbitTail(
+            Recording target,
+            Recording source,
+            bool allowRelativeSections,
+            out int preservedTailCount)
+        {
+            preservedTailCount = 0;
+            if (target == null
+                || source?.OrbitSegments == null
+                || source.OrbitSegments.Count == 0
+                || !HasCompleteTrackSectionPayloadForFlatSync(target.TrackSections, allowRelativeSections))
+            {
+                return false;
+            }
+
+            // The tail starts where the recorded payload ends. A predicted descent section is
+            // itself part of the predicted ending, so it does not raise the floor.
+            double floorUT = double.NegativeInfinity;
+            for (int i = 0; i < target.TrackSections.Count; i++)
+            {
+                TrackSection section = target.TrackSections[i];
+                if (section.source == TrackSectionSource.Predicted || IsPayloadFreeTrackSection(section))
+                    continue;
+                if (section.frames != null && section.frames.Count > 0)
+                    floorUT = Math.Max(floorUT, section.frames[section.frames.Count - 1].ut);
+                if (section.checkpoints != null)
+                {
+                    for (int c = 0; c < section.checkpoints.Count; c++)
+                    {
+                        if (!section.checkpoints[c].isPredicted)
+                            floorUT = Math.Max(floorUT, section.checkpoints[c].endUT);
+                    }
+                }
+            }
+            if (double.IsNegativeInfinity(floorUT))
+                return false;
+
+            List<OrbitSegment> sourceSegments = source.OrbitSegments;
+            int tailStart = sourceSegments.Count;
+            while (tailStart > 0 && sourceSegments[tailStart - 1].isPredicted)
+                tailStart--;
+            while (tailStart < sourceSegments.Count
+                && sourceSegments[tailStart].startUT < floorUT - PredictedTailUtTolerance)
+            {
+                tailStart++;
+            }
+            if (tailStart >= sourceSegments.Count)
+                return false;
+
+            var rebuiltPoints = new List<TrajectoryPoint>();
+            RebuildPointsFromTrackSections(target.TrackSections, rebuiltPoints);
+            var rebuiltOrbitSegments = new List<OrbitSegment>();
+            RebuildOrbitSegmentsFromTrackSections(target.TrackSections, rebuiltOrbitSegments);
+
+            var mergedOrbitSegments = new List<OrbitSegment>(rebuiltOrbitSegments);
+            for (int i = tailStart; i < sourceSegments.Count; i++)
+            {
+                OrbitSegment segment = sourceSegments[i];
+                bool alreadyOwned = false;
+                for (int r = 0; r < rebuiltOrbitSegments.Count; r++)
+                {
+                    if (OrbitSegmentEquals(rebuiltOrbitSegments[r], segment))
+                    {
+                        alreadyOwned = true;
+                        break;
+                    }
+                }
+                if (alreadyOwned)
+                    continue;
+                mergedOrbitSegments.Add(segment);
+                preservedTailCount++;
+            }
+            if (preservedTailCount == 0 || !OrbitSegmentListIsMonotonicNonDecreasing(mergedOrbitSegments))
+            {
+                preservedTailCount = 0;
+                return false;
+            }
+
+            target.Points = rebuiltPoints;
+            target.OrbitSegments = mergedOrbitSegments;
+            target.CachedStats = null;
+            target.CachedStatsPointCount = 0;
+            return true;
+        }
+
         /// <summary>
         /// Rebuilds a malformed flat fallback trajectory (POINT list / top-level
         /// ORBIT_SEGMENT list) from the recording's TrackSections.
