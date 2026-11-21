@@ -905,8 +905,10 @@ namespace Parsek
         /// <summary>
         /// Stamps the terminal state of a leaf from its live vessel, captures the terminal
         /// orbit and position, and on a commit (not a scene exit) re-snapshots the vessel.
+        /// The predicted-crash reconciler's scene host stamps a contradicted prediction's ending
+        /// through it too.
         /// </summary>
-        private static void StampTerminalStateFromLiveVessel(
+        internal static void StampTerminalStateFromLiveVessel(
             Recording rec,
             Vessel finalizeVessel,
             bool isSceneExit,
