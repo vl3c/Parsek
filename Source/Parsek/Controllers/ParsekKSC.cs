@@ -1936,6 +1936,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Distance from the KSC camera to a ghost, or NaN when there is no camera or ghost.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static double ResolveKscCameraDistance(GameObject ghost)
+        {
+            if (ghost == null) return double.NaN;
+            Camera cam = PlanetariumCamera.Camera;
+            if (cam == null) return double.NaN;
+            return (ghost.transform.position - cam.transform.position).magnitude;
+        }
+
+        /// <summary>
         /// Check if a ghost is within rendering distance of the KSC camera.
         /// Ghosts beyond 25km are deactivated to skip expensive part event processing.
         /// </summary>
@@ -1981,12 +1993,17 @@ namespace Parsek
             if (state.explosionFired) return;
             if (rec.TerminalStateValue != TerminalState.Destroyed) return;
 
-            if (GhostPlaybackLogic.ShouldSuppressVisualFx(TimeWarp.CurrentRate))
+            float warpRate = TimeWarp.CurrentRate;
+            double viewDistance = ResolveKscCameraDistance(state.ghost);
+            if (!GhostPlaybackLogic.ShouldPlayExplosionFx(
+                    warpRate, isWatched: false, viewDistanceMeters: viewDistance,
+                    maxVisibleMeters: DistanceThresholds.KscGhosts.CullDistanceMeters))
             {
                 state.explosionFired = true;
                 GhostPlaybackLogic.HideAllGhostParts(state);
                 ParsekLog.VerboseRateLimited("KSCGhost", $"explosion-suppress-{recIdx}",
-                    $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": warp > {WarpThresholds.FxSuppress}x");
+                    $"Explosion skipped for ghost #{recIdx} \"{rec.VesselName}\": out of view at warp > {WarpThresholds.FxSuppress}x " +
+                    $"(cameraDist={RenderingZoneManager.FormatDistanceForLog(viewDistance)}); ghost just ends");
                 return;
             }
 

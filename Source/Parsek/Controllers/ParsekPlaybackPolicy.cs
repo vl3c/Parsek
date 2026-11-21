@@ -1116,7 +1116,7 @@ namespace Parsek
 
                     // Trigger explosion if terminal was Destroyed
                     engine.TriggerExplosionIfDestroyed(evt.State, evt.Trajectory, evt.Index,
-                        CurrentWarpRate());
+                        CurrentWarpRate(), isWatched: true);
 
                     ParsekLog.Info("Policy",
                         $"Watch hold started for #{evt.Index}: {holdSeconds:F0}s " +
