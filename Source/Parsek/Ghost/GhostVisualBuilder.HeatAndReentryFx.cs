@@ -17,6 +17,7 @@ namespace Parsek
             // remembers to call. S7's loop-phase cache is prefab-derived on the same terms.
             animationClipLengthCache.Clear();
             converterLoopSampleCache.Clear();
+            animationRestSampleCache.Clear();
         }
 
         private static bool TryGetAnimateHeatAnimation(

@@ -1404,6 +1404,12 @@ namespace Parsek
             colorChangerInfos = BuildColorChangerInfos(
                 partNode, prefab.partInfo?.partConfig, modelNode.transform, persistentId, partName);
 
+            // Material / active-state clips the live part holds at rest (the ion engine's glow,
+            // ReStock's scanner screen): written after the heat, light and colour-changer infos
+            // so it reuses their material clones and leaves their properties to them.
+            ApplyAnimationRestStates(prefab, partNode, modelRoot, modelNode.transform, cloneMap,
+                heatAnimName, ref heatInfo, lightInfo, colorChangerInfos, persistentId, partName);
+
             // Procedural fairings: stock-built panel shell + stock truss / cap visibility rule
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);
             if (fairingInfo != null)

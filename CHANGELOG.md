@@ -90,6 +90,10 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **The ion engine's ring and the scanner's screen are dark on their ghosts when off.** Their
+  replays showed the glow and the lit screen the real parts only show when running or switched on.
+  The ghost now starts the way the real part looks, and a running ion engine still lights up.
+  (GHOST-ANIMATION-REST-STATE)
 - **ReStock engines no longer glow on their ghosts at rest.** A stopped ReStock engine's replay
   showed an orange nozzle and a white-hot core where the real engine is dark. Its ghost now starts
   dark like the real one, colour effects touch only the parts of the model the real part colours,

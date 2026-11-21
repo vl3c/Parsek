@@ -227,5 +227,79 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Animation rest state
+
+        private static ConfigNode Module(string name, string anim)
+        {
+            var node = new ConfigNode("MODULE");
+            node.AddValue("name", name);
+            if (anim != null) node.AddValue("animationName", anim);
+            return node;
+        }
+
+        [Fact]
+        public void AnimationRest_Candidates_ThrottleAtZero_GenericAtSnapshotAnimTime()
+        {
+            var config = new ConfigNode("PART");
+            config.AddNode(Module("FXModuleAnimateThrottle", "colorAnimation"));
+            config.AddNode(Module("ModuleAnimateGeneric", "screenon"));
+            config.AddNode(Module("ModuleAnimateGeneric", "deploy"));
+            config.AddNode(Module("ModuleEnginesFX", null));
+
+            var snapshot = new ConfigNode("PART");
+            var g1 = snapshot.AddNode("MODULE");
+            g1.AddValue("name", "ModuleAnimateGeneric");
+            g1.AddValue("animTime", "0");
+            var g2 = snapshot.AddNode("MODULE");
+            g2.AddValue("name", "ModuleAnimateGeneric");
+            g2.AddValue("animTime", "1");
+
+            var candidates = GhostVisualBuilder.CollectAnimationRestCandidates(config, snapshot);
+            Assert.Equal(3, candidates.Count);
+            Assert.Equal("colorAnimation", candidates[0].animationName);
+            Assert.Equal(0f, candidates[0].restNormalizedTime);
+            Assert.Equal("screenon", candidates[1].animationName);
+            Assert.Equal(0f, candidates[1].restNormalizedTime);
+            Assert.Equal("deploy", candidates[2].animationName);
+            Assert.Equal(1f, candidates[2].restNormalizedTime);
+        }
+
+        [Fact]
+        public void AnimationRest_Candidates_SameClipListedOnce_NoAnimationNameSkipped()
+        {
+            var config = new ConfigNode("PART");
+            config.AddNode(Module("FXModuleAnimateThrottle", "glow"));
+            config.AddNode(Module("ModuleAnimateGeneric", "glow"));
+            config.AddNode(Module("ModuleAnimateGeneric", null));
+            var candidates = GhostVisualBuilder.CollectAnimationRestCandidates(config, null);
+            Assert.Single(candidates);
+            Assert.Equal("FXModuleAnimateThrottle", candidates[0].moduleName);
+            Assert.Empty(GhostVisualBuilder.CollectAnimationRestCandidates(null, null));
+        }
+
+        [Theory]
+        [InlineData(null, 0f)]
+        [InlineData("", 0f)]
+        [InlineData("junk", 0f)]
+        [InlineData("0.25", 0.25f)]
+        [InlineData("-1", 0f)]
+        [InlineData("2", 1f)]
+        [InlineData("NaN", 0f)]
+        public void AnimationRest_AnimateGenericRestTime_IsTheClampedAnimTime(string raw, float expected)
+        {
+            Assert.Equal(expected, GhostVisualBuilder.ResolveAnimateGenericRestTime(raw));
+        }
+
+        [Fact]
+        public void AnimationRest_AnimatedColor_DiffersBetweenTheClipEnds()
+        {
+            Assert.True(GhostVisualBuilder.IsAnimatedColor(Color.black, new Color(0.2f, 0.8f, 0.9f, 1f)));
+            Assert.True(GhostVisualBuilder.IsAnimatedColor(new Color(1f, 1f, 1f, 0f), Color.white));
+            Assert.False(GhostVisualBuilder.IsAnimatedColor(Color.clear, Color.clear));
+            Assert.False(GhostVisualBuilder.IsAnimatedColor(Color.white, new Color(1f, 1f, 1f, 1.00001f)));
+        }
+
+        #endregion
     }
 }
