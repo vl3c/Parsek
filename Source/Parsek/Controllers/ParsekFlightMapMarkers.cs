@@ -984,7 +984,7 @@ namespace Parsek
             CelestialBody body;
             if (!bodyCache.TryGetValue(before.bodyName, out body))
             {
-                body = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
+                body = FindBodyByNameNoAlloc(before.bodyName);
                 if (body != null)
                     bodyCache[before.bodyName] = body;
             }
@@ -1016,7 +1016,7 @@ namespace Parsek
             CelestialBody body;
             if (!bodyCache.TryGetValue(bodyName, out body))
             {
-                body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                body = FindBodyByNameNoAlloc(bodyName);
                 if (body != null)
                     bodyCache[bodyName] = body;
             }
@@ -1031,12 +1031,24 @@ namespace Parsek
                 return false;
             }
             worldPos = (Vector3)tailWorld;
-            ParsekLog.VerboseRateLimited("GhostMap", "map-marker-tail-" + (rec.RecordingId ?? "(none)"),
-                string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Map marker follows orbit tail: rec={0} ut={1:F1} segment=[{2:F1},{3:F1}] predicted={4} body={5}",
-                    rec.RecordingId ?? "(none)", ut, tailSegment.startUT, tailSegment.endUT,
-                    tailSegment.isPredicted, bodyName),
-                5.0);
+            if (ParsekLog.IsVerboseEnabled)
+            {
+                ParsekLog.VerboseRateLimitedComposed("GhostMap",
+                    TailLogKey(tailLogKeys, "map-marker-tail-", rec.RecordingId),
+                    new TailLogState
+                    {
+                        RecordingId = rec.RecordingId,
+                        UT = ut,
+                        A = tailSegment.startUT,
+                        B = tailSegment.endUT,
+                        Predicted = tailSegment.isPredicted,
+                        BodyName = bodyName,
+                    },
+                    s => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Map marker follows orbit tail: rec={0} ut={1:F1} segment=[{2:F1},{3:F1}] predicted={4} body={5}",
+                        s.RecordingId ?? "(none)", s.UT, s.A, s.B, s.Predicted, s.BodyName),
+                    5.0);
+            }
             return true;
         }
 
@@ -1055,7 +1067,7 @@ namespace Parsek
             CelestialBody body;
             if (!bodyCache.TryGetValue(bodyName, out body))
             {
-                body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                body = FindBodyByNameNoAlloc(bodyName);
                 if (body != null)
                     bodyCache[bodyName] = body;
             }
@@ -1071,12 +1083,71 @@ namespace Parsek
                 return false;
             }
             worldPos = (Vector3)slideWorld;
-            ParsekLog.VerboseRateLimited("GhostMap", "map-marker-tail-slide-" + (rec.RecordingId ?? "(none)"),
-                string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Map marker slides to the predicted tail: rec={0} ut={1:F1} lastPointUT={2:F1} tailStartUT={3:F1} body={4}",
-                    rec.RecordingId ?? "(none)", ut, lastPointUT, slideSegment.startUT, bodyName),
-                5.0);
+            if (ParsekLog.IsVerboseEnabled)
+            {
+                ParsekLog.VerboseRateLimitedComposed("GhostMap",
+                    TailLogKey(tailSlideLogKeys, "map-marker-tail-slide-", rec.RecordingId),
+                    new TailLogState
+                    {
+                        RecordingId = rec.RecordingId,
+                        UT = ut,
+                        A = lastPointUT,
+                        B = slideSegment.startUT,
+                        BodyName = bodyName,
+                    },
+                    s => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Map marker slides to the predicted tail: rec={0} ut={1:F1} lastPointUT={2:F1} tailStartUT={3:F1} body={4}",
+                        s.RecordingId ?? "(none)", s.UT, s.A, s.B, s.BodyName),
+                    5.0);
+            }
             return true;
+        }
+
+        // The per-frame tail lines' values, handed to a lambda that captures nothing, so a
+        // call the rate limiter swallows formats nothing.
+        private struct TailLogState
+        {
+            public string RecordingId;
+            public double UT;
+            public double A;
+            public double B;
+            public bool Predicted;
+            public string BodyName;
+        }
+
+        // Rate-limit keys of the per-frame tail lines, composed once per recording id instead
+        // of concatenated every frame; a key depends on the id alone, so it never goes stale.
+        private readonly Dictionary<string, string> tailLogKeys =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> tailSlideLogKeys =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        private static string TailLogKey(Dictionary<string, string> cache, string prefix, string recordingId)
+        {
+            string id = recordingId ?? "(none)";
+            if (!cache.TryGetValue(id, out string key))
+            {
+                key = ParsekLog.ComposeKey("GhostMap", prefix + id);
+                cache[id] = key;
+            }
+            return key;
+        }
+
+        // Runs on a body-cache miss: a plain loop, so the callers capture no local in a closure
+        // (a captured local allocates its display class on every call, hit or miss).
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static CelestialBody FindBodyByNameNoAlloc(string bodyName)
+        {
+            List<CelestialBody> bodies = FlightGlobals.Bodies;
+            if (bodies == null || string.IsNullOrEmpty(bodyName))
+                return null;
+            for (int i = 0; i < bodies.Count; i++)
+            {
+                CelestialBody candidate = bodies[i];
+                if (candidate != null && candidate.name == bodyName)
+                    return candidate;
+            }
+            return null;
         }
 
         /// <summary>

@@ -578,6 +578,66 @@ namespace Parsek
             return false;
         }
 
+        // ------------------------------------------------------------------ leaving the flight scene
+
+        internal const string SceneExitChuteLogPrefix = "Chute descent at scene exit:";
+        internal const string SceneExitChuteLogTag = "Extrapolator";
+
+        /// <summary>
+        /// Owner ruling Q14: a commit that takes the player out of the flight scene (a scene
+        /// exit to the Space Center, the Tracking Station or the main menu, or the far Switch-To
+        /// that reloads FLIGHT) decides every chuted craft still in the air as stock's "mission
+        /// will be lost" case: each predicted touchdown in <paramref name="recordings"/> (the
+        /// finalized tree's) becomes
+        /// Destroyed, not predicted, crew dead, ending quietly after its descent
+        /// (<see cref="ConvertToStockDeleted"/>), whatever the player does next. A craft whose
+        /// live vessel is already on the surface (<paramref name="liveVesselOnSurface"/>) keeps
+        /// its ending. A real landing is never a predicted touchdown, and a too-fast descent is
+        /// already a Destroyed crash, so neither is touched. Returns the number converted.
+        /// </summary>
+        internal static int ApplyFlightSceneLeave(
+            IEnumerable<Recording> recordings,
+            double commitUT,
+            string exitKind,
+            Func<Recording, bool> liveVesselOnSurface)
+        {
+            if (recordings == null)
+                return 0;
+            int converted = 0;
+            foreach (Recording rec in recordings)
+            {
+                if (!IsPredictedTouchdown(rec))
+                    continue;
+                TerminalState before = rec.TerminalStateValue.Value;
+                if (liveVesselOnSurface != null && liveVesselOnSurface(rec))
+                {
+                    ParsekLog.Info(SceneExitChuteLogTag,
+                        SceneExitChuteLogPrefix + " rec=" + (rec.RecordingId ?? "(null)")
+                        + " pid=" + rec.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                        + " outcome=kept-touched-down terminal=" + before
+                        + " exit=" + (exitKind ?? "(none)")
+                        + " - the craft is already on the surface; it keeps its ending");
+                    continue;
+                }
+                double touchdownUT = rec.EndUT;
+                if (!ConvertToStockDeleted(rec, "SceneExitChuteDescent"))
+                    continue;
+                converted++;
+                ParsekLog.Info(SceneExitChuteLogTag,
+                    SceneExitChuteLogPrefix + " rec=" + (rec.RecordingId ?? "(null)")
+                    + " pid=" + rec.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                    + " vessel='" + (rec.VesselName ?? "") + "'"
+                    + " outcome=mission-lost terminal=" + before + "->Destroyed"
+                    + " touchdownUT=" + FormatUT(touchdownUT)
+                    + " commitUT=" + FormatUT(commitUT)
+                    + " predicted=False quietEnd=" + (rec.QuietDestroyedEnd ? "True" : "False")
+                    + " exit=" + (exitKind ?? "(none)")
+                    + " - the player left the flight scene with the craft under its chutes "
+                    + "(stock: the mission will be lost); crew dead, no spawn");
+            }
+            return converted;
+        }
+
         // ------------------------------------------------------------------ live reads
 
         /// <summary>

@@ -432,7 +432,8 @@ namespace Parsek
             Func<Recording, bool> resolveDestroyedDuringRecording = null,
             Func<uint, Vessel> findVesselByPid = null,
             FinalizationLiveVesselAccess liveVesselAccess = null,
-            bool abandonActiveVessel = false)
+            bool abandonActiveVessel = false,
+            bool leavesFlightScene = false)
         {
             var sceneExitLifetimeExtendedIds = isSceneExit
                 ? new HashSet<string>(StringComparer.Ordinal)
@@ -496,6 +497,20 @@ namespace Parsek
             {
                 sceneExitLifetimeExtendedIds.Add(tree.ActiveRecordingId);
             }
+
+            // 3c. Owner ruling Q14: the player leaves the flight scene (a scene exit, or the far
+            // Switch-To that reloads FLIGHT), so a chuted craft still in the air is stock's
+            // "mission will be lost" case, decided now: no predicted touchdown survives the exit.
+            if (isSceneExit || leavesFlightScene)
+            {
+                FinalizationLiveVesselAccess access = liveVesselAccess ?? FinalizationLiveVesselAccess.Default;
+                Func<uint, Vessel> finder = findVesselByPid ?? FlightRecorder.FindVesselByPid;
+                PredictedTouchdownStockFate.ApplyFlightSceneLeave(
+                    tree.Recordings?.Values,
+                    commitUT,
+                    isSceneExit ? "scene-exit" : "far-switch",
+                    rec => IsLiveVesselOnSurfaceForSceneLeave(rec, finder, access));
+            }
             RefreshActiveEffectiveLeafSnapshot(tree, isSceneExit, sceneExitLifetimeExtendedIds);
 
             // 4. Prune zero-point debris leaves (#173) — removes recordings with no
@@ -509,6 +524,25 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"FinalizeTreeRecordings: tree '{tree.TreeName}' finalized " +
                 $"(resource accounting via ledger; no tree-level delta captured).");
+        }
+
+        /// <summary>
+        /// Whether the recording's live vessel is on the surface now (Landed / Splashed by its
+        /// situation): such a craft touched down before the player left and keeps its ending.
+        /// No live vessel reads false.
+        /// </summary>
+        internal static bool IsLiveVesselOnSurfaceForSceneLeave(
+            Recording rec,
+            Func<uint, Vessel> findVesselByPid,
+            FinalizationLiveVesselAccess access)
+        {
+            if (rec == null || rec.VesselPersistentId == 0 || findVesselByPid == null || access == null)
+                return false;
+            Vessel vessel = findVesselByPid(rec.VesselPersistentId);
+            if (!access.IsFound(vessel))
+                return false;
+            TerminalState situation = access.DetermineTerminalState(vessel);
+            return situation == TerminalState.Landed || situation == TerminalState.Splashed;
         }
 
         internal static bool HasFallbackCandidateCache(

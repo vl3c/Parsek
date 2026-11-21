@@ -849,7 +849,11 @@ namespace Parsek
         /// unflown (the pre-switch dialog's Merge, which switches away right after): the active
         /// leaf then gets the lifetime finalizer like every other live leaf. False for a commit
         /// after which the player keeps flying it.</param>
-        public void CommitTreeFlight(bool abandonActiveVessel = false)
+        /// <param name="leavesFlightScene">True when the player leaves the flight scene right
+        /// after the commit (the pre-switch Merge of a far Switch-To, which reloads FLIGHT): a
+        /// chuted craft still in the air then ends as stock's lost mission (owner ruling Q14),
+        /// as at a scene exit.</param>
+        public void CommitTreeFlight(bool abandonActiveVessel = false, bool leavesFlightScene = false)
         {
             if (host.activeTree == null)
             {
@@ -866,7 +870,8 @@ namespace Parsek
                     "its leaf gets the lifetime finalizer like every other live leaf");
 
             // Finalize all recordings (active + background)
-            FinalizeTreeRecordings(host.activeTree, commitUT, isSceneExit: false, abandonActiveVessel);
+            FinalizeTreeRecordings(
+                host.activeTree, commitUT, isSceneExit: false, abandonActiveVessel, leavesFlightScene);
 
             // Name the finalized terminal verdict for every recording the commit is
             // about to consume. "starting tree commit at UT=" above only proves the
@@ -1126,7 +1131,11 @@ namespace Parsek
         /// captures terminal state/orbit/position for all recordings.
         /// </summary>
         internal void FinalizeTreeRecordings(
-            RecordingTree tree, double commitUT, bool isSceneExit, bool abandonActiveVessel = false)
+            RecordingTree tree,
+            double commitUT,
+            bool isSceneExit,
+            bool abandonActiveVessel = false,
+            bool leavesFlightScene = false)
         {
             string activeRecordingId = tree?.ActiveRecordingId;
             bool activeRecorderDestroyedDuringRecording =
@@ -1162,7 +1171,8 @@ namespace Parsek
                     activeRecorderDestroyedDuringRecording
                     && !string.IsNullOrEmpty(activeRecordingId)
                     && string.Equals(rec?.RecordingId, activeRecordingId, StringComparison.Ordinal),
-                abandonActiveVessel: abandonActiveVessel);
+                abandonActiveVessel: abandonActiveVessel,
+                leavesFlightScene: leavesFlightScene);
         }
 
         internal static bool IsActiveRecorderCacheCandidate(
