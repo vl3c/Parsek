@@ -69,6 +69,7 @@ namespace Parsek
 
             int mergeCount = RunOptimizationMergePass(recordings, routeSourceIds);
             int splitCount = RunOptimizationSplitPass(recordings, routeSourceIds);
+            ReReadRowRoles(recordings, routeSourceIds);
             // After the split: a split gives the tail the recording's end (terminal state and
             // snapshot), so the spawn stamp goes with it; this also heals saves split earlier.
             RecordingOptimizer.MoveChainSpawnStampsToTip(
@@ -472,6 +473,42 @@ namespace Parsek
             ParsekLog.Verbose("Optimizer",
                 $"Split roles: '{original.RecordingId}'={original.SegmentRole ?? "<none>"} " +
                 $"'{second.RecordingId}'={second.SegmentRole ?? "<none>"} (cut {reason})");
+        }
+
+        /// <summary>
+        /// Review B6: every version-2 row's role is read from its content on every pass, not only
+        /// at a cut (<see cref="RecordingOptimizer.ResolveHeadRoleAfterCut"/>): a row with no role
+        /// (never cut) gets the role of how it starts, so one mission's labels never mix a phase
+        /// with roles; a pass role (reentry / aerobraking) the content now contradicts (a resumed
+        /// reentry row that climbs back to orbit, which no cut touches) is re-read; any other
+        /// role stays. Version-1, EVA, newer-rule and held (route source, live copy) rows are left
+        /// alone. Loopability reads the phase, never the role. A role lives in the tree node, not
+        /// the sidecar. Per-row Verbose lines (at most 20) and one Info summary when any changed.
+        /// Returns how many changed.
+        /// </summary>
+        internal static int ReReadRowRoles(IReadOnlyList<Recording> recordings, HashSet<string> heldIds)
+        {
+            if (recordings == null) return 0;
+            int changed = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording rec = recordings[i];
+                if (!RecordingOptimizer.UsesCurrentSplitRules(rec)
+                    || RecordingOptimizer.IsSplitRuleVersionNewerThanBuild(rec)
+                    || IsRouteSource(rec, heldIds))
+                    continue;
+                string role = RecordingOptimizer.ResolveHeadRoleAfterCut(rec);
+                if (string.Equals(role, rec.SegmentRole, StringComparison.Ordinal)) continue;
+                if (changed < 20)
+                    ParsekLog.Verbose("RecordingStore",
+                        $"Row role re-read: '{rec.RecordingId}' {rec.SegmentRole ?? "<none>"} -> {role ?? "<none>"}");
+                rec.SegmentRole = role;
+                changed++;
+            }
+            if (changed > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"Optimization pass: re-read {changed.ToString(CultureInfo.InvariantCulture)} row role(s) from their content");
+            return changed;
         }
 
         /// <summary>

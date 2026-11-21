@@ -54,6 +54,9 @@ Not released yet.
 
 ### Fixed
 
+- **Every row of a new flight is named by its part of the mission.** A row Parsek never had to
+  split was labelled by its raw phase ("exo") beside rows named "space", and a reentry row that
+  flew back up to orbit when you continued it kept the name "reentry". (ROW-ROLE-STALE-OR-MISSING)
 - **A flight with a missing middle row still plays and follows as one flight.** When a row was
   gone from the middle of a split flight, watching, the end-of-flight walk and the parent links
   stopped at the gap. (CHAIN-NEXT-PIECE-EXACT-INDEX)

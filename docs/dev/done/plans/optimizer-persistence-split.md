@@ -937,8 +937,15 @@ half gets the role of the cut. `CanAutoMerge` refuses different roles, and for t
 rows any join the version-2 split predicate would cut again (`WouldSplitRulesCutJoin`): the
 merge pass runs before the split pass on every pass and would otherwise glue, for example, an
 aerobraking row and the reentry row after it (both phase `atmo`, same body) and cut them again
-on the next load, with a fresh id each time. `SegmentPhase` keeps its four values; the row
-label reads the role, the table's phase sort still reads the phase.
+on the next load, with a fresh id each time. Every pass also re-reads each version-2 row's
+role from its content (`CommittedListOptimizer.ReReadRowRoles`, review B6): a row no cut ever
+touched gets the role of how it starts (`ResolveStartRole`), so a mission's labels never mix a
+phase with roles, and a pass role its content now contradicts (a resumed reentry row that climbs
+back to orbit, which no cut touches because its own pass entry and a braking exit are never cut)
+is re-read (`ResolveHeadRoleAfterCut`); other roles stay. Version-1, EVA, newer-rule and held
+rows are left alone. `SegmentPhase` keeps its four values; the row label reads the role, the
+table's phase sort and `Recording.IsLoopableRecording` still read the phase (a later role
+registry moves loopability onto roles).
 
 **Version-2 predicate**, the section 3 steps with these changes:
 

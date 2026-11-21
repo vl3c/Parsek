@@ -603,5 +603,50 @@ namespace Parsek.Tests
             Assert.True(RecordingOptimizer.CanAutoMerge(c, d));
             Assert.Null(CommittedListOptimizer.DescribeTrimHold(c, null, null, null));
         }
+
+        // ------------------------------------------------------------ row roles (BATCH-B6)
+
+        // (a) A resumed reentry row that climbs back to orbit is no longer cut (its own pass
+        // entry and a braking exit are never cut), so the role stamped at the old cut stayed
+        // "reentry". The pass re-reads a pass role from the row's content.
+        // MUTATION NOTE: removing the ReReadRowRoles call from RunOptimizationPass reds this.
+        [Fact]
+        public void ResumedReentryRow_ClimbsBackToOrbit_RoleReReadAsAerobraking()
+        {
+            var rec = V2(Make("climb", 0, Atmo(100), Exo(3000)));
+            rec.SegmentRole = "reentry";
+            var rows = Optimize(rec);
+            Assert.Single(rows);
+            Assert.Equal("aerobraking", rows[0].role);
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("Row role re-read: 'climb' reentry -> aerobraking"));
+        }
+
+        // (b) An unsplit version-2 row gets the role of how it starts, so the labels of one
+        // mission's rows never mix a phase ("exo") with roles ("space").
+        [Fact]
+        public void UnsplitVersionTwoRow_GetsItsStartRole_VersionOneRowStaysUnset()
+        {
+            var rows = Optimize(V2(Make("whole", 0, Exo(500))));
+            Assert.Single(rows);
+            Assert.Equal("space", rows[0].role);
+
+            RecordingStore.ResetForTesting();
+            var v1 = Optimize(V1(Make("whole-v1", 0, Exo(500))));
+            Assert.Null(v1[0].role);
+        }
+
+        // (c) Loopability still reads the phase, not the role: a re-read role leaves it alone.
+        [Fact]
+        public void RoleReRead_DoesNotChangeLoopability()
+        {
+            var rec = V2(Make("loopable", 0, Atmo(100), Exo(3000)));
+            rec.SegmentRole = "reentry";
+            rec.SegmentPhase = "exo";
+            bool before = Recording.IsLoopableRecording(rec);
+            Optimize(rec);
+            Assert.Equal("aerobraking", rec.SegmentRole);
+            Assert.Equal(before, Recording.IsLoopableRecording(rec));
+        }
     }
 }
