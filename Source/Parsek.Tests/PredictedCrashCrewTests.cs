@@ -7,8 +7,9 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Owner ruling Q6: crew die only when KSP actually destroyed the vessel; a crash Parsek
-    /// only predicted (Recording.TerminalPredicted) leaves them Aboard. Ruling Q1b: a stage KSP
+    /// Owner ruling Q6c (replaces Q6): "If it's destroyed, the crew is dead." A crash Parsek
+    /// only predicted (Recording.TerminalPredicted) kills the crew like one KSP carried out;
+    /// the flag stays for the takeover and the playback. Ruling Q1b: a stage KSP
     /// still has when its recording ends keeps its predicted crash. Covers the inference, the
     /// persisted key, the copy sites, the stamp sites that decide the flag, the ledger rows it
     /// drives, and the in-flight commit decision that now runs the lifetime finalizer.
@@ -78,29 +79,23 @@ namespace Parsek.Tests
 
         // ---------------------------------------------------------------- inference
 
+        // catches: a predicted crash (Q6, retired) still sparing the crew Q6c kills.
         [Fact]
-        public void InferCrewEndState_PredictedDestroyed_IsAboard_InOrOutOfTheEndSnapshot()
-        {
-            Assert.Equal(KerbalEndState.Aboard, KerbalsModule.InferCrewEndState(
-                Jeb, TerminalState.Destroyed, new HashSet<string> { Jeb }, terminalPredicted: true));
-            Assert.Equal(KerbalEndState.Aboard, KerbalsModule.InferCrewEndState(
-                Jeb, TerminalState.Destroyed, null, terminalPredicted: true));
-            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
-                && l.Contains("predicted=True -> Aboard"));
-        }
-
-        [Fact]
-        public void InferCrewEndState_ConfirmedOrUnflaggedDestroyed_StaysDead()
+        public void InferCrewEndState_Destroyed_IsDead_PredictedOrNot()
         {
             Assert.Equal(KerbalEndState.Dead, KerbalsModule.InferCrewEndState(
-                Jeb, TerminalState.Destroyed, new HashSet<string> { Jeb }, terminalPredicted: false));
+                Jeb, TerminalState.Destroyed, new HashSet<string> { Jeb }, remnantSurvives: false));
+            Assert.Equal(KerbalEndState.Dead, KerbalsModule.InferCrewEndState(
+                Jeb, TerminalState.Destroyed, null));
             // The old three-argument shape (every recording written before the key) is Dead.
             Assert.Equal(KerbalEndState.Dead, KerbalsModule.InferCrewEndState(
                 Jeb, TerminalState.Destroyed, new HashSet<string> { Jeb }));
+            Assert.DoesNotContain(logLines, l => l.Contains("-> Aboard"));
         }
 
+        // catches: a predicted crash leaving its kerbal alive with no death hold (Q6c).
         [Fact]
-        public void PopulateCrewEndStates_PredictedCrash_NoDeathAndNoRespawnStamp()
+        public void PopulateCrewEndStates_PredictedCrash_IsADeathWithTheRespawnStamp()
         {
             KerbalsModule.CrewRespawnPolicyProviderForTesting =
                 (out bool r, out double t) => { r = true; t = 7200.0; return true; };
@@ -108,20 +103,28 @@ namespace Parsek.Tests
 
             KerbalsModule.PopulateCrewEndStates(rec);
 
-            Assert.Equal(KerbalEndState.Aboard, rec.CrewEndStates[Jeb]);
-            Assert.False(rec.CrewDeathRespawns.HasValue);
+            Assert.True(rec.TerminalPredicted);
+            Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates[Jeb]);
+            Assert.True(rec.CrewDeathRespawns.HasValue);
         }
 
         [Fact]
-        public void GhostOnlyChainSegment_PredictedCrash_DoesNotTakeTheHandoffDeath()
+        public void GhostOnlyChainSegment_PredictedCrash_TakesTheHandoffDeath()
         {
             Recording rec = CrewedFlight("rec-pred-chain", predicted: true);
             rec.ChainId = "chain-1";
             rec.ChainIndex = 1;
 
-            Assert.False(KerbalsModule.ShouldUseGhostOnlyChainHandoffEndState(rec));
+            Assert.True(KerbalsModule.ShouldUseGhostOnlyChainHandoffEndState(rec));
             KerbalsModule.PopulateCrewEndStates(rec);
-            Assert.Equal(KerbalEndState.Aboard, rec.CrewEndStates[Jeb]);
+            Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates[Jeb]);
+
+            // A surviving remnant (Q6b) is decided per part, never by the handoff.
+            Recording remnant = CrewedFlight("rec-remnant-chain", predicted: true);
+            remnant.StampTerminalState(TerminalState.Destroyed, "test", predicted: true, remnantSurvives: true);
+            remnant.ChainId = "chain-3";
+            remnant.ChainIndex = 1;
+            Assert.False(KerbalsModule.ShouldUseGhostOnlyChainHandoffEndState(remnant));
 
             Recording confirmed = CrewedFlight("rec-conf-chain", predicted: false);
             confirmed.ChainId = "chain-2";
@@ -154,11 +157,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ConfirmingAPredictedCrash_ReInfersTheCrewAsDead()
+        public void ConfirmingAPredictedCrash_KeepsTheCrewDead()
         {
             Recording rec = CrewedFlight("rec-confirm", predicted: true);
             KerbalsModule.PopulateCrewEndStates(rec);
-            Assert.Equal(KerbalEndState.Aboard, rec.CrewEndStates[Jeb]);
+            Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates[Jeb]);
 
             bool confirmed = ParsekFlight.ConfirmObservedDestruction(
                 rec, destroyedDuringRecording: true, vesselMissingOnInFlightCommit: false, "test");
@@ -184,7 +187,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MarkLifetimeFinalizerCrashPredicted_FlipsAConfirmedDeathToAboard()
+        public void MarkLifetimeFinalizerCrashPredicted_KeepsTheDeath()
         {
             Recording rec = CrewedFlight("rec-finalizer", predicted: false);
             KerbalsModule.PopulateCrewEndStates(rec);
@@ -193,7 +196,7 @@ namespace Parsek.Tests
             ParsekFlight.MarkLifetimeFinalizerCrashPredicted(rec, "test");
 
             Assert.True(rec.TerminalPredicted);
-            Assert.Equal(KerbalEndState.Aboard, rec.CrewEndStates[Jeb]);
+            Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates[Jeb]);
 
             var landed = new Recording { RecordingId = "rec-landed" };
             landed.StampTerminalState(TerminalState.Landed, "test");
@@ -215,6 +218,33 @@ namespace Parsek.Tests
             RecordingTree.LoadRecordingFrom(node, restored);
             Assert.Equal(TerminalState.Destroyed, restored.TerminalStateValue);
             Assert.True(restored.TerminalPredicted);
+        }
+
+        [Fact]
+        public void Codec_RoundTripsTheRemnantFlag_SparseAndOnlyBesideDestroyed()
+        {
+            Recording rec = CrewedFlight("rec-codec-remnant", predicted: true);
+            var plain = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(plain, rec);
+            Assert.Null(plain.GetValue("terminalRemnantSurvives"));
+
+            rec.StampTerminalState(TerminalState.Destroyed, "test", predicted: true, remnantSurvives: true);
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, rec);
+            Assert.Equal("True", node.GetValue("terminalRemnantSurvives"));
+            var restored = new Recording();
+            RecordingTree.LoadRecordingFrom(node, restored);
+            Assert.True(restored.TerminalRemnantSurvives);
+
+            var orbiting = new Recording { RecordingId = "rec-codec-remnant-orb" };
+            orbiting.StampTerminalState(TerminalState.Orbiting, "test", remnantSurvives: true);
+            Assert.False(orbiting.TerminalRemnantSurvives);
+            var orbNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(orbNode, orbiting);
+            orbNode.AddValue("terminalRemnantSurvives", "True");
+            var orbRestored = new Recording();
+            RecordingTree.LoadRecordingFrom(orbNode, orbRestored);
+            Assert.False(orbRestored.TerminalRemnantSurvives);
         }
 
         [Fact]
@@ -262,11 +292,15 @@ namespace Parsek.Tests
         {
             Recording rec = CrewedFlight("rec-copy", predicted: true);
 
+            rec.StampTerminalState(TerminalState.Destroyed, "test", predicted: true, remnantSurvives: true);
+
             Assert.True(Recording.DeepClone(rec).TerminalPredicted);
+            Assert.True(Recording.DeepClone(rec).TerminalRemnantSurvives);
 
             var artifacts = new Recording();
             artifacts.ApplyPersistenceArtifactsFrom(rec);
             Assert.True(artifacts.TerminalPredicted);
+            Assert.True(artifacts.TerminalRemnantSurvives);
         }
 
         // ---------------------------------------------------------------- cache applier
@@ -349,8 +383,9 @@ namespace Parsek.Tests
 
         // ---------------------------------------------------------------- ledger rows
 
+        // catches: a predicted crewed crash writing no Dead row and no reputation penalty (Q6c).
         [Fact]
-        public void LedgerRows_PredictedCrewedCrash_NoDeadRowAndNoRepPenalty()
+        public void LedgerRows_PredictedCrewedCrash_DeadRowAndRepPenalty()
         {
             Recording rec = CrewedFlight("rec-ledger-pred", predicted: true);
             RecordingStore.AddRecordingWithTreeForTesting(rec);
@@ -368,11 +403,11 @@ namespace Parsek.Tests
             List<GameAction> rows = LedgerOrchestrator.CreateKerbalAssignmentActions(
                 "rec-ledger-pred", 100.0, 300.0);
             Assert.Single(rows);
-            Assert.Equal(KerbalEndState.Aboard, rows[0].KerbalEndStateField);
+            Assert.Equal(KerbalEndState.Dead, rows[0].KerbalEndStateField);
 
             List<GameAction> penalty = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
                 "rec-ledger-pred", 100.0, 300.0, ReputationSeedOrigin.PreExisting);
-            Assert.Empty(penalty);
+            Assert.NotEmpty(penalty);
         }
 
         [Fact]

@@ -526,7 +526,8 @@ namespace Parsek
 
         /// <summary>
         /// The lifetime finalizer extrapolates from a vessel KSP still has, so a Destroyed
-        /// ending it wrote is a prediction (owner ruling Q6: the crew are not killed by it).
+        /// ending it wrote is a prediction (the takeover and the playback read the flag; the crew
+        /// still die with it, owner ruling Q6c).
         /// </summary>
         internal static void MarkLifetimeFinalizerCrashPredicted(Recording rec, string context)
         {
@@ -536,7 +537,7 @@ namespace Parsek
                 TerminalState.Destroyed, context + ".lifetimeFinalizerPredicted", predicted: true);
             ParsekLog.Info("Flight",
                 $"{context}: lifetime finalizer predicted a crash for '{rec.RecordingId ?? "(null)"}' " +
-                $"pid={rec.VesselPersistentId} - marked predicted (crew not killed by the prediction)");
+                $"pid={rec.VesselPersistentId} - marked predicted (a takeover drops it)");
         }
 
         /// <summary>
