@@ -8,6 +8,46 @@ namespace Parsek.Logistics
     internal static partial class RouteOrchestrator
     {
         /// <summary>
+        /// The rate-limit / on-change keys of the per-tick loop-route lines, composed once per
+        /// route id (<see cref="ParsekLog.ComposeKey"/>), so the common path of a tick (one
+        /// tick per frame under warp) builds no key string per route. Derived from the id alone,
+        /// so an entry never goes stale; a null id keys like the "prefix" + null concatenation
+        /// it replaces. The lines themselves pass the values they format as a tuple to a lambda
+        /// that captures nothing (ParsekLog's state-passing overloads), so a tick whose line
+        /// does not emit allocates neither a closure nor a delegate.
+        /// </summary>
+        private sealed class LoopRouteLogKeys
+        {
+            internal readonly string SkipStatus;
+            internal readonly string ClockArgs;
+            internal readonly string NonCross;
+            internal readonly string NonCrossMulti;
+
+            internal LoopRouteLogKeys(string routeId)
+            {
+                SkipStatus = ParsekLog.ComposeKey(Tag, "loop-skip-status-" + routeId);
+                ClockArgs = ParsekLog.ComposeKey(Tag, "route-loop-clock-args-" + routeId);
+                NonCross = ParsekLog.ComposeKey(Tag, "loop-noncross-" + routeId);
+                NonCrossMulti = ParsekLog.ComposeKey(Tag, "loop-noncross-multi-" + routeId);
+            }
+        }
+
+        // Keyed on the route id (process lifetime: an id's keys never change meaning).
+        private static readonly Dictionary<string, LoopRouteLogKeys> loopRouteLogKeys =
+            new Dictionary<string, LoopRouteLogKeys>(StringComparer.Ordinal);
+
+        private static LoopRouteLogKeys LogKeysFor(Route route)
+        {
+            string id = route.Id ?? string.Empty;
+            if (!loopRouteLogKeys.TryGetValue(id, out LoopRouteLogKeys keys))
+            {
+                keys = new LoopRouteLogKeys(id);
+                loopRouteLogKeys[id] = keys;
+            }
+            return keys;
+        }
+
+        /// <summary>
         /// Per-tick loop-route processing (plan Phase 4). Builds (or resolves)
         /// the route's backing-mission <see cref="GhostPlaybackLogic.LoopUnit"/>,
         /// asks <see cref="RouteLoopClock"/> for the span-clock state, detects a
@@ -30,11 +70,14 @@ namespace Parsek.Logistics
             // Status gate: only ghost-driving routes run the loop clock. Paused /
             // EndpointLost / MissingSourceRecording / SourceChanged render no
             // ghost and dispatch nothing (RouteStatusPolicy.GhostDriving false).
+            LoopRouteLogKeys logKeys = LogKeysFor(route);
             if (!RouteStatusPolicy.GhostDriving(route.Status))
             {
                 skipped++;
-                ParsekLog.VerboseRateLimited(Tag, "loop-skip-status-" + route.Id,
-                    $"LoopRoute: route {ShortIdForLog(route)} status={route.Status} " +
+                // A paused route takes this branch every tick: the message is built only
+                // when the line emits.
+                ParsekLog.VerboseRateLimitedComposed(Tag, logKeys.SkipStatus, route,
+                    r => $"LoopRoute: route {ShortIdForLog(r)} status={r.Status} " +
                     "not ghost-driving — skipped", 5.0);
                 return;
             }
@@ -57,14 +100,15 @@ namespace Parsek.Logistics
             // the message is built only when the line emits. It exists because the two
             // clocks USED to differ silently (ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS)
             // and nothing in the log said so.
-            ParsekLog.VerboseOnChange(Tag,
-                "route-loop-clock-args-" + route.Id,
+            ParsekLog.VerboseOnChangeComposed(Tag,
+                logKeys.ClockArgs,
                 RouteLoopClock.HoldArgsChangeKey(unit),
-                () => "LoopRoute clock args: route=" + ShortIdForLog(route)
-                    + " unit=" + unit.OwnerIndex.ToString(IC)
-                    + " schedule=" + (unit.RelaunchSchedule != null ? "1" : "0")
-                    + " loiterCuts=" + (unit.LoiterCuts != null ? unit.LoiterCuts.Count.ToString(IC) : "0")
-                    + " " + RouteLoopClock.DescribeHoldArgs(unit));
+                (route, unit),
+                st => "LoopRoute clock args: route=" + ShortIdForLog(st.route)
+                    + " unit=" + st.unit.OwnerIndex.ToString(IC)
+                    + " schedule=" + (st.unit.RelaunchSchedule != null ? "1" : "0")
+                    + " loiterCuts=" + (st.unit.LoiterCuts != null ? st.unit.LoiterCuts.Count.ToString(IC) : "0")
+                    + " " + RouteLoopClock.DescribeHoldArgs(st.unit));
 
             // Span-clock state.
             bool ok = RouteLoopClock.TryGetRouteLoopState(
@@ -188,11 +232,12 @@ namespace Parsek.Logistics
                 skipped++;
                 // The common per-route, per-tick path (one tick per frame under warp): the
                 // message (ten round-trip double formats) is built only when the line emits.
-                ParsekLog.VerboseRateLimited(Tag, "loop-noncross-" + route.Id,
-                    () => $"LoopRoute: route {ShortIdForLog(route)} no dock crossing " +
-                    $"(dockCycleIdx={dockCycleIndex.ToString(IC)}) — " +
-                    RouteLoopClock.DescribeState(unit, currentUT, loopUT, cycleIndex,
-                        isInInterCycleTail, route.RecordedDockUT, route.LastObservedLoopCycleIndex),
+                ParsekLog.VerboseRateLimitedComposed(Tag, logKeys.NonCross,
+                    (route, unit, currentUT, loopUT, cycleIndex, isInInterCycleTail, dockCycleIndex),
+                    st => $"LoopRoute: route {ShortIdForLog(st.route)} no dock crossing " +
+                    $"(dockCycleIdx={st.dockCycleIndex.ToString(IC)}) — " +
+                    RouteLoopClock.DescribeState(st.unit, st.currentUT, st.loopUT, st.cycleIndex,
+                        st.isInInterCycleTail, st.route.RecordedDockUT, st.route.LastObservedLoopCycleIndex),
                     5.0);
                 return;
             }
@@ -473,12 +518,15 @@ namespace Parsek.Logistics
             if (!anyOwed)
             {
                 skipped++;
-                ParsekLog.VerboseRateLimited(Tag, "loop-noncross-multi-" + route.Id,
-                    $"LoopRoute(multi): route {ShortIdForLog(route)} stops={stopCount.ToString(IC)} " +
-                    $"no due window — loopUT={loopUT.ToString("R", IC)} " +
-                    $"cycleIdx={cycleIndex.ToString(IC)} " +
-                    $"lastObserved={route.LastObservedLoopCycleIndex.ToString(IC)} " +
-                    $"maxDockUT={maxDockUT.ToString("R", IC)} at ut={currentUT.ToString("R", IC)}",
+                // The common per-tick path of a multi-stop route: the message is built only
+                // when the line emits.
+                ParsekLog.VerboseRateLimitedComposed(Tag, LogKeysFor(route).NonCrossMulti,
+                    (route, stopCount, loopUT, cycleIndex, maxDockUT, currentUT),
+                    st => $"LoopRoute(multi): route {ShortIdForLog(st.route)} stops={st.stopCount.ToString(IC)} " +
+                    $"no due window — loopUT={st.loopUT.ToString("R", IC)} " +
+                    $"cycleIdx={st.cycleIndex.ToString(IC)} " +
+                    $"lastObserved={st.route.LastObservedLoopCycleIndex.ToString(IC)} " +
+                    $"maxDockUT={st.maxDockUT.ToString("R", IC)} at ut={st.currentUT.ToString("R", IC)}",
                     5.0);
                 return;
             }

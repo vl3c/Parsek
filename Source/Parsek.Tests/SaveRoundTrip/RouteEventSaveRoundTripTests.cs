@@ -40,6 +40,12 @@ namespace Parsek.Tests.SaveRoundTrip
                 ["StateVersion"] = StaticFieldRule.NotPersisted(
                     "change counter for caches keyed on the log; a load bumps it, never restores it"),
                 ["IC"] = StaticFieldRule.Constant(),
+                // Not written themselves: the per-route index is rebuilt from the loaded
+                // events, so it must come back equal to the one the written log had.
+                ["rowsByRoute"] = StaticFieldRule.Persisted(),
+                ["rowsByRouteCycle"] = StaticFieldRule.Persisted(),
+                ["NoRows"] = StaticFieldRule.Constant(),
+                ["IndexDisabledForTesting"] = StaticFieldRule.NotPersisted("test seam, false outside tests"),
             };
 
         public static IEnumerable<object[]> EventTypes() =>
