@@ -918,9 +918,11 @@ committed flight never re-judges its old pieces. Both halves of a split carry th
 `CanAutoMerge` refuses two pieces cut under different versions. A Re-Fly attempt committed
 later is version 2 beside version-1 siblings of the same tree: accepted, the two never merge.
 EVA kerbals keep the version-1 rules. `ForceSplitRuleVersionForTesting` judges a fixture by
-another version. Known gap: the split recorder's fallback commit
-(`TreeCommitService.CommitRecordingDirect`) does not stamp, so such a recording is judged by
-the version-1 rules.
+another version. The split recorder's fallback commit (`TreeCommitService.CommitRecordingDirect`)
+stamps too. The RULE 3 fold of a covered split piece into a re-flown live recording
+(`CommittedListOptimizer.ReabsorbSplitPieceIntoLiveCopy`) refuses a piece cut under another
+version than the live recording and re-reads the survivor's pass role from its content after
+the fold.
 
 **Row roles.** Version-2 splits stamp `Recording.SegmentRole` on both halves: `ascent`, `space`,
 `aerobraking`, `reentry`, `approach`, `surface`, `atmosphere` (`RecordingOptimizer.SegmentRoles`;

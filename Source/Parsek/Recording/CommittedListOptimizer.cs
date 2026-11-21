@@ -895,6 +895,7 @@ namespace Parsek
             UpdateTreeStateAfterOptimizationMerge(survivor, absorbed);
             if (index >= 0)
                 RecordingStore.RemoveCommittedAt(index, mergeTarget);
+            ReReadSurvivorRoleAfterFold(survivor, mergeTarget);
             ParsekLog.Info("RecordingStore",
                 $"CommitTree: re-absorbed split piece '{absorbed.RecordingId}' into '{survivor.RecordingId}' " +
                 $"(tree={survivor.TreeId ?? "<none>"} " +
@@ -907,15 +908,49 @@ namespace Parsek
         }
 
         /// <summary>
+        /// After a fold the survivor holds the piece's span too, so a version-2 row role it
+        /// carried can contradict its content (a reentry row that now ends back in space): the
+        /// role is read again from the content (<see cref="RecordingOptimizer.ResolveHeadRoleAfterCut"/>),
+        /// on the live recording and on the committed copy of its id. The next optimization pass
+        /// re-cuts the survivor where the version-2 rules cut, and its merge guard
+        /// (<see cref="RecordingOptimizer.WouldSplitRulesCutJoin"/>) never re-joins such a cut.
+        /// One Info line when the role changed.
+        /// </summary>
+        internal static void ReReadSurvivorRoleAfterFold(Recording survivor, Recording mergeTarget)
+        {
+            if (survivor == null || !RecordingOptimizer.UsesCurrentSplitRules(survivor)) return;
+            string before = survivor.SegmentRole;
+            string after = RecordingOptimizer.ResolveHeadRoleAfterCut(survivor);
+            survivor.SegmentRole = after;
+            if (mergeTarget != null && !ReferenceEquals(mergeTarget, survivor))
+                mergeTarget.SegmentRole = after;
+            if (!string.Equals(before, after, StringComparison.Ordinal))
+                ParsekLog.Info("RecordingStore",
+                    $"CommitTree: '{survivor.RecordingId}' role re-read after the fold: " +
+                    $"{before ?? "<none>"} -> {after ?? "<none>"}");
+        }
+
+        /// <summary>
         /// Why a covered split piece must NOT be folded into a re-flown live recording, or null
         /// when it may be: a supersede row names it (either side: the fold would leave the row
         /// pointing at nothing), or a supply route sources from it (the optimizer merge holds
-        /// route sources the same way, <see cref="ChooseMergeCandidateIndex"/>).
+        /// route sources the same way, <see cref="ChooseMergeCandidateIndex"/>), or the piece and
+        /// <paramref name="survivor"/> (the live recording it would fold into; may be null) were
+        /// cut under different split rule versions (owner ruling Q5: the merge pass never joins
+        /// those either, <see cref="RecordingOptimizer.SplitRulesKeepApart"/>).
         /// </summary>
-        internal static string SplitPieceFoldRefusal(Recording piece)
+        internal static string SplitPieceFoldRefusal(Recording piece, Recording survivor = null)
         {
             if (piece == null || string.IsNullOrEmpty(piece.RecordingId))
                 return null;
+            if (survivor != null)
+            {
+                int pieceVersion = RecordingOptimizer.EffectiveSplitRuleVersion(piece);
+                int survivorVersion = RecordingOptimizer.EffectiveSplitRuleVersion(survivor);
+                if (pieceVersion != survivorVersion)
+                    return "it was cut under split rules v" + pieceVersion.ToString(CultureInfo.InvariantCulture)
+                        + " and the live recording carries v" + survivorVersion.ToString(CultureInfo.InvariantCulture);
+            }
             var supersedes = ParsekScenario.Instance?.RecordingSupersedes;
             if (supersedes != null)
             {

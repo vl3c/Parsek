@@ -913,20 +913,13 @@ namespace Parsek
         /// keeps the returned `(recordingIndex, sectionIndex)` pairs valid: `SplitAtSection`
         /// reads `original.TrackSections[sectionIndex].startUT` off the SAME live list before
         /// running its own Ensure, so analysis and split must see one section list.
-        /// </remarks>
-        internal static List<(int, int)> FindSplitCandidatesForOptimizer(IReadOnlyList<Recording> committed)
-        {
-            return FindSplitCandidatesForOptimizer(committed, null);
-        }
-
-        /// <summary>
-        /// <see cref="FindSplitCandidatesForOptimizer(IReadOnlyList{Recording})"/> that also
-        /// reports, in <paramref name="reasons"/> (parallel to the result; may be null), why each
+        ///
+        /// <paramref name="reasons"/> (parallel to the result; may be null) receives why each
         /// candidate's boundary splits. A candidate the discontinuity rule moved keeps the reason
         /// of the boundary it was moved from, which is what the split pass names the new row by.
-        /// </summary>
+        /// </remarks>
         internal static List<(int, int)> FindSplitCandidatesForOptimizer(
-            IReadOnlyList<Recording> committed, List<SplitBoundaryReason> reasons)
+            IReadOnlyList<Recording> committed, List<SplitBoundaryReason> reasons = null)
         {
             var candidates = new List<(int, int)>();
             if (committed == null) return candidates;
