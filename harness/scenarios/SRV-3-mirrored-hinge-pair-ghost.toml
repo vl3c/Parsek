@@ -230,7 +230,7 @@ required = [
   "MISSIONMARK label=srv3-replayed ut=[\\s\\S]*?\\[TestRunner\\] ServoMirroredPose: rec=[0-9A-Za-z]+ 'hinge\\.01' plainPid=3632131370 mirroredPid=3912851324 linkedBySym=true spawn plain=(?:59\\.9[5-9]|60\\.0[0-5]) mirrored=-(?:59\\.9[5-9]|60\\.0[0-5]) stockOff=[0-9]+\\.[0-9]{2}/[0-9]+\\.[0-9]{2} otherServosAtStock=1/1 sampleUT=[0-9]+\\.[0-9]{2} applied=[1-9][0-9]* plain=-?[0-9]+\\.[0-9]{2} mirrored=-?[0-9]+\\.[0-9]{2} mirror images",
   # Interim pin until the first flight: one FLIGHT cell, the split regexed (it self-skips without
   # the subject, so passed=[1-9] proves the recording carried the pair).
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=ServoMirroredPose scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=ServoMirroredPose scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

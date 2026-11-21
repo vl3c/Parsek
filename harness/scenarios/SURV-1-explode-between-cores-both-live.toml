@@ -105,20 +105,22 @@ allowedAnomalies = []
 # Measured 2 on `2026-11-20_2312` (the stack and the decoupled probe core).
 count = { min = 2, max = 2 }
 
-# REPORT-ONLY until a reading run.
+# ARMED 2026-11-21 off `2026-11-21_1143` (matched first on `2026-11-20_2312`): the split's
+# rewind point kept, nothing re-flown, nobody dead.
 [expectations.rewind]
-gating        = false
+gating        = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
+# ARMED 2026-11-21 off the same pair: one tree, the stack and the probe both Orbiting.
 [expectations.recordings.structure]
-gating         = false
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 2 }
-terminalStates = { Orbiting = { min = 2 } }
-branchPoints   = { JointBreak = { min = 1 } }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Orbiting = { min = 2, max = 2 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 } }
 
 [expectations.logContracts]
 required = [

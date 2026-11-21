@@ -796,7 +796,7 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # (design-vessel-and-mission-names.md 15.3).
     #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
     #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    #     activate|explode|chute|runtest|transfer|servomax|servomin|rotoron|rotoroff
+    #     activate|explode|chute|runtest|transfer|servomax|servomin|rotoron|rotoroff|rotorbrake
     #     [part=<part name>]
     #     [converter=<ConverterName>] [all=true] [pid=<pid>] [partPid=<part persistentId>]
     #     [resource=<R>] (transfer only: moves R from every other part of the vessel into
@@ -4114,7 +4114,7 @@ PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
     "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
     "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
     "radiatoroff", "activate", "explode", "chute", "runtest", "transfer", "servomax",
-    "servomin", "rotoron", "rotoroff",
+    "servomin", "rotoron", "rotoroff", "rotorbrake",
 )
 PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
     b for b in PARTACTION_BUTTON_VALUES if b != "undock")

@@ -642,7 +642,8 @@ the updates below record how each verb arrived.
 > inherits from `BaseServo` (KSP 1.12.5 decompiled; `EngageMotor()` / `DisengageMotor()`, not a
 > toggle, unlike the rotor's own `MotorPowerAction`), invoked the same way. The motor then spins
 > the rotor up to its `rpmLimit` (or lets it spin down) over later physics frames, so `state=` reads
-> the commanded `rotor:engaged=0|1 rpmLimit=<F2>`. Candidates come from that module only; a named
+> the commanded `rotor:engaged=0|1 rpmLimit=<F2>` (`torqueLimit=<F2>` appended 2026-11-21, when
+> `rotoron` learned to raise the torque limit stock zeroes at a FLIGHT start). Candidates come from that module only; a named
 > part carrying none refuses `partaction-rotor-not-found`. It spins a rotor during a recording so
 > the recorder's RPM read and the ghost's rotor spin can be read on the replay (SRV-2).
 
@@ -4848,7 +4849,7 @@ way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
 stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode|chute|
-transfer|servomax|servomin|rotoron|rotoroff> [part=<part name>]
+transfer|servomax|servomin|rotoron|rotoroff|rotorbrake> [part=<part name>]
 [converter=<ConverterName>] [all=true] [pid=<persistentId>] [partPid=<part persistentId>]
 [resource=<R>] [expectSnapshot=true|false rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,
 case-sensitive (`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime
@@ -4900,7 +4901,19 @@ invoked exactly as the servo pair), engaging / disengaging the motor (`servoMoto
 candidates are the rotor modules whose action is `active`, `all=true` presses every one, and
 named parts carrying no rotor refuse `partaction-rotor-not-found` (driver-arg). The rotor spins
 up to its `rpmLimit` or down over later physics frames; `state=` reads
-`rotor:engaged=0|1 rpmLimit=<F2>`, the commanded motor state. A repeated press is a stock no-op.
+`rotor:engaged=0|1 rpmLimit=<F2> torqueLimit=<F2>`, the commanded motor state. A repeated press is a
+stock no-op. Stock zeroes a rotor's torque limit (`servoMotorLimit`) in `OnStart` whenever the scene
+is FLIGHT (KSP 1.12.5 decompiled), so an engaged motor with no torque never turns (SRV-2's first
+flight, 2026-11-21): `rotoron` then also presses the rotor's own `MotorPowerAction`
+(`ToggleMotorPower`, which sets the limit to 100), as a player raises the Torque Limit before a
+rotor spins, and logs Info `partaction rotor torque raised: button=rotoron pid= part= partId=
+action=MotorPowerAction servoMotorLimit=0.00->100.00` (a limit above 0 is kept: Verbose
+`partaction rotor torque kept:`; no such action: Warn `partaction rotor torque not raised:`).
+`button=rotorbrake part=<name>` (2026-11-21, SRV-2's second flight) presses the rotor's own
+`BrakeAction` (the action stock binds to the Brakes group) as `Activate`: a disengaged rotor COASTS
+(stock holds it with a drive of 1 toward zero speed, so SRV-2 read 30 RPM three seconds after
+`rotoroff`), the brake drives it to zero with `brakeTorque * brakePercentage` (60 on the EM-16) and
+it stops. Candidates and refusals are the rotor pair's.
 
 **Behavior.** Resolves a LOADED, non-ghost vessel (`-no-active-vessel`, `-vessel-not-found`,
 `-target-is-ghost`, `-vessel-unloaded`), then collects the candidate buttons: every module on the

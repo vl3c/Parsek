@@ -51,7 +51,8 @@ id = "PADX-3-pad-row-crossed-while-recording"
 #   - no `Flight clock reached a committed ledger row` in the 1x window: the cursor did not run
 #     (a pending rewind UT adjustment, or an unready clock); read the Update gates.
 #
-# STATUS: AUTHORED 2026-11-21 (branch `test-gaps-batch3`), NEVER FLOWN.
+# STATUS: AUTHORED 2026-11-21 (branch `test-gaps-batch3`); FIRST FLIGHT GREEN 2026-11-21
+# `2026-11-21_1138_PADX-3-pad-row-crossed-while-recording` (PASS attempt 1, 164 s).
 #
 # FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): (1) reuse: PADX-1's flight A
 # and rewind verbatim, PADX-2's Settings Probe launch; a second leg on PADX-1 or PADX-2 was

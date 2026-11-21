@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 158 |
 | seam-only lanes | 499 |
-| LIVE-PROVEN date in status row | 531 |
-| no LIVE-PROVEN date | 126 |
+| LIVE-PROVEN date in status row | 540 |
+| no LIVE-PROVEN date | 117 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -88,7 +88,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | OC | 1 | - | 1 | - | - | - | 1 |
 | PAD | 1 | - | 1 | - | - | - | 1 |
 | PADG | 1 | - | 1 | - | - | - | 1 |
-| PADX | 3 | - | - | 3 | - | - | 2 |
+| PADX | 3 | - | - | 3 | - | - | 3 |
 | PPB | 3 | - | - | 3 | - | - | 3 |
 | PWR | 3 | - | 3 | - | - | 3 | 3 |
 | QL | 23 | - | 23 | - | - | 10 | 23 |
@@ -106,7 +106,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | RS | 1 | - | 1 | - | - | - | 1 |
 | RSC | 3 | - | 3 | - | - | - | 3 |
 | RSF | 1 | - | 1 | - | - | - | 1 |
-| RSQ | 4 | - | - | 4 | - | - | - |
+| RSQ | 4 | - | - | 4 | - | - | 4 |
 | RVC | 1 | - | - | 1 | - | - | 1 |
 | RVR | 19 | 1 | 18 | - | - | - | 18 |
 | RW | 25 | - | - | 25 | - | 1 | 25 |
@@ -119,9 +119,9 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | SH | 1 | - | - | 1 | - | - | 1 |
 | SLM | 3 | - | - | 3 | - | - | 3 |
 | SN | 1 | - | 1 | - | - | - | 1 |
-| SOI | 3 | - | - | 3 | - | 2 | 2 |
+| SOI | 3 | - | - | 3 | - | 2 | 3 |
 | SPW | 11 | - | - | 11 | - | - | 11 |
-| SRV | 3 | - | - | 3 | - | - | - |
+| SRV | 3 | - | - | 3 | - | - | 3 |
 | SS | 1 | - | 1 | - | - | - | - |
 | ST | 4 | - | 4 | - | - | 1 | 4 |
 | STR | 4 | - | - | 4 | - | 2 | 4 |
@@ -332,8 +332,8 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 411 | 127 | 334 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, L 17 +82 |
-| Mun | 65 | 15 | 50 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, MC 2, EVA 1 +11 |
+| Kerbin | 411 | 127 | 343 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, L 17 +82 |
+| Mun | 65 | 15 | 55 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, MC 2, EVA 1 +11 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
 | Eve | 12 | 4 | 6 | V 7, B 4, FAR 1 |
@@ -815,8 +815,8 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 228 lan
 
 | gating table | lanes |
 |---|---|
-| recordings.structure | 92 |
-| rewind | 81 |
+| recordings.structure | 100 |
+| rewind | 87 |
 | routes | 19 |
 | ghostLifecycle | 9 |
 | renderComposition | 7 |
@@ -1487,7 +1487,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | PADX-1-pad-destroyed-by-flight-rewind | operator | career-pad-craft | seam | Kerbin | rewind-to-launch, save, warp | - | LIVE-PROVEN 2026-11-20 |
 | PADX-2-pad-destroyed-by-flight-f9 | operator | career-pad-craft | seam | Kerbin | rewind-to-launch, reload, save, warp +1 | - | LIVE-PROVEN 2026-11-20 |
-| PADX-3-pad-row-crossed-while-recording | operator | career-pad-craft | seam | Kerbin | rewind-to-launch, save, warp, scene-change | - | AUTHORED 2026-11-21 (branch test-gaps-bat... |
+| PADX-3-pad-row-crossed-while-recording | operator | career-pad-craft | seam | Kerbin | rewind-to-launch, save, warp, scene-change | - | LIVE-PROVEN 2026-11-21 |
 
 ### PPB (3)
 
@@ -1662,10 +1662,10 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| RSQ-1-rescue-rebuilt-at-space-center | operator | cs-career-mun4 | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +1 | - | FIRST FLIGHT 2026-11-20 2026-11-20_2308_R... |
-| RSQ-2-rescue-rebuilt-in-flight-deferred | operator | cs-career-mun4 | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +2 | - | FIRST FLIGHT 2026-11-20 2026-11-20_2311_R... |
-| RSQ-3-rescue-deferral-kept-across-rewind | operator | cs-career-mun4 | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +2 | - | AUTHORED 2026-11-21 (branch test-gaps-bat... |
-| RSQ-4-rescue-deferral-kept-across-discard-refly | operator | cs-career-mun4 | seam | Kerbin, Mun | rewind-to-launch, re-fly, revert, reload +4 | - | AUTHORED 2026-11-21 (branch test-gaps-bat... |
+| RSQ-1-rescue-rebuilt-at-space-center | operator | cs-career-mun4 | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +1 | - | LIVE-PROVEN 2026-11-21 |
+| RSQ-2-rescue-rebuilt-in-flight-deferred | operator | cs-career-mun4 | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +2 | - | LIVE-PROVEN 2026-11-21 |
+| RSQ-3-rescue-deferral-kept-across-rewind | operator | cs-career-mun4 | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +2 | - | LIVE-PROVEN 2026-11-21 |
+| RSQ-4-rescue-deferral-kept-across-discard-refly | operator | cs-career-mun4 | seam | Kerbin, Mun | rewind-to-launch, re-fly, revert, reload +4 | - | LIVE-PROVEN 2026-11-21 |
 
 ### RVC (1)
 
@@ -1810,7 +1810,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | SOI-1-mun-exit-physics-burn | operator | mun-park-kerbalx | soi1_mun_exit_burn | Kerbin, Mun | - | - | LIVE-PROVEN 2026-11-04 |
 | SOI-2-mun-exit-formation-wingman | operator | mun-park-kerbalx | soi1_mun_exit_burn | Kerbin, Mun | - | - | LIVE-PROVEN 2026-11-17 |
-| SOI-3-bg-probe-mun-exit-on-rails | operator | mun-escape-probe-stack | seam | Kerbin, Mun | save, warp | BgSoiCrossingPlayback | FIRST FLIGHT 2026-11-20 2026-11-20_2310_S... |
+| SOI-3-bg-probe-mun-exit-on-rails | operator | mun-escape-probe-stack | seam | Kerbin, Mun | save, warp | BgSoiCrossingPlayback | LIVE-PROVEN 2026-11-21 |
 
 ### SPW (11)
 
@@ -1832,9 +1832,9 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| SRV-1-hinge-followers-ghost | operator | srv-hinge-rover | seam | Kerbin | rewind-to-launch, reload, save, warp | ServoFollowers | FIRST FLIGHT 2026-11-20 2026-11-20_2314_S... |
-| SRV-2-rotor-spin-ghost | operator | srv-rotor-rover | seam | Kerbin | rewind-to-launch, reload, save, warp | - | AUTHORED 2026-11-21, NEVER FLOWN |
-| SRV-3-mirrored-hinge-pair-ghost | operator | srv-mirror-hinge-rover | seam | Kerbin | rewind-to-launch, reload, save, warp | ServoMirroredPose | AUTHORED 2026-11-21, NEVER FLOWN |
+| SRV-1-hinge-followers-ghost | operator | srv-hinge-rover | seam | Kerbin | rewind-to-launch, reload, save, warp | ServoFollowers | LIVE-PROVEN 2026-11-21 |
+| SRV-2-rotor-spin-ghost | operator | srv-rotor-rover | seam | Kerbin | rewind-to-launch, reload, save, warp | - | LIVE-PROVEN 2026-11-21 |
+| SRV-3-mirrored-hinge-pair-ghost | operator | srv-mirror-hinge-rover | seam | Kerbin | rewind-to-launch, reload, save, warp | ServoMirroredPose | LIVE-PROVEN 2026-11-21 |
 
 ### SS (1)
 

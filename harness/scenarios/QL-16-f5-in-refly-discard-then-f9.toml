@@ -136,13 +136,13 @@ allowedAnomalies = []
 # plus the merged attempt.
 count = { min = 4, max = 4 }
 
-# REPORT-ONLY. Read on `2026-11-20_2307`: supersedeRows=1 tombstones=0 rewindPoints=0 (the
+# ARMED 2026-11-21 off `2026-11-21_1142` (matched first on `2026-11-20_2340`). Read on `2026-11-20_2307`: supersedeRows=1 tombstones=0 rewindPoints=0 (the
 # merge sealed the last open slot and the point reaped), rewindPointFiles=1
 # unlistedRewindPointFiles=1 (the reaped point's quicksave is released for a later
 # collection, design-load-restores-the-save.md 4.5).
 [expectations.rewind]
-gating        = false
-supersedeRows = { max = 1 }
+gating        = true
+supersedeRows = { min = 1, max = 1 }
 tombstones    = { max = 0 }
 rewindPoints  = { min = 0, max = 0 }
 

@@ -118,20 +118,24 @@ allowedAnomalies = []
 # Measured 2 on `2026-11-20_2313` (the destroyed pod and the survivor).
 count = { min = 2, max = 2 }
 
-# REPORT-ONLY until a reading run.
+# ARMED 2026-11-21 off `2026-11-21_1141` (matched first on `2026-11-20_2313`): no rewind point
+# (the crash is not a separation), nothing re-flown, nobody dead.
 [expectations.rewind]
-gating        = false
+gating        = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
+# ARMED 2026-11-21 off `2026-11-21_1213` (matched first on `2026-11-21_1141`, both on the
+# SURVIVOR-DESTROYED-AT-SCENE-EXIT fix; the pre-fix `2026-11-20_2313` read Destroyed 2): the
+# pod Destroyed, the unloaded probe survivor Orbiting.
 [expectations.recordings.structure]
-gating         = false
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 2 }
-terminalStates = { Destroyed = { min = 1, max = 1 }, Orbiting = { min = 1 } }
-branchPoints   = { JointBreak = { min = 1 } }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Destroyed = { min = 1, max = 1 }, Orbiting = { min = 1, max = 1 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 } }
 
 [expectations.logContracts]
 required = [

@@ -124,15 +124,17 @@ allowedAnomalies = []
 # debris and optimizer splits, gave 2..14 before the first flight).
 count = { min = 3, max = 3 }
 
-# REPORT-ONLY until a reading run. The merge wrote a supersede row (RF-1 measured 1).
+# ARMED 2026-11-21 off `2026-11-21_1134` (matched first on `2026-11-20_2314`): the merge wrote
+# one supersede row.
 [expectations.rewind]
-supersedeRows = { min = 1 }
+gating        = true
+supersedeRows = { min = 1, max = 1 }
 
-# REPORT-ONLY until a reading run. The committed legs after the merge: the booster's on the
+# ARMED 2026-11-21 off the same pair. The committed legs after the merge: the booster's on the
 # attempt's stock name, the pod's on the Parsek name made inside the attempt, none on a
 # replaced or captured name.
 [expectations.recordings.structure]
-gating         = false
+gating         = true
 recordingNames = { "VN14 Booster Stock" = { min = 1 }, "VN14 Pod" = { min = 1 }, "VN14 Booster" = { max = 0 }, "GS1 Auto-Chute Booster Probe" = { max = 0 }, "GS1 Auto-Chute Booster" = { max = 0 } }
 
 [expectations.logContracts]

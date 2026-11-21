@@ -126,9 +126,10 @@ allowedAnomalies = []
 # Kerbal X's continuation).
 count = { min = 2, max = 2 }
 
-# REPORT-ONLY until a reading run: one committed tree, the probe in none of its legs.
+# ARMED 2026-11-21 off `2026-11-21_1144` (matched first on `2026-11-20_2341`): one committed
+# tree, the probe in none of its legs.
 [expectations.recordings.structure]
-gating         = false
+gating         = true
 committedTrees = 1
 recordingNames = { "Kerbal X" = { min = 1 }, "Kerbal X Probe" = { max = 0 } }
 
