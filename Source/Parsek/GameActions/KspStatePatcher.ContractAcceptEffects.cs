@@ -634,9 +634,11 @@ namespace Parsek
                     $"PatchContracts: {typeName}.OnAccepted threw for rebuilt contract '{contractId}' " +
                     $"({inner.GetType().Name}: {inner.Message}); vessels added before the throw=" +
                     $"{added.Count.ToString(IC)} [{ContractAcceptWorldIndexer.Describe(added)}]");
+                if (added.Count == 0) ClearPrebuiltSpawnWaitLogged(contractId, typeName, contract);
                 return added.Count > 0;
             }
             added = ReadAddedWorldVessels(keysBefore);
+            if (added.Count == 0) ClearPrebuiltSpawnWaitLogged(contractId, typeName, contract);
             ConfigNode after = SaveLiveContract(contractId, contract);
             PrebuiltShipTarget now = ContractAcceptWorldEffects.ReadPrebuiltShipTarget(typeName, after);
             ParsekLog.Info(Tag,
@@ -645,6 +647,15 @@ namespace Parsek
                 $"[{ContractAcceptWorldIndexer.Describe(added)}] (craft='{target.CraftUrl}'; " +
                 $"vesselPid {target.VesselPid.ToString(IC)} -> {now.VesselPid.ToString(IC)})");
             return added.Count > 0;
+        }
+
+        private static void ClearPrebuiltSpawnWaitLogged(string contractId, string typeName, Contract contract)
+        {
+            string outcome = ContractAcceptWorldEffects.ClearPrebuiltSpawnWait(contract);
+            ParsekLog.Warn(Tag,
+                $"PatchContracts: prebuilt ship not spawned for rebuilt contract '{contractId}' " +
+                $"({typeName}.OnAccepted added no vessel); {ContractAcceptWorldEffects.PrebuiltSpawnWaitField} " +
+                $"outcome={outcome}");
         }
 
         /// <summary>

@@ -379,7 +379,11 @@ this; its vessel is in that save).
      `prebuilt ship not spawned for '<id>'` / `<Type>.OnAccepted threw`. Double-spawn guards: the
      spawned craft is live at once and the contract names it (TargetPresent by id); a later rebuild
      from the old snapshot finds it by name (stock's OnLoad, and the index); a drained id leaves the
-     list whatever it decides.
+     list whatever it decides. When the re-run `OnAccepted` adds no vessel (`ConstructShip` returns
+     early on a missing craft file or launch site, or it throws), the shell clears the contract's
+     protected `waitingForVslSpawn` (`ContractAcceptWorldEffects.ClearPrebuiltSpawnWait`, Warn
+     `prebuilt ship not spawned ... waitingForVslSpawn outcome=cleared`), because a flag left set
+     makes the contract adopt the next prebuilt craft any other contract spawns.
    - `ExperimentalPartDecision` (first match): `NotReadable`, `NotExperimentalAtAccept`
      (`exp = False`), `RnDNotReadable` (R&D not loaded or its private `experimentalPartsStock` map
      unreadable), `Present` (R&D's count >= 1 + the other Active PartTests of the same part with

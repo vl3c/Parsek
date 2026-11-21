@@ -826,5 +826,43 @@ namespace Parsek.Tests
             Assert.Equal(nameof(ExperimentalPartDecision.NotReadable), plan.Outcome);
             Assert.Equal(ContractAcceptRepair.None, plan.Repair);
         }
+        // A stand-in for the stock templates, which declare the flag protected on the
+        // concrete type; the helper walks the hierarchy, so a subclass reaches it too.
+        private class FakePrebuiltTemplate
+        {
+            protected bool waitingForVslSpawn;
+            public FakePrebuiltTemplate(bool waiting) { waitingForVslSpawn = waiting; }
+            public bool Waiting => waitingForVslSpawn;
+        }
+
+        private class FakePrebuiltSubclass : FakePrebuiltTemplate
+        {
+            public FakePrebuiltSubclass() : base(true) { }
+        }
+
+        [Fact]
+        public void ClearPrebuiltSpawnWait_ClearsASetFlag_SoTheContractAdoptsNoLaterCraft()
+        {
+            var c = new FakePrebuiltTemplate(true);
+            Assert.Equal("cleared", ContractAcceptWorldEffects.ClearPrebuiltSpawnWait(c));
+            Assert.False(c.Waiting);
+        }
+
+        [Fact]
+        public void ClearPrebuiltSpawnWait_ReachesTheFlagDeclaredOnABaseType()
+        {
+            var c = new FakePrebuiltSubclass();
+            Assert.Equal("cleared", ContractAcceptWorldEffects.ClearPrebuiltSpawnWait(c));
+            Assert.False(c.Waiting);
+        }
+
+        [Fact]
+        public void ClearPrebuiltSpawnWait_ReportsClearNoFieldAndNoContract()
+        {
+            Assert.Equal("already-clear",
+                ContractAcceptWorldEffects.ClearPrebuiltSpawnWait(new FakePrebuiltTemplate(false)));
+            Assert.Equal("no-field", ContractAcceptWorldEffects.ClearPrebuiltSpawnWait(new object()));
+            Assert.Equal("no-contract", ContractAcceptWorldEffects.ClearPrebuiltSpawnWait(null));
+        }
     }
 }

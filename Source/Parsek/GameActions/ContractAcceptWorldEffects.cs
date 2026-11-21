@@ -448,6 +448,34 @@ namespace Parsek
             return scene == GameScenes.SPACECENTER;
         }
 
+        /// <summary>The protected flag a construction / repair template sets in
+        /// <c>OnAccepted</c> and clears in its <c>onContractPreBuiltVesselSpawned</c> handler
+        /// (decompiled KSP 1.12.5, all three templates).</summary>
+        internal const string PrebuiltSpawnWaitField = "waitingForVslSpawn";
+
+        /// <summary>
+        /// Clears <see cref="PrebuiltSpawnWaitField"/> on a contract whose re-run
+        /// <c>OnAccepted</c> added no vessel. <c>ConstructShip</c> can return before it spawns
+        /// (craft file missing, no launch site), and a flag left set makes the contract adopt
+        /// the next prebuilt craft any other contract spawns. Returns the outcome token
+        /// (<c>cleared</c>, <c>already-clear</c>, <c>no-field</c>, <c>no-contract</c>).
+        /// </summary>
+        internal static string ClearPrebuiltSpawnWait(object contract)
+        {
+            if (contract == null) return "no-contract";
+            for (Type t = contract.GetType(); t != null; t = t.BaseType)
+            {
+                System.Reflection.FieldInfo f = t.GetField(PrebuiltSpawnWaitField,
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public
+                    | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.DeclaredOnly);
+                if (f == null || f.FieldType != typeof(bool)) continue;
+                if (!(bool)f.GetValue(contract)) return "already-clear";
+                f.SetValue(contract, false);
+                return "cleared";
+            }
+            return "no-field";
+        }
+
         /// <summary>The scene a deferred repair of <paramref name="effect"/> may run in.</summary>
         internal static bool IsDeferredRepairScene(ContractAcceptWorldEffect effect, GameScenes scene)
         {
