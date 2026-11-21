@@ -341,5 +341,140 @@ class UncheckedAndScopeTests(unittest.TestCase):
         self.assertIn("saveGates(proven=", mutlib.summary_line(with_text))
 
 
+class RewindPointFileTests(unittest.TestCase):
+    """The rewind block's two FILE facets read the Parsek/RewindPoints listing
+    beside the save, not the .sfs text; the checker edits a copy of that listing
+    (drop a listed file, add an unlisted one, leave the folder unread)."""
+
+    # B9's one POINT is rp_b9_root; stale.sfs is a file no POINT lists, and a
+    # non-.sfs name never counts.
+    LISTING = ("rp_b9_root.sfs", "stale.sfs", "notes.txt")
+
+    @staticmethod
+    def _exp(files, unlisted, **extra):
+        return {"rewind": dict({"gating": True, "rewindPointFiles": files,
+                                "unlistedRewindPointFiles": unlisted}, **extra)}
+
+    def _run(self, exp, files):
+        lane = mutlib.check_save_lane({"id": "T", "expectations": exp}, "test", SAVE, files)
+        return lane, {g.label: g for g in lane.save_gates}
+
+    def _muts(self, lane, label):
+        return [m for m in lane.mutations if m.target.startswith(label + " ")]
+
+    def test_pinned_file_windows_are_proven_both_ways_and_by_the_unread_fault(self):
+        lane, gates = self._run(self._exp(2, 1), self.LISTING)
+        self.assertEqual(mutlib.BASELINE_GREEN, lane.baseline, lane.baseline_reasons)
+        for label in ("rewind.rewindPointFiles", "rewind.unlistedRewindPointFiles",
+                      "rewind:unread-listing"):
+            self.assertEqual(mutsave.PROVEN, gates[label].verdict, (label, gates[label]))
+        files = self._muts(lane, "rewind.rewindPointFiles")
+        self.assertEqual({mutsave.KIND_DOWN, mutsave.KIND_UP}, {m.kind for m in files})
+        self.assertTrue(all(m.outcome == mutlib.KILLED for m in files))
+        down = [m for m in files if m.kind == mutsave.KIND_DOWN][0]
+        # The listed file goes first, so the unlisted count is left alone.
+        self.assertIn("rp_b9_root.sfs", down.detail)
+        self.assertIn("re-measured 1", down.detail)
+        unlisted = [m for m in self._muts(lane, "rewind.unlistedRewindPointFiles")
+                    if m.kind == mutsave.KIND_DOWN][0]
+        self.assertIn("stale.sfs", unlisted.detail)
+        self.assertEqual(mutlib.KILLED, unlisted.outcome)
+
+    def test_an_empty_folder_pinned_at_zero_is_proven_by_adding_a_file(self):
+        # STR-3's shape: the revert deleted the quicksave, both facets pin 0.
+        lane, gates = self._run(self._exp(0, 0), ())
+        self.assertEqual(mutlib.BASELINE_GREEN, lane.baseline, lane.baseline_reasons)
+        for label in ("rewind.rewindPointFiles", "rewind.unlistedRewindPointFiles"):
+            self.assertEqual(mutsave.PROVEN, gates[label].verdict)
+            (up,) = [m for m in self._muts(lane, label) if m.kind == mutsave.KIND_UP]
+            self.assertIn("added 1 unlisted", up.detail)
+            self.assertEqual(mutlib.KILLED, up.outcome)
+        self.assertEqual(mutsave.PROVEN, gates["rewind:unread-listing"].verdict)
+
+    def test_an_unmeasured_listing_is_a_red_baseline_never_zero(self):
+        lane, gates = self._run(self._exp(0, 0), None)
+        self.assertEqual(mutlib.BASELINE_NOT_GREEN, lane.baseline)
+        self.assertEqual({}, gates)
+        self.assertTrue(any("rewind.rewindPointFiles: not measured" in r
+                            for r in lane.baseline_reasons), lane.baseline_reasons)
+
+    def test_no_file_window_means_no_unread_fault(self):
+        lane, gates = self._run({"rewind": {"gating": True, "rewindPoints": 1}}, self.LISTING)
+        self.assertEqual(mutlib.BASELINE_GREEN, lane.baseline)
+        self.assertNotIn("rewind:unread-listing", gates)
+        self.assertEqual(mutsave.PROVEN, gates["rewind.rewindPoints"].verdict)
+
+    def test_an_unlisted_count_that_stopped_reading_the_listing_is_vacuous(self):
+        # Only the listed file is on disk, so unlisted reads 0 either way; a
+        # count that ignores the listing never moves when a stray file appears.
+        with Patched(saveparse, "unlisted_rewind_point_files", lambda _s: ()):
+            lane, gates = self._run(self._exp(1, {"max": 0}), ("rp_b9_root.sfs",))
+        self.assertEqual(mutlib.BASELINE_GREEN, lane.baseline, lane.baseline_reasons)
+        gate = gates["rewind.unlistedRewindPointFiles"]
+        self.assertEqual(mutsave.VACUOUS, gate.verdict)
+        self.assertIn("dead path", gate.reason)
+
+    def test_the_baseline_listing_is_never_edited(self):
+        listing = list(self.LISTING)
+        self._run(self._exp(2, 1), listing)
+        self.assertEqual(list(self.LISTING), listing)
+
+    def test_check_lane_carries_the_listing_into_the_save_edits(self):
+        exp = self._exp(2, 1)
+        spec = {"id": "T", "expectations": exp}
+        snap = saveparse.with_rewind_point_files(saveparse.parse_parsek_scenario(SAVE),
+                                                 self.LISTING)
+        lane = mutlib.check_lane(spec, mutlib.ArchiveInputs(
+            "a", "", None, snap, SAVE, rewind_point_files=self.LISTING))
+        self.assertEqual(mutlib.BASELINE_GREEN, lane.baseline, lane.baseline_reasons)
+        gates = {g.label: g.verdict for g in lane.save_gates}
+        self.assertEqual(mutsave.PROVEN, gates["rewind.unlistedRewindPointFiles"])
+        self.assertEqual(mutsave.PROVEN, gates["rewind:unread-listing"])
+
+
+class RewindPointListingShellTests(unittest.TestCase):
+    """mutation_check reads the listing through run.read_rewind_point_listing, the
+    reader run.read_save_structure (the live saveParse verifier) uses."""
+
+    @classmethod
+    def setUpClass(cls):
+        tools = os.path.join(os.path.dirname(_HERE), "tools")
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
+        import mutation_check  # noqa: E402
+        import run  # noqa: E402
+        cls.mc, cls.runmod = mutation_check, run
+
+    def test_missing_present_and_unreadable_folders(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as save:
+            self.assertEqual((), self.mc.read_rewind_point_files(save))
+            rp = os.path.join(save, "Parsek", "RewindPoints")
+            os.makedirs(rp)
+            open(os.path.join(rp, "rp_a.sfs"), "w").close()
+            self.assertEqual(("rp_a.sfs",), self.mc.read_rewind_point_files(save))
+            with Patched(self.runmod, "read_rewind_point_listing", lambda _d: None):
+                self.assertIsNone(self.mc.read_rewind_point_files(save))
+        self.assertIsNone(self.mc.read_rewind_point_files(None))
+
+    def test_both_readers_share_one_listing_function(self):
+        import tempfile
+        seen = []
+
+        def spy(save_dir):
+            seen.append(save_dir)
+            return ["spy.sfs"]
+
+        with tempfile.TemporaryDirectory() as save:
+            with open(os.path.join(save, "persistent.sfs"), "w") as fh:
+                fh.write(SAVE)
+            with Patched(self.runmod, "read_rewind_point_listing", spy):
+                snap = self.runmod.read_save_structure(save)
+                files = self.mc.read_rewind_point_files(save)
+        self.assertEqual([save, save], seen)
+        self.assertEqual(("spy.sfs",), snap.rewind_point_files)
+        self.assertEqual(("spy.sfs",), files)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7664,6 +7664,13 @@ six publish or compare numbers the runner already measured.
     produced save; 1802 edits, 1802 killed; 1308 gates PROVEN, 0 VACUOUS, 0 UNCHECKED
     (608 down-crossings, 741 up-crossings, 449 faults, 4 set re-points). Committed fixture
     templates alone give a green baseline for 54 of the 124, all PROVEN.
+    REWIND-POINT FILE FACETS (branch `test-gaps-mutation-rp`, 2026-11-21): the checker now
+    reads the `Parsek/RewindPoints` listing beside each save through the live verifier's
+    reader (`run.read_rewind_point_listing`) and edits a copy of it (drop a listed file,
+    add an unlisted one, plus an `unread-listing` fault), so `rewindPointFiles` /
+    `unlistedRewindPointFiles` are mutation-checked; before, a lane arming them (STR-3)
+    read a red baseline (`not measured`). STR-3 over `2026-11-21_1229_..._a2`'s produced
+    save: 6 of 6 killed, both file windows and the fault PROVEN.
     PHASE 2 PR 2, LEDGER PERTURBATION (branch `mutation-phase2-pr2`, 2026-10-01; pure core
     `harness/lib/mutledger.py`, `mutation_check.py --ledger-only`): the ledger-oracle
     verifier's decisions moved from `run.py` into `harness/lib/ledgerverify.py`, which both

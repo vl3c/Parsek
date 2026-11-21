@@ -30,6 +30,10 @@ them under the umbrella root):
 spec with an ARMED save-parse block, the newest archived produced save whose armed
 blocks pass, else the spec's committed ``fixture.saveTemplate`` when that passes;
 no KSP.log is needed, so it also reaches lanes whose logs no longer replay green.
+Each save is judged with the ``Parsek/RewindPoints`` listing beside it, read by the
+live verifier's own reader (``run.read_rewind_point_listing``), so the rewind
+block's file facets (``rewindPointFiles``, ``unlistedRewindPointFiles``) are
+measured and mutated as they are in a flight.
 
 ``--ledger-only`` runs only the ledger-oracle checks (``lib/mutledger.py``): for every
 spec with an ``[expectations.ledger]`` or ``[expectations.world]`` block, the newest
@@ -64,11 +68,13 @@ from typing import Dict, List, Optional
 HERE = os.path.dirname(os.path.abspath(__file__))
 HARNESS_ROOT = os.path.dirname(HERE)
 LIB_DIR = os.path.join(HARNESS_ROOT, "lib")
-if LIB_DIR not in sys.path:
-    sys.path.insert(0, LIB_DIR)
+for _p in (LIB_DIR, HARNESS_ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import mutledger  # noqa: E402
 import mutlib  # noqa: E402
+import run  # noqa: E402  (the live verifier's save-folder readers)
 import saveparse  # noqa: E402
 
 MISSIONS_DIR = os.path.join(HARNESS_ROOT, "missions")
@@ -204,12 +210,17 @@ def read_inputs(ref: mutlib.ArchiveRef, spec: Optional[Dict] = None) -> mutlib.A
     if ref.recordings_dir and os.path.isdir(ref.recordings_dir):
         count = sum(1 for f in os.listdir(ref.recordings_dir) if f.endswith(".prec"))
     save_text = read_save_text(ref)
-    snapshot = saveparse.parse_parsek_scenario(save_text) if save_text is not None else None
+    rp_files = read_rewind_point_files(ref.save_dir) if save_text is not None else None
+    snapshot = None
+    if save_text is not None:
+        snapshot = saveparse.parse_parsek_scenario(save_text)
+        if rp_files is not None:
+            snapshot = saveparse.with_rewind_point_files(snapshot, rp_files)
     label = "%s:%s%s" % (ref.source, ref.run_id, " (log truncated)" if ref.truncated else "")
     return mutlib.ArchiveInputs(label, text, count, snapshot, save_text,
                                 read_ledger_inputs(ref, text),
                                 read_mission_inputs(ref, spec) if spec else None,
-                                source_corpus())
+                                source_corpus(), rp_files)
 
 
 _CORPUS: List[Optional[str]] = []
@@ -419,12 +430,30 @@ def read_save_text(ref: mutlib.ArchiveRef) -> Optional[str]:
         return fh.read()
 
 
-def fixture_save_text(spec: Dict) -> Optional[str]:
-    """The spec's committed fixture template (never an operator-local one)."""
+def read_rewind_point_files(save_dir: Optional[str]) -> Optional[tuple]:
+    """The ``Parsek/RewindPoints`` listing beside a save, through the live
+    verifier's reader (a missing folder is an empty listing, an unreadable one
+    None, so the file facets stay unmeasured exactly as in a flight)."""
+    if not save_dir:
+        return None
+    names = run.read_rewind_point_listing(save_dir)
+    return tuple(names) if names is not None else None
+
+
+def fixture_save_dir(spec: Dict) -> Optional[str]:
+    """The spec's committed fixture template dir (never an operator-local one)."""
     template = (spec.get("fixture") or {}).get("saveTemplate")
     if not template or mutlib.hlib.is_local_fixture_template(template):
         return None
-    sfs = os.path.join(HARNESS_ROOT, template, "persistent.sfs")
+    return os.path.join(HARNESS_ROOT, template)
+
+
+def fixture_save_text(spec: Dict) -> Optional[str]:
+    """The spec's committed fixture template (never an operator-local one)."""
+    tdir = fixture_save_dir(spec)
+    if tdir is None:
+        return None
+    sfs = os.path.join(tdir, "persistent.sfs")
     if not os.path.isfile(sfs):
         return None
     with open(sfs, "r", encoding="utf-8", errors="replace") as fh:
@@ -453,7 +482,9 @@ def run_save_only(specs: Dict[str, Dict], wanted: List[str], refs: List[mutlib.A
                 continue
             if text is None:
                 continue
-            lane = mutlib.check_save_lane(spec, label, text)
+            rp_files = read_rewind_point_files(
+                ref.save_dir if ref is not None else fixture_save_dir(spec))
+            lane = mutlib.check_save_lane(spec, label, text, rp_files)
             if lane.baseline == mutlib.BASELINE_GREEN:
                 break
             first_red = first_red or lane

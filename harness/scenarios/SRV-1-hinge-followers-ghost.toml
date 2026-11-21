@@ -15,7 +15,7 @@ id = "SRV-1-hinge-followers-ghost"
 # records a real hinge swing and replays it.
 #
 # REDESIGNED 2026-11-21 after the first flight (`2026-11-20_2314`, PARSEK-FAIL(expectation)),
-# which showed two problems with the old pad host `srv-hinge-pad`:
+# which showed two problems with the old pad host `srv-hinge-pad` (removed 2026-11-21):
 #   1. The recorder never saw the hinge move: it tracked `source=currentAngle`, a field stock
 #      refreshes ONLY in UpdatePAWUI (OnStart, OnPartMenuOpen, Update while the part menu is
 #      open; KSP 1.12.5 decompiled BaseServo / ModuleRoboticServoHinge), so with the menu
