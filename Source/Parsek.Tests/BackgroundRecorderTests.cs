@@ -969,6 +969,102 @@ namespace Parsek.Tests
             Assert.Equal(130.0, scoped.TerminalUT);
         }
 
+        private static RecordingFinalizationCache MakeFinalConicEscapeCache(TerminalState terminal)
+        {
+            // Q8: an escape tail followed to its final orbit. Kerbin hyperbola to the SOI exit
+            // at 150, then the Sun conic the extrapolator ends on (terminal UT = entry + settle).
+            OrbitSegment kerbin = Segment(100.0, 150.0);
+            OrbitSegment sun = Segment(150.0, 180.0);
+            sun.bodyName = "Sun";
+            sun.semiMajorAxis = 14000000000.0;
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1", 100u, terminal, terminalUT: 180.0, kerbin, sun);
+            cache.TerminalBodyName = "Sun";
+            cache.TerminalOrbit = RecordingFinalizationTerminalOrbit.FromSegment(sun);
+            return cache;
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Orbiting)]
+        [InlineData(TerminalState.SubOrbital)]
+        public void ScopeFinalizationCacheToBackgroundEnd_FinalConicPastEnd_KeepsPredictedEnding(
+            TerminalState terminal)
+        {
+            RecordingFinalizationCache scoped =
+                BackgroundRecorder.ScopeFinalizationCacheToBackgroundEndForTesting(
+                    MakeFinalConicEscapeCache(terminal), endUT: 130.0);
+
+            Assert.Equal(180.0, scoped.TerminalUT);
+            Assert.True(scoped.TerminalOrbit.HasValue);
+            Assert.Equal("Sun", scoped.TerminalOrbit.Value.bodyName);
+        }
+
+        [Fact]
+        public void ScopeFinalizationCacheToBackgroundEnd_FinalConicPulledBack_DropsTheFarTerminalOrbit()
+        {
+            RecordingFinalizationCache scoped =
+                BackgroundRecorder.ScopeFinalizationCacheToBackgroundEndForTesting(
+                    MakeFinalConicEscapeCache(TerminalState.Orbiting),
+                    endUT: 130.0,
+                    retainPredictedTailPastEnd: false);
+
+            Assert.Equal(130.0, scoped.TerminalUT);
+            Assert.False(scoped.TerminalOrbit.HasValue);
+        }
+
+        [Fact]
+        public void TryApplyFinalizationCacheForBackgroundEnd_FinalConicPastEnd_EndsOnTheSunOrbit()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", altitude = 90000.0 });
+            bgRecorder.AdoptFinalizationCacheForTesting(
+                100, "rec_bg1", MakeFinalConicEscapeCache(TerminalState.Orbiting));
+
+            bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                rec,
+                100u,
+                endUT: 130.0,
+                consumerPath: "unit-ttl-end",
+                allowStale: true,
+                requireDestroyedTerminal: false,
+                confirmedDestroyed: false,
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied, result.Status.ToString());
+            Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
+            Assert.Equal(180.0, rec.ExplicitEndUT);
+            Assert.Equal("Sun", rec.OrbitSegments[rec.OrbitSegments.Count - 1].bodyName);
+            Assert.Equal("Sun", rec.TerminalOrbitBody);
+        }
+
+        [Fact]
+        public void TryApplyFinalizationCacheForBackgroundEnd_FinalConicPulledBack_TerminalOrbitMatchesLastSegment()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", altitude = 90000.0 });
+            RecordingFinalizationCache scoped =
+                BackgroundRecorder.ScopeFinalizationCacheToBackgroundEndForTesting(
+                    MakeFinalConicEscapeCache(TerminalState.Orbiting),
+                    endUT: 130.0,
+                    retainPredictedTailPastEnd: false);
+
+            bool applied = RecordingFinalizationCacheApplier.TryApply(
+                rec,
+                scoped,
+                new RecordingFinalizationCacheApplyOptions { ConsumerPath = "unit-switch-close", AllowStale = true },
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied, result.Status.ToString());
+            Assert.Equal(130.0, rec.ExplicitEndUT);
+            Assert.Equal(
+                rec.OrbitSegments[rec.OrbitSegments.Count - 1].bodyName,
+                rec.TerminalOrbitBody);
+        }
+
         [Fact]
         public void TryApplyFinalizationCacheForBackgroundEnd_DestroyedFallPastEnd_AppendsTheWholeTail()
         {

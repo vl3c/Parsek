@@ -739,7 +739,53 @@ namespace Parsek
                 scoped.TailStartsAtUT = scoped.TerminalUT;
             }
 
+            // A predicted orbit ending pulled back to the close time no longer reaches the
+            // conic its TerminalOrbit describes (Q8: often in another sphere of influence).
+            // Drop it so the applier stamps the terminal orbit from the last retained segment.
+            if (scoped.TerminalOrbit.HasValue
+                && IsFiniteUT(scoped.TerminalUT)
+                && IsFiniteUT(cache.TerminalUT)
+                && scoped.TerminalUT + RecordingFinalizationCacheApplier.UtEpsilon < cache.TerminalUT
+                && HasPredictedTailPastEnd(cache, scoped.TerminalUT))
+            {
+                scoped.TerminalOrbit = null;
+                ParsekLog.Verbose("FinalizerCache",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Background end scope: dropped far terminal orbit rec={0} pid={1} " +
+                        "terminal={2} cacheTerminalUT={3:F3} scopedTerminalUT={4:F3} orbitBody={5}",
+                        cache.RecordingId ?? "(null)",
+                        cache.VesselPersistentId,
+                        cache.TerminalState?.ToString() ?? "(null)",
+                        cache.TerminalUT,
+                        scoped.TerminalUT,
+                        cache.TerminalOrbit.Value.bodyName ?? "(null)"));
+            }
+
             return scoped;
+        }
+
+        /// <summary>
+        /// True when the cache carries a predicted segment that runs past
+        /// <paramref name="endUT"/>: the ending lies ahead on a predicted path (a fall, a
+        /// touchdown, or the final orbit of an escape, owner ruling Q8), not at the state the
+        /// vessel was observed in.
+        /// </summary>
+        private static bool HasPredictedTailPastEnd(RecordingFinalizationCache cache, double endUT)
+        {
+            if (cache?.PredictedSegments == null || !IsFiniteUT(endUT))
+                return false;
+            for (int i = 0; i < cache.PredictedSegments.Count; i++)
+            {
+                OrbitSegment segment = cache.PredictedSegments[i];
+                if (segment.isPredicted
+                    && IsFiniteUT(segment.endUT)
+                    && segment.endUT > endUT + RecordingFinalizationCacheApplier.UtEpsilon)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>
@@ -766,9 +812,11 @@ namespace Parsek
                 return endUT;
 
             if (retainPredictedTailPastEnd
-                && IsPredictedEndingTerminal(cache.TerminalState.Value)
                 && IsFiniteUT(cache.TerminalUT)
-                && cache.TerminalUT >= endUT)
+                && cache.TerminalUT >= endUT
+                && (IsPredictedEndingTerminal(cache.TerminalState.Value)
+                    || (IsPredictedOrbitEndingTerminal(cache.TerminalState.Value)
+                        && HasPredictedTailPastEnd(cache, endUT))))
             {
                 return cache.TerminalUT;
             }
@@ -787,6 +835,15 @@ namespace Parsek
             return terminal == TerminalState.Destroyed
                 || terminal == TerminalState.Landed
                 || terminal == TerminalState.Splashed;
+        }
+
+        // An Orbiting / SubOrbital cache is an observed state unless its ending lies ahead on
+        // a predicted path (the final orbit of an escape, owner ruling Q8); the caller checks
+        // the predicted segments for that.
+        private static bool IsPredictedOrbitEndingTerminal(TerminalState terminal)
+        {
+            return terminal == TerminalState.Orbiting
+                || terminal == TerminalState.SubOrbital;
         }
 
         private static void LogBackgroundEndScope(
