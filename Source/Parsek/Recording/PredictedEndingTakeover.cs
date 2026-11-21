@@ -508,45 +508,6 @@ namespace Parsek
             return true;
         }
 
-        /// <summary>
-        /// Pure: the leaf of <paramref name="tree"/> a takeover of the live vessel
-        /// (<paramref name="livePid"/>, launch <paramref name="liveGuid"/>, "N" form or null)
-        /// continues from: the one PID-coherent terminal leaf of that launch whose ending is a
-        /// prediction (<see cref="HasPredictedEnding"/>). Null when there is none or more than
-        /// one, so the caller keeps its old route. Read-only.
-        /// </summary>
-        internal static string ResolveTakeoverLeafInTree(RecordingTree tree, uint livePid, string liveGuid)
-        {
-            if (tree?.Recordings == null || livePid == 0)
-                return null;
-            string found = null;
-            foreach (KeyValuePair<string, Recording> kvp in tree.Recordings)
-            {
-                Recording rec = kvp.Value;
-                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
-                    continue;
-                if (!VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, livePid, liveGuid))
-                    continue;
-                if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
-                    && !RecordingTree.IsVesselLineEnd(rec, tree.Recordings, tree.BranchPoints))
-                {
-                    continue;
-                }
-                if (!HasPredictedEnding(rec))
-                    continue;
-                if (found != null)
-                {
-                    ParsekLog.Info(LogTag,
-                        string.Format(CultureInfo.InvariantCulture,
-                            "Takeover leaf ambiguous: tree={0} pid={1} candidates={2},{3}",
-                            tree.Id ?? "(null)", livePid, found, rec.RecordingId));
-                    return null;
-                }
-                found = rec.RecordingId;
-            }
-            return found;
-        }
-
         private static int CountPredictedSegmentsPast(Recording rec, double lastRealUT)
         {
             if (rec?.OrbitSegments == null)

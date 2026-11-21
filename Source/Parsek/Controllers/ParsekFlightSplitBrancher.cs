@@ -3382,7 +3382,7 @@ namespace Parsek
             {
                 if (pids[i] == 0u)
                     continue;
-                leafId = PredictedEndingTakeover.ResolveTakeoverLeafInTree(
+                leafId = PredictedTakeoverLeaf.ResolveInTree(
                     tree, pids[i], pids[i] == guidPid ? guid : null);
                 leafPid = pids[i];
             }

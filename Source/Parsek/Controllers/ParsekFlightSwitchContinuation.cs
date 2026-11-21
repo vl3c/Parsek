@@ -524,7 +524,7 @@ namespace Parsek
             // continuation attaches under that recording, which drops the prediction.
             if (host.activeTree != null)
             {
-                string takeoverLeafId = PredictedEndingTakeover.ResolveTakeoverLeafInTree(
+                string takeoverLeafId = PredictedTakeoverLeaf.ResolveInTree(
                     host.activeTree, newPid,
                     newVessel.id != Guid.Empty ? newVessel.id.ToString("N") : null);
                 if (!string.IsNullOrEmpty(takeoverLeafId))
@@ -560,7 +560,7 @@ namespace Parsek
         /// <summary>
         /// Owner ruling Q1b route: the focused vessel is no background member of the live
         /// tree, but the tree holds its ended recording with a predicted ending
-        /// (<see cref="PredictedEndingTakeover.ResolveTakeoverLeafInTree"/>). The prediction
+        /// (<see cref="PredictedTakeoverLeaf.ResolveInTree"/>). The prediction
         /// is dropped and the continuation segment attaches under that recording (as the
         /// BG-member route does, without the background close: nothing records the vessel).
         /// Falls through to the standalone route when the attachment is refused.
