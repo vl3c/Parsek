@@ -67,8 +67,7 @@ namespace Parsek
                 PendingTreeSlot.SavedPendingTreeDuringActiveRestore,
                 CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId);
 
-            int mergeCount = RunOptimizationMergePass(recordings, routeSourceIds);
-            int splitCount = RunOptimizationSplitPass(recordings, routeSourceIds);
+            RunMergeSplitToFixedPoint(recordings, routeSourceIds, out int mergeCount, out int splitCount);
             // After the split: a split gives the tail the recording's end (terminal state and
             // snapshot), so the spawn stamp goes with it; this also heals saves split earlier.
             RecordingOptimizer.MoveChainSpawnStampsToTip(
@@ -101,6 +100,48 @@ namespace Parsek
             // Flush all dirty recordings to disk so the crash window after
             // commit+optimize is closed (data no longer lives only in RAM).
             RecordingStore.FlushDirtyCommittedFiles();
+        }
+
+        /// <summary>The most merge + split rounds one pass runs (<see cref="RunMergeSplitToFixedPoint"/>).</summary>
+        internal const int MaxMergeSplitRounds = 16;
+
+        /// <summary>
+        /// Review B7: the merge phase, the split phase and the row role re-read
+        /// (<see cref="ReReadRowRoles"/>) repeated until a round changes nothing, so one pass
+        /// leaves the list settled: a split can leave a new piece beside one it may join, which
+        /// the merge phase (run first) would otherwise join only on the next pass, a later load,
+        /// with new ids. Bounded by <see cref="MaxMergeSplitRounds"/> (Warn when hit: a merge and
+        /// a split undoing each other). Totals the merges and splits of every round; Verbose when
+        /// it took more than one round.
+        /// </summary>
+        internal static void RunMergeSplitToFixedPoint(
+            IReadOnlyList<Recording> recordings, HashSet<string> routeSourceIds,
+            out int mergeCount, out int splitCount)
+        {
+            mergeCount = 0;
+            splitCount = 0;
+            int rounds = 0;
+            bool changed = true;
+            while (changed && rounds < MaxMergeSplitRounds)
+            {
+                rounds++;
+                int merges = RunOptimizationMergePass(recordings, routeSourceIds);
+                int splits = RunOptimizationSplitPass(recordings, routeSourceIds);
+                int roles = ReReadRowRoles(recordings, routeSourceIds);
+                mergeCount += merges;
+                splitCount += splits;
+                changed = merges > 0 || splits > 0 || roles > 0;
+            }
+            if (changed)
+                ParsekLog.Warn("RecordingStore",
+                    $"Optimization pass: merge/split did not settle after {rounds.ToString(CultureInfo.InvariantCulture)} " +
+                    $"round(s) (merges={mergeCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"splits={splitCount.ToString(CultureInfo.InvariantCulture)}), the next pass continues");
+            else if (rounds > 1)
+                ParsekLog.Verbose("RecordingStore",
+                    $"Optimization pass: settled after {rounds.ToString(CultureInfo.InvariantCulture)} round(s) " +
+                    $"(merges={mergeCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"splits={splitCount.ToString(CultureInfo.InvariantCulture)})");
         }
 
         private static int RunOptimizationMergePass(
@@ -476,6 +517,42 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Review B6: every version-2 row's role is read from its content on every pass, not only
+        /// at a cut (<see cref="RecordingOptimizer.ResolveHeadRoleAfterCut"/>): a row with no role
+        /// (never cut) gets the role of how it starts, so one mission's labels never mix a phase
+        /// with roles; a pass role (reentry / aerobraking) the content now contradicts (a resumed
+        /// reentry row that climbs back to orbit, which no cut touches) is re-read; any other
+        /// role stays. Version-1, EVA, newer-rule and held (route source, live copy) rows are left
+        /// alone. Loopability reads the phase, never the role. A role lives in the tree node, not
+        /// the sidecar. Per-row Verbose lines (at most 20) and one Info summary when any changed.
+        /// Returns how many changed.
+        /// </summary>
+        internal static int ReReadRowRoles(IReadOnlyList<Recording> recordings, HashSet<string> heldIds)
+        {
+            if (recordings == null) return 0;
+            int changed = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording rec = recordings[i];
+                if (!RecordingOptimizer.UsesCurrentSplitRules(rec)
+                    || RecordingOptimizer.IsSplitRuleVersionNewerThanBuild(rec)
+                    || IsRouteSource(rec, heldIds))
+                    continue;
+                string role = RecordingOptimizer.ResolveHeadRoleAfterCut(rec);
+                if (string.Equals(role, rec.SegmentRole, StringComparison.Ordinal)) continue;
+                if (changed < 20)
+                    ParsekLog.Verbose("RecordingStore",
+                        $"Row role re-read: '{rec.RecordingId}' {rec.SegmentRole ?? "<none>"} -> {role ?? "<none>"}");
+                rec.SegmentRole = role;
+                changed++;
+            }
+            if (changed > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"Optimization pass: re-read {changed.ToString(CultureInfo.InvariantCulture)} row role(s) from their content");
+            return changed;
+        }
+
+        /// <summary>
         /// Picks the split candidate to apply this iteration. With no live Re-Fly defer id
         /// and no route source ids, the first candidate (index 0) is chosen. Otherwise walks
         /// the candidate list, skipping any whose recording id equals the deferred Re-Fly id
@@ -663,6 +740,8 @@ namespace Parsek
             IReadOnlyDictionary<string, string> heldByLiveReFlyMerge)
         {
             if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return null;
+            if (RecordingOptimizer.IsSplitRuleVersionNewerThanBuild(rec))
+                return "newer-split-rules";
             if (RecordingOptimizer.IsSupersededForOptimizer(rec, supersedes))
                 return "superseded";
             if (!string.IsNullOrEmpty(activeReFlyId)
@@ -944,6 +1023,9 @@ namespace Parsek
         {
             if (piece == null || string.IsNullOrEmpty(piece.RecordingId))
                 return null;
+            if (RecordingOptimizer.IsSplitRuleVersionNewerThanBuild(piece)
+                || RecordingOptimizer.IsSplitRuleVersionNewerThanBuild(survivor))
+                return "it carries split rules newer than this build (held verbatim)";
             if (survivor != null)
             {
                 int pieceVersion = RecordingOptimizer.EffectiveSplitRuleVersion(piece);

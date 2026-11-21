@@ -483,6 +483,45 @@ namespace Parsek
         // about axisLocal from stowedRot. Eased rather than snapped so a noisy heading derivative
         // cannot make the calipers judder. Reset to 0 on a loop cycle alongside currentValue.
         public float steeringAngleDegrees;
+        /// <summary>
+        /// Breaking Ground servos only: the moving-side attach config read from the prefab
+        /// module (null for every other robotic family). Feeds ServoFollowerPlanner.
+        /// </summary>
+        public ServoAttachConfig servoAttachConfig;
+        /// <summary>
+        /// The moving transform's local pose the snapshot was saved at (stock persists
+        /// BaseServo.servoTransformPosition / servoTransformRotation in the same OnSave that
+        /// refreshes the attached parts' positions), so the followers' snapshot poses are
+        /// captured against it. False when the snapshot carries no usable pose.
+        /// </summary>
+        public bool hasSnapshotGeometryPose;
+        public Vector3 snapshotGeometryPos;
+        public Quaternion snapshotGeometryRot;
+        /// <summary>
+        /// Ghost parts riding this servo's moving half; re-posed by
+        /// GhostPlaybackLogic.PropagateServoFollowers whenever the servo transform is written.
+        /// Null when nothing rides it.
+        /// </summary>
+        public List<ServoFollower> followers;
+        /// <summary>
+        /// Servos whose part rides this servo (they are among <see cref="followers"/>); their
+        /// own followers are re-posed after this servo's followers move. Null when none.
+        /// </summary>
+        public List<RoboticGhostInfo> nestedServos;
+    }
+
+    /// <summary>
+    /// One ghost part that follows a servo's moving transform. The part stays a direct child
+    /// of the ghost part container (every pid lookup, visibility walk and pivot pass keeps
+    /// working); only its local pose is recomputed from the servo chain.
+    /// </summary>
+    internal class ServoFollower
+    {
+        public uint partPersistentId;
+        public Transform part;
+        /// <summary>The part's pose in the servo transform's frame, taken at the snapshot geometry pose.</summary>
+        public Vector3 relPos;
+        public Quaternion relRot;
     }
 
     internal struct FxModelDefinition
@@ -619,6 +658,9 @@ namespace Parsek
         public List<FairingGhostInfo> fairingInfos = new List<FairingGhostInfo>();
         public List<RcsGhostInfo> rcsInfos = new List<RcsGhostInfo>();
         public List<RoboticGhostInfo> roboticInfos = new List<RoboticGhostInfo>();
+        /// <summary>Breaking Ground servo parts by PART index, for ServoFollowerPlanner.</summary>
+        public Dictionary<int, ServoAttachConfig> servoAttachConfigsByPartIndex =
+            new Dictionary<int, ServoAttachConfig>();
         /// <summary>S3: accumulated across parts, merged into one container at CompleteTimelineGhostBuild.</summary>
         public SynthesizedMotionGhostInfos synthesizedMotionInfos = new SynthesizedMotionGhostInfos();
         public List<ColorChangerGhostInfo> colorChangerInfos = new List<ColorChangerGhostInfo>();
@@ -662,5 +704,7 @@ namespace Parsek
         /// snapshot carried nothing readable — which is also the pre-M1 behaviour.
         /// </summary>
         public Dictionary<uint, SnapshotPartBaseline> snapshotBaselines;
+        /// <summary>Which ghost parts ride which servo's moving half. Null when the ghost has no servo.</summary>
+        public ServoFollowerPlan servoFollowerPlan;
     }
 }

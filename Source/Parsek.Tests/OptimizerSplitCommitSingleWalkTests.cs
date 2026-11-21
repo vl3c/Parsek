@@ -248,6 +248,78 @@ namespace Parsek.Tests
                 && l.Contains("retagged=1"));
         }
 
+        // BATCH-B2 (UNION-COMMIT-STALE-INCOMING-TREE): a committed vessel flown again commits
+        // through the RULE 3 union, which folds the live copy INTO the committed tree object.
+        // The optimizer pass then cuts the flown recording and adds its tail only to that
+        // committed tree; the merge used to notify the ledger with the incoming copy, which
+        // never holds the tail, so the milestone past the cut (retagged to the tail) filed no row.
+        // MUTATION NOTE: passing the incoming `tree` again to NotifyLedgerTreeCommitted in
+        // MergeDialog.MergeCommit reds this (no milestone row carries the tail id).
+        [Fact]
+        public void FlownAgainUnionMergeCommit_FilesTheTailMilestone()
+        {
+            // Committed: the earlier leg (Atmospheric only, never cut) plus a separate
+            // recording only the committed side has, so the strict replace gate refuses and
+            // the commit unions instead.
+            var committedLeg = BuildFlight("rec_again", splittable: false);
+            committedLeg.TrackSections.RemoveAt(1);
+            committedLeg.Points.RemoveRange(3, committedLeg.Points.Count - 3);
+            var other = BuildFlight("rec_other", splittable: false);
+            other.VesselPersistentId = 43;
+            var committedTree = MakeTree(committedLeg);
+            committedTree.AddOrReplaceRecording(other);
+            RecordingStore.AddCommittedInternal(committedLeg);
+            RecordingStore.AddCommittedInternal(other);
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+
+            // The live copy flies the vessel again past the committed end (into space).
+            var live = BuildFlight("rec_again", splittable: true);
+            var liveTree = MakeTree(live);
+            PendingTreeSlot.StashPendingTree(liveTree);
+            AddMilestone("RecordsSpeed", 12.0, "rec_again");
+            AddMilestone("Kerbin/Science", 40.0, "rec_again");
+
+            logLines.Clear();
+            MergeDialog.MergeCommit(
+                liveTree,
+                new Dictionary<string, bool> { { "rec_again", false } },
+                spawnCount: 0,
+                refreshQuicksaveAfterCommit: false);
+
+            Assert.Contains(logLines, l => l.Contains("committed vessel flown again"));
+            RecordingTree committedNow = RecordingStore.FindCommittedTreeById(TreeId);
+            Assert.Same(committedTree, committedNow);
+            string tailId = committedNow.Recordings.Values
+                .Where(r => r.ChainId != null && r.ChainIndex == 1)
+                .Select(r => r.RecordingId)
+                .SingleOrDefault();
+            Assert.False(string.IsNullOrEmpty(tailId), "the optimizer did not cut the flown recording");
+            Assert.False(liveTree.Recordings.ContainsKey(tailId));
+
+            Assert.Contains(Ledger.Actions, a => a != null
+                && a.Type == GameActionType.MilestoneAchievement
+                && a.RecordingId == tailId);
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("ResolveCommittedTreeAfterCommit")
+                && l.Contains("merge-dialog"));
+        }
+
+        // Mirror of B2: a plain first commit hands back the same tree object it committed.
+        [Fact]
+        public void ResolveCommittedTreeAfterCommit_FirstCommit_ReturnsTheSameTree()
+        {
+            var rec = BuildFlight("rec_first", splittable: false);
+            var tree = InstallCommittedTree(rec);
+            logLines.Clear();
+            Assert.Same(tree, TreeCommitService.ResolveCommittedTreeAfterCommit(tree, "test"));
+            Assert.DoesNotContain(logLines, l => l.Contains("ResolveCommittedTreeAfterCommit"));
+            // Not committed at all (a duplicate skip): the caller's tree comes back.
+            var loose = MakeTree(BuildFlight("rec_loose", splittable: false));
+            loose.Id = "tree_loose";
+            Assert.Same(loose, TreeCommitService.ResolveCommittedTreeAfterCommit(loose, "test"));
+            Assert.Null(TreeCommitService.ResolveCommittedTreeAfterCommit(null, "test"));
+        }
+
         // Mirror: a commit the optimizer does not split still walks exactly once.
         [Fact]
         public void NoSplitTreeCommit_StillWalksOnce()

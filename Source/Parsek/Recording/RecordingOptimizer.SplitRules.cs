@@ -90,14 +90,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The forward gate (save-format policy: data newer than the build is held, never
+        /// coerced): true when <paramref name="rec"/> carries a split rule version above
+        /// <see cref="SplitRuleVersionCurrent"/>. A newer build cut it under rules this build
+        /// does not know, so the optimizer holds it verbatim: never split, merged, trimmed or
+        /// folded here, and the codec writes its version back.
+        /// </summary>
+        internal static bool IsSplitRuleVersionNewerThanBuild(Recording rec)
+            => rec != null && rec.SplitRuleVersion > SplitRuleVersionCurrent;
+
+        /// <summary>
         /// The merge-side half of the version gate (<see cref="CanAutoMerge"/>): true, logged,
         /// when <paramref name="a"/> and <paramref name="b"/> were cut under different rule
-        /// versions or carry different row roles.
+        /// versions or carry different row roles, or either was cut under a version newer
+        /// than this build (<see cref="IsSplitRuleVersionNewerThanBuild"/>).
         /// </summary>
         internal static bool SplitRulesKeepApart(Recording a, Recording b)
         {
             int va = EffectiveSplitRuleVersion(a);
             int vb = EffectiveSplitRuleVersion(b);
+            if (IsSplitRuleVersionNewerThanBuild(a) || IsSplitRuleVersionNewerThanBuild(b))
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"CanAutoMerge: rejecting merge of '{a.RecordingId}' + '{b.RecordingId}' " +
+                    $"- split rules v{va.ToString(CultureInfo.InvariantCulture)}/v{vb.ToString(CultureInfo.InvariantCulture)} " +
+                    $"newer than this build (v{SplitRuleVersionCurrent.ToString(CultureInfo.InvariantCulture)}), held verbatim");
+                return true;
+            }
             if (va == vb && string.Equals(a.SegmentRole, b.SegmentRole, StringComparison.Ordinal))
             {
                 if (!UsesCurrentSplitRules(a) || !UsesCurrentSplitRules(b) || !WouldSplitRulesCutJoin(a, b))

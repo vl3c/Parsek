@@ -151,11 +151,50 @@ namespace Parsek
             ref Dictionary<string, List<Recording>> chains)
         {
             if (map == null || !UsesBurnCutRules(rec)) return;
+            EnsureChainCache(committed, ref chains);
             BurnStartContext start = ResolveBurnStartContext(committed, rec, ref chains);
             map.Burns = BuildBurnMap(rec, map, start, ResolveBurnLineContext(rec, chains));
         }
 
-        /// <summary>The chain pieces before and after <paramref name="rec"/>, in time order, from
+        /// <summary>Builds the per-scan cache: every committed primary-branch chain piece, by
+        /// chain id.</summary>
+        private static void EnsureChainCache(
+            IReadOnlyList<Recording> committed, ref Dictionary<string, List<Recording>> chains)
+        {
+            if (chains != null || committed == null) return;
+            chains = new Dictionary<string, List<Recording>>(StringComparer.Ordinal);
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var r = committed[i];
+                if (r == null || string.IsNullOrEmpty(r.ChainId) || r.ChainBranch != 0) continue;
+                if (!chains.TryGetValue(r.ChainId, out var list))
+                    chains[r.ChainId] = list = new List<Recording>();
+                list.Add(r);
+            }
+        }
+
+        /// <summary>The chain piece before (<paramref name="dir"/> -1) or after (+1)
+        /// <paramref name="rec"/> on its chain and tree, through the shared chain-index helpers
+        /// (a hole in the indices is stepped over), or null.</summary>
+        private static Recording ChainNeighbour(Recording rec, List<Recording> pieces, int dir)
+        {
+            int index = dir < 0
+                ? RecordingChainQueries.PreviousChainIndexBefore(rec, pieces)
+                : RecordingChainQueries.NextChainIndexAfter(rec, pieces);
+            if (index == RecordingChainQueries.NoPreviousChainIndex
+                || index == RecordingChainQueries.NoNextChainIndex)
+                return null;
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                var p = pieces[i];
+                if (!ReferenceEquals(p, rec) && p.ChainIndex == index && p.ChainBranch == rec.ChainBranch
+                    && string.Equals(p.TreeId, rec.TreeId, StringComparison.Ordinal))
+                    return p;
+            }
+            return null;
+        }
+
+        /// <summary>The chain pieces before and after <paramref name="rec"/>, in chain order, from
         /// the per-scan chain cache (null when the recording is in no chain).</summary>
         internal static BurnLineContext ResolveBurnLineContext(
             Recording rec, Dictionary<string, List<Recording>> chains)
@@ -164,25 +203,28 @@ namespace Parsek
                 return null;
             if (!chains.TryGetValue(rec.ChainId, out var pieces) || pieces.Count < 2) return null;
             var line = new BurnLineContext();
-            for (int i = 0; i < pieces.Count; i++)
+            var cur = rec;
+            for (int guard = 0; guard < pieces.Count; guard++)
             {
-                var p = pieces[i];
-                if (ReferenceEquals(p, rec) || p.TrackSections == null || p.TrackSections.Count == 0
-                    || !string.Equals(p.TreeId, rec.TreeId, StringComparison.Ordinal))
-                    continue;
-                if (p.EndUT <= rec.StartUT + 1.0) line.Before.Add(p);
-                else if (p.StartUT >= rec.EndUT - 1.0) line.After.Add(p);
+                cur = ChainNeighbour(cur, pieces, -1);
+                if (cur == null) break;
+                if (cur.TrackSections != null && cur.TrackSections.Count > 0) line.Before.Insert(0, cur);
             }
-            line.Before.Sort((x, y) => x.StartUT.CompareTo(y.StartUT));
-            line.After.Sort((x, y) => x.StartUT.CompareTo(y.StartUT));
+            cur = rec;
+            for (int guard = 0; guard < pieces.Count; guard++)
+            {
+                cur = ChainNeighbour(cur, pieces, +1);
+                if (cur == null) break;
+                if (cur.TrackSections != null && cur.TrackSections.Count > 0) line.After.Add(cur);
+            }
             return line.Before.Count == 0 && line.After.Count == 0 ? null : line;
         }
 
         /// <summary>
-        /// FloorExit when the recording's chain predecessor (same chain, primary branch, the
-        /// piece that ends where this one starts) ends in the atmosphere or on the ground on the
-        /// body this one starts on, and this one starts in space; ApproachExit when it ends in
-        /// the approach band.
+        /// FloorExit when the recording's chain predecessor (same chain and tree, primary branch,
+        /// ending where this one starts) ends in the atmosphere or on the ground on the body this
+        /// one starts on, and this one starts in space; ApproachExit when it ends in the approach
+        /// band.
         /// </summary>
         internal static BurnStartContext ResolveBurnStartContext(
             IReadOnlyList<Recording> committed, Recording rec, ref Dictionary<string, List<Recording>> chains)
@@ -192,36 +234,18 @@ namespace Parsek
                 return BurnStartContext.None;
             if (SplitEnvironmentClass(rec.TrackSections[0].environment) != ExoSplitClass)
                 return BurnStartContext.None;
-            if (chains == null)
-            {
-                chains = new Dictionary<string, List<Recording>>(StringComparer.Ordinal);
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    var r = committed[i];
-                    if (r == null || string.IsNullOrEmpty(r.ChainId) || r.ChainBranch != 0) continue;
-                    if (!chains.TryGetValue(r.ChainId, out var list))
-                        chains[r.ChainId] = list = new List<Recording>();
-                    list.Add(r);
-                }
-            }
+            EnsureChainCache(committed, ref chains);
             if (!chains.TryGetValue(rec.ChainId, out var pieces)) return BurnStartContext.None;
-            double start = rec.TrackSections[0].startUT;
-            for (int i = 0; i < pieces.Count; i++)
-            {
-                var p = pieces[i];
-                if (ReferenceEquals(p, rec) || p.TrackSections == null || p.TrackSections.Count == 0
-                    || !string.Equals(p.TreeId, rec.TreeId, StringComparison.Ordinal))
-                    continue;
-                var last = p.TrackSections[p.TrackSections.Count - 1];
-                if (Math.Abs(last.endUT - start) > 1.0) continue;
-                if (SplitEnvironmentClass(last.environment) == ExoSplitClass) continue;
-                string pb = GetSectionBody(p, last);
-                string rb = GetSectionBody(rec, rec.TrackSections[0]);
-                if (!string.IsNullOrEmpty(pb) && !string.IsNullOrEmpty(rb) && pb != rb) continue;
-                return SplitEnvironmentClass(last.environment) == ApproachSplitClass
-                    ? BurnStartContext.ApproachExit : BurnStartContext.FloorExit;
-            }
-            return BurnStartContext.None;
+            var p = ChainNeighbour(rec, pieces, -1);
+            if (p?.TrackSections == null || p.TrackSections.Count == 0) return BurnStartContext.None;
+            var last = p.TrackSections[p.TrackSections.Count - 1];
+            if (Math.Abs(last.endUT - rec.TrackSections[0].startUT) > 1.0) return BurnStartContext.None;
+            if (SplitEnvironmentClass(last.environment) == ExoSplitClass) return BurnStartContext.None;
+            string pb = GetSectionBody(p, last);
+            string rb = GetSectionBody(rec, rec.TrackSections[0]);
+            if (!string.IsNullOrEmpty(pb) && !string.IsNullOrEmpty(rb) && pb != rb) return BurnStartContext.None;
+            return SplitEnvironmentClass(last.environment) == ApproachSplitClass
+                ? BurnStartContext.ApproachExit : BurnStartContext.FloorExit;
         }
 
         /// <summary>

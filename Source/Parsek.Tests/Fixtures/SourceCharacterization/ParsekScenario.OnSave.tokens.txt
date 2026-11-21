@@ -78,6 +78,9 @@ A:savePhase
 S:"removed-replay-flags"
 C:RemovedReplayFlags.SaveInto
 A:savePhase
+S:"rescue-accept-deferrals"
+C:RescueAcceptDeferrals.SaveInto
+A:savePhase
 S:"save-stamp"
 C:WriteSaveStamp
 A:savePhase

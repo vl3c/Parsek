@@ -124,7 +124,8 @@ AREAS = collections.OrderedDict([
         "The save path below OnSave: ghost-map vessel stripping, the tree and sidecar writes, "
         "the pending and active tree nodes, game state and milestones.",
         [
-            "StripGhostMapVesselsFailClosed", "SaveTreeRecordings", "EnsureRecordingFilesCurrentForSave",
+            "StripGhostMapVesselsFailClosed", "SaveTreeRecordings", "FormatUnwritableIds",
+            "EnsureRecordingFilesCurrentForSave",
             "SavePendingTreeIfAny", "SavePendingTreeNode", "HasActiveTreeNode",
             "ResolveLimboResumeRewindSave", "CollectParkedTreeIdsForMissionPrune",
             "ActiveTreeSidecarSavePlan", "PlanActiveTreeSidecarSaves", "SaveActiveTreeIfAny",
@@ -138,8 +139,7 @@ AREAS = collections.OrderedDict([
         [
             "CommittedTreeStateLoadedForTesting", "PreserveRecordingStateIfLoadFault",
             "ShouldPreserveCommittedTreeState", "FindCommittedTreeNodeById",
-            "TryLoadCarryForwardSourceParsekNode", "TryCarryForwardCommittedTreeNodeFromLoadedSave",
-            "PruneCarriedBranchPoints", "AllReferencedIdsKept", "IsCarriedRecordingStillReal",
+            "TryLoadCarryForwardSourceParsekNode",
             "TryRehydrateCommittedTreesAndMissionsFromDiskSave", "FindParsekScenarioNodeInGame",
         ])),
     ("RewindStaging", (

@@ -77,6 +77,10 @@ namespace Parsek
             state.snapshotBaselines = result.snapshotBaselines;
             ApplySnapshotBaselines(state);
 
+            // After the servo baselines (the followers' rest pose is captured against the
+            // snapshot geometry pose, then re-posed to the baseline), before the prefix replay.
+            BindServoFollowers(state, result.servoFollowerPlan);
+
             if (ShouldEvaluateOrphanEnginePlayback(state, traj))
                 AutoStartOrphanEnginePlayback(state, traj);
         }

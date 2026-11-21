@@ -37,6 +37,316 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Tests:** `OptimizerBurnCutsTests` (every case of the table, staging gaps, the Mun transfer ellipse, the mid-course correction, the powered flyby, starting / ending mid-burn, the terminal orbit, the short-row and interplanetary guards, EVA / debris, the version-1 / version-2 pins, the merge refusals and the floor-exit join; each shape run twice through the real pass; 21 of them red with the burn check disabled; review follow-up: a correction with no elements after it, a no-warp departure, a low-periapsis arrival with and without a correction, the guard across chain pieces and the approach-band exit, the five red before the fix), `OptimizerBurnCutsPhase0Tests` (red with the interplanetary guard disabled; plus the low-periapsis arrival shapes), `OptimizerRepeatPassSweepTests.EveryFixtureSave_SecondPassChangesNothing_VersionThree`.
 
+## ~~OPTIMIZER-PASS-NOT-A-FIXED-POINT~~: one merge phase then one split phase per pass, so some chains settled only over later loads [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B7), by code reading. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit + mutation; no lane; low (rows and their ids changed again after the next load)]
+
+**Cause:** `CommittedListOptimizer.RunOptimizationPass` ran the merge phase once, then the split phase. A split can leave a new piece next to one it may join (the air half of a cut beside the chain's next air piece); that join waited for the next pass, a later load, which gave the rows new ids again.
+
+**Fix:** `CommittedListOptimizer.RunMergeSplitToFixedPoint` repeats the merge phase, the split phase and the row role re-read (ROW-ROLE-STALE-OR-MISSING) until a round changes nothing, at most `MaxMergeSplitRounds` = 16 rounds: Warn `Optimization pass: merge/split did not settle after N round(s) (merges= splits=), the next pass continues` when hit, Verbose `settled after N round(s)` otherwise. The trim, spawn-stamp move, loop sync, name pass and flush still run once after it. Each phase keeps its own per-round summary lines.
+
+**Tests:** `OptimizerSplitRulesV2Tests.SplitThenJoinableNeighbour_SettlesInOnePass` (version 1 red before the fix: the second pass merged; version 2 is the stability mirror), and every shape cell of that class runs the pass twice.
+
+## ~~ROW-ROLE-STALE-OR-MISSING~~: a row's role was stamped only at a cut, so a resumed reentry row kept "reentry" after climbing back to orbit and uncut rows had none [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B6), by code reading. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit + mutation; no lane; low (a wrong or mixed label in the Recordings table and the map). OPEN (later, foundation F4): one role registry (role -> phase, loopable, label), roles total along the vessel line, loopability on roles]
+
+**Cause:** `Recording.SegmentRole` was written only by a version-2 split (`CommittedListOptimizer.AssignSplitRoles`) and the RULE 3 fold. A resumed reentry row that climbs back to orbit is never cut (its own pass entry and a braking exit are not cut), so it kept "reentry"; a version-2 row no cut touched had no role, so its label read the phase ("exo") beside rows labelled by role ("space").
+
+**Fix:** `CommittedListOptimizer.ReReadRowRoles`, run by every optimization pass after the split pass (the pass runs after every commit and on every cold load): for each version-2 row that is not EVA, newer-rule or held (route source, live copy), the role is `RecordingOptimizer.ResolveHeadRoleAfterCut` of its content: an unset role becomes the start role, a pass role is re-read, any other role stays. Verbose `Row role re-read: '<id>' <old> -> <new>` (at most 20 per pass) and Info `Optimization pass: re-read N row role(s) from their content`. Loopability (`Recording.IsLoopableRecording`) stays on `SegmentPhase`. Accepted: a commit whose pass is skipped (a live Re-Fly or merge journal) gets its roles on the next pass.
+
+**Tests:** `OptimizerSplitRulesV2Tests.ResumedReentryRow_ClimbsBackToOrbit_RoleReReadAsAerobraking`, `UnsplitVersionTwoRow_GetsItsStartRole_VersionOneRowStaysUnset`, `RoleReRead_DoesNotChangeLoopability` (all red before the fix; each runs the pass twice, the second changing nothing).
+
+## ~~CHAIN-NEXT-PIECE-EXACT-INDEX~~: seven chain readers still stopped at a hole in a chain's indices [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B5), by code reading; CHAIN-INDEX-HOLE-RESTORES-EARLIER-PIECE fixed one reader only. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit; no lane; low (a hole: a piece removed from a chain)]
+
+**Cause:** every "next piece of this chain" reader looked for exactly `ChainIndex + 1`: `RecordingTree.HasNextChainSegment`, `GhostChainWalker.TraceLineagePids`, `ParsekFlightPlaybackHost.FindNextChainRecording`, `MissionCrossTreeDock.FindChainSuccessor`, `SplitParentLinks.UniqueChainSuccessor` and the three chain cases of `GhostPlaybackLogic.WatchMode.cs` (`ResolveChainNextSlotIndex`, `FindNextWatchTarget`, `TryGetPendingWatchActivationUT`). Past a hole the chain looked ended: the watch camera, the chain tip walk, the lineage pid trace, the cross-tree journey and the parent-link repair all stopped early.
+
+**Fix:** one pure helper in the module that owns chain queries, `RecordingChainQueries.NextChainIndexAfter(rec, list | tree dictionary)`: the lowest `ChainIndex` above rec's among the recordings of the same chain id (ordinal) and branch, `NoNextChainIndex` (int.MinValue, matches no recording) when none. Each reader takes its next index from it and keeps its own match loop (first match, the duplicate warning, the uniqueness check). No new module edge (Recording is below every caller's module). Mirror direction: `RecordingChainQueries.PreviousChainIndexBefore` (the highest non-negative lower index on the same chain and branch, `NoPreviousChainIndex` when none) serves the backward readers `RecordingChainQueries.GetChainPredecessorIndex`, `GhostMapPresence.TryFindChainPredecessor`, `RouteHarvestAnalysis.FindChainPredecessor`, the chain predecessor index of `MissionStructureListBuilder.BuildContext` and `RecordingTreeSplitter.TryFindChainPredecessor`. Kept on the exact index on purpose: the ledger's two chain-gap readers (`LedgerOrchestrator.AdjustStartUtForChainGap`, `ResolveStandaloneCommitWindowStartUt`), because widening a commit window back across a missing piece sweeps that piece's untagged science into the next one (pinned by `LedgerOrchestratorTests.ResolveStandaloneCommitWindowStartUt_PredecessorIndexMismatch_LeavesSubsetAtOwnStart`); and the Re-Fly splitter's TIP probes, which look for the piece the split itself made at exactly the next index; and `RecordingOptimizer.CanAutoMerge`, which joins consecutive pieces only.
+
+**Tests:** `ChainIndexHoleReaderTests` (both helpers, then one cell per reader in each direction over a chain indexed 0 and 2; every reader cell red before the fix). Two existing cells pinned the exact backward index with no stated hazard and now expect the step over the hole: `Bug614GhostMapAncestorChainTests.TryFindChainPredecessor_StepsOverAHoleInTheIndices`, `ChainTests.GetChainPredecessorIndex_GapInChainIndex_StepsOverTheHole`.
+
+## ~~FOLDED-PIECE-ROW-SETTINGS-SPREAD~~: a folded split piece's hide, ghost-off or loop setting spread over the whole re-flown flight [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B4), by code reading. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit + mutation; no lane; low-medium (a loop or hide set on one row of a flight flown again covered the whole flight, then every row a later split made)]
+
+**Cause:** the RULE 3 fold of a covered split piece (`TreeCommitService.CarryTipOwnedStateOnFold` -> `CarryUnsetPlayerSettings`, `TreeCommitService.LiveFlownCopy.cs`) carried every player setting the survivor left at its default from the piece onto the survivor. Those per-row settings covered only the piece's span; on the survivor they covered the whole flight, and `RecordingOptimizer.CopyPlayerRowSettings` then copied them onto every row the next splits cut from it.
+
+**Fix:** a loop on the piece, when the survivor has no loop of its own, is carried as a loop RANGE over exactly the span it covered (owner RULE 1, "always keep them"; `CarryLoopAsRange`): the piece's own `LoopStartUT` / `LoopEndUT`, each falling back to the piece's `StartUT` / `EndUT`, in absolute UTs, with its interval, unit and anchor. Info `CommitTree: fold of '<piece>' into '<survivor>' carried its loop as a range [a,b] - the span it covered`. The range holds the survivor whole in the split pass (`HasPlayerLoopRange`, intended), so no re-cut row copies the loop. `Hidden` and `PlaybackEnabled` off have no range field, so they are not carried; the survivor keeps its own, logged once per fold: Info `CommitTree: fold of '<piece>' into '<survivor>' kept the survivor's own row settings, dropped=[Hidden,PlaybackEnabled] - they covered only the folded piece`. Groups are still carried where the survivor has none. Accepted: a hide or ghost-off set on that piece is lost with the piece.
+
+**Tests:** `LiveFlownCommittedTreeTests.CarryTipOwnedStateOnFold_LoopOnTheFoldedPieceOnly_BecomesARangeOverThePiece` (red before the fix: the range over the piece's span, the piece's own range winning; mirror: a loop the survivor has itself stays and nothing is dropped). Two existing expectations changed because they pinned the spread: `CommitPendingTree_FlownAgainAfterAReCut_...` (the tail's loop lands on the head as a range over the tail's span [100, 200]) and `CarryTipOwnedStateOnFold_TipStateWins_...` (the tip's hide no longer lands on the head).
+
+## ~~SPLIT-RULES-NO-FORWARD-GATE~~: an older build would cut, join and trim rows a newer build split under rules it does not know [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B3), by code reading. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit + mutation; no lane; latent until a split rule version 3 ships (must land in a build before it)]
+
+**Cause:** `RecordingOptimizer.UsesCurrentSplitRules` reads `SplitRuleVersion >= SplitRuleVersionCurrent`, so a row stamped 3 by a newer build would be judged by the version-2 rules here: cut again, glued back to its neighbours and tail-trimmed, against the save-format policy (data newer than the build is held, never coerced).
+
+**Fix:** `RecordingOptimizer.IsSplitRuleVersionNewerThanBuild` (version above the build's current one). Such a recording is held verbatim: `FindSplitCandidatesForOptimizer` skips it before the checkpoint normalization (Verbose `held N recording(s) whole: split rules newer than this build`), `SplitRulesKeepApart` makes `CanAutoMerge` refuse it (Verbose `... newer than this build (v2), held verbatim`), `DescribeTrimHold` holds it from the boring-tail trim (`newer-split-rules`, counted in the trim skip summary) and `SplitPieceFoldRefusal` keeps it beside a re-flown live recording. The codec already writes the number back unchanged.
+
+**Tests:** `OptimizerSplitRulesV2Tests.NewerSplitRuleVersion_IsNeverSplit_AndRoundTrips`, `NewerSplitRuleVersion_IsNeverMergedOrFolded` (both red before the fix; the second's mirror merges the same pair at version 2).
+
+## ~~UNION-COMMIT-STALE-INCOMING-TREE~~: after a committed vessel was flown again, the ledger and the leaf spawn read the dropped live copy [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B2), by code reading. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit + mutation; no lane; medium (science and milestones past the cut of a re-flown row never reach the ledger; a leaf whose ending moved to the new tail is not spawned)]
+
+**Cause:** the RULE 3 union (`TreeCommitService.TryUnionFlownAgainCopy`, and the active Re-Fly union) folds the incoming copy INTO the existing committed tree object and reassigns only `CommitTree`'s local `tree`. The callers kept the incoming copy: `MergeDialog.MergeCommit`, `ParsekFlightMergeFlow.CommitTreeFlight` and the two outside-flight auto-commits in `ParsekScenario.AutoCommit.cs` passed it to `LedgerOrchestrator.NotifyLedgerTreeCommitted` (and the in-flight commit to `SpawnTreeLeaves`) after the optimizer pass, whose split tails exist only in the committed tree.
+
+**Fix:** `TreeCommitService.ResolveCommittedTreeAfterCommit(tree, context)` returns the committed tree with the same id (else the caller's tree), with one Info `ResolveCommittedTreeAfterCommit (<context>): tree id='...' was unioned into the committed tree; using it` when they differ. The merge dialog rebinds `tree` right after the commit (mark applied, parent-chain tip adoption, ledger notify, committed listeners, route prompt all read it); the in-flight commit reads it for the ledger notify, the leaf spawn and the supply-route prompt (`RouteRunPrompt.NotifyTreeCommitted`, which classified the stale copy); the safety-net and ghost-only auto-commits for the ledger notify.
+
+**Tests:** `OptimizerSplitCommitSingleWalkTests.FlownAgainUnionMergeCommit_FilesTheTailMilestone` (a milestone past the cut files a row tagged to the tail id), `MergeFlowDecisionTests.CommitTreeFlight_FlownAgainUnion_SpawnsLeavesFromTheCommittedTree`, `ResolveCommittedTreeAfterCommit_FirstCommit_ReturnsTheSameTree`; the first two red with the callers on the incoming tree. The source order gate `InFlightCommitOptimizationTests.CommitTreeFlight_RunsOptimizationBetweenCommitAndLeafSpawn` pins the resolve before the notify, the spawn and the route prompt (red with the prompt on the live copy).
+
+## ~~RESCUE-REGEN-COUNTS-PROTOVESSELS~~: the rebuilt rescue's stranded-vessel regeneration reported `added=0`, so the repair read as failed and the same-scene double-spawn guard could not see the new vessel [FILED 2026-11-20 from the first flights of RSQ-1 / RSQ-2 (branch `test-gaps-batch3`); FIXED 2026-11-21, branch `test-gaps-batch1`; xUnit `ContractAcceptWorldIndexTests` (red first on the stubbed indexer: 6 of 8); OPEN: RSQ-1 / RSQ-2 re-flown on this fix (live proof); medium (the regeneration's own result was misread, and a second rebuild or drain in the same scene would have regenerated the vessel again)]
+
+Evidence: RSQ-1 `2026-11-20_2308_RSQ-1-rescue-rebuilt-at-space-center` and RSQ-2 `2026-11-20_2311_RSQ-2-rescue-rebuilt-in-flight-deferred` (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc; logs in `automation/results-archive/<runId>/KSP.log.gz`). RSQ-1 at the Space Center crossing: `PatchContracts: accept-side world effect not run on rebuild: contractId='e8ba5ea6-...' ... worldMissing=True repair=RegenerateStrandedAsset skip=none (...; vessels=3 scene=SPACECENTER)`, then `PatchContracts: regenerated stranded asset for rebuilt contract 'e8ba5ea6-...' through RecoverAsset.GenerateOrbitalRecovery: added=0 [] (orbit kerbal='Rayvan Kerman'; partID 4161328136 -> 268551258)` and `1 rebuilt contract(s) name world objects ...; repaired=0`. RSQ-2 at the Space Center drain: the same `added=0 []` line, `Rescue accept deferral removed: ... (drain evaluated: outcome=Regenerate regenerated=False); pending=0` and `drained ... evaluated=1 regenerated=0`. The partID swap proves stock's generator ran.
+
+Correction to the filing: RSQ-1's save taken right after the crossing (`rsq1-01-after-crossing.sfs` in the run's `_save` snapshot) DOES hold the vessel: its FLIGHTSTATE has `name = Rayvan's Shipwreck` (line 13238) with Rayvan aboard. A FLIGHTSTATE `VESSEL` names itself with `name =`; the filing grepped `vesselName =`, which only the contract and recording nodes use. The vessel was in the world from the regeneration on.
+
+Cause (decompiled KSP 1.12.5, `logs/decompile/2026-10-26_full/`). `RecoverAsset.GenerateOrbitalRecovery` / `GenerateLandRecovery` end in `HighLogic.CurrentGame.AddVessel(node)`. `Game.AddVessel` is `new ProtoVessel(node, this)`, `protoVessel.Load(flightState)`, `GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef)`; `ProtoVessel.Load(st, null)` builds the `Vessel`, runs `StartFromBackup(this, st)` (which only sets `protoVessel` and the orbit driver) and ends with `FlightGlobals.AddVessel(vesselRef)` and `onVesselCreate`. Nothing appends to `flightState.protoVessels` (the only appenders are `ContractSystem`'s pre-built-ship spawn and `MissionSystem`, both outside the FLIGHT scene, and `FlightState`'s own constructors). That list is rebuilt from `FlightGlobals.Vessels` by `new FlightState()` inside `Game.Updated()` whenever `HighLogic.LoadedSceneHasPlanetarium` (FLIGHT, TRACKSTATION, SPACECENTER), i.e. at every save there ("Flight State Captured", the line right after `cmd=SaveGame start` in both logs). So the vessel is live at once and saved with the game at the next save, as after stock's own accept; Parsek need not add it to `flightState.protoVessels`, and does not (stock's accept at Mission Control does not either). But `KspStatePatcher.RegenerateRebuiltStrandedAsset` counted `flightState.protoVessels` before and after the call (always 0), and `BuildContractAcceptWorldIndex`, the double-spawn guard's world, read only that list, so until the next save a second rebuild or drain in the same scene would have read the target missing and regenerated it again.
+
+Fix. `GameActions/ContractAcceptWorldIndex.cs` (pure `ContractAcceptWorldIndexer`, `WorldVesselFact`): `Build` indexes the union of the saved and the live vessels (a vessel in both counted once by its id; flight id 0, the part Parsek's ghost map vessels carry, ignored), `SelectAdded` diffs both lists by object before and after the generator (one entry per vessel, live first), `Describe` names each added vessel (`'name' pid=N crew=(a; b) parts=K live`, no square bracket inside the logged list). `KspStatePatcher.ContractAcceptEffects.cs` reads `FlightGlobals.Vessels` in the `[NoInlining]` `ReadLiveWorldVesselFactsCore` (a loaded vessel by its live parts, an unloaded one by its ProtoVessel, dead vessels skipped as stock's save does; a failed read logs a Warn and indexes flightState alone), builds both the index and the witness from it, logs `PatchContracts: accept-side world index: vessels=N saved=N live=N liveOnly=N deadSkipped=N parts=N crewAboard=N` (Verbose) and adds `; flightStateGrew=N, stock's next save captures it` inside the regeneration line's parentheses. The `added=N [...]`, `vessels=N scene=S)` and `regenerated=` tokens RSQ-1 / RSQ-2 pin are unchanged in form; on this fix they must read `added=1 ['Rayvan's Shipwreck' pid=... crew=(Rayvan Kerman) parts=1 live]`, `repaired=1`, `regenerated=True` and `regenerated=1`. The drain still takes an evaluated id off the list whatever it decided (by design); the false `regenerated=False` was the witness, now fixed. Tests: `ContractAcceptWorldIndexTests` (9 cases: the live-only vessel indexed, one vessel in both lists counted once, a ghost map vessel adds nothing, the witness counts the live-only vessel RSQ-1 / RSQ-2 missed, a second rebuild in the same scene plans `TargetPresent` / no repair where the flightState-only index planned a second regeneration).
+
+
+## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; FIX 2026-11-21, same branch: the regeneration's witness and the double-spawn world index read the live vessels too (RESCUE-REGEN-COUNTS-PROTOVESSELS), xUnit only; OPEN: the PC lanes RSQ-1 / RSQ-2 (branch `test-gaps-b3-rescue-lane`, re-flight on this fix = the live proof), and the prebuilt-ship / experimental-part templates (measure first, item 4); high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
+
+**What happens.** The player accepts a rescue contract (`Contracts.Templates.RecoverAsset`) at UT
+T, rewinds to before T, and the clock reaches T again. `KspStatePatcher.PatchContractsCore`
+rebuilds the committed accept from its snapshot (`Activator.CreateInstance` + `Contract.Load`),
+which sets the state field directly and never runs `SetState(Active)`. Stock's accept order is
+`AwardAdvance`, `OnAccepted`, `onAccepted.Fire` (decompiled `Contract.SetState`), and
+`RecoverAsset.OnAccepted` is what adds the stranded vessel to the game (`GenerateOrbitalRecovery`
+/ `GenerateLandRecovery` -> `Game.AddVessel`; `GenerateKerbalInPart` / `GenerateLonePart` also set
+`partID`). The snapshot is taken at `onAccepted`, so it already holds what `OnAccepted` wrote into
+the contract (the kerbal in `AcquireCrew` / `RecoverKerbal`, the part id), but the vessel was
+spawned at T, after the rewind save, so the rewind world has none. The kerbal himself is created
+Unowned / Assigned at OFFER time (`RecoverAsset.Generate`), so he is in the rewind save's roster
+when the offer predates it (cs-career-mun4: Rayvan Kerman, Unowned) and absent when it does not.
+The Offered copy the rebuild replaces is removed with `Unregister` only (no `Cleanup`), so the
+kerbal is not expunged. Result: an Active rescue naming a kerbal no vessel holds.
+
+**Other templates** (every stock `OnAccepted` override, decompiled): `TourismContract` turns each
+tourist (created Unowned / Assigned at offer) into a Tourist and Available, so after the rebuild
+the tourists stay Unowned and cannot be seated; `OrbitalConstructionContract`,
+`RoverConstructionContract` and `VesselRepairContract` call `ContractSystem.SpawnPreBuiltShip`
+(the snapshot also carries `waitingForVslSpawn`); `PartTest` makes the part experimental
+(`ResearchAndDevelopment.AddExperimentalPart`). `BaseContract`, `SatelliteContract`,
+`StationContract` and `GrandTour` only stamp a launch id into a parameter the snapshot carries.
+Nothing else in Parsek re-creates any of these (grep `RecoverAsset`, `OnAccepted`,
+`GenerateOrbitalRecovery`, `recoveryKerbal`, `SpawnPreBuiltShip`, `AddExperimentalPart`: no hit
+outside this entry's code). A rewind or Re-Fly to a point AFTER T is unaffected: its save holds
+the vessel and the Active contract.
+
+**Shipped (detection only).** `GameActions/ContractAcceptWorldEffects.cs` (pure): `Classify` names
+the template's accept-side effect; `ReadRecoverAssetTarget` reads the snapshot's own
+`recoveryType` / `recoveryLocation` / `kerbalName` / `partID`; `DecideStrandedAsset` is the guard a
+regeneration must pass, first match wins: `NotReadable`, `TargetPresent` (the kerbal aboard some
+vessel, the part in some vessel; also what keeps a regeneration from running twice, since the
+vessel it adds is live at once and saved with the game at the next save), `CommittedResolution` (the committed timeline completes,
+fails or cancels the contract at any UT), `KerbalReserved` (`KerbalsModule.ShouldBlockDismissal`: managed or
+named by a committed flight; or either side of the crew swap map), `KerbalNotInRoster`, `KerbalNotUnowned`
+(the kerbal is no longer the offer's Unowned stranded kerbal), `Regenerate`. `KspStatePatcher.ContractAcceptEffects.cs` builds the world facts
+from `flightState.protoVessels` and `FlightGlobals.Vessels` (`ContractAcceptWorldIndexer`, see
+RESCUE-REGEN-COUNTS-PROTOVESSELS) once per patch, only when a rebuilt contract has an effect, and logs
+`PatchContracts: accept-side world effect not run on rebuild: contractId=... effect=StrandedAsset
+outcome=Regenerate worldMissing=True (...)`, plus one summary line naming this id. Tests:
+`ContractAcceptWorldEffectsTests` (28 cases; 11 red with `Classify` stubbed to the rebuild's current
+"no effect" answer, e.g. `Assert.Equal() Failure` Expected `StrandedAsset`, Actual `None`).
+
+**Fix (built 2026-11-20, rescue and tourism).** Owner rules: never reduce earned value, no paradox,
+earliest outcome wins. Nothing here touches funds, science, reputation or a ledger row. The pure
+`ContractAcceptWorldEffects.Plan` now also names the repair (`ContractAcceptRepair`) and, when a
+missing effect is left alone, a grep-stable `skip=` reason; `KspStatePatcher.ContractAcceptEffects.cs`
+applies it right after the rebuilt contract's `Register`, only for a contract the rebuild just
+re-Activated (a contract the loaded save already holds Active survives the patch and never reaches
+this; its vessel is in that save).
+1. RecoverAsset, on `Regenerate` only and only in SPACECENTER or TRACKSTATION
+   (`IsRegenerationScene`; stock's own accept runs at Mission Control, every vessel packed; FLIGHT
+   and the editors defer it, item 1a): reflect and call the private
+   `GenerateLandRecovery` (surface) or `GenerateOrbitalRecovery` on the rebuilt contract (decompile
+   in `logs/decompile/rescuecontract-2026-11-20/`), under `SuppressionGuard.Crew()`. Not
+   `OnAccepted`: the snapshot already carries its parameter half. The private `partID` is read
+   before and after; when the generator re-drew it for a part recovery (`NeedsPartListRepair`),
+   `AcquirePart` / `RecoverPart` swap the old id for the new one (the live contract only: the
+   accept snapshot keeps the old id). Double-spawn guards: the world check reads
+   `flightState.protoVessels` and `FlightGlobals.Vessels` target by target (a vessel `Game.AddVessel`
+   made this scene is only in the live list until the next save). `TargetPresent` when every named target is in the
+   world (the kerbal aboard any vessel, the part in any vessel); `PartiallyPresent` (review finding
+   2026-11-20) when a compound rescue has one target in the world and not the other, because stock's
+   generators make both together: with the kerbal aboard, `GenerateKerbalInPart` -> `SeatKerbal`
+   would seat the same `ProtoCrewMember` in a second vessel, and with the part present a second copy
+   of its vessel would be added. That is also the case a later rebuild of a regenerated compound
+   rescue meets (the kerbal aboard, the snapshot's stale part id in no vessel), so it is skipped,
+   never regenerated; the rebuilt contract then names that stale part id (residual gap, see
+   below). The index is rebuilt after a spawn, and a regenerated contract is Active in the live
+   list so later patches skip it. The orbit is stock's (`ChooseOrbit`; low orbits are random), so the vessel
+   sits elsewhere than in the first timeline (no committed flight depends on it: `KerbalReserved` /
+   `CommittedResolution` skip that case). Lines: `PatchContracts: regenerated stranded asset for
+   rebuilt contract '<id>' through RecoverAsset.<generator>: added=N [...]` (N counted on both
+   vessel lists, each added vessel with its pid, crew and part count) and, on a part swap,
+   `rebuilt rescue '<id>' part lists now name partID=...`.
+1a. Deferral (owner ruling 2026-11-20). A `Regenerate` decision in FLIGHT or an editor plans
+   `ContractAcceptRepair.DeferStrandedAsset` (the line still reads `skip=scene=<scene>`) and lists
+   the contract in `RescueAcceptDeferrals` (`GameActions/RescueAcceptDeferrals.cs`: `Rescue accept
+   deferral listed: contractId='<id>' (rebuild scene=FLIGHT)`). The list is saved in the PARSEK node
+   (`RESCUE_ACCEPT_DEFERRALS { contractId = <guid> }`, an additive child, no format bump) and each
+   load takes the loaded save's copy (`LoadStateCategory.RescueAcceptDeferrals`: Save on Cold,
+   Re-Fly start and the three in-session kinds; Clear on a plain rewind and a Discard Re-fly, whose
+   OnLoad node is not the landed world's; a scene change reads the copy OnSave just wrote). A
+   non-empty list subscribes `KspStatePatcher.DrainRescueAcceptDeferrals` to stock's
+   `onContractsLoaded` (stock fires it once a scene's contracts are loaded, and the contract patch
+   fires it at its end). The drain, per listed id (`DecideDeferredRescueDrainStep`, first match):
+   keep while the scene is not SPACECENTER / TRACKSTATION, while `ParsekScenario.OnLoad` or a
+   deferred contract patch is still running, or while the ledger's contracts module is absent; drop
+   when stock holds no Active RecoverAsset with the id or the ledger no longer holds it accepted by
+   now; else save the LIVE contract and re-run `Plan` with the rebuild's own guards (present, half
+   present, committed resolution, reserved kerbal, roster), regenerate on `Regenerate`, and take the
+   id off the list whatever the outcome, so it is never regenerated twice. A later rebuild of the
+   same contract that decides anything but a deferral also takes it off. Lines: `Rescue accept
+   deferral evaluated: contractId='<id>' outcome=... repair=...`, the regeneration lines of item 1,
+   `Rescue accept deferral removed: ...` and `Rescue accept deferrals drained (onContractsLoaded,
+   scene=SPACECENTER): evaluated=N regenerated=N dropped=N kept=N pending=N`. Why a persisted list
+   and not a scan of every Active rescue: only the rebuild adds an id, so a contract the player
+   accepted live (stock spawned its vessel) is never on it, and a later loss of that vessel (the
+   player terminated it from the Tracking Station, where no part dies in physics, so the part
+   parameters may never fail) is
+   never read as a missing accept effect; a scan could not tell the two apart.
+2. `KerbalNotInRoster`: left alone (re-creating a named Unowned kerbal is a roster write stock never
+   makes; its offer draws a fresh random name). Owner ruling 2026-11-20: accept the gap, never recreate
+   him. `KerbalNotUnowned` is also left alone (stock's generator would seat a crew kerbal in a
+   second spot).
+3. Tourism, any scene: each listed tourist whose `TouristConversion` is `Convert` (in the roster,
+   Unowned, not reserved) gets `TourismContract.OnAccepted`'s three lines (type Tourist,
+   `SetExperienceTrait(touristTrait)`, Available) under `SuppressionGuard.Crew()`, one Info line per
+   tourist. `AlreadyTourist`, `Reserved` (a committed flight or the crew bookkeeping holds him),
+   `NotUnowned` and `NotInRoster` are never touched and are named in `skip=`. A missing tourist is
+   not recreated. Owner ruling 2026-11-20: when the committed timeline completes, fails or cancels
+   the contract (the same `CommittedResolution` fact the rescue side reads), nobody is converted and
+   the line reads `skip=CommittedResolution`.
+4. Prebuilt ship and experimental part: still detection only; measure first (does
+   `SpawnPreBuiltShip` finish for a rebuilt contract with `waitingForVslSpawn = True`; does R&D keep
+   the experimental part across the rewind).
+
+Tests: `ContractAcceptWorldEffectsTests` (45 cases). Red before the fix with the repair assignments
+and the `KerbalNotUnowned` guard stubbed out: 5 failures, e.g.
+`RebuiltRescue_InTheRewindSaveWorld_AtTheSpaceCenter_RegeneratesTheStrandedVessel` (`Assert.Equal()
+Failure` Expected `RegenerateStrandedAsset`, Actual `None`) and
+`RebuiltTourism_InTheRewindSaveWorld_ConvertsTheOfferedTourists` (Expected `ConvertTourists`,
+Actual `None`). Follow-up (2026-11-20): `ContractAcceptWorldEffectsTests` 57 cases and
+`RescueAcceptDeferralsTests` 14 (the list's add / remove / save / load and its seven load-policy
+cells); 11 red before the follow-up, e.g. `RebuiltRescue_OutsideSpaceCenterAndTrackingStation_IsDeferredToTheNextVisit`
+(Expected `DeferStrandedAsset`, Actual `None`), `DecideStrandedAsset_CompoundRescueHalfInTheWorld_IsNeverRegenerated`
+(Expected `PartiallyPresent`, Actual `Regenerate`) and `RebuiltTourism_TheCommittedTimelineResolvesTheContract_ConvertsNobody`
+(Expected `None`, Actual `ConvertTourists`). The store joins `StoreSaveRoundTripTests`, the Cold
+loader cells of `SaveScopedSessionResetTests` and the OnLoad / OnSave characterization goldens.
+The reflection shell and the drain have no headless or in-game test; the PC lane below is their proof.
+
+**Residual gaps (not fixed).** A compound rescue regenerated once and then rebuilt again from its
+accept snapshot names the snapshot's stale part id (the snapshot is never rewritten), so its part
+parameter cannot complete; reaching that needs a second rebuild of a contract whose regenerated
+vessel survived, which a rewind to before the accept does not produce (that world lacks both
+targets and regenerates afresh). A Discard Re-fly clears the deferral list; a rescue the rewind
+point's own save had deferred and that is still Active in the landed world is not regenerated.
+
+**PC lane (owed).** On cs-career-mun4 (RecoverAsset `e8ba5ea6`, Rayvan Kerman, low Kerbin orbit,
+Offered, Rayvan Unowned in the roster), RW-10's shape: launch and commit a pad Flea, at the Space
+Center `KscAction action=accept-contract contract=e8ba5ea6-570c-4b7f-99b4-44c9dee51030` after the
+launch UT, `InvokeRewindToLaunch tree=latest`, `WarpToUT` past the accept UT, at the Space Center. Before the
+fix the log read `contractId='e8ba5ea6-... effect=StrandedAsset outcome=Regenerate worldMissing=True`;
+with it, the same line carries `repair=RegenerateStrandedAsset`, the `regenerated stranded asset`
+line must follow with `added=1`, a vessel named for Rayvan's pod must exist (a `ListHandles` read or
+a saveParse expectation), and a save / load and a second warp must not add a second one. Deferral
+leg: the same rebuild reached in FLIGHT must log `repair=DeferStrandedAsset skip=scene=FLIGHT` and
+`Rescue accept deferral listed`, survive a save / load (`Rescue accept deferrals installed (load
+Cold): pending=1`), and the next Space Center scene must log `Rescue accept deferral evaluated:
+contractId='e8ba5ea6-... outcome=Regenerate repair=RegenerateStrandedAsset`, the `regenerated
+stranded asset` line with `added=1` and `drained (onContractsLoaded, scene=SPACECENTER):
+evaluated=1 regenerated=1`; a second Space Center visit must add nothing (`pending=0`).
+## RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD: a rescue the landed save already holds Active with its stranded vessel missing is not regenerated after a plain rewind or Discard Re-fly [FILED 2026-11-20 from the batch-1 re-review of the CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS follow-up; low (needs a rescue rebuilt in Flight before a rewind save or rewind point was written, then a rewind or Discard Re-fly to that save)]
+
+**What happens.** `RESCUE_ACCEPT_DEFERRALS` describes the world of the `.sfs` that carries it. A plain rewind's OnLoad
+node is persistent.sfs carrying the session's PARSEK node, and a Discard Re-fly's is the session's node carried around
+the rewind point's world, so both loads clear the list (`LoadReconcilePolicy.DecideRescueAcceptDeferrals`). When the
+rewind save (written at launch) or the rewind point (written at a separation) already holds the rescue Active with its
+vessel missing, its own node listed the id, but that copy is never read; the landed Space Center's contract patch
+skips the contract as existing, so the vessel is never regenerated and the contract can only fail at its deadline.
+A missed regeneration, never a duplicate.
+
+**Fix direction.** Read the deferral list from the landed save's own PARSEK node on these two loads (the rewind save /
+rewind point file), or re-derive pending ids at the landed Space Center for rescues whose accept snapshot the ledger
+holds and whose target is absent, with the same guards. Owner rulings 2026-11-20 also leave the related
+`KerbalNotInRoster` case as an accepted gap (the kerbal is never recreated).
+
+## ~~SAVE-FREEZE-ON-MISSING-SIDECAR~~: one recording whose sidecar cannot be written froze its whole tree in every later save [FILED 2026-11-18 by code reading (test-gap pass, branch `test-gaps-savefreeze`); CONFIRMED 2026-11-20 by two red xUnit cells on the pre-fix code. FIXED 2026-11-20, same branch; xUnit; ST-4 re-pinned by code read, re-flight owed; high (silent loss of every later change to the tree; the sidecars of recordings the save no longer named were left as orphans on disk)]
+
+What happened. `ParsekScenario.SaveTreeRecordings` (`Controllers/ParsekScenario.Save.cs`) writes a
+committed tree only when every recording's sidecars are current. When one is not (a `.prec`
+missing or unreadable at load, so `SidecarLoadFailed` stays set, or a sidecar write that fails),
+the save-must-not-delete fix of QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE
+carried the tree's last-known-good RECORDING_TREE node forward from the on-disk persistent.sfs,
+reconciled to recordings the live tree still had (`TryCarryForwardCommittedTreeNodeFromLoadedSave`).
+The skip condition is sticky, so that old node was written on every save until the fault cleared:
+a recording added to the tree since (a Re-Fly fork, a switch continuation segment, a new branch)
+was missing from every save, every edit to a healthy member (a rename, a group move, a terminal
+state) was replaced by its old value, and the branch-point topology stayed the old one. The two
+red cells on the pre-fix production files: a recording added after the disk save was absent from
+the written tree (`Assert.Contains() Failure`), and a healthy member renamed in memory was written
+with its disk name (`Expected: Renamed In Memory, Actual: Old Name On Disk`).
+
+Fix. The tree is always written from memory. For each recording whose files could not be written,
+`SpliceLastKnownGoodRecordingNodes` (`Controllers/ParsekScenario.CommittedTreeCarry.cs`) replaces
+only the keys that name its sidecar files (`CarriedSidecarIdentityKeys`: `sidecarEpoch`,
+`precHash`, `vesselHash`, `ghostHash`, `ghostSnapshotMode`, `pointCount`) with the values of its
+node in the on-disk save; a key the disk node lacks is removed, and a recording the disk save does
+not hold keeps memory's node. The rest of that recording's node stays memory's on purpose: its
+`childBranchPointId` must agree with memory's BRANCH_POINT nodes, or a recording a branch was
+added under reloads as a leaf. Nothing is added from disk, so a recording the player deleted is
+never resurrected, and the reconcile / root-refusal / branch-point prune of the old carry are
+gone with it. A tree with no on-disk node is now written from memory instead of dropped at Error.
+Logs: one Warn per affected tree (`OnSave: tree '<name>' id=<id> written from memory with N
+unwritable recording(s) [ids]: recordings= splicedFromDisk= unwritableWithoutDiskNode= source=
+diskTreeNode=`, ids capped at 10) and one Info summary per save.
+
+Load side (mirror). The spliced node loads as the same tree: the recording with the missing
+`.prec` hydrates as `trajectory-missing` with no points, which `DropFailedSidecarHydrationRecordings`
+keeps (`IsSyntheticFixtureSidecarMarker`), and keeps its branch-point link; the next save takes the
+same path. Not changed here: a root whose sidecar is unreadable (not missing) still drops its
+whole tree at load, which is the load-side policy, not this save path.
+
+Tests: `UnserializableTreeCarryForwardTests`
+(`SaveTreeRecordings_UnwritableMember_DoesNotFreezeTheRestOfTheTree` is the red cell, plus the
+load-back mirror, the key-set pin against the codec and the splice units). ST-4 pins the reworded
+Warn line; re-flight owed.
+## ~~GHOST-SERVO-CHILDREN-STATIC~~: parts mounted on a Breaking Ground servo stay frozen on the ghost while the servo moves [FILED 2026-11-20 by code reading (test-gap pass). FIXED 2026-11-20, branch `test-gaps-servoghost`; xUnit + mutation; in-game cell `ServoFollowers` written, NEVER RUN; no lane flies a servo craft; low (visual only: a hinge arm, a rotor's blades or a piston's payload does not move on the replay)]
+
+What the code did: the ghost builder parents every part (`ghost_part_<pid>`) directly to the ghost's
+part container at its snapshot pose (`GhostVisualBuilder.AddPartVisuals`), and the robotic
+appliers (`GhostPlaybackLogic.ApplyRoboticPose`, the rotor step in `UpdateActiveRobotics`) write
+only the servo's own moving transform inside the servo part's clone. Nothing beyond the servo part
+is under that transform, so every part attached to a hinge, rotation servo, piston or rotor kept
+its snapshot pose while the servo's own mesh turned.
+
+Fix: a build-time follower plan and a per-servo-write re-pose, no re-parenting (pid lookups,
+visibility walks and the camera pivot all assume the flat hierarchy).
+- `ServoFollowerPlanner` (pure, `Ghost/ServoFollowerPlanner.cs`) decides which parts ride which
+  servo from the snapshot's `parent` / `attN` / `srfN` lines and the prefab's `servoAttachNodes` /
+  `servoSrfMeshNames`, mirroring stock `BaseServo.SetChildParentTransform`: a part follows the
+  NEAREST servo on whose moving side its branch hangs, so a base-side part does not move and a
+  servo on a servo composes through its carrier. A servo whose parent hangs off its moving node
+  (stock's "rotate base" case) is reported and carries nothing.
+- At build, `GhostPlaybackLogic.BindServoFollowers` puts each servo at the moving-transform pose
+  stock saved in the same OnSave that refreshed the attached parts' positions
+  (`servoTransformPosition` / `servoTransformRotation`, decompiled `BaseServo.OnSave` ->
+  `ApplyCoordsUpdate`), stores each follower's pose in its servo's frame, then restores the
+  baseline pose and re-poses the followers.
+- Per frame: `PropagateServoFollowers` runs only where a servo transform is written and the servo
+  has followers: O(followers), no allocation; a ghost without a servo pays one null check per
+  robotic write. Logs: `Servo follower plan for ...` and `Servo followers bound: ...` once per
+  build (rate-limited per ghost).
+- Recorder side (mirror check): nothing new to record. Servo motion is already recorded per module
+  ordinal, the snapshot already carries the attach lines and stock's moving-transform pose, and the
+  moving-side node and mesh names come from the prefab.
+
+Proof: `ServoFollowerPlannerTests` (which parts follow, nested, base side, inverted, malformed)
+and `ServoFollowerPoseTests` (the pose math, nested composition, scale). Red against the pre-fix
+behaviour by mutation (planner yields nothing, follower pose ignores the servo): 9 of 21 cells red.
+
+OPEN:
+- Live proof. Run the in-game category `ServoFollowers` (FLIGHT, needs Breaking Ground; skips
+  without it), or watch a hinge craft's replay.
+- Known limits, not measured: a servo with an inverted mount keeps its base side still; a strut or
+  fuel line spanning the servo keeps its snapshot endpoints; a servo locked in flight after moving
+  with no save in between may have saved its children at an older pose (stock skips the
+  coordinate refresh in OnSave for a locked servo).
+
 ## ~~OPTIMIZER-SPLIT-RULES-V2~~: the 2026-11 split rules: atmosphere passes, one row across an SOI change, a touch-and-go as a graze, for new flights only (owner rulings Q5, Q7 with A1 / B1, Q8, Q9) [FILED 2026-11-18 by the recording split / trim / merge review (design questions 1-3 and 14), ruled by the owner 2026-11-18 and 2026-11-20 (`docs/handoff/recording-split-review/atmosphere-pass-analysis.md`, step 1 of section 8). BUILT 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; NOT FLOWN; step 2 (cuts where the orbit changes kind, the deorbit row) is OPTIMIZER-SPLIT-RULES-V3]
 
 **Cause:** the 2-minute graze clock, not what a pass did, decided how atmosphere passes split (a skip reentry had no row of its own, ten deep aerobraking passes made 21 rows, a short aerocapture was invisible); an engine running at an SOI change or the atmosphere line decided whether a leg was its own row; every touch-and-go cost two rows; and a rule change re-cut every old flight on the next load (ruling Q5: "freeze old recordings").
@@ -180,7 +490,7 @@ path is the one that still builds it.
 
 **Definitions (code: `TreeCommitService.LiveFlownCopy.cs`, `IsCommittedTreeFlownAgain`).** A pending tree is **a committed vessel flown again** when its id names a committed tree, it is a different object, and it carries flight the committed tree does not have, first match wins: (1) a branch point id the committed tree lacks; (2) a recording both hold whose recorded data (points, track sections with samples, non-predicted orbit segments) runs past everything the committed tree holds for that recording's chain (an optimizer split moves the committed copy's end onto a later chain piece, so a re-cut alone is not new flight); (3) a recording only the copy holds whose recorded data runs past every committed recording of the tree. Predicted tails never count. A copy with none of these is a **true duplicate** and still takes the duplicate skip (the commit returns false, the pending tree is dropped, as #2722 made it). A **live copy exists** for a committed tree while the pending tree or the saved pending tree an active-tree restore parks beside it has its id and is not the committed object, or the committed-tree restore attempt is armed for it. The flight scene's own active tree is not read: after an in-flight commit it is still the copy object while the committed tree is the union result, and the commit's own pass must run.
 
-**Fix (RULE 3):** (a) `CommittedListOptimizer.RunOptimizationPass` adds every recording of a committed tree with a live copy to its held set (`TreeCommitService.HoldLiveCopiesForOptimizer`, one call in the pass that hands it the committed trees, both pending slots and the restore attempt id, so the helper reads no store: the set the route-source hold already uses, so the merge, split and trim phases all skip them; the per-phase "held for route source" Verbose lines count them too). Info `Optimization pass: tree '<id>' held whole while its live copy is flown (recordings=N pendingCopy=<b> savedPendingCopy=<b> restoreAttempt=<b>) - no split, merge or trim until the live flight is committed or discarded`. (b) `CommitTreeCore`, after the Re-Fly union and before the duplicate skip: a committed vessel flown again is unioned into the committed tree (`TryUnionLiveCopyIntoCommitted`, the Re-Fly union's core: incoming-only recordings and branch points added, shared recordings take the live instance with the player's settings kept (MERGE-REVERTS-PLAYER-SETTINGS), committed-only recordings kept, the live active recording id wins; `TryUnionFlownAgainCopy`). Committed-only recordings that are split pieces the live recording covers are re-absorbed instead of kept (`FindCoveredCommittedOnlySplitPieces`: a committed-only recording on the committed chain of a shared recording whose span lies inside the live recording's span, start to latest recorded data). An optimizer split while the copy lived keeps the original id as HEAD and moves the ending, snapshots, VesselDestroyed and MergeState to a new-id tail; kept beside the copy's whole recording that tail replayed twice and stayed the chain tip with the old ending. `CommittedListOptimizer.ReabsorbSplitPieceIntoLiveCopy` runs the optimizer merge's own steps on it: ledger rows, events and pending science retagged to the surviving id, an awaiting stock payout moved, Relative section anchors and parent anchors re-pointed (`RepointAnchorsAfterOptimizationMerge`), the tree drops it and its branch points and children name the survivor (`UpdateTreeStateAfterOptimizationMerge`), and it leaves the committed list through `RemoveCommittedAt` (index notifications fire); its sidecars are left to the orphan collector. Before the piece goes, what it owned as the chain tip (where later writes land) is carried onto the committed copy of the survivor's id, which the replace step then hands to the live recording (`TreeCommitService.CarryTipOwnedStateOnFold`): its `MergeState` outright (slot state is read from the tip, so a Seal or Stash taken there wins), the spawn claim and spawn counters and the crew death respawn stamp where the head has none, and every player setting the head left at its default. A piece a supersede row names (either side) or a supply route sources from is never folded (`CommittedListOptimizer.SplitPieceFoldRefusal`, Info `CommitTree: kept split piece '<id>' beside '<id>' although the live recording covers it: <reason>`). `CommitTree`'s own `VesselNameStore.ApplyAll("commit-tree")` runs right after the fold. The survivor keeps the committed HEAD's player settings (RULE 1), a live recording without a chain id takes the committed copy's, and the touched chains are re-indexed over the tree. Committed-only recordings the live span does not cover stay. Info `CommitTree: re-absorbed split piece '<id>' into '<id>' (...)` per piece and `CommitTree: committed vessel flown again - unioned the live copy of tree id=... (strictGateReason=..., evidence=..., addedRecordings=N addedBranchPoints=N reabsorbedSplitPieces=N keptCommittedOnlyRecordings=N activeRecordingIdSwapped=<b> restoreAttemptArmed=<b>)`; the duplicate skip's Verbose line now ends `flownAgain=false evidence=<why>`. `ParsekFlight.TryGetLatestRecordedUT` forwards to the shared `TreeCommitService.TryGetLatestRecordedDataUT`, which now also owns the section test. The helpers live on a `TreeCommitService` partial so they add no type to the architecture knot. Design `docs/parsek-flight-recorder-design.md` (the committed-tree clone branch).
+**Fix (RULE 3):** (a) `CommittedListOptimizer.RunOptimizationPass` adds every recording of a committed tree with a live copy to its held set (`TreeCommitService.HoldLiveCopiesForOptimizer`, one call in the pass that hands it the committed trees, both pending slots and the restore attempt id, so the helper reads no store: the set the route-source hold already uses, so the merge, split and trim phases all skip them; the per-phase "held for route source" Verbose lines count them too). Info `Optimization pass: tree '<id>' held whole while its live copy is flown (recordings=N pendingCopy=<b> savedPendingCopy=<b> restoreAttempt=<b>) - no split, merge or trim until the live flight is committed or discarded`. (b) `CommitTreeCore`, after the Re-Fly union and before the duplicate skip: a committed vessel flown again is unioned into the committed tree (`TryUnionLiveCopyIntoCommitted`, the Re-Fly union's core: incoming-only recordings and branch points added, shared recordings take the live instance with the player's settings kept (MERGE-REVERTS-PLAYER-SETTINGS), committed-only recordings kept, the live active recording id wins; `TryUnionFlownAgainCopy`). Committed-only recordings that are split pieces the live recording covers are re-absorbed instead of kept (`FindCoveredCommittedOnlySplitPieces`: a committed-only recording on the committed chain of a shared recording whose span lies inside the live recording's span, start to latest recorded data). An optimizer split while the copy lived keeps the original id as HEAD and moves the ending, snapshots, VesselDestroyed and MergeState to a new-id tail; kept beside the copy's whole recording that tail replayed twice and stayed the chain tip with the old ending. `CommittedListOptimizer.ReabsorbSplitPieceIntoLiveCopy` runs the optimizer merge's own steps on it: ledger rows, events and pending science retagged to the surviving id, an awaiting stock payout moved, Relative section anchors and parent anchors re-pointed (`RepointAnchorsAfterOptimizationMerge`), the tree drops it and its branch points and children name the survivor (`UpdateTreeStateAfterOptimizationMerge`), and it leaves the committed list through `RemoveCommittedAt` (index notifications fire); its sidecars are left to the orphan collector. Before the piece goes, what it owned as the chain tip (where later writes land) is carried onto the committed copy of the survivor's id, which the replace step then hands to the live recording (`TreeCommitService.CarryTipOwnedStateOnFold`): its `MergeState` outright (slot state is read from the tip, so a Seal or Stash taken there wins), the spawn claim and spawn counters and the crew death respawn stamp where the head has none, and the groups where the head has none (the piece's own hide, ghost-off and loop settings stay with it, FOLDED-PIECE-ROW-SETTINGS-SPREAD). A piece a supersede row names (either side) or a supply route sources from is never folded (`CommittedListOptimizer.SplitPieceFoldRefusal`, Info `CommitTree: kept split piece '<id>' beside '<id>' although the live recording covers it: <reason>`). `CommitTree`'s own `VesselNameStore.ApplyAll("commit-tree")` runs right after the fold. The survivor keeps the committed HEAD's player settings (RULE 1), a live recording without a chain id takes the committed copy's, and the touched chains are re-indexed over the tree. Committed-only recordings the live span does not cover stay. Info `CommitTree: re-absorbed split piece '<id>' into '<id>' (...)` per piece and `CommitTree: committed vessel flown again - unioned the live copy of tree id=... (strictGateReason=..., evidence=..., addedRecordings=N addedBranchPoints=N reabsorbedSplitPieces=N keptCommittedOnlyRecordings=N activeRecordingIdSwapped=<b> restoreAttemptArmed=<b>)`; the duplicate skip's Verbose line now ends `flownAgain=false evidence=<why>`. `ParsekFlight.TryGetLatestRecordedUT` forwards to the shared `TreeCommitService.TryGetLatestRecordedDataUT`, which now also owns the section test. The helpers live on a `TreeCommitService` partial so they add no type to the architecture knot. Design `docs/parsek-flight-recorder-design.md` (the committed-tree clone branch).
 
 **Residue:** a committed-tree restore attempt left armed after a true-duplicate skip (an unflown copy dropped) keeps that tree held from the optimizer until the attempt is cleared (a cold load, a commit or discard of the tree, the next arm). Not cleared on the skip path because the clear there would need a choice between the discard purge and a bare clear of the clone's held events; a duplicate carries no new flight, so the hold only postpones optimizer cuts for the session.
 

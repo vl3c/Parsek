@@ -58,6 +58,37 @@ Not released yet.
 
 ### Fixed
 
+- **A flight's rows settle when it is merged, not over the next loads.** Some rows Parsek split
+  were joined back to their neighbour only on a later load, so the rows changed again after
+  loading the save. (OPTIMIZER-PASS-NOT-A-FIXED-POINT)
+- **Every row of a new flight is named by its part of the mission.** A row Parsek never had to
+  split was labelled by its raw phase ("exo") beside rows named "space", and a reentry row that
+  flew back up to orbit when you continued it kept the name "reentry". (ROW-ROLE-STALE-OR-MISSING)
+- **A flight with a missing middle row still plays and follows as one flight.** When a row was
+  gone from the middle of a split flight, watching, the end-of-flight walk and the parent links
+  stopped at the gap. (CHAIN-NEXT-PIECE-EXACT-INDEX)
+- **A loop set on one row of a flight still loops just that part when you fly it again.** When
+  the new flight absorbed the old row, its loop, hide or ghost-off setting spread over the whole
+  flight and every row cut from it later. The loop now covers the old row's span only; a hide or
+  ghost-off on that row is not carried over. (FOLDED-PIECE-ROW-SETTINGS-SPREAD)
+- **A flight you fly again keeps everything it earned after Parsek splits it.** Science and
+  milestones from the later part of a re-flown flight reached the career only on the next load,
+  and a vessel whose ending moved to the new part could fail to appear.
+  (UNION-COMMIT-STALE-INCOMING-TREE)
+- **A rescue or tourism contract still works after you go back in time.** If you go back to before
+  you accepted a rescue, the stranded kerbal or part reappears when the clock reaches the accept
+  again (at your next Space Center or Tracking Station visit if you are flying then), and tourism
+  passengers become tourists again, unless your recorded future already ends that contract.
+  (CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS)
+- **One missing recording file no longer stops a mission from saving.** When one recording of a
+  mission had lost its file, every later save kept that mission exactly as it was before:
+  new flights in it, renames and other changes were silently not saved. The mission now saves
+  normally, and the recording with the missing file keeps pointing at its last saved files.
+  (SAVE-FREEZE-ON-MISSING-SIDECAR)
+- **Parts on robotic hinges, rotors and pistons move on the replay.** A ghost turned only the
+  servo itself, so a panel, arm or wheel mounted on a hinge stayed frozen while the hinge swung.
+  Everything on the moving side of a servo now moves with it, servos on servos included, and
+  parts on the fixed side stay put. (GHOST-SERVO-CHILDREN-STATIC)
 - **The last row of a split flight keeps its ending details.** Its situation text, docking partner
   and supply-route dock windows stayed on the first row, so the timeline showed generic wording.
   (SPLIT-LEAVES-END-FIELDS-ON-HEAD)

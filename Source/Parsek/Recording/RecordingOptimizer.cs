@@ -941,6 +941,7 @@ namespace Parsek
             int normalizedOrdinalShifts = 0;
             int skippedSuperseded = 0;
             int skippedLoopRange = 0;
+            int skippedNewerRules = 0;
 
             // A superseded recording is never split (mirror of CanAutoMerge's supersede
             // guard). The supersede relation names it by RecordingId, so a fresh-id second
@@ -956,6 +957,13 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
+                // Cut by a newer build under rules this one does not know: held verbatim, not
+                // even normalized (IsSplitRuleVersionNewerThanBuild).
+                if (IsSplitRuleVersionNewerThanBuild(rec))
+                {
+                    skippedNewerRules++;
+                    continue;
+                }
                 var ensureStats = RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
                     rec,
                     markDirty: true,
@@ -1059,6 +1067,14 @@ namespace Parsek
                 ParsekLog.Verbose("Optimizer",
                     $"FindSplitCandidatesForOptimizer: kept {skippedLoopRange.ToString(CultureInfo.InvariantCulture)} " +
                     "recording(s) whole: the player set a loop range on them");
+            }
+
+            if (skippedNewerRules > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"FindSplitCandidatesForOptimizer: held {skippedNewerRules.ToString(CultureInfo.InvariantCulture)} " +
+                    $"recording(s) whole: split rules newer than this build " +
+                    $"(v{SplitRuleVersionCurrent.ToString(CultureInfo.InvariantCulture)}), kept verbatim");
             }
 
             return candidates;
