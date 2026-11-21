@@ -202,10 +202,7 @@ namespace Parsek
                 state.materials = m != null ? new List<Material> { m } : new List<Material>();
             }
 
-            GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult, traj);
-            GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
-            GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
-            GhostPlaybackLogic.RecalculateCameraPivot(state);
+            InitializeBuiltGhostVisuals(state, buildResult, traj);
             GhostVisualBuilder.AttachGhostAudioToWatchPivot(buildResult, state.cameraPivot);
             buildDictionariesStopwatch.Stop();
             lastSpawnDictionariesTicks = buildDictionariesStopwatch.ElapsedTicks - dictionariesPre;
@@ -569,6 +566,28 @@ namespace Parsek
 
             if (hasOrbitData)
                 positioner.PositionFromOrbit(index, traj, state, playbackUT);
+        }
+
+        /// <summary>
+        /// The build-and-initialise seam (design-part-ghost-parity D2): the per-part
+        /// initialisers a freshly built ghost goes through before playback, in the order the
+        /// engine's own load path runs them. The engine calls it from
+        /// <see cref="TryPopulateGhostVisuals"/>; a tool that builds a ghost outside playback
+        /// calls it so its ghost cannot drift from what playback shows.
+        ///
+        /// <para>Preconditions, as the load path sets them: <c>state.ghost</c>,
+        /// <c>state.partTree</c>, <c>state.logicalPartIds</c> and <c>state.materials</c>
+        /// filled; <c>state.cameraPivot</c> optional (the pivot recompute no-ops without it).
+        /// Activation is not part of it: the load path keeps the ghost hidden until playback
+        /// positions it and then runs <see cref="ActivateGhostVisualsIfNeeded"/>.</para>
+        /// </summary>
+        internal static void InitializeBuiltGhostVisuals(
+            GhostPlaybackState state, GhostBuildResult buildResult, IPlaybackTrajectory traj)
+        {
+            GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult, traj);
+            GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
+            GhostPlaybackLogic.RefreshCompoundPartVisibility(state);
+            GhostPlaybackLogic.RecalculateCameraPivot(state);
         }
 
         private static bool ActivateGhostVisualsIfNeeded(GhostPlaybackState state)
