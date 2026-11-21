@@ -162,7 +162,7 @@ namespace Parsek.Logistics
             detail = HeldRowDetail(route, kind, detail);
 
             if (els == null)
-                els = RouteEventLog.Events;
+                els = RouteEventLog.RowsForRoute(route.Id);
 
             if (IsHoldReasonRecordedInOpenEpisode(els, route.Id, kind, detail))
             {

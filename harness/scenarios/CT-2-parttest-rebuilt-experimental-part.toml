@@ -1,0 +1,168 @@
+schema = 1
+id = "CT-2-parttest-rebuilt-experimental-part"
+# =====================================================================================
+# CT-2: A PART TEST CONTRACT REBUILT AFTER A REWIND GETS ITS EXPERIMENTAL PART BACK, ONCE
+# (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4; the live proof of the R&D shell
+# `KspStatePatcher.AddRebuiltExperimentalPart` / `BuildExperimentalPartFacts`, which has no
+# headless or in-game test: the pure guard is `ContractAcceptWorldEffects.DecideExperimentalPart`).
+#
+# THE DEFECT. Stock's accept of a part test (`Contracts.Templates.PartTest`) runs `OnAccepted`,
+# which makes an unpurchased part experimental (`ResearchAndDevelopment.AddExperimentalPart`, a
+# per-part count in R&D's `ExpParts` node) so the player can build with it. After a rewind to
+# before the accept, the ledger rebuilds the committed accept from its snapshot
+# (`Contract.Load`), which never runs `OnAccepted`: the rewind save's R&D has no count, so the
+# Active test names a part the player cannot put on a craft. THE FIX: right after the rebuild,
+# in any scene, Parsek adds the count once when R&D's count is short of this contract plus every
+# other Active experimental test of the part (`outcome=Add repair=AddExperimentalPart`).
+#
+# PLAN (cs-career-mun3 = CS-6b's produced save, UT ~119606; PartTest
+# fd341164-e210-4de9-b72b-7a59a6bcf3fd Offered, part Decoupler.1p5 (not purchased: no tech node
+# lists it), no ExpParts node in R&D):
+#   boot       LoadGame persistent at the Space Center; warp to 119700.
+#   H          a Jumping Flea on the pad, recorded to 119740, committed, recovered at its marker
+#              (RSQ-1's H, so a Rewind-to-Launch has a launch before the accept to go back to).
+#   accept     warp to 119800; accept-contract fd341164 at the Space Center. Stock's own
+#              OnAccepted adds the experimental count in THIS timeline (no Parsek line).
+#   rewind     InvokeRewindToLaunch tree=latest: the rewind save holds the test Offered and no
+#              count; the accept row is committed future.
+#   crossing   warp to 119820 at the Space Center: the clock cursor reaches the accept, the
+#              patch rebuilds the contract, plans `repair=AddExperimentalPart` and the count goes
+#              0 -> 1.
+#   reload     SaveGame ct2-01-after-crossing, LoadGame it with playerLoad=true (a Cold load at
+#              the Space Center): the save holds the test Active and the count, so nothing is
+#              rebuilt and nothing added.
+#   warp 2     warp to 119880: no second add.
+#
+# STEP SAVES (temporary analysis artifacts): ct2-01-after-crossing.
+#
+# PINNED LITERALS (read 2026-11-21 on branch test-gaps-contract-templates):
+#   PatchContracts: accept-side world effect not run on rebuild: contractId='...' type='...'
+#     effect=... outcome=... worldMissing=... repair=... skip=... (<detail>; vessels=N scene=S)
+#                                                GameActions/KspStatePatcher.ContractAcceptEffects.cs
+#   detail "part='<name>' expAtAccept=<bool> rndCount=N otherTests=N"
+#                                                GameActions/ContractAcceptWorldEffects.cs DescribeExperimentalTarget
+#   PatchContracts: experimental part '...' of rebuilt contract '...' added to R&D the way
+#     PartTest.OnAccepted does: count a -> b     KspStatePatcher.ContractAcceptEffects.cs AddRebuiltExperimentalPart
+#   PatchContracts: experimental part '...' of rebuilt contract '...' not added: ...   same method
+#   PatchContracts: R&D experimental count not readable (...)                          ReadExperimentalCount
+#   PatchContracts: N rebuilt contract(s) name world objects ... repaired=N            LogRestoredContractAcceptWorldEffectsSummary
+#   Clock-crossing reached committed-future rows: crossed=N [<Type>@<UT>, ...]
+#                                                GameActions/LedgerOrchestrator.Recalculate.cs
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): 1 considered, not applied:
+# RSQ-1 flies the same prefix on cs-career-mun4, which holds no Offered part test of an
+# unpurchased part (its one Offered test, radialDecoupler, is purchased and would accept with
+# exp=False), and a lane reaches a given rebuild once per rewind. 2 applied: every wait is an
+# explicit-UT WarpToUT. 3-5 n/a (no dwell, no burn, no coast). 6: `[retry] policy = "once"`.
+# 7: the recordings count pinned (21 host recordings counted off the fixture + H). 8-9 owed on
+# the first flight.
+#
+# STATUS: AUTHORED 2026-11-21 (branch `test-gaps-contract-templates`), NEVER FLOWN.
+# =====================================================================================
+tier = "operator"
+description = "Part test contract rebuilt after a rewind (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4): on cs-career-mun3 a committed pad Flea, then the part test of the unpurchased Decoupler.1p5 (PartTest fd341164) accepted at the Space Center after its launch; a Rewind-to-Launch goes back before the accept, and the Space Center warp that reaches it rebuilds the contract and makes the part experimental again the way stock's PartTest.OnAccepted does, exactly once: a save, a Cold reload and a second warp add no second count."
+instanceProfile = "stock-tree"
+tags = ["CT-2", "career", "ledger", "rewind", "rewind-to-launch", "contracts", "contract-accept",
+        "part-test", "reading-run", "ksc-marker", "editor", "timeline-ops", "save-load"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun3"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 2 x 300 LoadGame + 5 x 120 warps + 120 GoToEditor + 180 LaunchFromEditor
+# + 180 StartRecording + 120 CommitTree + 120 ExitToSpaceCenter + 60 KscMarkerRecover + 60
+# KscAction + 300 rewind + 2 x 120 SaveGame = 2580; runtime 3300 adds the inert steps and
+# FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "119700", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # ---- H: the Flea on the pad, recorded, committed, recovered at its marker ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "119740" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ct2-h-committed" },                          expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${h.pid}" },                                 expect = "OK", budget = 60 },
+  # ---- the accept, after H's launch: stock makes Decoupler.1p5 experimental in this timeline ----
+  { cmd = "WarpToUT",       args = { ut = "119800", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ct2-before-accept" },                        expect = "OK" },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "fd341164-e210-4de9-b72b-7a59a6bcf3fd" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "ct2-accepted" },                             expect = "OK" },
+  # ---- the rewind onto H's launch: the accept is committed future, no experimental count ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "ct2-rewound" },                              expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  # ---- the crossing at the Space Center: the rebuild adds the experimental count ----
+  { cmd = "WarpToUT",       args = { ut = "119820", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ct2-crossed" },                              expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "ct2-01-after-crossing" },                    expect = "OK", budget = 120 },
+  # ---- a Cold reload of that save and a second warp: no second count ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "ct2-01-after-crossing", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "ct2-reloaded" },                             expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "119880", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ct2-second-warp" },                          expect = "OK" },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["contracts", "recalc-engine", "ksp-state-patcher"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 21 recordings (counted off the fixture) plus H.
+count = { min = 22, max = 22 }
+
+[expectations.logContracts]
+required = [
+  # ---- the live accept at the Space Center, after H's launch ----
+  "MISSIONMARK label=ct2-before-accept ut=(?:(?!MISSIONMARK label=ct2-accepted )[\\s\\S])*?kscaction action=accept-contract target=fd341164-e210-4de9-b72b-7a59a6bcf3fd applied=true",
+  "MISSIONMARK label=ct2-accepted ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=ct2-rewound ut=119[67][0-9]{2}\\.",
+
+  # ---- the crossing at the Space Center: the accept row reached, the contract rebuilt and
+  # its experimental part added back once ----
+  "MISSIONMARK label=ct2-rewound ut=(?:(?!MISSIONMARK label=ct2-crossed )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@(?:11979|11980)[0-9]\\.",
+  "MISSIONMARK label=ct2-rewound ut=(?:(?!MISSIONMARK label=ct2-crossed )[\\s\\S])*?PatchContracts: accept-side world effect not run on rebuild: contractId='fd341164-e210-4de9-b72b-7a59a6bcf3fd' type='PartTest' effect=ExperimentalPart outcome=Add worldMissing=True repair=AddExperimentalPart skip=none \\(part='Decoupler\\.1p5' expAtAccept=True rndCount=0 otherTests=0; vessels=[0-9]+ scene=SPACECENTER\\)",
+  "MISSIONMARK label=ct2-rewound ut=(?:(?!MISSIONMARK label=ct2-crossed )[\\s\\S])*?PatchContracts: experimental part 'Decoupler\\.1p5' of rebuilt contract 'fd341164-e210-4de9-b72b-7a59a6bcf3fd' added to R&D the way PartTest\\.OnAccepted does: count 0 -> 1",
+  "MISSIONMARK label=ct2-rewound ut=(?:(?!MISSIONMARK label=ct2-crossed )[\\s\\S])*?PatchContracts: [1-9][0-9]* rebuilt contract\\(s\\) name world objects their stock accept created and this world lacked; repaired=[1-9]",
+
+  # ---- the Cold reload: the player's load of the save written after the crossing ----
+  "MISSIONMARK label=ct2-crossed ut=(?:(?!MISSIONMARK label=ct2-reloaded )[\\s\\S])*?loadgame start save=\\S+ name=ct2-01-after-crossing [^\\r\\n]*playerLoad=true",
+  "MISSIONMARK label=ct2-reloaded ut=[\\s\\S]*?MISSIONMARK label=ct2-second-warp ut=1198[0-9]{2}\\.",
+]
+forbidden = [
+  # The count is added once: a second add for this contract anywhere is the double effect the
+  # Present guard exists to stop (stock counts, it never dedups).
+  "experimental part 'Decoupler\\.1p5' of rebuilt contract 'fd341164-e210-4de9-b72b-7a59a6bcf3fd' added[\\s\\S]*experimental part 'Decoupler\\.1p5' of rebuilt contract 'fd341164-e210-4de9-b72b-7a59a6bcf3fd' added",
+  # After the crossing the contract is never rebuilt-and-repaired again (the reload's save holds
+  # it Active, which the patch leaves alone).
+  "MISSIONMARK label=ct2-crossed ut=[\\s\\S]*repair=AddExperimentalPart",
+  # The R&D shell's failure lines.
+  "experimental part 'Decoupler\\.1p5' of rebuilt contract 'fd341164-e210-4de9-b72b-7a59a6bcf3fd' not added",
+  "R&D experimental count not readable",
+  "accept-side world effect check for 'fd341164-e210-4de9-b72b-7a59a6bcf3fd' threw",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 3300
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

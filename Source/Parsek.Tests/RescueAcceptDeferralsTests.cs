@@ -124,10 +124,12 @@ namespace Parsek.Tests
         [InlineData("StockRevert", "Save")]
         [InlineData("QuickloadFlight", "Save")]
         [InlineData("InSessionOther", "Save")]
-        // The OnLoad node is not the landed world's: the landed scene's own patch rebuilds.
-        [InlineData("PlainRewind", "Clear")]
-        [InlineData("DiscardReFly", "Clear")]
-        public void LoadPolicy_TakesTheLoadedSavesCopy_ExceptWhereTheNodeIsNotTheWorlds(
+        // Todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD: the persistent.sfs splice keeps the landed
+        // save's own list (the rewind save's, the rewind point's), so the node's copy is the
+        // landed world's on these two loads too.
+        [InlineData("PlainRewind", "Save")]
+        [InlineData("DiscardReFly", "Save")]
+        public void LoadPolicy_TakesTheLoadedSavesCopy_OnEveryLoad(
             string kindName, string expected)
         {
             var kind = (LoadKind)Enum.Parse(typeof(LoadKind), kindName);
@@ -137,6 +139,81 @@ namespace Parsek.Tests
             Assert.True(LoadReconcilePolicy.IsConsumedEarly(LoadStateCategory.RescueAcceptDeferrals));
             Assert.Equal(LoadReconcileAction.Save,
                 LoadReconcilePolicy.DecideEarly(EarlyLoadKind.InSession, LoadStateCategory.RescueAcceptDeferrals).Action);
+        }
+
+        [Theory]
+        [InlineData((int)EarlyLoadKind.PlainRewind)]
+        [InlineData((int)EarlyLoadKind.DiscardReFly)]
+        public void LoadPolicy_RewindAndDiscardCells_NameTheSplice(int early)
+        {
+            LoadReconcileDecision d = LoadReconcilePolicy.DecideEarly(
+                (EarlyLoadKind)early, LoadStateCategory.RescueAcceptDeferrals);
+            Assert.Equal(LoadReconcileAction.Save, d.Action);
+            Assert.False(d.IsKnownGap);
+            Assert.Contains("SpliceLiveParsekScenarioNode", d.Reason);
+        }
+
+        // ================================================================
+        // Todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD: the persistent.sfs splice a plain rewind
+        // (RewindLauncher.WriteRewindGameAsPersistent) and a Discard Re-fly
+        // (RevertInterceptor.WriteRewindPointGameAsPersistent) write keeps the landed save's own
+        // list: it names the rescues Active in THAT world whose stranded vessel that world lacks.
+        // ================================================================
+
+        private static ConfigNode ParsekNode(params string[] deferredIds)
+        {
+            var n = new ConfigNode("SCENARIO");
+            n.AddValue("name", "ParsekScenario");
+            if (deferredIds.Length > 0)
+            {
+                ConfigNode list = n.AddNode(RescueAcceptDeferrals.NodeName);
+                foreach (string id in deferredIds)
+                    list.AddValue(RescueAcceptDeferrals.ValueName, id);
+            }
+            return n;
+        }
+
+        [Fact]
+        public void Splice_KeepsTheLandedSavesOwnList_NotTheSessions()
+        {
+            ConfigNode landed = ParsekNode(Rescue);
+            ConfigNode session = ParsekNode(Other);
+            session.AddNode("RECORDING_TREE").AddValue("id", "tree-committed-later");
+
+            Assert.Null(RevertInterceptor.SpliceLiveParsekScenarioNode(landed, session));
+
+            // The rest of the node is the session's; the deferral list is the landed world's.
+            Assert.Single(landed.GetNodes("RECORDING_TREE"));
+            Assert.Single(landed.GetNodes(RescueAcceptDeferrals.NodeName));
+            Assert.Equal(new List<string> { Rescue }, RescueAcceptDeferrals.LoadFrom(landed));
+            Assert.Contains(logLines, l => l.Contains("[RewindSave]")
+                && l.Contains("kept the landed save's own " + RescueAcceptDeferrals.NodeName)
+                && l.Contains("landed=1 session=1"));
+
+            // The landed load then installs it and the next Space Center visit drains it.
+            RescueAcceptDeferrals.Replace(RescueAcceptDeferrals.LoadFrom(landed), "load PlainRewind");
+            Assert.Equal(new[] { Rescue }, RescueAcceptDeferrals.Pending);
+        }
+
+        [Fact]
+        public void Splice_LandedSaveWithoutAList_DropsTheSessions()
+        {
+            ConfigNode landed = ParsekNode();
+            ConfigNode session = ParsekNode(Other);
+
+            Assert.Null(RevertInterceptor.SpliceLiveParsekScenarioNode(landed, session));
+
+            Assert.Null(landed.GetNode(RescueAcceptDeferrals.NodeName));
+            Assert.Empty(RescueAcceptDeferrals.LoadFrom(landed));
+            Assert.Contains(logLines, l => l.Contains("landed=0 session=1"));
+        }
+
+        [Fact]
+        public void Splice_Refused_LeavesTheLandedListUntouched()
+        {
+            ConfigNode landed = ParsekNode(Rescue);
+            Assert.NotNull(RevertInterceptor.SpliceLiveParsekScenarioNode(landed, null));
+            Assert.Equal(new List<string> { Rescue }, RescueAcceptDeferrals.LoadFrom(landed));
         }
     }
 }

@@ -237,7 +237,7 @@ namespace Parsek.Logistics
             // cargo aboard goes to this stop first; only the part of the shortfall the
             // later deliveries cannot absorb is held back here.
             Dictionary<string, double> supplyDeficit = ComputeCycleSupplyDeficit(
-                route, cycleId, stopIndex * SeqStride + 3, RouteEventLog.Events);
+                route, cycleId, stopIndex * SeqStride + 3, RouteEventLog.RowsForCycle(route.Id, cycleId));
             Dictionary<string, double> supplyHoldback = ComputeDeliveryHoldback(
                 route, stopIndex, supplyDeficit);
             if (supplyDeficit.Count > 0)
@@ -685,7 +685,7 @@ namespace Parsek.Logistics
                 return false;
             if (string.IsNullOrEmpty(cycleId))
                 return false;
-            IReadOnlyList<RouteEvent> els = RouteEventLog.Events;
+            IReadOnlyList<RouteEvent> els = RouteEventLog.RowsForCycle(route.Id, cycleId);
             if (els == null) return true;
             for (int i = 0; i < els.Count; i++)
             {
@@ -703,7 +703,7 @@ namespace Parsek.Logistics
             if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
                 return false;
 
-            IReadOnlyList<RouteEvent> els = RouteEventLog.Events;
+            IReadOnlyList<RouteEvent> els = RouteEventLog.RowsForCycle(routeId, cycleId);
 
             if (els == null) return false;
             for (int i = 0; i < els.Count; i++)
@@ -749,7 +749,7 @@ namespace Parsek.Logistics
             if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
                 return false;
 
-            IReadOnlyList<RouteEvent> els = RouteEventLog.Events;
+            IReadOnlyList<RouteEvent> els = RouteEventLog.RowsForCycle(routeId, cycleId);
 
             if (els == null) return false;
             for (int i = 0; i < els.Count; i++)
@@ -798,7 +798,7 @@ namespace Parsek.Logistics
             if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(cycleId))
                 return false;
 
-            IReadOnlyList<RouteEvent> els = RouteEventLog.Events;
+            IReadOnlyList<RouteEvent> els = RouteEventLog.RowsForCycle(routeId, cycleId);
 
             if (els == null) return false;
             for (int i = 0; i < els.Count; i++)

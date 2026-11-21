@@ -14,10 +14,12 @@ id = "S1.8-soi-crossing-playback"
 # assert, GATING:
 #   - the pure seam enumerator finds EXACTLY the two flown cross-body handoffs
 #     (Kerbin->Sun, Sun->Duna) and the loop flag survived injection;
-#   - at each handoff the two sides' resolved WORLD positions agree within
-#     25 km (MEASURED flight 3: 10,146 m Kerbin->Sun, 7,284 m Sun->Duna; the
-#     re-aim center-to-center defect class is a ~50-90 THOUSAND km teleport,
-#     three-plus orders of magnitude above the pin);
+#   - at each handoff the two sides' resolved WORLD positions, both evaluated at
+#     the seam UT, agree within 1 km (the recorded elements agree to 0.1 mm there
+#     headless, SoiSeamWorldGapTests; the re-aim center-to-center defect class is
+#     a ~50-90 THOUSAND km teleport). Flight 3's 10,146 m / 7,284 m were the cell
+#     comparing seam - 0.5 s with seam + 0.5 s in the Sun-anchored frame: 1 s of
+#     the probe's heliocentric travel, not a gap (todo BG-SOI-SEAM-WORLD-GAP);
 #   - at arrival the resolved position sits INSIDE Duna's SOI with a
 #     Duna-bodied covering segment (the todo's validation criterion is the
 #     ENCOUNTER, not a seam number).
@@ -35,8 +37,10 @@ id = "S1.8-soi-crossing-playback"
 # LIVE-PROVEN 2026-08-06, three flights: flight 1 scene-skipped all three cells
 # (SPACECENTER cells on the FLIGHT-booting template) and the skipped=0 tally
 # correctly RED the run; flight 2 measured both seams + arrival and found the
-# loopability launch-identity fixture gap; flight 3 PASS attempt 1. The seam
-# tolerance is re-pinned from flight 3's measurements (see the cell constant).
+# loopability launch-identity fixture gap; flight 3 PASS attempt 1. 2026-11-21:
+# the seam cell now evaluates both sides at the seam UT and gates at a derived
+# 1 km (see the cell constant); its two seam lines carry the new tail, so a
+# stale DLL reds on them. Re-flight owed; the gap= windows tighten after it.
 # =====================================================================================
 tier = "daily"
 description = "Inject the looped-interplanetary corpus (the real flown duna-direct Kerbin->Sun->Duna geometry) and gate segment playback RESOLUTION across both SOI handoffs + the arrival into Duna's SOI: the D6 soi-crossing-playback cell, and Tier 1 of the re-aim option-3 validation lane."
@@ -86,13 +90,17 @@ count = { min = 1, max = 1 }
 # cells, none batch-disabled): total=3 is kept in step with the C# attributes
 # by CommittedBatchTallySourceSyncTests' sweep, and skipped=0 is the
 # anti-vacuity half (a self-skipped cell means the injection never landed --
-# that must red, not pass). The two `SoiCrossPlay` Info lines are the cells'
+# that must red, not pass). The `SoiCrossPlay` Info lines are the cells'
 # own measured evidence (seam gaps + arrival distances), required so the
-# reading run's numbers are always in the collected log.
+# reading run's numbers are always in the collected log. The seam windows:
+# gap= under 1 km (the cell gates the value itself), the after segment's epoch
+# and the handoff lateness exact (fixture data), and the non-Sun side's distance
+# from its body at the seam (headless 84,159,300 m / 47,921,878 m) in a
+# 100-200 m window (84,159,2xx-3xx / 47,921,8xx).
 required  = [
   "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=SoiCrossingPlayback scene=FLIGHT",
-  "seam Kerbin->Sun ut=4742953.221 gap=",
-  "seam Sun->Duna ut=9128108.755 gap=",
+  "seam Kerbin->Sun ut=4742953\\.221 gap=[0-9]{1,3}\\.[0-9]m \\(tolerance 1000m, both sides at the seam UT\\) afterEpoch=4742953\\.206 seamMinusAfterEpoch=0\\.015s localBody=Kerbin localSideFromBody=84159[23][0-9]{2}m",
+  "seam Sun->Duna ut=9128108\\.755 gap=[0-9]{1,3}\\.[0-9]m \\(tolerance 1000m, both sides at the seam UT\\) afterEpoch=9128108\\.707 seamMinusAfterEpoch=0\\.048s localBody=Duna localSideFromBody=479218[0-9]{2}m",
   "arrival probe ut=",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]

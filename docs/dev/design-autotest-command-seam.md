@@ -626,6 +626,27 @@ the updates below record how each verb arrived.
 > parts (as for `inspect`); an unknown part refuses `partaction-part-not-found` and no active vessel
 > `partaction-no-active-vessel`, both before anything is destroyed; `event=explode`, `state=` empty.
 
+> Update (PartAction servomax / servomin, 2026-11-20): no new verb. `PartAction` gains
+> `button=servomax` / `button=servomin` (REQUIRE `part=`): a Breaking Ground hinge's or rotation
+> servo's "Maximum Angle" / "Minimum Angle", the `MaximumAngleAction` / `MinimumAngleAction`
+> `KSPAction` of `ModuleRoboticServoHinge` / `ModuleRoboticRotationServo` (KSP 1.12.5 decompiled),
+> invoked as an action group fires it (`KSPActionParam(None, Activate)`); the PAW has no such
+> button (its target-angle slider is a field). The servo then drives itself to the soft limit over
+> later frames, so `state=` reads the commanded `servo:target=<F2>`. Candidates come from those two
+> modules only; a named part carrying neither refuses `partaction-servo-not-found`. It moves a servo
+> during a recording so the ghost's servo followers can be read on the replay (SRV-1).
+
+> Update (PartAction rotoron / rotoroff, 2026-11-21): no new verb. `PartAction` gains
+> `button=rotoron` / `button=rotoroff` (REQUIRE `part=`): a Breaking Ground rotor's "Engage Motor" /
+> "Disengage Motor", the `MotorOnAction` / `MotorOffAction` `KSPAction` `ModuleRoboticServoRotor`
+> inherits from `BaseServo` (KSP 1.12.5 decompiled; `EngageMotor()` / `DisengageMotor()`, not a
+> toggle, unlike the rotor's own `MotorPowerAction`), invoked the same way. The motor then spins
+> the rotor up to its `rpmLimit` (or lets it spin down) over later physics frames, so `state=` reads
+> the commanded `rotor:engaged=0|1 rpmLimit=<F2>` (`torqueLimit=<F2>` appended 2026-11-21, when
+> `rotoron` learned to raise the torque limit stock zeroes at a FLIGHT start). Candidates come from that module only; a named
+> part carrying none refuses `partaction-rotor-not-found`. It spins a rotor during a recording so
+> the recorder's RPM read and the ghost's rotor spin can be read on the replay (SRV-2).
+
 > Update (CrewTransfer, 2026-10-17): one ADDITIVE verb, taking the table to **53 implemented / 4 reserved**,
 > for the crew-across-vessels coverage (crew moved between two pods of a docked pair):
 > `CrewTransfer kerbal= part=` runs stock's own crew transfer inside the active vessel. Full contract
@@ -1159,14 +1180,20 @@ performs. It is the first PROMOTION out of the reserved list since M-C1 (impleme
 20 -> 21, reserved 11 -> 10); the wire token is byte-identical before and after, only the
 response changes.
 
-**Contract.** FLIGHT-only (dispatch precondition `RequiresFlight`; the map view is a FLIGHT
-overlay). SINGLE-phase: after the unloaded-target refusal below the whole path is
+**Contract.** The site picks the scene: the dispatch row is `AnyScene` and a per-site
+sub-gate (`TestCommandSimulateSwitchClick.DecideDispatchScene`) DEFERS the wrong scene with
+the site's own token: `site=map` (or absent) `not-in-flight` (the map view is a FLIGHT
+overlay), `site=ts` `not-in-trackstation`, `site=ksc` `not-at-space-center`; an unparseable
+`site=` executes so the executor rejects it at once. The two cross-scene sites are
+two-phase and have their own contract below (`site=ts` / `site=ksc`); the rest of this
+paragraph is the map site's. SINGLE-phase: after the unloaded-target refusal below the whole path is
 synchronous - `SetActiveVessel` fires `onVesselSwitching` -> `MakeActive` ->
 `onVesselChange` (hence Parsek's consume) INSIDE the call - so there is nothing left to
 wait for and a two-phase terminal would hold the FIFO head polling for an event that
 already happened. At-most-once is unaffected: the pump journals CLAIMED before invoking ANY
-executor, so a crash mid-switch replays as INTERRUPTED and never re-switches. It rides the
-default 60 s budget, which therefore only ever bounds the `not-in-flight` DEFER. Two
+executor, so a crash mid-switch replays as INTERRUPTED and never re-switches. Its budget
+(`DeferralBudget.SimulateStockSwitchClickSeconds`, 300 s, one per verb and sized for the fly
+sites' FLIGHT load) therefore only ever bounds the map site's `not-in-flight` DEFER. Two
 dispatch-level rejects mirror `ExitToSpaceCenter`: `load-in-flight` and
 `merge-journal-in-flight`. There is deliberately NO `recording-active` reject - a live
 recorder is the PRECONDITION for the switch-segment cases the verb exists to exercise.
@@ -1175,7 +1202,7 @@ recorder is the PRECONDITION for the switch-segment cases the verb exists to exe
 
 | arg | values | meaning |
 |---|---|---|
-| `site` | `map` \| `ts` \| `ksc` | absent = `map`. v1 drives `map` only. |
+| `site` | `map` \| `ts` \| `ksc` | absent = `map`. `ts` = the Tracking Station's Fly, `ksc` = a Space Center vessel marker's Fly (two-phase, below). |
 | `vessel` | exact vessel name (percent-encoded ON THE WIRE; a spec carries the RAW name - `run.py` encodes) | target by name. |
 | `pid` | `persistentId` (uint) | target by pid. WINS when both are given. |
 
@@ -1200,7 +1227,6 @@ post-arm outcomes.
 | verdict | `msg` | when |
 |---|---|---|
 | REJECTED | `site-arg-invalid site=<raw>` | `site=` present and not one of the three spellings (incl. empty, `MAP`, `trackstation`) |
-| REJECTED | `site-not-implemented site=<ts\|ksc>` | a known site v1 does not drive |
 | REJECTED | `target-arg-missing` | neither `vessel=` nor `pid=` |
 | REJECTED | `pid-arg-invalid pid=<raw>` | `pid=` present and not a uint |
 | REJECTED | `vessel-arg-invalid vessel=` | `vessel=` present but empty |
@@ -1216,7 +1242,48 @@ post-arm outcomes.
 | ERROR | `switch-threw` | `SetActiveVessel` threw |
 | ERROR | `switch-refused-by-stock` | the call returned but the active vessel is not the target |
 
-Three of those deserve their reasons stated:
+**`site=ts` / `site=ksc` (two-phase, test-gaps Batch 3, lanes FLY-1..FLY-3).** Both stock
+handlers (`SpaceTracking.FlyVessel`, `KSCVesselMarkers.FlyVessel`) save `persistent` and call
+`FlightDriver.StartAndFocusVessel("persistent", FlightGlobals.Vessels.IndexOf(v))`, and
+Parsek's patches on them arm the intent (`TrackingStationFly` / `KscMarkerFly`) and strip the
+ghost map vessels from the live list BEFORE that save. So the verb arms nothing and loads
+nothing itself: it PRESSES the stock control in a player's order - Tracking Station:
+`SpaceTracking.SetVessel(v, true)` (a list-row click), then the public `FlyButton`'s own
+`onClick`; Space Center: the vessel's `KSCVesselMarker`, its `Marker` button (expand) and its
+`FlyButton` (`Dismiss(Fly)`, stock's `FlyVessel` one frame later). Target resolution and the
+Re-Fly switch block are the map site's (with the `tsFly` / `kscMarkerFly` path token). The
+pre-press gate, in order: `scenario-not-ready`; Tracking Station only `cannot-fly-vessel`
+(the game's `TrackingStation.CanFlyVessel` is off, stock locks Fly) and `target-not-owned`
+(stock's FlyVessel refuses a non-Owned discovery); Space Center only
+`target-has-no-ksc-marker` (stock marks only a vessel landed or splashed on the home world
+that is not a deployed science part or dropped part). It logs `switchclick fly gate site=
+targetPid= targetName= situation= scenarioReady= canFlyVessel= owned= homeWorld= kscMarker=
+decision=` and answers PENDING. The completion polls: it waits up to 300 frames for the
+control (`fly-control-missing`, REJECTED; the KSC markers spawn 15 frames after the scene
+wakes), selects (TS; `fly-select-failed`, ERROR, after 120 frames), refuses a
+non-interactable Fly (`fly-button-locked`, REJECTED), presses (`switchclick fly pressed
+site= targetPid= targetName= control=trackingstation-fly|ksc-marker-fly framesWaited=`),
+then LISTENS to `onGameSceneLoadRequested` (FLIGHT): GameEvents fire the newest listener
+first, so it reads the intent the patch armed before stock's `ScenarioRunner` destroys the
+scenario (`switchclick fly observed FLIGHT load request site= targetPid= intentArmed=
+intentId= action= markerTargetPid=`). No load within 120 frames of the press is ERROR
+`fly-no-scene-load` (stock refused); a load with no intent of the site's action, source scene
+and target is ERROR `fly-intent-not-armed`. Then it waits for the NEW flight to settle (its
+`ParsekFlight` saw `onFlightReady`, the active vessel unpacked) and for the armed intent to be
+SPENT (cleared by the consume or a refusal): OK, payload as the map site's with
+`route=stock-fly-control` and the OBSERVED `activeVesselPid` / `switched`; a different active
+vessel is ERROR `fly-wrong-vessel` (the ghost-index desync the strip prevents), an intent still
+armed 600 frames after the settle ERROR `fly-intent-not-consumed`, a fall back to the main
+menu ERROR `fly-returned-to-menu`, the budget ERROR `fly-timeout`. As for the map site, the
+consume ROUTE (committed clone, standalone, the on-surface defer) stays in the
+`[SwitchSegment]` / `[SwitchIntent]` lines. A KSC marker can only name a landed or splashed
+vessel, so its consume always takes the on-surface defer (FLY-2); the BG-member branch is
+not reachable from either site, because a fresh FLIGHT load has no live tree. Pure half
+`TestCommandSimulateSwitchClick.FlySites.cs`, applier
+`ParsekTestCommandAddon.SimulateSwitchClickFly.cs`, mirrored by
+`SwitchClickFlySourceSyncTests` (`hlib.SWITCHCLICK_FLY_*`).
+
+Three of the map site's refusals deserve their reasons stated:
 
 - **The dialog cases are refusals, never driven dialogs.** The real Prefix has three dialog
   branches - Case A (armed `SwitchSegmentSession`, different target), Case B (no session, an
@@ -3710,8 +3777,29 @@ contracts), and refuses without pressing on `warp-no-candidate-row`, on
 `warp-button-disabled` (the row is drawn greyed - outside the 250 m / 2 m/s gates or past
 its UT - and a greyed button cannot be clicked; the refusal carries the button's own
 disabled-hover text), and on `warp-unsupported-window` for any other window
-(`TestCommandUiAction.WindowHasRowWarpButton`, mirrored by `hlib.UIACTION_WARP_WINDOWS`).
-It adds no arg key. First consumer: `RSC-1-real-spawn-control-warp`.
+(`TestCommandUiAction.WindowHasWarpButton`, mirrored by `hlib.UIACTION_WARP_WINDOWS`).
+The spawncontrol form adds no arg key (a Timeline-only arg on it is REJECTED `warp-arg-unsupported`). First consumer: `RSC-1-real-spawn-control-warp`.
+
+**`op=warp window=timeline` - the Timeline "Warp to time" button (2026-11-20).** `UiAction op=warp
+window=timeline year=<n> day=<n> hour=<n> minute=<n> confirm=warp|cancel` commits the four warp
+boxes through their own parse (`WarpToTimeMath.TryParseField`, same floors), resolves the button
+state through the draw's own resolver (`TimelineWindowUI.ResolveWarpToTimeButtonState`), refuses a
+greyed button (`warp-button-disabled` with its disabled-hover text), and otherwise runs the drawn
+button's own click body (`ExecuteWarpToTimeClick` -> `WarpToTimeController.RequestWarp`). That click
+spawns the `ParsekWarpToTimeConfirm` dialog synchronously; the op presses the button `confirm=` names
+through its own `OptionSelected` (callback plus dismiss-on-select). All five args are REQUIRED
+(`warp-date-arg-missing` / `-invalid`, `warp-confirm-arg-missing` / `-invalid`). Still one-phase: the
+pure verdict `TestCommandUiWarpTime.DecideConfirmOutcome` reads what the confirm left behind
+synchronously and answers ERROR `warp-rewind-not-launched` (a Space Center backward warp left no
+pending forward warp), `warp-forward-not-applied` (the clock missed the target) or
+`warp-not-deferred` (in flight, no deferred Space Center warp); `warp-confirm-not-shown` /
+`warp-confirm-button-missing` name a missing dialog or button. A rewind's Space Center load then
+holds the NEXT step at the safe point. The OK payload echoes the date, `targetUT`, `plan`
+(forward / rewind), `rewindKind` (none / launch / career-start), the confirm and the standing
+`pending` / `deferredKsc` requests. This confirm MUTATES the save, which `op=dismiss` deliberately
+never presses; this op exists to press it. Mirrors: `hlib.UIWARP_DATE_KEYS` / `UIWARP_CONFIRM_*`
+(`GuiCensusSeamVerbTests`). First consumers: `WTT-1-timeline-warp-across-committed-rows`,
+`WTT-2-timeline-warp-to-career-start`.
 
 **First consumers.** `GUI-1-census-ksc` (nine KSC windows, 22 captures across Advanced and
 Basic) and `GUI-2-census-flight` (the flight-only windows plus the flight form of the main
@@ -4761,7 +4849,7 @@ way a player clicks them, and read the part's module state back.
 
 **Grammar.** `cmd=PartAction button=<undock|decouple|controlfrom|deploy|retract|startconverter|
 stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|activate|explode|chute|
-transfer> [part=<part name>]
+transfer|servomax|servomin|rotoron|rotoroff|rotorbrake> [part=<part name>]
 [converter=<ConverterName>] [all=true] [pid=<persistentId>] [partPid=<part persistentId>]
 [resource=<R>] [expectSnapshot=true|false rec=<recordingId> tolerance=<abs>]`, issued in FLIGHT. `button=` REQUIRED, closed,
 case-sensitive (`partaction-button-arg-missing` / `-arg-invalid`); `part=` is the part's runtime
@@ -4796,6 +4884,36 @@ one is `partaction-part-ambiguous`, so `partPid=` picks the destination. The tra
 before anything changes, and a plan that moves nothing (the destination full, or no other part
 holding any) is `partaction-transfer-nothing-moved`, gate-class. The applied line adds
 `resource= moved= sources= destBefore= destAfter= destMax=` (F4), and so does the payload.
+
+**Servo (2026-11-20, lane SRV-1).** `button=servomax|servomin part=<name>` invokes the named
+part's `ModuleRoboticServoHinge` / `ModuleRoboticRotationServo` `MaximumAngleAction` /
+`MinimumAngleAction` (a `KSPAction`, not a `KSPEvent`: `module.Actions[name].Invoke(new
+KSPActionParam(KSPActionGroup.None, KSPActionType.Activate))`, what a bound action group does),
+setting `targetAngle` to the upper / lower soft limit; candidates are those modules whose action
+is `active`, `all=true` presses every one, and named parts carrying neither module refuse
+`partaction-servo-not-found` (driver-arg). The servo moves over later frames at its
+`traverseVelocity`; `state=` reads `servo:target=<F2>`, the commanded angle. A locked servo
+ignores the action and stock posts its own message.
+
+**Rotor (2026-11-21, lane SRV-2).** `button=rotoron|rotoroff part=<name>` invokes the named
+part's `ModuleRoboticServoRotor` `MotorOnAction` / `MotorOffAction` (BaseServo's `KSPAction`s,
+invoked exactly as the servo pair), engaging / disengaging the motor (`servoMotorIsEngaged`);
+candidates are the rotor modules whose action is `active`, `all=true` presses every one, and
+named parts carrying no rotor refuse `partaction-rotor-not-found` (driver-arg). The rotor spins
+up to its `rpmLimit` or down over later physics frames; `state=` reads
+`rotor:engaged=0|1 rpmLimit=<F2> torqueLimit=<F2>`, the commanded motor state. A repeated press is a
+stock no-op. Stock zeroes a rotor's torque limit (`servoMotorLimit`) in `OnStart` whenever the scene
+is FLIGHT (KSP 1.12.5 decompiled), so an engaged motor with no torque never turns (SRV-2's first
+flight, 2026-11-21): `rotoron` then also presses the rotor's own `MotorPowerAction`
+(`ToggleMotorPower`, which sets the limit to 100), as a player raises the Torque Limit before a
+rotor spins, and logs Info `partaction rotor torque raised: button=rotoron pid= part= partId=
+action=MotorPowerAction servoMotorLimit=0.00->100.00` (a limit above 0 is kept: Verbose
+`partaction rotor torque kept:`; no such action: Warn `partaction rotor torque not raised:`).
+`button=rotorbrake part=<name>` (2026-11-21, SRV-2's second flight) presses the rotor's own
+`BrakeAction` (the action stock binds to the Brakes group) as `Activate`: a disengaged rotor COASTS
+(stock holds it with a drive of 1 toward zero speed, so SRV-2 read 30 RPM three seconds after
+`rotoroff`), the brake drives it to zero with `brakeTorque * brakePercentage` (60 on the EM-16) and
+it stops. Candidates and refusals are the rotor pair's.
 
 **Behavior.** Resolves a LOADED, non-ghost vessel (`-no-active-vessel`, `-vessel-not-found`,
 `-target-is-ghost`, `-vessel-unloaded`), then collects the candidate buttons: every module on the
@@ -5344,7 +5462,7 @@ button's listener, `OnJump`, is added in `Start`, a frame later. `OnDeleteOnClos
 button) sets `deleteWhenDone`, runs `ActionAlarm` (which deletes the alarm) and destroys the dialog.
 
 **Grammar.** `cmd=AlarmJump vessel=<exact name>|pid=<persistentId> [jump=shown|always|never]`,
-issued in FLIGHT. Exactly one of `vessel=` / `pid=` (`alarmjump-target-arg-missing`,
+issued in FLIGHT, at the Space Center or in the Tracking Station. Exactly one of `vessel=` / `pid=` (`alarmjump-target-arg-missing`,
 `-target-arg-conflict`; a pid is a positive base-10 uint, `-pid-arg-invalid`); `jump=` exact and
 lower-case (`-jump-arg-invalid`), absent means `shown`. All deterministic, arg-class.
 
@@ -5365,11 +5483,17 @@ invokes `OnJump` directly (the listener is not attached yet in the spawn frame),
 Prefix runs as on a click; `onGameSceneLoadRequested` is watched during the call (a far switch
 REQUESTS a scene load, which `after=` alone cannot see); a throw is ERROR `-jump-threw`. Every
 path then closes the dialog through `OnDeleteOnClose` and deletes the alarm if it is still listed.
-The verb never calls `SetActiveVessel` itself.
+Outside FLIGHT stock's Jump saves `persistent` before it loads FLIGHT, so the verb deletes its own
+alarm BEFORE the press there (`alarmjump deleted the seam alarm before the press alarmId= scene=
+removed=`; the dialog keeps its alarm reference and `OnJump` reads only the vessel) and afterwards
+only closes the dialog (`CloseDialog`, no second delete). The verb never calls `SetActiveVessel`
+itself.
 
-**Phases.** SINGLE-PHASE, `RequiresFlight` (v1 drives the FLIGHT branch; the Tracking Station and
-Space Center branch saves and loads a new scene, which needs a two-phase answer and its own scene
-gate), default 60 s budget, `load-in-flight` / `merge-journal-in-flight` refused at dispatch as for
+**Phases.** SINGLE-PHASE, `RequiresVesselListScene` (FLIGHT, the Space Center, the Tracking
+Station; 2026-11-20, lanes FLY-4 / FLY-5). Outside FLIGHT the press only REQUESTS the FLIGHT load
+(`sceneLoadRequested=true`), AlarmJumpSwitchPatch having armed the scene's Fly intent first; the
+next step waits for FLIGHT on its own gate (`ListHandles kind=chains` holds until OnFlightReady,
+where the consume runs). Default 60 s budget, `load-in-flight` / `merge-journal-in-flight` refused at dispatch as for
 `SimulateStockSwitchClick`, world-mutating tail role, `recording` post-mission role. OK payload in
 this order: `targetPid targetIsGhost targetLoaded alarmId stockWouldShowJump jumpShown decision
 jump pressed before after switched sceneLoadRequested alarmRemoved`. Line `alarmjump result` plus
@@ -5753,7 +5877,8 @@ wall-clock. Some verbs need a different bound and override the default:
 | `DriveVessel` | (default) 60 s | TWO-PHASE, at most 30 game seconds of drive; the completion ends ERROR `drivevessel-timeout` rather than letting the pump convert it |
 | `CrewTransfer` | (default) 60 s | TWO-PHASE: stock moves the kerbal synchronously and dismisses one frame later; the completion ends ERROR `crewtransfer-timeout` rather than letting the pump convert it |
 | `CycleVessel` | (default) 60 s | SINGLE-PHASE: the press and a switch between loaded vessels run inside the call; the budget only bounds the not-in-flight dispatch defer |
-| `AlarmJump` | (default) 60 s | SINGLE-PHASE: the alarm is added, fired, its Jump pressed and its dialog closed inside the call; a far switch only requests its scene load there |
+| `AlarmJump` | (default) 60 s | SINGLE-PHASE: the alarm is added, fired, its Jump pressed and its dialog closed inside the call; a far switch, or any Jump from the Space Center or the Tracking Station, only requests its scene load there |
+| `SimulateStockSwitchClick` | 300 s | the LoadGame size, for its TWO-PHASE `site=ts` / `site=ksc`: stock's Fly saves `persistent` and loads FLIGHT from it, then the completion waits for the consume to spend the intent; the single-phase map site only spends it on a `not-in-flight` defer |
 | `EvaSeatBoard` / `EvaSeatLeave` | (default) 60 s | TWO-PHASE: stock's board and leave land within a frame and the completion holds 10 polls past Parsek's dock merge; each ends ERROR `-timeout` rather than letting the pump convert it |
 | `NewGame` | 300 s | TWO-PHASE, the `ReFlyRevert` size: the pause menu's save and the main menu load, a 5-poll menu settle, the delete and stock's create, then the Space Center load from the new `persistent.sfs`; a `DEFERRED_SEAM_VERB` |
 | `LaunchSiteProbe` | (default) 60 s | TWO-PHASE: no scene load on the designed path; the picker list wait, the dialog wait (each up to 10 s) and a 1 s settle; a settle that never ends is ERROR `-not-settled` |

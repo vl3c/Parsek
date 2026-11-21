@@ -169,13 +169,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Warp_IsDefinedOnlyForSpawnControl()
+        public void Warp_IsDefinedOnlyForSpawnControlAndTimeline()
         {
-            Assert.True(TestCommandUiAction.WindowHasRowWarpButton("spawncontrol"));
+            Assert.True(TestCommandUiAction.WindowHasWarpButton("spawncontrol"));
+            Assert.True(TestCommandUiAction.WindowHasWarpButton("timeline"));
             foreach (var spec in TestCommandUiAction.Windows)
-                if (spec.Name != "spawncontrol")
-                    Assert.False(TestCommandUiAction.WindowHasRowWarpButton(spec.Name), spec.Name);
-            Assert.False(TestCommandUiAction.WindowHasRowWarpButton(null));
+                if (spec.Name != "spawncontrol" && spec.Name != "timeline")
+                    Assert.False(TestCommandUiAction.WindowHasWarpButton(spec.Name), spec.Name);
+            Assert.False(TestCommandUiAction.WindowHasWarpButton(null));
+            Assert.Equal("spawncontrol,timeline", TestCommandUiAction.WarpWindowNames);
         }
 
         [Fact]

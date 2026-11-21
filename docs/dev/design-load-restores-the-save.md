@@ -585,6 +585,16 @@ kinds above; it does not build a `ConfigNode`.
 keeps its versions alive; that is the point of the design. `Parsek/RewindPoints/*.sfs` files of
 sealed points now live as long as some save lists them.
 
+**The stock revert's rewind points (owner ruling 2026-11-21).** A stock revert drops the reverted
+flight's rewind points from the list (in-session step B, `FollowSave:dropped-memory-only`), and an
+in-session collection is rate-limited, so their files used to wait for a later full pass. The
+revert now runs a targeted pass over exactly those points
+(`ParsekScenario.DeleteRevertedFlightRewindPointFiles` -> `ParsekFileCollector.DeleteRewindPointFilesDroppedByRevert`,
+Info `Rewind point file deleted on revert: rp=... path=...`) under the same rule as the table
+above: a file stays while any referrer or memory names the point (a mid-flight F5 taken after the
+staging, the OQ-3 case), and an unreadable referrer keeps every file. Every other in-session load
+leaves dropped points' files to the collector (OQ-3).
+
 ### 4.6 Parsek stops writing the player's quicksave
 
 `RecordingStore.RefreshQuicksaveAfterMerge` (the merge dialog's Merge,

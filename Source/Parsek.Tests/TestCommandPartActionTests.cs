@@ -115,7 +115,8 @@ namespace Parsek.Tests
         {
             Assert.Equal(new[] { "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
                 "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-                "radiatoroff", "activate", "explode", "chute", "runtest", "transfer" },
+                "radiatoroff", "activate", "explode", "chute", "runtest", "transfer", "servomax",
+                "servomin", "rotoron", "rotoroff", "rotorbrake" },
                 TestCommandPartAction.ButtonValues);
             foreach (string v in TestCommandPartAction.ButtonValues)
                 Assert.Null(TestCommandPartAction.ParseButton(v, out _));
@@ -325,7 +326,9 @@ namespace Parsek.Tests
                 Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
                 Assert.Equal(token == "activate", TestCommandPartAction.IsEngineKind(kind));
                 Assert.Equal(token == "activate" || token == "radiatoron" || token == "radiatoroff"
-                    || token == "chute", TestCommandPartAction.IsTypedModuleKind(kind));
+                    || token == "chute" || token == "servomax" || token == "servomin"
+                    || token == "rotoron" || token == "rotoroff" || token == "rotorbrake",
+                    TestCommandPartAction.IsTypedModuleKind(kind));
             }
             Assert.False(TestCommandPartAction.IsEngineKind(PartActionKind.Unknown));
             Assert.False(TestCommandPartAction.IsTypedModuleKind(PartActionKind.Unknown));
@@ -408,6 +411,185 @@ namespace Parsek.Tests
             ParsedCommand cmd = Cmd("button=chute part=parachuteSingle");
             Assert.True(cmd.ParseOk);
             Assert.Equal("chute", cmd.Args["button"]);
+        }
+
+        [Theory]
+        [InlineData("servomax", true, "MaximumAngleAction")]
+        [InlineData("servomin", false, "MinimumAngleAction")]
+        public void Servo_PressesTheServoAngleAction_AndRefusesAPartWithNoServo(
+            string token, bool max, string actionName)
+        {
+            Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
+            Assert.Equal(max ? PartActionKind.ServoMax : PartActionKind.ServoMin, kind);
+            Assert.Equal(token, TestCommandPartAction.Token(kind));
+            Assert.True(TestCommandPartAction.RequiresPart(kind));
+            Assert.True(TestCommandPartAction.IsServoKind(kind));
+            Assert.True(TestCommandPartAction.IsTypedModuleKind(kind));
+            Assert.True(TestCommandPartAction.AcceptsAll(kind));
+            Assert.False(TestCommandPartAction.IsWholePartKind(kind));
+            Assert.False(TestCommandPartAction.AcceptsConverter(kind));
+            Assert.Equal(actionName, TestCommandPartAction.ServoActionNameFor(kind));
+            // A KSPAction, not a part-menu event: the event lookup finds nothing to press.
+            Assert.Empty(TestCommandPartAction.EventNamesFor(kind));
+            foreach (string t in TestCommandPartAction.ButtonValues)
+            {
+                Assert.Null(TestCommandPartAction.ParseButton(t, out PartActionKind k));
+                Assert.Equal(t == "servomax" || t == "servomin", TestCommandPartAction.IsServoKind(k));
+                Assert.Equal(t == "servomax" || t == "servomin" || t == "rotoron" || t == "rotoroff"
+                    || t == "rotorbrake",
+                    TestCommandPartAction.ServoActionNameFor(k) != null);
+            }
+            // A named part carrying no hinge / rotation servo is a spec fault; a servo whose
+            // action is inactive is a live state.
+            Assert.Equal("partaction-servo-not-found", TestCommandPartAction.DecideCandidates(
+                kind, "probeCoreOcto2.v2", 1, null, 0, 0, 0, 0, false));
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.DecideCandidates(
+                kind, "hinge.01", 1, null, 0, 0, 1, 0, false));
+            Assert.Equal("partaction-part-not-found", TestCommandPartAction.DecideCandidates(
+                kind, "hinge.01", 0, null, 0, 0, 0, 0, false));
+            Assert.Equal("partaction-part-ambiguous", TestCommandPartAction.DecideCandidates(
+                kind, "hinge.01", 2, null, 0, 0, 2, 2, false));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                kind, "hinge.01", 2, null, 0, 0, 2, 2, true));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                kind, "hinge.01", 1, null, 0, 0, 1, 1, false));
+            ParsedCommand cmd = Cmd("button=" + token + " part=hinge.01");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal(token, cmd.Args["button"]);
+        }
+
+        [Theory]
+        [InlineData("rotoron", true, "MotorOnAction")]
+        [InlineData("rotoroff", false, "MotorOffAction")]
+        [InlineData("rotorbrake", false, "BrakeAction")]
+        public void Rotor_PressesTheMotorAction_AndRefusesAPartWithNoRotor(
+            string token, bool on, string actionName)
+        {
+            Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
+            Assert.Equal(on ? PartActionKind.RotorOn
+                : token == "rotorbrake" ? PartActionKind.RotorBrake : PartActionKind.RotorOff, kind);
+            Assert.Equal(token, TestCommandPartAction.Token(kind));
+            Assert.True(TestCommandPartAction.RequiresPart(kind));
+            Assert.True(TestCommandPartAction.IsRotorKind(kind));
+            Assert.False(TestCommandPartAction.IsServoKind(kind));
+            Assert.True(TestCommandPartAction.IsTypedModuleKind(kind));
+            Assert.True(TestCommandPartAction.AcceptsAll(kind));
+            Assert.False(TestCommandPartAction.IsWholePartKind(kind));
+            Assert.False(TestCommandPartAction.AcceptsConverter(kind));
+            Assert.Equal(actionName, TestCommandPartAction.ServoActionNameFor(kind));
+            // BaseServo's KSPAction, not a part-menu event: the event lookup finds nothing.
+            Assert.Empty(TestCommandPartAction.EventNamesFor(kind));
+            foreach (string t in TestCommandPartAction.ButtonValues)
+            {
+                Assert.Null(TestCommandPartAction.ParseButton(t, out PartActionKind k));
+                Assert.Equal(t == "rotoron" || t == "rotoroff" || t == "rotorbrake",
+                    TestCommandPartAction.IsRotorKind(k));
+            }
+            // A named part carrying no rotor (a hinge included) is a spec fault; a rotor whose
+            // action is inactive is a live state.
+            Assert.Equal("partaction-rotor-not-found", TestCommandPartAction.DecideCandidates(
+                kind, "hinge.01", 1, null, 0, 0, 0, 0, false));
+            Assert.Equal("partaction-event-unavailable", TestCommandPartAction.DecideCandidates(
+                kind, "rotor.01", 1, null, 0, 0, 1, 0, false));
+            Assert.Equal("partaction-part-not-found", TestCommandPartAction.DecideCandidates(
+                kind, "rotor.01", 0, null, 0, 0, 0, 0, false));
+            Assert.Equal("partaction-part-ambiguous", TestCommandPartAction.DecideCandidates(
+                kind, "rotor.01", 2, null, 0, 0, 2, 2, false));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                kind, "rotor.01", 2, null, 0, 0, 2, 2, true));
+            Assert.Null(TestCommandPartAction.DecideCandidates(
+                kind, "rotor.01", 1, null, 0, 0, 1, 1, false));
+            ParsedCommand cmd = Cmd("button=" + token + " part=rotor.01");
+            Assert.True(cmd.ParseOk);
+            Assert.Equal(token, cmd.Args["button"]);
+        }
+
+        [Theory]
+        [InlineData("ModuleRoboticServoRotor", true)]
+        [InlineData("ModuleRoboticServoHinge", false)]
+        [InlineData("ModuleRoboticRotationServo", false)]
+        [InlineData("ModuleRoboticServoPiston", false)]
+        [InlineData("moduleroboticservorotor", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsRotorModuleName_IsTheRotorAlone(string moduleName, bool expected)
+        {
+            Assert.Equal(expected, TestCommandPartAction.IsRotorModuleName(moduleName));
+        }
+
+        [Fact]
+        public void FormatState_ReadsTheRotorMotorRpmAndTorqueLimit_Invariant()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                Assert.Equal("rotor:engaged=1 rpmLimit=30.00 torqueLimit=100.00", TestCommandPartAction.FormatState(
+                    new[] { PartActionModuleReading.Rotor(true, 30f, 100f) }));
+                Assert.Equal("rotor:engaged=0 rpmLimit=12.50 torqueLimit=0.00;engine:ignited=1",
+                    TestCommandPartAction.FormatState(new[]
+                    {
+                        PartActionModuleReading.Rotor(false, 12.5f, 0f), PartActionModuleReading.Engine(true),
+                    }));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        // Stock zeroes a rotor's torque limit in OnStart whenever the scene is FLIGHT (KSP 1.12.5
+        // decompiled ModuleRoboticServoRotor.OnStart), so an engaged motor drives no torque: SRV-2's
+        // first flight (2026-11-21_1152) engaged the motor and the rotor never turned. rotoron
+        // raises a zero limit through the rotor's own MotorPowerAction; nothing else does.
+        [Theory]
+        [InlineData("rotoron", 0f, true)]
+        [InlineData("rotoron", float.NaN, true)]
+        [InlineData("rotoron", 100f, false)]
+        [InlineData("rotoron", 35f, false)]
+        [InlineData("rotoroff", 0f, false)]
+        [InlineData("rotorbrake", 0f, false)]
+        [InlineData("servomax", 0f, false)]
+        [InlineData("activate", 0f, false)]
+        public void ShouldRaiseRotorTorque_OnlyRotorOnWithAZeroLimit(string token, float limit, bool expected)
+        {
+            Assert.Null(TestCommandPartAction.ParseButton(token, out PartActionKind kind));
+            Assert.Equal(expected, TestCommandPartAction.ShouldRaiseRotorTorque(kind, limit));
+            Assert.Equal("MotorPowerAction", TestCommandPartAction.RotorTorqueActionName);
+            Assert.Equal("servoMotorLimit", TestCommandPartAction.RotorTorqueFieldName);
+        }
+
+        [Theory]
+        [InlineData("ModuleRoboticServoHinge", true)]
+        [InlineData("ModuleRoboticRotationServo", true)]
+        [InlineData("ModuleRoboticServoPiston", false)]
+        [InlineData("ModuleRoboticServoRotor", false)]
+        [InlineData("moduleroboticservohinge", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsServoModuleName_IsTheTwoAngularServos(string moduleName, bool expected)
+        {
+            Assert.Equal(expected, TestCommandPartAction.IsServoModuleName(moduleName));
+        }
+
+        [Fact]
+        public void FormatState_ReadsTheServoTargetAngle_Invariant()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                Assert.Equal("servo:target=90.00", TestCommandPartAction.FormatState(
+                    new[] { PartActionModuleReading.Servo(90f) }));
+                Assert.Equal("servo:target=-90.00;engine:ignited=0", TestCommandPartAction.FormatState(
+                    new[] { PartActionModuleReading.Servo(-90f), PartActionModuleReading.Engine(false) }));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
         }
 
         [Fact]
@@ -970,7 +1152,9 @@ namespace Parsek.Tests
         [Fact]
         public void Reasons_AreTheGateOrder_AndDisjointFromTheErrors()
         {
-            Assert.Equal(34, TestCommandPartAction.Reasons.Length);
+            Assert.Equal(36, TestCommandPartAction.Reasons.Length);
+            Assert.Equal("partaction-servo-not-found", TestCommandPartAction.Reasons[34]);
+            Assert.Equal("partaction-rotor-not-found", TestCommandPartAction.Reasons[35]);
             Assert.Equal("partaction-button-arg-missing", TestCommandPartAction.Reasons[0]);
             Assert.Equal("partaction-converter-arg-unexpected", TestCommandPartAction.Reasons[3]);
             Assert.Equal("partaction-all-arg-invalid", TestCommandPartAction.Reasons[4]);

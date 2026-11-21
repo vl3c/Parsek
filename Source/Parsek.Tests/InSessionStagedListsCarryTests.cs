@@ -106,6 +106,7 @@ namespace Parsek.Tests
             ParsekScenario.ClearPendingQuickloadResumeContext();
             ParsekScenario.ClearRestoredQuicksaveTreeFactsForTesting();
             ParsekScenario.pendingActiveTreeResumeRewindSave = null;
+            ParsekFileCollector.ResetForTesting();
         }
 
         private static bool InitialLoadDone
@@ -514,6 +515,149 @@ namespace Parsek.Tests
             Assert.Empty(loaded.RewindPoints);
             Assert.Empty(deletedRpIds);
             Assert.Equal(new[] { "rel_a" }, loaded.RecordingSupersedes.Select(r => r.RelationId));
+        }
+
+        // =====================================================================
+        // Stock revert: the reverted flight's rewind point file (owner ruling 2026-11-21)
+        // =====================================================================
+
+        /// <summary>The reverted flight's state in memory: its tree pending (Limbo, never
+        /// committed) and its staging's rewind point in memory's list; the loaded save is the
+        /// launch state.</summary>
+        private static ParsekScenario RevertedFlightMemory()
+        {
+            var reverted = BuildTree("tree_reverted", new[] { "rp_flight" },
+                Rec("rec_flight", 10.0, MergeState.NotCommitted, "tree_reverted"));
+            PendingTreeSlot.StashPendingTree(reverted, PendingTreeState.Limbo);
+            return Memory(s => s.RewindPoints.Add(Rp("rp_flight", sessionProvisional: true)));
+        }
+
+        private string WriteRewindPointFile(string rpId)
+        {
+            string dir = Path.Combine(tempSaveRoot, "Parsek", "RewindPoints");
+            Directory.CreateDirectory(dir);
+            string path = Path.Combine(dir, rpId + ".sfs");
+            File.WriteAllText(path, "GAME\n{\n}\n");
+            return path;
+        }
+
+        private void WriteReferrerNamingPoint(string fileName, string rpId)
+        {
+            File.WriteAllText(Path.Combine(tempSaveRoot, fileName),
+                "GAME\n{\n\tSCENARIO\n\t{\n\t\tname = ParsekScenario\n\t\tREWIND_POINTS\n\t\t{\n"
+                + "\t\t\tPOINT\n\t\t\t{\n\t\t\t\trewindPointId = " + rpId + "\n\t\t\t}\n\t\t}\n\t}\n}\n");
+        }
+
+        [Fact]
+        public void StockRevert_RevertedFlightRpFile_DeletedAtOnce()
+        {
+            UseTempSaveRoot();
+            string file = WriteRewindPointFile("rp_flight");
+            var memory = RevertedFlightMemory();
+
+            var loaded = Load(memory, SaveNode(null), EarlyLoadKind.InSession);
+            int deleted = loaded.DeleteRevertedFlightRewindPointFiles(LoadKind.StockRevert);
+
+            Assert.Empty(loaded.RewindPoints);
+            Assert.Equal(1, deleted);
+            Assert.False(File.Exists(file), "the reverted flight's rewind point file must go with the revert");
+            Assert.Contains(logLines, l => l.Contains("[FileCollector]")
+                && l.Contains("Rewind point file deleted on revert: rp=rp_flight path=Parsek/RewindPoints/rp_flight.sfs"));
+        }
+
+        [Theory]
+        [InlineData("QuickloadFlight")]
+        [InlineData("InSessionOther")]
+        [InlineData("DiscardReFly")]
+        public void NotARevert_DroppedRpFile_Kept(string kindName)
+        {
+            // Owner ruling OQ-3 for every other in-session load: the point leaves the list, its
+            // file stays for the collector (an F9 may still want it).
+            UseTempSaveRoot();
+            string file = WriteRewindPointFile("rp_flight");
+            var memory = RevertedFlightMemory();
+
+            var loaded = Load(memory, SaveNode(null), EarlyLoadKind.InSession);
+            int deleted = loaded.DeleteRevertedFlightRewindPointFiles(
+                (LoadKind)Enum.Parse(typeof(LoadKind), kindName));
+
+            Assert.Empty(loaded.RewindPoints);
+            Assert.Equal(0, deleted);
+            Assert.True(File.Exists(file));
+            Assert.DoesNotContain(logLines, l => l.Contains("Rewind point file deleted on revert"));
+        }
+
+        [Fact]
+        public void StockRevert_RpAQuicksaveStillNames_FileKept()
+        {
+            // A mid-flight F5 after the staging names the point: an F9 to it after the revert
+            // needs the file (the OQ-3 case), so the revert keeps it.
+            UseTempSaveRoot();
+            string file = WriteRewindPointFile("rp_flight");
+            WriteReferrerNamingPoint("quicksave.sfs", "rp_flight");
+            var memory = RevertedFlightMemory();
+
+            var loaded = Load(memory, SaveNode(null), EarlyLoadKind.InSession);
+            int deleted = loaded.DeleteRevertedFlightRewindPointFiles(LoadKind.StockRevert);
+
+            Assert.Equal(0, deleted);
+            Assert.True(File.Exists(file));
+            Assert.Contains(logLines, l => l.Contains("[FileCollector]")
+                && l.Contains("Rewind point file kept on revert: rp=rp_flight reason=named-by-save"));
+        }
+
+        [Fact]
+        public void StockRevert_PointTheLoadedSaveLists_FileKept()
+        {
+            // The reverted-to save lists the point: it follows the save, is not dropped, and its
+            // file is untouched.
+            UseTempSaveRoot();
+            string file = WriteRewindPointFile("rp_flight");
+            var memory = RevertedFlightMemory();
+
+            var loaded = Load(memory, SaveNode(s => s.RewindPoints.Add(Rp("rp_flight", sessionProvisional: true))),
+                EarlyLoadKind.InSession);
+            int deleted = loaded.DeleteRevertedFlightRewindPointFiles(LoadKind.StockRevert);
+
+            Assert.Equal(new[] { "rp_flight" }, loaded.RewindPoints.Select(r => r.RewindPointId));
+            Assert.Equal(0, deleted);
+            Assert.True(File.Exists(file));
+        }
+
+        [Fact]
+        public void SelectRevertDroppedRewindPointFileIds_OnlyStockRevert_NeverAnInstalledPoint()
+        {
+            var dropped = new List<string> { "rp_a", "rp_b", "rp_a", "", null };
+            var installed = new List<RewindPoint> { new RewindPoint { RewindPointId = "rp_b" } };
+
+            Assert.Equal(new[] { "rp_a" },
+                InSessionStagedStateHandoff.SelectRevertDroppedRewindPointFileIds(LoadKind.StockRevert, dropped, installed));
+            foreach (LoadKind kind in Enum.GetValues(typeof(LoadKind)))
+            {
+                if (kind == LoadKind.StockRevert) continue;
+                Assert.Empty(InSessionStagedStateHandoff.SelectRevertDroppedRewindPointFileIds(kind, dropped, installed));
+            }
+            Assert.Empty(InSessionStagedStateHandoff.SelectRevertDroppedRewindPointFileIds(LoadKind.StockRevert, null, installed));
+        }
+
+        [Fact]
+        public void MergeRewindPointsByOwner_ReportsTheDroppedMemoryOnlyIds()
+        {
+            var memory = new List<RewindPoint>
+            {
+                new RewindPoint { RewindPointId = "rp_drop" },
+                new RewindPoint { RewindPointId = "rp_both" },
+                new RewindPoint { RewindPointId = "rp_committed", BranchPointId = "bp_c" },
+            };
+            var loaded = new List<RewindPoint> { new RewindPoint { RewindPointId = "rp_both" } };
+            var dropped = new List<string>();
+
+            var result = InSessionStagedStateHandoff.MergeRewindPointsByOwner(memory, loaded,
+                rp => rp.BranchPointId == "bp_c", out RewindPointPartitionCounts counts, null, dropped);
+
+            Assert.Equal(new[] { "rp_both", "rp_committed" }, result.Select(r => r.RewindPointId));
+            Assert.Equal(new[] { "rp_drop" }, dropped);
+            Assert.Equal(1, counts.FollowSaveMemoryOnlyDropped);
         }
 
         // =====================================================================

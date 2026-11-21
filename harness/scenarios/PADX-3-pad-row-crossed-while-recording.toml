@@ -1,0 +1,182 @@
+schema = 1
+id = "PADX-3-pad-row-crossed-while-recording"
+# =====================================================================================
+# PADX-3: A COMMITTED PAD COLLAPSE CROSSED BY THE FLIGHT CLOCK WHILE ANOTHER FLIGHT RECORDS
+# (todo FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS, its owed lane: "No lane yet crosses a building
+# row WHILE RECORDING (the hook's Apply path)"; PADX-1's host and flight A).
+#
+# WHAT THE CODE DOES (read 2026-11-21, `test-gaps-batch3` after the flight-clock merge):
+#   - The flight scene runs the ledger clock cursor (ParsekFlight `flightLedgerClock`, reason
+#     `flight-clock`, advanced in Update at 1x and in warp). When the clock reaches the next
+#     committed row it recalculates at that clock (ParsekFlight.RecalculateLedgerAtFlightClockCrossing,
+#     Info `Flight clock reached a committed ledger row: reason=flight-clock ut=...`).
+#   - While a flight RECORDS, that recalculation's KSP patch stays deferred (#466) and the live
+#     building patch skips. The cursor's after-recalculate hook
+#     (FacilityStatePatcher.PatchCrossedBuildingRowsWhileTreeLives) resolves the mode
+#     (ResolveCrossedBuildingPatchMode: `live recorder active` -> Apply) and applies only the
+#     FacilityDestruction / FacilityRepair rows of the crossing window (ComputeBuildingStatesCrossed,
+#     rows in (previous cutoff, now]): Info `PatchCrossedBuildingRows: flight clock crossed N
+#     committed building row(s) in (a, b] while the ledger patch is deferred (live recorder
+#     active); reason=flight-clock reFlyExcluded=0`, then PatchDestructionState demolishes the
+#     intact flag (`PatchDestructionState: demolished '<id>' (ledger: destroyed at or before UT
+#     ...)`), under SuppressionGuard.ResourcesAndReplay.
+#   - So stock's OnKSCStructureCollapsing for that Demolish is NOT captured by flight B's
+#     recorder: no second `Game state: BuildingDestroyed` line, so B's commit adds no second
+#     FacilityDestruction row. B's commit then folds the ledger at its clock, finds the flag down
+#     as the ledger says, and touches nothing (no demolish, no repair).
+#   Predicted: PASS, no defect. The pure decisions are pinned by FlightLedgerClockCursorTests
+#   (window, fold, mode); this lane is the Apply path's first live reading.
+#
+# THE ROUTE (career-pad-craft, PADX-1's flight A and rewind verbatim):
+#   flight A   warp the pad to 60, record the Flea, warp to 120, collapse the pad flag
+#              (`KscAction demolish-building` in FLIGHT, PADX-1's header for why), warp to 200,
+#              stop, CommitTree, Recover.
+#   rewind     Rewind-to-Launch A: clock ~45 at the Space Center, the crash row committed future.
+#   flight B   VAB launch of the Settings Probe onto the pad, RECORDED (StartRecording). Flight B
+#              stays on the pad: the flag is a pad building, the collapse is suppressed wherever
+#              the live vessel sits (the guard, not distance, keeps it out of B's recording), and
+#              the pad is the one launch site this level-0 career fixture has a VAB craft for.
+#   approach   warp to 112 under the recording (the crash row still ahead).
+#   crossing   a 1x wait to 135 (`WarpToUT maxRate=1`, about 23 s): the flight clock crosses
+#              the crash row at 1x while B records; the hook demolishes the flag once.
+#   commit     stop B, CommitTree, save, quit.
+#
+# PRE-REGISTERED READINGS:
+#   - `PatchCrossedBuildingRows: FullPatchOwns` or no `PatchCrossedBuildingRows: flight clock
+#     crossed` line: the hook did not see the live recorder; read the Verbose mode line.
+#   - a second `Game state: BuildingDestroyed` after the rewind: the hook's Demolish was
+#     captured as B's own collapse (the suppression missed); a product finding (double row).
+#   - `PatchDestructionState: repaired` after B's commit: the commit's fold disagreed with the
+#     crossed window; a product finding.
+#   - no `Flight clock reached a committed ledger row` in the 1x window: the cursor did not run
+#     (a pending rewind UT adjustment, or an unready clock); read the Update gates.
+#
+# STATUS: AUTHORED 2026-11-21 (branch `test-gaps-batch3`); FIRST FLIGHT GREEN 2026-11-21
+# `2026-11-21_1138_PADX-3-pad-row-crossed-while-recording` (PASS attempt 1, 164 s).
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): (1) reuse: PADX-1's flight A
+# and rewind verbatim, PADX-2's Settings Probe launch; a second leg on PADX-1 or PADX-2 was
+# considered and not applied (both prove an unrecorded crossing whose gates forbid a second
+# demolish, and a recorded leg would change their recordings count and their windows); (2)
+# explicit-UT waits only, the one 1x wait is the point of the lane and is 23 s; (3)-(5) no
+# dwell, burn or coast; (6) retry `once`; (7) recordings exactly 2; (8) operator until measured,
+# ~4 min expected; (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "PADX-3: on career-pad-craft a recorded pad flight collapses the launch pad (its level-0 flag) at UT ~120, commits and is recovered; after a Rewind-to-Launch a second flight is RECORDED on the pad and the flight clock crosses the committed collapse at 1x: the flight clock cursor's building hook brings the pad down once while the ledger patch is deferred, the second flight's recorder does not capture that collapse as its own, and its commit repairs nothing."
+instanceProfile = "stock-minimal"
+tags = ["PADX-3", "career", "ledger", "facilities", "rewind", "rewind-to-launch",
+        "editor", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 5 x 120 warps + 2 x 180 StartRecording + 2 x 120 CommitTree
+# + 120 Recover + 60 KscAction + 300 rewind + 120 GoToEditor + 180 LaunchFromEditor + 120
+# SaveGame = 2400; runtime 2900 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- flight A: PADX-1's, the pad flag collapses at ~120 ----
+  { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "120" },                                         expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "demolish-building", building = "LaunchPad/Facility/Flag" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "padx3-crashed" },                            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "200" },                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+
+  # ---- the rewind: the crash row committed future ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "padx3-rewound" },                            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+
+  # ---- flight B: the Settings Probe on the pad, RECORDED ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "padx3-b-recording" },                        expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "112" },                                         expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "padx3-before-crash" },                       expect = "OK" },
+
+  # ---- the crossing at 1x while B records: the hook demolishes the flag once ----
+  { cmd = "WarpToUT",       args = { ut = "135", maxRate = "1" },                          expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "padx3-crossed" },                            expect = "OK" },
+
+  # ---- B's commit: no second collapse row, nothing repaired ----
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "padx3-b-committed" },                        expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["facilities", "recalc-engine", "ksp-state-patcher"]
+D9  = ["rewind-to-launch"]
+D14 = ["career", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Flight A and flight B.
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+# Source of each literal (Source/Parsek/...):
+#   Flight clock reached a committed ledger row   Controllers/ParsekFlight.RecorderSession.cs
+#                                                 RecalculateLedgerAtFlightClockCrossing
+#   PatchCrossedBuildingRows: flight clock crossed GameActions/FacilityStatePatcher.cs
+#                                                 PatchCrossedBuildingRowsWhileTreeLives
+#   PatchDestructionState: demolished             GameActions/FacilityStatePatcher.cs PatchDestructionState
+#   Game state: BuildingDestroyed                 GameActions/GameStateFacilityRecorder.cs
+#   the rest                                      PADX-1's table
+required = [
+  # ---- flight A's collapse, tagged to its live recording ----
+  "kscaction action=demolish-building target=SpaceCenter/LaunchPad/Facility/Flag applied=true manifestKind=facility-destruction[\\s\\S]*?MISSIONMARK label=padx3-crashed ut=1[1-3][0-9]\\.",
+  "Game state: BuildingDestroyed 'SpaceCenter/LaunchPad/Facility/Flag' cost=0 tag='[0-9a-f]{8,}' source=event-collapsing[\\s\\S]*?MISSIONMARK label=padx3-crashed ut=",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=padx3-rewound ut=[0-9]{2}\\.",
+  # Flight B records from before the crash; the approach warp stops short of it.
+  "MISSIONMARK label=padx3-b-recording ut=[0-9]{2}\\.",
+  "MISSIONMARK label=padx3-before-crash ut=1[01][0-9]\\.",
+  # ---- the 1x crossing while B records: the cursor, then the hook's Apply, then the fall ----
+  "MISSIONMARK label=padx3-before-crash ut=(?:(?!MISSIONMARK label=padx3-crossed )[\\s\\S])*?Flight clock reached a committed ledger row: reason=flight-clock ut=1[1-3][0-9][. ](?:(?!MISSIONMARK label=padx3-crossed )[\\s\\S])*?PatchCrossedBuildingRows: flight clock crossed 1 committed building row\\(s\\) in \\([^\\r\\n]*\\] while the ledger patch is deferred \\(live recorder active\\); reason=flight-clock reFlyExcluded=0(?:(?!MISSIONMARK label=padx3-crossed )[\\s\\S])*?PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag' \\(ledger: destroyed at or before UT 1[1-3][0-9]\\.[0-9]\\)[\\s\\S]*?MISSIONMARK label=padx3-crossed ut=1[2-4][0-9]\\.",
+  "MISSIONMARK label=padx3-crossed ut=[\\s\\S]*?MISSIONMARK label=padx3-b-committed ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "Flight clock ledger recalculation failed",
+  "Flight clock building patch failed",
+  # The pad never falls before the recorded crash UT (~120; bound 110, PADX-1's reason).
+  "PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag' \\(ledger: destroyed at or before UT (?:[0-9]{1,2}|10[0-9])\\.",
+  # It falls exactly once after the rewind, and never in the approach warp.
+  "MISSIONMARK label=padx3-rewound ut=[\\s\\S]*PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag'[\\s\\S]*PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag'",
+  "MISSIONMARK label=padx3-rewound ut=(?:(?!MISSIONMARK label=padx3-before-crash )[\\s\\S])*PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag'",
+  # Parsek never repairs the pad (B's commit agrees with the crossed window).
+  "PatchDestructionState: repaired 'SpaceCenter/LaunchPad/Facility/Flag'",
+  # The hook's collapse is suppressed: flight B's recorder never captures one, so the run holds
+  # exactly flight A's collapse and B's commit adds no second FacilityDestruction row.
+  "MISSIONMARK label=padx3-rewound ut=[\\s\\S]*Game state: BuildingDestroyed ",
+  "Game state: BuildingDestroyed 'SpaceCenter/LaunchPad/Facility/Flag'[\\s\\S]*Game state: BuildingDestroyed 'SpaceCenter/LaunchPad/Facility/Flag'",
+]
+
+[runtime]
+budgetSeconds = 2900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

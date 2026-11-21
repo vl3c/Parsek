@@ -1,0 +1,214 @@
+schema = 1
+id = "RSQ-2-rescue-rebuilt-in-flight-deferred"
+# =====================================================================================
+# RSQ-2: A RESCUE CONTRACT REBUILT IN FLIGHT GETS ITS STRANDED POD AT THE NEXT SPACE CENTER
+# VISIT, ONCE, ACROSS A COLD LOAD (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 1a, the
+# owed PC lane's deferral leg; the live proof of the persisted `RESCUE_ACCEPT_DEFERRALS` list and
+# of `KspStatePatcher.DrainRescueAcceptDeferrals`, which have no headless or in-game test).
+#
+# THE RULE UNDER TEST (owner ruling 2026-11-20). A rescue the contract rebuild re-activates in
+# FLIGHT or an editor is not regenerated there (stock's own accept runs at Mission Control, with
+# every vessel packed): the plan reads `repair=DeferStrandedAsset skip=scene=FLIGHT` and the
+# contract is listed in `RescueAcceptDeferrals`, saved in the PARSEK node. The next Space Center
+# or Tracking Station scene drains it on stock's `onContractsLoaded`: the live contract is
+# re-planned with the rebuild's own guards, regenerated on Regenerate, and taken off the list
+# whatever the outcome, so it is never regenerated twice.
+#
+# HOW THE CLOCK REACHES THE ACCEPT IN FLIGHT. A stock warp in flight patches no contract (the
+# clock cursor runs only at the Space Center and the Tracking Station; QL-14's header). A forward
+# Parsek time jump does (`TimeJumpManager.RecalculateLedgerAfterTimeJump` ->
+# `LedgerOrchestrator.RecalculateAndPatchForTimeJump`, scene FLIGHT), so the lane crosses the
+# accept with `TimeJump` from an unrecorded Flea on the pad. (Since 2026-11-21, todo
+# FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS, the flight scene runs the ledger clock cursor too, so a
+# flight warp would also reach the accept; the time jump stays the lane's crossing, and the
+# cursor's redundant walk after it finds the contract already Active.)
+#
+# PLAN (cs-career-mun4, UT ~185734; RecoverAsset e8ba5ea6-570c-4b7f-99b4-44c9dee51030 Offered,
+# Rayvan Kerman Unowned, low Kerbin orbit; RSQ-1's prefix):
+#   boot       LoadGame persistent at the Space Center; warp to 185800.
+#   H          a Jumping Flea on the pad, recorded to 185840, committed, recovered at its marker.
+#   accept     warp to 185900; accept-contract e8ba5ea6 (stock spawns the pod in this timeline).
+#   rewind     InvokeRewindToLaunch tree=latest: clock ~185785, no pod, the accept future.
+#   pad        warp to 185860 at the Space Center (H's replay over, the accept still ahead), an
+#              unrecorded Jumping Flea onto the pad.
+#   jump       TimeJump to 185920 in FLIGHT: the rebuild plans DeferStrandedAsset and lists the
+#              contract (pending=1); no vessel is added in flight.
+#   cold       SaveGame rsq2-01-deferred in flight, LoadGame it with playerLoad=true (a Cold load,
+#              back into FLIGHT): the list comes back from the save (`installed (load Cold):
+#              pending=1`); the drain keeps it (FLIGHT is not a regeneration scene).
+#   visit 1    ExitToSpaceCenter, a short warp: the drain evaluates the contract (Regenerate),
+#              GenerateOrbitalRecovery adds one vessel, the list empties (pending=0).
+#   visit 2    SaveGame rsq2-02-after-drain, LoadGame it with playerLoad=true at the Space Center:
+#              the list is empty, nothing is regenerated.
+#   save       the default slot (persistent), read by saveParse: Rayvan aboard exactly one vessel
+#              (`crewAboard`, report-only until the first green flight arms it).
+#
+# STEP SAVES (temporary analysis artifacts): rsq2-01-deferred, rsq2-02-after-drain.
+#
+# PINNED LITERALS (read 2026-11-20 on branch test-gaps-batch1 5512a178a):
+#   PatchContracts: accept-side world effect not run on rebuild: ... repair=... skip=...
+#     (<detail>; vessels=N scene=S)              GameActions/KspStatePatcher.ContractAcceptEffects.cs:93
+#   Rescue accept deferral evaluated: contractId='...' outcome=... repair=... skip=...  same file:287
+#   Rescue accept deferrals drained (<trigger>, scene=S): evaluated=N regenerated=N dropped=N
+#     kept=N[ keepReason=...] pending=N           same file:265
+#   PatchContracts: regenerated stranded asset for rebuilt contract '...' through
+#     RecoverAsset.<generator>: added=N [...]    same file:431
+#   Rescue accept deferral listed: contractId='...' (<reason>); its stranded vessel is regenerated
+#     at the next Space Center or Tracking Station visit; pending=N   GameActions/RescueAcceptDeferrals.cs:82
+#   Rescue accept deferral removed: contractId='...' (<reason>); pending=N           same file:95
+#   Rescue accept deferrals installed (<reason>): pending=N (was N)                 same file:113
+#     (reason "load <EarlyLoadKind>", Controllers/ParsekScenario.LoadSteps.cs:176)
+#   Time jump ledger recalculation complete: jump=epoch-shift   Controllers/TimeJumpManager.cs:139
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): 1 considered, not applied:
+# RSQ-1 flies the same prefix, but a lane reaches a given rebuild once per rewind, and a second
+# rewind in RSQ-1 would make this leg read RSQ-1's regenerated world; RW-18's stops pin other
+# accepts' funds. 2 applied: every wait is an explicit-UT WarpToUT or TimeJump. 3-5 n/a. 6:
+# `[retry] policy = "once"`. 7: the recordings count pinned (34 host + H; the pad Flea is
+# unrecorded); crewAboard pinned to the one claim. 8-9 owed on the first flight.
+#
+# STATUS: AUTHORED 2026-11-20 (branch `test-gaps-b3-rescue-lane`), NEVER FLOWN.
+# =====================================================================================
+tier = "operator"
+description = "Rescue contract rebuilt in flight, deferred to the next Space Center visit (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS, owner ruling 2026-11-20): on cs-career-mun4 a committed pad Flea and the rescue of Rayvan Kerman (RecoverAsset e8ba5ea6) accepted after its launch; after a Rewind-to-Launch a time jump in flight reaches the accept, the rebuild defers the stranded pod and lists the contract, the list survives a save and a Cold load, the first Space Center visit regenerates the pod through stock's own GenerateOrbitalRecovery and empties the list, and a second visit adds nothing; the produced save holds Rayvan aboard one vessel."
+instanceProfile = "stock-tree"
+tags = ["RSQ-2", "career", "ledger", "rewind", "rewind-to-launch", "contracts", "contract-accept",
+        "rescue", "reading-run", "time-jump", "ksc-marker", "editor", "timeline-ops", "save-load", "scene-change"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 3 x 300 LoadGame + 5 x 120 warps + 2 x (120 GoToEditor + 180
+# LaunchFromEditor) + 180 StartRecording + 120 CommitTree + 2 x 120 ExitToSpaceCenter + 60
+# KscMarkerRecover + 60 KscAction + 300 rewind + 120 TimeJump + 3 x 120 SaveGame = 3540; runtime
+# 4300 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # ---- H: the Flea on the pad, recorded, committed, recovered at its marker ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185840" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rsq2-h-committed" },                         expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${h.pid}" },                                 expect = "OK", budget = 60 },
+  # ---- the accept, after H's launch ----
+  { cmd = "WarpToUT",       args = { ut = "185900", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rsq2-before-accept" },                       expect = "OK" },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "e8ba5ea6-570c-4b7f-99b4-44c9dee51030" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rsq2-accepted" },                            expect = "OK" },
+  # ---- the rewind onto H's launch ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rsq2-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  # ---- past H's replay, before the accept: an unrecorded Flea onto the pad ----
+  { cmd = "WarpToUT",       args = { ut = "185860", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "f",             expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "rsq2-in-flight" },                           expect = "OK" },
+  # ---- the clock reaches the accept in FLIGHT: the rebuild defers the pod ----
+  { cmd = "TimeJump",       args = { ut = "185920" },                                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rsq2-jumped" },                              expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rsq2-01-deferred" },                         expect = "OK", budget = 120 },
+  # ---- the player's load of that save: a Cold load, back into FLIGHT ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "rsq2-01-deferred", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rsq2-reloaded" },                            expect = "OK" },
+  # ---- visit 1: the Space Center drains the list and regenerates the pod ----
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "185940", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rsq2-first-visit" },                         expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rsq2-02-after-drain" },                      expect = "OK", budget = 120 },
+  # ---- visit 2: a Cold load at the Space Center, the list empty, nothing added ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "rsq2-02-after-drain", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "185960", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rsq2-second-visit" },                        expect = "OK" },
+  # The DEFAULT slot (persistent): the one saveParse reads.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["contracts", "recalc-engine", "ksp-state-patcher"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings plus H; the pad Flea after the rewind is unrecorded.
+count = { min = 35, max = 35 }
+
+# ARMED 2026-11-21 off its first green flight `2026-11-21_1142` (crewAboard Rayvan Kerman = 1; the
+# first red flights of RSQ-1 / RSQ-2 read the same): Rayvan aboard exactly one vessel. Zero
+# means the drain never regenerated; two means a second visit regenerated again.
+[expectations.recordings.structure]
+gating     = true
+crewAboard = { "Rayvan Kerman" = 1 }
+
+[expectations.logContracts]
+required = [
+  # ---- the live accept, then the rewind ----
+  "MISSIONMARK label=rsq2-before-accept ut=(?:(?!MISSIONMARK label=rsq2-accepted )[\\s\\S])*?kscaction action=accept-contract target=e8ba5ea6-570c-4b7f-99b4-44c9dee51030 applied=true",
+  "MISSIONMARK label=rsq2-accepted ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rsq2-rewound ut=1857[0-9]{2}\\.",
+
+  # ---- the jump in FLIGHT: the accept reached, the rebuild deferred and listed ----
+  "MISSIONMARK label=rsq2-in-flight ut=1858[0-9]{2}\\.(?:(?!MISSIONMARK label=rsq2-jumped )[\\s\\S])*?Clock-crossing reached committed-future rows: [^\\r\\n]*ContractAccept@(?:18589|18590)[0-9]\\.",
+  "MISSIONMARK label=rsq2-in-flight ut=(?:(?!MISSIONMARK label=rsq2-jumped )[\\s\\S])*?PatchContracts: accept-side world effect not run on rebuild: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030' type='RecoverAsset' effect=StrandedAsset outcome=Regenerate worldMissing=True repair=DeferStrandedAsset skip=scene=FLIGHT \\(orbit kerbal='Rayvan Kerman'; vessels=[0-9]+ scene=FLIGHT\\)",
+  "MISSIONMARK label=rsq2-in-flight ut=(?:(?!MISSIONMARK label=rsq2-jumped )[\\s\\S])*?Rescue accept deferral listed: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030' \\(rebuild scene=FLIGHT\\); its stranded vessel is regenerated at the next Space Center or Tracking Station visit; pending=1",
+  "MISSIONMARK label=rsq2-in-flight ut=(?:(?!MISSIONMARK label=rsq2-jumped )[\\s\\S])*?Time jump ledger recalculation complete: jump=epoch-shift",
+
+  # ---- the Cold load of the in-flight save brings the list back ----
+  "MISSIONMARK label=rsq2-jumped ut=(?:(?!MISSIONMARK label=rsq2-reloaded )[\\s\\S])*?loadgame start save=\\S+ name=rsq2-01-deferred [^\\r\\n]*playerLoad=true",
+  "MISSIONMARK label=rsq2-jumped ut=(?:(?!MISSIONMARK label=rsq2-reloaded )[\\s\\S])*?Rescue accept deferrals installed \\(load Cold\\): pending=1 \\(was [0-9]+\\)",
+
+  # ---- visit 1: the drain at the Space Center regenerates once and empties the list ----
+  "MISSIONMARK label=rsq2-reloaded ut=(?:(?!MISSIONMARK label=rsq2-first-visit )[\\s\\S])*?Rescue accept deferral evaluated: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030' outcome=Regenerate repair=RegenerateStrandedAsset skip=none \\(orbit kerbal='Rayvan Kerman'; vessels=[0-9]+ scene=SPACECENTER\\)",
+  "MISSIONMARK label=rsq2-reloaded ut=(?:(?!MISSIONMARK label=rsq2-first-visit )[\\s\\S])*?PatchContracts: regenerated stranded asset for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030' through RecoverAsset\\.GenerateOrbitalRecovery: added=1 \\[[^\\]\\r\\n]+\\] \\(orbit kerbal='Rayvan Kerman'; partID ",
+  "MISSIONMARK label=rsq2-reloaded ut=(?:(?!MISSIONMARK label=rsq2-first-visit )[\\s\\S])*?Rescue accept deferral removed: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030' \\(drain evaluated: outcome=Regenerate regenerated=True\\); pending=0",
+  "MISSIONMARK label=rsq2-reloaded ut=(?:(?!MISSIONMARK label=rsq2-first-visit )[\\s\\S])*?Rescue accept deferrals drained \\(onContractsLoaded, scene=SPACECENTER\\): evaluated=1 regenerated=1 dropped=0 kept=0 pending=0",
+
+  # ---- visit 2: the player's load at the Space Center ----
+  "MISSIONMARK label=rsq2-first-visit ut=(?:(?!MISSIONMARK label=rsq2-second-visit )[\\s\\S])*?loadgame start save=\\S+ name=rsq2-02-after-drain [^\\r\\n]*playerLoad=true",
+]
+forbidden = [
+  # The pod is regenerated once.
+  "regenerated stranded asset for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'[\\s\\S]*regenerated stranded asset for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'",
+  # Never in flight: no regeneration before the Space Center visit, no Regenerate repair planned
+  # in FLIGHT.
+  "MISSIONMARK label=rsq2-rewound ut=(?:(?!MISSIONMARK label=rsq2-reloaded )[\\s\\S])*?regenerated stranded asset for rebuilt contract",
+  "repair=RegenerateStrandedAsset [^\\r\\n]*scene=FLIGHT\\)",
+  # Listed once (the Cold load's save holds the contract Active, so it is not rebuilt again).
+  "MISSIONMARK label=rsq2-jumped ut=[\\s\\S]*Rescue accept deferral listed: ",
+  # After the drain the list stays empty: no later load installs a pending id, no drain evaluates.
+  "MISSIONMARK label=rsq2-first-visit ut=[\\s\\S]*Rescue accept deferrals installed \\(load \\w+\\): pending=[1-9]",
+  "MISSIONMARK label=rsq2-first-visit ut=[\\s\\S]*Rescue accept deferral evaluated: ",
+  # The id is never dropped unevaluated, and the shell never fails.
+  "Rescue accept deferral removed: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030' \\((?:drain Drop|rebuilt again)",
+  "Rescue accept deferrals: drain [^\\r\\n]*threw",
+  "Rescue accept deferrals: drain subscription failed",
+  "stranded asset not regenerated for 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'",
+  "RecoverAsset\\.Generate\\w+ threw for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'",
+  "accept-side world effect check for 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030' threw",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 4300
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

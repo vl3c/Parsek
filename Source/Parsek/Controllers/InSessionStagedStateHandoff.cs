@@ -16,8 +16,10 @@ namespace Parsek
         /// the load's active-tree detach: memory's copy wins.</summary>
         CommittedOwner,
         /// <summary>Any other owner (the resumed or reverted flight, an unknown tree): the
-        /// loaded save's copy wins and memory-only points drop out of the list; their
-        /// quicksave files stay on disk (owner ruling OQ-3).</summary>
+        /// loaded save's copy wins and memory-only points drop out of the list. Their
+        /// quicksave files stay on disk (owner ruling OQ-3), except on a stock revert, which
+        /// deletes the reverted flight's files at once unless a save still names the point
+        /// (owner ruling 2026-11-21, <see cref="InSessionStagedStateHandoff.SelectRevertDroppedRewindPointFileIds"/>).</summary>
         FollowSave,
     }
 
@@ -307,14 +309,16 @@ namespace Parsek
         /// a loaded-only point is not resurrected. <see cref="RewindPointOwnerClass.FollowSave"/>: the
         /// loaded instance, a memory-only point drops out (its file stays). A point with no id
         /// follows the save. <paramref name="decisions"/>, when given, receives one
-        /// <c>id:class:outcome</c> entry per point.
+        /// <c>id:class:outcome</c> entry per point; <paramref name="droppedMemoryOnlyIds"/>, when
+        /// given, receives the id of every memory-only point that dropped out.
         /// </summary>
         internal static List<RewindPoint> MergeRewindPointsByOwner(
             IReadOnlyList<RewindPoint> memory,
             IReadOnlyList<RewindPoint> loaded,
             Func<RewindPoint, bool> ownedByCommittedTree,
             out RewindPointPartitionCounts counts,
-            List<string> decisions = null)
+            List<string> decisions = null,
+            List<string> droppedMemoryOnlyIds = null)
         {
             counts = new RewindPointPartitionCounts();
             var memoryById = new Dictionary<string, RewindPoint>(StringComparer.Ordinal);
@@ -408,11 +412,49 @@ namespace Parsek
                         default:
                             counts.FollowSaveMemoryOnlyDropped++;
                             decisions?.Add(id + ":FollowSave:dropped-memory-only");
+                            droppedMemoryOnlyIds?.Add(id);
                             break;
                     }
                 }
             }
             return result;
+        }
+
+        /// <summary>
+        /// Pure: which rewind points a load dropped whose quicksave files go now (owner ruling
+        /// 2026-11-21). Only a stock revert: the reverted flight is gone, so a point its staging
+        /// authored that the reverted-to save never listed has no use. Every other in-session
+        /// load keeps the files (owner ruling OQ-3: an F9 may still want them). A point the
+        /// installed list holds is never chosen, nor an id twice. The caller still keeps a file
+        /// any save in the folder names (<c>ParsekFileCollector.DeleteRewindPointFilesDroppedByRevert</c>).
+        /// </summary>
+        internal static List<string> SelectRevertDroppedRewindPointFileIds(
+            LoadKind refined,
+            IReadOnlyList<string> droppedMemoryOnlyIds,
+            IReadOnlyList<RewindPoint> installed)
+        {
+            var ids = new List<string>();
+            if (refined != LoadKind.StockRevert || droppedMemoryOnlyIds == null)
+                return ids;
+            var keep = new HashSet<string>(StringComparer.Ordinal);
+            if (installed != null)
+            {
+                for (int i = 0; i < installed.Count; i++)
+                {
+                    string id = installed[i]?.RewindPointId;
+                    if (!string.IsNullOrEmpty(id))
+                        keep.Add(id);
+                }
+            }
+            for (int i = 0; i < droppedMemoryOnlyIds.Count; i++)
+            {
+                string id = droppedMemoryOnlyIds[i];
+                if (string.IsNullOrEmpty(id) || keep.Contains(id))
+                    continue;
+                if (keep.Add(id))
+                    ids.Add(id);
+            }
+            return ids;
         }
 
         internal static string FormatPartitionCounts(RewindPointPartitionCounts c)

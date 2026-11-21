@@ -884,6 +884,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when a recording of the Effective Recording Set records the vessel with this
+        /// persistent id (<see cref="Recording.VesselPersistentId"/>). Read by the contract
+        /// rebuild's prebuilt-ship guard (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS): a
+        /// construction craft a committed flight recorded is owned by that flight. The pid is the
+        /// one stock's <c>ConstructShip</c> drew with <c>FlightGlobals.GetUniquepersistentId</c>,
+        /// not a craft-baked one, so a bare pid match is the vessel.
+        /// </summary>
+        internal static bool CommittedFlightRecordsVessel(uint persistentId)
+        {
+            if (persistentId == 0u) return false;
+            IReadOnlyList<Recording> ers = EffectiveState.ComputeERS();
+            if (ers == null) return false;
+            for (int i = 0; i < ers.Count; i++)
+                if (ers[i] != null && ers[i].VesselPersistentId == persistentId)
+                    return true;
+            return false;
+        }
+
+        /// <summary>
         /// The display name of a committed flight: its mission name (the Kerbals window's
         /// flight naming), else the recording's vessel name, else null.
         /// </summary>

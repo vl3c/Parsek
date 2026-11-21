@@ -730,9 +730,9 @@ namespace Parsek
     /// Runs <see cref="CommittedMilestoneReach.Apply"/> when the flight clock passes a
     /// committed row of any mirrored kind (<see cref="CommittedMilestoneReach.IsMirroredRow"/>:
     /// a once-ever milestone, a world-record threshold, subject science, a contract parameter,
-    /// a resource scan). The flight scene has no ledger clock cursor (the
-    /// Space Center and Tracking Station run one that recalculates), and a recalculation
-    /// there is deferred while a recorder lives, so without this a world-first the committed
+    /// a resource scan). The flight scene's ledger clock cursor recalculates at the same
+    /// crossing, but that recalculation's patch is deferred while a recorder lives (its
+    /// deferred branch runs this same pass), so without this a world-first the committed
     /// timeline earned at UT 100 stays payable in stock for a flight that re-earns it at
     /// UT 120 at 1x. Per frame it costs a cached lookup and two comparisons; the first valid
     /// frame and a backward clock only reseed.

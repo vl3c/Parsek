@@ -2462,12 +2462,11 @@ inventory bucket C; D14 `scene-ts` is covered for the first time.
 
 WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
 
-- **`site=ts` / `site=ksc`** on `SimulateStockSwitchClick` - typed
-  `REJECTED site-not-implemented` in v1. Both cross scenes into a fresh FLIGHT load
-  and must go through their own patched handlers (the TS one runs
-  `RemoveAllGhostVesselsBeforeStockFly`, a live-list/saved-file index desync fix a
-  hand-rolled `FlightDriver.StartAndFocusVessel` would reintroduce), so each belongs
-  with its own consumer.
+- ~~**`site=ts` / `site=ksc`** on `SimulateStockSwitchClick`~~ - BUILT 2026-11-20
+  (todo FLY-SITES-LANES-OWED): two-phase, each pressed from its own scene through the
+  stock control so its own patched handler arms the intent and runs
+  `RemoveAllGhostVesselsBeforeStockFly`; consumers FLY-1..FLY-3, with the alarm Jump
+  from the same two scenes in FLY-4 / FLY-5, all authored, never flown.
 - **The dialog cases** (`dialog-required case=A-session|B-unloaded|
   C-loaded-separate-committed`) and **unloaded targets** - typed refusals in v1. A
   seam verb cannot answer a `ControlTypes.All`-locking modal, so driving one needs a

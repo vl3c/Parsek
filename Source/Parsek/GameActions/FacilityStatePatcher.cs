@@ -311,6 +311,98 @@ namespace Parsek
             return null;
         }
 
+        internal enum CrossedBuildingPatchMode { Skip, FullPatchOwns, Apply }
+
+        /// <summary>
+        /// Pure: what the flight clock cursor does with the building rows of one crossing
+        /// window. With no flight tree alive the recalculation it just ran patched KSP, and its
+        /// live building patch (<see cref="PatchLiveDestructionState"/>) already folded the
+        /// ledger at now, so nothing is left to do. While a flight records, or its tree is
+        /// uncommitted or pending, that patch is deferred and the live building patch skips
+        /// (the flight owns collapses the ledger has not received); the rows the clock just
+        /// crossed are still the committed timeline's facts at their UT, so they apply, and
+        /// only they. Never inside OnLoad, from a ledger held from a newer version, on a clock
+        /// that is not ready, or for an empty window (a backward clock).
+        /// </summary>
+        internal static CrossedBuildingPatchMode ResolveCrossedBuildingPatchMode(
+            bool hasLiveRecorder, bool hasActiveUncommittedTree, bool hasPendingTree,
+            bool onLoadInProgress, bool ledgerHeldFromNewerVersion,
+            double windowAfterUT, double liveUt, out string reason)
+        {
+            if (onLoadInProgress) { reason = "scene load in progress"; return CrossedBuildingPatchMode.Skip; }
+            if (ledgerHeldFromNewerVersion)
+            {
+                reason = "ledger held from a newer Parsek version";
+                return CrossedBuildingPatchMode.Skip;
+            }
+            if (!(liveUt > 0.0)) { reason = "universe clock not ready"; return CrossedBuildingPatchMode.Skip; }
+            if (double.IsNaN(windowAfterUT) || !(liveUt > windowAfterUT))
+            {
+                reason = "empty window";
+                return CrossedBuildingPatchMode.Skip;
+            }
+            if (hasLiveRecorder) { reason = "live recorder active"; return CrossedBuildingPatchMode.Apply; }
+            if (hasActiveUncommittedTree) { reason = "active uncommitted flight tree"; return CrossedBuildingPatchMode.Apply; }
+            if (hasPendingTree) { reason = "pending tree"; return CrossedBuildingPatchMode.Apply; }
+            reason = "gate open, the recalculation's live building patch owns it";
+            return CrossedBuildingPatchMode.FullPatchOwns;
+        }
+
+        /// <summary>
+        /// The flight clock cursor's building step (todo FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS),
+        /// run after its recalculation with the crossing window
+        /// (<paramref name="windowAfterUT"/>, <paramref name="currentUT"/>]. While a flight tree
+        /// defers the ordinary patch, it demolishes or repairs the buildings whose committed
+        /// destruction / repair rows lie in that window, under the same suppression as every
+        /// patch (stock's collapse / repair events must not read back as the live flight's).
+        /// It agrees with what the patch after the flight's commit will fold: a crossed row is
+        /// the timeline's last word on its building at that UT, and anything the live flight
+        /// does to the building later lies outside every earlier window.
+        /// </summary>
+        internal static void PatchCrossedBuildingRowsWhileTreeLives(
+            double windowAfterUT, double currentUT, string reason,
+            IReadOnlyCollection<string> reFlyExcludedRecordingIds = null)
+        {
+            if (KspStatePatcher.SuppressUnityCallsForTesting)
+                return;
+
+            double liveUt = LedgerHeldWindow.ResolveLedgerNowUT(currentUT);
+            string why;
+            CrossedBuildingPatchMode mode = ResolveCrossedBuildingPatchMode(
+                GameStateRecorder.HasLiveRecorder(),
+                GameStateRecorder.HasActiveUncommittedTree(),
+                PendingTreeSlot.HasPendingTree,
+                ParsekScenario.IsOnLoadInProgress,
+                Ledger.IsHeldFromNewerVersion,
+                windowAfterUT, liveUt, out why);
+            if (mode != CrossedBuildingPatchMode.Apply)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "crossed-building-patch-" + mode,
+                    $"PatchCrossedBuildingRows: {mode} ({why}) reason={reason ?? "clock"} " +
+                    $"window=({windowAfterUT.ToString("R", IC)}, {liveUt.ToString("R", IC)}]");
+                return;
+            }
+
+            IReadOnlyCollection<string> excluded = reFlyExcludedRecordingIds;
+            var crossed = ComputeBuildingStatesCrossed(
+                EffectiveState.ComputeELS(), windowAfterUT, liveUt, excluded);
+            if (crossed.Count == 0)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "crossed-building-patch-none",
+                    "PatchCrossedBuildingRows: no building row in window " +
+                    $"({windowAfterUT.ToString("R", IC)}, {liveUt.ToString("R", IC)}] ({why})");
+                return;
+            }
+
+            ParsekLog.Info(Tag,
+                $"PatchCrossedBuildingRows: flight clock crossed {crossed.Count.ToString(IC)} committed " +
+                $"building row(s) in ({windowAfterUT.ToString("R", IC)}, {liveUt.ToString("R", IC)}] " +
+                $"while the ledger patch is deferred ({why}); reason={reason ?? "clock"} " +
+                $"reFlyExcluded={(excluded != null ? excluded.Count : 0).ToString(IC)}");
+            using (SuppressionGuard.ResourcesAndReplay())
+                PatchDestructionState(crossed, liveUt);
+        }
+
         /// <summary>
         /// Pure: per DestructibleBuilding id, whether the ledger says it is destroyed at
         /// <paramref name="liveUt"/> - the kind of its LAST FacilityDestruction /
@@ -321,6 +413,36 @@ namespace Parsek
         /// </summary>
         internal static Dictionary<string, bool> ComputeBuildingDestroyedAtUt(
             IReadOnlyList<GameAction> effectiveActions, double liveUt)
+        {
+            return FoldBuildingRows(effectiveActions, double.NegativeInfinity, liveUt, null);
+        }
+
+        /// <summary>
+        /// Pure: the same fold as <see cref="ComputeBuildingDestroyedAtUt"/> restricted to the
+        /// rows a clock crossing reached, <c>afterUT &lt; UT &lt;= uptoUT</c>, minus the rows
+        /// tagged to <paramref name="excludedRecordingIds"/> (the active Re-Fly's suppressed
+        /// subtree: the flight being re-flown stays in the ledger until the merge, and its own
+        /// collapse must not reach the attempt that replaces it). A building with no row in the
+        /// window is absent from the result, so a collapse the live flight caused after an
+        /// earlier crossed repair is never undone by a later crossing.
+        /// </summary>
+        internal static Dictionary<string, bool> ComputeBuildingStatesCrossed(
+            IReadOnlyList<GameAction> effectiveActions, double afterUT, double uptoUT,
+            IEnumerable<string> excludedRecordingIds)
+        {
+            HashSet<string> excluded = null;
+            if (excludedRecordingIds != null)
+            {
+                excluded = new HashSet<string>(System.StringComparer.Ordinal);
+                foreach (string id in excludedRecordingIds)
+                    if (!string.IsNullOrEmpty(id)) excluded.Add(id);
+            }
+            return FoldBuildingRows(effectiveActions, afterUT, uptoUT, excluded);
+        }
+
+        private static Dictionary<string, bool> FoldBuildingRows(
+            IReadOnlyList<GameAction> effectiveActions, double afterUT, double uptoUT,
+            HashSet<string> excludedRecordingIds)
         {
             var result = new Dictionary<string, bool>(System.StringComparer.Ordinal);
             if (effectiveActions == null)
@@ -333,7 +455,11 @@ namespace Parsek
                 if (a == null || string.IsNullOrEmpty(a.FacilityId)) continue;
                 if (a.Type != GameActionType.FacilityDestruction && a.Type != GameActionType.FacilityRepair)
                     continue;
-                if (a.UT > liveUt) continue;
+                if (a.UT > uptoUT) continue;
+                if (!(a.UT > afterUT)) continue;
+                if (excludedRecordingIds != null && !string.IsNullOrEmpty(a.RecordingId)
+                    && excludedRecordingIds.Contains(a.RecordingId))
+                    continue;
                 rows.Add(new KeyValuePair<int, GameAction>(i, a));
             }
             rows.Sort((x, y) =>

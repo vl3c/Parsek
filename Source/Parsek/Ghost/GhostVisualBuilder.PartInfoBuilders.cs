@@ -424,10 +424,12 @@ namespace Parsek
             {
             }
 
-            // Detect stock retractable ladders (RetractableLadder module) — reuses DeployableGhostInfo
+            // Detect stock retractable ladders (RetractableLadder module) - reuses DeployableGhostInfo.
+            // Fixed stock rest-state endpoints, never endpoint scoring: the model's rest pose is
+            // the extended ladder.
             if (deployableInfo == null && hasRetractableLadder)
             {
-                var sampledStates = SampleLadderStates(prefab, ladderAnimName, ladderAnimRootName);
+                var sampledStates = SampleRetractableLadderStates(prefab, ladderAnimName, ladderAnimRootName);
                 deployableInfo = ResolveSampledStatesToDeployableInfo(
                     sampledStates, modelNodeTransform, persistentId, partName, "Ladder", logUnresolved: true);
             }

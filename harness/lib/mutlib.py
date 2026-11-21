@@ -645,6 +645,9 @@ class ArchiveInputs:
     mission: Optional["mutmission.MissionInputs"] = None
     # The lower-cased mod source, for mutforbid's emitter triage list.
     source_corpus: Optional[str] = None
+    # The archived save's Parsek/RewindPoints listing (run.read_rewind_point_listing),
+    # for the rewind block's file facets; None when not measured.
+    rewind_point_files: Optional[Tuple[str, ...]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1364,7 +1367,8 @@ def check_lane(spec: Dict, inputs: ArchiveInputs) -> LaneReport:
         else:
             lane.mutations.extend(mutate_save_windows(expectations, inputs.snapshot))
             if inputs.save_text is not None:
-                _add_save_edits(lane, expectations, inputs.save_text)
+                _add_save_edits(lane, expectations, inputs.save_text,
+                                inputs.rewind_point_files)
     _add_ledger_edits(lane, expectations, inputs)
     _add_forbidden_edits(lane, expectations, inputs.log_text, inputs.source_corpus,
                          _forbidden_inserter(model))
@@ -1501,37 +1505,41 @@ def check_ledger_lane(spec: Dict, label: str, inputs: "mutledger.LedgerInputs") 
     return lane
 
 
-def _add_save_edits(lane: LaneReport, expectations: Dict, save_text: str) -> bool:
+def _add_save_edits(lane: LaneReport, expectations: Dict, save_text: str,
+                    rp_files: Optional[Sequence[str]] = None) -> bool:
     """Run the save-level edits (``mutsave``) over a save whose armed blocks pass.
     Returns False (with the reasons on the lane) when that baseline is not green."""
     import mutsave  # local: mutsave imports this module
-    base = mutsave.prepare_baseline(expectations, save_text)
+    base = mutsave.prepare_baseline(expectations, save_text, rp_files)
     if base.root is None:
         lane.notes.append("save edits skipped: %s" % "; ".join(base.reasons))
         return False
     if base.note:
         lane.notes.append(base.note)
-    check = mutsave.mutate_save_structure(expectations, base.root)
+    check = mutsave.mutate_save_structure(expectations, base.root, base.rp_files)
     lane.mutations.extend(check.mutations)
     lane.save_gates.extend(check.gates)
     lane.notes.extend(check.notes)
     return True
 
 
-def check_save_lane(spec: Dict, label: str, save_text: Optional[str]) -> LaneReport:
+def check_save_lane(spec: Dict, label: str, save_text: Optional[str],
+                    rp_files: Optional[Sequence[str]] = None) -> LaneReport:
     """The save-only lane (``mutation_check.py --save-only``): the baseline is the
     ARMED save-parse blocks alone over one save (an archived produced save or a
-    committed fixture template), then the save-level edits. No KSP.log needed."""
+    committed fixture template) and the ``Parsek/RewindPoints`` listing beside it
+    (``rp_files``, None when not measured), then the save-level edits. No KSP.log
+    needed."""
     import mutsave
     spec_id = str(spec.get("id", "?"))
     expectations = spec.get("expectations", {}) or {}
-    base = mutsave.prepare_baseline(expectations, save_text)
+    base = mutsave.prepare_baseline(expectations, save_text, rp_files)
     if base.root is None:
         return LaneReport(spec_id, label, BASELINE_NOT_GREEN, list(base.reasons))
     lane = LaneReport(spec_id, label, BASELINE_GREEN)
     if base.note:
         lane.notes.append(base.note)
-    check = mutsave.mutate_save_structure(expectations, base.root)
+    check = mutsave.mutate_save_structure(expectations, base.root, base.rp_files)
     lane.mutations.extend(check.mutations)
     lane.save_gates.extend(check.gates)
     lane.notes.extend(check.notes)

@@ -63,6 +63,31 @@ namespace Parsek.TestCommands
         /// two tanks of one vessel (two docked vessels are one), which stock drives through
         /// its transfer UI.</summary>
         Transfer,
+        /// <summary>A Breaking Ground hinge's or rotation servo's "Maximum Angle" action
+        /// (<c>MaximumAngleAction</c>, a <c>KSPAction</c> of <c>ModuleRoboticServoHinge</c> /
+        /// <c>ModuleRoboticRotationServo</c>, KSP 1.12.5 decompiled): it sets the servo's
+        /// <c>targetAngle</c> to its upper soft limit, as an action group bound to it does.</summary>
+        ServoMax,
+        /// <summary>The same servos' "Minimum Angle" action (<c>MinimumAngleAction</c>): the
+        /// lower soft limit.</summary>
+        ServoMin,
+        /// <summary>A Breaking Ground rotor's "Engage Motor" action (<c>MotorOnAction</c>, a
+        /// <c>KSPAction</c> <c>ModuleRoboticServoRotor</c> inherits from <c>BaseServo</c>, KSP 1.12.5
+        /// decompiled): <c>EngageMotor()</c> sets <c>servoMotorIsEngaged</c>, and the rotor spins up
+        /// to its <c>rpmLimit</c> over later physics frames, as an action group bound to it does.</summary>
+        RotorOn,
+        /// <summary>The same rotor's "Disengage Motor" action (<c>MotorOffAction</c>,
+        /// <c>DisengageMotor()</c>): the motor stops driving. A disengaged rotor COASTS (stock
+        /// holds it with a drive of 1 toward zero speed, KSP 1.12.5 decompiled
+        /// <c>ModuleRoboticServoRotor</c>), so it keeps nearly its RPM for seconds; SRV-2's
+        /// second flight (2026-11-21_1220) read 30 RPM three seconds after the press.</summary>
+        RotorOff,
+        /// <summary>The same rotor's "Brake" action (<c>ModuleRoboticServoRotor.BrakeAction</c>,
+        /// the <c>KSPAction</c> stock binds to the Brakes action group), pressed as
+        /// <c>Activate</c>: <c>brakingMode</c> on, so the joint drives the rotor toward zero speed
+        /// with <c>brakeTorque * brakePercentage</c> (60 at 100% on the EM-16) and it stops, as a
+        /// player brakes a rotor.</summary>
+        RotorBrake,
     }
 
     /// <summary>One module reading of the target part for the <c>state=</c> answer field: plain
@@ -70,7 +95,7 @@ namespace Parsek.TestCommands
     /// <see cref="TestCommandPartAction.FormatState"/>.</summary>
     internal struct PartActionModuleReading
     {
-        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup, Radiator, Engine }
+        internal enum ReadingKind { Converter, Lab, Experiment, AnimationGroup, Radiator, Engine, Servo, Rotor }
 
         internal ReadingKind Kind;
         internal string Name;
@@ -99,6 +124,20 @@ namespace Parsek.TestCommands
 
         internal static PartActionModuleReading Engine(bool ignited)
             => new PartActionModuleReading { Kind = ReadingKind.Engine, Flag = ignited };
+
+        /// <summary>A servo's commanded <c>targetAngle</c> (degrees), read after the press.</summary>
+        internal static PartActionModuleReading Servo(float targetAngle)
+            => new PartActionModuleReading { Kind = ReadingKind.Servo, StoredScience = targetAngle };
+
+        /// <summary>A rotor's <c>servoMotorIsEngaged</c>, its <c>rpmLimit</c> (the RPM the
+        /// motor spins it to) and its <c>servoMotorLimit</c> (the torque limit, percent), read
+        /// after the press.</summary>
+        internal static PartActionModuleReading Rotor(bool motorEngaged, float rpmLimit, float torqueLimit)
+            => new PartActionModuleReading
+            {
+                Kind = ReadingKind.Rotor, Flag = motorEngaged, StoredScience = rpmLimit,
+                DataStored = torqueLimit,
+            };
     }
 
     /// <summary>The warp context of a press, read right after it: the target vessel's
@@ -151,7 +190,7 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>Grammar.</b> <c>cmd=PartAction button=undock|decouple|controlfrom|deploy|retract|
     /// startconverter|stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    /// activate|explode|chute|runtest|transfer [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
+    /// activate|explode|chute|runtest|transfer|servomax|servomin|rotoron|rotoroff|rotorbrake [part=&lt;part name&gt;] [converter=&lt;ConverterName&gt;] [all=true] [pid=&lt;persistentId&gt;]
     /// [partPid=&lt;part persistentId&gt;] [resource=&lt;resource name&gt;]
     /// [expectSnapshot=true|false rec=&lt;recordingId&gt; tolerance=&lt;abs&gt;]</c>. The three snapshot
     /// args are for <c>inspect</c> only (<c>snapshot-arg-unexpected</c> elsewhere, and for
@@ -206,6 +245,33 @@ namespace Parsek.TestCommands
     /// FX, then <c>Die()</c>, so <c>onPartDie</c> and, for a crewed part, <c>onCrewKilled</c>
     /// fire as on an impact); <c>all=true</c> is <c>all-arg-unexpected</c> and <c>state=</c> is
     /// empty (the part is gone).</para>
+    ///
+    /// <para><b>servomax / servomin</b> move a Breaking Ground hinge or rotation servo to its
+    /// upper / lower soft angle limit through the module's own <c>MaximumAngleAction</c> /
+    /// <c>MinimumAngleAction</c> <c>KSPAction</c> (the one an action group fires; the PAW has
+    /// no such button, its target-angle slider is a field). Candidates are the named parts'
+    /// <c>ModuleRoboticServoHinge</c> / <c>ModuleRoboticRotationServo</c> modules carrying that
+    /// action; named parts carrying neither refuse <c>servo-not-found</c>. The servo then
+    /// drives itself there over later frames at its <c>traverseVelocity</c>, so
+    /// <c>state=</c> reads the commanded <c>servo:target=</c>, not the reached angle. A locked
+    /// servo ignores the action (stock posts its own screen message).</para>
+    ///
+    /// <para><b>rotoron / rotoroff</b> engage / disengage a Breaking Ground rotor's motor through
+    /// its own <c>MotorOnAction</c> / <c>MotorOffAction</c> <c>KSPAction</c> (declared on
+    /// <c>BaseServo</c>, the "Engage Motor" / "Disengage Motor" an action group fires; not a
+    /// toggle, so a repeated press changes nothing). Candidates are the named parts'
+    /// <c>ModuleRoboticServoRotor</c> modules; named parts carrying none refuse
+    /// <c>rotor-not-found</c>. An engaged motor spins the rotor up to its <c>rpmLimit</c> over
+    /// later physics frames and a disengaged one lets it spin down, so <c>state=</c> reads the
+    /// commanded <c>rotor:engaged=0|1 rpmLimit= torqueLimit=</c>, not the reached RPM. Stock
+    /// zeroes a rotor's torque limit (<c>servoMotorLimit</c>) in <c>OnStart</c> whenever the
+    /// scene is FLIGHT (KSP 1.12.5 decompiled), so an engaged motor with no torque never turns;
+    /// <b>rotoron</b> therefore also presses the rotor's own <c>MotorPowerAction</c>
+    /// (<c>ToggleMotorPower</c>, which sets the limit to 100) when the limit reads 0, as a player
+    /// raises the "Torque Limit" before a rotor spins, and logs
+    /// <c>partaction rotor torque raised:</c>. A limit already above 0 is left alone.
+    /// <b>rotorbrake</b> presses the rotor's own <c>BrakeAction</c> (the Brakes action group's
+    /// action) as <c>Activate</c>: a disengaged rotor coasts, the brake stops it.</para>
     ///
     /// <para><b>partPid=</b> (any button) keeps only the named part whose
     /// <c>Part.persistentId</c> it is, for a vessel that carries several parts of one name.
@@ -275,6 +341,30 @@ namespace Parsek.TestCommands
         internal const string ChuteToken = "chute";
         internal const string RunTestToken = "runtest";
         internal const string TransferToken = "transfer";
+        internal const string ServoMaxToken = "servomax";
+        internal const string ServoMinToken = "servomin";
+        internal const string RotorOnToken = "rotoron";
+        internal const string RotorOffToken = "rotoroff";
+        internal const string RotorBrakeToken = "rotorbrake";
+
+        /// <summary>The Breaking Ground module the rotor buttons press.</summary>
+        internal const string RotorModuleName = "ModuleRoboticServoRotor";
+
+        /// <summary>The rotor's own <c>KSPAction</c> that raises a zero torque limit to 100
+        /// (<c>ModuleRoboticServoRotor.MotorPowerAction</c> -> <c>ToggleMotorPower</c>, KSP 1.12.5
+        /// decompiled).</summary>
+        internal const string RotorTorqueActionName = "MotorPowerAction";
+
+        /// <summary>The rotor's torque-limit field (percent, <c>BaseServo.servoMotorLimit</c>).</summary>
+        internal const string RotorTorqueFieldName = "servoMotorLimit";
+
+        /// <summary>The Breaking Ground servo modules the servo buttons press: the two posed
+        /// angular families that carry <c>MaximumAngleAction</c> / <c>MinimumAngleAction</c>
+        /// (a piston extends instead, a rotor spins by RPM).</summary>
+        internal static readonly string[] ServoModuleNames =
+        {
+            "ModuleRoboticServoHinge", "ModuleRoboticRotationServo",
+        };
 
         /// <summary>The <c>event=</c> of every transfer: the verb's own resource move.</summary>
         internal const string TransferEventName = "resourceTransfer";
@@ -292,7 +382,8 @@ namespace Parsek.TestCommands
             UndockToken, DecoupleToken, ControlFromToken, DeployToken, RetractToken,
             StartConverterToken, StopConverterToken, ExperimentToken, LabProcessToken,
             LabTransmitToken, InspectToken, RadiatorOnToken, RadiatorOffToken, ActivateToken,
-            ExplodeToken, ChuteToken, RunTestToken, TransferToken,
+            ExplodeToken, ChuteToken, RunTestToken, TransferToken, ServoMaxToken, ServoMinToken,
+            RotorOnToken, RotorOffToken, RotorBrakeToken,
         };
 
         /// <summary>The <c>event=</c> of every labprocess: the results dialog page's own lab
@@ -347,6 +438,8 @@ namespace Parsek.TestCommands
         internal const string ParachuteNotFoundReason = "partaction-parachute-not-found";
         internal const string ResourceNotFoundReason = "partaction-resource-not-found";
         internal const string TransferNothingMovedReason = "partaction-transfer-nothing-moved";
+        internal const string ServoNotFoundReason = "partaction-servo-not-found";
+        internal const string RotorNotFoundReason = "partaction-rotor-not-found";
 
         // Post-call ERROR terminal: the event was invoked and threw.
         internal const string EventThrewReason = "partaction-event-threw";
@@ -394,6 +487,8 @@ namespace Parsek.TestCommands
             "partaction-parachute-not-found",
             "partaction-resource-not-found",
             "partaction-transfer-nothing-moved",
+            "partaction-servo-not-found",
+            "partaction-rotor-not-found",
         };
 
         /// <summary>The post-call ERROR vocabulary.</summary>
@@ -429,6 +524,11 @@ namespace Parsek.TestCommands
                 case ChuteToken: kind = PartActionKind.ChuteDeploy; return null;
                 case RunTestToken: kind = PartActionKind.RunTest; return null;
                 case TransferToken: kind = PartActionKind.Transfer; return null;
+                case ServoMaxToken: kind = PartActionKind.ServoMax; return null;
+                case ServoMinToken: kind = PartActionKind.ServoMin; return null;
+                case RotorOnToken: kind = PartActionKind.RotorOn; return null;
+                case RotorOffToken: kind = PartActionKind.RotorOff; return null;
+                case RotorBrakeToken: kind = PartActionKind.RotorBrake; return null;
                 default: return ButtonArgInvalidReason;
             }
         }
@@ -456,6 +556,11 @@ namespace Parsek.TestCommands
                 case PartActionKind.ChuteDeploy: return ChuteToken;
                 case PartActionKind.RunTest: return RunTestToken;
                 case PartActionKind.Transfer: return TransferToken;
+                case PartActionKind.ServoMax: return ServoMaxToken;
+                case PartActionKind.ServoMin: return ServoMinToken;
+                case PartActionKind.RotorOn: return RotorOnToken;
+                case PartActionKind.RotorOff: return RotorOffToken;
+                case PartActionKind.RotorBrake: return RotorBrakeToken;
                 default: return "unknown";
             }
         }
@@ -481,12 +586,68 @@ namespace Parsek.TestCommands
         internal static bool IsParachuteKind(PartActionKind kind)
             => kind == PartActionKind.ChuteDeploy;
 
+        /// <summary>True for the two servo buttons, whose candidates come from the
+        /// <see cref="ServoModuleNames"/> modules only and are pressed through a
+        /// <c>KSPAction</c> (<see cref="ServoActionNameFor"/>), not a part-menu event.</summary>
+        internal static bool IsServoKind(PartActionKind kind)
+            => kind == PartActionKind.ServoMax || kind == PartActionKind.ServoMin;
+
+        /// <summary>True when <paramref name="moduleName"/> is one of
+        /// <see cref="ServoModuleNames"/> (exact, ordinal).</summary>
+        internal static bool IsServoModuleName(string moduleName)
+        {
+            if (string.IsNullOrEmpty(moduleName)) return false;
+            for (int i = 0; i < ServoModuleNames.Length; i++)
+                if (string.Equals(ServoModuleNames[i], moduleName, StringComparison.Ordinal))
+                    return true;
+            return false;
+        }
+
+        /// <summary>True for the two rotor buttons, whose candidates come from
+        /// <see cref="RotorModuleName"/> only and are pressed through a <c>KSPAction</c>
+        /// (<see cref="ServoActionNameFor"/>), not a part-menu event.</summary>
+        internal static bool IsRotorKind(PartActionKind kind)
+            => kind == PartActionKind.RotorOn || kind == PartActionKind.RotorOff
+                || kind == PartActionKind.RotorBrake;
+
+        /// <summary>True when <paramref name="moduleName"/> is <see cref="RotorModuleName"/>
+        /// (exact, ordinal).</summary>
+        internal static bool IsRotorModuleName(string moduleName)
+            => string.Equals(RotorModuleName, moduleName, StringComparison.Ordinal);
+
+        /// <summary>True when a <b>rotoron</b> press must also raise the rotor's torque limit:
+        /// the limit reads 0 (or not a number), which stock sets at every FLIGHT start, so the
+        /// engaged motor would drive no torque. <b>rotoroff</b> and every other button never
+        /// raise it, and a limit above 0 (one the player set) is left alone.</summary>
+        internal static bool ShouldRaiseRotorTorque(PartActionKind kind, float torqueLimit)
+            => kind == PartActionKind.RotorOn && !(torqueLimit > 0f);
+
+        /// <summary>The stock <c>KSPAction</c> a servo or rotor button invokes (KSP 1.12.5
+        /// decompiled: <c>ModuleRoboticServoHinge</c> and <c>ModuleRoboticRotationServo</c> both
+        /// declare <c>MaximumAngleAction</c> / <c>MinimumAngleAction</c>; <c>BaseServo</c> declares
+        /// <c>MotorOnAction</c> / <c>MotorOffAction</c>, which the rotor inherits), or null for any
+        /// other kind.</summary>
+        internal static string ServoActionNameFor(PartActionKind kind)
+        {
+            switch (kind)
+            {
+                case PartActionKind.ServoMax: return "MaximumAngleAction";
+                case PartActionKind.ServoMin: return "MinimumAngleAction";
+                case PartActionKind.RotorOn: return "MotorOnAction";
+                case PartActionKind.RotorOff: return "MotorOffAction";
+                case PartActionKind.RotorBrake: return "BrakeAction";
+                default: return null;
+            }
+        }
+
         /// <summary>True for the buttons whose candidates come from one module type only (the
-        /// radiator pair, the engine button, the chute button): the applier counts that type's
-        /// modules on the named parts for the <c>radiator-not-found</c> / <c>engine-not-found</c> /
-        /// <c>parachute-not-found</c> gate.</summary>
+        /// radiator pair, the engine button, the chute button, the servo pair, the rotor pair):
+        /// the applier counts that type's modules on the named parts for the
+        /// <c>radiator-not-found</c> / <c>engine-not-found</c> / <c>parachute-not-found</c> /
+        /// <c>servo-not-found</c> / <c>rotor-not-found</c> gate.</summary>
         internal static bool IsTypedModuleKind(PartActionKind kind)
-            => IsRadiatorKind(kind) || IsEngineKind(kind) || IsParachuteKind(kind);
+            => IsRadiatorKind(kind) || IsEngineKind(kind) || IsParachuteKind(kind) || IsServoKind(kind)
+                || IsRotorKind(kind);
 
         /// <summary>True for the two buttons a <c>converter=</c> filter applies to.</summary>
         internal static bool AcceptsConverter(PartActionKind kind)
@@ -752,6 +913,8 @@ namespace Parsek.TestCommands
             if (IsEngineKind(kind) && typedModules == 0) return EngineNotFoundReason;
             if (IsParachuteKind(kind) && typedModules == 0) return ParachuteNotFoundReason;
             if (IsTransferKind(kind) && typedModules == 0) return ResourceNotFoundReason;
+            if (IsServoKind(kind) && typedModules == 0) return ServoNotFoundReason;
+            if (IsRotorKind(kind) && typedModules == 0) return RotorNotFoundReason;
             if (candidates == 0)
                 return kind == PartActionKind.LabProcess && experimentModules > 0
                     ? ExperimentNoDataReason
@@ -790,7 +953,11 @@ namespace Parsek.TestCommands
         /// <c>lab:storedScience=&lt;F2&gt; dataStored=&lt;F2&gt;</c>; an experiment
         /// <c>exp:data=&lt;count&gt;</c>; an animation group <c>deployed=0|1</c>; an active
         /// radiator <c>radiator:cooling=0|1</c>; an engine <c>engine:ignited=0|1</c>
-        /// (<c>ModuleEngines.EngineIgnited</c>). Invariant culture; empty for no readings.
+        /// (<c>ModuleEngines.EngineIgnited</c>); a hinge or rotation servo
+        /// <c>servo:target=&lt;F2&gt;</c> (its commanded <c>targetAngle</c>, degrees); a rotor
+        /// <c>rotor:engaged=0|1 rpmLimit=&lt;F2&gt; torqueLimit=&lt;F2&gt;</c> (<c>servoMotorIsEngaged</c>,
+        /// the RPM the motor drives it to and the torque limit, percent). Invariant culture;
+        /// empty for no readings.
         /// </summary>
         internal static string FormatState(IList<PartActionModuleReading> readings)
         {
@@ -820,6 +987,14 @@ namespace Parsek.TestCommands
                         break;
                     case PartActionModuleReading.ReadingKind.Engine:
                         parts.Add("engine:ignited=" + (r.Flag ? "1" : "0"));
+                        break;
+                    case PartActionModuleReading.ReadingKind.Servo:
+                        parts.Add("servo:target=" + r.StoredScience.ToString("F2", ic));
+                        break;
+                    case PartActionModuleReading.ReadingKind.Rotor:
+                        parts.Add("rotor:engaged=" + (r.Flag ? "1" : "0")
+                            + " rpmLimit=" + r.StoredScience.ToString("F2", ic)
+                            + " torqueLimit=" + r.DataStored.ToString("F2", ic));
                         break;
                 }
             }

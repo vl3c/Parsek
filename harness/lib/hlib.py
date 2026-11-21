@@ -796,7 +796,8 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # (design-vessel-and-mission-names.md 15.3).
     #   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
     #     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff|
-    #     activate|explode|chute|runtest|transfer [part=<part name>]
+    #     activate|explode|chute|runtest|transfer|servomax|servomin|rotoron|rotoroff|rotorbrake
+    #     [part=<part name>]
     #     [converter=<ConverterName>] [all=true] [pid=<pid>] [partPid=<part persistentId>]
     #     [resource=<R>] (transfer only: moves R from every other part of the vessel into
     #     the one named part, the vessel total unchanged; OK adds `resource= moved=
@@ -1177,8 +1178,9 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # class, not the LoadGame class: it drives a scene exit and completes as soon as that
 # settles, so its C# budget is 120 s and it rides DISPATCH_DEFERRAL_BUDGET_SECONDS below.
 # Membership here is about the 540 s CAP governing a spec-declared budget, not about being
-# two-phase. SimulateStockSwitchClick is SINGLE-phase (the switch and Parsek's consume both
-# run synchronously inside SetActiveVessel), so it rides the plain 60 s default.
+# two-phase. SimulateStockSwitchClick is not a member either: its map site is single-phase,
+# and its ts / ksc sites (two-phase, a stock Fly into a FLIGHT load) ride the per-verb
+# 300 s row in DISPATCH_DEFERRAL_BUDGET_SECONDS below, under the cap.
 # The player-workflow lane added StartLoopPlayback for the same reason M-C1 added
 # TimeJump: it is a two-phase forward CLOCK jump (to the looped mission's next
 # faithful departure, which can be tens of millions of seconds ahead), so the 540 s
@@ -1274,10 +1276,13 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # parses a cold save off disk. Without the row the harness step-wait would ride the 60 s default + margin
     # and could KILL a healthy KSC bootstrap - which re-reads persistent.sfs and runs
     # SetProtoModules -> the pending-tree auto-commit - at ~120 s, converting a retryable
-    # seam TIMEOUT into a terminal KILLED. SimulateStockSwitchClick is deliberately ABSENT:
-    # the C# switch rides DefaultSeconds (60 s) because it is single-phase, and its budget
-    # only ever bounds the not-in-flight DEFER.
+    # seam TIMEOUT into a terminal KILLED.
     "ExitToSpaceCenter": 120.0,
+    # SimulateStockSwitchClick mirrors the C# SimulateStockSwitchClickSeconds = 300.0 (one
+    # budget per verb). Its ts / ksc sites press a stock Fly that saves persistent and loads
+    # FLIGHT from it, then wait for Parsek's consume to spend the intent: the LoadGame class.
+    # The map site is single-phase, so for it the row only bounds the not-in-flight DEFER.
+    "SimulateStockSwitchClick": 300.0,
     # Player-workflow lane. StartLoopPlayback mirrors the C#
     # StartLoopPlaybackSeconds = 120.0, sized like TimeJump because it IS the same
     # instantaneous clock set (Planetarium.SetUniversalTime via
@@ -2930,10 +2935,8 @@ BATCH_ISOLATED_VALUES: Tuple[str, ...] = ("true", "false")
 # same argument the isolated guard above makes and the same job validate_spec has
 # everywhere else.
 #
-# What is deliberately NOT checked: whether v1 IMPLEMENTS the value. `site=ts` and
-# `site=ksc` are legal spellings the v1 verb answers REJECTED site-not-implemented,
-# and a spec that drives one with expect = "REJECTED" is a legitimate capability
-# probe. Only the SPELLING is closed here.
+# Only the SPELLING is closed here: `site=ts` / `site=ksc` (the Tracking Station Fly and
+# the KSC marker Fly, two-phase, each issued from its own scene) are as legal as `map`.
 #
 # `scene=flight` is absent from the accepted set on purpose and is not an oversight
 # to be "fixed": a forced FLIGHT boot is not expressible (the focusable route needs
@@ -3040,6 +3043,20 @@ RECORDINGSTATE_AWAIT_RECORDER_LIVE_VALUES: Tuple[str, ...] = ("refly",)
 
 SWITCHCLICK_SITE_KEY = "site"
 SWITCHCLICK_SITE_VALUES: Tuple[str, ...] = ("map", "ts", "ksc")
+
+# SimulateStockSwitchClick site=ts / site=ksc, mirrored IN ORDER from the FlyRejectReasons /
+# FlyErrorReasons arrays of TestCommands/TestCommandSimulateSwitchClick.FlySites.cs
+# (SwitchClickFlySourceSyncTests), with the per-site wrong-scene DEFER tokens and the OK
+# payload's route.
+SWITCHCLICK_FLY_REJECT_REASONS: Tuple[str, ...] = (
+    "fly-control-missing", "cannot-fly-vessel", "target-not-owned",
+    "target-has-no-ksc-marker", "fly-button-locked")
+SWITCHCLICK_FLY_ERROR_REASONS: Tuple[str, ...] = (
+    "fly-select-failed", "fly-no-scene-load", "fly-intent-not-armed", "fly-wrong-vessel",
+    "fly-intent-not-consumed", "fly-returned-to-menu", "fly-timeout")
+SWITCHCLICK_SITE_SCENE_DEFERS: Dict[str, str] = {
+    "map": "not-in-flight", "ts": "not-in-trackstation", "ksc": "not-at-space-center"}
+SWITCHCLICK_FLY_ROUTE = "stock-fly-control"
 
 # career-ledger B.4: RunTests' `strict` arg, the per-scenario seam for
 # LedgerGroundTruthDiff.StrictPerIdentityForTesting (which promotes the ground-truth
@@ -3594,10 +3611,18 @@ UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
     "open", "close", "tab", "rect", "find", "expand", "target", "picker", "run",
     "state", "sort", "select", "edit", "clone", "warp")
 
-# The windows `op=warp` is defined for, mirroring TestCommandUiAction.WindowHasRowWarpButton:
-# the one window whose table rows carry a warp button. Any other window answers
-# `warp-unsupported-window`.
-UIACTION_WARP_WINDOWS: Tuple[str, ...] = ("spawncontrol",)
+# The windows `op=warp` is defined for, mirroring TestCommandUiAction.WindowHasWarpButton:
+# the Real Spawn Control table (its first row's warp button) and the Timeline ("Warp to
+# time"). Any other window answers `warp-unsupported-window`.
+UIACTION_WARP_WINDOWS: Tuple[str, ...] = ("spawncontrol", "timeline")
+
+# `op=warp window=timeline`'s args, mirroring TestCommandUiWarpTime: the four date fields
+# (all REQUIRED, decimal integers, committed through the warp boxes' own parse) and the
+# REQUIRED confirm answer. `window=spawncontrol` reads none of them and the seam REJECTS a
+# step that names one (`warp-arg-unsupported`).
+UIWARP_DATE_KEYS: Tuple[str, ...] = ("year", "day", "hour", "minute")
+UIWARP_CONFIRM_KEY = "confirm"
+UIWARP_CONFIRM_VALUES: Tuple[str, ...] = ("warp", "cancel")
 
 # The four rect args, all REQUIRED together on `op=rect`: a partial rect mixes a
 # commanded position with a stale size, so the capture it produces is not reproducible.
@@ -4116,7 +4141,8 @@ PARTACTION_BUTTONS_ACCEPTING_SNAPSHOT: Tuple[str, ...] = ("inspect",)
 PARTACTION_BUTTON_VALUES: Tuple[str, ...] = (
     "undock", "decouple", "controlfrom", "deploy", "retract", "startconverter",
     "stopconverter", "experiment", "labprocess", "labtransmit", "inspect", "radiatoron",
-    "radiatoroff", "activate", "explode", "chute", "runtest", "transfer",
+    "radiatoroff", "activate", "explode", "chute", "runtest", "transfer", "servomax",
+    "servomin", "rotoron", "rotoroff", "rotorbrake",
 )
 PARTACTION_BUTTONS_REQUIRING_PART: Tuple[str, ...] = tuple(
     b for b in PARTACTION_BUTTON_VALUES if b != "undock")
@@ -4144,7 +4170,8 @@ PARTACTION_REASONS: Tuple[str, ...] = (
     "partaction-lab-page-missing", "partaction-lab-value-zero", "partaction-lab-unavailable",
     "partaction-radiator-not-found", "partaction-engine-not-found",
     "partaction-parachute-not-found", "partaction-resource-not-found",
-    "partaction-transfer-nothing-moved",
+    "partaction-transfer-nothing-moved", "partaction-servo-not-found",
+    "partaction-rotor-not-found",
 )
 
 
@@ -5640,15 +5667,59 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
             "the same key, which is what makes this easy to misplace)"
             % (index, UIACTION_RUN_CATEGORY_KEY, op))
 
+    warp_keys = UIWARP_DATE_KEYS + (UIWARP_CONFIRM_KEY,)
     if op == "warp":
         window_name = str(window) if window is not None else None
         if (window_name in UIACTION_WINDOW_VALUES
                 and window_name not in UIACTION_WARP_WINDOWS):
             errors.append(
-                "driver.steps[%d].args.%s: window %r has no row warp button, so op=warp "
+                "driver.steps[%d].args.%s: window %r has no warp button, so op=warp "
                 "answers REJECTED warp-unsupported-window. The ones that do are %s"
                 % (index, UIACTION_WINDOW_KEY, window_name,
                    ", ".join(UIACTION_WARP_WINDOWS)))
+        if window_name == "timeline":
+            missing = [k for k in UIWARP_DATE_KEYS if step_args.get(k) is None]
+            if missing:
+                errors.append(
+                    "driver.steps[%d].args: op=warp window=timeline REQUIRES all of %s "
+                    "(missing %s); the seam answers REJECTED warp-date-arg-missing"
+                    % (index, ",".join(UIWARP_DATE_KEYS), ",".join(missing)))
+            for key in UIWARP_DATE_KEYS:
+                raw = step_args.get(key)
+                if raw is None or value_is_handle_templated(raw):
+                    continue
+                if not re.match(r"^[+-]?[0-9]+$", str(raw).strip()):
+                    errors.append(
+                        "driver.steps[%d].args.%s: %r is not an integer; the warp box's "
+                        "own parse refuses it, so the seam answers REJECTED "
+                        "warp-date-arg-invalid" % (index, key, raw))
+            confirm = step_args.get(UIWARP_CONFIRM_KEY)
+            if confirm is None:
+                errors.append(
+                    "driver.steps[%d].args.%s: op=warp window=timeline REQUIRES it (one of "
+                    "%s): the click only raises the confirm dialog, so the step names which "
+                    "button answers it; the seam answers REJECTED warp-confirm-arg-missing"
+                    % (index, UIWARP_CONFIRM_KEY, " or ".join(repr(v) for v in UIWARP_CONFIRM_VALUES)))
+            elif str(confirm) not in UIWARP_CONFIRM_VALUES:
+                errors.append(
+                    "driver.steps[%d].args.%s: %r must be one of %s (case-sensitive); the "
+                    "seam answers REJECTED warp-confirm-arg-invalid"
+                    % (index, UIWARP_CONFIRM_KEY, confirm,
+                       " or ".join(repr(v) for v in UIWARP_CONFIRM_VALUES)))
+        else:
+            for key in warp_keys:
+                if key in step_args:
+                    errors.append(
+                        "driver.steps[%d].args.%s: only op=warp window=timeline reads it, "
+                        "but this step is window=%s; the seam answers REJECTED "
+                        "warp-arg-unsupported" % (index, key, window_name))
+    else:
+        for key in warp_keys:
+            if key in step_args:
+                errors.append(
+                    "driver.steps[%d].args.%s: only op=warp window=timeline reads it, but "
+                    "this step is op=%s -- the arg would be silently ignored"
+                    % (index, key, op))
 
     if op not in ("expand", "playback", "state") and UIACTION_STATE_KEY in step_args:
         errors.append(
@@ -13063,6 +13134,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # that moves nothing (destination full, no other part holding it) is a live state.
     "partaction-resource-not-found": "driver-arg",
     "partaction-transfer-nothing-moved": "driver-gate",
+    # The servo buttons on a part carrying no hinge / rotation servo: the same spec typo.
+    "partaction-servo-not-found": "driver-arg",
+    # The rotor buttons on a part carrying no Breaking Ground rotor: the same spec typo.
+    "partaction-rotor-not-found": "driver-arg",
     # RevertToLaunch: a live Re-Fly marker and stock not offering the option are live states
     # (RevertToLaunchSourceSyncTests).
     "reverttolaunch-target-arg-invalid": "driver-arg",
@@ -13226,7 +13301,6 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # target-not-found / -name-ambiguous / -is-ghost are arg-class because each one means
     # the SPEC named the wrong thing, the same call `unknown-target` gets for KscAction.
     "site-arg-invalid": "driver-arg",
-    "site-not-implemented": "driver-arg",
     "target-arg-missing": "driver-arg",
     "pid-arg-invalid": "driver-arg",
     "vessel-arg-invalid": "driver-arg",
@@ -13240,6 +13314,15 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "target-already-active": "driver-gate",
     "target-unloaded": "driver-gate",
     "dialog-pending": "driver-dialog",
+    # SimulateStockSwitchClick site=ts / site=ksc (SWITCHCLICK_FLY_REJECT_REASONS): a
+    # target stock would not fly is the spec's naming error; a control that never drew or a
+    # locked Fly button is the live state's. The ERROR half (fly-no-scene-load, ...) is
+    # observed after the press and stays out of this table.
+    "fly-control-missing": "driver-gate",
+    "cannot-fly-vessel": "driver-gate",
+    "target-not-owned": "driver-arg",
+    "target-has-no-ksc-marker": "driver-arg",
+    "fly-button-locked": "driver-gate",
     # The loop lanes (design "> Update (the loop lanes)"): MissionConfig,
     # StartLoopPlayback and EnterWatchMode. Same R12 reasoning - the three verbs ship
     # typed refusals and without these rows every one of them collapses to the coarse

@@ -51,6 +51,11 @@ namespace Parsek
         public bool? gearDeployed;
         /// <summary>Cargo/service bay open state, resolved from the paired ModuleAnimateGeneric animTime against the prefab's closedPosition.</summary>
         public bool? cargoBayOpen;
+        /// <summary>
+        /// RetractableLadder.StateName (persisted by stock): Extended / Retracted; null for
+        /// the mid-travel Extending / Retracting states or an unreadable value.
+        /// </summary>
+        public bool? ladderExtended;
         /// <summary>Standalone ModuleAnimateGeneric animTime endpoint (mid-travel → null). Only read when the part has no dedicated animate handler.</summary>
         public bool? animateGenericDeployed;
         /// <summary>ModuleAnimationGroup.isDeployed.</summary>
@@ -73,6 +78,7 @@ namespace Parsek
             || deployableBroken
             || wheelDamaged
             || gearDeployed.HasValue
+            || ladderExtended.HasValue
             || cargoBayOpen.HasValue
             || animateGenericDeployed.HasValue
             || animationGroupDeployed.HasValue
@@ -162,7 +168,9 @@ namespace Parsek
                 {
                     int ordinal = roboticOrdinal;
                     roboticOrdinal++;
-                    if (TryParseSnapshotRoboticPose(module, moduleName, out float pose))
+                    if (TryParseSnapshotRoboticPose(module, moduleName,
+                            partNode.GetValue("name"), partNode.GetValue("persistentId"), ordinal,
+                            out float pose))
                     {
                         if (baseline.roboticPoses == null)
                             baseline.roboticPoses = new List<SnapshotRoboticPose>();
@@ -238,6 +246,12 @@ namespace Parsek
                     // suppress the standalone ModuleAnimateGeneric read, exactly as
                     // FlightRecorder.HasDedicatedAnimateHandler does on the live side.
                     case "RetractableLadder":
+                        hasDedicatedAnimateHandler = true;
+                        if (!baseline.ladderExtended.HasValue
+                            && FlightRecorder.TryClassifyRetractableLadderStateName(
+                                module.GetValue("StateName"), out bool ladderDeployed, out bool ladderRetracted))
+                            baseline.ladderExtended = ladderDeployed && !ladderRetracted;
+                        continue;
                     case "ModuleAeroSurface":
                     case "ModuleControlSurface":
                     case "ModuleRobotArmScanner":
@@ -483,7 +497,8 @@ namespace Parsek
         /// overrides it anyway.
         /// </summary>
         private static bool TryParseSnapshotRoboticPose(
-            ConfigNode moduleNode, string moduleName, out float pose)
+            ConfigNode moduleNode, string moduleName, string partName, string partPid, int ordinal,
+            out float pose)
         {
             pose = 0f;
             if (moduleNode == null)
@@ -492,7 +507,53 @@ namespace Parsek
             if (!TryResolveSnapshotRoboticPoseKey(moduleName, out string persistedKey))
                 return false;
 
-            return TryParseSnapshotFloat(moduleNode.GetValue(persistedKey), out pose);
+            if (!TryParseSnapshotFloat(moduleNode.GetValue(persistedKey), out float rawPose))
+                return false;
+
+            // A missing or malformed flag reads as false, stock's own default.
+            TryParseSnapshotBool(moduleNode.GetValue("mirrorRotation"), out bool mirrorRotation);
+            TryParseSnapshotBool(moduleNode.GetValue("inverted"), out bool inverted);
+            pose = ResolveSnapshotDisplayedServoAngle(moduleName, rawPose, mirrorRotation, inverted);
+            if (pose != rawPose)
+            {
+                ParsekLog.Verbose("GhostVisual",
+                    "Servo snapshot pose mirrored for '" + (partName ?? "?") + "' pid=" + (partPid ?? "?")
+                    + " ordinal=" + ordinal.ToString(CultureInfo.InvariantCulture)
+                    + " module=" + moduleName
+                    + ": targetAngle=" + rawPose.ToString("F1", CultureInfo.InvariantCulture)
+                    + " mirrorRotation=" + (mirrorRotation ? "True" : "False")
+                    + " inverted=" + (inverted ? "True" : "False")
+                    + " displayed=" + pose.ToString("F1", CultureInfo.InvariantCulture));
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Pure: a servo's snapshot <c>targetAngle</c> in the DISPLAYED convention every other
+        /// recorded angle uses (the live read and the part menu's <c>currentAngle</c>: the
+        /// moving transform's angle, plus <c>modelInitialAngle</c> on the hinge). Stock poses
+        /// the moving transform at <c>AngleAxis(JointTargetAngle, mainAxis)</c> (decompiled KSP
+        /// 1.12.5, <c>OnVisualizeServo</c>; in flight restored from the persisted
+        /// <c>servoTransformRotation</c>), where
+        /// <c>ModuleRoboticServoHinge.JointTargetAngle = (mirrorRotation ? -targetAngle :
+        /// targetAngle) - modelInitialAngle</c> and
+        /// <c>ModuleRoboticRotationServo.JointTargetAngle</c> is the same without the offset,
+        /// negated once more when <c>inverted</c>. So a mirrored hinge displays
+        /// <c>-targetAngle</c>, and a rotation servo displays <c>targetAngle</c> negated when
+        /// exactly one of <c>mirrorRotation</c> / <c>inverted</c> is set. The hinge declares no
+        /// <c>inverted</c>; a piston or rotor value is not an angle and passes through.
+        /// The base turn stock gives a mirrored servo happens only in the editor
+        /// (<c>VisualizeServo</c> runs in the editor alone) and is baked into the part's saved
+        /// rotation, which the ghost already places the part at.
+        /// </summary>
+        internal static float ResolveSnapshotDisplayedServoAngle(
+            string moduleName, float targetAngle, bool mirrorRotation, bool inverted)
+        {
+            if (string.Equals(moduleName, "ModuleRoboticServoHinge", System.StringComparison.Ordinal))
+                return mirrorRotation ? -targetAngle : targetAngle;
+            if (string.Equals(moduleName, "ModuleRoboticRotationServo", System.StringComparison.Ordinal))
+                return (mirrorRotation != inverted) ? -targetAngle : targetAngle;
+            return targetAngle;
         }
 
         private static bool TryParseSnapshotBool(string raw, out bool value)

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using UnityEngine;
 
@@ -135,6 +136,10 @@ namespace Parsek
                 }
             }
 
+            // The baseline re-pose below is not playback: mark every servo as already logged so
+            // the first-playback-re-pose line cannot fire inside the bind, then re-arm it after.
+            foreach (RoboticGhostInfo servo in servoByPid.Values)
+                servo.followerReposeLogged = true;
             int carryingServos = 0;
             foreach (var kvp in servoByPid)
             {
@@ -143,6 +148,9 @@ namespace Parsek
                 if (!followerByPid.ContainsKey(kvp.Key))
                     PropagateServoFollowers(kvp.Value);
             }
+            // Re-arm: the next re-pose comes from playback.
+            foreach (RoboticGhostInfo servo in servoByPid.Values)
+                servo.followerReposeLogged = false;
 
             ParsekLog.VerboseRateLimited("GhostVisual", $"servo_followers_{state.ghost.name}",
                 $"Servo followers bound: followers={bound} servos={servoByPid.Count} " +
@@ -195,12 +203,38 @@ namespace Parsek
                 f.part.localRotation = rot;
             }
 
+            if (ConsumeFirstFollowerRepose(servo))
+                ParsekLog.Verbose("GhostVisual", FormatFollowerReposeLine(
+                    servo.partPersistentId, servo.moduleName, followers.Count, servo.currentValue));
+
             List<RoboticGhostInfo> nested = servo.nestedServos;
             if (nested != null)
             {
                 for (int n = 0; n < nested.Count; n++)
                     PropagateServoFollowers(nested[n], depth + 1);
             }
+        }
+
+        /// <summary>
+        /// True exactly once per bind: the first time playback re-poses
+        /// <paramref name="servo"/>'s followers. One line per servo per ghost build, so the
+        /// per-write propagation stays silent and allocation-free after it.
+        /// </summary>
+        internal static bool ConsumeFirstFollowerRepose(RoboticGhostInfo servo)
+        {
+            if (servo == null || servo.followerReposeLogged) return false;
+            servo.followerReposeLogged = true;
+            return true;
+        }
+
+        /// <summary>The first-playback-re-pose line (invariant culture).</summary>
+        internal static string FormatFollowerReposeLine(uint servoPid, string moduleName,
+            int followers, float servoValue)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Servo followers re-posed in playback: servoPid={0} module={1} followers={2} " +
+                "value={3:F2} (first since bind)",
+                servoPid, moduleName ?? "unknown", followers, servoValue);
         }
 
         /// <summary>

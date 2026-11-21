@@ -916,6 +916,18 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "hitchhiker-pad": False,
         # `fresh-sandbox` plus the SEAT1 Seat Pod craft in the VAB (SEAT-1).
         "seat-pad": False,
+        # `miner-rover-watched` with the rover renamed `SRV1 Hinge Rover` and a G-11 hinge
+        # carrying a Z-200 on its front (harness/tools/build_srv_hinge_rover.py, the SRV-1
+        # host). Inherits the node.
+        "srv-hinge-rover": True,
+        # `miner-rover-watched` with the rover renamed `SRV2 Rotor Rover` and an EM-16 rotor
+        # carrying a Z-200 on its front (harness/tools/build_srv_rotor_rover.py, the SRV-2
+        # host). Inherits the node.
+        "srv-rotor-rover": True,
+        # `miner-rover-watched` with the rover renamed `SRV3 Mirror Hinge Rover` and a
+        # mirrored G-11 pair plus an Alligator hinge, each carrying a Z-200, on its front
+        # (harness/tools/build_srv_mirror_hinge_rover.py, the SRV-3 host). Inherits the node.
+        "srv-mirror-hinge-rover": True,
         "fresh-science": False,
         # The scripted campaign's genuine stock new games (CS-0 harvests): stock's
         # CreateNewGame writes every AddToAllGames module, ParsekScenario among them.
@@ -1010,6 +1022,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # carries the same node.
         "career-gs1-leadership-pad": True,
         "gs2-orbital-stack": True,
+        # mun-escape-probe-stack is gs2-orbital-stack with the Kerbal X stack moved onto a
+        # Mun escape hyperbola (harness/tools/build_mun_escape_probe_stack.py), so it
+        # carries gs2's inert node.
+        "mun-escape-probe-stack": True,
         # The LABX-1 harvest (`2026-10-17_1957`, situation gate ORBITING): the LABX
         # Orbital Lab parked in LKO, SANDBOX, with the forge base's inert node (two
         # dead MILESTONE_STATE rows, the eva2 / gs2 shape) and zero recording state.
@@ -4377,6 +4393,11 @@ class CommittedFixtureSweepTests(unittest.TestCase):
     # the ParsekScenario node and every recording sidecar stay byte-identical (gated by
     # lib/test_tourist_splashdown_career.py), so it pins its source's payload.
     RECORDED_FIXTURES["tourist-splashdown-career"] = RECORDED_FIXTURES["kerbin-splashdown-recorded"]
+    # CT-3's host, built by harness/tools/build_cs_career_mun4_vessel_repair.py: cs-career-mun4
+    # plus one Offered VesselRepairContract and an R&D ExpParts count; the ParsekScenario node and
+    # every Parsek/ sidecar stay byte-identical (gated by lib/test_cs_career_mun4_vessel_repair.py),
+    # so it pins its source's payload.
+    RECORDED_FIXTURES["cs-career-mun4-vessel-repair"] = RECORDED_FIXTURES["cs-career-mun4"]
 
     def test_fixture_set_is_exactly_the_committed_set(self):
         found = sorted(d for d in os.listdir(FIXTURE_SAVES_DIR)
@@ -4585,7 +4606,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
              "spawnedVessels": 0, "vesselNames": {"mk1-capsule": 1},
              "recordingNames": {},
              # The host save's own untracked asteroid, parked around the Sun.
-             "spaceObjectParts": {"Ast. VPA-167": 1}},
+             "spaceObjectParts": {"Ast. VPA-167": 1},
+             # The capsule's pilot.
+             "crewAboard": {"Jebediah Kerman": 1}},
             obs["recordings"]["structure"])
 
     def test_no_committed_fixture_persists_ghost_chain_state(self):
@@ -4751,6 +4774,87 @@ class RecordingNameCensusFacetTests(unittest.TestCase):
             {"recordingNames": {"VN": "one"}}))
         self.assertEqual([], saveparse.validate_structure_expectations(
             {"recordingNames": {"VN1 Alpha Probe": {"min": 1}}}))
+
+
+class CrewAboardCensusFacetTests(unittest.TestCase):
+    """The one-kerbal census: `crewAboard` counts FLIGHTSTATE vessels per seated
+    kerbal (each PART's `crew` values), a kerbal once per vessel. RSQ-1 / RSQ-2 pin a
+    rescued kerbal to one vessel: a stranded pod regenerated twice reads 2."""
+
+    @staticmethod
+    def _save(vessels):
+        lines = ["GAME", "{", "\tFLIGHTSTATE", "\t{"]
+        for name, vtype, parts in vessels:
+            lines += ["\t\tVESSEL", "\t\t{", "\t\t\tname = %s" % name,
+                      "\t\t\ttype = %s" % vtype, "\t\t\tpersistentId = 1"]
+            for part, crew in parts:
+                lines += ["\t\t\tPART", "\t\t\t{", "\t\t\t\tname = %s" % part]
+                lines += ["\t\t\t\tcrew = %s" % c for c in crew]
+                lines.append("\t\t\t}")
+            lines.append("\t\t}")
+        lines += ["\t}", "\tSCENARIO", "\t{", "\t\tname = ParsekScenario", "\t}",
+                  "}", ""]
+        return "\n".join(lines)
+
+    def _obs(self, vessels):
+        snap = saveparse.parse_parsek_scenario(self._save(vessels))
+        self.assertTrue(snap.parsed, snap.error)
+        obs = saveparse.observed_structure_facets(snap)["recordings"]["structure"]
+        self.assertEqual(obs["crewAboard"], saveparse.crew_aboard_counts(snap))
+        return snap, obs["crewAboard"]
+
+    def test_a_kerbal_counts_once_per_vessel_whatever_part_he_sits_in(self):
+        _snap, obs = self._obs([
+            ("Rayvan's Capsule", "Ship", [("mk1pod.v2", ["Rayvan Kerman"])]),
+            ("Station", "Station", [("mk1pod.v2", ["Jebediah Kerman", "Bill Kerman"]),
+                                    ("crewCabin", ["Bob Kerman"])]),
+            ("Debris", "Debris", [("fuelTank", [])]),
+            ("Ast. VPA-167", "SpaceObject", [("PotatoRoid", [])])])
+        self.assertEqual({"Rayvan Kerman": 1, "Jebediah Kerman": 1, "Bill Kerman": 1,
+                          "Bob Kerman": 1}, obs)
+
+    def test_a_second_pod_for_the_same_kerbal_reds_the_one_vessel_window(self):
+        snap, obs = self._obs([
+            ("Rayvan's Capsule", "Ship", [("mk1pod.v2", ["Rayvan Kerman"])]),
+            ("Rayvan's Capsule", "Ship", [("mk1pod.v2", ["Rayvan Kerman"])])])
+        self.assertEqual({"Rayvan Kerman": 2}, obs)
+        exp = {"recordings": {"structure": {
+            "gating": True, "crewAboard": {"Rayvan Kerman": 1}}}}
+        self.assertEqual([], saveparse.validate_structure_expectations(
+            exp["recordings"]["structure"]))
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(("recordings.structure.crewAboard.Rayvan Kerman 2 != 1",),
+                         r.mismatches)
+
+    def test_a_kerbal_aboard_no_vessel_reds_the_one_vessel_window(self):
+        snap, obs = self._obs([("Debris", "Debris", [("fuelTank", [])])])
+        self.assertEqual({}, obs)
+        exp = {"recordings": {"structure": {
+            "gating": True, "crewAboard": {"Rayvan Kerman": 1}}}}
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+
+    def test_one_pod_passes_and_report_only_never_fails(self):
+        snap, _obs = self._obs([
+            ("Rayvan's Capsule", "Ship", [("mk1pod.v2", ["Rayvan Kerman"])])])
+        exp = {"recordings": {"structure": {
+            "gating": True, "crewAboard": {"Rayvan Kerman": 1}}}}
+        self.assertEqual(saveparse.STATUS_PASS,
+                         saveparse.evaluate_save_structure(exp, snap).status)
+        twice, _ = self._obs([
+            ("A", "Ship", [("mk1pod.v2", ["Rayvan Kerman"])]),
+            ("B", "Ship", [("mk1pod.v2", ["Rayvan Kerman"])])])
+        report = {"recordings": {"structure": {"crewAboard": {"Rayvan Kerman": 1}}}}
+        self.assertEqual(saveparse.STATUS_REPORT,
+                         saveparse.evaluate_save_structure(report, twice).status)
+
+    def test_shape_validation(self):
+        self.assertTrue(saveparse.validate_structure_expectations({"crewAboard": 1}))
+        self.assertTrue(saveparse.validate_structure_expectations(
+            {"crewAboard": {"Rayvan Kerman": "one"}}))
+        self.assertEqual([], saveparse.validate_structure_expectations(
+            {"crewAboard": {"Rayvan Kerman": {"min": 1, "max": 1}}}))
 
 
 class SpaceObjectPartCensusFacetTests(unittest.TestCase):

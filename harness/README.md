@@ -2449,7 +2449,7 @@ What it replays - only the gating evaluators that are pure over an archive:
 | `hlib.scan_unity_exception_stacks` + `evaluate_unity_exceptions` | inject a Parsek throw-site exception, and a stock throw with a Parsek caller |
 | the anomaly sweep | one raise of each gated token |
 | `saveparse` windows (armed blocks only) | the measured facet +1 / -1 / 0 against the evaluator's own window rule |
-| `saveparse.parse_parsek_scenario` + `evaluate_save_structure` (armed blocks only; `mutsave`) | edits to the archived `persistent.sfs` that push each window across each declared bound, plus per-block faults (torn save, no ParsekScenario node, a missing `pointCount`, a route the codec drops, a missing `completedCycles`) |
+| `saveparse.parse_parsek_scenario` + `evaluate_save_structure` (armed blocks only; `mutsave`) | edits to the archived `persistent.sfs` (and to the `Parsek/RewindPoints` listing beside it, for the rewind block's file facets) that push each window across each declared bound, plus per-block faults (torn save, no ParsekScenario node, a missing `pointCount`, a route the codec drops, a missing `completedCycles`, an unread rewind-point listing) |
 | `hlib.evaluate_expectations`, `logContracts.forwardedSeeds` (`mutlib.mutate_forwarded_seeds`) | on each seed line that satisfies an item: delete the line, drop the item's first expected entry, add an unknown extra seed, add a lone half of the item's first acceptable group |
 | `hlib.evaluate_expectations`, forbidden list (`mutforbid`) | a line each forbidden regex itself matches, injected framed (`[LOG hh:mm:ss.mmm] `) and then bare, just before the quit marker |
 | the mission chain (`mlib.resolve_flight_verdict` / `build_mission_result`, `missionverify`, `hlib.classify_mission_step` / `classify_verdict`; `mutmission`) | each archived assertion with its reading removed, a blind replay of the shell's `evaluate` with no telemetry, each post-mission outcome step answered ERROR / REJECTED / never, result-file faults |
@@ -2500,6 +2500,19 @@ whole baseline (no KSP.log), over the newest `--max-tries` archived produced sav
 armed blocks pass, then the spec's committed `fixture.saveTemplate` when that passes
 (`--no-fixtures` skips it; an operator-local template is never read). A full run (no
 `--save-only`) adds the same edits to any lane whose archive carries a save.
+
+The rewind block's two FILE facets (`rewindPointFiles`, `unlistedRewindPointFiles`) read
+the `Parsek/RewindPoints` folder beside the save, not the `.sfs` text. The checker reads
+that listing through the live verifier's own reader (`run.read_rewind_point_listing`, the
+one `run.read_save_structure` calls), so a save is judged with exactly the listing a
+flight would see: a missing folder is an empty listing (0 files), an unreadable one leaves
+the facets unmeasured (a defined `not measured` mismatch). The edits change a copy of the
+listing, never the disk: below a bound they drop files (`rewindPointFiles`: listed files
+first, so the unlisted count stays put; `unlistedRewindPointFiles`: unlisted ones only),
+above it they add a fresh `.sfs` no POINT lists, and an armed rewind block with a file
+window gets the `unread-listing` fault (no listing at all must red the file windows, never
+read as zero). A results archive under `<umbrella>/automation/results-archive/` keeps no
+produced save, so these edits need the worktree's `harness/results/<runId>_save/`.
 
 Ledger-oracle edits (phase 2 PR 2, `lib/mutledger.py`). The ledger verifier needs the
 run's seed, and the archive already carries it: `run.py` writes the seed's careerSave-shaped
