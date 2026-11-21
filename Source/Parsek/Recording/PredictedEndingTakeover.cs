@@ -184,27 +184,9 @@ namespace Parsek
             double cutUT = hasLastReal ? lastRealUT : takeoverUT;
             if (IsFinite(takeoverUT) && (!IsFinite(cutUT) || takeoverUT < cutUT))
                 cutUT = takeoverUT;
-            result.CoastMissMeters = double.NaN;
-            if (!coastEvidence.HasValue)
-            {
-                result.CoastDecision = "no-live-evidence";
-            }
-            else if (!hasLastReal || !IsFinite(takeoverUT) || takeoverUT <= lastRealUT + UtEpsilon)
-            {
-                result.CoastDecision = "takeover-not-after-last-real";
-            }
-            else
-            {
-                string coastReason;
-                double miss;
-                if (CoastFollowedPredictedConic(rec, takeoverUT, coastEvidence.Value, out miss, out coastReason))
-                {
-                    cutUT = takeoverUT;
-                    result.CoastKeptToTakeover = true;
-                }
-                result.CoastMissMeters = miss;
-                result.CoastDecision = coastReason;
-            }
+            DecideCoastToTakeover(rec, hasLastReal, lastRealUT, takeoverUT, coastEvidence, ref result);
+            if (result.CoastKeptToTakeover)
+                cutUT = takeoverUT;
             if (!IsFinite(cutUT))
             {
                 result.Reason = "no-cut-ut";
@@ -231,36 +213,14 @@ namespace Parsek
                     result.RemovedSegmentCount++;
                 }
                 if (result.CoastKeptToTakeover)
-                {
-                    // The kept coast is what the vessel did: stock moved it on that conic.
-                    for (int i = 0; i < rec.OrbitSegments.Count; i++)
-                    {
-                        OrbitSegment seg = rec.OrbitSegments[i];
-                        if (!seg.isPredicted || seg.endUT > cutUT + UtEpsilon)
-                            continue;
-                        seg.isPredicted = false;
-                        rec.OrbitSegments[i] = seg;
-                        result.KeptCoastSegmentCount++;
-                    }
-                }
+                    result.KeptCoastSegmentCount = MarkKeptCoastRecorded(rec, cutUT);
             }
 
             if (rec.TerminalStateValue.HasValue)
             {
                 rec.StampTerminalState(null, "PredictedEndingTakeover:" + (context ?? "(none)"));
                 result.TerminalCleared = true;
-                // The crew answer the dropped ending decided (a predicted crash kills the crew,
-                // owner ruling Q6c) is re-derived from the real flight's ending at its commit;
-                // the death respawn stamp belonged to that death.
-                result.CrewEndStatesCleared = rec.CrewEndStates != null || rec.CrewEndStatesResolved;
-                rec.CrewEndStates = null;
-                rec.CrewEndStatesResolved = false;
-                if (result.PreviousTerminal == TerminalState.Destroyed && rec.CrewDeathRespawns.HasValue)
-                {
-                    rec.CrewDeathRespawns = null;
-                    rec.CrewDeathRespawnSeconds = double.NaN;
-                    result.CrewEndStatesCleared = true;
-                }
+                result.CrewEndStatesCleared = ClearDroppedEndingCrewAnswer(rec, result.PreviousTerminal);
             }
             rec.VesselDestroyed = false;
             ClearTerminalOrbit(rec);
@@ -300,6 +260,74 @@ namespace Parsek
                         ? result.CoastMissMeters.ToString("F1", CultureInfo.InvariantCulture) : "NaN",
                     result.KeptCoastSegmentCount));
             return result;
+        }
+
+        /// <summary>
+        /// The coast decision of <see cref="DropPredictedEndingForTakeover"/>: with live evidence
+        /// and a takeover after the last real sample, keeps the coast to the takeover when the
+        /// vessel is still on the predicted conic (<see cref="CoastFollowedPredictedConic"/>).
+        /// Writes <see cref="PredictedEndingDropResult.CoastKeptToTakeover"/>, the reason and the
+        /// miss into <paramref name="result"/>.
+        /// </summary>
+        private static void DecideCoastToTakeover(
+            Recording rec, bool hasLastReal, double lastRealUT, double takeoverUT,
+            TakeoverCoastEvidence? coastEvidence, ref PredictedEndingDropResult result)
+        {
+            result.CoastMissMeters = double.NaN;
+            if (!coastEvidence.HasValue)
+            {
+                result.CoastDecision = "no-live-evidence";
+                return;
+            }
+            if (!hasLastReal || !IsFinite(takeoverUT) || takeoverUT <= lastRealUT + UtEpsilon)
+            {
+                result.CoastDecision = "takeover-not-after-last-real";
+                return;
+            }
+            result.CoastKeptToTakeover = CoastFollowedPredictedConic(
+                rec, takeoverUT, coastEvidence.Value, out double miss, out string coastReason);
+            result.CoastMissMeters = miss;
+            result.CoastDecision = coastReason;
+        }
+
+        /// <summary>
+        /// The kept coast is what the vessel did (stock moved it on that conic): every predicted
+        /// segment ending at or before <paramref name="cutUT"/> becomes recorded history.
+        /// Returns how many it marked.
+        /// </summary>
+        private static int MarkKeptCoastRecorded(Recording rec, double cutUT)
+        {
+            int marked = 0;
+            for (int i = 0; i < rec.OrbitSegments.Count; i++)
+            {
+                OrbitSegment seg = rec.OrbitSegments[i];
+                if (!seg.isPredicted || seg.endUT > cutUT + UtEpsilon)
+                    continue;
+                seg.isPredicted = false;
+                rec.OrbitSegments[i] = seg;
+                marked++;
+            }
+            return marked;
+        }
+
+        /// <summary>
+        /// The crew answer the dropped ending decided (a predicted crash kills the crew, owner
+        /// ruling Q6c) is re-derived from the real flight's ending at its commit, so it goes with
+        /// the ending; after a Destroyed the death respawn stamp belonged to that death and goes
+        /// too. Returns true when anything was cleared.
+        /// </summary>
+        private static bool ClearDroppedEndingCrewAnswer(Recording rec, TerminalState? previousTerminal)
+        {
+            bool cleared = rec.CrewEndStates != null || rec.CrewEndStatesResolved;
+            rec.CrewEndStates = null;
+            rec.CrewEndStatesResolved = false;
+            if (previousTerminal == TerminalState.Destroyed && rec.CrewDeathRespawns.HasValue)
+            {
+                rec.CrewDeathRespawns = null;
+                rec.CrewDeathRespawnSeconds = double.NaN;
+                cleared = true;
+            }
+            return cleared;
         }
 
         /// <summary>
@@ -411,56 +439,6 @@ namespace Parsek
                 found = rec.RecordingId;
             }
             return found;
-        }
-
-        /// <summary>
-        /// Pure, cheap enough for the per-frame playback pass: should the ghost of
-        /// <paramref name="rec"/> stay hidden at <paramref name="currentUT"/> because it is
-        /// past the last real sample, on the recording's predicted tail, while the vessel
-        /// that tail predicts is still in the world (<paramref name="realVesselExists"/>, the
-        /// launch-gated check)? The live vessel is then the truth, and a ghost on the
-        /// prediction would duplicate it. Before the last real sample the recorded flight
-        /// replays as before.
-        /// </summary>
-        internal static bool ShouldHidePredictedTailGhostWhileVesselLives(
-            Recording rec, double currentUT, Func<Recording, bool> realVesselExists)
-        {
-            if (rec?.OrbitSegments == null || rec.OrbitSegments.Count == 0 || realVesselExists == null)
-                return false;
-            if (!IsFinite(currentUT))
-                return false;
-            // The predicted tail is a suffix: an untouched last segment means no tail.
-            if (!rec.OrbitSegments[rec.OrbitSegments.Count - 1].isPredicted)
-                return false;
-            double tailStartUT = double.NaN;
-            for (int i = rec.OrbitSegments.Count - 1; i >= 0; i--)
-            {
-                OrbitSegment seg = rec.OrbitSegments[i];
-                if (!seg.isPredicted)
-                    break;
-                tailStartUT = seg.startUT;
-            }
-            if (!IsFinite(tailStartUT) || currentUT <= tailStartUT + UtEpsilon)
-                return false;
-            return realVesselExists(rec);
-        }
-
-        /// <summary>
-        /// The one predicate every scene that draws a recording's own ghost reads (FLIGHT's
-        /// playback flags, the Space Center pass): a non-looping ghost on its predicted tail is
-        /// hidden while the vessel the tail predicts is in the world
-        /// (<see cref="ShouldHidePredictedTailGhostWhileVesselLives"/>). A loop replays on its
-        /// own clock and keeps drawing. The map presence of FLIGHT and the Tracking Station
-        /// hides more: its materialized gate
-        /// (<c>GhostMapPresence.TryDecideMapPresenceMaterializedGate</c>) drops a non-loop map
-        /// ghost whenever the launch-matched vessel exists, tail or not.
-        /// </summary>
-        internal static bool ShouldHidePredictedTailGhostForScene(
-            Recording rec, double currentUT, bool loopingLike, Func<Recording, bool> realVesselExists)
-        {
-            if (loopingLike)
-                return false;
-            return ShouldHidePredictedTailGhostWhileVesselLives(rec, currentUT, realVesselExists);
         }
 
         private static int CountPredictedSegmentsPast(Recording rec, double lastRealUT)

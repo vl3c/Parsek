@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// <summary>
     /// Owner ruling Q1b in every scene: a ghost on its predicted tail is not drawn beside the
     /// vessel the tail predicts. FLIGHT's playback flags and the Space Center pass read one
-    /// shared predicate (PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene); the
+    /// shared predicate (GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene); the
     /// map presence of FLIGHT and the Tracking Station drops a non-loop map ghost whenever the
     /// launch-matched vessel exists (the materialized gate), tail or not.
     /// </summary>
@@ -60,10 +60,10 @@ namespace Parsek.Tests
             Func<Recording, bool> alive = r => true;
             Func<Recording, bool> gone = r => false;
 
-            Assert.True(PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene(rec, 200.0, false, alive));
-            Assert.False(PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene(rec, 150.0, false, alive));
-            Assert.False(PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene(rec, 200.0, false, gone));
-            Assert.False(PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene(rec, 200.0, true, alive));
+            Assert.True(GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(rec, 200.0, false, alive));
+            Assert.False(GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(rec, 150.0, false, alive));
+            Assert.False(GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(rec, 200.0, false, gone));
+            Assert.False(GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(rec, 200.0, true, alive));
         }
 
         // The predicate's real-vessel read is the launch-gated one: a relaunch of the same
@@ -74,11 +74,11 @@ namespace Parsek.Tests
             Recording rec = Stage();
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == StagePid);
             GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => StageGuid);
-            Assert.True(PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene(
+            Assert.True(GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(
                 rec, 200.0, false, GhostPlaybackLogic.RealVesselExistsForRecording));
 
             GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => "fedcba9876543210fedcba9876543210");
-            Assert.False(PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene(
+            Assert.False(GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(
                 rec, 200.0, false, GhostPlaybackLogic.RealVesselExistsForRecording));
         }
 
@@ -89,8 +89,8 @@ namespace Parsek.Tests
         {
             string flight = ReadSource("Controllers/ParsekFlightPlaybackHost.cs");
             string ksc = ReadSource("Controllers/ParsekKSC.cs");
-            Assert.Contains("PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene(", flight);
-            Assert.Contains("PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene(", ksc);
+            Assert.Contains("GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(", flight);
+            Assert.Contains("GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(", ksc);
             // The KSC pass refreshes the live-vessel set the predicate reads once per frame.
             Assert.Contains("GhostPlaybackLogic.InvalidateVesselCache();", ksc);
         }

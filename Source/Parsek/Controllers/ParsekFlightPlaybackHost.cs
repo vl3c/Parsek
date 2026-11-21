@@ -1626,7 +1626,7 @@ namespace Parsek
                 // not drawn while the vessel it predicts is still in the world (the player
                 // took it over, or the clone that dropped the tail is not committed yet).
                 if (!externalVesselSuppressed
-                    && PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene(
+                    && GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(
                         rec, currentUT, loopingLike, RealVesselExistsForRecordingDelegate))
                 {
                     externalVesselSuppressed = true;

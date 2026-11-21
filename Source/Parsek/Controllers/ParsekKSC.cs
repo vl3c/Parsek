@@ -554,7 +554,7 @@ namespace Parsek
                     }
                     // Owner ruling Q1b, FLIGHT parity: past its last real sample the predicted
                     // tail is not drawn while the vessel it predicts is still in the world.
-                    if (PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene(
+                    if (GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(
                             rec, currentUT, loopingLike: false, RealVesselExistsForRecordingDelegate))
                     {
                         if (kscGhosts.ContainsKey(i))
