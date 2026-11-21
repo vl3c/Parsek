@@ -83,17 +83,27 @@ read false and the predicate's "no parts survive at all" branch sealed the livin
 The background go-on-rails seam, the adapter's first caller, always runs while the vessel is still
 loaded, so it never hit this; #2724 and the open rsr branches do not touch the adapter.
 
-Fix: the adapter picks its part source (`IdentityLossClassifier.SelectPartSource`): a loaded vessel
-reads its live parts as before; an unloaded one reads its proto part snapshots
-(`CollectProtoPartIdentity`: part pids, and a `ModuleCommand` module for trackability); a vessel with
-no part in either source is not sealed (no evidence of loss). The pure composite
+Fix: the adapter picks its part source (`IdentityLossClassifier.SelectPartSource`): a vessel in
+`Vessel.State.DEAD` (killed on rails, e.g. in atmosphere; `FindVesselByPid` does not filter it)
+reads as no survivor; a LOADED vessel reads only its live parts, as before (zero live parts means its
+parts all just died with the Destroy pending, and its protoVessel is a stale snapshot still listing
+the controller, so it is never consulted); an unloaded one reads its proto part snapshots
+(`CollectProtoPartIdentity`: part pids, and a command module for trackability, resolved per part
+through its prefab's `FindModuleImplementing<ModuleCommand>` so a mod's subclass counts as on the
+loaded path, with the exact `ModuleCommand` name match as the fallback when no prefab resolves:
+pure `ProtoPartCarriesCommand`, live core `ResolvePrefabImplementsCommand`); an unloaded vessel with
+no proto part is not sealed (no evidence of loss). The pure composite
 `ShouldClassifyRecordedIdentityLostFromSources` feeds the unchanged predicate; one `[Recording]`
-Verbose line names the source whenever it is not the live parts. Mirrors: an unloaded wreck that
-kept no controller still reads Destroyed (the distance-independent ending holds), debris still opts
-out, a survivor destroyed later never reaches this check (no live vessel, the destroyed flag wins),
-and a loaded vessel is read exactly as before. The red cell
+Verbose line (`dead= loaded= partSource= liveParts= protoParts=`) names the source whenever it is not
+a non-empty live part list. Mirrors: an unloaded wreck that kept no controller still reads Destroyed
+(the distance-independent ending holds), debris and controller-less recordings still opt out (also
+when dead), a survivor destroyed later never reaches this check (no live vessel, the destroyed flag
+wins), and a loaded vessel is read exactly as before. The red cell
 `UnloadedSurvivor_ProtoPartsCarryTheRecordedController_IsNotLost` fails with the source pinned to the
-live parts (mutation run 2026-11-21: 8 of the new cells red, 45 green).
+live parts (mutation run 2026-11-21: 8 of the new cells red, 45 green). Review follow-up (same day):
+the first cut read the proto of a loaded vessel with zero live parts, which turned a just-destroyed
+vessel into a survivor (red cell `LoadedVesselWithNoLiveParts_StaleProtoListsController_IsLost`), and
+read neither the DEAD state nor a modded command subclass on the proto side (mutation: 7 cells red).
 
 Owed: re-fly SURV-2; its report-only structure block should read the probe `Orbiting` with a
 snapshot and the merge line `terminal=Orbiting hasSnapshot=True` (or the proto source line
