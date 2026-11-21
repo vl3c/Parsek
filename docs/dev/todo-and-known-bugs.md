@@ -29,7 +29,7 @@ Flown (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, D
 - SRV-1: PARSEK-FAIL(expectation): the hinge never recorded motion (a recorder defect, RECORDER-SERVO-ANGLE-PAW-ONLY, fixed 2026-11-21) and the pad rig's ghost is hidden by the launch-site rule; REDESIGNED 2026-11-21 on `srv-hinge-rover`, re-flight owed (GHOST-SERVO-CHILDREN-STATIC).
 - V23M: PARSEK-FAIL(expectation) on its new FlightGhostPosition step only: the stock wheel NRE storm aborts the batch at `total=2` (FLIGHT-GHOST-POSITION-LANES-2026-11-20, authoring decision).
 
-Report-only readings recorded, no block armed (an owner decision): STR-3 `rewindPointFiles=1 unlistedRewindPointFiles=1`; RSQ-1 / RSQ-2 `crewAboard` `Rayvan Kerman = 1` (in the final saves); VN-14 `legsRenamed=0` on the cold apply pass; SURV-2 no rewind point as predicted, but its structure block reads both recordings Destroyed (SURVIVOR-DESTROYED-AT-SCENE-EXIT, fixed 2026-11-21: an unloaded survivor is now read from its proto parts; SURV-2's re-flight owed).
+Report-only readings recorded, no block armed (an owner decision): STR-3 `rewindPointFiles=1 unlistedRewindPointFiles=1` (REVERT-LEAVES-REWIND-POINT-FILE, fixed 2026-11-21 by owner ruling: the revert now deletes the file; STR-3's re-flight owed); RSQ-1 / RSQ-2 `crewAboard` `Rayvan Kerman = 1` (in the final saves); VN-14 `legsRenamed=0` on the cold apply pass; SURV-2 no rewind point as predicted, but its structure block reads both recordings Destroyed (SURVIVOR-DESTROYED-AT-SCENE-EXIT, fixed 2026-11-21: an unloaded survivor is now read from its proto parts; SURV-2's re-flight owed).
 
 ## ~~RESCUE-REGEN-COUNTS-PROTOVESSELS~~: the rebuilt rescue's stranded-vessel regeneration reported `added=0`, so the repair read as failed and the same-scene double-spawn guard could not see the new vessel [FILED 2026-11-20 from the first flights of RSQ-1 / RSQ-2 (branch `test-gaps-batch3`); FIXED 2026-11-21, branch `test-gaps-batch1`; xUnit `ContractAcceptWorldIndexTests` (red first on the stubbed indexer: 6 of 8); OPEN: RSQ-1 / RSQ-2 re-flown on this fix (live proof); medium (the regeneration's own result was misread, and a second rebuild or drain in the same scene would have regenerated the vessel again)]
 
@@ -41,6 +41,32 @@ Cause (decompiled KSP 1.12.5, `logs/decompile/2026-10-26_full/`). `RecoverAsset.
 
 Fix. `GameActions/ContractAcceptWorldIndex.cs` (pure `ContractAcceptWorldIndexer`, `WorldVesselFact`): `Build` indexes the union of the saved and the live vessels (a vessel in both counted once by its id; flight id 0, the part Parsek's ghost map vessels carry, ignored), `SelectAdded` diffs both lists by object before and after the generator (one entry per vessel, live first), `Describe` names each added vessel (`'name' pid=N crew=(a; b) parts=K live`, no square bracket inside the logged list). `KspStatePatcher.ContractAcceptEffects.cs` reads `FlightGlobals.Vessels` in the `[NoInlining]` `ReadLiveWorldVesselFactsCore` (a loaded vessel by its live parts, an unloaded one by its ProtoVessel, dead vessels skipped as stock's save does; a failed read logs a Warn and indexes flightState alone), builds both the index and the witness from it, logs `PatchContracts: accept-side world index: vessels=N saved=N live=N liveOnly=N deadSkipped=N parts=N crewAboard=N` (Verbose) and adds `; flightStateGrew=N, stock's next save captures it` inside the regeneration line's parentheses. The `added=N [...]`, `vessels=N scene=S)` and `regenerated=` tokens RSQ-1 / RSQ-2 pin are unchanged in form; on this fix they must read `added=1 ['Rayvan's Shipwreck' pid=... crew=(Rayvan Kerman) parts=1 live]`, `repaired=1`, `regenerated=True` and `regenerated=1`. The drain still takes an evaluated id off the list whatever it decided (by design); the false `regenerated=False` was the witness, now fixed. Tests: `ContractAcceptWorldIndexTests` (9 cases: the live-only vessel indexed, one vessel in both lists counted once, a ghost map vessel adds nothing, the witness counts the live-only vessel RSQ-1 / RSQ-2 missed, a second rebuild in the same scene plans `TargetPresent` / no repair where the flightState-only index planned a second regeneration).
 
+
+## ~~REVERT-LEAVES-REWIND-POINT-FILE~~: a stock revert dropped the reverted flight's rewind point but left its quicksave file [FILED 2026-11-21 from STR-3's report-only reading (owner ruling V 2026-11-21: delete it at once), branch `test-gaps-batch3`; FIXED 2026-11-21, xUnit `InSessionStagedListsCarryTests`; OWED: STR-3 re-flight; low (disk only: the file was unlisted and never offered)]
+
+Evidence: STR-3 `2026-11-20_2256_STR-3-revert-takes-back-strategy-share` (PASS, rewind block report-only) read
+`rewindPointFiles=1 unlistedRewindPointFiles=1` in the produced save. The revert's in-session step B dropped
+the staging's point (`In-session RP owner partition decisions: <rp>:FollowSave:dropped-memory-only`) and every
+later save wrote `rewindPoints=0`, but the file `Parsek/RewindPoints/<rp>.sfs` stayed: `ParsekFileCollector`,
+the only code that deletes it, skipped the in-session load as `rate-limited` and the batch's cold loads as
+`zero-known-ids`.
+
+Fix: step B now reports the ids of the memory-only points it drops (`MergeRewindPointsByOwner`'s new
+`droppedMemoryOnlyIds`); the revert-cleanup phase of the same OnLoad calls
+`ParsekScenario.DeleteRevertedFlightRewindPointFiles(refinedLoadKind)`, whose pure selector
+`InSessionStagedStateHandoff.SelectRevertDroppedRewindPointFileIds` keeps only a `StockRevert` load and never an
+id the installed list holds, and `ParsekFileCollector.DeleteRewindPointFilesDroppedByRevert` deletes each file
+under the collector's own rule: a file stays while any save in the folder or memory names the point (a mid-flight
+F5 after the staging, so the OQ-3 "F9 back into a mid-flight quicksave" case keeps working; Info
+`Rewind point file kept on revert: rp=... reason=named-by-save-or-memory`), and an unreadable referrer keeps every
+file. Deleted: Info `[FileCollector] Rewind point file deleted on revert: rp=<rp> path=Parsek/RewindPoints/<rp>.sfs`.
+Every other in-session load (F9 is cold; Discard Re-fly, InSessionOther) keeps OQ-3's "files untouched"; the
+deletion stays inside `ParsekFileCollector` (the `parsek-file-deletes` gate's owner). Red first: the delete and
+the kept-by-quicksave cells failed against a no-op stub. `LoadReconcilePolicy`'s RewindPoints decision text,
+design-load-restores-the-save.md 4.5 and the OnLoad step / token goldens follow.
+
+Owed: re-fly STR-3 (stock-minimal); it now requires the deletion line after the revert mark and its report-only
+rewind block expects `rewindPointFiles = 0` and `unlistedRewindPointFiles = 0`.
 
 ## ~~SURVIVOR-DESTROYED-AT-SCENE-EXIT~~: a crash's living probe survivor was finalized Destroyed at the scene exit [FILED 2026-11-20 from SURV-2's first flight (report-only structure block), branch `test-gaps-batch3`; FIXED 2026-11-21, branch `test-gaps-survivor`, xUnit `IdentityLossClassifierTests`; OWED: SURV-2 re-flight; high (the surviving vessel's recording ended Destroyed with its spawn snapshot dropped, so its end-of-flight spawn was lost)]
 

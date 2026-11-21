@@ -1153,6 +1153,87 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// A stock revert's targeted pass over <c>Parsek/RewindPoints</c> (owner ruling
+        /// 2026-11-21): deletes the quicksave file of each named point now, instead of waiting for
+        /// a full collection (which an in-session load runs at most every
+        /// <see cref="InSessionMinIntervalSeconds"/>). The collector's own rule still decides each
+        /// file: it stays while any save in the folder or the running game names the point (a
+        /// mid-flight F5 taken after the staging offers that point again after the revert), and an
+        /// unreadable referrer keeps every file (fail closed). Returns the number deleted.
+        /// </summary>
+        internal static int DeleteRewindPointFilesDroppedByRevert(IReadOnlyList<string> rpIds, ParsekScenario scenario)
+        {
+            if (rpIds == null || rpIds.Count == 0)
+                return 0;
+            var ic = CultureInfo.InvariantCulture;
+            string saveDir = ResolveSaveDirectory();
+            if (string.IsNullOrEmpty(saveDir) || !Directory.Exists(saveDir))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Revert rewind point files skipped reason=no-save-context count={rpIds.Count.ToString(ic)}");
+                return 0;
+            }
+
+            var result = new Result();
+            var references = new SaveReferences();
+            try
+            {
+                if (!ScanReferrers(saveDir, references, result, out string unreadablePath, out string unreadableDetail))
+                {
+                    ParsekLog.Warn(Tag,
+                        $"Revert rewind point files kept reason=unreadable-referrer path={unreadablePath} " +
+                        $"detail={unreadableDetail} count={rpIds.Count.ToString(ic)} - left for the next collection");
+                    return 0;
+                }
+                references.UnionWith(BuildMemoryReferences(scenario));
+                var extra = ExtraMemoryReferencesForTesting;
+                if (extra != null)
+                    references.UnionWith(extra());
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Revert rewind point files kept: {ex.GetType().Name}:{ex.Message} - left for the next collection");
+                return 0;
+            }
+
+            string rewindPointsDir = Path.Combine(saveDir, "Parsek", "RewindPoints");
+            int deleted = 0, kept = 0, missing = 0;
+            for (int i = 0; i < rpIds.Count; i++)
+            {
+                string rpId = rpIds[i];
+                if (string.IsNullOrEmpty(rpId) || RecordingPaths.BuildRewindPointRelativePath(rpId) == null)
+                    continue;
+                if (references.RewindPointIds.Contains(rpId))
+                {
+                    kept++;
+                    ParsekLog.Info(Tag,
+                        $"Rewind point file kept on revert: rp={rpId} reason=named-by-save-or-memory " +
+                        $"referrers={result.Referrers.ToString(ic)}");
+                    continue;
+                }
+                string relative = RecordingPaths.RewindPointsSubdir + "/" + rpId + ".sfs";
+                string path = Path.Combine(rewindPointsDir, rpId + ".sfs");
+                if (!File.Exists(path))
+                {
+                    missing++;
+                    ParsekLog.Verbose(Tag, $"Rewind point file already gone on revert: rp={rpId} path={relative}");
+                    continue;
+                }
+                if (TryDelete(path, result))
+                {
+                    deleted++;
+                    ParsekLog.Info(Tag, $"Rewind point file deleted on revert: rp={rpId} path={relative}");
+                }
+            }
+            ParsekLog.Verbose(Tag,
+                $"Revert rewind point files: requested={rpIds.Count.ToString(ic)} deleted={deleted.ToString(ic)} " +
+                $"kept={kept.ToString(ic)} missing={missing.ToString(ic)} failures={result.Failures.ToString(ic)} " +
+                $"bytesFreed={result.BytesFreed.ToString(ic)}");
+            return deleted;
+        }
+
         /// <summary>Pure: whether a <c>Parsek/Saves</c> file name is ever collectable.</summary>
         internal static bool IsCollectableRewindSaveName(string fileName)
         {

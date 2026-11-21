@@ -322,6 +322,7 @@ S:"Scenario"
 S:"Clearing orphaned pending tree on revert (stale from previous flight)"
 C:DiscardPendingTreeAndAbandonDeferredFlightResults
 S:"orphaned pending tree discarded on revert"
+C:DeleteRevertedFlightRewindPointFiles
 A:ctx.Phase
 S:"tree-mutable-state"
 C:ResetTreeRecordingMutableStateForLoad

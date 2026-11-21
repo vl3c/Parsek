@@ -12,6 +12,10 @@ namespace Parsek
         private List<RewindPoint> inSessionRewindPointsFromMemory;
         private bool inSessionRewindPointPartitionPending;
 
+        // The memory-only points step B dropped on THIS load, read by the revert step of the
+        // same OnLoad (DeleteRevertedFlightRewindPointFiles) once the load kind is refined.
+        private List<string> inSessionRewindPointsDroppedMemoryOnly;
+
         // True once this instance's OnLoad got through the staging load and step A: only then are
         // its staged lists a completed load's, fit to hand to the next load.
         private bool inSessionStagedStateLoaded;
@@ -210,6 +214,7 @@ namespace Parsek
         /// </summary>
         internal void ApplyInSessionStagedStateHandoffStepB()
         {
+            inSessionRewindPointsDroppedMemoryOnly = null;
             if (!inSessionRewindPointPartitionPending)
             {
                 ParsekLog.Verbose(InSessionStagedStateHandoff.Tag,
@@ -235,8 +240,11 @@ namespace Parsek
 
             int loadedCount = RewindPoints?.Count ?? 0;
             var decisions = new List<string>();
+            var droppedMemoryOnly = new List<string>();
             RewindPoints = InSessionStagedStateHandoff.MergeRewindPointsByOwner(
-                memory, RewindPoints, ownedByCommittedTree, out RewindPointPartitionCounts counts, decisions);
+                memory, RewindPoints, ownedByCommittedTree, out RewindPointPartitionCounts counts, decisions,
+                droppedMemoryOnly);
+            inSessionRewindPointsDroppedMemoryOnly = droppedMemoryOnly;
             RecordingsTableUI.ClearAllRewindSlotCanInvokeLogState();
 
             var ic = CultureInfo.InvariantCulture;
@@ -251,6 +259,31 @@ namespace Parsek
                     "In-session RP owner partition decisions: "
                     + InSessionStagedStateHandoff.JoinBounded(decisions, 20));
             }
+        }
+
+        /// <summary>
+        /// The revert step of an in-session load (owner ruling 2026-11-21): a stock revert
+        /// deletes the quicksave files of the rewind points step B dropped on this load, the
+        /// points the reverted flight's staging authored that the reverted-to save never listed
+        /// (<see cref="InSessionStagedStateHandoff.SelectRevertDroppedRewindPointFileIds"/>). A
+        /// file any save in the folder still names stays
+        /// (<see cref="ParsekFileCollector.DeleteRewindPointFilesDroppedByRevert"/>). Every other
+        /// load kind leaves the files to the collector (owner ruling OQ-3).
+        /// </summary>
+        internal int DeleteRevertedFlightRewindPointFiles(LoadKind refined)
+        {
+            var dropped = inSessionRewindPointsDroppedMemoryOnly;
+            inSessionRewindPointsDroppedMemoryOnly = null;
+            var ids = InSessionStagedStateHandoff.SelectRevertDroppedRewindPointFileIds(refined, dropped, RewindPoints);
+            var ic = CultureInfo.InvariantCulture;
+            if (ids.Count == 0)
+            {
+                ParsekLog.Verbose(InSessionStagedStateHandoff.Tag,
+                    $"Revert rewind point files: none to delete (load={refined} " +
+                    $"droppedMemoryOnly={(dropped?.Count ?? 0).ToString(ic)})");
+                return 0;
+            }
+            return ParsekFileCollector.DeleteRewindPointFilesDroppedByRevert(ids, this);
         }
     }
 }

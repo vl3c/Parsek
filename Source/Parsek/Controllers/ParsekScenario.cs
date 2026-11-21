@@ -1679,6 +1679,10 @@ namespace Parsek
                 // On true revert the later soft-unstash branch below clears it again;
                 // on quickload/non-revert paths other dispatch owns it.
                 OnLoadPhaseApplyRevertPendingTreeDisposition();
+
+                // The reverted flight's rewind points left the list in step B; their quicksave
+                // files go now (owner ruling 2026-11-21), unless a save still names them.
+                DeleteRevertedFlightRewindPointFiles(refinedLoadKind);
             }
 
             // Restore tree recording mutable state from RECORDING_TREE nodes.

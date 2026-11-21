@@ -671,7 +671,8 @@ namespace Parsek
                         "ParsekScenario.ApplyInSessionStagedStateHandoffStepB, after the active-tree detach: memory's "
                         + "copy for points of trees committed in memory (DiscardReFlyHandler's origin-RP promotion "
                         + "included), the loaded copy for the resumed or reverted flight's and unknown owners' points "
-                        + "(their quicksave files stay, owner ruling OQ-3), both sides' session-scoped points "
+                        + "(their quicksave files stay, owner ruling OQ-3; a stock revert deletes the reverted flight's files "
+                        + "unless a save still names them, owner ruling 2026-11-21), both sides' session-scoped points "
                         + "(LoadTimeSweep.Run then spares or purges them against the marker)");
             }
             throw UnknownKind(kind);

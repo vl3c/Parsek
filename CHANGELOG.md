@@ -49,6 +49,10 @@ Not released yet.
 
 ### Fixed
 
+- **Reverting a flight no longer leaves its rewind save behind.** After a Revert to Launch, the
+  hidden save Parsek made when the flight staged stayed in the save folder. It is now deleted with
+  the revert, unless a quicksave you made during that flight still needs it.
+  (REVERT-LEAVES-REWIND-POINT-FILE)
 - **Hinges and rotation servos are recorded moving again.** A Breaking Ground hinge or rotation
   servo was only seen moving while its part menu was open, so most replays showed it frozen at
   its start angle. Its motion is now recorded however you move it, and the parts riding it
