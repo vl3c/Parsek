@@ -3329,7 +3329,7 @@ namespace Parsek
             // The same body and orbit the blocked-tip spawn resolves
             // (VesselGhoster.TrySpawnBlockedChain), so the ghost is drawn where the vessel
             // would appear if the blocker moved away now.
-            CelestialBody body = VesselSpawner.ResolveSpawnRotationBody(rec, lastPoint);
+            CelestialBody body = VesselSpawner.ResolveSpawnBody(rec, lastPoint, currentUT);
             bool spawnUsesOrbit = VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec);
             Orbit orbit = null;
             bool orbitBuilt = spawnUsesOrbit && body != null

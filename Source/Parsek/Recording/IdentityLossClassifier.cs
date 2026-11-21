@@ -10,7 +10,8 @@ namespace Parsek
     /// 1-part decoupler) at non-trivial surface speed gets <c>situation=LANDED</c>
     /// for free. Without this check the BG cache refresh accepts that as a
     /// terminal "Landed" verdict, and the recording is permanently
-    /// mis-classified (see <c>fix-bg-identity-loss-destroyed</c>).
+    /// mis-classified (docs/dev/done/todo-and-known-bugs-v6.md, "BG-tracked vessel
+    /// mis-classified as Landed after destructive crash").
     /// </summary>
     internal static class IdentityLossClassifier
     {
@@ -28,7 +29,7 @@ namespace Parsek
         /// controller-identity tracking existed, <paramref name="recordedControllerPids"/>
         /// is empty/null and the predicate returns <c>false</c> — preserving
         /// today's behavior on pre-existing recordings. The fix is forward-only
-        /// by design (see plan §"Forward-only on legacy `Controllers == null`").
+        /// by design (same todo entry, "Forward-only by design").
         /// </para>
         /// </summary>
         /// <param name="isDebris">
