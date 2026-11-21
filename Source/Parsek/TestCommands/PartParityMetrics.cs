@@ -61,7 +61,8 @@ namespace Parsek.TestCommands
         internal bool TouchesBorderReal;
         internal bool TouchesBorderGhost;
 
-        /// <summary>Overlap pixels the colour measures were taken over (= <see cref="AndPx"/>).</summary>
+        /// <summary>Overlap INTERIOR pixels the colour measures were taken over: covered on both
+        /// sides across the whole 8-neighbourhood (see <see cref="PartParityMetrics.IsInteriorOfBoth"/>).</summary>
         internal int ColorOverlapPx;
 
         /// <summary>The colour threshold T the over-T measures used.</summary>
@@ -382,10 +383,18 @@ namespace Parsek.TestCommands
             int n = width * height;
             var over = new bool[n];
             var dist = new double[n];
+            // Colour is read over the overlap INTERIOR only: a pixel whose 8-neighbourhood is
+            // covered on both sides. Antialiased edge pixels blend with the clear colour, so
+            // a sub-pixel silhouette offset would otherwise read as a full-edge colour blob;
+            // the shape measures own the edge. A part thinner than 3 px has no interior and
+            // no colour measure.
+            var interior = new bool[n];
+            for (int p = 0; p < n; p++)
+                interior[p] = IsInteriorOfBoth(real, ghost, width, height, p);
             var values = new List<double>(m.AndPx);
             for (int p = 0; p < n; p++)
             {
-                if (!real[p] || !ghost[p]) continue;
+                if (!interior[p]) continue;
                 double d = PremultipliedDistance(realRgba, p * 4, ghostRgba, p * 4);
                 dist[p] = d;
                 values.Add(d);
@@ -415,7 +424,7 @@ namespace Parsek.TestCommands
                         for (int x = x0; x < x1; x++)
                         {
                             int p = y * width + x;
-                            if (!real[p] || !ghost[p]) continue;
+                            if (!interior[p]) continue;
                             count++;
                             sum += dist[p];
                         }
@@ -426,6 +435,24 @@ namespace Parsek.TestCommands
                 }
             }
             m.ColorBlockMax = blockMax;
+        }
+
+        /// <summary>True when pixel <paramref name="p"/> and all 8 neighbours are covered
+        /// on both sides; a neighbour outside the image counts as uncovered.</summary>
+        internal static bool IsInteriorOfBoth(bool[] real, bool[] ghost, int width, int height, int p)
+        {
+            int x = p % width, y = p / width;
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) return false;
+                    int q = ny * width + nx;
+                    if (!real[q] || !ghost[q]) return false;
+                }
+            }
+            return true;
         }
     }
 }

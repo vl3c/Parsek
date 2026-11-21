@@ -288,7 +288,8 @@ namespace Parsek.Tests
             var m = Measure(real, ghost, 90000);
             Assert.Equal(1.0, m.Iou);
             Assert.Equal(0, m.RealOnlyTolPx);
-            Assert.Equal(90000, m.ColorOverlapPx);
+            // Colour reads the interior only: the 300 x 300 square minus its 1 px rim.
+            Assert.Equal(298 * 298, m.ColorOverlapPx);
             Assert.Equal(1600, m.ColorOverPx);
             Assert.Equal(1600, m.ColorBlobPx);
             // 1600 of 90000 is 1.8 %: the 99th percentile lands inside the patch.
@@ -311,13 +312,50 @@ namespace Parsek.Tests
         [Fact]
         public void BlockMax_IgnoresACellWithTooLittleOverlap()
         {
-            // One overlapping pixel with a large colour error: it is over T, but its cell is
-            // 1/1024 full, so the block measure does not read it as a patch.
-            byte[] real = Img(W, H, Rect(5, 5, 1, 1));
-            byte[] ghost = Img(W, H, Rect(5, 5, 1, 1), (x, y) => new byte[] { 0, 0, 0 });
+            // A 3 x 3 overlap has one interior pixel, with a large colour error: it is over
+            // T, but its cell is 1/1024 full, so the block measure does not read it as a patch.
+            byte[] real = Img(W, H, Rect(5, 5, 3, 3));
+            byte[] ghost = Img(W, H, Rect(5, 5, 3, 3), (x, y) => new byte[] { 0, 0, 0 });
             var m = Measure(real, ghost);
             Assert.Equal(1, m.ColorOverPx);
             Assert.Equal(0.0, m.ColorBlockMax);
+        }
+
+        [Fact]
+        public void SubPixelEdgeShift_WithAntialiasedRim_IsNoColourDefect()
+        {
+            // An 80 x 80 square with a 1 px antialiased rim (alpha 160), the ghost shifted
+            // 1 px: the rim pixels blend differently on the two sides, but colour reads the
+            // interior only, so neither shape nor colour reports a defect.
+            byte[] Square(int x0)
+            {
+                var img = Img(W, H, Rect(x0, 100, 80, 80));
+                for (int y = 100; y < 180; y++)
+                {
+                    for (int x = x0; x < x0 + 80; x++)
+                    {
+                        bool rim = x == x0 || x == x0 + 79 || y == 100 || y == 179;
+                        if (rim) img[(y * W + x) * 4 + 3] = 160;
+                    }
+                }
+                return img;
+            }
+            var m = Measure(Square(100), Square(101));
+            Assert.Equal(0, m.RealOnlyBlobPx);
+            Assert.Equal(0, m.GhostOnlyBlobPx);
+            Assert.Equal(0, m.ColorOverPx);
+            Assert.Equal(0, m.ColorBlobPx);
+            Assert.True(m.ColorOverlapPx > 0);
+        }
+
+        [Fact]
+        public void InteriorOfBoth_NeedsTheWholeNeighbourhoodOnBothSides()
+        {
+            bool[] full = { true, true, true, true, true, true, true, true, true };
+            bool[] hole = { true, true, true, true, true, true, true, true, false };
+            Assert.True(PartParityMetrics.IsInteriorOfBoth(full, full, 3, 3, 4));
+            Assert.False(PartParityMetrics.IsInteriorOfBoth(full, hole, 3, 3, 4));
+            Assert.False(PartParityMetrics.IsInteriorOfBoth(full, full, 3, 3, 0));
         }
 
         [Fact]

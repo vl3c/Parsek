@@ -132,6 +132,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void InactiveSameNamedSibling_GhostPairsWithTheRenderedRealOne()
+        {
+            // The real part keeps an inactive sibling of the same name the ghost builder
+            // skips; the ghost's one renderer must pair with the rendered real one.
+            var real = new List<PartParityRendererRecord>
+            {
+                Rec("model/shroud", "shroudMesh", rendered: false),
+                Rec("model/shroud", "shroudMesh", rendered: true),
+            };
+            var ghost = new List<PartParityRendererRecord> { Rec("model/shroud", "shroudMesh", rendered: true) };
+            var d = PartParityStructure.Diff(real, ghost);
+            Assert.Equal(1, d.Pairs);
+            Assert.Empty(d.RenderedDiffers);
+            var missing = Assert.Single(d.MissingOnGhost);
+            Assert.Equal("model/shroud", missing.Key);
+            Assert.False(missing.Rendered);
+        }
+
+        [Fact]
+        public void SamePath_PairsByMeshBeforeOrder()
+        {
+            var real = new List<PartParityRendererRecord> { Rec("model/Cylinder", "a"), Rec("model/Cylinder", "b") };
+            var ghost = new List<PartParityRendererRecord> { Rec("model/Cylinder", "b") };
+            var d = PartParityStructure.Diff(real, ghost);
+            Assert.Equal(1, d.Pairs);
+            Assert.Empty(d.MeshDiffers);
+            Assert.Equal("a", Assert.Single(d.MissingOnGhost).Mesh);
+        }
+
+        [Fact]
         public void NullListsAndNullRecords_AreEmpty()
         {
             var d = PartParityStructure.Diff(null, new List<PartParityRendererRecord> { null });

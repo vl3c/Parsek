@@ -246,6 +246,10 @@ namespace Parsek.TestCommands
             return sb.ToString();
         }
 
+        /// <summary>
+        /// The records of one side keyed in order: the first record at a path keys by the
+        /// bare path, the k-th further one by <c>path#k</c>.
+        /// </summary>
         private static List<KeyValuePair<string, PartParityRendererRecord>> Keyed(
             IList<PartParityRendererRecord> records)
         {
@@ -268,9 +272,13 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
-        /// Pairs the two sides and lists every difference. Lists follow the real side's
-        /// order (extras: the ghost side's order), so the output is deterministic for a
-        /// deterministic capture.
+        /// Pairs the two sides and lists every difference. Records at the same path pair
+        /// first on (mesh, rendered), then on mesh, then in hierarchy order, so a real part
+        /// with an inactive same-named sibling the ghost builder skips pairs the ghost
+        /// renderer with the rendered real one, not the inactive one. A pair is keyed by
+        /// the real record's key, an extra by the ghost record's. Lists follow the real
+        /// side's order (extras: the ghost side's order), so the output is deterministic
+        /// for a deterministic capture.
         /// </summary>
         internal static PartParityStructureDiff Diff(
             IList<PartParityRendererRecord> real, IList<PartParityRendererRecord> ghost)
@@ -281,27 +289,59 @@ namespace Parsek.TestCommands
             diff.RealRenderers = realKeyed.Count;
             diff.GhostRenderers = ghostKeyed.Count;
 
-            var ghostByKey = new Dictionary<string, PartParityRendererRecord>(StringComparer.Ordinal);
+            // ghost indexes per path, in hierarchy order
+            var ghostByPath = new Dictionary<string, List<int>>(StringComparer.Ordinal);
             for (int i = 0; i < ghostKeyed.Count; i++)
-                ghostByKey[ghostKeyed[i].Key] = ghostKeyed[i].Value;
-            var paired = new HashSet<string>(StringComparer.Ordinal);
+            {
+                string path = ghostKeyed[i].Value.Path ?? string.Empty;
+                if (!ghostByPath.TryGetValue(path, out var list))
+                    ghostByPath[path] = list = new List<int>();
+                list.Add(i);
+            }
+            var ghostUsed = new bool[ghostKeyed.Count];
+            var match = new int[realKeyed.Count];
+            for (int i = 0; i < match.Length; i++) match[i] = -1;
+
+            for (int pass = 0; pass < 3; pass++)
+            {
+                for (int i = 0; i < realKeyed.Count; i++)
+                {
+                    if (match[i] >= 0) continue;
+                    var r = realKeyed[i].Value;
+                    if (!ghostByPath.TryGetValue(r.Path ?? string.Empty, out var candidates)) continue;
+                    for (int c = 0; c < candidates.Count; c++)
+                    {
+                        int gi = candidates[c];
+                        if (ghostUsed[gi]) continue;
+                        var g = ghostKeyed[gi].Value;
+                        bool sameMesh = string.Equals(
+                            NormalizeAssetName(r.Mesh), NormalizeAssetName(g.Mesh), StringComparison.Ordinal);
+                        bool ok = pass == 0 ? sameMesh && r.Rendered == g.Rendered
+                            : pass == 1 ? sameMesh
+                            : true;
+                        if (!ok) continue;
+                        match[i] = gi;
+                        ghostUsed[gi] = true;
+                        break;
+                    }
+                }
+            }
 
             for (int i = 0; i < realKeyed.Count; i++)
             {
                 string key = realKeyed[i].Key;
                 var r = realKeyed[i].Value;
-                if (!ghostByKey.TryGetValue(key, out var g))
+                if (match[i] < 0)
                 {
                     diff.MissingOnGhost.Add(Ref(key, r));
                     continue;
                 }
-                paired.Add(key);
                 diff.Pairs++;
-                ComparePair(key, r, g, diff);
+                ComparePair(key, r, ghostKeyed[match[i]].Value, diff);
             }
             for (int i = 0; i < ghostKeyed.Count; i++)
             {
-                if (!paired.Contains(ghostKeyed[i].Key))
+                if (!ghostUsed[i])
                     diff.ExtraOnGhost.Add(Ref(ghostKeyed[i].Key, ghostKeyed[i].Value));
             }
             return diff;

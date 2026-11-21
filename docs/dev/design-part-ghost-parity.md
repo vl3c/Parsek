@@ -244,7 +244,8 @@ proof that the instrument sees what it claims to.
 
 Per side, per renderer: transform path relative to the part (with `(Clone)` stripped and the
 ghost's mirror prefix mapped back), mesh name, vertex count, material / shader / main-texture names,
-rendered or not, and the part-local matrix. The sidecar pairs them by path and lists: missing on
+rendered or not, and the part-local matrix. The sidecar pairs them by path (records sharing a
+path pair first on mesh and rendered state, then on mesh, then in hierarchy order) and lists: missing on
 the ghost, extra on the ghost, transform differs (position > 1 mm, rotation > 0.5 deg, scale > 1 %),
 material / shader / texture differs. This names the missing or extra mesh directly, is independent
 of lighting, and sees differences the four views cannot (an inner mesh, a mesh behind another).
@@ -339,7 +340,11 @@ Colour, over the overlap after alpha premultiply: per-pixel RGB distance; the co
 dark patch is not diluted by the rest of the part. As built (P1): the distance is Euclidean over
 premultiplied 0..255 RGB (one channel off by d reads d); the p99 is nearest-rank; the grid is 16 x
 16 CELLS whatever the tile, and a cell counts only when the overlap fills a quarter of it; the
-blob of over-T pixels is 4-connected like the shape blobs.
+blob of over-T pixels is 4-connected like the shape blobs. Every colour measure reads the overlap
+INTERIOR only (a pixel covered on both sides across its whole 8-neighbourhood): antialiased edge
+pixels blend with the clear colour, so a sub-pixel silhouette offset would otherwise read as a
+full-edge colour blob (review of P1); the shape measures own the edge, and a part thinner than 3 px
+has no colour measure.
 
 Verdicts (`harness/lib/partparity.py`, constants in one place, starting guesses re-pinned after the
 first reading run against the controls and a hand-checked sample): `fail` when either largest
