@@ -239,6 +239,8 @@ class TriggerTests(unittest.TestCase):
         self.assertEqual("ghost has extra mesh k", ppv.reason_phrase("extra-rendered:k"))
         self.assertEqual("skin not applied: requested=A real=B",
                          ppv.reason_phrase("skin-not-applied:requested=A real=B"))
+        self.assertEqual("skin not modelled: the ghost applies no B9 subtype (prefab look)",
+                         ppv.reason_phrase("skin-not-modelled:b9"))
         self.assertEqual("something-new", ppv.reason_phrase("something-new"))
 
     def test_a_views_pct_collapses_into_its_px_phrase_and_extra_phrases_count(self):
@@ -289,8 +291,10 @@ class GroupTests(unittest.TestCase):
     def test_group_verdict_is_the_worst_skin_and_its_trigger_names_the_skin(self):
         tank = self.groups["Tank"]
         self.assertEqual(pp.VERDICT_WARN, tank["verdict"])
-        self.assertEqual("skin Gold: colour blob 30 px in side-a", tank["trigger"])
-        self.assertEqual({"pass": 2, "warn": 1, "fail": 0, "error": 0}, tank["counts"])
+        self.assertEqual("skin Gold: colour blob 30 px in side-a (+1 more skin(s) warn)",
+                         tank["trigger"])
+        # the B9 subtype warns skin-not-modelled:b9 (the builder applies no B9 subtype)
+        self.assertEqual({"pass": 1, "warn": 2, "fail": 0, "error": 0}, tank["counts"])
         self.assertEqual("ghost missing mesh model/skirt", self.groups["Bravo"]["trigger"])
         self.assertEqual("", self.groups["Alpha"]["trigger"])
 
@@ -305,7 +309,7 @@ class GroupTests(unittest.TestCase):
         self.assertEqual(["Bravo", "Tank", "Crashy", "Ghosty", "Alpha", "Orphan"], order)
 
     def test_counts_and_filters(self):
-        self.assertEqual({"pass": 4, "warn": 1, "fail": 1, "error": 2},
+        self.assertEqual({"pass": 3, "warn": 2, "fail": 1, "error": 2},
                          self.data["counts"]["cases"])
         self.assertEqual({"pass": 2, "warn": 1, "fail": 1, "error": 2},
                          self.data["counts"]["parts"])

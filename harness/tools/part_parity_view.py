@@ -241,6 +241,8 @@ _REASON_RES: Tuple[Tuple["re.Pattern[str]", Callable[["re.Match[str]"], str]], .
      lambda m: "skin mismatch: real=%s ghost=%s" % (m.group(1), m.group(2))),
     (re.compile(r"^skin-not-applied:requested=(.*) real=(.*)$"),
      lambda m: "skin not applied: requested=%s real=%s" % (m.group(1), m.group(2))),
+    (re.compile(r"^skin-not-modelled:b9$"),
+     lambda m: "skin not modelled: the ghost applies no B9 subtype (prefab look)"),
     (re.compile(r"^setup:(.*)$"), lambda m: "setup fault: %s" % m.group(1)),
     (re.compile(r"^no-views$"), lambda m: "no measured view"),
     (re.compile(r"^%s$" % SIDECAR_MISSING), lambda m: "no sidecar on disk"),
@@ -1185,7 +1187,8 @@ dialog .tile { cursor: default; }
       var kv = el("div", {cls: "kv"});
       function row(k, v, cls, title) { kv.appendChild(el("div", {text: k})); kv.appendChild(el("div", {cls: cls || null, title: title || null, text: v})); }
       var compOk = h.completeness ? h.completeness.ok : false;
-      if (!compOk || h.manifestError) bad = true;
+      var hostDamaged = h.progress && h.progress.hostDamaged === true;
+      if (!compOk || h.manifestError || hostDamaged) bad = true;
       row("profile", h.profile + (h.profileNote ? " (" + h.profileNote + ")" : ""));
       row("label / dir", fmt(h.label) + " - " + h.dir);
       if (h.manifestError) row("manifest", h.manifestError, "bad-text");
@@ -1193,6 +1196,7 @@ dialog .tile { cursor: default; }
       row("mods", h.gameDataMods.join(", ") || "-");
       row("tile / views", fmt(h.tile) + " px, " + h.views.join(", "));
       row("settings", Object.keys(h.settings).map(function (k) { return k + "=" + h.settings[k]; }).join("  "));
+      if (hostDamaged) row("host", "DAMAGED (" + fmt(h.progress.hostDamage) + ")" + (h.progress.hostDamageDetail ? ": " + h.progress.hostDamageDetail : "") + " - the sweep stopped; the cases after it were not run", "bad-text");
       if (h.completeness) row("completeness", (compOk ? "complete" : "INCOMPLETE") + ": " + h.completeness.complete + "/" + h.completeness.planned + " sidecars, setup faults " + h.completeness.setupFaults + ", crashed " + h.crashed.length + (h.completeness.problems.length ? " - " + h.completeness.problems.join("; ") : ""), compOk ? null : "bad-text");
       row("exclusions", h.exclusions.map(function (e) { return e.part + " (" + e.reason + ")"; }).join(", ") || "none");
       if (h.verdictsFile) row("verifier row", fmt(h.verdictsFile.status) + (h.verdictsFile.invalidSubkind ? " (" + h.verdictsFile.invalidSubkind + ")" : "") + ", recompute " + h.verdictsFile.recomputed + " case(s), " + h.verdictsFile.recomputeMismatches + " mismatch(es)", h.verdictsFile.recomputeMismatches ? "bad-text" : null);
