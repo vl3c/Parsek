@@ -60,6 +60,23 @@ namespace Parsek
         bool TryGetScalarModuleScalar(out float scalar);
 
         /// <summary>
+        /// A Breaking Ground servo's LIVE moving-transform angle on its main axis, in degrees
+        /// wrapped to (-180, 180]: the value stock's protected
+        /// <c>BaseServo.currentTransformAngle()</c> returns (decompiled KSP 1.12.5:
+        /// <c>MovingObject().transform.localEulerAngles</c> on <c>mainAxis</c>). False for a
+        /// module that is not a <c>BaseServo</c> or has no moving object yet.
+        /// <para>
+        /// Not name-keyed, for the same reason as <see cref="TryGetScalarModuleScalar"/>: the
+        /// name-keyed live field (<c>currentAngle</c> on the hinge and the rotation servo) is
+        /// refreshed ONLY by <c>UpdatePAWUI</c>, which stock calls from <c>OnStart</c>, from
+        /// <c>OnPartMenuOpen</c> and from <c>Update</c> while the part's menu is open. With the
+        /// menu closed it holds its start value for the whole flight, so a recorder reading it
+        /// never sees the servo move.
+        /// </para>
+        /// </summary>
+        bool TryGetServoTransformAngleDegrees(out float angleDegrees);
+
+        /// <summary>
         /// Aggregated deploy/retract UI-event availability under the given keyword vocabulary:
         /// whether any such event exists at all, and whether any matching one is currently active.
         /// </summary>
@@ -122,6 +139,11 @@ namespace Parsek
             public bool TryGetScalarModuleScalar(out float scalar)
             {
                 return TryReadScalarModuleScalar(module, out scalar);
+            }
+
+            public bool TryGetServoTransformAngleDegrees(out float angleDegrees)
+            {
+                return TryReadServoTransformAngle(module, out angleDegrees);
             }
 
             public void ReadDeployRetractEventActivity(
@@ -188,6 +210,11 @@ namespace Parsek
                 return TryReadScalarModuleScalar(module, out scalar);
             }
 
+            public bool TryGetServoTransformAngleDegrees(out float angleDegrees)
+            {
+                return TryReadServoTransformAngle(module, out angleDegrees);
+            }
+
             public void ReadDeployRetractEventActivity(
                 DeployEventKeywordSet keywordSet,
                 out bool sawDeployEvent, out bool sawRetractEvent,
@@ -225,6 +252,60 @@ namespace Parsek
                     $"IScalarModule.GetScalar threw on {module.GetType().Name}: {ex.Message}");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// The typed half of <see cref="IModuleFieldValues.TryGetServoTransformAngleDegrees"/>:
+        /// stock's <c>BaseServo.currentTransformAngle()</c>, which is protected, rebuilt from
+        /// the public <c>MovingObject()</c> and <c>mainAxis</c>. Unity reads stay in this
+        /// helper (NoInlining) so no headless caller of the pure cores reaches them.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool TryReadServoTransformAngle(PartModule module, out float angleDegrees)
+        {
+            angleDegrees = 0f;
+            var servo = module as Expansions.Serenity.BaseServo;
+            if (servo == null) return false;
+
+            try
+            {
+                GameObject moving = servo.MovingObject();
+                if (moving == null) return false;
+                Vector3 euler = moving.transform.localEulerAngles;
+                return TrySelectServoMainAxisAngle(
+                    servo.mainAxis, euler.x, euler.y, euler.z, out angleDegrees);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "servo-transform-angle",
+                    $"Servo transform angle read threw on {module.GetType().Name}: {ex.Message}");
+                angleDegrees = 0f;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure: picks the local Euler component on a servo's <c>mainAxis</c> ("X" / "Y" /
+        /// "Z", ordinal, as stock compares it) and wraps it the way
+        /// <c>BaseServo.currentTransformAngle()</c> does (above 180 subtracts 360). An unknown
+        /// axis or a non-finite angle reads as no angle (stock would answer a constant 0,
+        /// which is no signal).
+        /// </summary>
+        internal static bool TrySelectServoMainAxisAngle(
+            string mainAxis, float eulerX, float eulerY, float eulerZ, out float angleDegrees)
+        {
+            angleDegrees = 0f;
+            float raw;
+            if (string.Equals(mainAxis, "X", StringComparison.Ordinal)) raw = eulerX;
+            else if (string.Equals(mainAxis, "Y", StringComparison.Ordinal)) raw = eulerY;
+            else if (string.Equals(mainAxis, "Z", StringComparison.Ordinal)) raw = eulerZ;
+            else return false;
+
+            if (float.IsNaN(raw) || float.IsInfinity(raw)) return false;
+            if (raw > 180f) raw -= 360f;
+            angleDegrees = raw;
+            return true;
         }
 
         /// <summary>
@@ -1090,9 +1171,50 @@ namespace Parsek
             scalarFieldNames = RoboticAngularScalarFieldNames;
         }
 
+        /// <summary>Source name the recorder logs for the live servo transform angle.</summary>
+        internal const string ServoTransformAngleSourceField = "servoTransformAngle";
+
+        /// <summary>
+        /// The live angle stage for the two angular servos, ahead of their field plan: the
+        /// moving transform's main-axis angle (see
+        /// <see cref="IModuleFieldValues.TryGetServoTransformAngleDegrees"/> for why
+        /// <c>currentAngle</c> cannot be the signal), put in stock's displayed convention: the
+        /// hinge adds its <c>modelInitialAngle</c> (<c>ModuleRoboticServoHinge.UpdatePAWUI</c>),
+        /// the rotation servo shows the transform angle itself. So the value is what
+        /// <c>currentAngle</c> reads with the part menu open, the same scale as
+        /// <c>targetAngle</c> and the ghost's snapshot baseline. Pistons and rotors never
+        /// reach it (a piston's <c>currentExtension</c> is refreshed in OnFixedUpdate).
+        /// </summary>
+        internal static bool TryClassifyLiveServoAngleFromFieldValues<TFields>(
+            TFields fields, string moduleName, out float positionValue, out string sourceField)
+            where TFields : IModuleFieldValues
+        {
+            positionValue = 0f;
+            sourceField = null;
+            bool isHinge = string.Equals(moduleName, "ModuleRoboticServoHinge", StringComparison.Ordinal);
+            bool isRotationServo =
+                string.Equals(moduleName, "ModuleRoboticRotationServo", StringComparison.Ordinal);
+            if (!isHinge && !isRotationServo)
+                return false;
+
+            if (!fields.TryGetServoTransformAngleDegrees(out float transformAngle))
+                return false;
+
+            float offset = 0f;
+            if (isHinge && fields.TryGetFloat("modelInitialAngle", out float modelInitialAngle)
+                && !float.IsNaN(modelInitialAngle) && !float.IsInfinity(modelInitialAngle))
+                offset = modelInitialAngle;
+
+            positionValue = transformAngle + offset;
+            sourceField = ServoTransformAngleSourceField;
+            return true;
+        }
+
         /// <summary>
         /// Pure interpretation half of <see cref="TryGetRoboticPositionValue"/>.
-        /// Wheel module names route to the wheel core; everything else probes the module's scalar
+        /// Wheel module names route to the wheel core; a hinge or rotation servo first reads its
+        /// live transform angle (<see cref="TryClassifyLiveServoAngleFromFieldValues{TFields}"/>);
+        /// everything else (and a servo with no moving object yet) probes the module's scalar
         /// plan, then the servo transform position magnitude, then the servo transform rotation
         /// expressed as an angle from identity.
         /// </summary>
@@ -1106,6 +1228,10 @@ namespace Parsek
                     fields, moduleName, out positionValue, out deadband, out sourceField);
 
             ResolveRoboticFieldPlan(moduleName, out deadband, out string[] scalarFieldNames);
+
+            if (TryClassifyLiveServoAngleFromFieldValues(
+                    fields, moduleName, out positionValue, out sourceField))
+                return true;
 
             if (TryReadFirstFloatField(fields, scalarFieldNames, out positionValue, out sourceField))
                 return true;

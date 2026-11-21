@@ -37,6 +37,10 @@ Not released yet.
 
 ### Fixed
 
+- **Hinges and rotation servos are recorded moving again.** A Breaking Ground hinge or rotation
+  servo was only seen moving while its part menu was open, so most replays showed it frozen at
+  its start angle. Its motion is now recorded however you move it, and the parts riding it
+  follow it on the replay. (RECORDER-SERVO-ANGLE-PAW-ONLY)
 - **A rescue or tourism contract still works after you go back in time.** If you go back to before
   you accepted a rescue, the stranded kerbal or part reappears when the clock reaches the accept
   again (at your next Space Center or Tracking Station visit if you are flying then), and tourism
