@@ -139,18 +139,198 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.Destroyed, fast.Terminal);
         }
 
+        // Nothing to scale from (no chute drag read): the 7 m/s default, named on the log line.
         [Fact]
-        public void Plan_SemiDeployed_IsJudgedOnTheDefaultFullCanopyRate()
+        public void Plan_SemiDeployed_NoDragData_FallsBackToTheDefaultAndLogsIt()
         {
-            // A fast semi-deployed drop that will fully open: the full-canopy rate it lands at
-            // is the 7 m/s default (not measured before the canopy opens), so it lands.
-            Assert.True(ParachuteDescentPlanner.TryPlan(
-                Input(ParachuteCanopyState.SemiDeployed, 3070.0, -90.0, deployAgl: 800.0),
-                out ParachuteDescentPlan plan, out _));
+            ParachuteDescentInput input = Input(ParachuteCanopyState.SemiDeployed, 3070.0, -90.0, deployAgl: 800.0);
+            input.DragToWeightRatio = 1.0;
+            input.DensityAtAltitude = 0.85;
+            input.DensityAtTouchdown = 1.21;
+            Assert.True(ParachuteDescentPlanner.TryPlan(input, out ParachuteDescentPlan plan, out _));
             Assert.Equal(ParachuteDescentPlanner.DefaultFullCanopyDescentRate, plan.LandingRate, 6);
+            Assert.Equal(ParachuteDescentPlanner.DefaultFullCanopyDescentRate, plan.Phase2Rate, 6);
             Assert.False(plan.LandingRateMeasured);
+            Assert.Equal("default-no-drag-data", plan.LandingRateSource);
             Assert.True(plan.SurvivesTouchdown);
             Assert.Equal(TerminalState.Landed, plan.Terminal);
+
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryBuildParachuteDescentFinalizationResult(
+                "rec-nodrag", BoosterPid, input, out _));
+            Assert.Contains(logLines, l => l.Contains("[Extrapolator]")
+                && l.Contains("Chute descent predicted: rec=rec-nodrag")
+                && l.Contains("landingSource=default-no-drag-data")
+                && l.Contains("landingRate=7.00"));
+        }
+
+        // Owner ruling Q11: judged on the full-canopy rate. A light stage under a fully open
+        // main, measured near terminal speed at 1.5 km, comes down slower in the thicker air
+        // below (terminal speed scales as 1 / sqrt(density)) and lands.
+        [Fact]
+        public void Plan_LightStageUnderAFullMain_Lands()
+        {
+            ParachuteDescentInput input = Input(ParachuteCanopyState.Deployed, 1570.0, -6.5);
+            input.DragToWeightRatio = 1.0;
+            input.OpenChuteDragNow = 500.0;
+            input.OpenChuteDragFull = 500.0;
+            input.DensityAtAltitude = 1.08;
+            input.DensityAtTouchdown = 1.21;
+            Assert.True(ParachuteDescentPlanner.TryPlan(input, out ParachuteDescentPlan plan, out _));
+            Assert.Equal(6.5 * Math.Sqrt(1.08 / 1.21), plan.LandingRate, 6);
+            Assert.True(plan.LandingRateMeasured);
+            Assert.Equal("deployed-measured", plan.LandingRateSource);
+            Assert.True(plan.SurvivesTouchdown);
+            Assert.Equal(TerminalState.Landed, plan.Terminal);
+            // The trajectory keeps the measured rate; only the judgement reads the estimate.
+            Assert.Equal(6.5, plan.Phase1Rate, 6);
+            Assert.Equal(1000.0 + 1500.0 / 6.5, plan.TouchdownUT, 6);
+        }
+
+        // A stage still high under fully open chutes: 13 m/s at 4 km is about 9.3 m/s at the
+        // ground, so it lands (the measured rate alone would read a crash).
+        [Fact]
+        public void Plan_DeployedHighAboveTheGround_IsCorrectedForDensityToTouchdown()
+        {
+            ParachuteDescentInput input = Input(ParachuteCanopyState.Deployed, 4070.0, -13.0);
+            input.DensityAtAltitude = 0.62;
+            input.DensityAtTouchdown = 1.21;
+            Assert.True(ParachuteDescentPlanner.TryPlan(input, out ParachuteDescentPlan plan, out _));
+            Assert.Equal(13.0 * Math.Sqrt(0.62 / 1.21), plan.LandingRate, 6);
+            Assert.True(plan.SurvivesTouchdown);
+            Assert.Equal(TerminalState.Landed, plan.Terminal);
+            Assert.Contains("densityFactor=0.716", ParachuteDescentPlanner.Describe(plan));
+        }
+
+        // A heavy stage under ONE drogue (Mk25: semiDeployedDrag 4, fullyDeployedDrag 170),
+        // semi-deployed at 3 km on Kerbin at 120 m/s: full open it still comes down at about
+        // 15 m/s and crashes (the old 7 m/s default landed it).
+        [Fact]
+        public void Plan_HeavyStageUnderOneSemiDeployedDrogue_Crashes()
+        {
+            ParachuteDescentInput input = Input(ParachuteCanopyState.SemiDeployed, 3070.0, -120.0,
+                deployAgl: 2500.0);
+            input.DragToWeightRatio = 1.0;
+            input.OpenChuteDragNow = 4.0;
+            input.OpenChuteDragFull = 170.0;
+            input.DensityAtAltitude = 0.85;
+            input.DensityAtTouchdown = 1.21;
+            Assert.True(ParachuteDescentPlanner.TryPlan(input, out ParachuteDescentPlan plan, out _));
+            double expected = 120.0 * Math.Sqrt(4.0 / 170.0) * Math.Sqrt(0.85 / 1.21);
+            Assert.Equal(expected, plan.LandingRate, 6);
+            Assert.Equal(expected, plan.Phase2Rate, 6);
+            Assert.True(plan.LandingRateMeasured);
+            Assert.Equal("semi-estimated", plan.LandingRateSource);
+            Assert.False(plan.SurvivesTouchdown);
+            Assert.Equal(TerminalState.Destroyed, plan.Terminal);
+            string described = ParachuteDescentPlanner.Describe(plan);
+            Assert.Contains("landingSource=semi-estimated", described);
+            Assert.Contains("outcome=crash", described);
+        }
+
+        // Owner ruling Q10b: only OPEN chutes enter the drag sums; an armed or stowed one adds
+        // nothing, and an open one whose drag was not read poisons the sums (the planner then
+        // falls back to the default instead of scaling from a partial sum).
+        [Fact]
+        public void ChuteDragSums_CountOnlyOpenChutes_AndPoisonOnAnUnreadOne()
+        {
+            double now = 0.0, full = 0.0;
+            ParachuteDescentLiveReader.AccumulateChuteDrag(ParachuteCanopyState.SemiDeployed, 4.0, 170.0, ref now, ref full);
+            ParachuteDescentLiveReader.AccumulateChuteDrag(ParachuteCanopyState.Deployed, 1.0, 500.0, ref now, ref full);
+            ParachuteDescentLiveReader.AccumulateChuteDrag(ParachuteCanopyState.None, 1.0, 500.0, ref now, ref full);
+            Assert.Equal(504.0, now, 9);
+            Assert.Equal(670.0, full, 9);
+
+            ParachuteDescentLiveReader.AccumulateChuteDrag(ParachuteCanopyState.SemiDeployed, double.NaN, double.NaN, ref now, ref full);
+            Assert.True(double.IsNaN(now));
+            Assert.True(double.IsNaN(full));
+            ParachuteDescentLiveReader.AccumulateChuteDrag(ParachuteCanopyState.Deployed, 1.0, 500.0, ref now, ref full);
+            Assert.True(double.IsNaN(now));
+
+            ParachuteDescentInput input = Input(ParachuteCanopyState.SemiDeployed, 3070.0, -120.0, deployAgl: 2500.0);
+            input.OpenChuteDragNow = now;
+            input.OpenChuteDragFull = full;
+            Assert.True(ParachuteDescentPlanner.TryPlan(input, out ParachuteDescentPlan plan, out _));
+            Assert.Equal("default-no-drag-data", plan.LandingRateSource);
+        }
+
+        [Fact]
+        public void PredictedLine_CarriesTheEstimateInputs()
+        {
+            ParachuteDescentInput input = Input(ParachuteCanopyState.SemiDeployed, 3070.0, -120.0, deployAgl: 2500.0);
+            input.DragToWeightRatio = 1.0;
+            input.OpenChuteDragNow = 4.0;
+            input.OpenChuteDragFull = 170.0;
+            input.DensityAtAltitude = 0.85;
+            input.DensityAtTouchdown = 1.21;
+            Assert.True(IncompleteBallisticSceneExitFinalizer.TryBuildParachuteDescentFinalizationResult(
+                "rec-drogue", BoosterPid, input, out IncompleteBallisticFinalizationResult result));
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Contains(logLines, l => l.Contains("Chute descent predicted: rec=rec-drogue")
+                && l.Contains("landingSource=semi-estimated")
+                && l.Contains("terminal=read")
+                && l.Contains("chuteDragFactor=0.153")
+                && l.Contains("density=read")
+                && l.Contains("dragToWeight=1.000 chuteDragNow=4.00 chuteDragFull=170.00 rhoAlt=0.8500 rhoGround=1.2100")
+                && l.Contains("outcome=crash"));
+        }
+
+        // Terminal speed of one craft: v = c * sqrt(g / (rho * D)) (c folds 2 m / (Cd A scale)).
+        private static double TerminalSpeed(double c, double g, double rho, double drag)
+        {
+            return c * Math.Sqrt(g / (rho * drag));
+        }
+
+        private static ParachuteDescentInput SemiAt3Km(string body, double g, double rho3Km, double rhoGround)
+        {
+            // A Mk12-R-like chute (semi 2, full 100) on a craft that lands at 9 m/s on Kerbin.
+            const double c = 31.63;
+            double vSemi = TerminalSpeed(c, g, rho3Km, 2.0);
+            ParachuteDescentInput input = Input(ParachuteCanopyState.SemiDeployed, 3070.0, -vSemi,
+                ocean: false, deployAgl: 2500.0);
+            input.BodyName = body;
+            input.DragToWeightRatio = 1.0;
+            input.OpenChuteDragNow = 2.0;
+            input.OpenChuteDragFull = 100.0;
+            input.DensityAtAltitude = rho3Km;
+            input.DensityAtTouchdown = rhoGround;
+            return input;
+        }
+
+        // The same craft that lands on Kerbin crashes on Duna: thin air (about 0.15 kg/m^3 at the
+        // datum) more than cancels its weaker gravity (2.94 m/s^2). The estimate from the
+        // semi-deployed rate equals the craft's own terminal speed at the ground on both.
+        [Fact]
+        public void Plan_SameCraft_LandsOnKerbin_CrashesOnDuna()
+        {
+            const double c = 31.63;
+            Assert.True(ParachuteDescentPlanner.TryPlan(SemiAt3Km("Kerbin", 9.81, 0.85, 1.21),
+                out ParachuteDescentPlan kerbin, out _));
+            Assert.Equal(TerminalSpeed(c, 9.81, 1.21, 100.0), kerbin.LandingRate, 6);
+            Assert.True(kerbin.SurvivesTouchdown);
+            Assert.Equal(TerminalState.Landed, kerbin.Terminal);
+
+            Assert.True(ParachuteDescentPlanner.TryPlan(SemiAt3Km("Duna", 2.94, 0.105, 0.15),
+                out ParachuteDescentPlan duna, out _));
+            Assert.Equal(TerminalSpeed(c, 2.94, 0.15, 100.0), duna.LandingRate, 6);
+            Assert.True(duna.LandingRate > ParachuteDescentPlanner.MaxSafeLandingRate);
+            Assert.False(duna.SurvivesTouchdown);
+            Assert.Equal(TerminalState.Destroyed, duna.Terminal);
+        }
+
+        // Not at terminal speed yet: drag over weight scales the measured speed to the
+        // terminal one (v_t = v / sqrt(drag / weight)), clamped so a near-free fall or a
+        // noisy spike cannot scale it without bound; unread, terminal speed is assumed.
+        [Theory]
+        [InlineData(4.0, 0.5, "read")]
+        [InlineData(0.25, 2.0, "read")]
+        [InlineData(0.01, 3.1622776601683795, "clamped")]
+        [InlineData(400.0, 0.31622776601683794, "clamped")]
+        [InlineData(double.NaN, 1.0, "assumed")]
+        [InlineData(0.0, 1.0, "assumed")]
+        public void TerminalSpeedFactor_ScalesTheMeasuredSpeed(double dragToWeight, double factor, string state)
+        {
+            Assert.Equal(factor, ParachuteDescentPlanner.TerminalSpeedFactor(dragToWeight, out string got), 9);
+            Assert.Equal(state, got);
         }
 
         // Owner ruling 2026-11-21: chutes staged but not open yet (armed, waiting for their
