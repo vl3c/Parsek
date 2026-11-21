@@ -60,6 +60,10 @@ namespace Parsek
         /// </summary>
         public void FinalizeAllForCommit(double commitUT)
         {
+            // Never drop one (owner ruling 2026-11-18): open separation windows become their
+            // branch points before the recordings are finalized.
+            FlushBackgroundSeparationWindows("FinalizeAllForCommit");
+
             // Close all open orbit segments (skip destroyed recordings — their
             // recording is sealed, no open segments should exist, and any cache
             // refresh here would overwrite the terminal verdict).

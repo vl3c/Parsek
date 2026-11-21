@@ -47,6 +47,10 @@ Not released yet.
   (SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS)
 - **Mining an asteroid on a supply route works like mining the ground.** A route that mines a
   rock never drains the real rock (owner ruling 2026-11-15).
+- **A vessel you are not flying keeps one recording when it stages.** When it drops a stage or a
+  part breaks off, its recording carries on past the separation, as it does for the vessel you
+  fly, and pieces that come off together share one split. The Recordings list shows one row for
+  that vessel instead of two. (BG-SEPARATION-CLOSES-PARENT-RECORDING)
 
 ### Fixed
 
@@ -61,6 +65,12 @@ Not released yet.
 - **A flight you hid, disabled or looped keeps that setting when Parsek splits it.** The new
   piece used to come back visible, enabled and not looping. A flight with a loop range is now
   never split or shortened. (SPLIT-DROPS-PLAYER-ROW-SETTINGS)
+- **A vessel that ends in orbit next to another no longer appears inside it.** When the spot is
+  taken, it now appears a few metres ahead of or behind it on its own orbit. If no free spot is near,
+  it is held back, never placed overlapping. (SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS)
+- **A lander resting on an asteroid or comet no longer appears inside the rock.** It now appears
+  just clear of the rock's surface and moves with it, drifting slowly as in stock. A vessel holding
+  the rock with the Klaw is still one vessel with the rock. (SPAWN-RESTING-ON-ROCK)
 - **Changes you make during a Re-Fly are kept when it merges.** Sealing, stashing, hiding,
   looping, regrouping or turning off the ghost of another flight of the same mission while you
   re-fly one part of it was undone by the merge, and a sealed slot could come back open with no

@@ -91,6 +91,64 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Tests:** `OptimizerSplitPlayerSettingsTests` (split keeps hidden / disabled / loop / seal / groups on both halves through the real pass; a loop range is neither split nor trimmed; the trim skips a looped recording), all three red before the fix.
 
+## ~~BG-SEPARATION-CLOSES-PARENT-RECORDING~~: a background vessel's staging closed its recording and started a second one [FIXED 2026-11-21, branch `rsr-wp8-bg-shape`; xUnit `BackgroundSeparationShapeTests`; low (two recordings-table rows for one vessel; no data lost)]
+
+Cause: a decouple or a broken-off part of a BACKGROUND vessel went through
+`BackgroundRecorder.HandleBackgroundVesselSplit`'s closing path: `CloseParentRecording` ended the
+parent recording at the split, a parent continuation recording (same pid) carried the vessel on,
+the pieces were anchored to the continuation, and each deferred scan (one per frame) made its own
+branch point. The focused vessel's decouple or breakup keeps one recording that runs past the
+split (`ParsekFlight.WireBreakupIntoTree`) and groups the pieces of a 0.5 s window into one
+branch point, so the same staging gave two different tree shapes depending on focus.
+
+Fix: owner ruling Q15 (2026-11-18), "One shape for both". `BackgroundRecorder.SeparationWindows.cs`
+keeps one `CrashCoalescer` per background parent pid (the class moved from `Rewind/` to
+`Recording/`, its own module, so the background recorder adds no backward module edge). The
+deferred scan feeds each new vessel (snapshot and pose captured at the scan) into the window;
+`ProcessPendingSplitChecks` ticks it; the emitted JointBreak branch point is wired with
+`WireBreakupIntoTree` onto the parent recording, which keeps its BackgroundMap entry and keeps
+sampling, gets its VesselSnapshot refreshed, and keeps the structural-event point the joint break
+wrote. Children go through `ParsekFlight.CreateBreakupChildRecording` anchored to the parent
+recording (a controlled piece gone before the window closed gets none, a debris piece gone gets
+the destroyed one-point row, as focused), live ones join the background recorder with the debris
+limit keyed on the branch point UT, and a split with two or more controllable vessels authors a
+rewind point whose parent slot is the parent recording itself. An undock keeps the closing shape
+(it is the focused undock shape), emitting a window the parent still holds first. Windows are
+emitted early (never drop one) from `FlushPendingSplits` (save, scene exit, revert, every
+recorder start), `FinalizeAllForCommit`, `Shutdown` (with a Warn), and when the parent stops
+being a background vessel: `OnVesselRemovedFromBackground` (promotion, switch, debris end, member
+reconcile), go-on-rails (before the identity-loss check), `OnBackgroundVesselWillDestroy` and
+`RetireDestroyedBackgroundEntry`. A piece still held by a window that acts on its own (separates
+again, undocks or is decoupled, or the player switches to it) emits its window first
+(`EmitSeparationWindowHoldingChild`, from `OnBackgroundPartJointBreak`, `OnBackgroundPartUndock`,
+`OnBackgroundPartDeCouple` and `OnVesselSwitchComplete`) so it is a background member with its
+own recording when it does, and an undock of it is still classed UNDOCK. A piece is held by one
+window only: two background parents splitting in one physics step both see each other's new
+vessel (a held piece is not in the BackgroundMap yet), so the new-vessel scan and the window feed
+skip a piece an open window holds (one recording per vessel). `DebrisParentStateGate` and the
+Re-Fly HEAD/TIP splitter already handle this shape (the focused breakup writes it).
+
+The vessel-line rule (`RecordingTree.ChildBranchLeavesVesselLineOpen`) read a recording whose
+`ExplicitEndUT` is at or before the branch UT as closed at the split. A background parent's end
+equals the branch UT from the joint break's structural point until its next ordinary sample (2 s
+close in, 3 s / 8 s for a steady parent at Medium / Low density), so an F5 in that span saved a
+parent that F9's `RebuildBackgroundMap` then dropped (never sampled again, no terminal). The
+branch point now says it: `BranchPoint.ParentContinues`, stamped by every
+`ParsekFlight.WireBreakupIntoTree` caller (focused and background), skips the end-UT rule. It is
+an additive optional key `parentContinues = True` on the BRANCH_POINT node (absent reads false,
+today's reading for older saves and for the background undock's close; no format bump), carried
+by both branch-point clones and `ScenarioWriter.SeparationBranch(parentContinues:)`.
+
+Tests: `BackgroundSeparationShapeTests` (shape with the parent's end at the branch UT, the map
+rebuild and the `parentContinues` round trip, the unstamped closed-at-split reading, the focused
+stamp, coalescing and BROKE_OFF combine, dead controlled piece, one recording for a piece two
+parents saw, flush / Shutdown / retire emission, recording change, missing parent, the held-piece
+emit, and source gates on every emission site; the stamp, the one-holder and the held-piece cells
+were red before their fixes, the earlier gate cells and the retire cell were mutation checked).
+The `BackgroundSplitTests` continuation / bug #285 simulation cells now pass the
+`UNDOCK` cause: they pinned the decouple continuation shape the ruling replaces, and the undock
+path is the one that still builds it.
+
 ## ~~REFLY-ROUTE-SOURCE-REFUSED~~: Re-Fly was offered on a flight a supply route is built from [FILED 2026-11-18 by the recording split / trim / merge review (design question 13: the optimizer holds route sources, the Re-Fly splitter had no such hold); ruled by the owner 2026-11-18 (Q17 "Refuse Re-Fly"). FIXED 2026-11-21, branch `rsr-wp6-live-flight`; xUnit + mutation; no lane; medium (a merge would cut or supersede the route's source and pause the route for good)]
 
 **Cause:** the Re-Fly gate (`RewindInvoker.CanInvoke`) did not know about supply routes. Route candidates come only from fully sealed trees, but a slot of such a tree can open later, and nothing then stopped a Re-Fly whose merge splits the closure root and supersedes the slot's subtree, moving or hiding recordings the route's `SourceRefs` name (route reads `SourceChanged` / `MissingSourceRecording`).
@@ -286,90 +344,83 @@ Residue: (a) the label still reads Sub-orbital for an escaping vessel; (b) live-
 after the sphere exit); (c) the extrapolator samples encounters at 3600 s, so a very short moon pass
 between the end and a much later spawn UT can be missed (the scene-exit finalizer shares the limit).
 
-## SPAWN-RESTING-ON-ROCK: a vessel that ends sitting on an asteroid or comet spawns on its own orbit, not on the rock [FILED 2026-11-18 by the recording split / trim / merge review (design question 5), owner ruling Q11 "on the rock". INVESTIGATED 2026-11-20, branch `rsr-wp7-spawn-ends`, by code reading and the KSP 1.12.5 decompile; NOT BUILT: it needs new recorded data and a player-visible choice, options below; low-medium (a lander parked on a rock can reappear beside it, inside it, or blocked)]
+## ~~SPAWN-RESTING-ON-ROCK~~: a vessel that ends sitting on an asteroid or comet spawned on its own orbit, not on the rock [FILED 2026-11-18 by the recording split / trim / merge review (design question 5), owner ruling Q11 "on the rock". FIXED 2026-11-21 by option B (owner ruling 2026-11-21, "Yes, both"), branch `rsr-wp9-orbit-spawn-clear`; xUnit `OrbitSpawnClearanceTests`; in-game `OrbitSpawnClearance` (never flown); low-medium (a lander parked on a rock reappeared inside it, beside it, or blocked)]
 
-What the ruling asks: a vessel that ends resting on (attached to, or landed on) an asteroid or comet
-spawns resting on the rock and moves with it, not on its own orbit.
+Cause. "Landed on" a rock is not a KSP state: `Part.LandedCollisionChecks` (decompiled) sets
+`GroundContact` / `Vessel.Landed` only for terrain colliders, so a vessel resting on a rock ends
+ORBITING (or SUB_ORBITAL / ESCAPING) and spawns from its own terminal orbit. The ordinary overlap
+check skips SpaceObject vessels (`SpawnCollisionDetector.ClassifyLoadedVesselHit`), so a loaded rock
+never blocked the spawn, and an unloaded one has no colliders: the lander could appear inside the
+rock. Klaw-attached is different and was already right: a grab couples the rock part into the
+grabbing vessel, which records and spawns as one vessel with the rock (owner rulings 2026-11-15,
+ROCK-SPAWN-BOUNDS-TOO-SMALL). The Klaw is the supported way to stay attached to a rock.
 
-Findings.
-1. Klaw-attached is already one vessel, and already right. A Klaw grab couples the rock part
-   (PotatoRoid / PotatoComet) into the grabbing vessel, exactly like a dock (owner rulings
-   2026-11-15: a rock is recorded only from the grab on; `ConnectionProducerClassifier` names the
-   claw couple). The recording's vessel snapshot holds the rock part, the terminal orbit is the
-   combined vessel's, and the end spawn materializes ship and rock as one vessel on that orbit
-   (ROCK-GHOST-PREFAB-MESH / ROCK-SPAWN-BOUNDS-TOO-SMALL made the rock's shape and spawn bounds
-   right). The rock's own pre-grab vessel is hidden after a rewind by the claimed-vessel hold. A
-   vessel that ends gripping a rock therefore spawns gripping it and moves with it; nothing to do.
-2. "Landed on" a rock is not a KSP state. `Part.LandedCollisionChecks` (decompiled) sets
-   `GroundContact` / `Vessel.Landed` only for a collider on layer 15 (terrain / local scenery); a
-   rock is a part (part layer), so a vessel resting on one stays ORBITING (or SUB_ORBITAL /
-   ESCAPING, the rock's own situation) with its own `orbit`, and Parsek stamps `Orbiting` with the
-   vessel's own terminal orbit. The rock is a separate SpaceObject vessel that Parsek never records
-   unless grabbed. On rails the two follow their own conics; any relative velocity at the end
-   (contact jitter, the lander's push on the rock) separates them over time.
-3. What the spawn does today (code reading, not flown): the lander is placed at its own terminal
-   orbit propagated to the spawn UT. After a rewind the live rock follows its unperturbed orbit, so
-   the lander lands near the rock's recorded position, not necessarily on the rock. In flight with
-   the rock loaded, the overlap check (`CheckSpawnCollisions`, the rock's bounds from
-   ROCK-SPAWN-BOUNDS-TOO-SMALL) sees the lander touching the rock and walks the spawn back along the
-   recorded approach or blocks it; unloaded, it can appear inside or beside the rock.
+Fix (ruling: no new save data, no recording change, every use logged). Every recorded-terminal-
+orbit spawn site with a collision check (end-of-recording, both chain-tip sites) first looks for a
+rock at the propagated spawn point: a loaded part with `ModuleAsteroid` / `ModuleComet` (or a rock
+part name) whose colliders the spawn box reaches, or an unloaded SpaceObject whose size-class
+sphere (`RockHalfExtentForClass`, from the saved `prefabBaseURL` or `DISCOVERY size`) is that close
+(`SpawnCollisionDetector.TryFindRockBlocker`). Found: the spawn is pushed straight out from the
+rock's centre in 0.5 m steps until its bounds clear the rock's colliders by 1 m (unloaded: the
+size-class radius plus the bounds radius plus 1 m), and takes the rock's orbital velocity through a
+co-moving orbit built at the spawn UT (`ResolveRockPushOut`, `OrbitSpawnClearance.TryBuildCoMovingOrbit`),
+so it moves with the rock and drifts slowly like stock. The terminal-orbit spawn safety check is re-run
+on that orbit. A pushed spot another loaded vessel blocks takes the blocked retry; that final
+check leaves out the rock part itself, since a rock held by another vessel's Klaw is a part of that
+Ship / Probe vessel and would otherwise block every push-out at the 5 m padding (the holding
+vessel's other parts still block). Logged:
+`[SpawnCollision] Rock push-out: ...` and `Orbit spawn clearance: ... outcome=RockPushedOut`. Landed
+spawns are unchanged (the ordinary check still skips rocks). Not done (option A, not ordered): no
+rock identity or relative pose is recorded, so a rock that drifted after a rewind is not followed;
+the spawn reacts only to a rock that is at the spawn point.
 
-Why it is more than a day and needs a choice.
-- Detecting "resting on a rock" at the end needs new live capture: a contact between one of the
-  vessel's parts and a ModuleAsteroid / ModuleComet part of another vessel
-  (`Part.currentCollisions`), with a relative-speed threshold, at every terminal stamp site
-  (commit, scene exit, background).
-- The spawn needs new persisted data (additive keys, no format bump): the rock's identity (its
-  vessel guid and persistentId; a SpaceObject keeps both) and the lander's pose in the rock's frame
-  (position offset and rotation relative to the rock's root part).
-- The spawn needs the rock's state at the spawn UT: the live rock vessel (loaded or on rails),
-  or, for a rock a committed flight released (it records as its own branch and becomes real at its
-  tip), that recording's spawned vessel or trajectory. The lander then spawns at rock pose x
-  offset with the rock's velocity, through the orbit spawn route and its safety checks, with the
-  overlap check told the rock is expected contact.
-- Player-visible choices the ruling does not settle: what happens when the rock is not there at
-  the spawn UT (grabbed by another flight, released somewhere else, destroyed, a comet that was
-  never discovered in this timeline): spawn on the lander's own orbit (today), hold the spawn, or
-  never spawn; and whether a landing that was only brushing the rock counts.
+Tests: xUnit `OrbitSpawnClearanceTests` (push-out search, direction, clearance distance, wiring of
+the rock check before the phase search); in-game `OrbitSpawnClearance` cell
+`OrbitSpawnInsideARock_IsPushedOutAndCoMovesWithTheRock` (spawns a PotatoRoid, isolated only).
+Residue: no lane flies it (recommended: a lander resting on a loaded asteroid, rewound, end spawn in
+flight beside the rock).
 
-Options.
-- A (recommended): record rock contact at the end (identity + relative pose) and spawn relative to
-  the rock when it can be found at the spawn UT; fall back to today's own-orbit spawn, logged, when
-  it cannot. About 2-3 days with an in-game test (contact capture needs live physics) and a lane.
-- B: no recording change; at spawn, if a SpaceObject is within a few metres of the lander's
-  propagated position, take that rock's velocity and keep the lander's position. Cheap, but it
-  silently depends on the rock not having drifted and cannot place the lander on a rock that
-  drifted after a rewind.
-- C: keep today's behaviour and document that a lander must grip the rock with the Klaw to stay
-  with it (which is already exact, finding 1).
+## ~~SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS~~: the end-spawn collision walkback for an orbit spawn tested positions the vessel is not placed at [FILED 2026-11-20 from the WP7 review (asteroid / comet second opinion), by code reading. FIXED 2026-11-21 by option (b) (owner ruling 2026-11-21, "Yes, both"), branch `rsr-wp9-orbit-spawn-clear`; xUnit `OrbitSpawnClearanceTests`; in-game `OrbitSpawnClearance` (never flown); low-medium (an orbit spawn blocked by a loaded vessel could still appear inside it, or be abandoned)]
 
-Recommendation: A, with the fallback to the own-orbit spawn when the rock is missing (no new hold
-state). Needs owner sign-off on the missing-rock rule before building.
+Cause. When an end-of-recording orbit spawn (an Orbiting terminal with a recorded terminal orbit,
+or an escape path) overlapped a loaded vessel, `VesselSpawner.CheckSpawnCollisions` walked back
+along the recorded trajectory, reading each body-fixed point at the spawn UT (so a candidate turned
+with the planet), and the spawn then went through `SpawnAtPosition` with the orbit override, which
+places a non-landed ProtoVessel by its ORBIT node: a "cleared" walk still spawned inside the
+blocker, and an exhausted walk abandoned a spawn whose blocker could have moved. The chain-tip
+walkback (`VesselGhoster.TryWalkbackSpawn`) had the same shape and spawned an orbital tip at an old
+body-fixed point with a reseeded orbit.
 
-## SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS: the end-spawn collision walkback for an orbit spawn tests positions the vessel is not placed at [FILED 2026-11-20 from the WP7 review (asteroid / comet second opinion), by code reading; NOT FIXED: needs a design choice; low-medium (an orbit spawn blocked by a loaded vessel can still appear inside it, or be abandoned)]
+Fix. An orbit-route spawn that overlaps a loaded vessel moves a little ahead or behind along its OWN
+orbit: same elements, the spawn epoch's mean anomaly shifted by the time the along-track offset
+takes (`OrbitSpawnClearance.TryBuildPhaseShiftedOrbit`). The bounded search tries +4, -4, +6, -6 m
+... growing by 1.5 per pair to 1000 m (30 candidates) and takes the first whose bounds overlap no
+loaded vessel and no rock (`SpawnCollisionDetector.SearchClearOrbitPhase`); the terminal-orbit spawn
+safety check is re-run on the shifted orbit. No clear spot within 1000 m takes today's blocked
+outcome for a spawn that cannot walk back: retry next frame, abandon after 150 blocked frames
+(`VesselSpawner.BlockOrbitRouteSpawn`); a chain tip stays blocked and retries every second at its
+orbit propagated to that second (`TrySpawnBlockedOrbitChainTip`, no ghost-extender position, no
+walkback). Never spawned overlapping. The duplicate-blocker recovery (#112) still runs first.
+Landed, splashed, EVA-endpoint and breakup spawns keep the walkback. The Space Center and Tracking
+Station spawns have no collision check (nothing is loaded there) and are unchanged. Logged:
+`CheckSpawnCollisions: orbit phase shift moved the spawn of #N ...`, `Orbit spawn clearance: ...`,
+`Orbit phase search: ...`, `Chain tip orbit spawn moved: ...`.
 
-What it is. When an end-of-recording spawn overlaps a loaded vessel,
-`VesselSpawner.CheckSpawnCollisions` walks back along the recorded trajectory
-(`SpawnCollisionDetector.ResolveWalkbackPointsOnBody`, `TryWalkbackForEndOfRecordingSpawn`)
-and tests each candidate with `body.GetWorldSurfacePosition(lat, lon, alt)`. For an orbit spawn
-(an Orbiting terminal with a recorded terminal orbit, or an escape trajectory) that is unsound twice:
-1. The recorded points are body-fixed samples of their OWN UTs. Read at the spawn UT they turn
-   with the planet, so a candidate sits where the vessel was relative to the ground, not along its
-   orbit (the error grows with spawn UT minus point UT, and with a deferred spawn it is unrelated
-   to the spawn place at all).
-2. The spawn then goes through `SpawnAtPosition` with the orbit override, and a non-landed
-   ProtoVessel is placed by its ORBIT node, not by the lat / lon / alt the walkback wrote. So a
-   "clear" walked position does not move the vessel: it still appears at the propagated orbit
-   point, inside the blocker (`CheckSpawnCollisions: walkback rewrote spawn position` is logged
-   anyway). If the walk exhausts, the spawn is abandoned for a blocker that would have drifted away.
-The chain-tip walkback (`VesselGhoster`, around the blocked-tip handling) shares the shape.
-
-Options. (a) Orbit spawns skip the walkback and wait for the blocker to clear (the retry /
-`CollisionBlockCount` path, or the chain tip's blocked-and-retry hold), with a bound long enough
-for orbital separation; (b) walk the ORBIT instead (try the orbit at spawn UT plus or minus small
-offsets in time) and spawn on the chosen phase; (c) leave it. (a) is the smaller change but needs
-a rule for a station parked next to the spawn point (it never clears). Needs an owner pick; not
-built. Relevant to SPAWN-RESTING-ON-ROCK: a lander resting on a loaded rock hits exactly this path.
+Tests: xUnit `OrbitSpawnClearanceTests` (schedule, mean-anomaly shift and wrap, searches, the
+blocked retry and abandon, wiring gates at all three sites, red on the old sources); in-game
+`OrbitSpawnClearance` cell `OrbitSpawnOnTheActiveVessel_MovesAlongItsOwnOrbitToAClearSpot`.
+Residue: no lane flies it (recommended: an orbit spawn next to a parked station).
+`EX-2-single-point-held-ghost` reached its D18 hold through this path (its `single-point-hold`
+orbit spawn blocked by the co-orbiting probe): the phase search would now clear at about 230 m and
+spawn it, so EX-2 takes its own preset `single-point-hold-wide` (the same shape with the outriggers at
+1300 m instead of 150 m, so every phase candidate still covers the probe) and the lane is re-pinned to the orbit route's no-clear-spot block, with the same hold,
+retries and timeout; re-flight owed. The non-orbit single-point branch EX-2 used to read is now the
+in-game cell `SinglePointSpawnWithNoTerminalOrbit_KeepsTheSinglePointRetry` (a non-orbit single point
+cannot be held in LKO, and no committed fixture has a ground host outside the KSC circles).
+`SPW-11-rsc-warp-orbital-held-target` keeps `single-point-hold` and its 150 m box (live-proven
+2026-11-20 with the target spawned; the phase search still clears and spawns there).
+`SPW-5-physics-warp-end-spawn-near-active` would read a phase shift if its probe ever blocked, which
+its LeafPlacement verdict may report as `phase`.
 
 ## ~~DEBRIS-LIFETIME-LOST-ON-PROMOTION~~: a debris piece the player switched to lost its 60 s limit [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a promoted booster recorded until it crashed; GS-11 measured it)]
 

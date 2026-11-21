@@ -68,6 +68,14 @@ namespace Parsek
         public int DebrisCount;                // Number of non-tracked debris fragments
         public double CoalesceWindow;          // Time threshold used for grouping (default 0.5s)
 
+        // True on a separation whose parent recording keeps recording past it (the crash
+        // coalescer's Breakup / JointBreak wired by ParsekFlight.WireBreakupIntoTree, for the
+        // focused vessel and for a background one). The vessel-line reader uses it instead of
+        // inferring "closed at the split" from the parent's ExplicitEndUT, which equals the
+        // branch UT until the parent's next sample. Optional key "parentContinues"; absence
+        // reads false (today's reading), so no schema generation bump.
+        public bool ParentContinues;
+
         // MERGE metadata (for Dock, Board)
         // "DOCK" or "BOARD" (ParsekFlight.GetMergeCauseForBranchType). A claw couple is a Dock
         // with MergeCause "DOCK"; only the merged child recording's TransferKind = Grapple

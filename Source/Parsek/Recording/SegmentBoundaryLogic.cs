@@ -177,7 +177,7 @@ namespace Parsek
         /// matches no cause arm and reads the JointBreak type, also "Broke off". A null
         /// SplitCause keeps its old meaning (a staging decouple in the Missions steps).
         /// </summary>
-        internal const string BrokeOffSplitCause = "BROKE_OFF";
+        internal const string BrokeOffSplitCause = CrashCoalescer.BrokeOffSplitCause;
 
         /// <summary>
         /// Classifies a docking-port undock (<c>GameEvents.onVesselsUndocking</c>) against the

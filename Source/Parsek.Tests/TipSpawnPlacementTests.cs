@@ -489,7 +489,11 @@ namespace Parsek.Tests
             string ghoster = StripLineComments(File.ReadAllText(ParsekSource("Ghost", "VesselGhoster.cs")));
             string body = ExtractMethodBody(ghoster, "internal uint SpawnAtChainTip(");
             int resolve = body.IndexOf("VesselSpawner.TryResolveRecordedTerminalOrbitSpawnState(", StringComparison.Ordinal);
-            int check = body.IndexOf("SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(", StringComparison.Ordinal);
+            // The overlap check lives in ResolveChainTipSpawnOverlap, which an orbital tip
+            // reaches with its propagated orbit (the orbit-route clearance).
+            int check = body.IndexOf("ResolveChainTipSpawnOverlap(", StringComparison.Ordinal);
+            Assert.Contains("SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(",
+                ExtractMethodBody(ghoster, "Vessel blocker) ResolveChainTipSpawnOverlap("));
             Assert.True(resolve >= 0 && check >= 0);
             Assert.True(resolve < check,
                 "SpawnAtChainTip must resolve the propagated orbit state before the collision check");
@@ -578,7 +582,11 @@ namespace Parsek.Tests
                 "ApplyEndOfRecordingLandedDeOverlap(rec, index, body, ref spawnLat, ref spawnLon, ref spawnAlt)",
                 StringComparison.Ordinal);
             int pos = spawn.IndexOf("body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt)", StringComparison.Ordinal);
-            int check = spawn.IndexOf("CheckSpawnCollisions(", StringComparison.Ordinal);
+            // The collision check runs through ResolveEndOfRecordingSpawnCollision, which keeps
+            // CheckSpawnCollisions for every spawn without an orbit override.
+            int check = spawn.IndexOf("ResolveEndOfRecordingSpawnCollision(", StringComparison.Ordinal);
+            Assert.Contains("CheckSpawnCollisions(", ExtractMethodBody(eor,
+                "Vector3d pos) ResolveEndOfRecordingSpawnCollision("));
             Assert.True(orbit >= 0 && decide >= 0 && apply >= 0 && pos >= 0 && check >= 0);
             Assert.True(orbit < decide && decide < apply && apply < pos && pos < check,
                 "the de-overlap must run after the endpoint is resolved and before the spawn position and collision check");

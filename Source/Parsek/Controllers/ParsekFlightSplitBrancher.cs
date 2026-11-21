@@ -1744,7 +1744,10 @@ namespace Parsek
         /// the crash coalescer's open window early: what it already collected still becomes ONE
         /// branch point, only the 0.5 s window is cut short. The branch point attaches to the
         /// tree's active recording, so every caller flushes BEFORE it changes that recording
-        /// (pinned by <c>PendingSplitFlushWiringTests</c>). <paramref name="excludePidA"/> / <paramref name="excludePidB"/>
+        /// (pinned by <c>PendingSplitFlushWiringTests</c>). The background recorder's
+        /// per-vessel separation windows are emitted at the same moment
+        /// (<see cref="BackgroundRecorder.FlushBackgroundSeparationWindows"/>); each attaches to
+        /// its own parent recording. <paramref name="excludePidA"/> / <paramref name="excludePidB"/>
         /// name the vessels of the split the caller is about to branch (they get their own
         /// branch); <paramref name="parentRecorderHint"/> is the stopped recorder of the
         /// parent when the caller already took it off the host. Returns true when a branch
@@ -1759,6 +1762,9 @@ namespace Parsek
             int fed = host.FeedUnprocessedDecoupleCapturesToCoalescer(
                 reason, excludePidA, excludePidB, parentRecorderHint);
             bool emitted = EmitPendingSplitNow(reason, parentRecorderHint);
+            // Background vessels coalesce their own separations (owner ruling Q15): their
+            // open windows are written at the same moments.
+            host.backgroundRecorder?.FlushBackgroundSeparationWindows(reason);
             if (fed > 0 || emitted)
             {
                 ParsekLog.Info("Coalescer",
