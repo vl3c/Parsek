@@ -176,6 +176,7 @@ C:StockShadowTakeBack.NoteLoad
 C:CaptureSequence.CurrentHighWater
 C:LiveOnlyIncome.DropAfterTimeTravelLoad
 C:ReconcileRemovedReplayFlagsAtLoad
+C:ForgetStockHeldVesselsAfterTimeTravel
 A:ctx.Phase
 S:"rewind"
 C:HandleRewindOnLoad
@@ -273,6 +274,7 @@ C:StockShadowTakeBack.NoteLoad
 C:CaptureSequence.CurrentHighWater
 C:LiveOnlyIncome.DropAfterTimeTravelLoad
 C:ReconcileRemovedReplayFlagsAtLoad
+C:ForgetStockHeldVesselsAfterTimeTravel
 C:LoadReconcilePolicy.Decide
 A:ctx.Phase
 S:"vessel-names-revert-undo"
