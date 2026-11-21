@@ -507,6 +507,25 @@ OPEN:
   save-format change. Live proof: a lane (or an in-game cell over a ghost of a symmetry pair of
   hinges) must show the mirrored line for the counterpart and both moving transforms within a
   degree of stock's at spawn.
+- Live proof lane AUTHORED 2026-11-21, NEVER FLOWN (branch `test-gaps-rotor`): owed flight of
+  `SRV-3-mirrored-hinge-pair-ghost` (stock-tree, operator) on the new derived fixture
+  `srv-mirror-hinge-rover` (`harness/tools/build_srv_mirror_hinge_rover.py`): a symmetry pair of
+  G-11 hinges on a front micronode (left half `mirrorRotation = True`, both `targetAngle = 60`,
+  posed by the load drive before StartRecording) plus a LOCKED Alligator (`hinge.03`,
+  `modelInitialAngle = 90`), each carrying a Z-200; the pair swung by `PartAction servomin` /
+  `servomax all=true`, committed, Rewound-to-Launch, replayed. It pins the mirrored line for the
+  left half only, the Alligator's `Servo pose offset` line, the recorder's opposite-signed Stopped
+  values for the mirrored half, the three-follower plan / bind and both halves' playback re-poses,
+  and runs the new FLIGHT category `ServoMirroredPose` (one cell, `ServoMirroredPoseInGameTests`,
+  pure halves in xUnit `ServoMirroredPoseHelpersTests`): the committed recording's ghost is built
+  through the real pipeline and both halves must be mirror images at spawn (0.05 deg) and at
+  stock's persisted `servoTransformRotation` (1.0 deg), the Alligator at stock's pose too (the
+  offset fix), and mirror images (1.0 deg) after the pair's recorded events replay to their last
+  stop. The mirrored half is deliberately NOT an offset hinge: stock limits every hinge's joint to
+  +/-90 deg about its rest, and a mirrored Alligator's `JointTargetAngle` (`-targetAngle - 90`)
+  lies outside that for every target above 0, so no file-constructed save can hold one posed. Both
+  OPEN live-proof items above close on its first green flight; the pair's Stopped values (pinned
+  85..94 deg, either sign) and the swing windows are to be tightened from it.
 
 ## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
 

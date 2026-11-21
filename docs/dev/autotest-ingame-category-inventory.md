@@ -1,4 +1,4 @@
-# In-game test category inventory (all 147 categories)
+# In-game test category inventory (all 148 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -201,6 +201,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
 | `ServoFollowers` | 1 | 1 | 0 | 0 | 0 | 1 | SRV-1-hinge-followers-ghost (FLIGHT, operator tier, stock-tree), authored 2026-11-20 (branch `test-gaps-b3-servo-lane`), NEVER FLOWN: `total=1` literal with the split regexed, run after the lane's recorded hinge swing has replayed on the ghost in the same FLIGHT scene, and the cell's own pass line required. Bucket **A** on the interim standing. Was NOT DRIVEN (GHOST-SERVO-CHILDREN-STATIC, 2026-11-20, branch `test-gaps-servoghost`). One FLIGHT cell: a three-part snapshot over a stock Breaking Ground hinge, rotation servo or piston (part on the servo's moving node, part surface-attached on its base side) is built through the real ghost pipeline, a recorded robotic event moves the servo, and the moving-side part must follow while the base-side part holds; a return to the spawn value must put the follower back at its snapshot pose. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips without Breaking Ground. NEVER RUN | A |
+| `ServoMirroredPose` | 1 | 1 | 0 | 0 | 0 | 1 | SRV-3-mirrored-hinge-pair-ghost (FLIGHT, operator tier, stock-tree), authored 2026-11-21 (branch `test-gaps-rotor`, todo GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE), NEVER FLOWN: `total=1` literal with the split regexed, run after the lane's recorded mirrored hinge pair has replayed, and the cell's own pass line required. One FLIGHT cell over the COMMITTED recording whose start snapshot carries a hinge symmetry pair with one half `mirrorRotation = True`: its ghost is built through the real pipeline, the two moving transforms must be mirror images at spawn (0.05 deg) and at stock's persisted `servoTransformRotation` (1.0 deg), every other posed servo at stock's pose too, and mirror images again (1.0 deg) after the pair's recorded robotic events replay to their last settled stop. Its own category so `ServoFollowers`' pinned tally does not move. Self-skips without the subject. NEVER RUN | A |
 | `Settings` | 5 | 4 | 3 | 4 | 0 | 2 | H46 (flown 2026-08-28, executes 4 of 5; the 5th is TRACKSTATION-scoped) | B |
 | `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
 | `SnapshotSidecars` | 2 | 2 | 2 | 2 | 0 | 2 | ST-3-snapshot-sidecars-bdock (single-category, authored 2026-09-26 by coverage wave 5 on `bdock-recorded`, the one committed Storage-shaped host with a committed AliasVessel recording: every snapshot sidecar probed as DeflateV1 and decoded, a live vessel snapshot round-tripped through the product writer and reader, and an AliasVessel copy run through the product save (no `_ghost.craft`) and load (ghost restored from the vessel). LIVE-PROVEN: reading `2026-09-25_2158` and armed `2026-09-25_2203`, both PASS attempt 1, executes 2 of 2 - the whole category at FLIGHT with zero skips, `total=2 passed=2 failed=0 skipped=0` pinned whole. Its own category so `Storage`'s whole-pinned tally on ST-1 / ST-2 does not move) | A |
@@ -241,8 +242,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived from the table on 2026-11-20: **147 categories / 711 declarations**.
-Buckets **A 115 categories (418 declarations)**, **B 31 categories (289 declarations)**,
+Totals, re-derived from the table on 2026-11-21: **148 categories / 712 declarations**.
+Buckets **A 116 categories (419 declarations)**, **B 31 categories (289 declarations)**,
 **C 1 category (4 declarations)**. The 2026-11-16 test gap audit B11 wiring moved six of the
 seven categories no committed spec ran into **A**, first on the interim standing (`total=`
 literal, split regexed) and the same evening as measured **A3** members: reading runs
@@ -281,6 +282,11 @@ On 2026-11-20 the new FLIGHT category `BgSoiCrossingPlayback` 3 (test gap batch 
 vessel crossing an SOI boundary on rails) was wired into the new operator lane
 `SOI-3-bg-probe-mun-exit-on-rails` on the interim standing: A 114 -> 115 categories,
 415 -> 418 declarations, so **147 categories / 711 declarations**.
+On 2026-11-21 the new FLIGHT category `ServoMirroredPose` 1 (todo
+GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE, a mirrored Breaking Ground hinge pair read off the committed
+recording's ghost) was wired into the new operator lane `SRV-3-mirrored-hinge-pair-ghost` on the
+interim standing: A 115 -> 116 categories, 418 -> 419 declarations, so **148 categories / 712
+declarations**.
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
 the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it; both flew green the
 same day and it stays **B** (each lane is a scene slice, 4 of 9).
