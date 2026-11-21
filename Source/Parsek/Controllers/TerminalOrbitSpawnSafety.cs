@@ -69,13 +69,15 @@ namespace Parsek
         /// <list type="number">
         /// <item>Non-finite propagated altitude or periapsis: CannotSpawnSafely.</item>
         /// <item>Periapsis not above the periapsis floor (<see cref="OrbitClearance"/>: the
-        /// atmosphere top, or the highest terrain on an airless body): CannotSpawnSafely.
+        /// deletion altitude <paramref name="deletionAltitude"/>, or the highest terrain
+        /// <paramref name="maxTerrainAltitude"/>): CannotSpawnSafely.
         /// Commit classification reads the same floor, so a recording reaches this branch only
         /// through a verdict real play does not produce.</item>
         /// <item>Propagated altitude under the atmosphere top plus <paramref name="safetyMargin"/>
         /// while the orbit climbs above it later: DeferUntilSafe.</item>
         /// <item>Otherwise SpawnNow, including an orbit whose apoapsis never reaches the margin
-        /// (it is clear of the atmosphere all the way round).</item>
+        /// (an orbit whose low point clears the floor; owner ruling Q3 spawns it like a stock
+        /// unloaded vessel even when it stays inside the upper atmosphere).</item>
         /// </list>
         /// </summary>
         internal static TerminalOrbitSpawnSafetyDecision Evaluate(
@@ -84,12 +86,12 @@ namespace Parsek
             double safetyMargin,
             double periapsisAltitude,
             double apoapsisAltitude,
-            double maxTerrainAltitude = 0.0)
+            double maxTerrainAltitude,
+            double deletionAltitude)
         {
             double safeAltitude = ComputeSafeAltitude(atmosphereDepth, safetyMargin);
             double periapsisFloor = OrbitClearance.ComputePeriapsisFloorAltitude(
-                IsFinite(atmosphereDepth) && atmosphereDepth > 0.0,
-                atmosphereDepth,
+                deletionAltitude,
                 maxTerrainAltitude);
             var inputs = new DecisionInputs
             {

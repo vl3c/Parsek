@@ -391,7 +391,9 @@ namespace Parsek.Tests
                 atmosphereDepth: KerbinAtmosphereDepth,
                 safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude: orbit.PeriapsisRadius - KerbinRadius,
-                apoapsisAltitude: orbit.ApoapsisRadius - KerbinRadius);
+                apoapsisAltitude: orbit.ApoapsisRadius - KerbinRadius,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
         }
 
         private static void AssertVector(Vector3d expected, Vector3d actual, int precision)

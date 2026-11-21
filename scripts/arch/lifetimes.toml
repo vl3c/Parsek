@@ -402,6 +402,11 @@ default = "process"
 reason = "ERS / ELS / suppression / retired caches keyed on RecordingStore.StateVersion, Ledger.StateVersion, the supersede and tombstone versions and the marker identity; a cold load bumps the static counters"
 
 [[type]]
+name = "Parsek.OrbitClearance"
+default = "process"
+reason = "per-body deletion altitude bisected once from the body's pressure curve; celestial bodies do not change inside a KSP process"
+
+[[type]]
 name = "Parsek.LedgerTimelineSignal"
 default = "process"
 reason = "the timeline invalidation callback the windows subscribe and the ledger raises; a subscription, not save state"

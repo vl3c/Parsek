@@ -1097,19 +1097,21 @@ namespace Parsek
 
         /// <summary>
         /// Pure decision: is the orbit a stable bound orbit whose periapsis clears
-        /// the body's periapsis floor (<see cref="OrbitClearance"/>): the atmosphere
-        /// top, or the maximum terrain height on an airless body? Atmospheric grazers
-        /// decay to destruction via drag, and a periapsis under the highest terrain can
-        /// strike the surface, so both are a decaying flight (SubOrbital), never Orbiting.
+        /// the body's periapsis floor (<see cref="OrbitClearance"/>): the deletion
+        /// altitude (where the body's pressure falls to stock's packed-vessel deletion
+        /// threshold), or the maximum terrain height? A low point under the deletion
+        /// altitude is deleted by stock on its first unloaded pass, and one under the
+        /// highest terrain can strike the surface, so both are a decaying flight
+        /// (SubOrbital), never Orbiting; a low point between the deletion altitude and the
+        /// atmosphere top keeps orbiting like a stock unloaded vessel (owner ruling Q3).
         /// The terminal-orbit spawn-safety check reads the same floor, so every Orbiting
         /// verdict produced here spawns.
         /// </summary>
-        internal static bool IsBoundOrbitAboveAtmosphere(
+        internal static bool IsBoundOrbitClearOfFloor(
             double eccentricity,
             double periapsisRadius,
             double bodyRadius,
-            bool bodyHasAtmosphere,
-            double atmosphereDepth,
+            double deletionAltitude,
             double maxTerrainAltitude = 0.0)
         {
             return OrbitClearance.IsBoundOrbitClear(
@@ -1117,8 +1119,7 @@ namespace Parsek
                 periapsisRadius,
                 bodyRadius,
                 OrbitClearance.ComputePeriapsisFloorAltitude(
-                    bodyHasAtmosphere,
-                    atmosphereDepth,
+                    deletionAltitude,
                     maxTerrainAltitude));
         }
 
@@ -1152,15 +1153,15 @@ namespace Parsek
             bool bodyHasAtmosphere = body.atmosphere;
             double atmosphereDepth = bodyHasAtmosphere ? body.atmosphereDepth : 0.0;
             double maxTerrainAltitude = OrbitClearance.ResolveMaxTerrainAltitude(body);
+            double deletionAltitude = OrbitClearance.ResolveDeletionAltitude(body);
             double periapsisFloor = OrbitClearance.ComputePeriapsisFloorAltitude(
-                bodyHasAtmosphere, atmosphereDepth, maxTerrainAltitude);
+                deletionAltitude, maxTerrainAltitude);
             TerminalState resolved = DetermineTerminalStateFromOrbitEvidence(
                 situation,
                 vessel.orbit.eccentricity,
                 vessel.orbit.PeR,
                 body.Radius,
-                bodyHasAtmosphere,
-                atmosphereDepth,
+                deletionAltitude,
                 maxTerrainAltitude);
 
             if (baseState == TerminalState.SubOrbital && resolved == TerminalState.Orbiting)
@@ -1169,6 +1170,7 @@ namespace Parsek
                     $"DetermineTerminalState: overriding SUB_ORBITAL to Orbiting - vessel has bound orbit " +
                     $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
                     $"bodyR={body.Radius:F0}, atmoTop={atmosphereDepth:F0}, " +
+                    $"deletionAlt={deletionAltitude:F0}, " +
                     $"maxTerrain={maxTerrainAltitude:F0}, periapsisFloor={periapsisFloor:F0}, " +
                     $"bodyHasAtmosphere={bodyHasAtmosphere})");
             }
@@ -1178,13 +1180,14 @@ namespace Parsek
                     ? "orbit evidence is unbound"
                     : vessel.orbit.PeR <= body.Radius
                         ? "periapsis is below surface"
-                        : bodyHasAtmosphere && vessel.orbit.PeR <= body.Radius + atmosphereDepth
-                            ? "periapsis is inside atmosphere"
+                        : deletionAltitude > 0.0 && vessel.orbit.PeR <= body.Radius + deletionAltitude
+                            ? "periapsis is below the deletion altitude"
                             : "periapsis is below the highest terrain";
                 ParsekLog.Info("RecordingTree",
                     $"DetermineTerminalState: overriding ORBITING to SubOrbital - {reason} " +
                     $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
                     $"bodyR={body.Radius:F0}, atmoTop={atmosphereDepth:F0}, " +
+                    $"deletionAlt={deletionAltitude:F0}, " +
                     $"maxTerrain={maxTerrainAltitude:F0}, periapsisFloor={periapsisFloor:F0}, " +
                     $"bodyHasAtmosphere={bodyHasAtmosphere})");
             }
@@ -1197,8 +1200,7 @@ namespace Parsek
             double eccentricity,
             double periapsisRadius,
             double bodyRadius,
-            bool bodyHasAtmosphere = false,
-            double atmosphereDepth = 0.0,
+            double deletionAltitude = 0.0,
             double maxTerrainAltitude = 0.0)
         {
             TerminalState baseState = DetermineTerminalState(situation);
@@ -1212,12 +1214,11 @@ namespace Parsek
 
             if (baseState == TerminalState.SubOrbital
                 && situation == 16
-                && IsBoundOrbitAboveAtmosphere(
+                && IsBoundOrbitClearOfFloor(
                     eccentricity,
                     periapsisRadius,
                     bodyRadius,
-                    bodyHasAtmosphere,
-                    atmosphereDepth,
+                    deletionAltitude,
                     maxTerrainAltitude))
             {
                 return TerminalState.Orbiting;
@@ -1225,12 +1226,11 @@ namespace Parsek
 
             if (baseState == TerminalState.Orbiting
                 && situation == 32
-                && !IsBoundOrbitAboveAtmosphere(
+                && !IsBoundOrbitClearOfFloor(
                     eccentricity,
                     periapsisRadius,
                     bodyRadius,
-                    bodyHasAtmosphere,
-                    atmosphereDepth,
+                    deletionAltitude,
                     maxTerrainAltitude))
             {
                 return TerminalState.SubOrbital;

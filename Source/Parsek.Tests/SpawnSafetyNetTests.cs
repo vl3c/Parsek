@@ -1584,7 +1584,9 @@ namespace Parsek.Tests
                 atmosphereDepth: 70000.0,
                 safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude: 85000.0,
-                apoapsisAltitude: 180000.0);
+                apoapsisAltitude: 180000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonAboveSafeAltitude, decision.ReasonCode);
@@ -1599,7 +1601,9 @@ namespace Parsek.Tests
                 atmosphereDepth: 70000.0,
                 safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude: 71000.0,
-                apoapsisAltitude: 125000.0);
+                apoapsisAltitude: 125000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.DeferUntilSafe, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude, decision.ReasonCode);
@@ -1616,7 +1620,9 @@ namespace Parsek.Tests
                 atmosphereDepth: 70000.0,
                 safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude: 16000.0,
-                apoapsisAltitude: 125000.0);
+                apoapsisAltitude: 125000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude, decision.ReasonCode);
@@ -1625,12 +1631,16 @@ namespace Parsek.Tests
         [Fact]
         public void TerminalOrbitSpawnSafety_UnsafePeriapsis_CannotSpawnSafely()
         {
+            // Periapsis under the deletion altitude (owner ruling Q3 moved the line there from
+            // the atmosphere top, so a 48 km periapsis would now spawn).
             var decision = TerminalOrbitSpawnSafety.Evaluate(
                 currentAltitude: 103780.5,
                 atmosphereDepth: 70000.0,
                 safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
-                periapsisAltitude: 48000.0,
-                apoapsisAltitude: 125000.0);
+                periapsisAltitude: 18000.0,
+                apoapsisAltitude: 125000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude, decision.ReasonCode);
@@ -1645,7 +1655,9 @@ namespace Parsek.Tests
                 atmosphereDepth: 0.0,
                 safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude: 2500.0,
-                apoapsisAltitude: 12000.0);
+                apoapsisAltitude: 12000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: 0.0);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, decision.Action);
             Assert.Equal(0.0, decision.SafeAltitude, 10);

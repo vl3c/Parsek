@@ -8045,10 +8045,10 @@ namespace Parsek.Tests
             Assert.Equal(TerminalOrbitPointAlt, TerminalOrbitAltitudeAt(SinglePointHoldSaveUT), 0);
 
             // A state real play produces: commit classification calls a 71 km periapsis over
-            // Kerbin's 70 km atmosphere top Orbiting (the shared OrbitClearance floor).
+            // Kerbin's deletion altitude Orbiting (the shared OrbitClearance floor).
             Assert.Equal(TerminalState.Orbiting, RecordingTree.DetermineTerminalStateFromOrbitEvidence(
                 32, TerminalOrbitEcc, TerminalOrbitSma * (1.0 - TerminalOrbitEcc),
-                SpawnSafetyKerbinRadius, true, 70000.0));
+                SpawnSafetyKerbinRadius, OrbitClearanceTestValues.KerbinDeletionAltitude));
 
             // Both EndUTs fall well inside the first warp, with the orbit already under
             // 75 km at the Orbiting EndUT, so a spawn attempt anywhere between that EndUT
@@ -8063,7 +8063,7 @@ namespace Parsek.Tests
                  ut <= SpawnSafetyFirstWarpUT + 60.0; ut += 5.0)
             {
                 var d = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
-                    true, 70000.0, TerminalOrbitAltitudeAt(ut), pe, ap);
+                    true, 70000.0, TerminalOrbitAltitudeAt(ut), pe, ap, 0.0, OrbitClearanceTestValues.KerbinDeletionAltitude);
                 Assert.Equal(TerminalOrbitSpawnSafetyAction.DeferUntilSafe, d.Action);
                 Assert.Equal(TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude, d.ReasonCode);
             }
@@ -8091,7 +8091,7 @@ namespace Parsek.Tests
             foreach (double ut in new[] { 1002.7, secondFlushUT })
             {
                 var spawn = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
-                    true, 70000.0, TerminalOrbitAltitudeAt(ut), pe, ap);
+                    true, 70000.0, TerminalOrbitAltitudeAt(ut), pe, ap, 0.0, OrbitClearanceTestValues.KerbinDeletionAltitude);
                 Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, spawn.Action);
                 Assert.Equal(TerminalOrbitSpawnSafety.ReasonAboveSafeAltitude, spawn.ReasonCode);
             }

@@ -10,6 +10,9 @@ namespace Parsek
         public string ReferenceBodyName;
         public bool ReferenceBodyHasAtmosphere;
         public double ReferenceBodyAtmosphereDepth;
+        // The shared Orbiting line of the reference body (OrbitClearance: deletion altitude
+        // or highest terrain); the ORBITING-situation extrapolation cutoff reads it.
+        public double ReferenceBodyPeriapsisFloorAltitude;
         public double Inclination;
         public double Eccentricity;
         public double SemiMajorAxis;
@@ -237,9 +240,12 @@ namespace Parsek
                 return CompleteRefresh(cache, Fail(cache, "vessel-orbit-null"), recordingsExamined, 0, 0);
             }
 
-            double cutoffAltitude = orbit.ReferenceBodyHasAtmosphere && orbit.ReferenceBodyAtmosphereDepth > 0.0
-                ? orbit.ReferenceBodyAtmosphereDepth
-                : 0.0;
+            // Owner ruling Q3: the ORBITING cutoff is the shared periapsis floor (deletion
+            // altitude or highest terrain), not the atmosphere top.
+            double cutoffAltitude = IsFinite(orbit.ReferenceBodyPeriapsisFloorAltitude)
+                && orbit.ReferenceBodyPeriapsisFloorAltitude > 0.0
+                    ? orbit.ReferenceBodyPeriapsisFloorAltitude
+                    : 0.0;
 
             if (!BallisticExtrapolator.ShouldExtrapolate(
                     vessel.Situation,
@@ -428,7 +434,8 @@ namespace Parsek
             double refreshUT,
             FinalizationCacheOwner owner,
             string reason,
-            out RecordingFinalizationCache cache)
+            out RecordingFinalizationCache cache,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodiesOverride = null)
         {
             cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
             cache.LastObservedOrbitDigest = BuildOrbitSegmentDigest(segment);
@@ -438,12 +445,183 @@ namespace Parsek
 
             cache.LastObservedBodyName = segment.bodyName;
             cache.LastSituation = Vessel.Situations.ORBITING;
+
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies =
+                bodiesOverride ?? TryResolveLiveExtrapolationBodies(recordingId, refreshUT);
+            ExtrapolationBody body = null;
+            if (bodies == null
+                || !bodies.TryGetValue(segment.bodyName, out body)
+                || body == null)
+            {
+                // No body facts (headless, or FlightGlobals not ready): the on-rails segment
+                // cannot be checked against the periapsis floor, so it keeps the stable-orbit
+                // cache it always had.
+                ParsekLog.VerboseRateLimited("FinalizerCache",
+                    $"on-rails-floor-unchecked.{vesselPid}",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "On-rails orbit floor unchecked: rec={0} pid={1} body={2} - body facts unavailable; " +
+                        "caching the segment as Orbiting",
+                        recordingId ?? "(pending)",
+                        vesselPid,
+                        segment.bodyName),
+                    30.0);
+                return CompleteRefresh(
+                    cache,
+                    PopulateStableOrbitCache(cache, segment, refreshUT, TerminalState.Orbiting),
+                    recordingsExamined,
+                    0,
+                    0);
+            }
+
+            double periapsisRadius = segment.semiMajorAxis * (1.0 - segment.eccentricity);
+            double periapsisFloor = body.PeriapsisFloorAltitude;
+            if (OrbitClearance.IsBoundOrbitClear(
+                    segment.eccentricity,
+                    periapsisRadius,
+                    body.Radius,
+                    periapsisFloor))
+            {
+                return CompleteRefresh(
+                    cache,
+                    PopulateStableOrbitCache(cache, segment, refreshUT, TerminalState.Orbiting),
+                    recordingsExamined,
+                    0,
+                    0);
+            }
+
+            // Owner ruling Q3: an on-rails conic that is unbound or whose low point does not
+            // clear the floor is not a stable orbit. Propagate it drag-free from now, exactly
+            // like the scene-exit finalizer would, so the cache carries the predicted tail
+            // and its real ending (ground impact, deletion periapsis, SOI hand-off).
+            ParsekLog.Verbose("FinalizerCache", string.Format(
+                CultureInfo.InvariantCulture,
+                "On-rails orbit below floor: rec={0} pid={1} body={2} ecc={3:F4} periapsisAlt={4:F0} " +
+                "floor={5:F0} deletionAlt={6:F0}; extrapolating the drag-free tail",
+                recordingId ?? "(pending)",
+                vesselPid,
+                segment.bodyName,
+                segment.eccentricity,
+                periapsisRadius - body.Radius,
+                periapsisFloor,
+                body.DeletionAltitude));
             return CompleteRefresh(
                 cache,
-                PopulateStableOrbitCache(cache, segment, refreshUT, TerminalState.Orbiting),
+                PopulateOnRailsExtrapolatedCache(cache, segment, body, bodies, refreshUT),
                 recordingsExamined,
                 0,
                 0);
+        }
+
+        private static bool PopulateOnRailsExtrapolatedCache(
+            RecordingFinalizationCache cache,
+            OrbitSegment segment,
+            ExtrapolationBody body,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            double refreshUT)
+        {
+            if (!BallisticExtrapolator.TryPropagate(
+                    segment,
+                    body.GravitationalParameter,
+                    refreshUT,
+                    out Vector3d position,
+                    out Vector3d velocity))
+            {
+                return Fail(cache, "on-rails-propagate-failed");
+            }
+
+            var startState = new BallisticStateVector
+            {
+                ut = refreshUT,
+                bodyName = segment.bodyName,
+                position = position,
+                velocity = velocity,
+                orbitalFrameRotation = segment.orbitalFrameRotation
+            };
+            ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
+                startState,
+                bodies,
+                warnOnSubSurfaceStart: false);
+
+            if (result.segments == null
+                || (result.segments.Count == 0 && result.terminalState != TerminalState.Destroyed)
+                || !IsFinite(result.terminalUT))
+            {
+                return Fail(cache, "on-rails-extrapolation-failed");
+            }
+
+            var segments = new List<OrbitSegment>(result.segments.Count);
+            for (int i = 0; i < result.segments.Count; i++)
+            {
+                if (result.segments[i].endUT > result.segments[i].startUT)
+                    segments.Add(result.segments[i]);
+            }
+            TerminalState terminalState =
+                IncompleteBallisticSceneExitFinalizer.ApplyPeriapsisFloorToExtrapolatedTerminal(
+                    result.terminalState,
+                    segments,
+                    bodies,
+                    cache.RecordingId);
+
+            cache.Status = FinalizationCacheStatus.Fresh;
+            cache.TerminalState = terminalState;
+            cache.TerminalUT = result.terminalUT;
+            cache.TerminalBodyName = !string.IsNullOrEmpty(result.terminalBodyName)
+                ? result.terminalBodyName
+                : segment.bodyName;
+            cache.PredictedSegments = ClonePredictedSegments(segments);
+            cache.TailStartsAtUT = cache.PredictedSegments.Count > 0
+                ? cache.PredictedSegments[0].startUT
+                : refreshUT;
+            cache.TerminalOrbit = null;
+            if ((terminalState == TerminalState.Orbiting || terminalState == TerminalState.SubOrbital)
+                && cache.PredictedSegments.Count > 0)
+            {
+                cache.TerminalOrbit = RecordingFinalizationTerminalOrbit.FromSegment(
+                    cache.PredictedSegments[cache.PredictedSegments.Count - 1]);
+            }
+
+            ParsekLog.Info("FinalizerCache", string.Format(
+                CultureInfo.InvariantCulture,
+                "On-rails tail extrapolated: rec={0} pid={1} terminal={2} terminalUT={3:F3} body={4} " +
+                "segments={5} failure={6}",
+                cache.RecordingId ?? "(pending)",
+                cache.VesselPersistentId,
+                terminalState,
+                result.terminalUT,
+                cache.TerminalBodyName ?? "(null)",
+                cache.PredictedSegments.Count,
+                result.failureReason));
+            return Accept(cache);
+        }
+
+        // Body facts for the on-rails floor check, or null when FlightGlobals is not
+        // available (headless tests, scene teardown). Kept out of line so the live read
+        // never JITs into a caller a test drives.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static IReadOnlyDictionary<string, ExtrapolationBody> TryResolveLiveExtrapolationBodies(
+            string recordingId,
+            double refreshUT)
+        {
+            try
+            {
+                if (!IncompleteBallisticSceneExitFinalizer.IsFlightGlobalsRuntimeAvailable(recordingId))
+                    return null;
+                return IncompleteBallisticSceneExitFinalizer.TryBuildExtrapolationBodies(
+                        recordingId,
+                        refreshUT,
+                        out Dictionary<string, ExtrapolationBody> bodies)
+                    ? bodies
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("FinalizerCache", "on-rails-bodies-unavailable",
+                    "On-rails body facts unavailable: " + ex.GetType().Name,
+                    30.0);
+                return null;
+            }
         }
 
         internal static bool TryBuildAlreadyClassifiedDestroyedSkip(
@@ -1352,6 +1530,7 @@ namespace Parsek
                     ReferenceBodyName = referenceBody.name,
                     ReferenceBodyHasAtmosphere = referenceBody.atmosphere,
                     ReferenceBodyAtmosphereDepth = referenceBody.atmosphereDepth,
+                    ReferenceBodyPeriapsisFloorAltitude = OrbitClearance.ResolvePeriapsisFloorAltitude(referenceBody),
                     Inclination = source.inclination,
                     Eccentricity = source.eccentricity,
                     SemiMajorAxis = source.semiMajorAxis,

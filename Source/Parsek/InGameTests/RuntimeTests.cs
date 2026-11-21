@@ -1007,7 +1007,9 @@ namespace Parsek.InGameTests
                 atmosphereDepth: kerbin.atmosphereDepth,
                 safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude: periAlt,
-                apoapsisAltitude: apoAlt);
+                apoapsisAltitude: apoAlt,
+                maxTerrainAltitude: OrbitClearance.ResolveMaxTerrainAltitude(kerbin),
+                deletionAltitude: OrbitClearance.ResolveDeletionAltitude(kerbin));
 
             // The whole point of the fix: the recording's stale segment alone would
             // produce decision=CannotSpawnSafely with reason=periapsis-below-safe-altitude.
@@ -1142,7 +1144,9 @@ namespace Parsek.InGameTests
                 atmosphereDepth: kerbin.atmosphereDepth,
                 safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude: periAlt,
-                apoapsisAltitude: apoAlt);
+                apoapsisAltitude: apoAlt,
+                maxTerrainAltitude: OrbitClearance.ResolveMaxTerrainAltitude(kerbin),
+                deletionAltitude: OrbitClearance.ResolveDeletionAltitude(kerbin));
             InGameAssert.AreEqual(
                 TerminalOrbitSpawnSafetyAction.SpawnNow,
                 decision.Action,
@@ -3742,6 +3746,7 @@ namespace Parsek.InGameTests
                     ReferenceBodyName = body.name,
                     ReferenceBodyHasAtmosphere = body.atmosphere,
                     ReferenceBodyAtmosphereDepth = body.atmosphereDepth,
+                    ReferenceBodyPeriapsisFloorAltitude = OrbitClearance.ResolvePeriapsisFloorAltitude(body),
                     Inclination = source?.inclination ?? 0.0,
                     Eccentricity = 1.0,
                     SemiMajorAxis = source?.semiMajorAxis ?? body.Radius + System.Math.Max(0.0, vessel.altitude),

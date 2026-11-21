@@ -197,15 +197,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Extrapolate_SuborbitalKerbin_TerminatesAtAtmoEntry()
+        public void Extrapolate_SuborbitalKerbin_TerminatesAtSurfaceImpact()
         {
+            // Owner ruling Q2: a fall ends at ground / water impact, not at the atmosphere top.
             var bodies = new Dictionary<string, ExtrapolationBody>
             {
                 ["Kerbin"] = MakeBody(
                     "Kerbin",
                     KerbinGravParameter,
                     KerbinRadius,
-                    atmosphereDepth: KerbinAtmosphereDepth)
+                    atmosphereDepth: KerbinAtmosphereDepth,
+                    terrainAltitude: (double latitude, double longitude, out double altitude) =>
+                    {
+                        altitude = 0.0;
+                        return true;
+                    })
             };
 
             ExtrapolationResult result = BallisticExtrapolator.Extrapolate(
@@ -224,7 +230,7 @@ namespace Parsek.Tests
             Assert.Equal(result.terminalUT, result.segments[0].endUT, 6);
 
             double terminalAltitude = Altitude(result.terminalPosition, KerbinRadius);
-            Assert.InRange(terminalAltitude, KerbinAtmosphereDepth - 100.0, KerbinAtmosphereDepth + 100.0);
+            Assert.InRange(terminalAltitude, -1.0, 100.0);
             Assert.Equal(ExtrapolationFailureReason.None, result.failureReason);
         }
 

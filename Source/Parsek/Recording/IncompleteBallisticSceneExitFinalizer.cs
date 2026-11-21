@@ -666,12 +666,13 @@ namespace Parsek
                     out double atmosphereEntryUT))
             {
                 // The captured patched-conic tail re-enters an atmospheric body:
-                // its periapsis is below the atmosphere top, so KSP's transition-less
-                // closed ellipse would run underground on playback. Clip the
+                // its periapsis is below the periapsis floor (deletion altitude or
+                // highest terrain), so KSP's transition-less closed ellipse would run
+                // underground or through stock's deletion zone on playback. Clip the
                 // predicted segments at the descending atmosphere-entry crossing and
                 // hand the atmospheric descent to the ballistic extrapolator, which
-                // terminates at the real terrain impact instead of looping the
-                // sub-surface ellipse.
+                // terminates at the ground impact (or at the first low point under the
+                // deletion altitude) instead of looping the ellipse.
                 OrbitSegment clipSegment = appendedSegments[reentryClipIndex];
                 for (int i = appendedSegments.Count - 1; i > reentryClipIndex; i--)
                     appendedSegments.RemoveAt(i);
@@ -2277,6 +2278,7 @@ namespace Parsek
                     Radius = body.Radius,
                     AtmosphereDepth = body.atmosphereDepth,
                     MaxTerrainAltitude = OrbitClearance.ResolveMaxTerrainAltitude(body),
+                    DeletionAltitude = OrbitClearance.ResolveDeletionAltitude(body),
                     SphereOfInfluence = body.sphereOfInfluence,
                     SurfaceCoordinates = (double ut, Vector3d position, out double latitude, out double longitude) =>
                         ResolveBodyFixedSurfaceCoordinates(body, referenceUT, ut, position, out latitude, out longitude),
@@ -2934,10 +2936,7 @@ namespace Parsek
                 return terminalState;
             }
 
-            double periapsisFloor = OrbitClearance.ComputePeriapsisFloorAltitude(
-                body.HasAtmosphere,
-                body.AtmosphereDepth,
-                body.MaxTerrainAltitude);
+            double periapsisFloor = body.PeriapsisFloorAltitude;
             double periapsisRadius = last.semiMajorAxis * (1.0 - last.eccentricity);
             if (OrbitClearance.IsBoundOrbitClear(
                     last.eccentricity,
@@ -2960,14 +2959,15 @@ namespace Parsek
             return TerminalState.SubOrbital;
         }
 
+        // The ORBITING-situation extrapolation line is the shared periapsis floor
+        // (OrbitClearance: deletion altitude or highest terrain), not the atmosphere top, so
+        // an orbit whose low point clears it stays a stock Orbiting vessel (owner ruling Q3).
         private static double GetBallisticCutoffAltitude(CelestialBody body)
         {
             if (body == null)
                 return 0.0;
 
-            return body.atmosphere && body.atmosphereDepth > 0.0
-                ? body.atmosphereDepth
-                : 0.0;
+            return OrbitClearance.ResolvePeriapsisFloorAltitude(body);
         }
 
         private static bool IsFinite(Vector3d value)

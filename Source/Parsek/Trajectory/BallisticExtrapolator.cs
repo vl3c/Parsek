@@ -92,12 +92,21 @@ namespace Parsek
         public double AtmosphereDepth;
         // Highest terrain above sea level (PQS radiusMax - radius); 0 when unknown.
         public double MaxTerrainAltitude;
+        // Altitude where the body's pressure falls to stock's packed-vessel deletion
+        // threshold (OrbitClearance.ResolveDeletionAltitude); 0 when the body has no
+        // atmosphere or the value is unknown. A drag-free arc whose low point is below it
+        // ends Destroyed at that low point (owner ruling Q3).
+        public double DeletionAltitude;
         public double SphereOfInfluence;
         public TerrainAltitudeResolver TerrainAltitude;
         public ParentFrameStateResolver ParentFrameState;
         public SurfaceCoordinatesResolver SurfaceCoordinates;
 
         public bool HasAtmosphere => AtmosphereDepth > 0.0;
+
+        // The shared Orbiting line (OrbitClearance): max(deletion altitude, max terrain).
+        public double PeriapsisFloorAltitude =>
+            OrbitClearance.ComputePeriapsisFloorAltitude(DeletionAltitude, MaxTerrainAltitude);
     }
 
     internal static class BallisticExtrapolator
@@ -117,6 +126,9 @@ namespace Parsek
         private const double DefaultCutoffSampleStep = 30.0;
         private const double LocalCutoffDenseWindowSeconds = MaxLocalCutoffSamples * DefaultCutoffSampleStep;
         private const double ImmediateEventEpsilon = 1e-6;
+        // Terminal reasons of a Destroyed cutoff (the `Terminal reason=` log token).
+        internal const string CutoffReasonSurfaceImpact = "surface-impact";
+        internal const string CutoffReasonDeletionPeriapsis = "deletion-periapsis";
         // Any start-state altitude below this is treated as a destroyed-vessel
         // fingerprint (see `ExtrapolationFailureReason.SubSurfaceStart`).
         // Chosen well below Kerbin's deepest natural terrain (~5 km) so
@@ -142,6 +154,8 @@ namespace Parsek
             public Vector3d Position;
             public Vector3d Velocity;
             public ExtrapolationBody ChildBody;
+            // Destroyed only: CutoffReasonSurfaceImpact or CutoffReasonDeletionPeriapsis.
+            public string CutoffReason;
         }
 
         private struct StateSample
@@ -359,8 +373,13 @@ namespace Parsek
                 bool immediateSoiTransition =
                     (chosen.Kind == EventKind.ParentExit || chosen.Kind == EventKind.ChildEntry)
                     && segmentEndUT <= currentState.ut + ImmediateEventEpsilon;
+                // A deletion periapsis AT the start state (the vessel sits on its low point
+                // below the deletion altitude) ends the flight here: no zero-length segment.
+                bool immediateDestroyed =
+                    chosen.Kind == EventKind.Destroyed
+                    && segmentEndUT <= currentState.ut + ImmediateEventEpsilon;
 
-                if (!immediateSoiTransition)
+                if (!immediateSoiTransition && !immediateDestroyed)
                 {
                     result.segments.Add(CreateSegment(
                         orbit,
@@ -379,10 +398,12 @@ namespace Parsek
                     result.terminalVelocity = chosen.Velocity;
                     ParsekLog.Info(LogTag, string.Format(
                         CultureInfo.InvariantCulture,
-                        "Terminal reason=cutoff: body={0} ut={1:F3} alt={2:F1} failure={3}",
+                        "Terminal reason={0}: body={1} ut={2:F3} alt={3:F1} deletionAlt={4:F1} failure={5}",
+                        chosen.CutoffReason ?? CutoffReasonSurfaceImpact,
                         currentBody.Name,
                         chosen.UT,
                         Magnitude(chosen.Position) - currentBody.Radius,
+                        currentBody.DeletionAltitude,
                         result.failureReason));
                     return result;
                 }
@@ -882,18 +903,21 @@ namespace Parsek
         /// Detects a captured patched-conic tail that re-enters an atmospheric
         /// body. KSP's patched-conic chain for an off-scene / on-rails vessel
         /// carries no atmosphere or IMPACT transition, so a sub-orbital arc whose
-        /// periapsis sits below the atmosphere top is snapshotted as a CLOSED
-        /// ellipse that runs underground. This finds the first segment whose
-        /// periapsis is below the atmosphere top and returns the UT of its
+        /// periapsis sits below the surface is snapshotted as a CLOSED ellipse that
+        /// runs underground. This finds the first segment whose periapsis is below
+        /// the body's periapsis floor (<see cref="ExtrapolationBody.PeriapsisFloorAltitude"/>:
+        /// the deletion altitude or the highest terrain) and returns the UT of its
         /// descending crossing of the atmosphere boundary (or the segment start,
         /// when the segment already begins inside the atmosphere), so the caller
         /// can clip the predicted segments there and hand the atmospheric descent
-        /// to the ballistic extrapolator (which terminates at the real terrain
-        /// impact).
+        /// to the ballistic extrapolator (which terminates at the ground impact or,
+        /// above the ground, at the first low point under the deletion altitude).
+        /// A segment whose periapsis lies between the floor and the atmosphere top
+        /// is a stock orbit and is not clipped (owner ruling Q3).
         /// Airless bodies are intentionally skipped: their patched-conic chain
         /// ends at an IMPACT patch and is handled by the solver-impact
         /// short-circuit, so they never leak a closed sub-surface ellipse here.
-        /// Genuine coasts (periapsis above the atmosphere) return false.
+        /// Genuine coasts (periapsis above the floor) return false.
         /// </summary>
         internal static bool TryFindAtmosphericReentryClip(
             IReadOnlyList<OrbitSegment> segments,
@@ -916,10 +940,14 @@ namespace Parsek
                     continue;
 
                 double boundaryRadius = body.Radius + body.AtmosphereDepth;
+                double floorRadius = body.Radius + body.PeriapsisFloorAltitude;
                 double periapsisRadius = segment.semiMajorAxis * (1.0 - segment.eccentricity);
+                // Owner ruling Q3: a conic whose low point stays above the periapsis floor
+                // (deletion altitude / highest terrain) keeps orbiting like a stock unloaded
+                // vessel, even when it dips into the upper atmosphere, so it is not clipped.
                 if (double.IsNaN(periapsisRadius)
                     || double.IsInfinity(periapsisRadius)
-                    || periapsisRadius >= boundaryRadius)
+                    || periapsisRadius >= floorRadius)
                     continue;
 
                 if (!TwoBodyOrbit.TryCreateFromSegment(segment, body.GravitationalParameter, out TwoBodyOrbit orbit))
@@ -1023,17 +1051,66 @@ namespace Parsek
             if (endUT <= startUT)
                 return null;
 
-            if (body.HasAtmosphere)
-            {
-                EventCandidate? atmo = FindDescendingAltitudeCrossing(
-                    orbit,
-                    body,
-                    startUT,
-                    endUT);
-                if (atmo.HasValue)
-                    return atmo;
-            }
+            // Owner rulings Q2 / Q3 / Q5: no drag, so the arc is a plain Kepler conic. It ends
+            // at ground / water impact when it reaches the surface; otherwise, when its low
+            // point is below the body's deletion altitude, at that first low point (stock
+            // deletes a packed vessel there). The atmosphere top is not an ending.
+            EventCandidate? surface = FindSurfaceImpact(orbit, body, startUT, endUT, ref failureReason);
+            if (surface.HasValue)
+                return surface;
 
+            return FindDeletionPeriapsis(orbit, body, startUT, endUT);
+        }
+
+        /// <summary>
+        /// The first periapsis pass in [startUT, endUT] when the conic's periapsis is strictly
+        /// below the body's deletion altitude, as a Destroyed event; otherwise null. Called only
+        /// after the surface scan found no impact, so the low point is above the ground.
+        /// </summary>
+        private static EventCandidate? FindDeletionPeriapsis(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody body,
+            double startUT,
+            double endUT)
+        {
+            double deletionAltitude = body.DeletionAltitude;
+            if (!(deletionAltitude > 0.0) || double.IsInfinity(deletionAltitude))
+                return null;
+
+            double periapsisRadius = orbit.PeriapsisRadius;
+            if (double.IsNaN(periapsisRadius)
+                || double.IsInfinity(periapsisRadius)
+                || !(periapsisRadius < body.Radius + deletionAltitude))
+                return null;
+
+            if (!TryGetNextPeriapsisUT(orbit, startUT, endUT, out double periapsisUT))
+                return null;
+
+            orbit.GetStateAtUT(periapsisUT, out Vector3d position, out Vector3d velocity);
+            ParsekLog.Verbose(LogTag, string.Format(
+                CultureInfo.InvariantCulture,
+                "Deletion periapsis: body={0} ut={1:F3} periapsisAlt={2:F1} deletionAlt={3:F1}",
+                body.Name,
+                periapsisUT,
+                periapsisRadius - body.Radius,
+                deletionAltitude));
+            return new EventCandidate
+            {
+                Kind = EventKind.Destroyed,
+                UT = periapsisUT,
+                Position = position,
+                Velocity = velocity,
+                CutoffReason = CutoffReasonDeletionPeriapsis
+            };
+        }
+
+        private static EventCandidate? FindSurfaceImpact(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody body,
+            double startUT,
+            double endUT,
+            ref ExtrapolationFailureReason failureReason)
+        {
             double sampleStartUT = startUT;
             double sampleEndUT = endUT;
             string windowReason = null;
@@ -1080,30 +1157,6 @@ namespace Parsek
                 ref failureReason);
         }
 
-        private static EventCandidate? FindDescendingAltitudeCrossing(
-            TwoBodyOrbit orbit,
-            ExtrapolationBody body,
-            double startUT,
-            double endUT)
-        {
-            if (!TryFindDescendingRadiusCrossingUT(
-                orbit,
-                startUT,
-                endUT,
-                body.Radius + body.AtmosphereDepth,
-                out double crossingUT))
-                return null;
-
-            orbit.GetStateAtUT(crossingUT, out Vector3d position, out Vector3d velocity);
-            return new EventCandidate
-            {
-                Kind = EventKind.Destroyed,
-                UT = crossingUT,
-                Position = position,
-                Velocity = velocity
-            };
-        }
-
         private static EventCandidate? FindSurfaceCrossing(
             TwoBodyOrbit orbit,
             ExtrapolationBody body,
@@ -1130,7 +1183,8 @@ namespace Parsek
                         Kind = EventKind.Destroyed,
                         UT = crossingUT,
                         Position = position,
-                        Velocity = velocity
+                        Velocity = velocity,
+                        CutoffReason = CutoffReasonSurfaceImpact
                     };
                 }
 

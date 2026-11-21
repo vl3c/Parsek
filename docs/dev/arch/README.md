@@ -819,7 +819,7 @@ for instructions, and the leaks of the headless ones (`*`):
 | Module | Methods | Can reach | Direct | Only via a callee | Instructions | Can reach | Direct | Leaks |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Core * | 188 | 7% | 3% | 4% | 10,044 | 7% | 3% | 14 |
-| Trajectory * | 269 | 21% | 17% | 4% | 18,722 | 22% | 10% | 77 |
+| Trajectory * | 269 | 21% | 17% | 4% | 18,722 | 22% | 10% | 79 |
 | LogIO | 95 | 15% | 7% | 7% | 4,890 | 23% | 13% |  |
 | Missions * | 622 | 15% | 7% | 8% | 58,301 | 26% | 7% | 147 |
 | GameActions | 2,135 | 18% | 8% | 10% | 147,519 | 28% | 14% |  |
@@ -839,8 +839,8 @@ for instructions, and the leaks of the headless ones (`*`):
 | Display | 145 | 39% | 35% | 4% | 16,118 | 69% | 67% |  |
 | Patches | 800 | 68% | 47% | 21% | 36,367 | 82% | 65% |  |
 
-At the pin: 275 leaks in 121 methods, 29 seam calls.
-The live things leaked to most: `UnityEngine.Object` 46, `CelestialBody` 43, `Orbit` 37, `Vessel` 18, `Contracts.Contract` 13, `KSP.UI.Screens.MissionControl` 10, `PatchedConicSolver` 6, `ProtoVessel` 6, `UnityEngine.UI.Button` 6, `VesselNaming` 5.
+At the pin: 277 leaks in 122 methods, 29 seam calls.
+The live things leaked to most: `UnityEngine.Object` 47, `CelestialBody` 44, `Orbit` 37, `Vessel` 18, `Contracts.Contract` 13, `KSP.UI.Screens.MissionControl` 10, `PatchedConicSolver` 6, `ProtoVessel` 6, `UnityEngine.UI.Button` 6, `VesselNaming` 5.
 
 **What is declared, and why.** The choice reads each module's description
 (`atlas.toml`) first and the share second: a module whose job is the live

@@ -3352,16 +3352,17 @@ namespace Parsek.Tests
         private const double ControlledChildRecoveredEccentricity = 0.01;
 
         [Fact]
-        public void TryCompleteFinalizationFromPatchedSnapshot_RecoveredOrbitingInsideAtmosphere_IsSubOrbital()
+        public void TryCompleteFinalizationFromPatchedSnapshot_RecoveredOrbitingBelowDeletionAltitude_IsSubOrbital()
         {
-            // Mirror of the two cells above (operator ruling 2026-09-27): the same recovery
-            // returning Orbiting on an orbit whose periapsis is inside Kerbin's atmosphere
-            // (700000 * 0.95 - 600000 = 65 km) is a decaying flight. The recovery path applies
-            // the same periapsis floor as commit and spawn, so it ships SubOrbital with no
-            // terminal orbit rather than an Orbiting verdict the spawn would refuse.
+            // Mirror of the two cells above (operator ruling 2026-09-27, owner ruling Q3): the
+            // same recovery returning Orbiting on an orbit whose periapsis is under Kerbin's
+            // deletion altitude (700000 * 0.87 - 600000 = 9 km) is a decaying flight. The
+            // recovery path applies the same periapsis floor as commit and spawn, so it ships
+            // SubOrbital with no terminal orbit rather than an Orbiting verdict the spawn would
+            // refuse.
             IncompleteBallisticFinalizationResult result =
                 RunParentAnchoredControlledChildRecovery(out bool built, out int extrapolateCallCount,
-                    eccentricity: 0.05);
+                    eccentricity: 0.13);
 
             Assert.True(built);
             Assert.Equal(2, extrapolateCallCount);
@@ -3370,6 +3371,21 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Extrapolator]")
                 && l.Contains("downgraded to SubOrbital")
                 && l.Contains("parent-anchored-controlled-child"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_RecoveredOrbitingInsideAtmosphereAboveDeletionAltitude_StaysOrbiting()
+        {
+            // Owner ruling Q3: periapsis 700000 * 0.95 - 600000 = 65 km is inside the atmosphere
+            // but above the deletion altitude, so the recovered Orbiting verdict stands.
+            IncompleteBallisticFinalizationResult result =
+                RunParentAnchoredControlledChildRecovery(out bool built, out int extrapolateCallCount,
+                    eccentricity: 0.05);
+
+            Assert.True(built);
+            Assert.Equal(2, extrapolateCallCount);
+            Assert.Equal(TerminalState.Orbiting, result.terminalState);
+            Assert.True(result.terminalOrbit.HasValue);
         }
 
         private IncompleteBallisticFinalizationResult RunParentAnchoredControlledChildRecovery(
@@ -5017,7 +5033,8 @@ namespace Parsek.Tests
                     Name = "Kerbin",
                     GravitationalParameter = 3.5316e12,
                     Radius = 600000.0,
-                    AtmosphereDepth = 70000.0
+                    AtmosphereDepth = 70000.0,
+                    DeletionAltitude = OrbitClearanceTestValues.KerbinDeletionAltitude
                 }
             };
         }

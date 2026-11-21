@@ -101,7 +101,9 @@ namespace Parsek.Tests
                 bodyAtmosphereDepth: 0.0,
                 currentAltitude: SunReferencedCoastAltitude,
                 periapsisAltitude: SunReferencedPeriapsisAltitude,
-                apoapsisAltitude: SunReferencedApoapsisAltitude);
+                apoapsisAltitude: SunReferencedApoapsisAltitude,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: 0.0);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonAboveSafeAltitude, decision.ReasonCode);
@@ -155,7 +157,9 @@ namespace Parsek.Tests
                     false, 0.0,
                     SunReferencedCoastAltitude,
                     SunReferencedPeriapsisAltitude,
-                    SunReferencedApoapsisAltitude).Action);
+                    SunReferencedApoapsisAltitude,
+                    0.0,
+                    0.0).Action);
         }
 
         [Fact]
@@ -168,7 +172,9 @@ namespace Parsek.Tests
                 bodyAtmosphereDepth: 0.0,
                 currentAltitude: double.NaN,
                 periapsisAltitude: SunReferencedPeriapsisAltitude,
-                apoapsisAltitude: SunReferencedApoapsisAltitude);
+                apoapsisAltitude: SunReferencedApoapsisAltitude,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: 0.0);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonNonFinitePropagatedAltitude,
@@ -183,7 +189,9 @@ namespace Parsek.Tests
                 bodyAtmosphereDepth: 0.0,
                 currentAltitude: SunReferencedCoastAltitude,
                 periapsisAltitude: double.NaN,
-                apoapsisAltitude: SunReferencedApoapsisAltitude);
+                apoapsisAltitude: SunReferencedApoapsisAltitude,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: 0.0);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonNonFinitePeriapsis, decision.ReasonCode);
@@ -199,7 +207,9 @@ namespace Parsek.Tests
                 bodyAtmosphereDepth: 0.0,
                 currentAltitude: double.PositiveInfinity,
                 periapsisAltitude: SunReferencedPeriapsisAltitude,
-                apoapsisAltitude: double.PositiveInfinity);
+                apoapsisAltitude: double.PositiveInfinity,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: 0.0);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonNonFinitePropagatedAltitude,
@@ -216,7 +226,9 @@ namespace Parsek.Tests
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
                 currentAltitude: -500.0,
                 periapsisAltitude: -900.0,
-                apoapsisAltitude: double.NaN);
+                apoapsisAltitude: double.NaN,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude,
@@ -236,7 +248,9 @@ namespace Parsek.Tests
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
                 currentAltitude: safeAltitude + 50000.0,
                 periapsisAltitude: safeAltitude + 20000.0,
-                apoapsisAltitude: safeAltitude + 120000.0);
+                apoapsisAltitude: safeAltitude + 120000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonAboveSafeAltitude, decision.ReasonCode);
@@ -244,21 +258,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void KerbinOrbitWithPeriapsisInsideAtmosphere_IsRejected()
+        public void KerbinOrbitWithPeriapsisBelowDeletionAltitude_IsRejected()
         {
             var decision = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
                 bodyHasAtmosphere: true,
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
                 currentAltitude: KerbinSafeAltitude + 50000.0,
-                periapsisAltitude: KerbinAtmosphereDepth - 15000.0,
-                apoapsisAltitude: KerbinSafeAltitude + 120000.0);
+                periapsisAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude - 5000.0,
+                apoapsisAltitude: KerbinSafeAltitude + 120000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
 
-            // Currently outside the atmosphere but the orbit dips back in: commit calls this
-            // SubOrbital, and spawn safety refuses it on the same periapsis line.
+            // Currently outside the atmosphere but the orbit dips under the deletion altitude:
+            // commit calls this SubOrbital, and spawn safety refuses it on the same line.
             Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude,
                 decision.ReasonCode);
-            Assert.Equal(KerbinAtmosphereDepth, decision.PeriapsisFloorAltitude);
+            Assert.Equal(OrbitClearanceTestValues.KerbinDeletionAltitude, decision.PeriapsisFloorAltitude);
+        }
+
+        [Fact]
+        public void KerbinOrbitWithPeriapsisInsideAtmosphereAboveDeletionAltitude_IsAdmitted()
+        {
+            // Owner ruling Q3: the low point dips into the atmosphere but stays above the
+            // deletion altitude, so the orbit spawns like a stock unloaded vessel.
+            var decision = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
+                bodyHasAtmosphere: true,
+                bodyAtmosphereDepth: KerbinAtmosphereDepth,
+                currentAltitude: KerbinSafeAltitude + 50000.0,
+                periapsisAltitude: KerbinAtmosphereDepth - 15000.0,
+                apoapsisAltitude: KerbinSafeAltitude + 120000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
+
+            Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, decision.Action);
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonAboveSafeAltitude, decision.ReasonCode);
         }
 
         [Fact]
@@ -271,7 +305,9 @@ namespace Parsek.Tests
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
                 currentAltitude: KerbinAtmosphereDepth + 2000.0,
                 periapsisAltitude: KerbinAtmosphereDepth + 1000.0,
-                apoapsisAltitude: KerbinSafeAltitude + 60000.0);
+                apoapsisAltitude: KerbinSafeAltitude + 60000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.DeferUntilSafe, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude,
@@ -294,7 +330,9 @@ namespace Parsek.Tests
                     bodyAtmosphereDepth: 0.0,
                     currentAltitude: lowAltitude,
                     periapsisAltitude: lowPeriapsis,
-                    apoapsisAltitude: lowApoapsis).Action);
+                    apoapsisAltitude: lowApoapsis,
+                    maxTerrainAltitude: 0.0,
+                    deletionAltitude: 0.0).Action);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
                 VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
@@ -302,7 +340,9 @@ namespace Parsek.Tests
                     bodyAtmosphereDepth: KerbinAtmosphereDepth,
                     currentAltitude: lowAltitude,
                     periapsisAltitude: lowPeriapsis,
-                    apoapsisAltitude: KerbinSafeAltitude + 10000.0).Action);
+                    apoapsisAltitude: KerbinSafeAltitude + 10000.0,
+                    maxTerrainAltitude: 0.0,
+                    deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude).Action);
         }
 
         #endregion
@@ -318,7 +358,9 @@ namespace Parsek.Tests
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
                 currentAltitude: KerbinAtmosphereDepth + 2000.0,
                 periapsisAltitude: KerbinAtmosphereDepth + 1000.0,
-                apoapsisAltitude: safeAltitude + 60000.0);
+                apoapsisAltitude: safeAltitude + 60000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
             Assert.Equal(TerminalOrbitSpawnSafetyAction.DeferUntilSafe, decision.Action);
 
             // The orbit scan found no future UT clearing the margin. The periapsis already
@@ -344,7 +386,9 @@ namespace Parsek.Tests
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
                 currentAltitude: KerbinAtmosphereDepth + 2000.0,
                 periapsisAltitude: KerbinAtmosphereDepth + 1000.0,
-                apoapsisAltitude: safeAltitude + 60000.0);
+                apoapsisAltitude: safeAltitude + 60000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
             TerminalOrbitSpawnSafety.MarkDeferred(rec, decision, 1000.0, 1600.0, 0.5);
 
             Assert.Equal(TerminalOrbitDeferredSpawnState.Hold,
@@ -358,7 +402,9 @@ namespace Parsek.Tests
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
                 currentAltitude: KerbinAtmosphereDepth + 2000.0,
                 periapsisAltitude: double.NaN,
-                apoapsisAltitude: safeAltitude + 60000.0);
+                apoapsisAltitude: safeAltitude + 60000.0,
+                maxTerrainAltitude: 0.0,
+                deletionAltitude: OrbitClearanceTestValues.KerbinDeletionAltitude);
             TerminalOrbitSpawnSafety.MarkCannotSpawnSafely(rec, refusal, 1000.0, 0.5);
 
             // A hard abandon must not leave a retry UT behind that could re-arm a spawn.
