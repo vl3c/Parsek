@@ -904,7 +904,7 @@ namespace Parsek
             if (loadedStates.TryGetValue(pid, out loadedState))
             {
                 SegmentEnvironment nextEnv = ClassifyCurrentBackgroundEnvironment(v, loadedState.cachedEngines);
-                bool willHavePlayableOnRailsPayload = WillInitializeOnRailsWithPlayablePayload(v);
+                bool willHavePlayableOnRailsPayload = WillInitializeOnRailsWithExoOrbitPayload(v);
                 Recording flushRec;
                 if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
                 {
@@ -1206,6 +1206,14 @@ namespace Parsek
             if (state.hasOpenOrbitSegment)
             {
                 CloseOrbitSegment(state, ut);
+            }
+            // The new body's segment opens at the SOI edge, far above any atmosphere: the
+            // atmosphere label of the old span does not carry across a body change.
+            if (state.packedInsideAtmosphere)
+            {
+                state.packedInsideAtmosphere = false;
+                ParsekLog.Verbose("BgRecorder",
+                    $"On-rails atmosphere label cleared at SOI change: pid={pid}");
             }
             return state;
         }
