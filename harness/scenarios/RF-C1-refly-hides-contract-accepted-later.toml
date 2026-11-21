@@ -134,7 +134,10 @@ required = [
   "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
-  "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital",
+  # The booster is loaded and under canopy at the scene-exit commit (not stock-deleted), so
+  # since owner rulings Q4 / Q4c (2026-11-21) it ends on its PREDICTED touchdown and the slot
+  # stays open as `predictedTouchdown` (before: `stableLeafUnconcluded ... terminal=SubOrbital`).
+  "IsUnfinishedFlight=true rec=\\S+ reason=predictedTouchdown slot=1 focusSlot=0 terminal=(?:Landed|Splashed) predicted=True",
   # --- THE LATER ACCEPT ---
   "kscaction action=accept-contract target=offered-first applied=true manifestKind=\\S+ observedAfter=state=Active funds=\\S+ contract=[0-9a-f-]{36}",
   # --- ACT 2: the invoke's patch holds the accepted contract out of stock ---

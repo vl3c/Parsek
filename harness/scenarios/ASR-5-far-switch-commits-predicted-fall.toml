@@ -38,7 +38,8 @@ id = "ASR-5-far-switch-commits-predicted-fall"
 # fixture - a fixture outcome. (D) the endings tail ~0 / no predicted segment: the C#
 # change's own subject, a PARSEK finding on a build that claims it.
 #
-# FAST-LANE CHECKLIST: ASR-1's, plus 2: the post-switch wait is ListHandles' own
+# FAST-LANE CHECKLIST: ASR-1's (its explicit-UT WarpToUT 280 included, so the core is out
+# of the load range at the jump), plus 2: the post-switch wait is ListHandles' own
 # OnFlightReady hold, not a fixed dwell. Tier nightly (ASR-1's flight + ~1 min).
 # =====================================================================================
 tier = "nightly"
@@ -63,6 +64,12 @@ steps = [
   { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
   { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
   { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
+  # ASR-1's out-of-range wait (reading `2026-11-21_1845`: the jump came ~40 s after the core
+  # separation with the core ~2.3 km away, still loaded, so it was finalized loaded and never
+  # went on rails). The gap grows at ~110 m/s; stock packs a SUB_ORBITAL vessel at 10 km,
+  # ~UT 240. UT 280, phys 2x: the stack is still near its apex above the atmosphere, so
+  # stock's ClearToSave lets the jump run.
+  { cmd = "WarpToUT",          args = { ut = "280", maxRate = "2", ladder = "phys" },    expect = "OK", budget = 300 },
   { cmd = "AlarmJump",         args = { pid = "2614652043", jump = "shown" },            expect = "OK", budget = 120 },
   { cmd = "ListHandles",       args = { kind = "chains" },                               expect = "OK", budget = 240 },
   { cmd = "FlushAndQuit",                                                                expect = "OK" },
@@ -119,11 +126,14 @@ forbidden = [
 ]
 
 # REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
+# The boosters fall inside the bubble until near the ground (reading `2026-11-21_1845`:
+# tails 2.0-8.6 s and one 41.1 s, end altitude 63-65 m, one predicted segment each), so
+# the tail is not asserted; the end altitude and the predicted segment carry "ends at the
+# ground".
 [expectations.recordings.endings.vessels."Kerbal X Debris"]
 ended             = { min = 4, max = 6 }
 terminalStates    = ["Destroyed"]
 predictedSegments = { min = 1 }
-tailSeconds       = { min = 20 }
 endAltitudeMeters = { min = -500, max = 5000 }
 
 [expectations.recordings.endings.vessels."Kerbal X Probe"]
@@ -149,9 +159,9 @@ trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 
 [runtime]
-# LoadGame 660 + SetSetting x3 360 + mission 1600 + AlarmJump 120 + ListHandles 300
-#   + FlushAndQuit 120 = 3160. 3400 clears it.
-budgetSeconds = 3400
+# LoadGame 660 + SetSetting x3 360 + mission 1600 + WarpToUT 300 + AlarmJump 120
+#   + ListHandles 300 + FlushAndQuit 120 = 3460. 3700 clears it.
+budgetSeconds = 3700
 
 [retry]
 policy = "once"
