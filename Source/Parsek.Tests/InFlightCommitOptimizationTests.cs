@@ -345,6 +345,9 @@ namespace Parsek.Tests
             int spawnIdx = body.IndexOf("SpawnTreeLeaves(committedTree, activeTipId);", StringComparison.Ordinal);
             Assert.True(resolveIdx > 0 && ledgerIdx > resolveIdx && spawnIdx > resolveIdx,
                 "CommitTreeFlight must resolve the committed tree before the ledger notify and the leaf spawn");
+            // The route prompt classifies the same committed tree, never the dropped live copy.
+            Assert.Contains("RouteRunPrompt.NotifyTreeCommitted(committedTree);", body);
+            Assert.DoesNotContain("committedTreeForPrompt = host.activeTree", body);
             Assert.True(commitIdx >= 0, "CommitTreeFlight no longer commits through TreeCommitService.CommitTree");
             Assert.True(passIdx > commitIdx, "CommitTreeFlight does not run the optimization pass after the commit");
             Assert.True(ledgerIdx > passIdx, "the optimization pass must run before the ledger notify (MergeCommit order)");

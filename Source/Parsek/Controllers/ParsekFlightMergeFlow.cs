@@ -903,7 +903,6 @@ namespace Parsek
 
             // Clear state
             var treeName = host.activeTree.TreeName;
-            var committedTreeForPrompt = host.activeTree;
             host.activeTree = null;
             if (host.backgroundRecorder != null)
             {
@@ -929,7 +928,7 @@ namespace Parsek
             // (both route through CommitTreeFlight); the merge-dialog path
             // hooks in MergeDialog.MergeCommit. Internally gated (test batch,
             // restore window, prompted-once, dismissed) and never throws.
-            Logistics.RouteRunPrompt.NotifyTreeCommitted(committedTreeForPrompt);
+            Logistics.RouteRunPrompt.NotifyTreeCommitted(committedTree);
         }
 
         /// <summary>
