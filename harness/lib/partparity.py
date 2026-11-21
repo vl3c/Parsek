@@ -382,6 +382,9 @@ REASON_DEPTH_MASK = "depth-mask:picture differences capped at warn"
 
 SKIN_B9_MODULE = "ModuleB9PartSwitch"
 SKIN_FLAG_MISMATCH = "skin-mismatch"
+# PartParityCaseCapture.FlagGhostNotBuilt: the ghost build failed, so the C# side wrote
+# no skin proof flags (it computes them only for a built ghost).
+FLAG_GHOST_NOT_BUILT = "ghost-not-built"
 SKIN_FLAG_NOT_MODELLED_B9 = "skin-not-modelled:b9"
 
 
@@ -401,7 +404,7 @@ def skin_flags(skin: Optional[Dict]) -> Tuple[str, ...]:
     return ()
 
 
-def judge_skin(skin: Optional[Dict]) -> Tuple[Optional[str], Tuple[str, ...]]:
+def judge_skin(skin: Optional[Dict], ghost_built: bool = True) -> Tuple[Optional[str], Tuple[str, ...]]:
     """The skin proof. Returns (verdict or None, reasons). ``requested != real`` (exact)
     is a setup fault (``error``); ``skin-mismatch`` (``skin_flags``) is a ghost defect
     (``fail``) even when the pictures look alike; ``skin-not-modelled:b9`` is a known
@@ -411,6 +414,8 @@ def judge_skin(skin: Optional[Dict]) -> Tuple[Optional[str], Tuple[str, ...]]:
     requested, real, ghost = skin.get("requested"), skin.get("real"), skin.get("ghost")
     if requested is not None and real != requested:
         return VERDICT_ERROR, ("skin-not-applied:requested=%s real=%s" % (requested, real),)
+    if not ghost_built:
+        return None, ()
     flags = skin_flags(skin)
     if SKIN_FLAG_MISMATCH in flags:
         return VERDICT_FAIL, ("skin-mismatch:real=%s ghost=%s" % (real, ghost),)
@@ -422,8 +427,11 @@ def judge_skin(skin: Optional[Dict]) -> Tuple[Optional[str], Tuple[str, ...]]:
 def skin_flag_disagreement(sidecar: Dict) -> Optional[str]:
     """None when the sidecar's own ``skin-*`` flags (written by the C# runner) equal the
     flags this module derives from its ``skin`` block; else the difference. Only a case
-    with views is compared (the C# side computes the flags only for a built ghost)."""
+    with views and a built ghost is compared (the C# side computes the flags only for a
+    built ghost; a failed build is flagged ``ghost-not-built`` and still captures views)."""
     if not isinstance(sidecar, dict) or not sidecar.get("views"):
+        return None
+    if FLAG_GHOST_NOT_BUILT in (sidecar.get("flags") or []):
         return None
     wrote = sorted(f for f in sidecar.get("flags") or []
                    if isinstance(f, str) and f.startswith("skin-") and f != "skin-not-applied")
@@ -468,7 +476,8 @@ def judge_case(sidecar: Dict) -> CaseVerdict:
         reasons.extend(["extra-rendered:%s" % k for k in extra])
         if _RANK[VERDICT_FAIL] > _RANK[verdict]:
             verdict = VERDICT_FAIL
-    skin_verdict, skin_reasons = judge_skin(skin)
+    skin_verdict, skin_reasons = judge_skin(
+        skin, ghost_built=FLAG_GHOST_NOT_BUILT not in (sidecar.get("flags") or []))
     reasons.extend(skin_reasons)
     if skin_verdict is not None and _RANK[skin_verdict] > _RANK[verdict]:
         verdict = skin_verdict

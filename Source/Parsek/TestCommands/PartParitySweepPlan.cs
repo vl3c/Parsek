@@ -384,7 +384,9 @@ namespace Parsek.TestCommands
         private static int CountRendered(List<PartParityRendererRef> refs)
         {
             int n = 0;
-            if (refs != null) foreach (var r in refs) if (r != null && r.Rendered) n++;
+            // A non-visual renderer (depth mask, effect mesh) the ghost leaves out by design is
+            // not counted, matching the partParity row's structure rule.
+            if (refs != null) foreach (var r in refs) if (r != null && r.Rendered && r.NonVisual == null) n++;
             return n;
         }
 

@@ -405,6 +405,13 @@ class ViewAndCaseVerdictTests(unittest.TestCase):
         side["views"] = []
         side["flags"] = []
         self.assertIsNone(pp.skin_flag_disagreement(side), "no views: no ghost was built")
+        # a failed ghost build still captures views; the C# writes no skin flags for it
+        side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
+        side["skin"] = {"module": "ModulePartVariants", "requested": None, "real": "Dark",
+                        "snapshot": "Dark", "ghost": None}
+        side["flags"] = ["ghost-not-built"]
+        self.assertIsNone(pp.skin_flag_disagreement(side))
+        self.assertNotIn("skin-mismatch:real=Dark ghost=None", pp.judge_case(side).reasons)
 
     def test_a_setup_fault_is_an_error_and_no_views_is_an_error(self):
         side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))

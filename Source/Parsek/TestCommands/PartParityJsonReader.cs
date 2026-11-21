@@ -240,7 +240,11 @@ namespace Parsek.TestCommands
         {
             if (items == null) return;
             foreach (object o in items)
-                into.Add(new PartParityRendererRef { Key = Str(o, "key"), Mesh = Str(o, "mesh"), Rendered = Bool(o, "rendered") });
+                into.Add(new PartParityRendererRef
+                {
+                    Key = Str(o, "key"), Mesh = Str(o, "mesh"), Rendered = Bool(o, "rendered"),
+                    NonVisual = Str(o, "nonVisual"),
+                });
         }
     }
 }

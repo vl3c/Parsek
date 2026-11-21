@@ -336,6 +336,9 @@ namespace Parsek.Tests
             s.Views.Add(View("top", realBlob: 70, colorBlob: 9, iou: 0.99));
             s.Structure.MissingOnGhost.Add(new PartParityRendererRef { Key = "a", Rendered = true });
             s.Structure.MissingOnGhost.Add(new PartParityRendererRef { Key = "b", Rendered = false });
+            // a non-visual renderer (depth mask, effect mesh) the ghost leaves out by design
+            s.Structure.MissingOnGhost.Add(new PartParityRendererRef { Key = "m", Rendered = true, NonVisual = "depth-mask" });
+            s.Structure.ExtraOnGhost.Add(new PartParityRendererRef { Key = "f", Rendered = true, NonVisual = "fx" });
             PartParityCaseSummary sum = PartParitySweepPlan.Summarize(7, s);
             Assert.Equal(7, sum.Index);
             Assert.Equal(70, sum.MaxShapeBlobPx);
