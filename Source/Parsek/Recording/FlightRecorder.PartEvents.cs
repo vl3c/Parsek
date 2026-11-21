@@ -1107,8 +1107,8 @@ namespace Parsek
         /// <c>suspensionTransform.localPosition</c> (decompiled) - an ABSOLUTE local position, not a
         /// travel - so the recorder stored its magnitude (about 1.3 .. 1.5 on a GearMedium). Two
         /// things were wrong with emitting it. A gear rolling on a runway jitters by about a
-        /// millimetre a frame, which crosses <see cref="CheckRoboticTransition"/>'s inferred-motion
-        /// threshold (a quarter of the 2.5 mm deadband) on one frame and not the next, so a takeoff
+        /// millimetre a frame, which crossed the per-frame inferred-motion threshold the transition
+        /// machine had before its motion debounce on one frame and not the next, so a takeoff
         /// roll wrote about 22 Started / Stopped events a second per gear (todo
         /// RECORDER-GEAR-SUSPENSION-AS-ROBOTICS). And playback posed the ghost's suspension
         /// transform at its rest position PLUS that magnitude along the axis, lifting the wheel by
@@ -1446,11 +1446,130 @@ namespace Parsek
             return names.Count == 0 ? "<none>" : string.Join(", ", names.ToArray());
         }
 
+        /// <summary>
+        /// Per-key motion debounce state for <see cref="CheckRoboticTransition"/>. While a servo
+        /// reads moving, <see cref="referenceValue"/> is the value at the last motion evidence and
+        /// <see cref="lastEvidenceUT"/> its UT. A key whose <c>lastPositionMap</c> entry is gone
+        /// (a rails transition, a departed part, a reset) re-seeds its window on the next poll, so
+        /// the clear paths that drop the position map need not drop this one.
+        /// </summary>
+        internal sealed class RoboticMotionWindow
+        {
+            internal double referenceUT = double.NaN;
+            internal float referenceValue;
+            internal double lastEvidenceUT = double.NaN;
+        }
+
+        /// <summary>
+        /// A servo that is not moving starts on a change of a whole deadband from the value it
+        /// rests at (real motion, not one frame of jitter).
+        /// </summary>
+        internal const float RoboticStartDeadbandFraction = 1f;
+
+        /// <summary>
+        /// A moving servo stays moving while it changes by at least this fraction of the deadband
+        /// within one stop hold (see <see cref="CheckRoboticTransition"/>); slower than that it is
+        /// settled. 0.125 deg per 0.25 s = 0.5 deg/s for the angular servos.
+        /// </summary>
+        internal const float RoboticKeepMovingDeadbandFraction = 0.25f;
+
+        /// <summary>
+        /// A rotor's sample deadband grows with its spin: 2 percent of the measured RPM, never
+        /// below the module's 0.5 RPM. A hovering Breaking Ground rotor runs at hundreds of RPM
+        /// (460 on the stock helicopters), several revolutions per rendered frame, where a 2 percent
+        /// difference in spin rate cannot be seen at playback; the floor keeps a slow spin-up
+        /// sampled as before. With the fixed 0.5 RPM the rate of motion's normal wobble around a
+        /// steady hover emitted a sample at the 4 Hz cap for the whole flight.
+        /// </summary>
+        internal const float RotorRpmRelativeDeadbandFraction = 0.02f;
+
+        /// <summary>
+        /// Pure: the deadband <see cref="CheckRoboticTransition"/> gates position samples on. The
+        /// rotor-rpm source (<see cref="RotorRpmMovingSource"/>) uses the relative deadband
+        /// (<see cref="RotorRpmRelativeDeadbandFraction"/>); every other source keeps the module's.
+        /// </summary>
+        internal static float ResolveRoboticSampleDeadband(
+            string movingSource, float moduleDeadband, float positionValue)
+        {
+            if (!string.Equals(movingSource, RotorRpmMovingSource, StringComparison.Ordinal))
+                return moduleDeadband;
+            if (float.IsNaN(positionValue) || float.IsInfinity(positionValue))
+                return moduleDeadband;
+            return Math.Max(moduleDeadband, Math.Abs(positionValue) * RotorRpmRelativeDeadbandFraction);
+        }
+
+        /// <summary>The once-per-module tracking line both recorders log; invariant formatting.</summary>
+        internal static string FormatRoboticTrackingLine(
+            string partName, uint pid, int moduleIndex, string moduleName, string sourceField,
+            float deadband, string movingSource, double stopHoldSeconds, uint? backgroundVesselPid)
+        {
+            bool rotorRpm = string.Equals(movingSource, RotorRpmMovingSource, StringComparison.Ordinal);
+            string deadbandText = deadband.ToString("F3", CultureInfo.InvariantCulture);
+            if (rotorRpm)
+                deadbandText = "max(" + deadbandText + ","
+                    + (RotorRpmRelativeDeadbandFraction * 100f).ToString("F0", CultureInfo.InvariantCulture)
+                    + "%rpm)";
+            return "Robotics: tracking '" + (partName ?? "?") + "' pid=" + pid.ToString(CultureInfo.InvariantCulture)
+                + " midx=" + moduleIndex.ToString(CultureInfo.InvariantCulture)
+                + " module=" + moduleName + " source=" + sourceField
+                + " deadband=" + deadbandText + " sampleHz=4.0 moving=" + movingSource
+                + " stopHold=" + stopHoldSeconds.ToString("F2", CultureInfo.InvariantCulture) + "s"
+                + (rotorRpm ? " stop=signal" : " stop=debounced")
+                + (backgroundVesselPid.HasValue
+                    ? " (bg vessel " + backgroundVesselPid.Value.ToString(CultureInfo.InvariantCulture) + ")"
+                    : "");
+        }
+
+        /// <summary>
+        /// One recorder poll of one robotic module, shared by the active and the background
+        /// recorder so the two cannot drift: resolves the moving signal
+        /// (<see cref="ResolveRoboticMovingSignal"/>) and the sample deadband
+        /// (<see cref="ResolveRoboticSampleDeadband"/>), and runs the transition machine with the
+        /// rotor-rpm signal alone deciding a rotor's motion.
+        /// </summary>
+        internal static List<PartEvent> EvaluateRoboticPoll(
+            ulong key, uint pid, int moduleIndex, string partName,
+            string moduleName, string sourceField, bool hasModuleFlag, bool moduleFlag,
+            float positionValue, float deadband, double ut,
+            HashSet<ulong> movingSet, Dictionary<ulong, float> lastPositionMap,
+            Dictionary<ulong, double> lastSampleMap,
+            Dictionary<ulong, RoboticMotionWindow> motionWindows, double sampleIntervalSeconds,
+            out string movingSource, out float sampleDeadband)
+        {
+            ResolveRoboticMovingSignal(moduleName, sourceField, positionValue,
+                hasModuleFlag, moduleFlag, out bool movingSignal, out movingSource);
+            sampleDeadband = ResolveRoboticSampleDeadband(movingSource, deadband, positionValue);
+            bool signalDecides = string.Equals(movingSource, RotorRpmMovingSource, StringComparison.Ordinal);
+            return CheckRoboticTransition(key, pid, moduleIndex, partName, movingSignal,
+                positionValue, sampleDeadband, ut, movingSet, lastPositionMap, lastSampleMap,
+                sampleIntervalSeconds, motionWindows, signalDecides);
+        }
+
+        /// <summary>
+        /// The robotic transition machine: emits RoboticMotionStarted, RoboticPositionSample (at
+        /// most once per <paramref name="sampleIntervalSeconds"/>, on a change of at least
+        /// <paramref name="deadband"/> from the last emitted value) and RoboticMotionStopped.
+        ///
+        /// <para>With <paramref name="signalDecides"/> (a rotor sampled through its measured RPM,
+        /// whose value is a SPEED) the moving signal alone decides: Started when it rises, Stopped
+        /// the frame it falls. The value never keeps a rotor moving, so a spin-down always ends
+        /// Stopped instead of leaving the ghost spinning at a fraction of an RPM.</para>
+        ///
+        /// <para>Otherwise the value is a POSE and motion is debounced (one frame's delta against
+        /// the last EMITTED value flooded a slow servo with Started / Stopped pairs every two or
+        /// three frames). A resting servo starts on the module's moving flag or on a change of a
+        /// whole deadband (<see cref="RoboticStartDeadbandFraction"/>) from its rest value. A
+        /// change of <see cref="RoboticKeepMovingDeadbandFraction"/> of the deadband from the
+        /// window reference, or a true flag, is motion evidence and restarts the window; the servo
+        /// stops only once a whole stop hold (one sample interval) passes without evidence, and
+        /// the Stopped event carries the settled value.</para>
+        /// </summary>
         internal static List<PartEvent> CheckRoboticTransition(
             ulong key, uint pid, int moduleIndex, string partName,
             bool movingSignal, float positionValue, float deadband, double ut,
             HashSet<ulong> movingSet, Dictionary<ulong, float> lastPositionMap,
-            Dictionary<ulong, double> lastSampleMap, double sampleIntervalSeconds)
+            Dictionary<ulong, double> lastSampleMap, double sampleIntervalSeconds,
+            Dictionary<ulong, RoboticMotionWindow> motionWindows, bool signalDecides = false)
         {
             var events = new List<PartEvent>();
             bool emittedEvent = false;
@@ -1460,8 +1579,56 @@ namespace Parsek
             bool hadLastPosition = lastPositionMap.TryGetValue(key, out lastPosition);
             float delta = hadLastPosition ? Mathf.Abs(positionValue - lastPosition) : float.PositiveInfinity;
             bool changedEnough = !hadLastPosition || delta >= deadband;
-            bool inferredMoving = hadLastPosition && delta >= Math.Max(deadband * 0.25f, 0.0001f);
-            bool movingNow = movingSignal || inferredMoving;
+
+            RoboticMotionWindow window;
+            if (!motionWindows.TryGetValue(key, out window) || window == null)
+            {
+                window = new RoboticMotionWindow();
+                motionWindows[key] = window;
+            }
+            if (!hadLastPosition || double.IsNaN(window.referenceUT))
+            {
+                window.referenceUT = ut;
+                window.referenceValue = positionValue;
+                // A key already moving with no window keeps moving for one hold rather than
+                // stopping on its first frame.
+                window.lastEvidenceUT = wasMoving ? ut : double.NaN;
+            }
+
+            double stopHoldSeconds = Math.Max(sampleIntervalSeconds, 0.0);
+            bool movingNow;
+            if (signalDecides)
+            {
+                movingNow = movingSignal;
+                if (movingSignal)
+                    window.lastEvidenceUT = ut;
+            }
+            else
+            {
+                bool valueEvidence;
+                if (wasMoving)
+                {
+                    float keepThreshold = Math.Max(deadband * RoboticKeepMovingDeadbandFraction, 0.0001f);
+                    valueEvidence = Mathf.Abs(positionValue - window.referenceValue) >= keepThreshold;
+                }
+                else
+                {
+                    float startThreshold = Math.Max(deadband * RoboticStartDeadbandFraction, 0.0001f);
+                    valueEvidence = hadLastPosition && delta >= startThreshold;
+                }
+
+                bool evidence = movingSignal || valueEvidence;
+                if (evidence)
+                {
+                    window.lastEvidenceUT = ut;
+                    window.referenceUT = ut;
+                    window.referenceValue = positionValue;
+                }
+
+                movingNow = evidence
+                    || (wasMoving && !double.IsNaN(window.lastEvidenceUT)
+                        && (ut - window.lastEvidenceUT) < stopHoldSeconds);
+            }
 
             if (movingNow && !wasMoving)
             {
@@ -1482,6 +1649,9 @@ namespace Parsek
             {
                 movingSet.Remove(key);
                 lastSampleMap.Remove(key);
+                window.referenceUT = ut;
+                window.referenceValue = positionValue;
+                window.lastEvidenceUT = double.NaN;
                 events.Add(new PartEvent
                 {
                     ut = ut,
@@ -1555,21 +1725,20 @@ namespace Parsek
                     continue;
                 }
 
-                ResolveRoboticMovingSignal(moduleName, sourceField, positionValue,
-                    hasMovingSignal, movingSignal, out movingSignal, out string movingSource);
+                var events = EvaluateRoboticPoll(
+                    key, part.persistentId, moduleIndex,
+                    part.partInfo?.name ?? "unknown", moduleName, sourceField,
+                    hasMovingSignal, movingSignal, positionValue, deadband, ut,
+                    activeRoboticKeys, lastRoboticPosition, lastRoboticSampleUT,
+                    roboticMotionWindows, roboticSampleIntervalSeconds,
+                    out string movingSource, out _);
 
                 if (loggedRoboticModuleKeys.Add(key))
                 {
-                    ParsekLog.Verbose("Recorder", $"Robotics: tracking '{part.partInfo?.name}' pid={part.persistentId} " +
-                        $"midx={moduleIndex} module={moduleName} source={sourceField} " +
-                        $"deadband={deadband:F3} sampleHz=4.0 moving={movingSource}");
+                    ParsekLog.Verbose("Recorder", FormatRoboticTrackingLine(
+                        part.partInfo?.name, part.persistentId, moduleIndex, moduleName, sourceField,
+                        deadband, movingSource, roboticSampleIntervalSeconds, null));
                 }
-
-                var events = CheckRoboticTransition(
-                    key, part.persistentId, moduleIndex,
-                    part.partInfo?.name ?? "unknown",
-                    movingSignal, positionValue, deadband, ut,
-                    activeRoboticKeys, lastRoboticPosition, lastRoboticSampleUT, roboticSampleIntervalSeconds);
 
                 for (int e = 0; e < events.Count; e++)
                 {
@@ -1659,6 +1828,7 @@ namespace Parsek
             activeRoboticKeys = new HashSet<ulong>();
             lastRoboticPosition = new Dictionary<ulong, float>();
             lastRoboticSampleUT = new Dictionary<ulong, double>();
+            roboticMotionWindows = new Dictionary<ulong, RoboticMotionWindow>();
             loggedRoboticModuleKeys = new HashSet<ulong>();
             loggedForeignCachedModuleKeys.Clear();
             departedEngineThrottles.Clear();

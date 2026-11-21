@@ -711,6 +711,33 @@ namespace Parsek
         private static bool TryGetModuleBoolFieldOrDefault(PartModule module, string fieldName)
             => TryGetModuleBoolField(module, fieldName, out bool value) && value;
 
+        /// <summary>
+        /// Pure: the displayed angle at a Rotational servo's prefab rest, which the ghost takes
+        /// off every recorded angle (<see cref="GhostPlaybackLogic.ComputeRoboticPoseAngleDegrees"/>).
+        /// It is the hinge's <c>modelInitialAngle</c> (90 on hinge_03 / hinge_03_s / hinge_04, 0 or
+        /// absent elsewhere): only <c>ModuleRoboticServoHinge.UpdatePAWUI</c> adds it to the
+        /// displayed angle. Every other servo, and an unreadable or non-finite field, is 0.
+        /// </summary>
+        internal static float ResolveRoboticPoseAngleOffsetDegrees(
+            string moduleName, bool hasModelInitialAngle, float modelInitialAngle)
+        {
+            if (!string.Equals(moduleName, "ModuleRoboticServoHinge", System.StringComparison.Ordinal))
+                return 0f;
+            if (!hasModelInitialAngle || float.IsNaN(modelInitialAngle) || float.IsInfinity(modelInitialAngle))
+                return 0f;
+            return modelInitialAngle;
+        }
+
+        /// <summary>
+        /// Pure: the value a servo spawns at with no snapshot baseline, chosen so it poses the
+        /// prefab rest: the rest's displayed angle for a Rotational servo, 0 otherwise.
+        /// </summary>
+        internal static float ResolveRoboticDefaultSpawnValue(
+            RoboticVisualMode visualMode, float poseAngleOffsetDegrees)
+        {
+            return visualMode == RoboticVisualMode.Rotational ? poseAngleOffsetDegrees : 0f;
+        }
+
         private static List<RoboticGhostInfo> TryBuildRoboticInfos(
             Part prefab,
             uint persistentId,
@@ -767,6 +794,18 @@ namespace Parsek
 
                 RoboticVisualMode visualMode = GetRoboticVisualMode(moduleName);
 
+                bool hasModelInitialAngle =
+                    TryGetModuleFloatField(module, "modelInitialAngle", out float modelInitialAngle);
+                float poseAngleOffset = visualMode == RoboticVisualMode.Rotational
+                    ? ResolveRoboticPoseAngleOffsetDegrees(moduleName, hasModelInitialAngle, modelInitialAngle)
+                    : 0f;
+                if (poseAngleOffset != 0f)
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"servo-pose-offset-{partName}",
+                        $"Servo pose offset for '{partName}' pid={persistentId} midx={moduleIndex} " +
+                        $"module={moduleName}: modelInitialAngle=" +
+                        poseAngleOffset.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) +
+                        " taken off every recorded angle", 30.0);
+
                 var info = new RoboticGhostInfo
                 {
                     partPersistentId = persistentId,
@@ -778,6 +817,8 @@ namespace Parsek
                     stowedRot = ghostServo.localRotation,
                     visualMode = visualMode,
                     currentValue = currentValue,
+                    poseAngleOffsetDegrees = poseAngleOffset,
+                    spawnValue = ResolveRoboticDefaultSpawnValue(visualMode, poseAngleOffset),
                     active = false,
                     wheelRadius = visualMode == RoboticVisualMode.WheelGroundSpeed
                         ? ResolveWheelRadius(prefab, module, partName)

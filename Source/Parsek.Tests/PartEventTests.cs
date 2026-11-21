@@ -1769,11 +1769,12 @@ namespace Parsek.Tests
             var moving = new HashSet<ulong>();
             var positions = new Dictionary<ulong, float>();
             var sampleUT = new Dictionary<ulong, double>();
+            var windows = new Dictionary<ulong, FlightRecorder.RoboticMotionWindow>();
 
             var events = FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: true, positionValue: 10f, deadband: 0.5f, ut: 100.0,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.RoboticMotionStarted, events[0].eventType);
@@ -1789,16 +1790,17 @@ namespace Parsek.Tests
             var moving = new HashSet<ulong>();
             var positions = new Dictionary<ulong, float>();
             var sampleUT = new Dictionary<ulong, double>();
+            var windows = new Dictionary<ulong, FlightRecorder.RoboticMotionWindow>();
 
             FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: true, positionValue: 10f, deadband: 0.5f, ut: 100.0,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             var events = FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: true, positionValue: 12f, deadband: 0.5f, ut: 100.1,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             Assert.Empty(events);
         }
@@ -1806,7 +1808,7 @@ namespace Parsek.Tests
         [Fact]
         public void RoboticTransition_MovingSignalFalse_PositionJump_StartsAndKeepsMoving()
         {
-            // The inferred-motion arm of 'movingNow = movingSignal || inferredMoving':
+            // The value-evidence arm of the transition machine (motion with no module flag):
             // a servo whose module reports no moving flag while its position still
             // advances must still record. The other cells that pass movingSignal:false do
             // so at an unchanged position, where nothing can be inferred, so this is the
@@ -1815,20 +1817,21 @@ namespace Parsek.Tests
             var moving = new HashSet<ulong>();
             var positions = new Dictionary<ulong, float>();
             var sampleUT = new Dictionary<ulong, double>();
+            var windows = new Dictionary<ulong, FlightRecorder.RoboticMotionWindow>();
 
             // Seed lastPosition without arming motion (no prior sample -> no inference).
             var seedEvents = FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: false, positionValue: 10f, deadband: 0.5f, ut: 100.0,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
             Assert.Empty(seedEvents);
             Assert.DoesNotContain(key, moving);
 
-            // Position advanced past the quarter-deadband floor with the flag still false.
+            // Position advanced past a whole deadband from rest with the flag still false.
             var startEvents = FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: false, positionValue: 12f, deadband: 0.5f, ut: 100.1,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             Assert.Single(startEvents);
             Assert.Equal(PartEventType.RoboticMotionStarted, startEvents[0].eventType);
@@ -1838,7 +1841,7 @@ namespace Parsek.Tests
             var stopEvents = FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: false, positionValue: 12f, deadband: 0.5f, ut: 100.4,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             Assert.Single(stopEvents);
             Assert.Equal(PartEventType.RoboticMotionStopped, stopEvents[0].eventType);
@@ -1852,23 +1855,24 @@ namespace Parsek.Tests
             var moving = new HashSet<ulong>();
             var positions = new Dictionary<ulong, float>();
             var sampleUT = new Dictionary<ulong, double>();
+            var windows = new Dictionary<ulong, FlightRecorder.RoboticMotionWindow>();
 
             FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: true, positionValue: 10f, deadband: 0.5f, ut: 100.0,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             // Within interval (no sample yet)
             FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: true, positionValue: 12f, deadband: 0.5f, ut: 100.1,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             // At/after interval with sufficient delta from last emitted value
             var events = FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: true, positionValue: 13f, deadband: 0.5f, ut: 100.3,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.RoboticPositionSample, events[0].eventType);
@@ -1882,16 +1886,17 @@ namespace Parsek.Tests
             var moving = new HashSet<ulong>();
             var positions = new Dictionary<ulong, float>();
             var sampleUT = new Dictionary<ulong, double>();
+            var windows = new Dictionary<ulong, FlightRecorder.RoboticMotionWindow>();
 
             FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: true, positionValue: 10f, deadband: 0.5f, ut: 100.0,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             var events = FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: true, positionValue: 10.2f, deadband: 0.5f, ut: 100.3,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             Assert.Empty(events);
         }
@@ -1903,16 +1908,17 @@ namespace Parsek.Tests
             var moving = new HashSet<ulong>();
             var positions = new Dictionary<ulong, float>();
             var sampleUT = new Dictionary<ulong, double>();
+            var windows = new Dictionary<ulong, FlightRecorder.RoboticMotionWindow>();
 
             FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: true, positionValue: 10f, deadband: 0.5f, ut: 100.0,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             var events = FlightRecorder.CheckRoboticTransition(
                 key, 300, 0, "hinge_01",
                 movingSignal: false, positionValue: 10f, deadband: 0.5f, ut: 100.5,
-                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25, motionWindows: windows);
 
             Assert.Single(events);
             Assert.Equal(PartEventType.RoboticMotionStopped, events[0].eventType);

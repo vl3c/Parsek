@@ -44,7 +44,15 @@ Not released yet.
 - **Rotors keep spinning on the replay.** A Breaking Ground rotor was only seen spinning while its
   part menu was open, and even then its replay stopped turning as soon as it reached a steady
   speed. Its spin is now recorded however you run it, and the replayed rotor keeps turning until
-  the real one slows to a stop. (RECORDER-ROTOR-RPM-PAW-ONLY)
+  the real one slows to a stop, then stops with it. (RECORDER-ROTOR-RPM-PAW-ONLY)
+- **Slow servo moves no longer bloat the recording.** A Breaking Ground servo moving slowly or
+  easing into its target was recorded as starting and stopping many times a second, and a hovering
+  rotor's small speed wobble was recorded four times a second. Each move is now recorded as one
+  start, a few positions and one stop. (RECORDER-ROBOTIC-MOTION-DEBOUNCE)
+- **The Alligator hinges and the G-32W Hinge replay at the right angle.** Their replay was bent 90
+  degrees away from the real hinge, at rest and through every swing. They now replay at the angle
+  the real hinge showed; the other hinges and servos replay as before.
+  (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
 - **A rescue or tourism contract still works after you go back in time.** If you go back to before
   you accepted a rescue, the stranded kerbal or part reappears when the clock reaches the accept
   again (at your next Space Center or Tracking Station visit if you are flying then), and tourism
