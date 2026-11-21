@@ -1,6 +1,7 @@
 # Design: part ghost parity (`PartParitySweep`, the parity viewer)
 
-Status: DRAFT rev 2, 2026-11-21, not built. Rev 1 was reviewed by two clean-context reviewers
+Status: DRAFT rev 2, 2026-11-21, not built; the P0 capture spike flew green on both installs the
+same day (Appendix B). Rev 1 was reviewed by two clean-context reviewers
 (Opus 5.5 high, Fable 5.2 high); rev 2 folds their findings in (disposition table in Appendix A).
 Third picture system, beside the GUI census (`design-gui-tree-dump.md`, `design-gui-mirror.md`) and
 the map pictures (`design-map-geometry-dump.md`, `design-map-mirror.md`).
@@ -146,7 +147,11 @@ cloned materials; `Die()` every spawned vessel and wait until gone. Every K = 10
 1. Collect the REAL renderer list from the part's model subtree and its framing box (each renderer's
    local bounds corners into part space; SkinnedMeshRenderers from their world `bounds`, since
    their local bounds are often stale) BEFORE any ghost exists. Record the real per-renderer
-   structure (4.6).
+   structure (4.6). The framing box takes `MeshRenderer` / `SkinnedMeshRenderer` on the part's own
+   model layers only: on the modded install a ReStock LV-T45 carries 18 extra mesh renderers (most
+   likely Waterfall plume meshes, invisible at zero throttle; not yet enumerated) that blew the
+   real box to 10 m against a 2 m part
+   (Appendix B).
 2. Snapshot: `TryBackupSnapshot(real)`; seed events: `PartStateSeeder.SeedPartStates` on the real
    vessel and `EmitSeedEvents` into the throwaway recording's `PartEvents` (D2).
 3. Build the ghost through the D2 seam, replay the t0 prefix of the seed events, disable ghost
@@ -210,9 +215,13 @@ Textures: the profiles pin `TEXTURE_QUALITY = 3` and `QUALITY_PRESET = 0`. Both 
 textures, so parity is unaffected, but the pictures are blurry. The sweep sets
 `QualitySettings.masterTextureLimit = 0` in process for its duration and restores it (no
 `settings.cfg` key: the closed `kspSettings` set keeps render keys out of reach on purpose,
-`hlib.py` near 9474). Whether Unity 2019.4 re-streams the mips at runtime is the first spike item
-(P0). Full-resolution ReStock textures raise VRAM above the measured ~1 GB per copy, so the lane
-runs on one slot until measured.
+`hlib.py` near 9474). P0 measured that the runtime change does NOT take effect: both installs run
+`masterTextureLimit = 3`, and setting 0 left `Texture.currentTextureMemory` unchanged and the
+pictures at 1/8 resolution (Appendix B). Parity is unaffected (both sides share the textures), so
+the gated sweep runs at the pinned quality; full-resolution pictures for the owner's eyes need an
+install-level `TEXTURE_QUALITY = 0`, which is a P2 decision (a lane-scoped key in the closed set, or
+a parity-only profile). Full-resolution ReStock textures raise VRAM above the measured ~1 GB per
+copy, so such a lane runs on one slot until measured.
 
 ### 4.5 Control cases (self-test)
 
@@ -457,7 +466,7 @@ summary; per-case Verbose lines; Warn for a setup fault.
 
 | Phase | Content | Done when |
 | --- | --- | --- |
-| P0 | Capture spike in the dev install on one stock and one ReStock part: `Camera.Render` into an MSAA target, resolve, double clear, ortho with KSP shaders, light rig, `pixelLightCount`, `masterTextureLimit`, `forceRenderingOff`. | Pictures read by eye; every unknown in 4.4 answered and written into this doc. |
+| P0 (DONE 2026-11-21, Appendix B) | Capture spike on both harness installs, stock and ReStock / ReStock+ parts: `Camera.Render` into an MSAA target, resolve, double clear, ortho with KSP shaders, light rig, `pixelLightCount`, `masterTextureLimit`, `forceRenderingOff`. | Pictures read by eye; every unknown in 4.4 answered and written into this doc. |
 | P1 | Pure halves + xUnit (measures on synthetic masks incl. shifted / rotated / missing-blob shapes, structural diff, sharding, case ids, resume decision, JSON writer, args); `GhostCoOrbitalRig` extraction; D2 seam extraction with the IL fold proof. | `dotnet test` green; FGV-1 flown green on the refactor. |
 | P2 | Capture engine + verb + in-game test + files; controls; default skins; a 20-part dev run. | Controls behave; per-wave wall time measured; chunk size set from it. |
 | P3 | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. | First full reading run on both installs; thresholds re-pinned; findings filed. |
@@ -471,11 +480,13 @@ summary; per-case Verbose lines; Warn for a setup fault.
 
 - Is a one-part vessel a fair reference for parts whose look depends on neighbours (shrouds,
   node-set plates, fairings)? Phase 1 compares what a lone part looks like on both sides; the context
-  axis covers the rest.
+  axis covers the rest. P0 shows the lone case is itself a real flight state: a bottom engine with
+  nothing below hides its shroud in stock and the ghost draws it (Appendix B, finding 1).
 - Does every variant apply at a flight spawn when authored in both keys, or do some apply only in the
   editor (`onEditorVariantApplied`)? The skin proof measures it; a part that fails needs another
   route.
-- Does `masterTextureLimit` take effect at runtime for already-loaded part textures (P0)?
+- ~~Does `masterTextureLimit` take effect at runtime for already-loaded part textures (P0)?~~ No
+  (Appendix B); the install-level route is the P2 decision in 4.4.
 
 ## Appendix A. Review disposition (rev 1 -> rev 2)
 
@@ -512,3 +523,47 @@ Two clean-context reviews of rev 1. "Both" = raised independently by both review
 | Python recompute of C# measures (suggestion) | Both | Adopted for controls + 2 % sample (6). |
 | Capture spike before pure code (suggestion) | Fable | Adopted as P0 (12). |
 | csproj count, lane catalog, rig module folder | Both | Fixed (7, 11). |
+
+## Appendix B. P0 capture spike results (2026-11-21)
+
+Throwaway branch `part-parity-spike` (commit c403783d4, never merged): one in-game cell
+(`PartParitySpikeInGameTests`) and two operator lanes on `eva2-lko-crewed`, provisioned from that
+branch. Both PASS attempt 1: `PPS-0a-capture-spike-stock` on stock-minimal (`2026-11-21_1242`, 68 s
+wall, 6 cases, 48 images) and `PPS-0b-capture-spike-modded` on modded-compat (`2026-11-21_1244`,
+10 cases, 80 images; ReStock, ReStock+, Waterfall, B9PartSwitch installed). Per case: a one-part
+vessel spawned 60 m along-track, the ghost built from its own `TryBackupSnapshot` and parented to
+the real root at zero offset (no seed events), then four ortho views x two sides x two clears into a
+512 px tile. Images and KSP.log in the runs' `_shots` folders.
+
+What 4.4 assumed, and what was measured:
+
+| Unknown | Result |
+| --- | --- |
+| `Camera.Render` inside KSP's camera stack | Works. A disabled camera of our own, `RenderingPath.Forward`, rendered on demand after `WaitForEndOfFrame`; the flight cameras are untouched. |
+| MSAA target + resolve | Works on Direct3D11 (`supportsMultisampledTextures=1`): MSAA 4 target, `Graphics.Blit` to a non-MSAA target, `ReadPixels`. |
+| Ortho with KSP shaders | Works: stock and ReStock part shaders render lit and textured in orthographic projection. |
+| Double-clear matte | Clean: about 500-900 edge pixels per 512 px view, 0 inverted pixels in every view except 9 on one real-side Mk1 pod view (white variant), so the measures need a small noise floor. |
+| Light rig | Works: 22-26 scene lights disabled and restored per view, key + fill directional, flat ambient pinned, `pixelLightCount` pinned. No exception in the capture window (the only exceptions are stock's `KnowledgeBase` shutdown noise after the summary). |
+| `forceRenderingOff` hiding | Works: co-located sides separate cleanly, and the one real difference (finding 1) shows on one side only. |
+| Determinism | Identical sides measure iou 1.0000 and mean colour delta 0.00-0.04 on every matching view, so the measures are not noise-bound. |
+| Culling mask from renderer layers | Layers 0 and 1 (Default, TransparentFX); mask 0x1 or 0x3. Nothing outside the box entered a frame. |
+| `masterTextureLimit = 0` at runtime | Not effective (4.4). |
+| Throughput | About 2 s per case (spawn + 1.5 s settle); the 4 views x 2 sides x 2 clears take about 0.15 s. Settle, not capture, sizes the waves. |
+| Skins | Every requested variant reached the snapshot (`moduleVariantName`) and the ghost: stock FL-T400 BlackAndWhite, Mk1 pod White; ReStock FL-T400 Dark, OKTO Gold, LV-T45 Boattail, ReStock+ nosecone Metal. All match pixel for pixel. |
+
+Findings:
+
+1. **Ghost draws the shroud of an engine with nothing on its bottom node.** Stock LV-T45 and ReStock
+   LV-T45 (Size1): real side shows the bare engine, ghost side a solid shroud (side views iou
+   0.40-0.54). Stock `ModuleJettison.SetupJettisonState` (decompiled, KSP 1.12.5) deactivates the
+   jettison transform when the bottom node has no attached part, without setting `isJettisoned`;
+   `GhostVisualBuilder` forces every jettison transform visible and relies on `ShroudJettisoned`
+   events, and `PartStateSeeder.SeedJettisons` seeds only `isJettisoned = True`. So any recorded
+   vessel whose bottom engine has nothing below plays back with a shroud the real craft never had.
+   The ReStock Boattail variant carries no shroud and matches. Filed as todo
+   GHOST-SHROUD-EMPTY-BOTTOM-NODE.
+2. **Extra real-side renderers (most likely Waterfall plume meshes) inflate the real framing box.** ReStock LV-T45: 28 real mesh renderers
+   against 10 on the ghost; the real box was 10 m, so the part filled a corner of the tile. Fixed in
+   4.2 step 1 (frame from the part's model renderers only); P2 logs which renderers it dropped.
+3. **Installs run at 1/8 texture resolution** (finding behind 4.4).
+
