@@ -54,6 +54,10 @@ Not released yet.
 
 ### Fixed
 
+- **A flight you fly again keeps everything it earned after Parsek splits it.** Science and
+  milestones from the later part of a re-flown flight reached the career only on the next load,
+  and a vessel whose ending moved to the new part could fail to appear.
+  (UNION-COMMIT-STALE-INCOMING-TREE)
 - **The last row of a split flight keeps its ending details.** Its situation text, docking partner
   and supply-route dock windows stayed on the first row, so the timeline showed generic wording.
   (SPLIT-LEAVES-END-FIELDS-ON-HEAD)

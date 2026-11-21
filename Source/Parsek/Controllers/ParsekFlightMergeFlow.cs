@@ -882,11 +882,16 @@ namespace Parsek
             // tails (and unsplit / unmerged segments) until the next cold load.
             string activeTipId = RunInFlightCommitOptimizationPass(activeRec, activeRecId);
 
+            // A RULE 3 union folds the live copy into the committed tree object, and the pass
+            // adds its split tails only there: the ledger notify and the leaf spawn read it.
+            RecordingTree committedTree =
+                TreeCommitService.ResolveCommittedTreeAfterCommit(host.activeTree, "in-flight-commit");
+
             // Recalculate crew reservations
-            LedgerOrchestrator.NotifyLedgerTreeCommitted(host.activeTree);
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(committedTree);
 
             // Spawn all non-active leaf vessels
-            host.SpawnTreeLeaves(host.activeTree, activeTipId);
+            host.SpawnTreeLeaves(committedTree, activeTipId);
 
             // Crew swap on active vessel
             int swapped = CrewReservationManager.SwapReservedCrewInFlight();

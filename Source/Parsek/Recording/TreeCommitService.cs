@@ -1947,5 +1947,27 @@ namespace Parsek
             PendingTreeSlot.ClearSlot();
             return true;
         }
+
+        /// <summary>
+        /// The committed tree a caller must use after <see cref="CommitTree"/> /
+        /// <see cref="CommitPendingTree"/>: the committed tree with <paramref name="tree"/>'s id,
+        /// else <paramref name="tree"/> itself. A RULE 3 union folds the incoming copy INTO the
+        /// existing committed object and drops the copy, so the optimizer pass that follows adds
+        /// its split tails only to the committed tree; the ledger notify and the leaf spawn must
+        /// read that one. One Info line when the two differ.
+        /// </summary>
+        internal static RecordingTree ResolveCommittedTreeAfterCommit(RecordingTree tree, string context)
+        {
+            if (tree == null) return null;
+            RecordingTree committed = RecordingStore.FindCommittedTreeById(tree.Id);
+            if (committed == null || ReferenceEquals(committed, tree))
+                return tree;
+            ParsekLog.Info("RecordingStore",
+                $"ResolveCommittedTreeAfterCommit ({context ?? "<none>"}): tree id='{tree.Id}' was " +
+                $"unioned into the committed tree; using it (incomingRecordings=" +
+                $"{(tree.Recordings?.Count ?? 0).ToString(CultureInfo.InvariantCulture)} " +
+                $"committedRecordings={(committed.Recordings?.Count ?? 0).ToString(CultureInfo.InvariantCulture)})");
+            return committed;
+        }
     }
 }
