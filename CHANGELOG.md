@@ -81,6 +81,10 @@ Not released yet.
   a vessel from an earlier flight again, Parsek could re-cut that earlier flight and then throw
   your new flight away as a duplicate when you merged. The earlier flight now stays as it is
   while you fly, and the merge keeps what you flew. (LIVE-FLOWN-TREE-RECUT-DROPS-NEW-LEG)
+- **A probe that survives a crash keeps its ending.** When a crash destroyed the crewed part and a
+  probe-controlled piece flew on, that piece could be saved as destroyed once it was far away, so
+  it did not come back at the end of its replay. It now ends where it really is.
+  (SURVIVOR-DESTROYED-AT-SCENE-EXIT)
 - **A merge that adds nothing no longer says "Merged".** When the flight was already on the
   timeline, the merge still reported success. Clicking Merge now says "Nothing new to merge:
   this flight is already in the timeline", and an automatic merge says nothing.

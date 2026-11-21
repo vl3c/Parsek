@@ -77,10 +77,103 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>Where the identity check read the surviving vessel's parts from.</summary>
+        internal enum PartSource
+        {
+            /// <summary>The loaded vessel's live <c>Part</c> list.</summary>
+            Loaded,
+            /// <summary>An unloaded vessel's <c>ProtoVessel</c> part snapshots.</summary>
+            Proto,
+            /// <summary>Neither source holds a part: the parts cannot be read.</summary>
+            Unreadable
+        }
+
         /// <summary>
-        /// Live wrapper for the BG go-on-rails seam. Adapts the live KSP types
-        /// to the pure predicate via <see cref="ParsekFlight.IsTrackableVessel"/>
-        /// and a single pass over <c>v.parts</c>. Null-safe on both inputs.
+        /// Picks the part source for a found vessel. An unloaded (on-rails, out of physics
+        /// range) vessel has no live parts at all, only its proto snapshots, so reading
+        /// <c>v.parts</c> for it reads "no part survived" off a living vessel
+        /// (SURVIVOR-DESTROYED-AT-SCENE-EXIT). A loaded vessel reads its live parts.
+        /// </summary>
+        internal static PartSource SelectPartSource(
+            bool vesselLoaded, int loadedPartCount, int protoPartCount)
+        {
+            if (vesselLoaded && loadedPartCount > 0) return PartSource.Loaded;
+            if (protoPartCount > 0) return PartSource.Proto;
+            if (loadedPartCount > 0) return PartSource.Loaded;
+            return PartSource.Unreadable;
+        }
+
+        /// <summary>
+        /// Pure verdict over both part sources. <paramref name="typeTrackable"/> is the
+        /// part-free half of <see cref="ParsekFlight.IsTrackableVessel"/> (space object, EVA
+        /// kerbal); each source carries its own "has a command part" read. A vessel whose
+        /// parts cannot be read is never sealed Destroyed: there is no evidence it lost
+        /// anything.
+        /// </summary>
+        internal static bool ShouldClassifyRecordedIdentityLostFromSources(
+            bool isDebris,
+            IReadOnlyList<uint> recordedControllerPids,
+            bool typeTrackable,
+            bool vesselLoaded,
+            IReadOnlyList<uint> loadedPartPids,
+            bool loadedHasCommand,
+            IReadOnlyList<uint> protoPartPids,
+            bool protoHasCommand,
+            out PartSource source)
+        {
+            source = SelectPartSource(
+                vesselLoaded,
+                loadedPartPids?.Count ?? 0,
+                protoPartPids?.Count ?? 0);
+            switch (source)
+            {
+                case PartSource.Loaded:
+                    return ShouldClassifyRecordedIdentityLost(
+                        isDebris, recordedControllerPids,
+                        typeTrackable || loadedHasCommand, loadedPartPids);
+                case PartSource.Proto:
+                    return ShouldClassifyRecordedIdentityLost(
+                        isDebris, recordedControllerPids,
+                        typeTrackable || protoHasCommand, protoPartPids);
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Reads an unloaded vessel's part pids and whether any part carries a
+        /// <c>ModuleCommand</c> from its proto snapshots. Null-safe; plain data, no Unity.
+        /// </summary>
+        internal static List<uint> CollectProtoPartIdentity(ProtoVessel pv, out bool hasCommand)
+        {
+            hasCommand = false;
+            if (pv == null || pv.protoPartSnapshots == null || pv.protoPartSnapshots.Count == 0)
+                return null;
+            var pids = new List<uint>(pv.protoPartSnapshots.Count);
+            for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
+            {
+                ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
+                if (pps == null) continue;
+                pids.Add(pps.persistentId);
+                if (hasCommand || pps.modules == null) continue;
+                for (int m = 0; m < pps.modules.Count; m++)
+                {
+                    ProtoPartModuleSnapshot mod = pps.modules[m];
+                    if (mod != null && mod.moduleName == "ModuleCommand")
+                    {
+                        hasCommand = true;
+                        break;
+                    }
+                }
+            }
+            return pids;
+        }
+
+        /// <summary>
+        /// Live wrapper for the BG go-on-rails seam and the finalization identity check.
+        /// Adapts the live KSP types to the pure predicate: a loaded vessel through its live
+        /// parts and <see cref="ParsekFlight.IsTrackableVessel"/>, an unloaded one through
+        /// its proto part snapshots. Null-safe on both inputs.
         /// </summary>
         internal static bool IsRecordedIdentityLost(Recording rec, Vessel v)
         {
@@ -95,8 +188,9 @@ namespace Parsek
                     recordedPids.Add(rec.Controllers[i].partPersistentId);
             }
 
+            bool vesselLoaded = v.loaded;
             List<uint> livePids = null;
-            if (v.parts != null && v.parts.Count > 0)
+            if (vesselLoaded && v.parts != null && v.parts.Count > 0)
             {
                 livePids = new List<uint>(v.parts.Count);
                 for (int i = 0; i < v.parts.Count; i++)
@@ -105,12 +199,36 @@ namespace Parsek
                     if (p != null) livePids.Add(p.persistentId);
                 }
             }
+            bool loadedHasCommand = livePids != null && livePids.Count > 0
+                && ParsekFlight.IsTrackableVessel(v);
 
-            return ShouldClassifyRecordedIdentityLost(
+            bool protoHasCommand = false;
+            List<uint> protoPids = (livePids == null || livePids.Count == 0)
+                ? CollectProtoPartIdentity(v.protoVessel, out protoHasCommand)
+                : null;
+
+            bool typeTrackable = v.vesselType == VesselType.SpaceObject
+                || v.isEVA || v.vesselType == VesselType.EVA;
+
+            PartSource source;
+            bool lost = ShouldClassifyRecordedIdentityLostFromSources(
                 rec.IsDebris,
                 recordedPids,
-                ParsekFlight.IsTrackableVessel(v),
-                livePids);
+                typeTrackable,
+                vesselLoaded,
+                livePids,
+                loadedHasCommand,
+                protoPids,
+                protoHasCommand,
+                out source);
+            if (source != PartSource.Loaded)
+            {
+                ParsekLog.Verbose("Recording",
+                    $"IsRecordedIdentityLost: rec={rec.RecordingId ?? "(null)"} pid={v.persistentId} " +
+                    $"loaded={vesselLoaded} partSource={source} protoParts={protoPids?.Count ?? 0} " +
+                    $"protoCommand={protoHasCommand} recordedControllers={recordedPids?.Count ?? 0} lost={lost}");
+            }
+            return lost;
         }
     }
 }

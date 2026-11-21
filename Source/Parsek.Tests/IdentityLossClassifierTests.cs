@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.Serialization;
 using Xunit;
 
 namespace Parsek.Tests
@@ -160,6 +161,193 @@ namespace Parsek.Tests
                 livePartPids: new uint[] { 100u });
 
             Assert.True(lost);
+        }
+
+        #endregion
+
+        #region Part source - unloaded vessels read their proto parts (SURVIVOR-DESTROYED-AT-SCENE-EXIT)
+
+        // SURV-2 (2026-11-20): a crash destroyed the crewed root; the probe-cored lower stage
+        // survived as a background-recorded controlled child, went on rails and unloaded. At
+        // the scene exit the finalizer found it by pid, read its live Part list (empty on an
+        // unloaded vessel), and the predicate's "no parts survive at all" branch sealed the
+        // living probe Destroyed and dropped its spawn snapshot.
+
+        private const uint ProbeCorePid = 2104924005u;
+
+        [Fact]
+        public void UnloadedSurvivor_ProtoPartsCarryTheRecordedController_IsNotLost()
+        {
+            bool lost = IdentityLossClassifier.ShouldClassifyRecordedIdentityLostFromSources(
+                isDebris: false,
+                recordedControllerPids: new uint[] { ProbeCorePid },
+                typeTrackable: false,
+                vesselLoaded: false,
+                loadedPartPids: null,
+                loadedHasCommand: false,
+                protoPartPids: new uint[] { 2833781794u, ProbeCorePid, 3087746488u },
+                protoHasCommand: true,
+                out IdentityLossClassifier.PartSource source);
+
+            Assert.False(lost);
+            Assert.Equal(IdentityLossClassifier.PartSource.Proto, source);
+        }
+
+        [Fact]
+        public void UnloadedSurvivor_ControllerPidMissingButProtoCommandPart_IsNotLost()
+        {
+            // Trackability over the proto snapshots: a surviving command part keeps the
+            // vessel controllable even when the recorded controller pid is not among them.
+            bool lost = IdentityLossClassifier.ShouldClassifyRecordedIdentityLostFromSources(
+                isDebris: false,
+                recordedControllerPids: new uint[] { 5000u },
+                typeTrackable: false,
+                vesselLoaded: false,
+                loadedPartPids: new uint[0],
+                loadedHasCommand: false,
+                protoPartPids: new uint[] { 6000u },
+                protoHasCommand: true,
+                out _);
+
+            Assert.False(lost);
+        }
+
+        [Fact]
+        public void UnloadedWreck_ProtoPartsLostEveryController_IsLost()
+        {
+            // Mirror: the breakup remnant that kept no controller is still a wreck when it is
+            // unloaded at the finalize (BREAKUP-REMNANT-ENDING-DEPENDS-ON-DISTANCE holds).
+            bool lost = IdentityLossClassifier.ShouldClassifyRecordedIdentityLostFromSources(
+                isDebris: false,
+                recordedControllerPids: new uint[] { 5000u },
+                typeTrackable: false,
+                vesselLoaded: false,
+                loadedPartPids: null,
+                loadedHasCommand: false,
+                protoPartPids: new uint[] { 3087746488u },
+                protoHasCommand: false,
+                out IdentityLossClassifier.PartSource source);
+
+            Assert.True(lost);
+            Assert.Equal(IdentityLossClassifier.PartSource.Proto, source);
+        }
+
+        [Fact]
+        public void LoadedVessel_ReadsLiveParts_VerdictUnchanged()
+        {
+            bool wreck = IdentityLossClassifier.ShouldClassifyRecordedIdentityLostFromSources(
+                isDebris: false,
+                recordedControllerPids: new uint[] { 5000u },
+                typeTrackable: false,
+                vesselLoaded: true,
+                loadedPartPids: new uint[] { 3087746488u },
+                loadedHasCommand: false,
+                protoPartPids: new uint[] { 5000u }, // a stale proto must not rescue a loaded wreck
+                protoHasCommand: true,
+                out IdentityLossClassifier.PartSource wreckSource);
+            bool intact = IdentityLossClassifier.ShouldClassifyRecordedIdentityLostFromSources(
+                isDebris: false,
+                recordedControllerPids: new uint[] { 5000u },
+                typeTrackable: false,
+                vesselLoaded: true,
+                loadedPartPids: new uint[] { 5000u, 3087746488u },
+                loadedHasCommand: false,
+                protoPartPids: null,
+                protoHasCommand: false,
+                out _);
+
+            Assert.True(wreck);
+            Assert.Equal(IdentityLossClassifier.PartSource.Loaded, wreckSource);
+            Assert.False(intact);
+        }
+
+        [Fact]
+        public void NoPartsInEitherSource_IsUnreadable_NotLost()
+        {
+            bool lost = IdentityLossClassifier.ShouldClassifyRecordedIdentityLostFromSources(
+                isDebris: false,
+                recordedControllerPids: new uint[] { 5000u },
+                typeTrackable: false,
+                vesselLoaded: false,
+                loadedPartPids: null,
+                loadedHasCommand: false,
+                protoPartPids: new uint[0],
+                protoHasCommand: false,
+                out IdentityLossClassifier.PartSource source);
+
+            Assert.False(lost);
+            Assert.Equal(IdentityLossClassifier.PartSource.Unreadable, source);
+        }
+
+        [Fact]
+        public void UnloadedDebris_OptsOut()
+        {
+            bool lost = IdentityLossClassifier.ShouldClassifyRecordedIdentityLostFromSources(
+                isDebris: true,
+                recordedControllerPids: new uint[] { 5000u },
+                typeTrackable: false,
+                vesselLoaded: false,
+                loadedPartPids: null,
+                loadedHasCommand: false,
+                protoPartPids: new uint[] { 3087746488u },
+                protoHasCommand: false,
+                out _);
+
+            Assert.False(lost);
+        }
+
+        [Theory]
+        [InlineData(true, 3, 3, (int)IdentityLossClassifier.PartSource.Loaded)]
+        [InlineData(false, 0, 3, (int)IdentityLossClassifier.PartSource.Proto)]
+        [InlineData(false, 3, 3, (int)IdentityLossClassifier.PartSource.Proto)]
+        [InlineData(true, 0, 3, (int)IdentityLossClassifier.PartSource.Proto)]
+        [InlineData(false, 3, 0, (int)IdentityLossClassifier.PartSource.Loaded)]
+        [InlineData(false, 0, 0, (int)IdentityLossClassifier.PartSource.Unreadable)]
+        public void SelectPartSource_Table(
+            bool loaded, int loadedCount, int protoCount, int expected)
+        {
+            Assert.Equal((IdentityLossClassifier.PartSource)expected,
+                IdentityLossClassifier.SelectPartSource(loaded, loadedCount, protoCount));
+        }
+
+        private static ProtoPartSnapshot ProtoPart(uint pid, params string[] moduleNames)
+        {
+            var pps = (ProtoPartSnapshot)FormatterServices.GetUninitializedObject(typeof(ProtoPartSnapshot));
+            pps.persistentId = pid;
+            pps.modules = new List<ProtoPartModuleSnapshot>();
+            foreach (string name in moduleNames)
+            {
+                var mod = (ProtoPartModuleSnapshot)FormatterServices.GetUninitializedObject(
+                    typeof(ProtoPartModuleSnapshot));
+                mod.moduleName = name;
+                pps.modules.Add(mod);
+            }
+            return pps;
+        }
+
+        [Fact]
+        public void CollectProtoPartIdentity_ReadsPidsAndCommandModule()
+        {
+            var pv = (ProtoVessel)FormatterServices.GetUninitializedObject(typeof(ProtoVessel));
+            pv.protoPartSnapshots = new List<ProtoPartSnapshot>
+            {
+                ProtoPart(2104924005u, "ModuleAblator"),
+                ProtoPart(1111u, "ModuleReactionWheel", "ModuleCommand"),
+                ProtoPart(2222u, "ModuleDecouple")
+            };
+
+            List<uint> pids = IdentityLossClassifier.CollectProtoPartIdentity(pv, out bool hasCommand);
+
+            Assert.Equal(new uint[] { 2104924005u, 1111u, 2222u }, pids);
+            Assert.True(hasCommand);
+
+            pv.protoPartSnapshots = new List<ProtoPartSnapshot> { ProtoPart(3333u, "ModuleDecouple") };
+            pids = IdentityLossClassifier.CollectProtoPartIdentity(pv, out hasCommand);
+            Assert.Equal(new uint[] { 3333u }, pids);
+            Assert.False(hasCommand);
+
+            Assert.Null(IdentityLossClassifier.CollectProtoPartIdentity(null, out hasCommand));
+            Assert.False(hasCommand);
         }
 
         #endregion
