@@ -8,7 +8,7 @@
   "modelUrls": ["Squad/Parts/Coupling/Assets/Decoupler_2"],
   "category": "Coupling",
   "tags": ["unknown-module:KOSNameTag"],
-  "skin": {"module":"ModulePartVariants","moduleId":null,"requested":"Basic","real":"Basic","snapshot":"Basic","ghost":null},
+  "skin": {"module":"ModulePartVariants","moduleId":null,"requested":"Basic","real":"Basic","snapshot":"Basic","ghost":"Basic"},
   "state": "stowed",
   "context": "alone",
   "measure": {"coverageAlpha":0.5,"tolerancePx":1,"blobConnectivity":4,"colorMetric":"euclidean-rgb-premultiplied","colorThreshold":24,"colorBlockGrid":16,"minBlockOverlapFraction":0.25},

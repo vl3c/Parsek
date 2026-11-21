@@ -38,7 +38,7 @@ import math
 import random
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Collection, Dict, Iterable, List, Optional, Sequence, Tuple
 
 # ---------------------------------------------------------------------------
 # The C# contract, mirrored (PartParitySourceSyncTests pins each against the source).
@@ -326,19 +326,57 @@ def _rendered_entries(entries: Any) -> List[str]:
     return keys
 
 
+SKIN_B9_MODULE = "ModuleB9PartSwitch"
+SKIN_FLAG_MISMATCH = "skin-mismatch"
+SKIN_FLAG_NOT_MODELLED_B9 = "skin-not-modelled:b9"
+
+
+def skin_flags(skin: Optional[Dict]) -> Tuple[str, ...]:
+    """The ghost-defect skin flags, exactly ``PartParitySkinRules.GhostFlags``: no module,
+    no flags; a B9 module whose ghost name was not read is ``skin-not-modelled:b9`` (the
+    builder applies no B9 subtype); otherwise ``skin-mismatch`` when real and ghost differ
+    case-insensitively, a null on one side only counting as a difference."""
+    if not isinstance(skin, dict) or skin.get("module") is None:
+        return ()
+    real, ghost = skin.get("real"), skin.get("ghost")
+    if skin.get("module") == SKIN_B9_MODULE and ghost is None:
+        return (SKIN_FLAG_NOT_MODELLED_B9,)
+    if (real is None) != (ghost is None) or (
+            real is not None and str(real).lower() != str(ghost).lower()):
+        return (SKIN_FLAG_MISMATCH,)
+    return ()
+
+
 def judge_skin(skin: Optional[Dict]) -> Tuple[Optional[str], Tuple[str, ...]]:
-    """The skin proof. Returns (verdict or None, reasons). ``requested != real`` is a
-    setup fault (``error``), ``real != ghost`` a ghost defect (``fail``) even when the
-    pictures look alike. A name that was not read (null) is never compared: a part
-    with no switcher has no skin, and a build without the ghost accessor reads null."""
+    """The skin proof. Returns (verdict or None, reasons). ``requested != real`` (exact)
+    is a setup fault (``error``); ``skin-mismatch`` (``skin_flags``) is a ghost defect
+    (``fail``) even when the pictures look alike; ``skin-not-modelled:b9`` is a known
+    builder gap, reported as ``warn``."""
     if not isinstance(skin, dict):
         return None, ()
     requested, real, ghost = skin.get("requested"), skin.get("real"), skin.get("ghost")
     if requested is not None and real != requested:
         return VERDICT_ERROR, ("skin-not-applied:requested=%s real=%s" % (requested, real),)
-    if real is not None and ghost is not None and real != ghost:
+    flags = skin_flags(skin)
+    if SKIN_FLAG_MISMATCH in flags:
         return VERDICT_FAIL, ("skin-mismatch:real=%s ghost=%s" % (real, ghost),)
+    if SKIN_FLAG_NOT_MODELLED_B9 in flags:
+        return VERDICT_WARN, (SKIN_FLAG_NOT_MODELLED_B9,)
     return None, ()
+
+
+def skin_flag_disagreement(sidecar: Dict) -> Optional[str]:
+    """None when the sidecar's own ``skin-*`` flags (written by the C# runner) equal the
+    flags this module derives from its ``skin`` block; else the difference. Only a case
+    with views is compared (the C# side computes the flags only for a built ghost)."""
+    if not isinstance(sidecar, dict) or not sidecar.get("views"):
+        return None
+    wrote = sorted(f for f in sidecar.get("flags") or []
+                   if isinstance(f, str) and f.startswith("skin-") and f != "skin-not-applied")
+    derived = sorted(skin_flags(sidecar.get("skin")))
+    if wrote == derived:
+        return None
+    return "skin flags: sidecar=%s derived=%s" % (",".join(wrote) or "-", ",".join(derived) or "-")
 
 
 def judge_case(sidecar: Dict) -> CaseVerdict:
@@ -419,8 +457,11 @@ def check_controls(manifest: Dict) -> ControlsCheck:
     return ControlsCheck(not problems, state, ordered, tuple(problems))
 
 
-def _sidecar_complete(sidecar: Optional[Dict], case_id: str) -> Optional[str]:
-    """None when the sidecar is a complete record of ``case_id``; else why not."""
+def _sidecar_complete(sidecar: Optional[Dict], case_id: str,
+                      atlases: Optional[Collection[str]] = None) -> Optional[str]:
+    """None when the sidecar is a complete record of ``case_id``; else why not. With
+    ``atlases`` (the harvested atlas file names), a case with views must also name an
+    atlas that was harvested: its pictures are the evidence the viewer shows."""
     if not isinstance(sidecar, dict):
         return "no-sidecar"
     if sidecar.get("schema") != CASE_SCHEMA:
@@ -436,6 +477,13 @@ def _sidecar_complete(sidecar: Optional[Dict], case_id: str) -> Optional[str]:
     views = sidecar.get("views")
     if not isinstance(views, list) or not views:
         return "no-views"
+    if atlases is not None:
+        meta = sidecar.get("atlas")
+        name = meta.get("file") if isinstance(meta, dict) else None
+        if not name:
+            return "no-atlas"
+        if name not in atlases:
+            return "atlas-missing:%s" % name
     return None
 
 
@@ -450,13 +498,15 @@ class CompletenessCheck:
 
 def check_completeness(manifest: Dict, sidecars: Dict[str, Optional[Dict]],
                        isolate_lines: Sequence[str] = (),
-                       inflight_lines: Sequence[str] = ()) -> CompletenessCheck:
+                       inflight_lines: Sequence[str] = (),
+                       atlases: Optional[Collection[str]] = None) -> CompletenessCheck:
     """The sweep reached ``progress.complete = true``; every planned case (the
     manifest's ``cases[]``, which already leaves the exclusions out) and, when controls
     ran, every control has a complete sidecar or a recorded setup fault; and no case
     is still owed a solo run (``isolate.txt``). A stale ``inflight.txt`` at the end
     names a case the last step left in flight, so it is a problem too. ``sidecars``
-    maps case id -> parsed sidecar (None: present but unreadable)."""
+    maps case id -> parsed sidecar (None: present but unreadable); ``atlases``, when
+    given, is the set of harvested atlas file names a case with views must name."""
     problems: List[str] = []
     progress = manifest.get("progress") if isinstance(manifest.get("progress"), dict) else {}
     if progress.get("complete") is not True:
@@ -472,7 +522,7 @@ def check_completeness(manifest: Dict, sidecars: Dict[str, Optional[Dict]],
     complete = faults = 0
     incomplete: List[str] = []
     for cid in planned_ids:
-        why = _sidecar_complete(sidecars.get(cid), cid)
+        why = _sidecar_complete(sidecars.get(cid), cid, atlases)
         if why is None:
             complete += 1
             status = ((sidecars.get(cid) or {}).get("setup") or {}).get("status")
@@ -843,7 +893,7 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
 
     controls = check_controls(manifest)
     completeness = check_completeness(manifest, sweep.sidecars, sweep.isolate_lines,
-                                      sweep.inflight_lines)
+                                      sweep.inflight_lines, sweep.atlases)
 
     planned = [e["caseId"] for e in manifest.get("cases") or []
                if isinstance(e, dict) and isinstance(e.get("caseId"), str)]
@@ -873,6 +923,12 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
             except Exception as exc:  # noqa: BLE001 - an unreadable atlas is the finding
                 diffs = ["atlas unreadable (%s: %s)" % (type(exc).__name__, exc)]
             mismatches.extend("%s %s" % (cid, d) for d in diffs)
+    # The skin cross-check: the C# runner's skin flags against the ones derived here,
+    # over every part case (a control builds its ghost, or none, by its own rule).
+    for cid in part_ids:
+        why = skin_flag_disagreement(sweep.sidecars.get(cid))
+        if why:
+            mismatches.append("%s %s" % (cid, why))
     if not recompute_ids and read_png is not None:
         mismatches.append("nothing to recompute: no control or part case has an atlas")
 

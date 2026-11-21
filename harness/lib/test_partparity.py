@@ -331,10 +331,37 @@ class ViewAndCaseVerdictTests(unittest.TestCase):
         c = pp.judge_case(side)
         self.assertEqual(pp.VERDICT_ERROR, c.verdict)
         self.assertTrue(any(r.startswith("skin-not-applied:") for r in c.reasons))
-        # A ghost name the build did not read is not compared (P2 sidecars: ghost=null).
+        # PartParitySkinRules.GhostFlags: a variant part whose ghost applied no variant
+        # differs (null on one side only); names match case-insensitively; no module, no
+        # comparison; a B9 part's unread ghost is the known gap, a warn.
         side["skin"] = {"module": "ModulePartVariants", "requested": "Basic", "real": "Basic",
                         "snapshot": "Basic", "ghost": None}
+        c = pp.judge_case(side)
+        self.assertEqual(pp.VERDICT_FAIL, c.verdict)
+        self.assertIn("skin-mismatch:real=Basic ghost=None", c.reasons)
+        side["skin"]["ghost"] = "basic"
         self.assertEqual(pp.VERDICT_PASS, pp.judge_case(side).verdict)
+        side["skin"] = {"module": None, "requested": None, "real": None, "snapshot": None,
+                        "ghost": "Dark"}
+        self.assertEqual(pp.VERDICT_PASS, pp.judge_case(side).verdict)
+        side["skin"] = {"module": "ModuleB9PartSwitch", "moduleId": "meshSwitch",
+                        "requested": "Short", "real": "Short", "snapshot": "Short", "ghost": None}
+        c = pp.judge_case(side)
+        self.assertEqual(pp.VERDICT_WARN, c.verdict)
+        self.assertIn("skin-not-modelled:b9", c.reasons)
+
+    def test_the_skin_flags_cross_check_the_csharp_flags(self):
+        side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
+        self.assertIsNone(pp.skin_flag_disagreement(side))
+        side["skin"] = {"module": "ModulePartVariants", "requested": "Dark", "real": "Dark",
+                        "snapshot": "Dark", "ghost": "Light"}
+        self.assertEqual("skin flags: sidecar=- derived=skin-mismatch",
+                         pp.skin_flag_disagreement(side))
+        side["flags"] = list(side["flags"]) + ["skin-mismatch"]
+        self.assertIsNone(pp.skin_flag_disagreement(side))
+        side["views"] = []
+        side["flags"] = []
+        self.assertIsNone(pp.skin_flag_disagreement(side), "no views: no ghost was built")
 
     def test_a_setup_fault_is_an_error_and_no_views_is_an_error(self):
         side = copy.deepcopy(_load("clydesdale--default--89327fba.part.json"))
@@ -404,12 +431,22 @@ class ControlsAndCompletenessTests(unittest.TestCase):
                     (lambda s: s.__setitem__("part0--default--00000000", None), "no-sidecar"),
                     (lambda s: s["part0--default--00000000"].__setitem__("schema", "x"), "schema=x"),
                     (lambda s: s["part0--default--00000000"].__setitem__("views", []), "no-views"),
-                    (lambda s: s.pop("ctl-empty"), "ctl-empty:no-sidecar")):
+                    (lambda s: s.pop("ctl-empty"), "ctl-empty:no-sidecar"),
+                    (lambda s: s["part0--default--00000000"].__setitem__("atlas", None),
+                     "part0--default--00000000:no-atlas")):
                 side = copy.deepcopy(sweep.sidecars)
                 mutate(side)
-                k = pp.check_completeness(sweep.manifest, side)
+                k = pp.check_completeness(sweep.manifest, side, atlases=sweep.atlases)
                 self.assertFalse(k.ok)
                 self.assertIn(needle, " ".join(k.problems))
+            # a case with views whose atlas file was not harvested
+            self.assertTrue(pp.check_completeness(sweep.manifest, sweep.sidecars,
+                                                  atlases=sweep.atlases).ok)
+            gone = tuple(a for a in sweep.atlases if not a.startswith("part1--"))
+            k = pp.check_completeness(sweep.manifest, sweep.sidecars, atlases=gone)
+            self.assertFalse(k.ok)
+            self.assertIn("part1--default--00000001:atlas-missing:part1--default--00000001",
+                          " ".join(k.problems))
             # a case still owed a solo run, a stale inflight
             k = pp.check_completeness(sweep.manifest, sweep.sidecars,
                                       isolate_lines=["part2--default--00000002"])
@@ -496,6 +533,32 @@ class EvaluateSweepTests(unittest.TestCase):
                                 lambda n: os.path.join(self.tmp, n))
         self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
         self.assertTrue(res.recompute_mismatches[0].startswith("ctl-ghost-rot90 side-a.ghostOnlyTolPx"))
+
+    def test_a_missing_atlas_is_invalid_incomplete(self):
+        fx.build_sweep(self.tmp, parts=3)
+        victim = [n for n in os.listdir(self.tmp) if n.startswith("part2--")
+                  and n.endswith(pp.ATLAS_SUFFIX) and not n.endswith(pp.THUMB_SUFFIX)]
+        self.assertEqual(1, len(victim))
+        os.remove(os.path.join(self.tmp, victim[0]))
+        res = pp.evaluate_sweep(_read_dir(self.tmp), RUN_ID, False, gui_mirror.read_png,
+                                lambda n: os.path.join(self.tmp, n))
+        self.assertEqual(pp.INVALID_INCOMPLETE_SUBKIND, res.invalid_subkind)
+        self.assertIn("atlas-missing", " ".join(res.problems))
+
+    def test_a_skin_flag_disagreement_is_invalid_instrument(self):
+        fx.build_sweep(self.tmp, parts=2)
+        path = os.path.join(self.tmp, "part1--default--00000001" + pp.SIDECAR_SUFFIX)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        doc["skin"] = {"module": "ModulePartVariants", "moduleId": None, "requested": "Dark",
+                       "real": "Dark", "snapshot": "Dark", "ghost": "Light"}
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        res = pp.evaluate_sweep(_read_dir(self.tmp), RUN_ID, False, gui_mirror.read_png,
+                                lambda n: os.path.join(self.tmp, n))
+        self.assertEqual(pp.INVALID_INSTRUMENT_SUBKIND, res.invalid_subkind)
+        self.assertIn("part1--default--00000001 skin flags: sidecar=- derived=skin-mismatch",
+                      res.recompute_mismatches)
 
     def test_an_unreadable_atlas_and_no_reader_are_instrument_faults(self):
         fx.build_sweep(self.tmp)

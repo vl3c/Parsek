@@ -516,7 +516,7 @@ hand-checked sample, a re-pin needs no flight):
 | --- | --- |
 | view `fail` | either largest shape blob (real-only or ghost-only, tolerance applied) exceeds 0.2 % of the projected box area (`SHAPE_BLOB_FAIL_PCT`) or 64 px (`SHAPE_BLOB_FAIL_PX`), or the largest colour blob exceeds 64 px (`COLOR_BLOB_FAIL_PX`); "exceeds" is strict, and a percentage the C# side wrote as null is not judged |
 | view `warn` | the same lines at a quarter (`WARN_FRACTION`) |
-| case `fail` | the worst view, raised to `fail` by a RENDERED entry in `structure.missingOnGhost` / `extraOnGhost`, or by the skin proof's `real != ghost` (`skin-mismatch`, compared only when both names were read; a P2 sidecar's `ghost` is null) |
+| case `fail` | the worst view, raised to `fail` by a RENDERED entry in `structure.missingOnGhost` / `extraOnGhost`, or by the skin proof's `skin-mismatch` (`partparity.skin_flags`, the exact rule of `PartParitySkinRules.GhostFlags`: a skin module with real != ghost case-insensitively, a null on one side only counting as a difference); a B9 case's unread ghost is `skin-not-modelled:b9`, a `warn`. The row also re-derives every part case's skin flags and reds `INVALID(parity-instrument)` when they differ from the sidecar's own `flags` |
 | case `error` | a setup fault (`TestCommandPartParitySweep.IsSetupFault`: any status but `ok` and `still-animating`), the skin proof's `requested != real` (`skin-not-applied`), or a non-fault case with no measured view; `still-animating` is judged on its measures |
 
 The control cases are not judged as parts: the C# judge's recorded outcomes are the controls'
@@ -526,8 +526,8 @@ verdicts (below). Three INSTRUMENT gates run on every sweeping lane from the sta
   with `controls=false` proves nothing and fails this too). Else INVALID(parity-controls).
 - Completeness: `progress.complete = true`; every planned case (the manifest's `cases[]`, which
   leaves the exclusions out) and every control has a complete sidecar (schema, matching `caseId`, a
-  known `setup.status`, at least one view unless the status is a setup fault) or a recorded setup
-  fault; `isolate.txt` owes nothing and no `inflight.txt` is left. Else INVALID(parity-incomplete).
+  known `setup.status`, at least one view unless the status is a setup fault, and a case with views
+  names an `atlas.file` that was harvested) or a recorded setup fault; `isolate.txt` owes nothing and no `inflight.txt` is left. Else INVALID(parity-incomplete).
 - Python recompute: every control with an atlas plus `ceil(2 %)` of the part cases with an atlas
   (at least one), drawn by `random.Random(<runId>)` from the sorted ids, so a run's sample is
   reproducible from its id. The atlas is decoded with `harness/tools/gui_mirror.py`'s `read_png`;
