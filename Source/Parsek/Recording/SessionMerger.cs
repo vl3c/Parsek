@@ -142,6 +142,9 @@ namespace Parsek
                 merged.TerminalPredicted = srcRec.TerminalPredicted;
                 merged.TerminalRemnantSurvives = srcRec.TerminalRemnantSurvives;
                 merged.QuietDestroyedEnd = srcRec.QuietDestroyedEnd;
+                merged.RecoveredCrewNames = srcRec.RecoveredCrewNames != null
+                    ? new List<string>(srcRec.RecoveredCrewNames)
+                    : null;
                 merged.StockHeldVesselUT = srcRec.StockHeldVesselUT;
                 merged.ParentBranchPointId = srcRec.ParentBranchPointId;
                 merged.ChildBranchPointId = srcRec.ChildBranchPointId;

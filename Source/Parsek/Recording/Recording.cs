@@ -343,6 +343,16 @@ namespace Parsek
         // Persisted sparse as stockHeldUT (written only when finite).
         public double StockHeldVesselUT = double.NaN;
 
+        // The kerbals stock actually recovered with the vessel, read from the recovered
+        // ProtoVessel (or, for the flight-scene Recover, the live vessel when the request armed)
+        // at the recovery, before the end snapshot is dropped. A kerbal named here is Recovered
+        // whatever seat he started in (he may have moved by IVA out of a part that later
+        // exploded); null = not known (an older recording, or a recovery stamped without the
+        // vessel's crew), and the per-part rule then reads the start seat. Only with a Recovered
+        // terminal; persisted sparse as a RECOVERED_CREW node. Decided only through
+        // StampTerminalState (the codec and the copy sites carry it).
+        public List<string> RecoveredCrewNames;
+
         // Terminal orbit (for Orbiting/SubOrbital terminal state)
         // Stored as Keplerian elements to avoid runtime Orbit object dependency in tests.
         public double TerminalOrbitInclination;
@@ -979,12 +989,28 @@ namespace Parsek
         /// <para><paramref name="quietEnd"/> says whether a Destroyed replay ends without the
         /// explosion (see <see cref="QuietDestroyedEnd"/>); kept only with a Destroyed value.
         /// It does not touch the crew answer, so a change of it alone is only logged.</para>
+        /// <para><paramref name="recoveredCrew"/> names the kerbals stock recovered with the vessel
+        /// (see <see cref="RecoveredCrewNames"/>); kept only with a Recovered value, null when
+        /// not known. A change of it alone is handed to the observer, because the crew answer
+        /// reads it.</para>
         internal bool StampTerminalState(TerminalState? value, string context, bool predicted = false,
-            bool remnantSurvives = false, bool quietEnd = false)
+            bool remnantSurvives = false, bool quietEnd = false, IEnumerable<string> recoveredCrew = null)
         {
             TerminalState? previous = TerminalStateValue;
             bool previousPredicted = TerminalPredicted;
             bool previousRemnant = TerminalRemnantSurvives;
+            List<string> previousRecoveredCrew = RecoveredCrewNames;
+            RecoveredCrewNames = value == TerminalState.Recovered && recoveredCrew != null
+                ? CopyRecoveredCrew(recoveredCrew)
+                : null;
+            bool recoveredCrewChanged = !SameRecoveredCrew(previousRecoveredCrew, RecoveredCrewNames);
+            if (recoveredCrewChanged)
+            {
+                ParsekLog.Verbose("Recording",
+                    "terminal recovered crew " + FormatRecoveredCrew(previousRecoveredCrew) + "->"
+                    + FormatRecoveredCrew(RecoveredCrewNames) + " rec=" + (RecordingId ?? "(null)")
+                    + " context=" + (context ?? "null"));
+            }
             TerminalStateValue = value;
             TerminalPredicted = predicted && IsPredictableTerminal(value);
             TerminalRemnantSurvives = remnantSurvives && value == TerminalState.Destroyed;
@@ -1029,7 +1055,37 @@ namespace Parsek
                     double.MaxValue);
                 return false;
             }
-            return observer(this, previous, value, context, predictedChanged || remnantChanged);
+            return observer(this, previous, value, context,
+                predictedChanged || remnantChanged || recoveredCrewChanged);
+        }
+
+        /// <summary>A copy of a recovered-crew list without empty names (never null).</summary>
+        internal static List<string> CopyRecoveredCrew(IEnumerable<string> names)
+        {
+            var copy = new List<string>();
+            if (names == null)
+                return copy;
+            foreach (string name in names)
+                if (!string.IsNullOrEmpty(name) && !copy.Contains(name))
+                    copy.Add(name);
+            return copy;
+        }
+
+        private static bool SameRecoveredCrew(List<string> a, List<string> b)
+        {
+            if (a == null || b == null)
+                return a == null && b == null;
+            if (a.Count != b.Count)
+                return false;
+            for (int i = 0; i < a.Count; i++)
+                if (!b.Contains(a[i]))
+                    return false;
+            return true;
+        }
+
+        private static string FormatRecoveredCrew(List<string> names)
+        {
+            return names == null ? "unknown" : "[" + string.Join(",", names.ToArray()) + "]";
         }
 
         /// <summary>
@@ -1162,6 +1218,9 @@ namespace Parsek
             TerminalRemnantSurvives = source.TerminalRemnantSurvives;
             QuietDestroyedEnd = source.QuietDestroyedEnd;
             StockHeldVesselUT = source.StockHeldVesselUT;
+            RecoveredCrewNames = source.RecoveredCrewNames != null
+                ? new List<string>(source.RecoveredCrewNames)
+                : null;
             TerminalOrbitInclination = source.TerminalOrbitInclination;
             TerminalOrbitEccentricity = source.TerminalOrbitEccentricity;
             TerminalOrbitSemiMajorAxis = source.TerminalOrbitSemiMajorAxis;

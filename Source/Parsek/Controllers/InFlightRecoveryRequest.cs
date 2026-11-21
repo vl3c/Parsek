@@ -72,6 +72,13 @@ namespace Parsek
             /// from the live vessel when the request armed. 0 when it has no lab science.
             /// </summary>
             public float LabStoredScience;
+
+            /// <summary>
+            /// The kerbals aboard the live vessel when the request armed (the crew stock
+            /// recovers with it), carried on the Recovered stamp so a kerbal who moved seats
+            /// reads Recovered. Null when not read.
+            /// </summary>
+            public List<string> CrewNames;
         }
 
         private static Request armed;
@@ -103,7 +110,8 @@ namespace Parsek
 
         internal static void Arm(
             uint vesselPid, string launchGuid, string vesselName, double requestUT,
-            string boundRecordingId = null, float labStoredScience = 0f)
+            string boundRecordingId = null, float labStoredScience = 0f,
+            IEnumerable<string> crewNames = null)
         {
             armed = new Request
             {
@@ -113,6 +121,7 @@ namespace Parsek
                 RequestUT = requestUT,
                 BoundRecordingId = string.IsNullOrEmpty(boundRecordingId) ? null : boundRecordingId,
                 LabStoredScience = labStoredScience > 0f ? labStoredScience : 0f,
+                CrewNames = crewNames != null ? Recording.CopyRecoveredCrew(crewNames) : null,
             };
             ParsekLog.Info(Tag,
                 $"In-flight recovery requested: vessel='{vesselName ?? "(null)"}' pid={vesselPid} " +
@@ -332,7 +341,7 @@ namespace Parsek
                 if (!double.IsNaN(rec.ExplicitEndUT) && rec.ExplicitEndUT > endUT)
                     endUT = rec.ExplicitEndUT;
                 ParsekScenario.ApplyTerminalEventStamp(
-                    rec, TerminalState.Recovered, endUT, "InFlightRecoveryRequest");
+                    rec, TerminalState.Recovered, endUT, "InFlightRecoveryRequest", req.CrewNames);
                 rec.MarkFilesDirty();
                 if (!string.IsNullOrEmpty(rec.RecordingId))
                 {

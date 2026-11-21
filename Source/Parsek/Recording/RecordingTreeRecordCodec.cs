@@ -6,6 +6,10 @@ namespace Parsek
 {
     internal static class RecordingTreeRecordCodec
     {
+        // The recovered vessel's crew (Recording.RecoveredCrewNames): one value per kerbal.
+        internal const string RecoveredCrewNodeName = "RECOVERED_CREW";
+        internal const string RecoveredCrewValueName = "kerbal";
+
         // --- Recording serialization helpers ---
 
         internal static void SaveRecordingInto(ConfigNode recNode, Recording rec)
@@ -39,6 +43,15 @@ namespace Parsek
             // Sparse too: only a quiet Destroyed end (a chuted craft stock deleted) carries it.
             if (rec.QuietDestroyedEnd)
                 recNode.AddValue("quietEnd", "True");
+            // Sparse too: only a recovery stamped with the recovered vessel's crew carries it
+            // (an empty node = stock recovered nobody aboard; StampTerminalState keeps the list
+            // only with a Recovered ending, and the crew answer reads it only there).
+            if (rec.RecoveredCrewNames != null)
+            {
+                ConfigNode recoveredCrewNode = recNode.AddNode(RecoveredCrewNodeName);
+                for (int i = 0; i < rec.RecoveredCrewNames.Count; i++)
+                    recoveredCrewNode.AddValue(RecoveredCrewValueName, rec.RecoveredCrewNames[i]);
+            }
             // Sparse too: only a predicted touchdown whose vessel stock held carries it.
             if (!double.IsNaN(rec.StockHeldVesselUT) && !double.IsInfinity(rec.StockHeldVesselUT))
                 recNode.AddValue("stockHeldUT", rec.StockHeldVesselUT.ToString("R", ic));
@@ -687,6 +700,10 @@ namespace Parsek
                 && ParseBoolOr(recNode, "terminalRemnantSurvives", false);
             rec.QuietDestroyedEnd = rec.TerminalStateValue == TerminalState.Destroyed
                 && ParseBoolOr(recNode, "quietEnd", false);
+            ConfigNode recoveredCrewNode = recNode.GetNode(RecoveredCrewNodeName);
+            rec.RecoveredCrewNames = recoveredCrewNode != null
+                ? Recording.CopyRecoveredCrew(recoveredCrewNode.GetValues(RecoveredCrewValueName))
+                : null;
             double stockHeldUT;
             string stockHeldText = recNode.GetValue("stockHeldUT");
             rec.StockHeldVesselUT = stockHeldText != null

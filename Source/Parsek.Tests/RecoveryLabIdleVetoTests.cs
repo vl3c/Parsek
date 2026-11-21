@@ -191,7 +191,7 @@ namespace Parsek.Tests
             Assert.True(arm > handler, "Arm call not found in OnVesselRecoveryRequested");
             string body = scenario.Substring(handler, arm + 300 - handler);
             Assert.Contains("ScienceLabCreditCapture.SumLiveStoredScience(v)", body);
-            Assert.Contains("boundRecordingId, labStoredScience);", body);
+            Assert.Contains("boundRecordingId, labStoredScience, crewNames);", body);
         }
 
         [Fact]

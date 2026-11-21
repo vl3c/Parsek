@@ -22,8 +22,9 @@ namespace Parsek
         // A live recording session owns the tree (the flight's active tree, the pending tree):
         // its own commit decides the ending.
         OwnedElsewhere,
-        // At or after the predicted UT: stock would have deleted a crashing stage by then, and
-        // a craft recovered after its touchdown is an ordinary landed recovery.
+        // A predicted chute touchdown recovered at or after its touchdown UT: the replay reached
+        // the touchdown, so this is an ordinary landed recovery (the row writers handle it). A
+        // predicted crash never reads this (owner ruling Q13b).
         AfterPredictedEnd,
         // Before the recording's last real sample: not the vessel of this timeline's flight.
         BeforeRecordedFlight,
@@ -32,12 +33,15 @@ namespace Parsek
     }
 
     /// <summary>
-    /// Owner ruling Q13: "a player recovering a stage after its predicted crash was committed
-    /// (before the crash UT) revives that crew; predicted endings only, a confirmed crash stays
-    /// final." Parsek commits a PREDICTED crash or chute touchdown for a vessel KSP may still
-    /// hold; when the player recovers that vessel (Tracking Station, KSC, the post-flight
-    /// recovery) before the predicted UT, the recovery is stock's real outcome and the
-    /// committed recording must follow it (owner principle P-STOCK).
+    /// Owner rulings Q13 / Q13b: "a player recovering a stage after its predicted crash was
+    /// committed revives that crew; predicted endings only, a confirmed crash stays final", and
+    /// any recovery of the launch-matched vessel overrides a predicted Destroyed, before or after
+    /// its predicted UT (the vessel survived: stock opened its chutes and landed it after the
+    /// drag-free crash UT, say). Parsek commits a PREDICTED crash or chute touchdown for a vessel
+    /// KSP may still hold; when the player recovers that vessel (Tracking Station, KSC, the
+    /// post-flight recovery), the recovery is stock's real outcome and the committed recording
+    /// must follow it (owner principle P-STOCK). A predicted touchdown follows a recovery only
+    /// before its touchdown UT (after it, the replay already landed it).
     /// <para>Pure over <see cref="Recording"/>: the decision and the change to one recording.
     /// The committed-history half (clone the tree, commit it over the committed one, file its
     /// ledger rows) is <c>ParsekScenario.ApplyRecoveryOfCommittedPredictions</c>, so this
@@ -57,8 +61,9 @@ namespace Parsek
         /// Pure: the decision for one committed recording. The player recovered the real
         /// vessel with launch guid <paramref name="liveGuid"/> at <paramref name="recoveryUT"/>;
         /// a recording of that launch (launch guid only, never a bare pid) that ends in a crash
-        /// or chute touchdown Parsek only PREDICTED, recovered after its last real sample and
-        /// before the predicted UT, follows the recovery
+        /// Parsek only PREDICTED (at any UT after its last real sample, owner ruling Q13b) or a
+        /// chute touchdown Parsek only predicted (after its last real sample and before the
+        /// touchdown UT), follows the recovery
         /// (<see cref="PredictedEndingRecoveryOutcome.Recover"/>). Rows checked in the
         /// declaration order of <see cref="PredictedEndingRecoveryOutcome"/>.
         /// </summary>
@@ -80,7 +85,7 @@ namespace Parsek
                 return PredictedEndingRecoveryOutcome.ConfirmedEnding;
             if (ownedElsewhere)
                 return PredictedEndingRecoveryOutcome.OwnedElsewhere;
-            if (!(recoveryUT < rec.EndUT))
+            if (!IsRecoveryInsidePredictedEnding(rec, recoveryUT))
                 return PredictedEndingRecoveryOutcome.AfterPredictedEnd;
             if (PredictedEndingTakeover.TryGetLastRealUT(rec, out double lastRealUT)
                 && IsFinite(lastRealUT)
@@ -90,11 +95,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: does a recovery at <paramref name="recoveryUT"/> still contradict the predicted
+        /// ending? A predicted crash always does (owner ruling Q13b: the vessel the player
+        /// recovered survived whatever the drag-free arc said); a predicted touchdown only before
+        /// its touchdown UT.
+        /// </summary>
+        internal static bool IsRecoveryInsidePredictedEnding(Recording rec, double recoveryUT)
+        {
+            if (rec == null || !IsFinite(recoveryUT))
+                return false;
+            if (rec.TerminalStateValue == TerminalState.Destroyed && rec.TerminalPredicted)
+                return true;
+            return recoveryUT < rec.EndUT;
+        }
+
+        /// <summary>
         /// The recordings of <paramref name="effectiveRecordings"/> the recovery converts, in
         /// list order (decided over the whole list before anything is committed, because each
         /// commit replaces list entries). One Info line per refusal that named the recovered
-        /// launch (a confirmed crash, a recovery at or after the predicted UT, a live session's
-        /// tree, a recovery before the recorded flight); nothing for other launches.
+        /// launch (a confirmed crash, a touchdown recovered at or after its touchdown UT, a live
+        /// session's tree, a recovery before the recorded flight); nothing for other launches.
         /// </summary>
         internal static List<Recording> SelectRecoveryTargets(
             IReadOnlyList<Recording> effectiveRecordings, string liveGuid, double recoveryUT,
@@ -143,13 +163,17 @@ namespace Parsek
         /// crew answer the forecast decided is cleared), then ends the recording Recovered at
         /// <paramref name="recoveryUT"/> as a recovery stamps a recording not yet committed
         /// (explicit end at the recovery, vessel snapshot dropped, the Recovered stamp re-infers
-        /// the crew as recovered). False (only the drop's refusal touched nothing) when the
-        /// recording is not a predicted crash or touchdown or the recovery is not before its
-        /// predicted UT.
+        /// the crew as recovered). <paramref name="recoveredCrew"/> is the recovered vessel's
+        /// crew (null: not known), carried on the stamp so a kerbal stock recovered reads
+        /// Recovered whatever seat he started in. False (only the drop's refusal touched nothing)
+        /// when the recording is not a predicted crash or touchdown, or a touchdown is recovered
+        /// at or after its touchdown UT. A crash recovered after its predicted UT drops the whole
+        /// predicted tail (the cut is the last real sample: stock's own path after it is not
+        /// recorded) and ends at the recovery.
         /// </summary>
         internal static bool ConvertToRecovered(
             Recording rec, double recoveryUT, string context, out PredictedEndingDropResult drop,
-            out string reason)
+            out string reason, IEnumerable<string> recoveredCrew = null)
         {
             drop = default(PredictedEndingDropResult);
             reason = null;
@@ -165,7 +189,7 @@ namespace Parsek
                 reason = "not-a-predicted-ending";
                 return false;
             }
-            if (!IsFinite(recoveryUT) || !(recoveryUT < rec.EndUT))
+            if (!IsRecoveryInsidePredictedEnding(rec, recoveryUT))
             {
                 reason = "after-predicted-end";
                 return false;
@@ -180,7 +204,7 @@ namespace Parsek
             rec.StockHeldVesselUT = double.NaN;
             rec.ExplicitEndUT = recoveryUT;
             rec.VesselSnapshot = null;
-            rec.StampTerminalState(TerminalState.Recovered, context ?? LogTag);
+            rec.StampTerminalState(TerminalState.Recovered, context ?? LogTag, recoveredCrew: recoveredCrew);
             RecordingEndpointResolver.RefreshEndpointDecision(rec, context, logDecision: false);
             rec.MarkFilesDirty();
             return true;

@@ -279,7 +279,8 @@ namespace Parsek
                 // Except a kerbal whose part KSP destroyed before the recovery (a breakup
                 // remnant the player recovered): stock killed him, so he stays dead (owner
                 // rulings Q6b, P-STOCK). The recovery nulls the end snapshot, so his part is
-                // his start seat.
+                // his start seat, unless the recovered vessel's crew names him (the caller
+                // then passes partDestroyed false: stock recovered him).
                 if (partDestroyed)
                 {
                     ParsekLog.Verbose(Tag,
@@ -940,6 +941,16 @@ namespace Parsek
             Dictionary<string, uint> startSeats = ExtractCrewPartPids(rec.GhostVisualSnapshot, replacements);
             Dictionary<string, uint> endSeats = ExtractCrewPartPids(rec.VesselSnapshot, replacements);
             HashSet<uint> destroyedParts = CollectDestroyedPartPids(rec);
+            // The crew stock recovered with the vessel (read from the recovered vessel at the
+            // recovery, when the end snapshot that names the last seats was dropped): a kerbal
+            // stock recovered is Recovered whatever his start seat says.
+            HashSet<string> stockRecovered = null;
+            if (rec.TerminalStateValue == TerminalState.Recovered && rec.RecoveredCrewNames != null)
+            {
+                var recoveredList = new List<string>(rec.RecoveredCrewNames);
+                ReverseMapCrewNames(recoveredList, replacements, null);
+                stockRecovered = new HashSet<string>(recoveredList);
+            }
             for (int i = 0; i < startingCrew.Count; i++)
             {
                 string name = startingCrew[i];
@@ -968,6 +979,14 @@ namespace Parsek
                 if (!endSeats.TryGetValue(name, out seat) || !endCrewSet.Contains(name))
                     startSeats.TryGetValue(name, out seat);
                 bool partDestroyed = seat != 0 && destroyedParts.Contains(seat);
+                if (partDestroyed && stockRecovered != null && stockRecovered.Contains(name))
+                {
+                    partDestroyed = false;
+                    ParsekLog.Verbose(Tag,
+                        $"PopulateCrewEndStates: crew='{name}' part={seat.ToString(CultureInfo.InvariantCulture)} " +
+                        $"recording='{rec.RecordingId}' start seat was destroyed, but stock recovered him " +
+                        "with the vessel (he left that part before it died)");
+                }
                 if (partDestroyed)
                 {
                     ParsekLog.Verbose(Tag,

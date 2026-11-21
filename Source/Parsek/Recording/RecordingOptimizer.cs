@@ -2092,6 +2092,8 @@ namespace Parsek
             original.TerminalRemnantSurvives = false;
             second.QuietDestroyedEnd = original.QuietDestroyedEnd;
             original.QuietDestroyedEnd = false;
+            second.RecoveredCrewNames = original.RecoveredCrewNames;
+            original.RecoveredCrewNames = null;
             second.StockHeldVesselUT = original.StockHeldVesselUT;
 
             // The destroyed flag is part of the terminal verdict and travels with it: left on
