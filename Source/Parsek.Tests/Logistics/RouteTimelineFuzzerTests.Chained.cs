@@ -313,6 +313,8 @@ namespace Parsek.Tests.Logistics
 
         private void AssertChainInvariants(ChainModel m, double depot0, double outpost0, string trace)
         {
+            Assert.True(RouteEventLog.IndexMatchesFullScanForTesting(out string indexMismatch),
+                $"route event log index out of step: {indexMismatch}\n{trace}");
             Route a = LiveRoute(ChainRouteA);
             Route b = LiveRoute(ChainRouteB);
             Assert.True(a.CompletedCycles == m.DeliveredA && a.SkippedCycles == m.BlockedA,

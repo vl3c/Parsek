@@ -77,11 +77,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SiteImplemented_MapOnly()
+        public void FlySites_AreTsAndKsc()
         {
-            Assert.True(TestCommandSimulateSwitchClick.IsSiteImplemented(SwitchClickSite.Map));
-            Assert.False(TestCommandSimulateSwitchClick.IsSiteImplemented(SwitchClickSite.TrackingStation));
-            Assert.False(TestCommandSimulateSwitchClick.IsSiteImplemented(SwitchClickSite.Ksc));
+            Assert.False(TestCommandSimulateSwitchClick.IsFlySite(SwitchClickSite.Map));
+            Assert.True(TestCommandSimulateSwitchClick.IsFlySite(SwitchClickSite.TrackingStation));
+            Assert.True(TestCommandSimulateSwitchClick.IsFlySite(SwitchClickSite.Ksc));
         }
 
         [Fact]
@@ -101,13 +101,251 @@ namespace Parsek.Tests
             Assert.Equal("site-arg-invalid site=", TestCommandSimulateSwitchClick.SiteArgInvalidMsg(null));
         }
 
-        [Fact]
-        public void SiteNotImplementedMsg_IsExact()
+        // ----- The fly sites (ts / ksc): scene, intent identity, gate, poll -----
+
+        [Theory]
+        [InlineData("Map", "Flight", "not-in-flight")]
+        [InlineData("TrackingStation", "TrackingStation", "not-in-trackstation")]
+        [InlineData("Ksc", "SpaceCenter", "not-at-space-center")]
+        public void RequiredScene_AndDeferToken_PerSite(string siteName, string sceneName, string token)
         {
-            Assert.Equal("site-not-implemented site=ts",
-                TestCommandSimulateSwitchClick.SiteNotImplementedMsg(SwitchClickSite.TrackingStation));
-            Assert.Equal("site-not-implemented site=ksc",
-                TestCommandSimulateSwitchClick.SiteNotImplementedMsg(SwitchClickSite.Ksc));
+            var site = (SwitchClickSite)Enum.Parse(typeof(SwitchClickSite), siteName);
+            Assert.Equal(sceneName, TestCommandSimulateSwitchClick.RequiredScene(site).ToString());
+            Assert.Equal(token, TestCommandSimulateSwitchClick.WrongSceneDeferReason(site));
+        }
+
+        [Theory]
+        [InlineData(null, "Flight", null)]
+        [InlineData(null, "TrackingStation", "not-in-flight")]
+        [InlineData("ts", "TrackingStation", null)]
+        [InlineData("ts", "Flight", "not-in-trackstation")]
+        [InlineData("ksc", "SpaceCenter", null)]
+        [InlineData("ksc", "TrackingStation", "not-at-space-center")]
+        // An unparseable site= executes in any scene so the executor rejects it at once.
+        [InlineData("TS", "MainMenu", null)]
+        [InlineData("", "SpaceCenter", null)]
+        public void DecideDispatchScene_PerSite(string rawSite, string sceneName, string expected)
+        {
+            var scene = (TestCommandScene)Enum.Parse(typeof(TestCommandScene), sceneName);
+            Assert.Equal(expected, TestCommandSimulateSwitchClick.DecideDispatchScene(rawSite, scene));
+        }
+
+        [Fact]
+        public void ExpectedIntent_IsWhatTheSitesArmingPatchStamps()
+        {
+            // SwitchIntentTrackingStationFlyPatch: TrackingStationFly / TrackingStation;
+            // KscVesselMarkerFlyPatch: KscMarkerFly / SpaceCenter.
+            Assert.Equal(StockActionType.TrackingStationFly,
+                TestCommandSimulateSwitchClick.ExpectedIntentAction(SwitchClickSite.TrackingStation));
+            Assert.Equal(StockActionSourceScene.TrackingStation,
+                TestCommandSimulateSwitchClick.ExpectedIntentSourceScene(SwitchClickSite.TrackingStation));
+            Assert.Equal(StockActionType.KscMarkerFly,
+                TestCommandSimulateSwitchClick.ExpectedIntentAction(SwitchClickSite.Ksc));
+            Assert.Equal(StockActionSourceScene.SpaceCenter,
+                TestCommandSimulateSwitchClick.ExpectedIntentSourceScene(SwitchClickSite.Ksc));
+        }
+
+        private static StockActionIntentMarker Marker(StockActionType action, StockActionSourceScene source, uint pid)
+            => new StockActionIntentMarker
+            {
+                IntentId = Guid.NewGuid(),
+                Action = action,
+                SourceScene = source,
+                TargetVesselPersistentId = pid,
+            };
+
+        [Fact]
+        public void IsSiteIntentFor_MatchesActionSourceAndTarget()
+        {
+            var ts = SwitchClickSite.TrackingStation;
+            Assert.True(TestCommandSimulateSwitchClick.IsSiteIntentFor(
+                Marker(StockActionType.TrackingStationFly, StockActionSourceScene.TrackingStation, 7u), ts, 7u));
+            // Wrong target, wrong action (a KSC marker intent read from a TS press), wrong
+            // source scene, and no marker at all: each is "the patch did not arm for this click".
+            Assert.False(TestCommandSimulateSwitchClick.IsSiteIntentFor(
+                Marker(StockActionType.TrackingStationFly, StockActionSourceScene.TrackingStation, 8u), ts, 7u));
+            Assert.False(TestCommandSimulateSwitchClick.IsSiteIntentFor(
+                Marker(StockActionType.KscMarkerFly, StockActionSourceScene.TrackingStation, 7u), ts, 7u));
+            Assert.False(TestCommandSimulateSwitchClick.IsSiteIntentFor(
+                Marker(StockActionType.TrackingStationFly, StockActionSourceScene.SpaceCenter, 7u), ts, 7u));
+            Assert.False(TestCommandSimulateSwitchClick.IsSiteIntentFor(null, ts, 7u));
+            Assert.True(TestCommandSimulateSwitchClick.IsSiteIntentFor(
+                Marker(StockActionType.KscMarkerFly, StockActionSourceScene.SpaceCenter, 7u),
+                SwitchClickSite.Ksc, 7u));
+        }
+
+        [Fact]
+        public void FlyGate_ScenarioFirst()
+        {
+            Assert.Equal("scenario-not-ready", TestCommandSimulateSwitchClick.DecideFlyGate(
+                SwitchClickSite.TrackingStation, false, false, false, false));
+            Assert.Equal("scenario-not-ready", TestCommandSimulateSwitchClick.DecideFlyGate(
+                SwitchClickSite.Ksc, false, true, true, false));
+        }
+
+        [Fact]
+        public void FlyGate_TrackingStation_CanFlyThenOwned()
+        {
+            // Stock's own TS refusals, in its order: the Fly button is locked when the game
+            // forbids flying from the TS; FlyVessel then refuses a non-Owned discovery.
+            Assert.Equal("cannot-fly-vessel", TestCommandSimulateSwitchClick.DecideFlyGate(
+                SwitchClickSite.TrackingStation, true, false, false, true));
+            Assert.Equal("target-not-owned", TestCommandSimulateSwitchClick.DecideFlyGate(
+                SwitchClickSite.TrackingStation, true, true, false, true));
+            // The KSC marker predicate does not apply in the Tracking Station.
+            Assert.Null(TestCommandSimulateSwitchClick.DecideFlyGate(
+                SwitchClickSite.TrackingStation, true, true, true, false));
+        }
+
+        [Fact]
+        public void FlyGate_Ksc_NeedsAStockMarker_AndIgnoresTheTsRefusals()
+        {
+            Assert.Equal("target-has-no-ksc-marker", TestCommandSimulateSwitchClick.DecideFlyGate(
+                SwitchClickSite.Ksc, true, true, true, false));
+            Assert.Null(TestCommandSimulateSwitchClick.DecideFlyGate(
+                SwitchClickSite.Ksc, true, false, false, true));
+        }
+
+        [Fact]
+        public void FlyReasonTables_AreDistinctFromEveryMapToken()
+        {
+            var map = new[]
+            {
+                TestCommandSimulateSwitchClick.SiteArgInvalidReason,
+                TestCommandSimulateSwitchClick.TargetArgMissingReason,
+                TestCommandSimulateSwitchClick.PidArgInvalidReason,
+                TestCommandSimulateSwitchClick.VesselArgInvalidReason,
+                TestCommandSimulateSwitchClick.TargetNotFoundReason,
+                TestCommandSimulateSwitchClick.TargetAmbiguousReason,
+                TestCommandSimulateSwitchClick.TargetIsGhostReason,
+                TestCommandSimulateSwitchClick.ScenarioNotReadyReason,
+                TestCommandSimulateSwitchClick.CannotSwitchVesselsFarReason,
+                TestCommandSimulateSwitchClick.TargetAlreadyActiveReason,
+                TestCommandSimulateSwitchClick.DialogRequiredReason,
+                TestCommandSimulateSwitchClick.DialogPendingReason,
+                TestCommandSimulateSwitchClick.TargetUnloadedReason,
+                TestCommandSimulateSwitchClick.SwitchThrewReason,
+                TestCommandSimulateSwitchClick.SwitchRefusedReason,
+            };
+            var fly = TestCommandSimulateSwitchClick.FlyRejectReasons
+                .Concat(TestCommandSimulateSwitchClick.FlyErrorReasons).ToList();
+            Assert.Equal(fly.Count, fly.Distinct().Count());
+            Assert.Empty(fly.Intersect(map));
+            Assert.Contains(TestCommandSimulateSwitchClick.FlyControlMissingReason, fly);
+            Assert.Contains(TestCommandSimulateSwitchClick.FlyIntentNotConsumedReason, fly);
+        }
+
+        private static SwitchClickFlyPollAction Poll(
+            SwitchClickFlyPhase phase, SwitchClickSite site, TestCommandScene scene,
+            bool controlPresent = true, bool selected = false, bool interactable = true,
+            bool loadRequested = false, bool intentArmed = false, bool settled = false,
+            bool stillArmed = false, bool activeIsTarget = true, int frames = 0, bool expired = false)
+            => TestCommandSimulateSwitchClick.DecideFlyPoll(
+                phase, site, scene, true, controlPresent, selected, interactable, loadRequested,
+                intentArmed, settled, stillArmed, activeIsTarget, frames, expired);
+
+        [Fact]
+        public void FlyPoll_Ts_SelectsThenPresses()
+        {
+            var ts = SwitchClickSite.TrackingStation;
+            var scene = TestCommandScene.TrackingStation;
+            Assert.Equal(SwitchClickFlyPollAction.Select,
+                Poll(SwitchClickFlyPhase.AwaitingControl, ts, scene));
+            Assert.Equal(SwitchClickFlyPollAction.Select,
+                Poll(SwitchClickFlyPhase.Selecting, ts, scene, selected: false, frames: 5));
+            Assert.Equal(SwitchClickFlyPollAction.SelectFailed,
+                Poll(SwitchClickFlyPhase.Selecting, ts, scene, selected: false,
+                    frames: TestCommandSimulateSwitchClick.SelectWaitFrames));
+            Assert.Equal(SwitchClickFlyPollAction.Press,
+                Poll(SwitchClickFlyPhase.Selecting, ts, scene, selected: true));
+            Assert.Equal(SwitchClickFlyPollAction.ButtonLocked,
+                Poll(SwitchClickFlyPhase.Selecting, ts, scene, selected: true, interactable: false));
+        }
+
+        [Fact]
+        public void FlyPoll_Ksc_WaitsForTheMarkerThenPresses()
+        {
+            var ksc = SwitchClickSite.Ksc;
+            var scene = TestCommandScene.SpaceCenter;
+            // Stock spawns the markers 15 frames after the Space Center wakes.
+            Assert.Equal(SwitchClickFlyPollAction.NotYet,
+                Poll(SwitchClickFlyPhase.AwaitingControl, ksc, scene, controlPresent: false, frames: 15));
+            Assert.Equal(SwitchClickFlyPollAction.ControlMissing,
+                Poll(SwitchClickFlyPhase.AwaitingControl, ksc, scene, controlPresent: false,
+                    frames: TestCommandSimulateSwitchClick.ControlWaitFrames));
+            Assert.Equal(SwitchClickFlyPollAction.Press,
+                Poll(SwitchClickFlyPhase.AwaitingControl, ksc, scene));
+            Assert.Equal(SwitchClickFlyPollAction.ButtonLocked,
+                Poll(SwitchClickFlyPhase.AwaitingControl, ksc, scene, interactable: false));
+        }
+
+        [Fact]
+        public void FlyPoll_Pressed_LoadRequestNeedsTheSitesIntent()
+        {
+            var ksc = SwitchClickSite.Ksc;
+            var scene = TestCommandScene.SpaceCenter;
+            // The marker's FlyVessel runs a frame after the press: keep waiting.
+            Assert.Equal(SwitchClickFlyPollAction.NotYet,
+                Poll(SwitchClickFlyPhase.Pressed, ksc, scene, frames: 1));
+            Assert.Equal(SwitchClickFlyPollAction.NoSceneLoad,
+                Poll(SwitchClickFlyPhase.Pressed, ksc, scene,
+                    frames: TestCommandSimulateSwitchClick.PressToLoadFrames));
+            Assert.Equal(SwitchClickFlyPollAction.BeginLoading,
+                Poll(SwitchClickFlyPhase.Pressed, ksc, TestCommandScene.Flight,
+                    loadRequested: true, intentArmed: true));
+            // A FLIGHT load with no intent for the target: the arming patch did not run.
+            Assert.Equal(SwitchClickFlyPollAction.IntentNotArmed,
+                Poll(SwitchClickFlyPhase.Pressed, ksc, TestCommandScene.Flight,
+                    loadRequested: true, intentArmed: false));
+        }
+
+        [Fact]
+        public void FlyPoll_Loading_OkOnlyOnceTheIntentIsSpentOnTheTarget()
+        {
+            var ts = SwitchClickSite.TrackingStation;
+            var flight = TestCommandScene.Flight;
+            // Not settled yet (no onFlightReady / still packed).
+            Assert.Equal(SwitchClickFlyPollAction.NotYet,
+                Poll(SwitchClickFlyPhase.Loading, ts, flight, settled: false, stillArmed: true));
+            // Settled on the target, intent still armed (the consume deferred for a restore).
+            Assert.Equal(SwitchClickFlyPollAction.NotYet,
+                Poll(SwitchClickFlyPhase.Loading, ts, flight, settled: true, stillArmed: true, frames: 10));
+            Assert.Equal(SwitchClickFlyPollAction.IntentNotConsumed,
+                Poll(SwitchClickFlyPhase.Loading, ts, flight, settled: true, stillArmed: true,
+                    frames: TestCommandSimulateSwitchClick.IntentConsumeWaitFrames));
+            Assert.Equal(SwitchClickFlyPollAction.Ok,
+                Poll(SwitchClickFlyPhase.Loading, ts, flight, settled: true, stillArmed: false));
+            // The ghost-index desync a stripped live list prevents lands on the wrong vessel.
+            Assert.Equal(SwitchClickFlyPollAction.WrongVessel,
+                Poll(SwitchClickFlyPhase.Loading, ts, flight, settled: true, stillArmed: false,
+                    activeIsTarget: false));
+            Assert.Equal(SwitchClickFlyPollAction.ReturnedToMenu,
+                Poll(SwitchClickFlyPhase.Loading, ts, TestCommandScene.MainMenu));
+            Assert.Equal(SwitchClickFlyPollAction.Timeout,
+                Poll(SwitchClickFlyPhase.Loading, ts, flight, settled: false, expired: true));
+        }
+
+        [Fact]
+        public void FlyPoll_ExpiredBeforeTheLoad_TimesOut()
+        {
+            Assert.Equal(SwitchClickFlyPollAction.Timeout,
+                Poll(SwitchClickFlyPhase.AwaitingControl, SwitchClickSite.Ksc, TestCommandScene.SpaceCenter,
+                    controlPresent: false, expired: true));
+            Assert.Equal(SwitchClickFlyPollAction.Timeout,
+                Poll(SwitchClickFlyPhase.Pressed, SwitchClickSite.TrackingStation,
+                    TestCommandScene.TrackingStation, expired: true));
+        }
+
+        [Fact]
+        public void FlyPressedLine_IsExact()
+        {
+            Assert.Equal(
+                "switchclick fly pressed site=ts targetPid=807470910 targetName=Duna Rocket control=trackingstation-fly framesWaited=3",
+                TestCommandSimulateSwitchClick.FormatFlyPressedLine(
+                    SwitchClickSite.TrackingStation, 807470910u, "Duna Rocket", 3));
+            Assert.Equal(
+                "switchclick fly pressed site=ksc targetPid=5 targetName= control=ksc-marker-fly framesWaited=0",
+                TestCommandSimulateSwitchClick.FormatFlyPressedLine(SwitchClickSite.Ksc, 5u, null, 0));
         }
 
         // ----- vessel= / pid= selector -----

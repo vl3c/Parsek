@@ -57,6 +57,17 @@ tier = "nightly"
 # the older build's gap as one StockPoolAdjustment ledger row silently (no GUARDED line). Not
 # re-flown on phase 2.
 #
+# SINCE THE FLIGHT CLOCK CURSOR (2026-11-21, todo FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS) the
+# flight scene runs the same ledger clock cursor as the Space Center (ParsekFlight
+# `flightLedgerClock`, reason `flight-clock`), so the rows no longer wait for the return: flight
+# B's warp to 1100 reaches them in FLIGHT, and the cursor recalculates at that clock (Info `Flight
+# clock reached a committed ledger row: reason=flight-clock ut=...`, then
+# RecalculateAndPatchForClockAdvance; flight B is unrecorded, so the full patch runs there). The
+# lane's original question (a crossing outside the Space Center applied once, no clamp, the hire
+# promoted, the oracle exact) is unchanged; the crossing line and the promotion may now print in
+# flight or on the return, and the gates below accept either, plus one new gate: the flight
+# cursor line between the rewind and the return. Re-flight owed on that change.
+#
 # STATUS: AUTHORED 2026-10-21 (branch `claude/project-thread-hvhou8`). LIVE-PROVEN 2026-10-21
 # `2026-10-21_1703` PASS attempt 1 (PR #2164, build 411ccc1): crossed=13, the hire promoted, no
 # clamp, the oracle exact. The reading closed the todo as not a defect on this route.
@@ -123,7 +134,9 @@ required = [
   "kscaction action=research-node target=basicRocketry applied=true",
   "kscaction action=hire-kerbal target=Verhat Kerman applied=true",
   "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
-  # The rows reached outside the Space Center apply once on the return.
+  # The rows reached outside the Space Center apply once: since FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS
+  # the flight clock cursor applies them in flight, when flight B's warp reaches them.
+  "MISSIONMARK label=ql14-rewound (?:(?!MISSIONMARK label=ql14-back-at-ksc )[\\s\\S])*?Flight clock reached a committed ledger row: reason=flight-clock ut=1[0-9]{3}[. ]",
   "MISSIONMARK label=ql14-rewound [\\s\\S]*Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* ",
   "MISSIONMARK label=ql14-rewound [\\s\\S]*PromoteReachedCommittedHires: rows=1 promoted=1 ",
 ]

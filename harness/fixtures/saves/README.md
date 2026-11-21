@@ -13,8 +13,8 @@ install `test career` save (KSP 1.12.5), reset per the M-B3 operator checklist i
 `docs/dev/todo-and-known-bugs.md`.
 
 Each fixture is `persistent.sfs` + `persistent.loadmeta` + `AddOns/DistantObject/Settings.cfg`
-(the two derived-by-construction fixtures, `coalescer-pad` and `career-earned-ksc`, carry no
-`AddOns/`; nothing in the harness reads it).
+(the derived-by-construction fixtures `coalescer-pad`, `career-earned-ksc` and
+`mun-escape-probe-stack` carry no `AddOns/`; nothing in the harness reads it).
 No craft in flight, no active/offered contracts, no completed milestones, no unlocked
 tech beyond the mode default `start` node, all facilities at level 0, no Parsek footprint
 (no `Parsek/` dir, no `ParsekScenario` SCENARIO node, no `ParsekSettings` custom-param),
@@ -716,6 +716,23 @@ stage lights the engine and both cells skip (H62's first census, 2026-09-06, rea
 `passed=0 skipped=2`). Built and drift-gated by `harness/tools/build_coalescer_pad.py`
 (`--check`) and `harness/lib/test_coalescer_pad.py`; no `Ships/VAB` overlay because the
 lane launches nothing through kRPC. Host of `H62-coalescer-isolated`.
+
+## mun-escape-probe-stack (GAME Mode = SANDBOX, 1 VESSEL + 1 asteroid + pad debris, derived from gs2-orbital-stack)
+
+`gs2-orbital-stack`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except
+that the `Kerbal X` VESSEL (the crewed stack with its probe-cored core under
+`Decoupler.2` partPid 2923926328) reads `sit = ESCAPING`, `hgt = -1`, a recomputed
+`alt`, and an ORBIT on a Mun ESCAPE hyperbola (REF 2, ECC 1.2, SMA -2,500,000 m,
+periapsis radius 500 km, v_inf 161.4 m/s; INC / LPE / LAN are the LKO orbit's own) with
+`MNA` set so the Mun SOI exit falls 900 game s after the save UT 416.91. The Kerbin orbit
+after the exit is bound whatever the asymptote direction. It exists because a released
+CONTROLLED child is the only background vessel Parsek keeps recording across a rails warp
+(a debris recording ends when its parent packs), and no committed host carries one on a
+trajectory that leaves an SOI without a burn. Built and drift-gated by
+`harness/tools/build_mun_escape_probe_stack.py` (`--check`) and
+`harness/lib/test_mun_escape_probe_stack.py`, which also re-derives the exit time from the
+committed elements and checks SOI-3's WarpToUT target against it; no `AddOns/` and no
+`Ships/VAB` overlay (the lane launches nothing). Host of `SOI-3-bg-probe-mun-exit-on-rails`.
 
 ## pad-runway-pair (GAME Mode = SANDBOX, 2 VESSELS + 1 asteroid, derived from logi-cargo-pad)
 

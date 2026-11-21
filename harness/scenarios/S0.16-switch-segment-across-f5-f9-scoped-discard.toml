@@ -98,6 +98,10 @@ steps = [
   { cmd = "RecordingState",                                                                    expect = "OK" },
   { cmd = "RecordingState",                                                                    expect = "OK" },
   { cmd = "RecordingState",                                                                    expect = "OK" },
+  # Let the reloaded probe settle first: on `2026-11-20_2309` the click 2.3 s after the F9
+  # read `Active Vessel is under acceleration (G = 0.51...)`, so stock refused the switch
+  # (`resolution=StockWillRefuse ... reason=stock-not-clear-to-save:NOT_UNDER_ACCELERATION`).
+  { cmd = "WarpToUT",                 args = { ut = "430", maxRate = "1" },                     expect = "OK", budget = 60 },
   # 6. the click back: the reloaded no-op segment is discarded, scoped
   { cmd = "MissionMark",              args = { label = "s016-discard" },                      expect = "OK" },
   { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X" },                          expect = "OK", budget = 120 },
@@ -118,12 +122,14 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # Kerbal X's tree only: its root recording and (if the commit keeps it) its continuation
-# segment; the probe's segment is pruned. Never flown: pin exactly after the reading.
-count = { min = 1, max = 2 }
+# segment; the probe's segment is pruned. Measured 2 on `2026-11-20_2341` (the root and
+# Kerbal X's continuation).
+count = { min = 2, max = 2 }
 
-# REPORT-ONLY until a reading run: one committed tree, the probe in none of its legs.
+# ARMED 2026-11-21 off `2026-11-21_1144` (matched first on `2026-11-20_2341`): one committed
+# tree, the probe in none of its legs.
 [expectations.recordings.structure]
-gating         = false
+gating         = true
 committedTrees = 1
 recordingNames = { "Kerbal X" = { min = 1 }, "Kerbal X Probe" = { max = 0 } }
 

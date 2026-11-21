@@ -430,9 +430,9 @@ namespace Parsek
                 ref archived, ref archiveFailed);
 
             // An Offered copy of a contract whose lifecycle the walk already ended. A rewind to
-            // before the accept puts the contract back on offer; when no recalculation ran
-            // between the committed accept and the committed outcome (a flight passing both,
-            // the flight scene has no clock cursor), the rebuild below never replaced the
+            // before the accept puts the contract back on offer; when no patch ran between the
+            // committed accept and the committed outcome (a recorded flight passing both: its
+            // live tree defers the flight clock cursor's patch), the rebuild below never replaced the
             // Offered copy, and it would stay acceptable for a second advance.
             var staleOfferedKeys = BuildEndedLifecycleOfferedRemovalKeys(
                 currentEntries, activeIdSet, terminalIdSet);

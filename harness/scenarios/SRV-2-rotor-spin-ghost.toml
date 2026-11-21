@@ -1,0 +1,249 @@
+schema = 1
+id = "SRV-2-rotor-spin-ghost"
+# =====================================================================================
+# SRV-2: A BREAKING GROUND ROTOR SPINS UP, HOLDS ITS RPM AND SPINS DOWN, RECORDED AND
+# REPLAYED ON THE GHOST WITH THE PART IT CARRIES (todo RECORDER-ROTOR-RPM-PAW-ONLY's flight
+# lane; the rotor half of GHOST-SERVO-CHILDREN-STATIC).
+#
+# WHY. Two recorder defects hid rotor spin (fixed in commit c4c8af28a, xUnit only so far): the
+# probe sampled `currentRPM`, which stock assigns only in ModuleRoboticServoRotor.UpdatePAWUI
+# (part menu open), so with the menu closed every rotor recorded 0 RPM; and the transition
+# machine inferred motion from the value CHANGING, so a steady spin read as stopped and
+# emitted RoboticMotionStopped, which the ghost's RotorRpm mode plays as "stop spinning". The
+# recorder now reads BaseServo.transformRateOfMotion (`source=servoRateOfMotion`) and treats a
+# rotor above 0.5 RPM (stock's IsMoving()) as moving (`moving=rotor-rpm`). Merged 2026-11-21
+# with RECORDER-ROBOTIC-MOTION-DEBOUNCE (15f347760): for a rotor that signal decides ALONE
+# (`stop=signal`: Stopped the poll the averaged RPM falls to 0.5, no value inference and no
+# 0.25 s hold), and the sample deadband is max(0.5 RPM, 2% of the RPM). On the ghost the
+# rotor turns by RPM in GhostPlaybackLogic.UpdateActiveRobotics, which re-poses the parts that
+# ride it (PropagateServoFollowers). This lane proves all of it on a live recording.
+#
+# THE HOST. `srv-rotor-rover` (harness/tools/build_srv_rotor_rover.py), a SIBLING of SRV-1's
+# `srv-hinge-rover` (adding a rotor to that craft would change SRV-1's pinned follower plan):
+# MINE-6's `miner-rover-watched` pair with the rover renamed `SRV2 Rotor Rover` and an EM-16
+# Light Duty Rotor (`rotor.01`) on its front adapter's top node, carrying a Z-200
+# (`batteryBankMini`) on the rotor's top node, its MOVING side (rotor_01.cfg `servoAttachNodes
+# = top,...`). The spin axis is the stack axis, so the battery turns about its own axis, level
+# with the rover. The rotor loads unlocked and motorized with its MOTOR OFF at rpmLimit 30, so
+# nothing spins before the recording. The rover is LANDED 820 m from the runway threshold, so
+# the launch-site rule cannot hide its ghost; `Miner Watcher` stands 120 m north and FLIGHT
+# lands on it after the rewind reload (MINE-6, live-proven).
+#
+# THE INSTALL. stock-tree, as SRV-1 (owner approval 2026-11-20). Breaking Ground is the
+# PREREQUISITE: the rotor part and module come from `GameData/SquadExpansion/Serenity`.
+#
+# THE TIMELINE (the fixture's clock is UT 30):
+#   30     LoadGame -> FLIGHT on the rover; StartRecording; mark srv2-recording.
+#   33     1x settle (the recorder's first robotic poll sets the 0 RPM baseline), then
+#          PartAction rotoron: BaseServo's MotorOnAction (Engage Motor, the action an action
+#          group fires), plus the rotor's own MotorPowerAction because stock zeroes the torque
+#          limit at every FLIGHT start (flight 1, 2026-11-21_1152: engaged, never turned). The EM-16 spools to 30 RPM in a few physics frames (rotorSpoolTime
+#          150) and HOLDS it; 1x to 38.
+#   38     PartAction rotoroff: MotorOffAction (Disengage Motor). A disengaged rotor COASTS
+#          (stock drives it toward zero with a torque of 1: flight 2, 2026-11-21_1220, read
+#          30 RPM three seconds later and no Stopped), so PartAction rotorbrake presses the
+#          rotor's own BrakeAction (brakeTorque 60) and the averaged rate falls to 0; 1x to 41.
+#   41     StopRecording, CommitTree (VN-3's order, in FLIGHT), then Rewind-to-Launch
+#          (`tree=latest`); SaveGame + LoadGame of the rewound save lands FLIGHT on the watcher
+#          about 15 s before the recording start (GS-6 / CN-4 / MINE-6 / SRV-1 measured).
+#   ~16    5x rails to 26 (before the ghost's window), then 1x to 44: the rover's ghost plays
+#          120 m away over [30, 41], its build logs the follower plan and bind, the recorded
+#          Started event arms the rotor's RotorRpm spin, the first spin logs once and re-poses
+#          the battery once, the Stopped event ends it; at its end the rover spawns.
+#
+# THE LOG LINES (literals read from source, 2026-11-21):
+#   partaction applied button=rotoron ... event=MotorOnAction ... state='rotor:engaged=1 rpmLimit=30.00'
+#                                                    TestCommandPartAction.FormatState
+#   Robotics: tracking 'rotor.01' pid= midx=0 module=ModuleRoboticServoRotor
+#     source=servoRateOfMotion deadband=max(0.500,2%rpm) sampleHz=4.0 moving=rotor-rpm
+#     stopHold=0.25s stop=signal                     FlightRecorder.FormatRoboticTrackingLine
+#                                                    (logged after the module's first poll)
+#   Part event: RoboticMotionStarted|RoboticMotionStopped 'rotor.01' pid= midx=0 val=
+#                                                    FlightRecorder.CheckRoboticState
+#   Servo follower plan for '<vessel>': servos= followers= invertedServos=
+#                                                    GhostVisualBuilder.ResolveServoFollowerPlan
+#   Servo followers bound: followers= servos= carryingServos= nestedServos= geometryPosed= ...
+#                                                    GhostPlaybackLogic.BindServoFollowersCore
+#   Rotor spin applied in playback: pid= module= rpm= deltaDeg= followers= (first since build)
+#                                                    GhostPlaybackLogic.UpdateActiveRobotics
+#                                                    (NEW with this lane: one Verbose line per
+#                                                    rotor per ghost build, the first playback
+#                                                    spin; FormatRotorSpinLine)
+#   Servo followers re-posed in playback: servoPid= module=ModuleRoboticServoRotor followers=1
+#     value= (first since bind)                      GhostPlaybackLogic.PropagateServoFollowers
+#   apply family=Robotic... surface=robotic rec= pid= applied=          GhostPartEventApplyLog
+# Plan and bind are VerboseRateLimited (60 s, keyed by the ghost's name), so their FIRST line
+# per key always prints; both are scoped between the srv2-rewound and srv2-replayed marks. The
+# spin, re-pose and applier lines are scoped from srv2-reloaded: they happen during playback.
+#
+# WHAT EACH WINDOW PROVES (the recorder half):
+#   srv2-recording -> srv2-spin-up: no robotic event on the rotor (the motor is off).
+#   srv2-spin-up -> srv2-spin-down: exactly one RoboticMotionStarted, and after it NO
+#     RoboticMotionStopped and no second Started while the RPM holds (the steady-spin defect).
+#   srv2-spin-down -> srv2-committed: a RoboticMotionStopped, and no Started. With
+#     `stop=signal` the Stopped lands the poll the 20-frame (0.4 s) averaged rate falls to
+#     0.5 RPM after the brake, well inside the 3 s tail (a pose servo's 0.25 s stop hold does
+#     not apply to the rotor).
+#
+# PRE-REGISTERED READINGS:
+#   - `source=currentRPM` on the tracking line: the recorder fix is not in the DLL.
+#   - `moving=inferred` / `moving=module-flag`: ResolveRoboticMovingSignal did not take the
+#     rotor path (rotor-rpm); a Stopped inside the hold window then follows.
+#   - `stop=debounced` or a plain `deadband=0.500`: the debounce merge is not in the DLL (the
+#     signal is OR'd with the value inference, so a spin-down can end still "moving").
+#   - no Started in the spin-up window: the motor did not engage (`state=` reads engaged=0,
+#     the rotor was locked, or EC ran out) or transformRateOfMotion was not read.
+#   - a Started before srv2-spin-up: the fixture's motor loaded engaged (the builder's verify
+#     gate) or the rover's own motion read as spin (relative rate should exclude it).
+#   - no Stopped after srv2-spin-down: the rotor freewheels on (the brake did not engage), or
+#     the averaged rate never falls to 0.5 RPM.
+#   - `followers=0` / no plan line: the planner did not see the battery on the moving node.
+#   - no `Rotor spin applied` line but robotic apply lines `applied=[1-9]`: the Started event
+#     applied and UpdateActiveRobotics never turned the rotor (info.active false, a zero
+#     recorded RPM, or the ghost outside the per-frame robotics pass).
+#   - a spin line with no rotor re-pose line: the bind gave the rotor no followers.
+#   - `partaction rejected reason=partaction-rotor-not-found`: the rover loaded without its
+#     rotor module (Breaking Ground missing on the install).
+#   - `Ghost hidden: vessel 'SRV2 Rotor Rover'`: the launch-site rule fired off-site (defect).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) reuse: SRV-1's host shape and rewind-and-reload
+# timeline verbatim, a sibling fixture because SRV-1's follower pin must not move. (2)
+# explicit-UT WarpToUT only (1x through the recording and the replay, 5x rails before it).
+# (3) the 5 s hold is the claim (a steady spin with no Stopped); the 3 s tail covers the
+# averaged rate's fall; tighten from the first flight's Stopped UT. (4)/(5) no burns or coasts.
+# (6) retry `once`: the first flight of a new fixture; switch to `none` once it has flown
+# green. (7) recordings window 1..3 until measured. (8) operator until measured. (9)
+# flight_efficiency.py after the first green flight. No RunTests step: the ServoFollowers cell
+# skips rotors by design (it poses a servo, a rotor turns by RPM), so it proves nothing here.
+#
+# STATUS: AUTHORED 2026-11-21. Flight 1 `2026-11-21_1152` PARSEK-FAIL(expectation), a SEAM red:
+# the engaged motor had a torque limit of 0 (stock's FLIGHT OnStart), the rotor never turned and
+# the recorder correctly recorded nothing; `rotoron` now raises it. Flight 2 `2026-11-21_1220`
+# PARSEK-FAIL(expectation) on one token, a LANE red: the rotor spun (Started val=0.865, samples
+# to 30.000, the ghost's `Rotor spin applied` and re-pose lines) but coasted after `rotoroff`,
+# so no Stopped before the commit; the new `rotorbrake` press stops it. Flight 3
+# `2026-11-21_1227` PASS attempt 1 (98 s): Stopped `val=0.005` 0.4 s after the brake.
+tier = "operator"
+description = "AUTHORED 2026-11-21, green on its third flight 2026-11-21_1227: a Breaking Ground EM-16 rotor on a landed rover's front (srv-rotor-rover, a Z-200 on the rotor's moving node, 820 m from the runway) engaged by PartAction rotoron, held at 30 RPM for 5 s and disengaged by rotoroff while recording, committed, Rewound-to-Launch and replayed in FLIGHT from a watcher 120 m away; the recorder must read the live rate of motion, emit one Started and no Stopped while the RPM holds and a Stopped after spin-down, and the ghost's rotor must spin and re-pose the battery riding it."
+instanceProfile = "stock-tree"
+tags = ["SRV-2", "robotics", "breaking-ground", "servo-followers", "rotor", "ghost-render",
+        "part-events", "rewind-to-launch", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/srv-rotor-rover"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 300 LoadGame + 180 StartRecording + 120 x 3 warps + 120 CommitTree +
+# 300 rewind + 120 SaveGame + 300 LoadGame + 120 x 2 warps = 1920; runtime 2400 adds the
+# inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" },            expect = "OK", budget = 300 },
+  # MINE-6's preamble: drop any tree the load itself started.
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  # The tracking, part-event, plan / bind / spin / re-pose and applier lines are Verbose.
+  { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+
+  # ---- the recorded flight: the rotor spun up, held and spun down on the parked rover ----
+  { cmd = "StartRecording",                                                                    expect = "OK", budget = 180 },
+  { cmd = "MissionMark",      args = { label = "srv2-recording" },                            expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "33", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",      args = { label = "srv2-spin-up" },                              expect = "OK" },
+  { cmd = "PartAction",       args = { button = "rotoron", part = "rotor.01" },               expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "38", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",      args = { label = "srv2-spin-down" },                            expect = "OK" },
+  { cmd = "PartAction",       args = { button = "rotoroff", part = "rotor.01" },              expect = "OK" },
+  { cmd = "PartAction",       args = { button = "rotorbrake", part = "rotor.01" },            expect = "OK" },
+  { cmd = "WarpToUT",         args = { ut = "41", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "CommitTree",                                                                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "srv2-committed" },                            expect = "OK" },
+
+  # ---- the rewind, then FLIGHT on the watcher (a Space Center save focuses vessel 0) ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                                 expect = "OK", budget = 300 },
+  { cmd = "MissionMark",      args = { label = "srv2-rewound" },                              expect = "OK" },
+  { cmd = "SaveGame",         args = { name = "srv2-rewound" },                               expect = "OK", budget = 120 },
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "srv2-rewound" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "srv2-reloaded" },                             expect = "OK" },
+
+  # ---- the replay over [30, 41] ----
+  { cmd = "WarpToUT",         args = { ut = "26", maxRate = "5" },                            expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",         args = { ut = "44", maxRate = "1" },                            expect = "OK", budget = 120 },
+  { cmd = "MissionMark",      args = { label = "srv2-replayed" },                             expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# D7 has no robotics value in the registry; the rotor events are backed by required tokens
+# below but claim nothing there.
+D6  = ["basic-playback"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Measured 1 on all three flights (`2026-11-21_1152`, `_1220`, `_1227`).
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # ---- the recorded flight ----
+  "MISSIONMARK label=srv2-spin-up ut=[\\s\\S]*?partaction applied button=rotoron pid=[0-9]+ part='rotor\\.01' partId=[0-9]+ event=MotorOnAction [^\\r\\n]*state='rotor:engaged=1 rpmLimit=30\\.00 torqueLimit=100\\.00'",
+  "MISSIONMARK label=srv2-spin-down ut=[\\s\\S]*?partaction applied button=rotorbrake pid=[0-9]+ part='rotor\\.01' partId=[0-9]+ event=BrakeAction ",
+  # Stock zeroes the rotor's torque limit at every FLIGHT start; the press raises it through
+  # the rotor's own MotorPowerAction (the first flight, 2026-11-21_1152, engaged a motor with
+  # no torque and the rotor never turned).
+  "MISSIONMARK label=srv2-spin-up ut=[\\s\\S]*?partaction rotor torque raised: button=rotoron pid=[0-9]+ part='rotor\\.01' partId=[0-9]+ action=MotorPowerAction servoMotorLimit=0\\.00->100\\.00 ",
+  "MISSIONMARK label=srv2-spin-down ut=[\\s\\S]*?partaction applied button=rotoroff pid=[0-9]+ part='rotor\\.01' partId=[0-9]+ event=MotorOffAction [^\\r\\n]*state='rotor:engaged=0 rpmLimit=30\\.00 torqueLimit=100\\.00'",
+  # The recorder reads the live rate of motion, a rotor's moving signal is its RPM and decides
+  # alone (stop=signal), and the sample deadband is relative to the RPM.
+  "Robotics: tracking 'rotor\\.01' pid=[0-9]+ midx=0 module=ModuleRoboticServoRotor source=servoRateOfMotion deadband=max\\(0\\.500,2%rpm\\) sampleHz=4\\.0 moving=rotor-rpm stopHold=0\\.25s stop=signal",
+  # Motor off: nothing on the rotor before the engage.
+  "MISSIONMARK label=srv2-recording ut=(?:(?!Part event: Robotic[A-Za-z]+ 'rotor\\.01')[\\s\\S])*?MISSIONMARK label=srv2-spin-up ut=",
+  # Exactly one Started in the spin-up window, and no Stopped (or second Started) while the RPM holds.
+  "MISSIONMARK label=srv2-spin-up ut=(?:(?!MISSIONMARK label=srv2-spin-down )(?!Part event: RoboticMotionStarted 'rotor\\.01')[\\s\\S])*?Part event: RoboticMotionStarted 'rotor\\.01' pid=[0-9]+ midx=0 val=(?:(?!Part event: RoboticMotionStarted 'rotor\\.01')(?!Part event: RoboticMotionStopped 'rotor\\.01')[\\s\\S])*?MISSIONMARK label=srv2-spin-down ut=",
+  # A Stopped after the spin-down, and no Started after the engage window.
+  "MISSIONMARK label=srv2-spin-down ut=(?:(?!MISSIONMARK label=srv2-committed )(?!Part event: RoboticMotionStarted 'rotor\\.01')[\\s\\S])*?Part event: RoboticMotionStopped 'rotor\\.01' pid=[0-9]+ midx=0 val=(?:(?!Part event: RoboticMotionStarted 'rotor\\.01')[\\s\\S])*?MISSIONMARK label=srv2-committed ut=",
+  "committree committed=true",
+  "Rewind-to-Launch initiated to UT",
+
+  # ---- the replay: plan, bind, the recorded events applied, the rotor spun, the follower re-posed ----
+  "MISSIONMARK label=srv2-rewound ut=[\\s\\S]*?\\[GhostVisual\\] Servo follower plan for 'SRV2 Rotor Rover': servos=1 followers=1 invertedServos=0[\\s\\S]*?MISSIONMARK label=srv2-replayed ut=",
+  "MISSIONMARK label=srv2-rewound ut=[\\s\\S]*?\\[GhostVisual\\] Servo followers bound: followers=1 servos=1 carryingServos=1 nestedServos=0 geometryPosed=1 missingServo=0 missingPart=0 notUnderContainer=0 \\(vessel='SRV2 Rotor Rover'\\)[\\s\\S]*?MISSIONMARK label=srv2-replayed ut=",
+  "MISSIONMARK label=srv2-reloaded ut=[\\s\\S]*?\\[GhostPartEvents\\] apply family=RoboticMotionStarted surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* [\\s\\S]*?MISSIONMARK label=srv2-replayed ut=",
+  "MISSIONMARK label=srv2-reloaded ut=[\\s\\S]*?\\[GhostVisual\\] Rotor spin applied in playback: pid=[0-9]+ module=ModuleRoboticServoRotor rpm=[0-9]+\\.[0-9]{2} deltaDeg=[0-9]+\\.[0-9]{3} followers=1 \\(first since build\\)[\\s\\S]*?MISSIONMARK label=srv2-replayed ut=",
+  "MISSIONMARK label=srv2-reloaded ut=[\\s\\S]*?\\[GhostVisual\\] Servo followers re-posed in playback: servoPid=[0-9]+ module=ModuleRoboticServoRotor followers=1 value=[0-9]+\\.[0-9]{2} \\(first since bind\\)[\\s\\S]*?MISSIONMARK label=srv2-replayed ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected ",
+  "partaction rotor torque not raised:",
+  "invokerewindtolaunch refused",
+  "warptout refused",
+  "Robotics: tracking 'rotor\\.01' [^\\r\\n]*source=currentRPM",
+  "Robotics: tracking 'rotor\\.01' [^\\r\\n]*moving=(?:inferred|module-flag)",
+  "Ghost hidden: vessel 'SRV2 Rotor Rover'",
+  "Servo follower re-pose skipped: servo chain does not resolve",
+  "Servo follower cascade stopped",
+  "\\[GhostPartEvents\\] apply family=Robotic[A-Za-z]+ surface=robotic rec=[0-9]+ pid=[0-9]+ applied=0 ",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

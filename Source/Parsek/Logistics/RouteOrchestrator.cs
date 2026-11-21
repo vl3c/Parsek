@@ -281,7 +281,7 @@ namespace Parsek.Logistics
             if (route.Stops != null && route.Stops.Count > 1)
                 return;
             string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
-            var events = RouteEventLog.Events;
+            var events = RouteEventLog.RowsForCycle(route.Id, cycleId);
             for (int i = 0; i < events.Count; i++)
             {
                 var e = events[i];
@@ -526,6 +526,10 @@ namespace Parsek.Logistics
             Tick(currentUT, new LiveRouteRuntimeEnvironment());
         }
 
+        // The tick's own rate-limit keys, composed once (ParsekLog.ComposeKey).
+        private static readonly string TickOrderLogKey = ParsekLog.ComposeKey(Tag, "route-tick-order");
+        private static readonly string TickSummaryLogKey = ParsekLog.ComposeKey(Tag, "route-tick");
+
         /// <summary>
         /// Env-injected tick used by unit tests. Production calls the no-env
         /// overload which constructs a <see cref="LiveRouteRuntimeEnvironment"/>;
@@ -565,7 +569,7 @@ namespace Parsek.Logistics
             Array.Sort(snapshot, CompareRoutesForTick);
             if (initialCount > 1)
             {
-                ParsekLog.VerboseRateLimited(Tag, "route-tick-order",
+                ParsekLog.VerboseRateLimitedComposed(Tag, TickOrderLogKey,
                     () => $"Tick order: [{DescribeTickOrder(snapshot)}]");
             }
 
@@ -600,7 +604,7 @@ namespace Parsek.Logistics
                 }
             }
 
-            ParsekLog.VerboseRateLimited(Tag, "route-tick",
+            ParsekLog.VerboseRateLimitedComposed(Tag, TickSummaryLogKey,
                 () => $"Tick: ut={currentUT.ToString("R", IC)} " +
                 $"routes={tickedRoutes.ToString(IC)} " +
                 $"dispatched={dispatched.ToString(IC)} " +

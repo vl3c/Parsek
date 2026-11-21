@@ -163,8 +163,9 @@ namespace Parsek
 
         /// <summary>
         /// Installs the rescue accept deferrals the loaded node carries when the policy cell says
-        /// the save owns them (every load whose node is the landed world's), and clears them on a
-        /// plain rewind and a Discard Re-fly (<see cref="LoadStateCategory.RescueAcceptDeferrals"/>).
+        /// the save owns them (every load: a plain rewind's and a Discard Re-fly's persistent.sfs
+        /// splice keeps the landed file's own list), else clears them
+        /// (<see cref="LoadStateCategory.RescueAcceptDeferrals"/>).
         /// A non-empty list arms the drain on stock's <c>onContractsLoaded</c>, so the next Space
         /// Center or Tracking Station scene regenerates the stranded vessels.
         /// </summary>

@@ -22,11 +22,13 @@ namespace Parsek
         internal const double VelocityDeltaSlackMeters = 25.0;
         // Loop-seam teleport instrument (Tier-C, the FLIGHT-scene sibling of
         // MapRenderTrace's icon-teleport). Floor calibrated against the two
-        // populations it separates: healthy recorded-segment seams measure
-        // ~7-10 km (S1.8's pinned 10,146.3 / 7,284.0 m continuity gaps) while
-        // the re-aim endpoint defect class measures ~one SOI radius
-        // (49-88 THOUSAND km, the 2026-06-15 forensics). 1,000 km sits three
-        // orders above healthy and well below the defect class.
+        // populations it separates: healthy recorded-segment seams agree to
+        // under a metre at the seam UT (S1.8's corpus, SoiSeamWorldGapTests;
+        // its older 10,146.3 / 7,284.0 m readings were 1 s of heliocentric
+        // travel, an upper bound) while the re-aim endpoint defect class
+        // measures ~one SOI radius (49-88 THOUSAND km, the 2026-06-15
+        // forensics). 1,000 km sits two orders above that bound and well below
+        // the defect class.
         internal const double LoopSeamTeleportFloorMeters = 1_000_000.0;
         internal const double LoopSeamExpectedMotionMultiplier = 4.0;
         // A playback-clock step larger than this (and larger than 4x the real

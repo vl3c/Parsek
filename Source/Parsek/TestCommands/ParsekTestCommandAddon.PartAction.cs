@@ -16,6 +16,8 @@ namespace Parsek.TestCommands
         {
             internal Part Part;
             internal BaseEvent Event;
+            // The servo buttons press a KSPAction, not a part-menu event.
+            internal BaseAction Action;
             internal string EventName;
             internal uint OtherPortId;
             internal ModuleScienceExperiment Experiment;
@@ -118,7 +120,12 @@ namespace Parsek.TestCommands
             int engineModules = 0;
             int parachuteModules = 0;
             int resourceParts = 0;
+            int servoModules = 0;
+            int rotorModules = 0;
             bool transferKind = TestCommandPartAction.IsTransferKind(kind);
+            bool servoKind = TestCommandPartAction.IsServoKind(kind);
+            bool rotorKind = TestCommandPartAction.IsRotorKind(kind);
+            string servoActionName = TestCommandPartAction.ServoActionNameFor(kind);
             bool radiatorKind = TestCommandPartAction.IsRadiatorKind(kind);
             bool engineKind = TestCommandPartAction.IsEngineKind(kind);
             bool parachuteKind = TestCommandPartAction.IsParachuteKind(kind);
@@ -167,6 +174,34 @@ namespace Parsek.TestCommands
                             {
                                 Part = p, Experiment = exp,
                                 EventName = TestCommandPartAction.LabProcessDialogEventName,
+                            });
+                        continue;
+                    }
+                    if (servoKind)
+                    {
+                        // Only a hinge's / rotation servo's own Maximum / Minimum Angle action:
+                        // the action an action group bound to it fires.
+                        if (!TestCommandPartAction.IsServoModuleName(module.moduleName)) continue;
+                        servoModules++;
+                        BaseAction act = module.Actions != null ? module.Actions[servoActionName] : null;
+                        if (act != null && act.active)
+                            found.Add(new PartActionCandidate
+                            {
+                                Part = p, Action = act, EventName = servoActionName,
+                            });
+                        continue;
+                    }
+                    if (rotorKind)
+                    {
+                        // Only a rotor's own Engage / Disengage Motor action (BaseServo's
+                        // MotorOnAction / MotorOffAction): the action an action group fires.
+                        if (!TestCommandPartAction.IsRotorModuleName(module.moduleName)) continue;
+                        rotorModules++;
+                        BaseAction act = module.Actions != null ? module.Actions[servoActionName] : null;
+                        if (act != null && act.active)
+                            found.Add(new PartActionCandidate
+                            {
+                                Part = p, Action = act, EventName = servoActionName,
                             });
                         continue;
                     }
@@ -225,7 +260,7 @@ namespace Parsek.TestCommands
                 foreach (int k in TestCommandPartAction.FoldUndockPairs(ports)) candidates.Add(found[k]);
             }
 
-            int typedModules = radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : -1;
+            int typedModules = radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : servoKind ? servoModules : rotorKind ? rotorModules : -1;
             reason = TestCommandPartAction.DecideCandidates(kind, partName, namedParts, converterName,
                 matchingConverters, experimentModules, typedModules,
                 candidates.Count, all);
@@ -235,7 +270,7 @@ namespace Parsek.TestCommands
                     $"converter={converterName ?? string.Empty} all={all} namedParts={namedParts} " +
                     $"matchingConverters={matchingConverters} experimentModules={experimentModules} " +
                     $"radiatorModules={radiatorModules} engineModules={engineModules} " +
-                    $"parachuteModules={parachuteModules} resourceParts={resourceParts} " +
+                    $"parachuteModules={parachuteModules} resourceParts={resourceParts} servoModules={servoModules} rotorModules={rotorModules} " +
                     $"partPid={(hasPartPid ? partPid.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty)} " +
                     $"candidates={candidates.Count}");
                 return;
@@ -341,6 +376,13 @@ namespace Parsek.TestCommands
                             transferSources[i].amount -= take;
                             dest.amount += take;
                         }
+                    }
+                    else if (c.Action != null)
+                    {
+                        // The servo's own KSPAction, as an action group bound to it fires it.
+                        c.Action.Invoke(new KSPActionParam(KSPActionGroup.None, KSPActionType.Activate));
+                        if (kind == PartActionKind.RotorOn)
+                            RaiseRotorTorqueIfZero(c.Part, kind, actArg, vesselPid);
                     }
                     else if (c.Event != null)
                         // The part-menu button's own handler, as the PAW invokes it.
@@ -598,8 +640,67 @@ namespace Parsek.TestCommands
                     readings.Add(PartActionModuleReading.Radiator(rad.IsCooling));
                 else if (module is ModuleEngines eng)
                     readings.Add(PartActionModuleReading.Engine(eng.EngineIgnited));
+                else if (TestCommandPartAction.IsServoModuleName(module?.moduleName)
+                    && module.Fields != null && module.Fields["targetAngle"] != null
+                    && module.Fields["targetAngle"].GetValue(module) is float target)
+                    readings.Add(PartActionModuleReading.Servo(target));
+                else if (TestCommandPartAction.IsRotorModuleName(module?.moduleName)
+                    && module.Fields != null
+                    && module.Fields["servoMotorIsEngaged"] != null
+                    && module.Fields["servoMotorIsEngaged"].GetValue(module) is bool engaged
+                    && module.Fields["rpmLimit"] != null
+                    && module.Fields["rpmLimit"].GetValue(module) is float rpmLimit)
+                    readings.Add(PartActionModuleReading.Rotor(engaged, rpmLimit,
+                        ReadRotorTorqueLimit(module)));
             }
             return readings;
+        }
+
+        /// <summary>The rotor's <c>servoMotorLimit</c> (percent), or NaN when the field is
+        /// missing or not a float.</summary>
+        private static float ReadRotorTorqueLimit(PartModule module)
+        {
+            BaseField f = module != null && module.Fields != null
+                ? module.Fields[TestCommandPartAction.RotorTorqueFieldName] : null;
+            return f != null && f.GetValue(module) is float limit ? limit : float.NaN;
+        }
+
+        /// <summary>After a <b>rotoron</b> press: stock zeroes a rotor's torque limit at every
+        /// FLIGHT start, so an engaged motor would drive no torque; press the rotor's own
+        /// <c>MotorPowerAction</c> (it sets the limit to 100) when the limit reads 0. One line
+        /// per rotor module either way.</summary>
+        private static void RaiseRotorTorqueIfZero(Part part, PartActionKind kind, string actArg, uint vesselPid)
+        {
+            if (part == null || part.Modules == null) return;
+            string pName = part.partInfo != null ? part.partInfo.name : part.name;
+            System.Globalization.CultureInfo ic = System.Globalization.CultureInfo.InvariantCulture;
+            for (int m = 0; m < part.Modules.Count; m++)
+            {
+                PartModule module = part.Modules[m];
+                if (!TestCommandPartAction.IsRotorModuleName(module?.moduleName)) continue;
+                float before = ReadRotorTorqueLimit(module);
+                if (!TestCommandPartAction.ShouldRaiseRotorTorque(kind, before))
+                {
+                    ParsekLog.Verbose(Tag, $"partaction rotor torque kept: button={actArg} pid={vesselPid} " +
+                        $"part='{pName}' partId={part.flightID} servoMotorLimit={before.ToString("F2", ic)}");
+                    continue;
+                }
+                BaseAction power = module.Actions != null
+                    ? module.Actions[TestCommandPartAction.RotorTorqueActionName] : null;
+                if (power == null)
+                {
+                    ParsekLog.Warn(Tag, $"partaction rotor torque not raised: button={actArg} pid={vesselPid} " +
+                        $"part='{pName}' partId={part.flightID} servoMotorLimit={before.ToString("F2", ic)} " +
+                        $"reason=no-{TestCommandPartAction.RotorTorqueActionName}");
+                    continue;
+                }
+                power.Invoke(new KSPActionParam(KSPActionGroup.None, KSPActionType.Activate));
+                float after = ReadRotorTorqueLimit(module);
+                ParsekLog.Info(Tag, $"partaction rotor torque raised: button={actArg} pid={vesselPid} " +
+                    $"part='{pName}' partId={part.flightID} action={TestCommandPartAction.RotorTorqueActionName} " +
+                    $"servoMotorLimit={before.ToString("F2", ic)}->{after.ToString("F2", ic)} " +
+                    "(stock zeroes a rotor's torque limit at every flight start)");
+            }
         }
 
         private static List<uint> ReadLivePids()

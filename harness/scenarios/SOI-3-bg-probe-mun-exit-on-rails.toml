@@ -1,0 +1,201 @@
+schema = 1
+id = "SOI-3-bg-probe-mun-exit-on-rails"
+tier = "operator"
+# =====================================================================================
+# SOI-3: A BACKGROUND PROBE CROSSES THE MUN SOI EXIT ON RAILS. ITS RECORDING MUST CARRY
+# THE CROSSING AND PLAYBACK MUST PUT IT ON KERBIN AFTERWARDS. AUTHORED 2026-11-20, NEVER
+# FLOWN.
+# =====================================================================================
+#
+# WHAT IT PROVES (test gap batch 3, `logs/test-gaps-doc-2026-11-18.md`). SOI-2 proved a
+# LOADED background vessel's physics SOI change; the ON-RAILS background route
+# (`BackgroundRecorder.OnBackgroundVesselSOIChanged`, route OnRails) had no lane. On rails
+# it closes the old body's open OrbitSegment at the SOI event UT (appending an
+# OrbitalCheckpoint section through `OrbitSegmentCheckpointBridge`) and opens one on the
+# new body from the vessel's re-based orbit. So the probe's recording must read: a Mun
+# checkpoint section ending at the event UT, a Kerbin checkpoint section starting at the
+# same UT, one Mun -> Kerbin seam in its OrbitSegments, a Kerbin terminal orbit; and
+# playback / the map line must resolve it on the Mun before the seam and on Kerbin after.
+# The headless half is `BackgroundOnRailsSoiCrossingTests` (green: the code authors that
+# shape); this lane is the live half.
+#
+# WHY NOT SOI-1'S HOST. `mun-park-kerbalx` has ONE command part, so anything it decouples
+# is DEBRIS, and a debris recording cannot cross on rails: `CheckDebrisTTL` ends it after
+# 60 s, when it unloads, or when its PARENT packs (`ParentOnRailsOrDestroyed`), which any
+# rails warp does. The subject needs a CONTROLLED child, recorded indefinitely. So the host
+# is `mun-escape-probe-stack`, derived by construction from `gs2-orbital-stack` (GS-2's /
+# RF-21's host: the Kerbal X stack with its probe-cored core under Decoupler.2) by placing
+# it on a Mun escape hyperbola whose SOI exit is a fixed 900 game s after the save's UT
+# 416.91, i.e. at about UT 1316.9 (`harness/tools/build_mun_escape_probe_stack.py`;
+# `test_mun_escape_probe_stack.py` re-derives the exit from the committed elements and
+# checks the WarpToUT target below against it).
+#
+# THE FLIGHT (seam only, no mission, no burn). Load, StartRecording, decouple the probe
+# core (`PartAction decouple partPid=2923926328`, RF-21's measured split: a controlled
+# child "Kerbal X Probe" and a two-slot RewindPoint), a short 1x dwell so the split
+# settles before anything packs, then ONE rails WarpToUT to UT 1500, about 183 s past the
+# exit. The warp packs both vessels, so the probe enters the background recorder's
+# on-rails state with a Mun segment open and crosses the boundary on rails; the pod stack
+# crosses too, either way (its own path is SOI-1 / B30's subject). CommitTree, SaveGame
+# (RunTests restores persistent.sfs at batch end, so the commit must be on disk first,
+# SS-1's shape), then the BgSoiCrossingPlayback batch over the committed probe recording.
+#
+# WHY THE DISCRIMINATORS DISCRIMINATE.
+#   (1) `SOI change for background vessel: pid=P from=Mun to=Kerbin` is printed ONLY by the
+#       on-rails branch of `OnBackgroundVesselSOIChanged`. A loaded wingman prints `SOI
+#       changed off rails for background vessel:` instead (SOI-2's line, forbidden here).
+#   (2) Chained to the same pid: the Mun segment's `Orbit segment closed: pid=P UT=a-X
+#       body=Mun checkpointSection=added` BEFORE (1), and a later `Orbit segment closed:
+#       pid=P UT=X-b body=Kerbin checkpointSection=added` whose START is the Mun close's
+#       END, byte for byte (`CloseOrbitSegment`, `BackgroundRecorder.Sampling.cs`). That is
+#       the recording's two sections touching at the event UT, read off the log.
+#   (3) The BgSoiCrossingPlayback batch, three FLIGHT cells over the committed probe
+#       recording (the one non-debris, parent-anchored recording with a Mun -> Kerbin
+#       seam): exactly one seam with the two checkpoint sections touching at it and a
+#       Kerbin terminal orbit body; the two sides' segments, both evaluated at the seam
+#       UT, resolve within 1 km of each other on live bodies; playback and the map
+#       display segment are on the Mun inside its SOI before the seam and on Kerbin
+#       outside it after the seam and at the recording's end. Every cell SKIPS without the subject, so `passed>=1` with
+#       `failed=0` is the proof the flight produced it.
+#   (4) No commit terminal reads `terminalOrbitBody=Mun`: both vessels left the Mun.
+#
+# PRE-REGISTERED OUTCOMES, read off the run's own KSP.log before any edit:
+#   (A) EXPECTED. (1), (2), the batch 3/3 passed, no Mun terminal. PASS. Then pin the batch
+#       split whole, the count and the saveParse windows, and leave INTERIM_PIN_IDS.
+#   (B) (1) present, (2) absent or the Kerbin close starts elsewhere: the crossing was seen
+#       but the sections do not touch. A PARSEK FINDING: file it, do not re-run it away.
+#   (C) Neither (1) nor (2), `SOI changed off rails for background vessel` present: the
+#       probe was LOADED and unpacked at the crossing (the warp dropped to 1x with the
+#       probe inside the 200 m unpack range). A physics outcome: lengthen the separation
+#       (a longer 1x dwell), do not file it.
+#   (D) No background SOI line at all and no `Controllable split children`: the decouple
+#       did not make a controlled child (the partPid moved). A fixture outcome.
+#   (E) The batch skips all three: no committed recording carried the seam. If (1) and (2)
+#       are present, a PARSEK FINDING (the committed copy lost the crossing).
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane").
+#   1 Reuse a flight: no host flight carries a released controlled child across an SOI
+#     boundary (SOI-1 / SOI-2 can only make debris, RF-21's probe stays in LKO), so a
+#     by-construction fixture puts the stack 900 s from the exit and the flight is seam
+#     only, no mission, no burn.
+#   2 No idle waits: both waits are explicit-UT WarpToUT (430 at 1x, 1500 on rails).
+#   3 Minimal dwells: ~12 game s at 1x after the decouple (RF-21's decouple read UT
+#     418.03); the rails warp lands ~183 s past the exit.
+#   4 Burns at 1x: no burns.
+#   5 b5 coasts: not applicable (no mission).
+#   6 Fail fast: every seam step answers or the run is driver INVALID by name.
+#   7 Tight windows: count {2,3} derived (the pod stack and the probe; one more if the
+#     pre-split root survives as its own recording), tighten after flight 1.
+#   8 Tier by measured cost: "operator" (calibration discipline); measured 126 wall s on its
+#     first green flight `2026-11-21_1138`, the promotion call is the ordinary one.
+#   9 Measure: run tools/flight_efficiency.py on the first green flight.
+# =====================================================================================
+description = "Test gap batch 3: a BACKGROUND vessel crossing an SOI boundary ON RAILS (SOI-2 covers only the loaded case). On mun-escape-probe-stack (gs2-orbital-stack's Kerbal X stack placed by construction on a Mun escape hyperbola, SOI exit at about UT 1316.9) the probe core is decoupled (a controlled child), both vessels are rails-warped to UT 1500, the tree is committed and the BgSoiCrossingPlayback cells read the probe's committed recording. Gates the on-rails background SOI line, the Mun and Kerbin checkpoint closes touching at the same UT for the same pid, a Kerbin terminal, and the batch (one Mun -> Kerbin seam, continuous across it, playback and map on Kerbin after it). Green 2026-11-21_1138 (seam gap 0.0 m at the seam UT)."
+instanceProfile = "stock-minimal"
+tags = ["SOI3", "mun", "kerbin", "cross-soi", "on-rails-soi", "track-section", "recorder",
+        "background-recorder", "controlled-child", "orbit-start", "crewed", "reading-run"]
+
+[fixture]
+# By construction from gs2-orbital-stack (harness/tools/build_mun_escape_probe_stack.py).
+# Nothing is launched, so no `fixtures/shared-ships.toml` row.
+saveTemplate       = "fixtures/saves/mun-escape-probe-stack"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK" },
+  # The core decoupler (istg 2; the other Decoupler.2 is the pod's heat-shield stack):
+  # RF-21's measured split, the probe core comes off as a controlled child.
+  { cmd = "PartAction",     args = { button = "decouple", part = "Decoupler.2", partPid = "2923926328" }, expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  # 1x dwell so the split, its coalescer and the RewindPoint settle before the warp packs
+  # both vessels (the load is at UT 416.91; RF-21's decouple read UT 418.03).
+  { cmd = "WarpToUT",       args = { ut = "430", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "soi3-split" },                         expect = "OK" },
+  # The rails warp across the Mun SOI exit (about UT 1316.9, fixed by the fixture bytes).
+  { cmd = "WarpToUT",       args = { ut = "1500" },                                  expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "soi3-crossed" },                       expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  # RunTests restores persistent.sfs at batch end, so the commit goes to disk first.
+  { cmd = "SaveGame",       args = { name = "persistent" },                          expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "BgSoiCrossingPlayback" },           expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["controlled-decoupled-child", "bg-recording"]
+D14 = ["mun", "kerbin", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Derived: the pod stack and the probe (each crosses checkpoint to checkpoint, which the
+# optimizer keeps cohesive, IsSplittableEnvOrBodyBoundary step 3); 3 if the seconds-long
+# pre-split root survives as its own recording. Measured 2 on both flights (`2026-11-20_2310`,
+# `2026-11-21_1138`).
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  # TestCommands/TestCommandPartAction.cs (RF-21's measured shape).
+  "partaction applied button=decouple pid=[0-9]+ part='Decoupler\\.2' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
+  # Recording/SegmentBoundaryLogic.cs: the probe is a controlled child.
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  # (1) BackgroundRecorder.cs OnBackgroundVesselSOIChanged, the on-rails route.
+  "SOI change for background vessel: pid=[0-9]+ from=Mun to=Kerbin",
+  # (2) BackgroundRecorder.Sampling.cs CloseOrbitSegment: the Mun section closes at the
+  # event, then the Kerbin section of the SAME pid starts at that exact UT.
+  "Orbit segment closed: pid=([0-9]+) UT=[0-9.]+-([0-9.]+) body=Mun checkpointSection=added[\\s\\S]*?SOI change for background vessel: pid=\\1 from=Mun to=Kerbin[\\s\\S]*?Orbit segment closed: pid=\\1 UT=\\2-[0-9.]+ body=Kerbin checkpointSection=added",
+  # Controllers/ParsekFlight.MergeFlow.cs LogCommitTerminalVerdicts.
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Kerbin",
+  "committree committed=true",
+  # (3) InGameTests/BgSoiCrossingPlaybackInGameTests.cs. Interim pin: total exact, the
+  # split regexed until flight 1 (INTERIM_PIN_IDS). passed>=1 already proves the subject:
+  # every cell skips together when it is absent.
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=BgSoiCrossingPlayback scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # (4) both vessels left the Mun.
+  "CommitTreeFlight terminal: [^\\r\\n]*terminalOrbitBody=Mun",
+  # Outcome (C): the probe crossed loaded, not on rails (SOI-2's subject, not this one).
+  "SOI changed off rails for background vessel:",
+]
+
+# REPORT-ONLY (gating absent = false). The split authors a two-slot RewindPoint (RF-21);
+# whether the commit keeps it (the probe leaf is a stable, unconcluded slot) is read, not
+# pinned. No supersede row, no tombstone: nothing is re-flown and nobody dies.
+[expectations.rewind]
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Orbiting = { min = 2, max = 2 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 } }
+vesselNames    = { "Kerbal X Probe" = { min = 1, max = 1 } }
+
+[runtime]
+# run.py waits max(step_budget, 600) + 60 for a DEFERRED verb (LoadGame) and
+# max(step_budget, dispatch_budget + 60) otherwise (60 s dispatch default):
+#   LoadGame 660; WarpToUT 1500 at 300 + 60 = 360; WarpToUT 430, CommitTree, SaveGame at
+#   120 each = 360; RunTests 300; the other 9 steps at 120 = 1080 -> sum 2760.
+budgetSeconds = 3000
+
+[retry]
+# One retry prices the never-flown seam flake class; a Parsek red reproduces and is filed.
+policy = "once"
+
+[expectedFail]
+bugId = ""

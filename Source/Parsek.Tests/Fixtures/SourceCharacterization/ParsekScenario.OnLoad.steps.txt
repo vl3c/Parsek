@@ -632,6 +632,7 @@ call RecorderStateLog.RecState
 phase revert-cleanup
 call ParsekScenario.ArmRevertCleanupData
 call ParsekScenario.ClassifyRevertPendingTreeDisposition
+call ParsekScenario.DeleteRevertedFlightRewindPointFiles
 phase tree-mutable-state
 call ParsekScenario.ResetTreeRecordingMutableStateForLoad
 phase revert-strip

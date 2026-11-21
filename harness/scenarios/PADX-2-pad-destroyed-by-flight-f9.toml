@@ -1,0 +1,178 @@
+schema = 1
+id = "PADX-2-pad-destroyed-by-flight-f9"
+# =====================================================================================
+# PADX-2: A RECORDED FLIGHT DESTROYS THE LAUNCH PAD, A REWIND-TO-LAUNCH, THEN AN F5 BEFORE
+# THE CRASH AND AN F9 AFTER IT, IN FLIGHT (test-gaps doc 2026-11-18, Batch 3; PADX-1's
+# sibling: PADX-1 crosses the crash at the Space Center, this lane crosses it in flight twice,
+# with a quickload between).
+#
+# WHAT THE CODE DOES (read 2026-11-20, origin/main e57f75d87; PADX-1's header for the capture
+# and the live building patch):
+#   - Since todo FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS (2026-11-21) the flight scene runs the
+#     ledger clock cursor (ParsekFlight `flightLedgerClock`, reason `flight-clock`): when the
+#     flight clock reaches the crash row INSIDE the warp, it recalculates at that clock
+#     (ParsekFlight.RecalculateLedgerAtFlightClockCrossing, Info `Flight clock reached a
+#     committed ledger row: reason=flight-clock ut=...`, then
+#     LedgerOrchestrator.RecalculateAndPatchForClockAdvance -> PatchFacilities ->
+#     PatchLiveDestructionState; flight B is unrecorded, so the full patch runs) and the pad
+#     falls at the crash UT. The warp exit's recalculation (`Warp exit ledger recalculation
+#     started`, RecalculateLedgerAfterWarpExit -> RecalculateAndPatchForTimeJump) then finds the
+#     flag already down and demolishes nothing. Before that change the pad fell only at the warp
+#     exit (the first flights, 2026-11-20, pinned that); each crossing window now requires the
+#     cursor line, then the demolish, then the warp exit line, in that order.
+#   - The F5 is taken after the rewind, before the crash: the quicksave holds the intact flag,
+#     the committed tree, the ledger with the crash row still in the future and the held window.
+#     The F9 is a save-file load (design-load-restores-the-save.md): stock's
+#     ScenarioDestructibles brings the flag back intact, the ledger is the save's, the crash
+#     row is future again, so nothing touches the flag until the next warp crosses it.
+#   Predicted: PASS, no defect.
+#
+# THE CRASH: PADX-1's (the level-0 pad flag collapsed in FLIGHT by `KscAction
+# demolish-building` while flight A records; same stock event a crash fires).
+#
+# THE ROUTE (career-pad-craft):
+#   flight A   PADX-1's verbatim: record at 60, collapse the flag at ~120, commit at 200,
+#              Recover.
+#   rewind     Rewind-to-Launch A: clock ~45, at the Space Center.
+#   flight B   VAB launch of the Settings Probe (unrecorded), F5 (`quicksave`) at ~45.
+#   crossing 1 warp to 160 in flight: the flag falls once at the crash UT, inside the warp.
+#   F9         LoadGame quicksave, playerLoad (an in-flight quickload): clock ~45, flag intact.
+#   crossing 2 warp to 160 again: the flag falls again, once.
+#
+# PRE-REGISTERED READINGS:
+#   - PADX-1's (the flight demolish, the tag).
+#   - no demolish line after crossing 1: the cursor did not recalculate, or the patch was
+#     skipped; read `PatchDestructionState: skipped (` and `Flight clock ledger recalculation
+#     failed`.
+#   - the demolish AFTER `Warp exit ledger recalculation started`: the flight cursor never
+#     reached the row inside the warp (the pre-2026-11-21 shape); a product finding.
+#   - a demolish line between the F9 mark and the second warp, or `PatchDestructionState:
+#     repaired`: the quickload's world or ledger is not the quicksave's; a product finding.
+#
+# STATUS: AUTHORED 2026-11-20 (branch `test-gaps-b3-career-jumps`). LIVE-PROVEN 2026-11-20
+# `2026-11-20_2338` on the warp-exit shape; the crossing windows were tightened 2026-11-21 on
+# `test-gaps-batch3` for FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS, re-flight owed.
+#
+# FAST-LANE CHECKLIST: (1) reuse: PADX-1's flight A, QL-14's flight B, IR-1's quickload shape;
+# (2) explicit-UT warps only; (3)-(5) no dwell, burn or coast; (6) retry `once`; (7) recordings
+# exactly 1; (8) operator until measured, ~10 min expected; (9) flight_efficiency.py after the
+# first green flight.
+tier = "operator"
+description = "PADX-2: on career-pad-craft a recorded pad flight collapses the launch pad (its level-0 flag) at UT ~120, commits and is recovered; after a Rewind-to-Launch an unrecorded probe goes to the pad, an F5 is taken before the crash, a flight warp past the crash brings the pad down once, an F9 back to the F5 brings it back standing, and a second warp past the crash brings it down again, once."
+instanceProfile = "stock-minimal"
+tags = ["PADX-2", "career", "ledger", "facilities", "rewind", "rewind-to-launch", "quickload",
+        "editor", "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 2 x 300 LoadGame + 5 x 120 warps + 180 StartRecording + 120 CommitTree
+# + 120 Recover + 60 KscAction + 300 rewind + 120 GoToEditor + 180 LaunchFromEditor
+# + 2 x 120 SaveGame = 2520; runtime 3100 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- flight A: PADX-1's, the pad flag collapses at ~120 ----
+  { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "120" },                                         expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "demolish-building", building = "LaunchPad/Facility/Flag" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "padx2-crashed" },                            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "200" },                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+
+  # ---- the rewind ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "padx2-rewound" },                            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+
+  # ---- flight B: an unrecorded probe on the pad, F5 before the crash ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Settings Probe" },         expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                              expect = "OK", budget = 180 },
+  { cmd = "SaveGame",       args = { name = "quicksave" },                                 expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "padx2-f5" },                                 expect = "OK" },
+
+  # ---- crossing 1: the flag falls at the crash UT, inside the warp ----
+  { cmd = "WarpToUT",       args = { ut = "160" },                                         expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "padx2-crossed-1" },                          expect = "OK" },
+
+  # ---- F9 back to the F5: the flag stands again ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "padx2-f9" },                                 expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+
+  # ---- crossing 2: the flag falls again, once ----
+  { cmd = "WarpToUT",       args = { ut = "160" },                                         expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "padx2-crossed-2" },                          expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["facilities", "recalc-engine", "ksp-state-patcher"]
+D9  = ["rewind-to-launch"]
+D14 = ["career", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Flight A only; flight B is unrecorded.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+# Literal sources: PADX-1's table; `Load classified:` LoadReconcilePolicy.cs; `Flight clock
+# reached a committed ledger row:` and `Warp exit ledger recalculation started:`
+# Controllers/ParsekFlight.RecorderSession.cs.
+required = [
+  # ---- the flight's collapse, tagged to the live recording ----
+  "kscaction action=demolish-building target=SpaceCenter/LaunchPad/Facility/Flag applied=true manifestKind=facility-destruction[\\s\\S]*?MISSIONMARK label=padx2-crashed ut=1[1-3][0-9]\\.",
+  "Game state: BuildingDestroyed 'SpaceCenter/LaunchPad/Facility/Flag' cost=0 tag='[0-9a-f]{8,}' source=event-collapsing[\\s\\S]*?MISSIONMARK label=padx2-crashed ut=",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=padx2-rewound ut=[0-9]{2}\\.",
+  # The F5 is before the crash.
+  "MISSIONMARK label=padx2-f5 ut=[0-9]{2}\\.",
+  # ---- crossing 1: the flight clock cursor reaches the crash row inside the warp and the
+  # flag falls there, before the warp exit's recalculation ----
+  "MISSIONMARK label=padx2-f5 ut=(?:(?!MISSIONMARK label=padx2-crossed-1 )[\\s\\S])*?Flight clock reached a committed ledger row: reason=flight-clock ut=1[1-6][0-9][. ](?:(?!MISSIONMARK label=padx2-crossed-1 )[\\s\\S])*?PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag' \\(ledger: destroyed at or before UT 1[1-6][0-9]\\.[0-9]\\)(?:(?!MISSIONMARK label=padx2-crossed-1 )[\\s\\S])*?Warp exit ledger recalculation started: cutoffUT=[\\s\\S]*?MISSIONMARK label=padx2-crossed-1 ut=",
+  # ---- the F9 is the player's quickload back before the crash: a save-file load, so it
+  # classifies Cold (design-load-restores-the-save.md 4.1; measured `2026-11-20_2305`) ----
+  "MISSIONMARK label=padx2-crossed-1 ut=(?:(?!MISSIONMARK label=padx2-f9 )[\\s\\S])*?Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b[\\s\\S]*?MISSIONMARK label=padx2-f9 ut=[0-9]{2}\\.",
+  # ---- crossing 2: the flag stood after the F9 (Demolish acts on an intact building only)
+  # and falls again ----
+  "MISSIONMARK label=padx2-f9 ut=(?:(?!MISSIONMARK label=padx2-crossed-2 )[\\s\\S])*?Flight clock reached a committed ledger row: reason=flight-clock ut=1[1-6][0-9][. ](?:(?!MISSIONMARK label=padx2-crossed-2 )[\\s\\S])*?PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag' \\(ledger: destroyed at or before UT 1[1-6][0-9]\\.[0-9]\\)(?:(?!MISSIONMARK label=padx2-crossed-2 )[\\s\\S])*?Warp exit ledger recalculation started: cutoffUT=[\\s\\S]*?MISSIONMARK label=padx2-crossed-2 ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  # The pad never falls before the recorded crash UT (~120; bound 110, PADX-1's reason).
+  "PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag' \\(ledger: destroyed at or before UT (?:[0-9]{1,2}|10[0-9])\\.",
+  # Exactly one fall per crossing: none between the rewind and the F5, none between the
+  # first crossing and the F9's mark, at most one per crossing window.
+  "MISSIONMARK label=padx2-rewound ut=(?:(?!MISSIONMARK label=padx2-f5 )[\\s\\S])*PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag'",
+  "MISSIONMARK label=padx2-crossed-1 ut=(?:(?!MISSIONMARK label=padx2-f9 )[\\s\\S])*PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag'",
+  "MISSIONMARK label=padx2-f5 ut=(?:(?!MISSIONMARK label=padx2-crossed-1 )[\\s\\S])*PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag'(?:(?!MISSIONMARK label=padx2-crossed-1 )[\\s\\S])*PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag'",
+  "MISSIONMARK label=padx2-f9 ut=(?:(?!MISSIONMARK label=padx2-crossed-2 )[\\s\\S])*PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag'(?:(?!MISSIONMARK label=padx2-crossed-2 )[\\s\\S])*PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag'",
+  # Parsek never repairs the pad: the rewind save and the quicksave bring it back.
+  "PatchDestructionState: repaired 'SpaceCenter/LaunchPad/Facility/Flag'",
+  # The patch's own collapses are suppressed: exactly one recorded collapse in the run.
+  "Game state: BuildingDestroyed 'SpaceCenter/LaunchPad/Facility/Flag'[\\s\\S]*Game state: BuildingDestroyed 'SpaceCenter/LaunchPad/Facility/Flag'",
+]
+
+[runtime]
+budgetSeconds = 3100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

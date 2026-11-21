@@ -101,11 +101,20 @@ namespace Parsek.Tests
         [Fact]
         public void PatchDestructionState_IsFedOnlyFromTheFoldAtLiveUt()
         {
-            var sites = CallSites("PatchDestructionState");
-            var site = Assert.Single(sites);
-            Assert.Equal("GameActions/FacilityStatePatcher.cs", site.Item1);
-            Assert.Equal("PatchLiveDestructionState", site.Item3);
-            Assert.Equal("ComputeBuildingDestroyedAtUt(EffectiveState.ComputeELS(), liveUt), liveUt", site.Item2);
+            // Two feeds: the fold at live UT, and the flight clock cursor's fold over the
+            // crossing window (rows in (windowAfterUT, liveUt]), both over the ELS.
+            var sites = CallSites("PatchDestructionState")
+                .OrderBy(s => s.Item3, StringComparer.Ordinal).ToList();
+            Assert.Equal(2, sites.Count);
+            Assert.All(sites, s => Assert.Equal("GameActions/FacilityStatePatcher.cs", s.Item1));
+            Assert.Equal("PatchCrossedBuildingRowsWhileTreeLives", sites[0].Item3);
+            Assert.Equal("crossed, liveUt", sites[0].Item2);
+            Assert.Equal("PatchLiveDestructionState", sites[1].Item3);
+            Assert.Equal("ComputeBuildingDestroyedAtUt(EffectiveState.ComputeELS(), liveUt), liveUt", sites[1].Item2);
+
+            var crossedFold = Assert.Single(CallSites("ComputeBuildingStatesCrossed"));
+            Assert.Equal("PatchCrossedBuildingRowsWhileTreeLives", crossedFold.Item3);
+            Assert.Equal("EffectiveState.ComputeELS(), windowAfterUT, liveUt, excluded", crossedFold.Item2);
         }
 
         [Fact]

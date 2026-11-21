@@ -1,0 +1,164 @@
+schema = 1
+id = "SURV-1-explode-between-cores-both-live"
+# =====================================================================================
+# SURV-1: A PART BETWEEN TWO PROBE CORES IS DESTROYED, BOTH HALVES SURVIVE. EACH HALF KEEPS
+# ITS OWN RECORDING AND THE SPLIT AUTHORS A REWIND POINT.
+# Test-gap list 2026-11-18, Batch 3 "A crash that leaves a second controllable piece alive"
+# (the survivor may get no recording or rewind point). AUTHORED 2026-11-20 (branch
+# `test-gaps-b3-refly-f5`), NOT FLOWN. Twin: SURV-2 (the recorded half dies).
+#
+# In gameplay terms: a crash destroys the decoupler between the crewed upper stack and the
+# probe-cored lower stage of an orbiting Kerbal X. Both pieces still have a command part, so
+# both must be recorded from the break on, and the break must be a rewind point with two
+# slots, exactly as if the player had staged the decoupler (GS-2's flight).
+#
+# THE CRASH IS STOCK'S OWN. `PartAction button=explode` runs stock `Part.explode()` (FX, then
+# `Part.Die`), the same death a structural impact gives a part (RW-7 / RVC-1 use it for
+# that reason). Decompiled `Part.Die` (KSP 1.12.5): every child of the dying part is
+# `decouple()`d first (stock fires `onPartDeCoupleNewVesselComplete` for each new vessel),
+# then the part disconnects from its parent and dies; only a ROOT part's death kills the
+# vessel (`vessel.Die()`).
+#
+# WHAT THE CODE SAYS (ParsekFlight.SplitBranching.DeferredJointBreakCheck,
+# ParsekFlightSplitBrancher.ProcessBreakupEvent / TryAuthorRewindPointForBreakup; read
+# 2026-11-20, no defect predicted): the decouple callback captures the probe stage with
+# `hasController=True`; the deferred check classifies `StructuralSplit` and feeds it to the
+# crash coalescer with cause `DECOUPLE` (`decoupleCreated=True`, the explode-made child is
+# indistinguishable from a decoupler's, RW-7's measured `ClassifyForegroundSplitChildCause
+# ... => DECOUPLE`), so the window emits a `JointBreak`, not a `Breakup`; the controlled child
+# gets its own recording (alive, background-recorded), the parent pod and the child are both
+# controllable, and the split authors a two-slot rewind point. The scene exit commits both
+# recordings Orbiting.
+#
+# HOST: `gs2-orbital-stack` (GS-2's): Kerbal X `3620499050` in LKO, sandbox, root `mk1-3pod`
+# (Valentina, Bob) -> HeatShield2 -> Decoupler.2 `2833781794` -> the middle stage ->
+# Decoupler.2 `2923926328` -> `probeStackLarge` (`948043159`) + the Mainsail stage. The lane
+# explodes the LOWER decoupler, by part persistentId (two parts share the name). Orbit, not a
+# pad: a pad tree is auto-discarded idle-on-pad at the scene exit (IsTreeIdleOnPad), which
+# would hide the commit half.
+#
+# THE GATE: the explode; the controlled child created alive; two controllable split
+# children; the rewind point begin + full slot capture; the commit (GS-2's tokens); the
+# readback `surv1-split-1-1` (one background member, one rewind point) and the committed
+# readback `surv1-committed-1` (the point survives the commit).
+#
+# PRE-REGISTERED RED READINGS:
+#   - `Controllable split children: \[[0-9]+\]` (one) or `Single-controllable split: no RP`:
+#     the survivor half lost its controllability read (the predicate reads live parts);
+#   - `controlled child skipped (dead on arrival)` style line: the coalescer window saw the
+#     child destroyed (a physics break-up of the probe stage after the explode, a fixture /
+#     physics finding, not a Parsek one);
+#   - `partaction rejected reason=...`: the part pid moved (KSP regenerates a part pid only
+#     on collision with a live vessel; re-read the fixture).
+#
+# FAST-LANE CHECKLIST: 1 reuse: GS-2 stages through a mission; this lane needs no mission
+# and a different split cause, so a new spec on GS-2's host. 2 the two game-time waits are
+# explicit-UT `WarpToUT maxRate=1` (a few seconds of recorder samples before the break, and
+# the coalescer window + rewind point capture after it). 3 the 10 s after the break covers
+# the 0.5 s window and the deferred quicksave with margin. 4 / 5 n/a. 6 retry once.
+# 7 count window measured on the first flight. 8 nightly (one boot, one scene exit, about
+# 2 minutes). 9 flight_efficiency.py after the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "SURV-1: an orbiting Kerbal X loses the decoupler between its crewed upper stack and its probe-cored lower stage to stock Part.explode (the crash's own part death). Both halves keep a command part: the lower stage gets its own recording, the split authors a two-slot rewind point, and the scene exit commits both recordings."
+instanceProfile = "stock-minimal"
+tags = ["SURV-1", "crash", "crash-coalescing", "controlled-decoupled-child", "explode",
+        "rewind-point", "commit-scene-exit", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs2-orbital-stack"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },        expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },    expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },              expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },         expect = "OK" },
+  { cmd = "StartRecording",                                                                expect = "OK" },
+  # A few seconds of samples before the break (the fixture's UT is 416.9).
+  { cmd = "WarpToUT",          args = { ut = "422", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "surv1-before-explode" },                  expect = "OK" },
+  # THE CRASH: the lower Decoupler.2, between the pod's stack and probeStackLarge.
+  { cmd = "PartAction",        args = { button = "explode", part = "Decoupler.2", partPid = "2923926328" }, expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "432", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "ListHandles",       args = { kind = "active" }, label = "a",                     expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "r",               expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "surv1-split-${a.bg}-${r.count}" },        expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "r2",              expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "surv1-committed-${r2.count}" },           expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["commit-scene-exit", "auto-merge"]
+D5  = ["controlled-decoupled-child", "crash-coalescing"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Measured 2 on `2026-11-20_2312` (the stack and the decoupled probe core).
+count = { min = 2, max = 2 }
+
+# ARMED 2026-11-21 off `2026-11-21_1143` (matched first on `2026-11-20_2312`): the split's
+# rewind point kept, nothing re-flown, nobody dead.
+[expectations.rewind]
+gating        = true
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# ARMED 2026-11-21 off the same pair: one tree, the stack and the probe both Orbiting.
+[expectations.recordings.structure]
+gating         = true
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Orbiting = { min = 2, max = 2 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  "MISSIONMARK label=surv1-before-explode [\\s\\S]*partaction applied button=explode pid=3620499050 part='Decoupler\\.2' partId=[0-9]+ event=explode ",
+  # The explode's decouple of the probe stage: a new vessel with a controller.
+  "MISSIONMARK label=surv1-before-explode [\\s\\S]*Decouple created vessel during recording: pid=[0-9]+ name='[^']*' type=\\S+ parts=[0-9]+ hasController=True",
+  "Deferred split classified: source=\\S+, result=StructuralSplit, newVessels=[1-9][0-9]*, hasController=True, recordedPid=3620499050",
+  "Feeding split to coalescer: childPid=[0-9]+, childHasController=True, cause=\\S+",
+  "Coalescer emitted split branch point: ut=[0-9.]+, type=\\S+, cause=\\S+",
+  # THE GATE: the survivor's own recording, both halves controllable, the rewind point.
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+, name='[^']*', recId=\\S+, alive=True",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\] \\(orig=3620499050, ",
+  "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2 focusSlot=[01]",
+  "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
+  "MISSIONMARK label=surv1-split-1-1 ut=",
+  # The commit (GS-2's tokens).
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[2-9][0-9]*",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+  "MISSIONMARK label=surv1-committed-1 ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Single-controllable split: no RP",
+  "Active vessel destroyed in tree mode",
+  "MISSIONMARK label=surv1-split-(?!1-1 )",
+  "MISSIONMARK label=surv1-committed-(?!1 )",
+]
+
+[runtime]
+# LoadGame 660, WarpToUT x2 1320, ExitToSpaceCenter 180, the rest (SetSetting x3,
+# StartRecording, MissionMark x3, PartAction, ListHandles x3, FlushAndQuit) 12 x 120 = 1440.
+# Sum 3600; +200 margin.
+budgetSeconds = 3800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

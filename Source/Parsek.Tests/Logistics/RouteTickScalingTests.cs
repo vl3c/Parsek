@@ -186,8 +186,33 @@ namespace Parsek.Tests.Logistics
             internal int Lines;
         }
 
+        // The test thread's own allocation counter where the runtime has one (other threads,
+        // such as a finished test's process readers, then cannot add to a phase), else the
+        // AppDomain's.
+        private static readonly Func<long> ThreadAllocatedBytes = ResolveThreadAllocatedBytes();
+
+        private static Func<long> ResolveThreadAllocatedBytes()
+        {
+            try
+            {
+                MethodInfo m = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread",
+                    BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+                if (m == null)
+                    return null;
+                var read = (Func<long>)Delegate.CreateDelegate(typeof(Func<long>), m);
+                read();
+                return read;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         private static long AllocatedBytes()
         {
+            if (ThreadAllocatedBytes != null)
+                return ThreadAllocatedBytes();
             try
             {
                 AppDomain.MonitoringIsEnabled = true;
@@ -235,9 +260,14 @@ namespace Parsek.Tests.Logistics
             $"eventRows={RouteEventLog.Events.Count.ToString(IC)}";
 
         // catches: a gross regression in the per-tick cost of many routes (a quadratic walk over
-        // the routes turning a tick into milliseconds) at the 1x cadence and under warp, and the
-        // no-crossing log line going back to formatting its message on every route every tick
-        // (about 1.4 KB per route per tick of garbage, one tick per frame under warp).
+        // the routes turning a tick into milliseconds) at the 1x cadence and under warp, and
+        // garbage creeping back into the per-route path of a tick that does not fire (one tick
+        // per frame under warp): the no-crossing message formatted eagerly (about 1.4 KB per
+        // route), the rate-limit key strings built per call (about 0.4 KB) or a closure over
+        // the loop unit (about 1 KB). The no-fire phase repeats one UT, so no route crosses a
+        // dock and a fire's own rows and lines (whose garbage depends on what earlier tests
+        // left in the shared stores) stay out of it; measured about 0.2 KB per tick (the tick's
+        // route snapshot and its summary line's closure) and nothing per route.
         [Fact]
         public void ManyRoutes_TickCostStaysSmall()
         {
@@ -254,17 +284,32 @@ namespace Parsek.Tests.Logistics
 
                 Phase steady = Run(env, ref ut, 1.0, 2000);
                 report.Add(Describe("1x", n, steady, 2000));
+                // The quietest of five slices: a slice another thread allocated into (where only
+                // the AppDomain counter exists) reads high, the tick's own garbage is the same in
+                // every slice.
+                Phase idle = Run(env, ref ut, 0.0, 400);
+                for (int slice = 1; slice < 5; slice++)
+                {
+                    Phase next = Run(env, ref ut, 0.0, 400);
+                    if (next.BytesPerTick < idle.BytesPerTick)
+                        idle = next;
+                }
+                report.Add(Describe("1x no fire (same UT)", n, idle, 400));
                 Phase warp = Run(env, ref ut, 1000.0, 100);
                 report.Add(Describe("warp 1000s", n, warp, 100));
                 string all = string.Join(Environment.NewLine, report);
 
                 Assert.True(warp.Fires == n * 100, "every route fires once per warp tick: " + all);
+                Assert.True(idle.Fires == 0, "a tick at an unchanged UT fired: " + all);
                 Assert.True(steady.MeanMicros < 5000.0, all);
                 Assert.True(warp.MeanMicros < 200000.0, all);
                 if (steady.BytesPerTick >= 0)
                 {
                     Assert.True(steady.BytesPerTick < 2048L * n,
                         "per-route garbage per 1x tick over 2 KB (the eager no-crossing message?): " + all);
+                    Assert.True(idle.BytesPerTick < 512L + 32L * n,
+                        "garbage per no-fire tick over 512 B + 32 B per route (an eager no-crossing message, " +
+                        "per-call rate-limit keys or a per-route closure?): " + all);
                 }
             }
             foreach (string line in report)
@@ -273,8 +318,9 @@ namespace Parsek.Tests.Logistics
 
         // Manual benchmark (about two minutes): the same routes before and after a long career's
         // event log (1300 warp ticks, every route firing each one). Set PARSEK_ROUTE_TICK_BENCH=1
-        // to run it; the numbers go to the test output. The per-fire cost grows with the log
-        // (todo ROUTE-TICK-EVENT-LOG-SCANS), so this reports instead of asserting.
+        // to run it; the numbers go to the test output. It reports instead of asserting; with the
+        // per-route event log index (todo ROUTE-TICK-EVENT-LOG-SCANS) the long log's warp tick
+        // costs about what the fresh log's does.
         [Fact]
         [Trait("Category", "Manual")]
         public void ManyRoutes_LongEventLog_Benchmark()

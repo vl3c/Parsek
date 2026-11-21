@@ -328,6 +328,7 @@ namespace Parsek.TestCommands
             // the remaining vessel-name claims need (design-vessel-and-mission-names.md 15.3).
             //   PartAction button=undock|decouple|controlfrom|deploy|retract|startconverter|
             //     stopconverter|experiment|labprocess|labtransmit|inspect|radiatoron|radiatoroff
+            //     (later also activate|explode|chute|runtest|transfer|servomax|servomin|rotoron|rotoroff|rotorbrake)
             //     [part=] [converter=] [all=true] [pid=] presses one button of one part's stock
             //     right-click menu (all=true: every candidate)
             //     (ModuleDockingNode.Undock, ModuleDecouplerBase.Decouple,

@@ -50,14 +50,15 @@ tier = "operator"
 #   - in the save: every OnSave after the revert writes `rewindPoints=0`;
 #   - on disk: the saveParse rewind block's two FILE facets (`rewindPointFiles`,
 #     `unlistedRewindPointFiles`, read from the folder beside the produced save) must both
-#     read 0. REPORT-ONLY until a reading run. The only Parsek code that deletes a rewind
-#     point file is `ParsekFileCollector` (Verbose `Rewind point file collected: rp=`), and on
-#     this host it never runs a full pass after the revert (the in-session load is
-#     rate-limited; the batch's cold loads refuse `zero-known-ids`). Yet the archived
-#     `2026-11-15_1537` produced save holds an EMPTY `Parsek/RewindPoints` with no deletion
-#     line in its KSP.log, so the first flight with these facets is a reading: a 1 there
-#     means the quicksave outlived the revert (design-load-restores-the-save.md 4.5 then
-#     keeps it until a collection that sees a named recording).
+#     read 0. REPORT-ONLY. The first flight with these facets (`2026-11-20_2256`, PASS) read
+#     `rewindPointFiles=1 unlistedRewindPointFiles=1`: the quicksave outlived the revert,
+#     because the collector skipped the in-session load (`rate-limited`) and the batch's cold
+#     loads (`zero-known-ids`). Owner ruling 2026-11-21 (todo REVERT-LEAVES-REWIND-POINT-FILE):
+#     the revert deletes it at once, in the same OnLoad as step B
+#     (`ParsekFileCollector.DeleteRewindPointFilesDroppedByRevert`, Info `Rewind point file
+#     deleted on revert: rp=<rp> path=Parsek/RewindPoints/<rp>.sfs`), required below. No save
+#     on this host names the point (no F5 in the flight), so the file must go. NEVER FLOWN
+#     with that token.
 #
 # FAST-LANE CHECKLIST: (1) reuse - QL-2c's flight verbatim up to MISSION-OK; (2) no waits but
 # the batch; (3)-(5) none beyond the hop; (6) retry `once`; (7) count pinned {2,2}: nothing
@@ -128,10 +129,13 @@ allowedAnomalies = []
 # Measured 2 on `2026-10-25_1148` (the revert soft-unstashes the tree; nothing commits).
 count = { min = 2, max = 2 }
 
-# REPORT-ONLY (no `gating` key) until a reading run. The reverted flight's rewind point is
+# ARMED 2026-11-21 off `2026-11-21_1209` (matched first on `2026-11-21_1134`, both on the DLL
+# that deletes the file on revert). The reverted flight's rewind point is
 # gone from the save (`rewindPoints`) and its quicksave from `Parsek/RewindPoints`
-# (`rewindPointFiles`, `unlistedRewindPointFiles`: the folder beside the produced save).
+# (`rewindPointFiles`, `unlistedRewindPointFiles`: the folder beside the produced save); the
+# file facets read 1 on `2026-11-20_2256`, before the revert deleted the file (2026-11-21).
 [expectations.rewind]
+gating                   = true
 rewindPoints             = 0
 rewindPointFiles         = 0
 unlistedRewindPointFiles = 0
@@ -152,6 +156,9 @@ required = [
   # revert lists a point.
   "(?s)RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 .*?RewindSave. Wrote rp=\\1 path=Parsek/RewindPoints.\\1\\.sfs bytes=[0-9]+ .*?MISSIONMARK label=str3-revert .*?In-session RP owner partition decisions: \\1:FollowSave:dropped-memory-only",
   "(?s)MISSIONMARK label=str3-revert .*?In-session RP owner partition: installed=0 memory=1 [^\\r\\n]*followSave kept=0 memoryOnlyDropped=1 ",
+  # ... and the same revert deleted that point's quicksave (owner ruling 2026-11-21, todo
+  # REVERT-LEAVES-REWIND-POINT-FILE; never flown with this token).
+  "(?s)RewindPoint begin: rp=(rp_[0-9a-f]{32}) .*?MISSIONMARK label=str3-revert .*?\\[FileCollector\\] Rewind point file deleted on revert: rp=\\1 path=Parsek/RewindPoints/\\1\\.sfs",
   "(?s)MISSIONMARK label=str3-revert .*?OnSave: Re-Fly subsystem state persisted [^\\r\\n]*rewindPoints=0 ",
   "reverttolaunch complete pid=[0-9]+ name='[^']+' situation=PRELAUNCH elapsed=",
   # --- THE CHECK: the save against the walk ---

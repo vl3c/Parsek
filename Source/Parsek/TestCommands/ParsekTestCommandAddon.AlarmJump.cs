@@ -11,7 +11,11 @@ namespace Parsek.TestCommands
     /// The thin Unity applier for the automation-only <c>AlarmJump</c> verb; the contract is on
     /// <see cref="TestCommandAlarmJump"/>. SINGLE-PHASE: the alarm is added, fired, read, its
     /// Jump pressed and its dialog closed inside the call. A Jump that stock turns into a scene
-    /// reload only REQUESTS the load inside the call (<c>sceneLoadRequested=true</c>).
+    /// reload only REQUESTS the load inside the call (<c>sceneLoadRequested=true</c>). Outside
+    /// FLIGHT the seam's own alarm is deleted BEFORE the press
+    /// (<see cref="TestCommandAlarmJump.DeletesAlarmBeforePress"/>), because stock's non-FLIGHT
+    /// Jump saves persistent and loads FLIGHT from it, and the scaffold alarm must not ride
+    /// into that save.
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
@@ -150,6 +154,17 @@ namespace Parsek.TestCommands
             // ----- Press Jump (stock's own OnJump, Harmony-patched) -----
             bool pressed = TestCommandAlarmJump.ShouldPress(press, jumpShown);
             bool sceneLoadRequested = false;
+            bool deletedBeforePress = false;
+            if (pressed && TestCommandAlarmJump.DeletesAlarmBeforePress(HighLogic.LoadedSceneIsFlight))
+            {
+                // The dialog keeps its own alarm reference and OnJump reads only alarm.Vessel
+                // (a FindVessel by pid), so the press is unchanged; its onAlarmRemoved listener
+                // is added in Start, a frame after this Spawn, so the delete does not close it.
+                deletedBeforePress = RemoveAlarmJumpAlarm(alarm.Id);
+                ParsekLog.Info(Tag, $"alarmjump deleted the seam alarm before the press alarmId={alarm.Id} " +
+                    $"scene={HighLogic.LoadedScene} removed={Bool(deletedBeforePress)} " +
+                    "- the non-FLIGHT Jump saves persistent before it loads FLIGHT");
+            }
             if (pressed)
             {
                 EventData<GameScenes>.OnEvent onLoad = scene => sceneLoadRequested = true;
@@ -177,7 +192,11 @@ namespace Parsek.TestCommands
             uint after = ActiveVesselPidOrZero();
 
             // ----- Close the dialog the player's way (Delete and close), leaving no alarm -----
-            bool alarmRemoved = CloseAlarmJumpDialog(dialog, alarm.Id);
+            // An alarm already deleted before the press is not deleted a second time (stock's
+            // DeleteAlarm logs an error for a missing id): the dialog is only closed.
+            bool alarmRemoved = deletedBeforePress
+                ? CloseAlarmJumpDialogOnly(dialog, alarm.Id)
+                : CloseAlarmJumpDialog(dialog, alarm.Id);
 
             var payload = TestCommandAlarmJump.BuildOkPayload(pid, targetIsGhost, targetLoaded, alarm.Id,
                 stockWouldShow, jumpShown, decision, press, pressed, before, after, sceneLoadRequested,
@@ -206,6 +225,26 @@ namespace Parsek.TestCommands
             {
                 Exception inner = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
                 ParsekLog.Warn(Tag, $"alarmjump dialog close threw: {inner.GetType().Name}: {inner.Message} " +
+                    $"alarmId={alarmId}");
+            }
+            return RemoveAlarmJumpAlarm(alarmId);
+        }
+
+        /// <summary>
+        /// Closes the alarm dialog through stock's public <c>CloseDialog</c> (no
+        /// <c>ActionAlarm</c>, so no second delete) for an alarm the verb already deleted.
+        /// True when no alarm with <paramref name="alarmId"/> remains.
+        /// </summary>
+        private static bool CloseAlarmJumpDialogOnly(AlarmClockMessageDialog dialog, uint alarmId)
+        {
+            try
+            {
+                if (dialog != null)
+                    dialog.CloseDialog();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"alarmjump dialog close threw: {ex.GetType().Name}: {ex.Message} " +
                     $"alarmId={alarmId}");
             }
             return RemoveAlarmJumpAlarm(alarmId);

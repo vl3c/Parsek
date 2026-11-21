@@ -2034,7 +2034,8 @@ class SpecValidationRejectTests(unittest.TestCase):
         # Neither joins DEFERRED_SEAM_VERBS, and each for its OWN reason.
         # ExitToSpaceCenter IS two-phase but sits in the AnswerMergeDialog class (drives a
         # scene exit, completes on the settle, 120 s), so it rides the per-verb dispatch
-        # dict; SimulateStockSwitchClick is single-phase and rides the 60 s default.
+        # dict; SimulateStockSwitchClick's ts / ksc sites wait for a FLIGHT load and ride
+        # the per-verb 300 s row, under the cap.
         # Membership in DEFERRED_SEAM_VERBS is about the 540 s cap governing a
         # spec-declared budget, which neither needs.
         for verb in ("ExitToSpaceCenter", "SimulateStockSwitchClick"):
@@ -2045,13 +2046,14 @@ class SpecValidationRejectTests(unittest.TestCase):
 
     def test_r12_dispatch_budgets_mirror_c_sharp(self):
         # Mirrors TestCommandDispatcher.DeferralBudget: ExitToSpaceCenterSeconds = 120,
-        # SimulateStockSwitchClick falls through to DefaultSeconds = 60. Without the
+        # SimulateStockSwitchClickSeconds = 300 (the fly sites' FLIGHT load). Without the
         # ExitToSpaceCenter row the harness step-wait would ride 60 s + margin and could
         # KILL a healthy KSC bootstrap at ~120 s, converting a retryable seam TIMEOUT into
         # a terminal KILLED.
         self.assertEqual(hlib.dispatch_deferral_budget("ExitToSpaceCenter"), 120.0)
-        self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 60.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 300.0)
         self.assertEqual(hlib.required_dispatch_step_wait("ExitToSpaceCenter"), 180.0)
+        self.assertEqual(hlib.required_dispatch_step_wait("SimulateStockSwitchClick"), 360.0)
 
     def test_player_workflow_verbs_implemented_not_reserved(self):
         # The player-workflow lane's two promotions (the THIRD and FOURTH strict ones
@@ -2106,7 +2108,11 @@ class SpecValidationRejectTests(unittest.TestCase):
                 ("dialog-required%20variant%3DRegularMerge", "driver-gate"),
                 ("dialog-required%20case%3DA-session", "driver-gate"),
                 ("site-arg-invalid%20site%3DMAP", "driver-arg"),
-                ("site-not-implemented%20site%3Dts", "driver-arg"),
+                ("fly-control-missing", "driver-gate"),
+                ("cannot-fly-vessel", "driver-gate"),
+                ("target-not-owned", "driver-arg"),
+                ("target-has-no-ksc-marker", "driver-arg"),
+                ("fly-button-locked", "driver-gate"),
                 ("target-arg-missing", "driver-arg"),
                 ("pid-arg-invalid%20pid%3Dxyz", "driver-arg"),
                 ("vessel-arg-invalid%20vessel%3D", "driver-arg"),
@@ -2210,10 +2216,9 @@ class SpecValidationRejectTests(unittest.TestCase):
                         "case-variant scene key not rejected: %s" % list(v.errors))
 
     def test_r12_switchclick_site_arg_is_validated_pre_launch(self):
-        # Same treatment as scene=, with one deliberate difference: `ts` / `ksc` are LEGAL
-        # spellings v1 answers REJECTED site-not-implemented, so a capability-probe spec
-        # driving one with expect = "REJECTED" must still validate. Only the SPELLING is
-        # closed here, never the implementedness.
+        # Same treatment as scene=: `ts` / `ksc` are as legal as `map` (each a stock Fly
+        # pressed from its own scene), whatever the step expects. Only the SPELLING is
+        # closed here.
         def _site_step(value, cmd="SimulateStockSwitchClick", expect="OK"):
             def m(s):
                 s.get("expectations", {}).pop("ledger", None)
@@ -5023,6 +5028,30 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # SUB-2-submarine-dive-flight-ghost-spawn LEFT on run 2026-11-18_0112 (both their first
     # flights, PASS attempt 1; passed=1 failed=0 skipped=0 each, read off the RunTests step's
     # capture and the batchComplete verifier's found line in the result JSONs; pinned whole).
+    # GPOS-1-kerbalx-ascent-ghost-position ENTERED and V23M-mun-landing-player-loop
+    # RE-ENTERED on 2026-11-20 (test-gap Batch 3, todo FLIGHT-GHOST-POSITION-LANES-2026-11-20:
+    # the new FlightGhostPosition category's three FLIGHT cells, `total=3` literal with the
+    # split regexed). Not H-series ids; CommittedBatchTallySourceSyncTests gates their
+    # `total=`. Each leaves on its first flight with the step.
+    # GPOS-1-kerbalx-ascent-ghost-position LEFT on run 2026-11-20_2302 (its first flight,
+    # PASS attempt 1; passed=2 failed=0 skipped=1, the relative-anchor cell skipping; pinned
+    # whole). V23M LEFT on 2026-11-21 without a green flight with the step: its first flight
+    # with it ended `total=2` (the test runner's NRE-storm abort on the host's stock
+    # VPWheelCollider flood), and by owner ruling the step was dropped, V23M back to its
+    # previously green shape.
+    # SRV-1-hinge-followers-ghost LEFT on run 2026-11-20_2314 (its first flight, red on its
+    # host, but the ServoFollowers batch ran: passed=1 failed=0 skipped=0; pinned whole).
+    # SRV-3-mirrored-hinge-pair-ghost ENTERED on 2026-11-21 (todo
+    # GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE's owed flight: the new ServoMirroredPose category's
+    # one FLIGHT cell over the committed recording of a mirrored hinge pair, `total=1` literal
+    # with the split regexed). It leaves on its first flight.
+    # SOI-3-bg-probe-mun-exit-on-rails ENTERED on 2026-11-20 (test gap batch 3: a background
+    # probe crossing the Mun SOI exit on rails, read by the BgSoiCrossingPlayback category's
+    # three cells, `total=3` literal with the split regexed). It leaves on its first flight.
+    # SOI-3-bg-probe-mun-exit-on-rails LEFT on run 2026-11-21_1138 (its first green flight,
+    # PASS attempt 1; passed=3 failed=0 skipped=0; pinned whole) and
+    # SRV-3-mirrored-hinge-pair-ghost on run 2026-11-21_1154 (its first flight, PASS attempt 1;
+    # passed=1 failed=0 skipped=0; pinned whole), runner run b3-flights-4.
     # SS-1, TSS-2, KSS-2, TSS-3, SPW-6 and SPW-4 LEFT on parallel runner run
     # tip-spawn-reflight-2026-11-20 (runs 2026-11-20_2149 / _2153 / _2154 / _2157 / _2200 /
     # _2203, each PASS attempt 1) and TSS-1 on serial run 2026-11-20_2240 (PASS attempt 1,
@@ -9268,9 +9297,9 @@ class BudgetArithmeticTests(unittest.TestCase):
         self.assertEqual(hlib.dispatch_deferral_budget("KscAction"), 60.0)
         self.assertEqual(hlib.dispatch_deferral_budget("StartRecording"), 180.0)
         # R12: ExitToSpaceCenterSeconds = 120 (sized for a driven scene exit and its
-        # settle), and SimulateStockSwitchClick is single-phase on the default.
+        # settle); SimulateStockSwitchClickSeconds = 300 (its fly sites' FLIGHT load).
         self.assertEqual(hlib.dispatch_deferral_budget("ExitToSpaceCenter"), 120.0)
-        self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 60.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("SimulateStockSwitchClick"), 300.0)
         # An unlisted verb rides the 60s default (the C# DefaultSeconds).
         self.assertEqual(hlib.dispatch_deferral_budget("SetSetting"), 60.0)
         # RunTests defers to the declared scenario budget when supplied.
@@ -10944,6 +10973,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RW-13-tech-research-across-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's tech research lane on `cs-career-mun2` (CS-5's produced save, stock-tree, not in the nightly instance set; mun4 cannot afford a node): a Jumping Flea recorded on the pad, committed and recovered, advRocketry researched with 45 science at the Space Center, a Rewind-to-Launch to before the research, the second research refused as committed future, and the crossing that unlocks it with the science spent once; LIVE-PROVEN 2026-10-28 (`2026-10-28_2114`); owed: the ordinary promotion call",
         "RW-21-earlier-science.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea recovers its pad crew report, a Rewind-to-Launch onto it, a second Flea recovers the same report first, and the walk gives the earlier recovery the full value and the committed one the remainder. LIVE-PROVEN 2026-10-31 (`2026-10-31_0318`); owed: the ordinary promotion call",
         "RW-19-tight-funds-launch.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, three accepts and a VAB upgrade above the funds held, a Rewind-to-Launch before them, the Mun Lander's Launch button greyed for its own cost, the cheaper Flea launched, and the committed upgrade paid in full at the crossing. LIVE-PROVEN 2026-10-31 (`2026-10-31_0248`); owed: the ordinary promotion call",
+        "WTT-1-timeline-warp-across-committed-rows.toml": "tier=operator by the calibration discipline, NOT debt: the Timeline Warp to time button's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): RW-18's rows, a press back to the Flea's launch and a press forward across the rows in one jump. AUTHORED 2026-11-20, NEVER FLOWN (todo TIMELINE-WARP-TO-TIME-LANES-OWED-FLIGHT); owed: the first flight, then the ordinary promotion call",
+        "WTT-2-timeline-warp-to-career-start.toml": "tier=operator by the calibration discipline, NOT debt: the Timeline Warp to time button's career-start reset on `cs-career-new` (stock-tree, not in the nightly instance set): the snapshot captured on the first Space Center arrival, a press to Y1 D1 0:00 and a press forward across the committed rows. AUTHORED 2026-11-20, NEVER FLOWN (todo TIMELINE-WARP-TO-TIME-LANES-OWED-FLIGHT); owed: the first flight, then the ordinary promotion call",
         "RW-18-ksc-warp-across-committed-future.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a Runway upgrade and three contract accepts at the Space Center, a Rewind-to-Launch before them, and a warp at the Space Center in three stops, each reading the pools the career held at that row. LIVE-PROVEN 2026-10-31 (`2026-10-31_0232`); owed: the ordinary promotion call",
         "RW-17-contract-completed-earlier.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun1` (stock-tree, not in the nightly instance set): a committed pad flight completes a part test contract, a Rewind-to-Launch onto it, a second flight completes it before that row, and the walk pays the completion once at the earlier UT. LIVE-PROVEN 2026-10-31 (`2026-10-31_0227`); owed: the ordinary promotion call",
         "RW-16-transmit-then-recover-earlier.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Flea Antenna hop transmits its pad crew report, a Rewind-to-Launch onto it, a second Flea recovers the same report before the transmission, and the walk gives the recovery the full value and the transmission the remainder. LIVE-PROVEN 2026-10-31 (`2026-10-31_0217`); owed: the ordinary promotion call",
@@ -10965,7 +10996,14 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "FAR-4-gilly-eva-switch-bg-member.toml": "tier=operator by the calibration discipline, NOT debt: CI-1's EVA and map Switch-To in Gilly orbit on `eve-gilly-recorded` (stock-minimal), where the switch target is both the live tree's background member and a committed tree's spawned leaf. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_2324`, third flight, after the Case C fix and a re-pin); owed: the ordinary promotion call",
         "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1639`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1641`, second flight after a spec re-pin); owed: the ordinary promotion call",
+        "SRV-1-hinge-followers-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo GHOST-SERVO-CHILDREN-STATIC's flight lane on the derived fixture `srv-hinge-rover` (stock-tree by owner approval 2026-11-20, not in the nightly instance set): a G-11 Hinge carrying a Z-200 on its moving node, on a landed rover's front 820 m from the runway, swung +90 / -90 by PartAction servomax / servomin while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away, the recorder's live hinge angle, the ghost's follower plan / bind / first playback re-pose pinned, then the ServoFollowers cell. First flight 2026-11-20 red on the old pad host (lane design and todo RECORDER-SERVO-ANGLE-PAW-ONLY), REDESIGNED 2026-11-21, never flown since; owed: its re-flight; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1151`, runner run b3-flights-4); owed: the ordinary promotion call",
+        "SRV-2-rotor-spin-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo RECORDER-ROTOR-RPM-PAW-ONLY's flight lane on the derived fixture `srv-rotor-rover` (stock-tree, SRV-1's install, not in the nightly instance set): an EM-16 rotor carrying a Z-200 on its moving node, on a landed rover's front 820 m from the runway, engaged by PartAction rotoron, held at 30 RPM and disengaged by rotoroff while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away; the recorder's live RPM read and steady-spin moving signal, the ghost's follower plan / bind, first rotor spin and first re-pose pinned. AUTHORED 2026-11-21, NEVER FLOWN; owed: its first flight; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1227`, its third: a seam fix and a lane fix, runner run b3-flights-6); owed: the ordinary promotion call",
+        "SRV-3-mirrored-hinge-pair-ghost.toml": "tier=operator by the calibration discipline, NOT debt: todo GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE's flight lane on the derived fixture `srv-mirror-hinge-rover` (stock-tree, SRV-1's install, not in the nightly instance set): a symmetry pair of G-11 hinges (the left half mirrorRotation = True) posed to targetAngle 60 before recording plus a locked offset Alligator hinge, each carrying a Z-200, on a landed rover's front 820 m from the runway, swung by PartAction servomin / servomax all=true while recording, committed, Rewound-to-Launch and replayed from a watcher 120 m away; the mirrored snapshot baseline, the Alligator's pose offset, the follower plan / bind and both halves' playback re-poses pinned, then the new ServoMirroredPose cell. AUTHORED 2026-11-21, never flown; owed: its first flight; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1154`, runner run b3-flights-4); owed: the ordinary promotion call",
         "FGV-1-fairing-ghost-visual.toml": "tier=operator by PURPOSE, NOT debt: a visual-confirmation lane whose product is a set of PNGs for the owner's eyes (four stock procedural fairings, an engine plate and an engine shroud beside their Parsek ghosts in LKO on `eva2-lko-crewed`, intact / jettisoned / separated) and whose gates are that the cells passed, every image was written and the ghost shows the same truss, shroud and mount meshes as the real part. Flown green 2026-11-07 (one-cell shape twice; two-cell shape `2026-11-07_2342`)",
+        "FFC-1-time-jump-across-committed-ksc-rows.toml": "tier=operator by the calibration discipline, NOT debt: QL-14's route on `career-pad-craft` (stock-minimal) with the crossing of the committed Space Center rows made one in-flight `TimeJump` (the jump's own ledger recalculation, the hire promotion and the rewind-aware oracle). AUTHORED 2026-11-20 (test-gaps Batch 3, branch `test-gaps-b3-career-jumps`), never flown; owed: the first flight, then the ordinary promotion call",
+        "PADX-1-pad-destroyed-by-flight-rewind.toml": "tier=operator by the calibration discipline, NOT debt: a recorded pad flight on `career-pad-craft` (stock-minimal) collapses the level-0 pad flag in FLIGHT (`KscAction demolish-building`), then a Rewind-to-Launch: the pad stands, and a Space Center warp across the crash brings it down once. AUTHORED 2026-11-20 (test-gaps Batch 3, branch `test-gaps-b3-career-jumps`), never flown; owed: the first flight, then the ordinary promotion call",
+        "PADX-2-pad-destroyed-by-flight-f9.toml": "tier=operator by the calibration discipline, NOT debt: PADX-1's crash and rewind, then an F5 before the crash in flight, a warp across it (the pad falls), an F9 (it stands again) and a second warp (it falls again, once). AUTHORED 2026-11-20 (test-gaps Batch 3, branch `test-gaps-b3-career-jumps`), never flown; owed: the first flight, then the ordinary promotion call",
+        "PADX-3-pad-row-crossed-while-recording.toml": "tier=operator by the calibration discipline, NOT debt: PADX-1's crash and rewind on `career-pad-craft` (stock-minimal), then a second flight RECORDED on the pad while the flight clock crosses the committed collapse at 1x, so the flight clock cursor's building hook demolishes the flag under a live recorder and the recorder captures no second collapse (todo FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS). AUTHORED 2026-11-21 (branch `test-gaps-batch3`), never flown; owed: the first flight, then the ordinary promotion call; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1138`, runner run b3-flights-4); owed: the ordinary promotion call",
         "SLM-2-standalone-loop-map-pause.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), read in FLIGHT map view in the pause after its second run, where no map ghost may exist. LIVE-PROVEN 2026-11-01 (`2026-11-01_0036`, 104 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "RW-20-strategy-and-deadline-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a strategy activated at the Space Center and a real contract deadline passed by warp, a Rewind-to-Launch before both, the same strategy refused, and the committed fail applied once when the deadline passes again. LIVE-PROVEN 2026-10-31 (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`); owed: the ordinary promotion call",
         "CS-6c-career-mun-science.toml": "tier=operator by the calibration discipline, NOT debt: scripted campaign stage 6c on `cs-career-mun3` (CS-6b's produced save, stock-tree, not in the nightly instance set): the CS Mun Science launched from the VAB, CS-6's ascent, Mun transfer, capture and park, Goo / 2HOT / EVA-report readings in high Mun space, two lowering nodes under the Mun's 60 km threshold, crew report / Goo / 2HOT / EVA-report readings in low space, a MechJeb moon-return departure and CS-5's return tail in the composed mission `b11_mun_science_return`, the pod recovered and auto-committed, basicScience and electrics researched, closed by LedgerGroundTruth. LIVE-PROVEN 2026-10-28 (`2026-10-28_0028`, first flight); owed: the ordinary promotion call",
@@ -11118,6 +11156,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "LX-1-loop-armed-refly-discard-merge.toml": "tier=operator by the calibration discipline (its clock and recordings window are derived from IR-3's measured chain, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6 (audit B7, 2026-11-16): a mission loop on tree A of `rover-route-recorded` armed and playing while IR-3's Flea flight is Re-Flown, discarded, re-entered and Re-Flown again and merged, every scene publishing the unit live with the arm-time phase; LIVE-PROVEN 2026-11-17 (run 2026-11-17_1412, PASS attempt 1, 145 s, first flight); owed: the ordinary promotion call",
         "LX-2-career-loop-watch-scene-change-reload.toml": "tier=operator by the calibration discipline (four loads and three watch entries never flown in this order, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 6 (audit B7, 2026-11-16): a mission loop on `rover-route-recorded-career` watched through the Space Center, the Tracking Station, a return to flight and an F5 / F9, each scene change ending the watch and each scene rebuilding the unit with the arm-time phase, the career pools unchanged; LIVE-PROVEN 2026-11-17 (run 2026-11-17_1414, PASS attempt 1, 78 s, first flight); owed: the ordinary promotion call",
         "FXR-1-ghost-engine-fx-across-refly-and-retry.toml": "tier=operator by the calibration discipline (its UT 128 warp target, the re-primed ghost's plume census and the three GhostFxIntegrity batches are unmeasured), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 7 (audit B8, 2026-11-16): seam-only on `refly-split-crewed-merged`, re-flies the open Probe slot with the committed Kerbal X re-fly as the live ghost, Retries from the Rewind Point and merges, running GhostFxIntegrity after each and pinning the Poodle's ignition, FX fingerprint and plume; LIVE-PROVEN 2026-11-17 (run 2026-11-17_1531, PASS attempt 1, 95 s, second flight; the first, 2026-11-17_1415, red on two spec errors); owed: the ordinary promotion call",
+        "RSQ-1-rescue-rebuilt-at-space-center.toml": "tier=operator by the calibration discipline, NOT debt: the rescue rebuild lane on `cs-career-mun4` (stock-tree, not in the nightly instance set), RW-18's prefix: a rescue (RecoverAsset e8ba5ea6) accepted at the Space Center after a committed pad Flea, Rewind-to-Launch, the Space Center warp that reaches the accept regenerates the stranded pod once and a Cold reload adds no second one (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS); AUTHORED 2026-11-20, never flown (tag `pending-flight`); what is open is the flight, not a human review call; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1140`, runner run b3-flights-4); owed: the ordinary promotion call",
+        "RSQ-2-rescue-rebuilt-in-flight-deferred.toml": "tier=operator by the calibration discipline, NOT debt: RSQ-1's prefix on `cs-career-mun4` (stock-tree), the accept reached by a TimeJump in FLIGHT, the stranded pod deferred and listed, the list kept across a Cold load and drained at the next Space Center visit, a second visit adding nothing (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 1a); AUTHORED 2026-11-20, never flown (tag `pending-flight`); what is open is the flight, not a human review call; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1142`, runner run b3-flights-4); owed: the ordinary promotion call",
+        "RSQ-3-rescue-deferral-kept-across-rewind.toml": "tier=operator by the calibration discipline, NOT debt: RSQ-2's prefix on `cs-career-mun4` (stock-tree), a recording started while the deferral is listed writes its rewind save with the list, the session drains its own copy, and a rewind to that recording's launch keeps the rewind save's list (landed=1 session=0) so the landed Space Center regenerates the pod once, a second visit adding nothing (todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD); AUTHORED 2026-11-21, never flown (tag `pending-flight`); what is open is the flight, not a human review call; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1145`, runner run b3-flights-4); owed: the ordinary promotion call",
+        "RSQ-4-rescue-deferral-kept-across-discard-refly.toml": "tier=operator by the calibration discipline, NOT debt: RSQ-3's prefix on `cs-career-mun4` (stock-tree), a two-command craft split on the pad after the in-flight deferral authors a rewind point holding the list, its stashed slot is Re-Flown and Discard Re-fly keeps the rewind point's list (landed=1, installed load DiscardReFly pending=1) so the landed Space Center regenerates the pod once, a second visit adding nothing (todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD); AUTHORED 2026-11-21, never flown (tag `pending-flight`); what is open is the flight, not a human review call; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1148`, runner run b3-flights-4); owed: the ordinary promotion call",
         "AIR-3-plane-drone-midair-collision.toml": "tier=operator by the calibration discipline (the intercept from 0.5 s polls on raw elevator / aileron loops, the drone's fit under the wing and the parts the collision breaks are stock physics nobody has measured, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3b (2026-11-17): the Mallard releases a parachute drone of its own tree over the sea (derived craft `AIR Drone Carrier`) and flies into it on the drone's live position, committed at the Space Center, Rewound-to-Launch and both ghosts replayed there; AUTHORED 2026-11-17, FLOWN TWICE 2026-11-17 INVALID (autopilot-flake: 5.5 m vertical misses, then the drone reached the floor), re-tuned, RE-FLOWN TWICE INVALID (no release), the release fixed, FLOWN A FIFTH TIME (run 2026-11-17_1741, MISSION-OK) PARSEK-FAIL(expectation) on one spec error (no per-part visibility apply on the drone's ghost: it was destroyed whole and its ghost explodes at its end), re-pinned; FLOWN A SIXTH TIME (run 2026-11-17_2337, MISSION-OK) PARSEK-FAIL(expectation) on another spec error (the drone destroyed whole before its part deaths reached the background recorder), re-pinned; LIVE-PROVEN 2026-11-20 (run 2026-11-20_2206, PASS attempt 1, 783 s, the seventh flight); owed: the ordinary promotion call",
         "SPW-1-laythe-orbit-end-spawn-flight.toml": "tier=operator by the calibration discipline (the rewind window and the propagated Laythe orbit's placement verdict are unmeasured, first run is a calibration reading), NOT debt; todo END-SPAWN-LANES-2026-11-17 (the end-spawn program: far bodies, high warp, a busy player): a true end spawn of the Duna Rocket in Laythe orbit, in FLIGHT, from `laythe-park-nerv`, read with LeafVesselPlacement; AUTHORED 2026-11-17; LIVE-PROVEN 2026-11-17 (run 2026-11-17_2312, PASS attempt 1, 111 s, first flight); owed: the ordinary promotion call",
         "SPW-2-duna-orbit-end-spawn-runway.toml": "tier=operator by the calibration discipline (the rewind window, the runway launch after it and the propagated Duna orbit's placement verdict are unmeasured, first run is a calibration reading), NOT debt; todo END-SPAWN-LANES-2026-11-17 (the end-spawn program: far bodies, high warp, a busy player): a true end spawn of DD1 in Duna orbit while the player sits on the runway, from `duna-park-probe`, read with LeafVesselPlacement; AUTHORED 2026-11-17; LIVE-PROVEN 2026-11-17 (run 2026-11-17_2313, PASS attempt 1, 117 s, first flight); owed: the ordinary promotion call",
@@ -11520,6 +11562,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # cadence yet; promotion is a later human call after the report-only
         # reading run and the arming sequence its header specifies. Nothing is
         # outstanding beyond flying it, which is what `--tier operator` is for.
+        "GPOS-1-kerbalx-ascent-ghost-position.toml": "tier=operator by the calibration discipline (authored 2026-11-20, LIVE-PROVEN on its first flight 2026-11-20_2302 at 269 s, batch split pinned whole), NOT debt; test-gap Batch 3, todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: GS-4's Kerbal X ascent in RF-9's coast-exit profile, committed in flight, rewound to launch, the Mallard on the Runway and a warp into the replay, then the FlightGhostPosition batch reads the live ghosts by position; owed: the ordinary promotion call",
         "GS-1-auto-chute-booster.toml":     "FLOWN 4x 2026-08-05 (flight 4 PASS) and ARMED; operator tier is now an open PROMOTION call, not debt",
         # FLOWN GREEN 2026-08-27, same-day discipline: reading run
         # `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two
@@ -11539,6 +11582,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Priority register C4 (2026-09-23, `d5-debris`): the two D5 debris lanes on
         # the kx machine's close-cut opt-in.
         "GS-10-kerbalx-debris-ttl.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-ttl: GS-7's crash lane with round 1's close cut, the kx machine's impactCutAtLastBoosterDrop opt-in); operator tier is GS-7's cadence (a 12-minute crash + rewind + watch flight), and the discipline is recorded in its status row, not a debt",
+        "SOI-3-bg-probe-mun-exit-on-rails.toml": "tier=operator by the calibration discipline (whether the decoupled probe is packed when it crosses and how many recordings the commit leaves are stock physics and Parsek behaviour nobody has measured on this by-construction host, first run is a reading), NOT debt; test gap batch 3 (2026-11-20): a BACKGROUND vessel crossing the Mun SOI exit ON RAILS, the probe core decoupled off the Kerbal X stack on `mun-escape-probe-stack` and rails-warped across, gated on the on-rails background SOI line, the same pid's Mun and Kerbin checkpoint closes touching at one UT, and the BgSoiCrossingPlayback batch; AUTHORED 2026-11-20, NEVER FLOWN; owed: the first flight, then the ordinary promotion call; FIRST GREEN FLIGHT 2026-11-21 (`2026-11-21_1138`, runner run b3-flights-4); owed: the ordinary promotion call",
         "SOI-2-mun-exit-formation-wingman.toml": "tier=operator by the calibration discipline (whether the dropped stack stays inside the pack distance through the crossing and which frame its section holds are stock physics and Parsek behaviour nobody has measured, first run is a reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 9 (2026-11-17), the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT residue: SOI-1's Mun escape on `mun-park-kerbalx` with the new formation opt-in, the pod dropping its lander stack 25 s before the SOI exit so a LOADED background wingman crosses in physics, gated on the background off-rails SOI line and the background section-split line for the same pid; LIVE-PROVEN 2026-11-17 (run 2026-11-17_1422, PASS attempt 1, 291 s, first flight); owed: the ordinary promotion call",
         "SOI-1-mun-exit-physics-burn.toml": "tier=operator by the calibration discipline, NOT debt; AUTHORED 2026-11-04, LIVE-PROVEN 2026-11-04_1851 - R3 of the replay-theory audit (an off-rails SOI change splits the open TrackSection), a 1x burn through the Mun SOI exit on `mun-park-kerbalx` with its outcomes pre-registered in the header; its pre-fix negative control flew red 2026-11-04_2231, nothing open",
         "BAY-1-runway-cargo-bays.toml": "calibration-discipline - AUTHORED 2026-09-26 (coverage wave 7, D7 `bays`: the stock Mallard staged in place on the Runway, its three Mk3 cargo bays cycled, committed, Rewound-to-Launch and replayed as a Space Center ghost); operator tier is the calibration discipline for a new lane (reading 1 `2026-09-25_2214` red on the filed deploy-limit gap, reading 2 `_2218` PASS, armed `_2230` PASS, negative controls offline; the stock 44/45/51 deploy limits restored 2026-09-27 with the fix, per-bay limit tokens read PASS on `2026-09-27_1029`), and its status row records what has flown, not a debt",
@@ -13297,7 +13341,38 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "B26-laythe-vall-transfer.toml",
                        "B28-laythe-jool-return.toml",
                        "B29-jool-kerbin-return.toml",
-                       "B30-mun-minmus-transfer.toml"}
+                       "B30-mun-minmus-transfer.toml",
+                       # Test-gaps batch 2 / batch 3 (owner ruling V 2026-11-21: arm a report-only
+                       # block once a second green flight reads the facets of the first), runner
+                       # run `b3-flights-4`, Debug automation DLL sha256 prefix 4dd8a0d9: QL-15
+                       # `rewind` off `2026-11-21_1141` (first `2026-11-20_2339`), QL-16 `rewind` off
+                       # `_1142` (first `2026-11-20_2340`, supersedeRows tightened to {1,1}), SURV-1
+                       # both blocks off `_1143` (first `2026-11-20_2312`, structure tightened to the
+                       # measured 2 / Orbiting 2 / JointBreak 1), VN-14 both blocks off `_1134` (first
+                       # `2026-11-20_2314`, supersedeRows {1,1}), S0.16 `structure` off `_1144`
+                       # (first `2026-11-20_2341`). RSQ-1..4 `structure` (crewAboard Rayvan Kerman = 1)
+                       # armed off their first green flights `_1140` / `_1142` / `_1145` / `_1148`, as
+                       # their specs pre-registered. Every armed bound inverted offline by
+                       # tools/mutation_check.py --save-only against its own produced save.
+                       "QL-15-f5-in-refly-merge-then-f9.toml",
+                       "QL-16-f5-in-refly-discard-then-f9.toml",
+                       "SURV-1-explode-between-cores-both-live.toml",
+                       "VN-14-refly-rename-merge.toml",
+                       "S0.16-switch-segment-across-f5-f9-scoped-discard.toml",
+                       "RSQ-1-rescue-rebuilt-at-space-center.toml",
+                       "RSQ-2-rescue-rebuilt-in-flight-deferred.toml",
+                       "RSQ-3-rescue-deferral-kept-across-rewind.toml",
+                       "RSQ-4-rescue-deferral-kept-across-discard-refly.toml",
+                       # STR-3 `rewind` off `2026-11-21_1209` (runner run `b3-flights-5`, DLL prefix
+                       # b5179f97), matched first on `2026-11-21_1134`: both readings on the DLL that
+                       # deletes the reverted flight's rewind point file (REVERT-LEAVES-REWIND-POINT-FILE),
+                       # whose file facets the pre-fix `2026-11-20_2256` read 1. SURV-2 `rewind` off
+                       # `2026-11-21_1141`, matched first on `2026-11-20_2313`; SURV-2 `structure`
+                       # off `2026-11-21_1213`, matched first on `2026-11-21_1141` (both on the
+                       # SURVIVOR-DESTROYED-AT-SCENE-EXIT fix; the pre-fix reading had Destroyed 2),
+                       # tightened to the measured 2 / Destroyed 1 / Orbiting 1 / JointBreak 1.
+                       "STR-3-revert-takes-back-strategy-share.toml",
+                       "SURV-2-recorded-half-destroyed-survivor-recorded.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
@@ -18040,7 +18115,8 @@ class PartActionSourceSyncTests(unittest.TestCase):
                   "RetractToken", "StartConverterToken", "StopConverterToken", "ExperimentToken",
                   "LabProcessToken", "LabTransmitToken", "InspectToken", "RadiatorOnToken",
                   "RadiatorOffToken", "ActivateToken", "ExplodeToken", "ChuteToken",
-                  "RunTestToken", "TransferToken")
+                  "RunTestToken", "TransferToken", "ServoMaxToken", "ServoMinToken",
+                  "RotorOnToken", "RotorOffToken", "RotorBrakeToken")
         self.assertEqual(len(consts), len(hlib.PARTACTION_BUTTON_VALUES))
         for token, const in zip(hlib.PARTACTION_BUTTON_VALUES, consts):
             self.assertIn('internal const string %s = "%s";' % (const, token), text)
@@ -18099,7 +18175,23 @@ class PartActionSourceSyncTests(unittest.TestCase):
         # inherits it) and nothing else on the part, and counts the engine modules for its
         # engine-not-found gate.
         self.assertIn("if (!(module is ModuleEngines)) continue;", applier)
-        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : -1", applier)
+        self.assertIn("radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : servoKind ? servoModules : rotorKind ? rotorModules : -1", applier)
+        # The servo buttons press the hinge / rotation servo's own KSPAction, the one an
+        # action group fires, on those two modules only.
+        self.assertIn("if (!TestCommandPartAction.IsServoModuleName(module.moduleName)) continue;",
+                      applier)
+        self.assertIn("c.Action.Invoke(new KSPActionParam(KSPActionGroup.None, KSPActionType.Activate));",
+                      applier)
+        # The rotor buttons press BaseServo's Engage / Disengage Motor KSPAction on the rotor
+        # module alone, named in the pure half.
+        self.assertIn("if (!TestCommandPartAction.IsRotorModuleName(module.moduleName)) continue;",
+                      applier)
+        pure_rotor = self._source("TestCommands", "TestCommandPartAction.cs")
+        self.assertIn('internal const string RotorModuleName = "ModuleRoboticServoRotor";', pure_rotor)
+        self.assertIn('case PartActionKind.RotorOn: return "MotorOnAction";', pure_rotor)
+        self.assertIn('case PartActionKind.RotorOff: return "MotorOffAction";', pure_rotor)
+        self.assertIn('if (IsRotorKind(kind) && typedModules == 0) return RotorNotFoundReason;',
+                      pure_rotor)
         # The transfer: partPid filters before the name, a destination must hold the
         # resource, the plan is refused before anything changes, and the move conserves.
         self.assertIn("if (hasPartPid && p.persistentId != partPid) continue;", applier)
@@ -19207,6 +19299,59 @@ class LaunchSiteProbeSourceSyncTests(unittest.TestCase):
                 self.assertIn("driver.steps[4]", errs[0])
 
 
+class SwitchClickFlySourceSyncTests(unittest.TestCase):
+    """`SimulateStockSwitchClick site=ts|ksc`. Reads OUTSIDE harness/: the fly-site refusal /
+    error vocabularies (IN ORDER), the per-site wrong-scene DEFER tokens and the payload route
+    of the comment-stripped TestCommands/TestCommandSimulateSwitchClick.FlySites.cs, the C#
+    budget row, and the applier's presses of the stock Fly controls, so a spec's pinned
+    tokens and the step-wait cannot drift from what the seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# fly-site tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_tables_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandSimulateSwitchClick.FlySites.cs")
+        self.assertEqual(list(hlib.SWITCHCLICK_FLY_REJECT_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "FlyRejectReasons"))
+        self.assertEqual(list(hlib.SWITCHCLICK_FLY_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "FlyErrorReasons"))
+        self.assertIn('internal const string FlyControlRoute = "%s";' % hlib.SWITCHCLICK_FLY_ROUTE,
+                      text)
+        self.assertIn('NotInTrackingStationReason = "%s";'
+                      % hlib.SWITCHCLICK_SITE_SCENE_DEFERS["ts"], text)
+        self.assertIn('NotAtSpaceCenterReason = "%s";'
+                      % hlib.SWITCHCLICK_SITE_SCENE_DEFERS["ksc"], text)
+        self.assertEqual(set(hlib.SWITCHCLICK_SITE_SCENE_DEFERS), set(hlib.SWITCHCLICK_SITE_VALUES))
+        for reason in hlib.SWITCHCLICK_FLY_REJECT_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason), ("driver-arg", "driver-gate"),
+                          reason)
+        for reason in hlib.SWITCHCLICK_FLY_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+        self.assertNotIn("site-not-implemented", hlib._SEAM_REFUSAL_SUBKINDS)
+
+    def test_the_budget_mirrors_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandDispatcher.cs")
+        m = re.search(r"SimulateStockSwitchClickSeconds\s*=\s*([0-9.]+)", text)
+        self.assertIsNotNone(m, "DeferralBudget.SimulateStockSwitchClickSeconds moved")
+        self.assertEqual(float(m.group(1)),
+                         hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS["SimulateStockSwitchClick"])
+
+    def test_the_applier_presses_the_stock_fly_controls(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.SimulateSwitchClickFly.cs")
+        self.assertIn("ts.SetVessel(v, true)", applier)
+        self.assertIn("ts.FlyButton.onClick.Invoke()", applier)
+        self.assertIn('GetField("FlyButton"', applier)
+        self.assertIn("onGameSceneLoadRequested", applier)
+        # The verb must never hand-roll what the patched stock handlers do.
+        self.assertNotIn("StartAndFocusVessel(", applier)
+        self.assertNotIn("ArmStockActionIntent(", applier)
+        self.assertNotIn("SetActiveVessel(", applier)
+
+
 class AlarmJumpSourceSyncTests(unittest.TestCase):
     """`AlarmJump`. Reads OUTSIDE harness/: the verb, its arg keys, the jump values and the
     refusal / error / decision vocabularies (IN ORDER) of the comment-stripped
@@ -20160,8 +20305,8 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
             text = fh.read()
         self.assertIn('WarpOpToken = "warp"', text)
         self.assertIn('WarpUnsupportedWindowReason = "warp-unsupported-window"', text)
-        self.assertIn("=> window == SpawnControlWindow;", text)
-        self.assertEqual(("spawncontrol",), hlib.UIACTION_WARP_WINDOWS)
+        self.assertIn("=> window == SpawnControlWindow || window == TimelineWindow;", text)
+        self.assertEqual(("spawncontrol", "timeline"), hlib.UIACTION_WARP_WINDOWS)
         ui_path = os.path.join(PARSEK_SOURCE_DIR, "UI", "SpawnControlUI.cs")
         with open(ui_path, encoding="utf-8-sig") as fh:
             ui_text = fh.read()
@@ -20178,6 +20323,57 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         errors = hlib.validate_ui_action_step(
             3, {"op": "warp", "window": "spawncontrol", "tab": "missions"})
         self.assertTrue(any("only op=tab reads it" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            4, {"op": "warp", "window": "spawncontrol", "day": "3"})
+        self.assertTrue(any("warp-arg-unsupported" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            5, {"op": "open", "window": "timeline", "confirm": "warp"})
+        self.assertTrue(any("only op=warp window=timeline reads it" in e for e in errors),
+                        errors)
+
+    # ---- op=warp window=timeline: the "Warp to time" button ----
+
+    def test_the_timeline_warp_vocabulary_mirrors_the_c_sharp(self):
+        """Reads OUTSIDE harness/. The four date keys, the confirm key and its two tokens,
+        and every refusal reason of TestCommandUiWarpTime, read off its const declarations
+        as SETS (comment-stripped): a key or token renamed on one side alone validates here
+        and is a typed REJECTED after a whole KSP boot."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiWarpTime.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# timeline warp half moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = "\n".join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+        consts = dict(re.findall(r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', text))
+        self.assertEqual(hlib.UIWARP_DATE_KEYS,
+                         tuple(consts[k] for k in ("YearArg", "DayArg", "HourArg", "MinuteArg")))
+        self.assertEqual(hlib.UIWARP_CONFIRM_KEY, consts["ConfirmArg"])
+        self.assertEqual(hlib.UIWARP_CONFIRM_VALUES,
+                         (consts["ConfirmWarpToken"], consts["ConfirmCancelToken"]))
+        reasons = {v for k, v in consts.items() if k.endswith("Reason")}
+        self.assertEqual({"warp-date-arg-missing", "warp-date-arg-invalid",
+                          "warp-confirm-arg-missing", "warp-confirm-arg-invalid",
+                          "warp-arg-unsupported", "warp-confirm-not-shown",
+                          "warp-confirm-button-missing", "warp-rewind-not-launched",
+                          "warp-forward-not-applied", "warp-not-deferred"}, reasons)
+        ui_path = os.path.join(PARSEK_SOURCE_DIR, "UI", "TimelineWindowUI.cs")
+        with open(ui_path, encoding="utf-8-sig") as fh:
+            self.assertIn('WarpToTimeRefusalButtonDisabled = "warp-button-disabled"', fh.read())
+
+    def test_timeline_warp_requires_the_date_and_the_confirm(self):
+        ok = {"op": "warp", "window": "timeline", "year": "1", "day": "9",
+              "hour": "3", "minute": "41", "confirm": "warp"}
+        self.assertEqual([], hlib.validate_ui_action_step(0, ok))
+        self.assertEqual([], hlib.validate_ui_action_step(1, dict(ok, confirm="cancel")))
+        no_minute = {k: v for k, v in ok.items() if k != "minute"}
+        errors = hlib.validate_ui_action_step(2, no_minute)
+        self.assertTrue(any("warp-date-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(3, dict(ok, day="1.5"))
+        self.assertTrue(any("warp-date-arg-invalid" in e for e in errors), errors)
+        no_confirm = {k: v for k, v in ok.items() if k != "confirm"}
+        errors = hlib.validate_ui_action_step(4, no_confirm)
+        self.assertTrue(any("warp-confirm-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(5, dict(ok, confirm="Warp"))
+        self.assertTrue(any("warp-confirm-arg-invalid" in e for e in errors), errors)
 
     # ---- op=mock: the GUI state gallery primitive (P1) ----
 

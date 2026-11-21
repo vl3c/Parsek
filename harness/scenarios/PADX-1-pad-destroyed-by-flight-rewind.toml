@@ -1,0 +1,176 @@
+schema = 1
+id = "PADX-1-pad-destroyed-by-flight-rewind"
+# =====================================================================================
+# PADX-1: A RECORDED FLIGHT DESTROYS THE LAUNCH PAD, THEN A REWIND-TO-LAUNCH ACROSS IT
+# (test-gaps doc 2026-11-18, Batch 3: "the pad must stand until the crash time, then fall
+# again"; no lane produced a flight-caused destruction before this one).
+#
+# WHAT THE CODE DOES (read 2026-11-20, origin/main e57f75d87):
+#   - A collapse while a flight is recording is caught at its own moment from stock's
+#     OnKSCStructureCollapsing (GameStateFacilityRecorder.OnStructureCollapsing), TAGGED to
+#     the live recording (`Game state: BuildingDestroyed '<id>' cost=0 tag='<rec>'`), and
+#     becomes a FacilityDestruction row at that UT when the tree commits
+#     (GameStateEventConverter.ConvertBuildingDestroyed).
+#   - The live building patch (FacilityStatePatcher.PatchLiveDestructionState) reads the
+#     ledger AT LIVE UT (the ledger's now, LedgerHeldWindow.ResolveLedgerNowUT) and acts only
+#     where the LAST destruction / repair row at or before now contradicts the live building;
+#     a building with no row at or before now is never touched.
+#   - A Rewind-to-Launch lands in the rewind save's own world (#2181), written at the
+#     recording's start, before the crash: the pad flag comes back intact from the save, and
+#     the crash row is committed future, so nothing touches it.
+#   - At the Space Center the clock cursor (CareerLedgerClockCursor) recalculates when the
+#     clock reaches the crash row; the patch then demolishes the intact flag once
+#     (`PatchDestructionState: demolished '<id>' (ledger: destroyed at or before UT ...)`),
+#     inside SuppressionGuard.ResourcesAndReplay, so the patch's own collapse is no second row.
+#   Predicted: PASS, no defect. The pure decisions are pinned by KscBuildingLivePatchTests
+#   (RevertThenMerge_FutureDestruction_DoesNotDemolishTheRestoredBuilding,
+#   PastTheRecordedDestruction_TheIntactBuildingIsDemolished); this lane is their first live
+#   reading on a flight-caused row.
+#
+# THE CRASH. No seam steers a craft into a building, and the level-0 pad's only live
+# DestructibleBuilding is its flag (KB-1's first reading). The lane collapses that flag IN
+# FLIGHT while flight A records, with `KscAction demolish-building` (allowed in FLIGHT since
+# this lane: TestCommandDispatcher.IsKscActionAllowedInFlight). Stock's crash path is
+# DestructibleBuilding.AddDamage -> Demolish(), which fires the same OnKSCStructureCollapsing,
+# so what Parsek captures and replays is identical; only the physical impact is not exercised.
+#
+# THE ROUTE (career-pad-craft, QL-14 / L8's flight A and rewind verbs):
+#   flight A   warp the pad to 60, record the Flea, warp to 120, collapse the pad flag,
+#              warp to 200, stop, CommitTree, Recover.
+#   KSC        the flag reads down (demolish refused building-already-down).
+#   rewind     Rewind-to-Launch A: clock ~45, the crash row committed future.
+#   probe 1    the pad stands (repair refused facility-intact).
+#   probe 2    warp to 100, still before the crash: the pad stands.
+#   crossing   warp to 160 at the Space Center: the cursor reaches the crash row, the patch
+#              demolishes the flag once.
+#   probe 3    the flag reads down again (demolish refused building-already-down).
+#
+# PRE-REGISTERED READINGS:
+#   - `kscaction refused action=demolish-building reason=unknown-building` IN FLIGHT: the KSC
+#     buildings are not live in the flight scene at the pad (a premise miss, not a defect).
+#   - `Game state: BuildingDestroyed ... tag=''` on the flight collapse: the recorder did not
+#     tag it (no live recorder seen); the row is then an untagged KSC row, not the flight's.
+#   - `PatchDestructionState: demolished` before the crash UT after the rewind: a product
+#     defect (the pad fell early); file it.
+#   - no demolish after the crossing and probe 3 refused `facility-...`: the cursor did not
+#     reach the row or the patch was deferred; read `PatchDestructionState: skipped (`.
+#
+# STATUS: AUTHORED 2026-11-20 (branch `test-gaps-b3-career-jumps`), never flown.
+#
+# FAST-LANE CHECKLIST: (1) reuse: QL-14 / L8's flight A, KB-1's building verbs; (2) explicit-UT
+# warps only; (3)-(5) no dwell, burn or coast; (6) retry `once`; (7) recordings exactly 1;
+# (8) nightly candidate, ~8 min expected, operator until measured; (9) flight_efficiency.py
+# after the first green flight.
+tier = "operator"
+description = "PADX-1: on career-pad-craft a recorded pad flight collapses the launch pad (its level-0 flag) at UT ~120, commits and is recovered; after a Rewind-to-Launch the pad stands, still stands at UT 100, and falls again once when a Space Center warp crosses the recorded crash."
+instanceProfile = "stock-minimal"
+tags = ["PADX-1", "career", "ledger", "facilities", "rewind", "rewind-to-launch",
+        "timeline-ops", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 300 LoadGame + 5 x 120 warps + 180 StartRecording + 120 CommitTree
+# + 120 Recover + 5 x 60 KscAction + 300 rewind + 120 SaveGame = 2040; runtime 2600 adds the
+# inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+
+  # ---- flight A: recorded on the pad, the pad flag collapses at ~120 ----
+  { cmd = "WarpToUT",       args = { ut = "60" },                                          expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "120" },                                         expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "demolish-building", building = "LaunchPad/Facility/Flag" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "padx1-crashed" },                            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "200" },                                         expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "Recover",        args = { pid = "2905720181" },                                 expect = "OK", budget = 120 },
+
+  # ---- the Space Center before the rewind: the flag is down ----
+  { cmd = "KscAction",      args = { action = "demolish-building", building = "LaunchPad/Facility/Flag" }, expect = "REJECTED", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "padx1-before-rewind" },                      expect = "OK" },
+
+  # ---- the rewind: the pad stands, the crash row committed future ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "padx1-rewound" },                            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "KscAction",      args = { action = "repair-facility", facility = "SpaceCenter/LaunchPad" }, expect = "REJECTED", budget = 60 },
+  { cmd = "WarpToUT",       args = { ut = "100", maxRate = "10" },                         expect = "OK", budget = 120 },
+  { cmd = "KscAction",      args = { action = "repair-facility", facility = "SpaceCenter/LaunchPad" }, expect = "REJECTED", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "padx1-before-crash" },                       expect = "OK" },
+
+  # ---- the crossing: the pad falls again, once ----
+  { cmd = "WarpToUT",       args = { ut = "160", maxRate = "10" },                         expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "padx1-crossed" },                            expect = "OK" },
+  { cmd = "KscAction",      args = { action = "demolish-building", building = "LaunchPad/Facility/Flag" }, expect = "REJECTED", budget = 60 },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["facilities", "recalc-engine", "ksp-state-patcher"]
+D9  = ["rewind-to-launch"]
+D14 = ["career", "scene-ksc", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Flight A only (QL-14 / L8 measured 1 for this pad flight).
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+# Source of each literal (Source/Parsek/...):
+#   kscaction action=... applied=true      TestCommands/TestCommandKscAction.cs LogApplied
+#   kscaction refused action=              TestCommands/TestCommandKscAction.cs Refuse
+#   Game state: BuildingDestroyed          GameActions/GameStateFacilityRecorder.cs RecordBuildingTransition
+#   Clock-crossing reached                 GameActions/LedgerOrchestrator.Recalculate.cs ComputeClockCrossing
+#   PatchDestructionState: demolished      GameActions/FacilityStatePatcher.cs PatchDestructionState
+#   [Rewind] Rewind-to-Launch initiated    Rewind/RewindLauncher.cs
+required = [
+  # ---- the flight's collapse, tagged to the live recording ----
+  "kscaction action=demolish-building target=SpaceCenter/LaunchPad/Facility/Flag applied=true manifestKind=facility-destruction[\\s\\S]*?MISSIONMARK label=padx1-crashed ut=1[1-3][0-9]\\.",
+  "Game state: BuildingDestroyed 'SpaceCenter/LaunchPad/Facility/Flag' cost=0 tag='[0-9a-f]{8,}' source=event-collapsing[\\s\\S]*?MISSIONMARK label=padx1-crashed ut=",
+  # ---- before the rewind the flag is down ----
+  "MISSIONMARK label=padx1-crashed ut=[\\s\\S]*?kscaction refused action=demolish-building reason=building-already-down target=LaunchPad/Facility/Flag[\\s\\S]*?MISSIONMARK label=padx1-before-rewind ut=",
+  # ---- the rewind ----
+  "MISSIONMARK label=padx1-before-rewind ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=padx1-rewound ut=[0-9]{2}\\.",
+  # ---- the pad stands after the rewind, and still at UT 100 ----
+  "MISSIONMARK label=padx1-rewound ut=(?:(?!MISSIONMARK label=padx1-before-crash )[\\s\\S])*?kscaction refused action=repair-facility reason=facility-intact target=SpaceCenter/LaunchPad(?:(?!MISSIONMARK label=padx1-before-crash )[\\s\\S])*?kscaction refused action=repair-facility reason=facility-intact target=SpaceCenter/LaunchPad[\\s\\S]*?MISSIONMARK label=padx1-before-crash ut=",
+  # ---- the crossing reaches the flight's crash row and the flag falls again ----
+  "MISSIONMARK label=padx1-before-crash ut=[\\s\\S]*?Clock-crossing reached committed-future rows: crossed=[1-9][0-9]* \\[[^\\]]*FacilityDestruction@[\\s\\S]*?MISSIONMARK label=padx1-crossed ut=",
+  "MISSIONMARK label=padx1-before-crash ut=[\\s\\S]*?PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag' \\(ledger: destroyed at or before UT 1[1-6][0-9]\\.[0-9]\\)[\\s\\S]*?MISSIONMARK label=padx1-crossed ut=",
+  "MISSIONMARK label=padx1-crossed ut=[\\s\\S]*?kscaction refused action=demolish-building reason=building-already-down target=LaunchPad/Facility/Flag",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  # The pad never falls before the recorded crash UT (~120; the bound is 110 so a warp
+  # landing a beat short of 120 cannot red it), and never more than once after the rewind.
+  "PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag' \\(ledger: destroyed at or before UT (?:[0-9]{1,2}|10[0-9])\\.",
+  "MISSIONMARK label=padx1-rewound ut=[\\s\\S]*PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag'[\\s\\S]*PatchDestructionState: demolished 'SpaceCenter/LaunchPad/Facility/Flag'",
+  # Parsek never needs to repair the pad: the rewind save's world brings it back.
+  "PatchDestructionState: repaired 'SpaceCenter/LaunchPad/Facility/Flag'",
+  # The patch's own collapse is suppressed: exactly one recorded collapse in the run.
+  "Game state: BuildingDestroyed 'SpaceCenter/LaunchPad/Facility/Flag'[\\s\\S]*Game state: BuildingDestroyed 'SpaceCenter/LaunchPad/Facility/Flag'",
+  # The probes never refuse for any other reason.
+  "kscaction refused action=(?:demolish-building|repair-facility) reason=(?!building-already-down |facility-intact )",
+]
+
+[runtime]
+budgetSeconds = 2600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

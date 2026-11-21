@@ -298,6 +298,14 @@ default = "save"
 reason = "LoadFrom replaces the event list from the save"
 [type.fields]
 StateVersion = "process: change counter"
+rowsByRoute = "save: the per-route index derived from the event list; every mutator extends or rebuilds it, LoadFrom rebuilds it"
+rowsByRouteCycle = "save: the per-route, per-cycle half of the same index, kept and rebuilt with it"
+
+[[type]]
+name = "Parsek.Logistics.RouteOrchestrator"
+reason = "the route tick's caches"
+[type.fields]
+loopRouteLogKeys = "process: the per-tick log keys composed from a route id, which never change meaning for that id"
 
 [[type]]
 name = "Parsek.GroupHierarchyStore"

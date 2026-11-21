@@ -350,7 +350,7 @@ namespace Parsek.TestCommands
 
         /// <summary>Requires a scene that holds the live <c>FlightGlobals.Vessels</c> list:
         /// FLIGHT, the Space Center or the Tracking Station; else
-        /// Defer(not-in-vessel-list-scene). ReadVesselResources only.</summary>
+        /// Defer(not-in-vessel-list-scene). ReadVesselResources and AlarmJump.</summary>
         RequiresVesselListScene,
 
         /// <summary>Requires a scene whose Parsek window offers the Recordings table's "R"
@@ -388,6 +388,20 @@ namespace Parsek.TestCommands
         /// hidden copy of that screen, and the next dispatch finds the singleton live.
         /// </summary>
         internal const string AdministrationNotReadyDeferReason = "administration-not-ready";
+
+        /// <summary>
+        /// Pure: whether a Space-Center-only <c>KscAction</c> sub-action may also run in
+        /// <paramref name="scene"/>. Only <c>demolish-building</c> in FLIGHT: the KSC
+        /// <c>DestructibleBuilding</c>s are live there, and <c>Demolish()</c> fires the same
+        /// <c>OnKSCStructureCollapsing</c> a crash into the building fires
+        /// (<c>DestructibleBuilding.AddDamage</c>), so a collapse during a live recording is
+        /// tagged to it exactly as a flight-caused destruction is. The repair stays at the
+        /// Space Center: its debit lives on a SPACECENTER <c>SpaceCenterBuilding</c>.
+        /// </summary>
+        internal static bool IsKscActionAllowedInFlight(string action, TestCommandScene scene)
+        {
+            return scene == TestCommandScene.Flight && action == "demolish-building";
+        }
 
         /// <summary>
         /// The wrong-scene token for a FLIGHT verb: the DEFER reason for most of them and
@@ -554,15 +568,15 @@ namespace Parsek.TestCommands
                 // (StartRecording / InvokeRewind / TimeJump / the EVA family). The verb's
                 // REAL refusals - the wedge guard - are executor-side and typed REJECTED.
                 ["ExitToSpaceCenter"] = VerbSceneRequirement.RequiresFlight,
-                // R12. SimulateStockSwitchClick reproduces the map-view "Switch To" click,
-                // which only exists in FLIGHT (the map view is a FLIGHT overlay), so FLIGHT is
-                // a hard precondition. RequiresFlight for the same reason ExitToSpaceCenter
-                // uses it: the wrong-scene case is overwhelmingly a scene still settling from
-                // the previous step, and the budget still bounds a spec that never gets there.
-                // When site=ts / site=ksc land they will need their OWN scenes, which is a
-                // sub-gate question for that change, not a reason to widen this entry now -
-                // both are typed REJECTED (site-not-implemented) today.
-                ["SimulateStockSwitchClick"] = VerbSceneRequirement.RequiresFlight,
+                // R12. SimulateStockSwitchClick's scene depends on its site=: the map-view
+                // "Switch To" click exists only in FLIGHT (the map is a FLIGHT overlay), the
+                // Tracking Station Fly only in TRACKSTATION, the KSC marker Fly only at the
+                // Space Center. AnyScene here, and the per-site sub-gate in DecideDispatch
+                // (TestCommandSimulateSwitchClick.DecideDispatchScene) DEFERS the wrong scene
+                // with the site's own token (not-in-flight / not-in-trackstation /
+                // not-at-space-center): the wrong-scene case is overwhelmingly a scene still
+                // settling from the previous step, and the budget bounds the rest.
+                ["SimulateStockSwitchClick"] = VerbSceneRequirement.AnyScene,
                 // MissionConfig mutates a committed tree's mission loop state; the
                 // dwell lane arms it in FLIGHT before entering map view.
                 ["MissionConfig"] = VerbSceneRequirement.RequiresFlight,
@@ -741,10 +755,12 @@ namespace Parsek.TestCommands
                 // is its own typed REJECTED (newgame-wrong-scene). The dispatch row only waits
                 // out a scene still loading its game.
                 ["NewGame"] = VerbSceneRequirement.RequiresGameLoaded,
-                // AlarmJump. RequiresFlight: v1 drives the FLIGHT branch of stock's OnJump
-                // (SetActiveVessel); the Tracking Station / Space Center branch saves and loads
-                // a new scene, which a single-phase answer cannot follow. Default budget.
-                ["AlarmJump"] = VerbSceneRequirement.RequiresFlight,
+                // AlarmJump. The alarm dialog and its Jump exist in FLIGHT, the Space Center and
+                // the Tracking Station (GC-13). In FLIGHT stock switches with SetActiveVessel; in
+                // the other two it saves persistent and requests a FLIGHT load, which the
+                // single-phase answer reports as sceneLoadRequested=true (the next step waits
+                // for FLIGHT on its own scene gate). Default budget.
+                ["AlarmJump"] = VerbSceneRequirement.RequiresVesselListScene,
                 // LaunchSiteProbe: the GoToEditor / LaunchFromEditor row. Valid in the editor
                 // and at the Space Center, which no requirement kind names, so the executor
                 // refuses every other scene (launchsiteprobe-wrong-scene). Default budget (no
@@ -949,7 +965,12 @@ namespace Parsek.TestCommands
                         || action == "sack-kerbal" || action == "press-strategy"
                         || action == "purchase-part" || action == "purchase-all"
                         || action == "purchase-upgrade";
-                    if (needsSpaceCenter && !state.AtSpaceCenter)
+                    // demolish-building also runs in FLIGHT, where the KSC buildings are live
+                    // too: a collapse there fires the same OnKSCStructureCollapsing a crash
+                    // into the building does (DestructibleBuilding.AddDamage -> Demolish), so
+                    // a lane can make a recorded flight destroy a building (PADX-1 / PADX-2).
+                    if (needsSpaceCenter && !state.AtSpaceCenter
+                        && !IsKscActionAllowedInFlight(action, state.Scene))
                         return DispatchResult.Defer("not-at-space-center");
                     // The Administration building's screen owns the slot count stock checks.
                     if (action == "activate-strategy" && !state.StrategyAdministrationReady)
@@ -990,6 +1011,12 @@ namespace Parsek.TestCommands
                     break;
 
                 case "SimulateStockSwitchClick":
+                {
+                    // The per-site scene sub-gate first, where step 3's scene gate would sit.
+                    string sceneDefer = TestCommandSimulateSwitchClick.DecideDispatchScene(
+                        Arg(parsed, "site"), state.Scene);
+                    if (sceneDefer != null)
+                        return DispatchResult.Defer(sceneDefer);
                     // Same pair as ExitToSpaceCenter, for the same two reasons: a vessel
                     // switch mid-load would race the boot channel's own scene change, and a
                     // re-fly merge journal mid-finalize must not be raced by a driven switch
@@ -1002,6 +1029,7 @@ namespace Parsek.TestCommands
                     if (state.MergeJournalInFlight)
                         return DispatchResult.Reject("merge-journal-in-flight");
                     break;
+                }
 
                 case "RealSpawn":
                 case "Recover":
@@ -1343,6 +1371,13 @@ namespace Parsek.TestCommands
         /// scene loads and a save written then parsed: the LoadGame size (300 s).</summary>
         internal const double NewGameSeconds = 300.0;
 
+        /// <summary>SimulateStockSwitchClick: one budget per verb, so it is sized for the
+        /// cross-scene sites. <c>site=ts</c> / <c>site=ksc</c> press a stock Fly that saves
+        /// persistent and loads FLIGHT from it (a cold save parse plus the flight bootstrap:
+        /// the LoadGame size, 300 s), then wait for Parsek's consume. The map site is
+        /// single-phase, so for it the budget only bounds the not-in-flight DEFER.</summary>
+        internal const double SimulateStockSwitchClickSeconds = 300.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -1400,11 +1435,10 @@ namespace Parsek.TestCommands
                     return RevertToLaunchSeconds;
                 case "NewGame":
                     return NewGameSeconds;
+                case "SimulateStockSwitchClick":
+                    return SimulateStockSwitchClickSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
-                // action itself is immediate). SimulateStockSwitchClick rides it too: it is
-                // SINGLE-phase (the switch and its consume are synchronous inside
-                // SetActiveVessel), so the budget only bounds the not-in-flight DEFER - a
-                // scene settle, exactly what the default is sized for. EnterWatchMode rides
+                // action itself is immediate). EnterWatchMode rides
                 // it as well, deliberately: it IS two-phase, but its completion is a
                 // camera-session read-back that lands within a frame or two of the call, so
                 // the 60 s default bounds the not-in-flight defer AND a silently-refused

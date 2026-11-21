@@ -229,6 +229,8 @@ namespace Parsek
         private HashSet<ulong> activeRoboticKeys;
         private Dictionary<ulong, float> lastRoboticPosition;
         private Dictionary<ulong, double> lastRoboticSampleUT;
+        private Dictionary<ulong, RoboticMotionWindow> roboticMotionWindows =
+            new Dictionary<ulong, RoboticMotionWindow>();
         private HashSet<ulong> loggedRoboticModuleKeys;
         /// <summary>One-shot log guard for the cached-module ownership guard (M5): a cached engine /
         /// RCS / robotic entry whose part has left the recorded vessel is reported once per key,

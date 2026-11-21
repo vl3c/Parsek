@@ -25,6 +25,10 @@ Not released yet.
 
 ### Changed
 
+- **High time warp stays smooth with many supply routes in a long career.** A route's run used to
+  read through every route event the career had logged, several times, so warp slowed as the
+  career grew. It now reads only its own route's rows, and a tick where no route runs makes no
+  garbage per route. (ROUTE-TICK-EVENT-LOG-SCANS)
 - **New flights split the way a mission reads.** A reentry gets its own row from the first touch
   of the air, skips included; aerobraking or an aerocapture is one row from the first pass; a
   touch-and-go and an SOI change in space add no rows. New rows are named by their part of the
@@ -58,6 +62,30 @@ Not released yet.
 
 ### Fixed
 
+- **Reverting a flight no longer leaves its rewind save behind.** After a Revert to Launch, the
+  hidden save Parsek made when the flight staged stayed in the save folder. It is now deleted with
+  the revert, unless a quicksave you made during that flight still needs it.
+  (REVERT-LEAVES-REWIND-POINT-FILE)
+- **Hinges and rotation servos are recorded moving again.** A Breaking Ground hinge or rotation
+  servo was only seen moving while its part menu was open, so most replays showed it frozen at
+  its start angle. Its motion is now recorded however you move it, and the parts riding it
+  follow it on the replay. (RECORDER-SERVO-ANGLE-PAW-ONLY)
+- **Rotors keep spinning on the replay.** A Breaking Ground rotor was only seen spinning while its
+  part menu was open, and even then its replay stopped turning as soon as it reached a steady
+  speed. Its spin is now recorded however you run it, and the replayed rotor keeps turning until
+  the real one slows to a stop, then stops with it. (RECORDER-ROTOR-RPM-PAW-ONLY)
+- **Slow servo moves no longer bloat the recording.** A Breaking Ground servo moving slowly or
+  easing into its target was recorded as starting and stopping many times a second, and a hovering
+  rotor's small speed wobble was recorded four times a second. Each move is now recorded as one
+  start, a few positions and one stop. (RECORDER-ROBOTIC-MOTION-DEBOUNCE)
+- **The Alligator hinges and the G-32W Hinge replay at the right angle.** Their replay was bent 90
+  degrees away from the real hinge, at rest and through every swing. They now replay at the angle
+  the real hinge showed; the other hinges and servos replay as before.
+  (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
+- **Mirrored hinges and rotation servos start their replay at the right angle.** The mirrored
+  half of a symmetry pair, or a rotation servo set to Inverted, began its replay turned the
+  opposite way to the real part until it first moved. It now starts where the real part stood.
+  (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
 - **A ghost engine with nothing below it no longer shows a shroud.** The real engine at the bottom
   of a stack, or a lone engine, has no shroud, but its replay drew one, stock and ReStock alike.
   An engine with a tank or decoupler under it keeps its shroud as before.
@@ -87,6 +115,10 @@ Not released yet.
   again (at your next Space Center or Tracking Station visit if you are flying then), and tourism
   passengers become tourists again, unless your recorded future already ends that contract.
   (CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS)
+- **A stranded rescue vessel still appears after a rewind or a discarded Re-fly.** When the moment
+  you went back to was already waiting to bring back a rescue's stranded kerbal or part, it now
+  appears at your next Space Center visit instead of never, so the contract can still be finished.
+  (RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD)
 - **One missing recording file no longer stops a mission from saving.** When one recording of a
   mission had lost its file, every later save kept that mission exactly as it was before:
   new flights in it, renames and other changes were silently not saved. The mission now saves
@@ -96,6 +128,11 @@ Not released yet.
   servo itself, so a panel, arm or wheel mounted on a hinge stayed frozen while the hinge swung.
   Everything on the moving side of a servo now moves with it, servos on servos included, and
   parts on the fixed side stay put. (GHOST-SERVO-CHILDREN-STATIC)
+- **In flight, committed events now happen at their time.** A launch pad a recorded flight
+  crashed into, a Space Center purchase or a contract outcome from your committed timeline now
+  takes effect when the flight clock reaches it, as at the Space Center, instead of at the next
+  warp exit or commit. A pad crash shows even while you record.
+  (FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS)
 - **The last row of a split flight keeps its ending details.** Its situation text, docking partner
   and supply-route dock windows stayed on the first row, so the timeline showed generic wording.
   (SPLIT-LEAVES-END-FIELDS-ON-HEAD)
@@ -121,6 +158,10 @@ Not released yet.
   a vessel from an earlier flight again, Parsek could re-cut that earlier flight and then throw
   your new flight away as a duplicate when you merged. The earlier flight now stays as it is
   while you fly, and the merge keeps what you flew. (LIVE-FLOWN-TREE-RECUT-DROPS-NEW-LEG)
+- **A probe that survives a crash keeps its ending.** When a crash destroyed the crewed part and a
+  probe-controlled piece flew on, that piece could be saved as destroyed once it was far away, so
+  it did not come back at the end of its replay. It now ends where it really is.
+  (SURVIVOR-DESTROYED-AT-SCENE-EXIT)
 - **A merge that adds nothing no longer says "Merged".** When the flight was already on the
   timeline, the merge still reported success. Clicking Merge now says "Nothing new to merge:
   this flight is already in the timeline", and an automatic merge says nothing.
