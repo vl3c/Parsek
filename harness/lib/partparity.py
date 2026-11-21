@@ -10,7 +10,12 @@ work is owed. ``run.py``'s harvest leg moves that directory into
 ``results/<runId>_partparity/<label>/``; this module judges it in place.
 
 The C# side is a measuring instrument; every verdict is decided here (design D7), so
-the thresholds re-pin with no flight. Five things are judged:
+the thresholds re-pin with no flight. Six things are judged:
+
+  * the HOST (design 4.1): the C# host-integrity guard stopped the sweep because the
+    host vessel lost parts, left its orbit or vanished (``progress.hostDamaged``). The
+    unrun cases are the instrument's fault, never part findings:
+    ``INVALID(parity-host-damaged)``, ahead of every other gate. Gates from the start.
 
   * per view and per case: the PART verdicts (pass / warn / fail / error). These are
     REPORT-ONLY until a lane declares ``[expectations.partParity] gating = true``;
@@ -92,7 +97,13 @@ CASE_SUMMARY_KEYS: Tuple[str, ...] = (
 )
 PROGRESS_KEYS: Tuple[str, ...] = (
     "complete", "cases", "completeCases", "setupFaults", "controls", "crashed",
+    "hostDamaged", "hostDamage", "hostDamageDetail",
 )
+# PartParityHostIntegrity: the host damage reasons the manifest's progress.hostDamage
+# names, and the label files that carry the guard across steps.
+HOST_DAMAGE_REASONS: Tuple[str, ...] = ("gone", "parts", "situation")
+HOST_BASELINE_FILE = "host.txt"
+HOST_DAMAGE_FILE = "hostdamage.txt"
 
 # TestCommandPartParitySweep: setup statuses, IsSetupFault, the control ids and the
 # controls-state tokens.
@@ -166,8 +177,10 @@ STATUS_SKIPPED = "SKIPPED"
 INVALID_CONTROLS_SUBKIND = "parity-controls"
 INVALID_INSTRUMENT_SUBKIND = "parity-instrument"
 INVALID_INCOMPLETE_SUBKIND = "parity-incomplete"
+INVALID_HOST_DAMAGED_SUBKIND = "parity-host-damaged"
 INVALID_SUBKINDS: Tuple[str, ...] = (
     INVALID_CONTROLS_SUBKIND, INVALID_INSTRUMENT_SUBKIND, INVALID_INCOMPLETE_SUBKIND,
+    INVALID_HOST_DAMAGED_SUBKIND,
 )
 PARSEK_FAIL_SUBKIND = "part-parity"
 
@@ -455,6 +468,17 @@ def check_controls(manifest: Dict) -> ControlsCheck:
         problems.append("progress.controls=%s" % state)
     ordered = tuple((cid, outcomes[cid]) for cid in CONTROL_IDS if cid in outcomes)
     return ControlsCheck(not problems, state, ordered, tuple(problems))
+
+
+def host_damage(manifest: Dict) -> Optional[str]:
+    """None while the C# host-integrity guard never tripped, else one problem line naming
+    the reason and detail (``progress.hostDamaged`` true). A damaged host stops the sweep
+    with its remaining cases unrun, so the sweep says nothing about those parts."""
+    progress = manifest.get("progress") if isinstance(manifest.get("progress"), dict) else {}
+    if progress.get("hostDamaged") is not True:
+        return None
+    return "host damaged: reason=%s detail=%s" % (progress.get("hostDamage"),
+                                                  progress.get("hostDamageDetail"))
 
 
 def _sidecar_complete(sidecar: Optional[Dict], case_id: str,
@@ -933,7 +957,15 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
         mismatches.append("nothing to recompute: no control or part case has an atlas")
 
     counts = _count(cases)
-    if not controls.ok:
+    damaged = host_damage(manifest)
+    if damaged:
+        # The root cause outranks its symptoms: the controls, completeness and recompute
+        # problems a stopped sweep also shows are still listed below.
+        status, subkind = STATUS_INVALID, INVALID_HOST_DAMAGED_SUBKIND
+        problems.append(damaged)
+        if not controls.ok:
+            problems.append("controls: " + ", ".join(controls.problems))
+    elif not controls.ok:
         status, subkind = STATUS_INVALID, INVALID_CONTROLS_SUBKIND
         problems.append("controls: " + ", ".join(controls.problems))
     elif mismatches:
@@ -956,8 +988,8 @@ def evaluate_sweep(sweep: SweepInput, run_id: str, gating: bool,
                        completeness, cases, recompute_ids, mismatches, counts)
 
 
-_SUBKIND_ORDER = {INVALID_CONTROLS_SUBKIND: 0, INVALID_INSTRUMENT_SUBKIND: 1,
-                  INVALID_INCOMPLETE_SUBKIND: 2}
+_SUBKIND_ORDER = {INVALID_HOST_DAMAGED_SUBKIND: 0, INVALID_CONTROLS_SUBKIND: 1,
+                  INVALID_INSTRUMENT_SUBKIND: 2, INVALID_INCOMPLETE_SUBKIND: 3}
 
 
 @dataclass(frozen=True)
@@ -974,8 +1006,8 @@ class RowResult:
 
 def combine(sweeps: Sequence[SweepResult], gating: bool) -> RowResult:
     """The row over every label: INVALID when any sweep is (the first subkind in
-    controls > instrument > incomplete order), else FAIL / PASS when armed, else
-    REPORT."""
+    host-damaged > controls > instrument > incomplete order), else FAIL / PASS when
+    armed, else REPORT."""
     invalid = [s for s in sweeps if s.status == STATUS_INVALID]
     if invalid:
         sub = min((s.invalid_subkind for s in invalid),

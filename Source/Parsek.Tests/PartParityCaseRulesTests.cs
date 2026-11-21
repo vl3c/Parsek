@@ -23,6 +23,25 @@ namespace Parsek.Tests
         public void ExclusionReason(string part, bool hasPrefab, string expected)
         {
             Assert.Equal(expected, PartParityCaseRules.ExclusionReason(part, hasPrefab));
+            // The module-aware overload agrees for a part with no ground-only module.
+            Assert.Equal(expected, PartParityCaseRules.ExclusionReason(part, hasPrefab,
+                new List<string> { "ModuleCommand", "ModuleWheelBase" }));
+        }
+
+        [Fact]
+        public void ExclusionReason_ALaunchClampIsGroundOnly()
+        {
+            Assert.Equal("ground-only", PartParityCaseRules.ExcludeGroundOnly);
+            Assert.Equal(PartParityCaseRules.ExcludeGroundOnly, PartParityCaseRules.ExclusionReason(
+                "launchClamp1", true, new List<string> { "LaunchClamp", "ModuleTestSubject" }));
+            // Every ground-only module is also a context-dependent one (the tag that names it).
+            foreach (string m in PartParityCaseRules.GroundOnlyModules)
+                Assert.Contains(m, PartParityCaseRules.ContextDependentModules);
+            // The name rules win; a wheel or a ground experiment is captured (it exists in orbit).
+            Assert.Equal("no-prefab", PartParityCaseRules.ExclusionReason("launchClamp1", false, new List<string> { "LaunchClamp" }));
+            Assert.Null(PartParityCaseRules.ExclusionReason("roverWheel1", true, new List<string> { "ModuleWheelBase" }));
+            Assert.Null(PartParityCaseRules.ExclusionReason("DeployedSeismicSensor", true, new List<string> { "ModuleGroundExperiment" }));
+            Assert.Null(PartParityCaseRules.ExclusionReason("fuelTank", true, null));
         }
 
         [Fact]

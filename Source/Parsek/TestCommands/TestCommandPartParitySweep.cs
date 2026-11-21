@@ -826,14 +826,20 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// OK payload (design 7): <c>label done next cases complete crashed setupFaults
-        /// controls wall</c>, in that order. <c>next</c> is the position in the step's
-        /// selection the next step resumes at (= <c>cases</c> when done); <c>wall</c> is the
-        /// step's wall time in seconds, one decimal.
+        /// controls wall hostDamaged hostDamage</c>, in that order. <c>next</c> is the
+        /// position in the step's selection the next step resumes at (= <c>cases</c> when
+        /// done); <c>wall</c> is the step's wall time in seconds, one decimal;
+        /// <c>hostDamaged</c> is <c>true</c> once the host-integrity guard stopped the sweep
+        /// (<see cref="PartParityHostIntegrity"/>), and <c>hostDamage</c> names why
+        /// (<c>gone|parts|situation</c>, else <c>none</c>). The two host keys come last so a
+        /// pin written for the first nine keys still matches.
         /// </summary>
         internal static List<KeyValuePair<string, string>> BuildPayload(
             string label, bool done, int next, int cases, int complete, int crashed,
-            int setupFaults, string controls, double wallSeconds)
+            int setupFaults, string controls, double wallSeconds, string hostDamage = null)
         {
+            bool damaged = !string.IsNullOrEmpty(hostDamage)
+                           && !string.Equals(hostDamage, PartParityHostIntegrity.DamageNone, StringComparison.Ordinal);
             return new List<KeyValuePair<string, string>>
             {
                 new KeyValuePair<string, string>("label", label ?? string.Empty),
@@ -847,6 +853,8 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("wall",
                     (double.IsNaN(wallSeconds) || double.IsInfinity(wallSeconds) ? 0.0 : wallSeconds)
                         .ToString("0.0", Ic)),
+                new KeyValuePair<string, string>("hostDamaged", damaged ? "true" : "false"),
+                new KeyValuePair<string, string>("hostDamage", damaged ? hostDamage : PartParityHostIntegrity.DamageNone),
             };
         }
 

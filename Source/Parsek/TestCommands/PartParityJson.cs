@@ -136,6 +136,14 @@ namespace Parsek.TestCommands
         internal int SetupFaults;
         internal string Controls;
         internal List<string> Crashed = new List<string>();
+
+        /// <summary>The host-integrity guard stopped the sweep (design 4.1): the remaining
+        /// cases were left unrun, so the sweep is an instrument problem, never part findings.</summary>
+        internal bool HostDamaged;
+
+        /// <summary><c>gone|parts|situation</c> when <see cref="HostDamaged"/>, else null.</summary>
+        internal string HostDamage;
+        internal string HostDamageDetail;
     }
 
     /// <summary>The sweep manifest, <c>manifest.json</c>.</summary>
@@ -246,6 +254,7 @@ namespace Parsek.TestCommands
         internal static readonly string[] ProgressKeys =
         {
             "complete", "cases", "completeCases", "setupFaults", "controls", "crashed",
+            "hostDamaged", "hostDamage", "hostDamageDetail",
         };
 
         /// <summary>The <c>colorMetric</c> token: Euclidean RGB distance after premultiply.</summary>
@@ -572,7 +581,9 @@ namespace Parsek.TestCommands
                 progress = Obj(
                     M("complete", Bool(p.Complete)), M("cases", Int(p.Cases)),
                     M("completeCases", Int(p.CompleteCases)), M("setupFaults", Int(p.SetupFaults)),
-                    M("controls", Str(p.Controls)), M("crashed", StrArray(p.Crashed)));
+                    M("controls", Str(p.Controls)), M("crashed", StrArray(p.Crashed)),
+                    M("hostDamaged", Bool(p.HostDamaged)), M("hostDamage", Str(p.HostDamage)),
+                    M("hostDamageDetail", Str(p.HostDamageDetail)));
             }
 
             var members = new List<KeyValuePair<string, string>>

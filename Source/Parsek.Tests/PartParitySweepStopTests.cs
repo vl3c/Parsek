@@ -220,7 +220,7 @@ namespace Parsek.Tests
             string body = MethodText(RunnerSource(), "private static IEnumerator RunWave(");
             int all = body.IndexOf("WriteInflight(ctx, wave.ConvertAll(c => c.CaseId), solo);", StringComparison.Ordinal);
             int spawn = body.IndexOf("\"spawn\"", StringComparison.Ordinal);
-            int settle = body.IndexOf("WaitSettled(wave)", StringComparison.Ordinal);
+            int settle = body.IndexOf("WaitSettled(ctx, wave)", StringComparison.Ordinal);
             int one = body.IndexOf("WriteInflight(ctx, new List<string> { wc.CaseId }, solo);", StringComparison.Ordinal);
             int capture = body.IndexOf("RunCaseCapture(ctx, wc)", StringComparison.Ordinal);
             Assert.True(all >= 0 && spawn > all && settle > spawn && one > settle && capture > one,

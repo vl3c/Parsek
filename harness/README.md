@@ -55,8 +55,10 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   right after the drive, inside the lock (own retention pass; only the
   manifest and the sidecars reach the results archive), and the row judges it
   there: a bad control, a Python recompute of the shape measures that
-  disagrees with the C# sidecar, or an unfinished sweep is a terminal
-  `INVALID(parity-controls | parity-instrument | parity-incomplete)` from the
+  disagrees with the C# sidecar, an unfinished sweep, or a sweep the C#
+  host-integrity guard stopped (the host broke, deorbited or vanished) is a
+  terminal `INVALID(parity-controls | parity-instrument | parity-incomplete |
+  parity-host-damaged)` from the
   start; the per-part verdicts are REPORT-ONLY unless armed via
   `[expectations.partParity] gating = true` (`PARTPARITY_ARMED_SPECS` - empty
   as shipped), then `PARSEK-FAIL(part-parity)`,

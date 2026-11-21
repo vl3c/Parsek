@@ -517,6 +517,46 @@ class EvaluateSweepTests(unittest.TestCase):
         self.assertEqual(pp.STATUS_INVALID, res.status)
         self.assertEqual(pp.INVALID_CONTROLS_SUBKIND, res.invalid_subkind)
 
+    def _damage_host(self, reason="parts", detail="pid=7 parts 13->9 at before wave 3"):
+        path = os.path.join(self.tmp, pp.MANIFEST_FILE)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        doc["progress"].update({"complete": False, "hostDamaged": True,
+                                "hostDamage": reason, "hostDamageDetail": detail})
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+
+    def test_a_damaged_host_is_invalid_host_damaged_ahead_of_everything(self):
+        # A stopped sweep also shows a pending control and an incomplete sweep: the
+        # host damage is their cause, so it names the row; the symptoms stay listed.
+        fx.build_sweep(self.tmp, control_outcome="pending", complete=False)
+        self._damage_host()
+        res = pp.evaluate_sweep(_read_dir(self.tmp), RUN_ID, False, gui_mirror.read_png,
+                                lambda n: os.path.join(self.tmp, n))
+        self.assertEqual((pp.STATUS_INVALID, pp.INVALID_HOST_DAMAGED_SUBKIND),
+                         (res.status, res.invalid_subkind))
+        self.assertEqual("host damaged: reason=parts detail=pid=7 parts 13->9 at before wave 3",
+                         res.problems[0])
+        self.assertTrue(any(p.startswith("controls: ") for p in res.problems))
+        self.assertTrue(any(p.startswith("completeness: ") for p in res.problems))
+        # Armed or not: a damaged host never reads as part findings.
+        res = pp.evaluate_sweep(_read_dir(self.tmp), RUN_ID, True, gui_mirror.read_png,
+                                lambda n: os.path.join(self.tmp, n))
+        self.assertEqual(pp.INVALID_HOST_DAMAGED_SUBKIND, res.invalid_subkind)
+        self.assertEqual(pp.INVALID_HOST_DAMAGED_SUBKIND,
+                         pp.verdicts_document(res, RUN_ID)["invalidSubkind"])
+
+    def test_host_damage_reads_only_a_true_flag(self):
+        self.assertIsNone(pp.host_damage({}))
+        self.assertIsNone(pp.host_damage({"progress": None}))
+        self.assertIsNone(pp.host_damage({"progress": {"hostDamaged": False, "hostDamage": "parts"}}))
+        self.assertIsNone(pp.host_damage({"progress": {"hostDamaged": "true"}}))
+        self.assertEqual("host damaged: reason=gone detail=None",
+                         pp.host_damage({"progress": {"hostDamaged": True, "hostDamage": "gone"}}))
+        # A clean sweep (the fixture writes no host keys, like a pre-guard manifest) reports.
+        res, _ = self._eval(parts=2)
+        self.assertEqual(pp.STATUS_REPORT, res.status)
+
     def test_an_incomplete_sweep_is_invalid_incomplete(self):
         res, _ = self._eval(complete=False)
         self.assertEqual(pp.INVALID_INCOMPLETE_SUBKIND, res.invalid_subkind)
@@ -598,6 +638,9 @@ class EvaluateSweepTests(unittest.TestCase):
         row = pp.combine([mk(pp.STATUS_INVALID, pp.INVALID_INCOMPLETE_SUBKIND),
                           mk(pp.STATUS_INVALID, pp.INVALID_CONTROLS_SUBKIND)], False)
         self.assertEqual(pp.INVALID_CONTROLS_SUBKIND, row.invalid_subkind)
+        row = pp.combine([mk(pp.STATUS_INVALID, pp.INVALID_CONTROLS_SUBKIND),
+                          mk(pp.STATUS_INVALID, pp.INVALID_HOST_DAMAGED_SUBKIND)], False)
+        self.assertEqual(pp.INVALID_HOST_DAMAGED_SUBKIND, row.invalid_subkind)
         row = pp.combine([mk(pp.STATUS_REPORT, None)], False)
         self.assertEqual(pp.STATUS_REPORT, row.status)
         row = pp.combine([mk(pp.STATUS_PASS, None), mk(pp.STATUS_FAIL, None)], True)
@@ -829,6 +872,19 @@ class PartParitySourceSyncTests(unittest.TestCase):
         body = body[:body.index(";") + 1]
         self.assertIn("SetupOk", body)
         self.assertIn("SetupStillAnimating", body)
+
+    def test_the_host_integrity_contract(self):
+        text = self._source("PartParityHostIntegrity.cs")
+        self.assertEqual(pp.HOST_BASELINE_FILE, self._const(text, "BaselineFileName"))
+        self.assertEqual(pp.HOST_DAMAGE_FILE, self._const(text, "DamageFileName"))
+        reasons = {n: self._const(text, n) for n in ("DamageGone", "DamageParts", "DamageSituation")}
+        m = re.search(r"DamageReasons\s*=\s*\{(.*?)\};", text, flags=re.S)
+        self.assertEqual(list(pp.HOST_DAMAGE_REASONS),
+                         [reasons[n] for n in re.findall(r"\b(Damage\w+)\b", m.group(1))])
+        # The payload's two host keys, last and in this order.
+        sweep = self._source("TestCommandPartParitySweep.cs")
+        keys = re.findall(r'new KeyValuePair<string, string>\("(\w+)"', sweep)
+        self.assertEqual(["hostDamaged", "hostDamage"], keys[-2:])
 
     def test_the_measuring_definitions(self):
         text = self._source("PartParityMetrics.cs")

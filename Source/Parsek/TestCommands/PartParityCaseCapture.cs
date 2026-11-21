@@ -563,11 +563,15 @@ namespace Parsek.TestCommands
                 Complete = done, Cases = ctx.Planned.Count, CompleteCases = complete, SetupFaults = faults,
                 Controls = TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, OutcomesOf(controls)),
                 Crashed = crashed,
+                HostDamaged = ctx.HostDamage != null,
+                HostDamage = ctx.HostDamage?.Reason,
+                HostDamageDetail = ctx.HostDamage?.Detail,
             };
             string path = Path.Combine(ctx.LabelDir, TestCommandPartParitySweep.ManifestFileName);
             FileIOUtils.SafeWriteBytes(Encoding.UTF8.GetBytes(PartParityJson.WriteManifest(mf)), path, PartParitySweepRunner.Tag);
             ParsekLog.Info(PartParitySweepRunner.Tag, $"manifest: {path} cases={mf.Cases.Count.ToString(Ic)} complete={complete.ToString(Ic)} " +
-                $"controls={mf.Progress.Controls} exclusions={mf.Exclusions.Count.ToString(Ic)} mods={mf.GameDataMods.Count.ToString(Ic)}");
+                $"controls={mf.Progress.Controls} exclusions={mf.Exclusions.Count.ToString(Ic)} mods={mf.GameDataMods.Count.ToString(Ic)} " +
+                $"hostDamage={mf.Progress.HostDamage ?? PartParityHostIntegrity.DamageNone}");
         }
 
         private static List<string> OutcomesOf(List<PartParityControlRecord> controls)

@@ -942,7 +942,7 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     orbiting active vessel, TWO-PHASE, 540 s: one time-boxed step of the sweep (real
     #     one-part vessels spawned co-orbital, each beside its ghost, photographed and
     #     removed; files under <KSP root>/parsek-partparity/<label>/). OK `label= done= next=
-    #     cases= complete= crashed= setupFaults= controls= wall=`.
+    #     cases= complete= crashed= setupFaults= controls= wall= hostDamaged= hostDamage=`.
     "PartParitySweep",
 )
 
@@ -5255,8 +5255,11 @@ PARTPARITY_STEP_LINE_LITERAL = "PartParity step"
 #   parity-instrument  the Python recompute of the shape measures disagrees with C#
 #   parity-incomplete  the sweep did not reach done, or a planned case has neither a
 #                      complete sidecar nor a recorded setup fault
+#   parity-host-damaged  the C# host-integrity guard stopped the sweep: the host vessel
+#                      lost parts, left its orbit or vanished, so the unrun cases are the
+#                      instrument's fault (partparity ranks it ahead of the other three)
 PARTPARITY_INVALID_SUBKINDS: Tuple[str, ...] = (
-    "parity-controls", "parity-instrument", "parity-incomplete",
+    "parity-controls", "parity-instrument", "parity-incomplete", "parity-host-damaged",
 )
 PARTPARITY_PARSEK_FAIL_SUBKIND = "part-parity"
 
@@ -13823,8 +13826,8 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                          "analyzer red topRule=%s" % (analyzer.top_rule,))
         if base is None and verifiers.get("part_parity_invalid", False):
             # The part ghost parity instrument did not prove itself (a control not
-            # `ok`, a Python recompute that disagrees with the C# measures, or a sweep
-            # that did not finish). Nothing the row measured is evidence about the
+            # `ok`, a Python recompute that disagrees with the C# measures, a sweep
+            # that did not finish, or a host the integrity guard found damaged). Nothing the row measured is evidence about the
             # ghost, and the lane's step-line pins would read the same fault as a
             # log-contract red, so this INVALID is placed ahead of every contract
             # verifier. Terminal: a retry re-runs `op=reset` and discards the sweep.

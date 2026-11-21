@@ -376,7 +376,7 @@ namespace Parsek.Tests
                 Payload = TestCommandPartParitySweep.BuildPayload("pp1", false, 3, 10, 3, 0, 1, "ok", 12.34),
             };
             Assert.Equal("PartParity step label=pp1 op=run ok=true label=pp1 done=false next=3 cases=10 complete=3 " +
-                "crashed=0 setupFaults=1 controls=ok wall=12.3", PartParitySweepRunner.StepSummaryLine(run, ok));
+                "crashed=0 setupFaults=1 controls=ok wall=12.3 hostDamaged=false hostDamage=none", PartParitySweepRunner.StepSummaryLine(run, ok));
 
             var reset = new PartParitySweepArgs { Label = "pp1", Op = PartParitySweepOp.Reset };
             var refused = new PartParitySweepStepResult { Ok = false, Reason = "host-not-orbiting", Detail = "situation=LANDED" };

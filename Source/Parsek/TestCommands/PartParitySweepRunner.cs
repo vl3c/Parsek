@@ -157,16 +157,139 @@ namespace Parsek.TestCommands
                 yield break;
             }
 
+            // A label whose host was damaged by an earlier step stops at once, before the
+            // host admission (a broken host would only be refused host-not-orbiting, and
+            // every case would read as never run for no recorded reason).
+            PartParityHostDamage prior = ReadHostDamage(ctx.LabelDir);
+            if (prior != null)
+            {
+                ctx.HostDamage = prior;
+                PlanStep(ctx);
+                ParsekLog.Info(Tag, $"host damage recorded by an earlier step: label={a.Label} reason={prior.Reason} " +
+                    $"detail={prior.Detail ?? "<none>"}; no case runs, {CountUnrun(ctx).ToString(Ic)} case(s) left unrun");
+                FinishStep(ctx);
+                yield break;
+            }
+
             IEnumerator unpack = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
             try { while (unpack.MoveNext()) yield return unpack.Current; }
             finally { DisposeNested(unpack); }
-            if (!AdmitHost(ctx)) yield break;
 
-            PlanStep(ctx);
-            IEnumerator waves = RunWaves(ctx);
-            try { while (waves.MoveNext()) yield return waves.Current; }
-            finally { DisposeNested(waves); }
+            PartParityHostBaseline baseline = ReadHostBaseline(ctx.LabelDir);
+            if (baseline == null)
+            {
+                // The label's first run step: admit the host and record what it was.
+                if (!AdmitHost(ctx)) yield break;
+                ctx.HostBaseline = CaptureHostBaseline(ctx.Host);
+                WriteHostBaseline(ctx.LabelDir, ctx.HostBaseline);
+                PlanStep(ctx);
+            }
+            else
+            {
+                // A later step compares against the label's FIRST host, so a host damaged
+                // between two steps (after the last check of the previous one) still trips.
+                ctx.HostBaseline = baseline;
+                PlanStep(ctx);
+                if (!CheckHost(ctx, "step start")) ctx.Host = FlightGlobals.ActiveVessel;
+            }
+
+            if (ctx.HostDamage == null)
+            {
+                IEnumerator waves = RunWaves(ctx);
+                try { while (waves.MoveNext()) yield return waves.Current; }
+                finally { DisposeNested(waves); }
+            }
             FinishStep(ctx);
+        }
+
+        // =====================================================================================
+        // host integrity (design 4.1)
+        // =====================================================================================
+
+        private static PartParityHostBaseline CaptureHostBaseline(Vessel host)
+        {
+            var b = new PartParityHostBaseline
+            {
+                Pid = host.persistentId,
+                PartCount = host.parts != null ? host.parts.Count : 0,
+                Situation = host.situation.ToString(),
+            };
+            ParsekLog.Info(Tag, $"host baseline: pid={b.Pid.ToString(Ic)} name={host.vesselName} parts={b.PartCount.ToString(Ic)} " +
+                $"situation={b.Situation} (the integrity guard compares every later check against it)");
+            return b;
+        }
+
+        private static PartParityHostObservation ObserveHost(uint pid)
+        {
+            Vessel v = FlightRecorder.FindVesselByPid(pid);
+            bool present = v != null && v.state != Vessel.State.DEAD && v.rootPart != null;
+            return new PartParityHostObservation
+            {
+                Present = present,
+                Active = present && FlightGlobals.ActiveVessel == v,
+                PartCount = present && v.parts != null ? v.parts.Count : 0,
+                Orbiting = present && v.situation == Vessel.Situations.ORBITING && v.orbit != null,
+                Situation = present ? v.situation.ToString() : "<none>",
+            };
+        }
+
+        /// <summary>True when the host is damaged (now or earlier this step). On the first
+        /// trip: records the damage on disk (every later step of the label stops at once),
+        /// writes the one Warn line, and leaves the caller to stop.</summary>
+        private static bool CheckHost(StepContext ctx, string where)
+        {
+            if (ctx.HostDamage != null) return true;
+            if (ctx.HostBaseline == null) return false;
+            PartParityHostObservation now = ObserveHost(ctx.HostBaseline.Pid);
+            string reason = PartParityHostIntegrity.Decide(ctx.HostBaseline, now);
+            if (reason == null) return false;
+            ctx.HostDamage = new PartParityHostDamage
+            {
+                Reason = reason,
+                Detail = PartParityHostIntegrity.Describe(reason, ctx.HostBaseline, now, where),
+            };
+            try
+            {
+                FileIOUtils.SafeWriteBytes(Encoding.UTF8.GetBytes(PartParityHostIntegrity.FormatDamage(ctx.HostDamage)),
+                    Path.Combine(ctx.LabelDir, PartParityHostIntegrity.DamageFileName), Tag);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"host damage record write threw {ex.GetType().Name}: {ex.Message}");
+            }
+            ParsekLog.Warn(Tag, PartParityHostIntegrity.DamageLine(ctx.Args.Label, ctx.HostDamage, CountUnrun(ctx)));
+            return true;
+        }
+
+        /// <summary>Planned cases and (when on) controls with no sidecar yet.</summary>
+        private static int CountUnrun(StepContext ctx)
+        {
+            int n = 0;
+            foreach (var p in ctx.Planned)
+                if (!ctx.Known.ContainsKey(p.CaseId)) n++;
+            if (ctx.Args.Controls)
+                foreach (string id in TestCommandPartParitySweep.ControlIds)
+                    if (!ctx.Known.ContainsKey(id)) n++;
+            return n;
+        }
+
+        private static PartParityHostBaseline ReadHostBaseline(string labelDir)
+        {
+            string path = Path.Combine(labelDir, PartParityHostIntegrity.BaselineFileName);
+            return File.Exists(path) ? PartParityHostIntegrity.ParseBaseline(File.ReadAllText(path)) : null;
+        }
+
+        private static void WriteHostBaseline(string labelDir, PartParityHostBaseline b)
+        {
+            Directory.CreateDirectory(labelDir);
+            FileIOUtils.SafeWriteBytes(Encoding.UTF8.GetBytes(PartParityHostIntegrity.FormatBaseline(b)),
+                Path.Combine(labelDir, PartParityHostIntegrity.BaselineFileName), Tag);
+        }
+
+        private static PartParityHostDamage ReadHostDamage(string labelDir)
+        {
+            string path = Path.Combine(labelDir, PartParityHostIntegrity.DamageFileName);
+            return File.Exists(path) ? PartParityHostIntegrity.ParseDamage(File.ReadAllText(path)) : null;
         }
 
         private static void DoReset(StepContext ctx)
@@ -348,6 +471,7 @@ namespace Parsek.TestCommands
             double lastWave = 0.0;
             while (cursor < queue.Count)
             {
+                if (CheckHost(ctx, "before wave " + (ctx.WavesDone + 1).ToString(Ic))) yield break;
                 double elapsed = Time.realtimeSinceStartup - ctx.StartRealtime;
                 if (!TestCommandPartParitySweep.ShouldStartWave(elapsed, ctx.Args.MaxSeconds, lastWave))
                 {
@@ -458,15 +582,22 @@ namespace Parsek.TestCommands
             // blames none and isolates each.
             WriteInflight(ctx, wave.ConvertAll(c => c.CaseId), solo);
             foreach (var wc in wave) Guard(ctx, wc, "spawn", () => SpawnCase(ctx, wc));
-            IEnumerator ready = WaitReady(wave);
+            IEnumerator ready = WaitReady(ctx, wave);
             try { while (ready.MoveNext()) yield return ready.Current; }
             finally { DisposeNested(ready); }
-            IEnumerator settle = WaitSettled(wave);
-            try { while (settle.MoveNext()) yield return settle.Current; }
-            finally { DisposeNested(settle); }
+            if (ctx.HostDamage == null)
+            {
+                IEnumerator settle = WaitSettled(ctx, wave);
+                try { while (settle.MoveNext()) yield return settle.Current; }
+                finally { DisposeNested(settle); }
+            }
 
+            int unrun = 0;
             foreach (var wc in wave)
             {
+                // A damaged host stops the wave: the cases not yet written stay unrun (no
+                // sidecar, not a setup fault: their spawn or settle read the broken host).
+                if (ctx.HostDamage != null) { unrun++; continue; }
                 // During a capture only the case being captured is named.
                 WriteInflight(ctx, new List<string> { wc.CaseId }, solo);
                 IEnumerator one = RunCaseCapture(ctx, wc);
@@ -474,6 +605,14 @@ namespace Parsek.TestCommands
                 finally { DisposeNested(one); }
                 Guard(ctx, wc, "write", () => FinishCase(ctx, wc));
                 DeleteInflight(ctx);
+                CheckHost(ctx, "after case " + wc.CaseId);
+            }
+            if (ctx.HostDamage != null)
+            {
+                // No process died: the inflight names nothing to blame.
+                DeleteInflight(ctx);
+                ParsekLog.Info(Tag, $"wave stopped by the host damage: {unrun.ToString(Ic)} of {wave.Count.ToString(Ic)} case(s) " +
+                    "left unrun (no sidecar); tearing the wave down");
             }
             IEnumerator down = TearDownWave(ctx, wave);
             try { while (down.MoveNext()) yield return down.Current; }
@@ -523,10 +662,11 @@ namespace Parsek.TestCommands
             }
         }
 
-        private static IEnumerator WaitReady(List<WaveCase> wave)
+        private static IEnumerator WaitReady(StepContext ctx, List<WaveCase> wave)
         {
             while (true)
             {
+                if (CheckHost(ctx, "spawn wait")) yield break;
                 bool pending = false;
                 foreach (var wc in wave)
                 {
@@ -551,15 +691,16 @@ namespace Parsek.TestCommands
             }
         }
 
-        private static IEnumerator WaitSettled(List<WaveCase> wave)
+        private static IEnumerator WaitSettled(StepContext ctx, List<WaveCase> wave)
         {
             while (true)
             {
+                if (CheckHost(ctx, "settle wait")) yield break;
                 bool pending = false;
                 foreach (var wc in wave)
                 {
                     if (wc.Status != null || wc.Real == null || wc.Settled) continue;
-                    if (wc.Real.state == Vessel.State.DEAD || wc.Real.rootPart == null)
+                    if (CaseVesselLost(wc))
                     {
                         wc.Status = TestCommandPartParitySweep.SetupDiedSettling;
                         wc.Detail = "vessel died while settling";
@@ -632,6 +773,16 @@ namespace Parsek.TestCommands
         private static IEnumerator RunCaseCapture(StepContext ctx, WaveCase wc)
         {
             if (wc.Status != null) yield break;
+            // A settled case can still die while the cases before it capture (a mirrored
+            // variant's negative-scale collider explodes on unpack): Prepare on a destroyed
+            // vessel would throw and read as an instrument crash, so it is died-settling.
+            if (CaseVesselLost(wc))
+            {
+                wc.Status = TestCommandPartParitySweep.SetupDiedSettling;
+                wc.Detail = "vessel lost before prepare";
+                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: real vessel or root part gone before prepare; recorded died-settling");
+                yield break;
+            }
             BeginCaseLog(ctx, wc);
             try
             {
@@ -640,7 +791,7 @@ namespace Parsek.TestCommands
                 foreach (string view in wc.Views)
                 {
                     yield return new WaitForEndOfFrame();
-                    if (wc.Real == null || wc.Real.rootPart == null || wc.Real.state == Vessel.State.DEAD)
+                    if (CaseVesselLost(wc))
                     {
                         wc.Status = TestCommandPartParitySweep.SetupDiedSettling;
                         wc.Detail = "vessel lost mid-capture";
@@ -653,6 +804,16 @@ namespace Parsek.TestCommands
             {
                 EndCaseLog(ctx);
             }
+        }
+
+        /// <summary>The case's real vessel is gone (Unity's null reads a destroyed object as
+        /// null), has no root part, or is DEAD.</summary>
+        private static bool CaseVesselLost(WaveCase wc)
+        {
+            Vessel v = wc.Real;
+            bool present = v != null;
+            return PartParityHostIntegrity.IsCaseVesselLost(present, present && v.rootPart != null,
+                present && v.state == Vessel.State.DEAD);
         }
 
         private static void BeginCaseLog(StepContext ctx, WaveCase wc)
@@ -787,7 +948,8 @@ namespace Parsek.TestCommands
             string controls = TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, ConvertOutcomes(outcomes));
             bool controlsDone = !ctx.Args.Controls || AllControlsRan(ctx);
             int next = PartParitySweepPlan.NextIncomplete(completeFlags);
-            bool done = next >= ctx.Planned.Count && controlsDone;
+            // A damaged host never reads as done: the sweep stopped, it did not finish.
+            bool done = next >= ctx.Planned.Count && controlsDone && ctx.HostDamage == null;
             PartParityManifestBuilder.Write(ctx, outcomes, done, complete, faults);
             ctx.Succeed(done, next, ctx.Planned.Count, complete, crashed, faults, controls);
             ParsekLog.Verbose(Tag, $"step end: waves={ctx.WavesDone.ToString(Ic)} (the step line follows)");
@@ -921,6 +1083,13 @@ namespace Parsek.TestCommands
             internal readonly float StartRealtime = Time.realtimeSinceStartup;
             internal string LabelDir;
             internal Vessel Host;
+
+            /// <summary>The label's host as its first run step found it (<c>host.txt</c>).</summary>
+            internal PartParityHostBaseline HostBaseline;
+
+            /// <summary>Set once the host-integrity guard tripped (this step or an earlier
+            /// one): no further case runs.</summary>
+            internal PartParityHostDamage HostDamage;
             internal List<PartParityPartEntry> Entries = new List<PartParityPartEntry>();
             internal readonly Dictionary<string, PartParityPartEntry> EntriesByName = new Dictionary<string, PartParityPartEntry>(StringComparer.Ordinal);
             internal readonly List<PartParityExclusion> Exclusions = new List<PartParityExclusion>();
@@ -955,7 +1124,8 @@ namespace Parsek.TestCommands
                 Result = new PartParitySweepStepResult
                 {
                     Ok = true,
-                    Payload = TestCommandPartParitySweep.BuildPayload(Args.Label, done, next, cases, complete, crashed, faults, controls, wall),
+                    Payload = TestCommandPartParitySweep.BuildPayload(Args.Label, done, next, cases, complete, crashed, faults, controls, wall,
+                        PartParityHostIntegrity.PayloadToken(HostDamage)),
                 };
             }
 

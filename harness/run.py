@@ -4203,8 +4203,10 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # and 10). Active iff the spec drives a PartParitySweep step; judges the sweep
     # directories the harvest leg moved into results/<runId>_partparity/ IN PLACE
     # (never through the pipelined private copy) and writes partparity-verdicts.json
-    # beside each. Three gates from the start, armed or not, each a terminal INVALID
-    # ahead of the contract verifiers: a control not `ok` (parity-controls), a Python
+    # beside each. Four gates from the start, armed or not, each a terminal INVALID
+    # ahead of the contract verifiers: a host the C# integrity guard found damaged,
+    # which stopped the sweep (parity-host-damaged, ranked first), a control not `ok`
+    # (parity-controls), a Python
     # recompute of the shape measures that disagrees with the C# sidecar
     # (parity-instrument), a sweep that did not finish or left a planned case without
     # a complete sidecar or a recorded setup fault (parity-incomplete). The part
@@ -6674,7 +6676,7 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
             else:
                 pp_part = "parts report-only"
             verify_line += (", partParity(labels: %s; INVALID(%s) on a bad control / "
-                            "recompute mismatch / incomplete sweep; %s)"
+                            "recompute mismatch / incomplete sweep / damaged host; %s)"
                             % (", ".join(pp_labels), "|".join(partparity.INVALID_SUBKINDS),
                                pp_part))
         if ledger_block is not None or world_block is not None:

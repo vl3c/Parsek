@@ -102,7 +102,7 @@ namespace Parsek.Tests
             Assert.Empty(PartParitySweepCompletion.OkPayload(null));
             Assert.Equal(
                 "partparitysweep complete label=pp1 elapsed=123.4s label=pp1 done=true next=20 cases=20 "
-                + "complete=19 crashed=0 setupFaults=1 controls=ok wall=123.5",
+                + "complete=19 crashed=0 setupFaults=1 controls=ok wall=123.5 hostDamaged=false hostDamage=none",
                 PartParitySweepCompletion.FormatOkLine(
                     "pp1", TestCommandPartParitySweep.FormatPayload(payload), 123.44));
         }

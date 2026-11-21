@@ -49,6 +49,11 @@ namespace Parsek.TestCommands
         internal const string ExcludeSpaceObject = "space-object";
         internal const string ExcludeNoPrefab = "no-prefab";
 
+        /// <summary>A part that only exists anchored to the ground (a launch clamp): in orbit
+        /// it packs and unloads within a frame of unpacking, so a co-orbital case could only
+        /// ever record <c>died-settling</c>. Excluded with this reason rather than captured.</summary>
+        internal const string ExcludeGroundOnly = "ground-only";
+
         internal const string TagHidden = "hidden";
         internal const string TagContextDependent = "context-dependent";
         internal const string TagB9PartSwitch = "b9partswitch";
@@ -87,7 +92,26 @@ namespace Parsek.TestCommands
             "ModuleGroundPart", "ModuleGroundExperiment", "ModuleGroundSciencePart", "ModuleGroundCommsPart",
         };
 
-        /// <summary>Null when the part is captured, else the manifest exclusion reason.</summary>
+        /// <summary>The context-dependent modules whose part cannot exist in orbit at all
+        /// (<see cref="ExcludeGroundOnly"/>); the rest of <see cref="ContextDependentModules"/>
+        /// (wheels, ground science) spawn in orbit and are captured tagged.</summary>
+        internal static readonly string[] GroundOnlyModules = { "LaunchClamp" };
+
+        /// <summary>Null when the part is captured, else the manifest exclusion reason. The
+        /// name and prefab rules first, then <see cref="ExcludeGroundOnly"/> for a part whose
+        /// prefab carries a <see cref="GroundOnlyModules"/> module (the orbital sweep has no
+        /// ground to put it on).</summary>
+        internal static string ExclusionReason(string partName, bool hasPrefab, IList<string> moduleNames)
+        {
+            string reason = ExclusionReason(partName, hasPrefab);
+            if (reason != null || moduleNames == null) return reason;
+            foreach (string m in moduleNames)
+                if (Array.IndexOf(GroundOnlyModules, m) >= 0) return ExcludeGroundOnly;
+            return null;
+        }
+
+        /// <summary>Null when the part is captured, else the manifest exclusion reason (the
+        /// name and prefab rules only).</summary>
         internal static string ExclusionReason(string partName, bool hasPrefab)
         {
             if (string.IsNullOrEmpty(partName)) return ExcludeNoPrefab;
@@ -237,7 +261,8 @@ namespace Parsek.TestCommands
             {
                 AvailablePart info = loaded[i];
                 if (info == null) continue;
-                string reason = PartParityCaseRules.ExclusionReason(info.name, info.partPrefab != null);
+                string reason = PartParityCaseRules.ExclusionReason(info.name, info.partPrefab != null,
+                    info.partPrefab != null ? PrefabModuleNames(info.partPrefab) : null);
                 if (reason != null)
                 {
                     exclusions?.Add(new PartParityExclusion { Part = info.name, Reason = reason });
@@ -246,6 +271,18 @@ namespace Parsek.TestCommands
                 entries.Add(BuildEntry(info));
             }
             return entries;
+        }
+
+        private static List<string> PrefabModuleNames(Part prefab)
+        {
+            var names = new List<string>();
+            if (prefab.Modules == null) return names;
+            for (int i = 0; i < prefab.Modules.Count; i++)
+            {
+                PartModule m = prefab.Modules[i];
+                if (m != null) names.Add(m.moduleName);
+            }
+            return names;
         }
 
         internal static PartParityPartEntry BuildEntry(AvailablePart info)

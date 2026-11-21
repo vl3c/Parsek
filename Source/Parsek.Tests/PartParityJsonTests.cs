@@ -244,7 +244,11 @@ namespace Parsek.Tests
                 Controls = { new PartParityControlRecord { Id = "ctl-empty", Subject = "both hidden", Required = "zero coverage", Outcome = "ok" } },
                 Cases = { new PartParityCaseSummary { Index = 0, CaseId = "a--default--00000000", SetupStatus = "ok", MaxShapeBlobPx = 12, MinIou = 0.99 } },
                 Exclusions = { new PartParityExclusion { Part = "flag", Reason = "excluded-flag" } },
-                Progress = new PartParityProgress { Complete = false, Cases = 10, CompleteCases = 4, Controls = "pending", Crashed = { "b--default--11111111" } },
+                Progress = new PartParityProgress
+                {
+                    Complete = false, Cases = 10, CompleteCases = 4, Controls = "pending", Crashed = { "b--default--11111111" },
+                    HostDamaged = true, HostDamage = "parts", HostDamageDetail = "pid=7 parts 13->9 at before wave 3",
+                },
             };
             string json = PartParityJson.WriteManifest(mf);
             Assert.EndsWith("}\n", json);
@@ -262,6 +266,9 @@ namespace Parsek.Tests
             var progress = (Dictionary<string, object>)root["progress"];
             AssertKeysInOrder(PartParityJson.ProgressKeys, progress, json);
             Assert.Equal(new List<object> { "b--default--11111111" }, progress["crashed"]);
+            Assert.Equal(true, progress["hostDamaged"]);
+            Assert.Equal("parts", progress["hostDamage"]);
+            Assert.Equal("pid=7 parts 13->9 at before wave 3", progress["hostDamageDetail"]);
             var summary = (Dictionary<string, object>)((List<object>)root["cases"])[0];
             Assert.Null(summary["maxColorBlobPx"]);
             Assert.Equal(12.0, summary["maxShapeBlobPx"]);

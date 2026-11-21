@@ -64,12 +64,17 @@ spawn default, reached when no real-part `Animation` is still playing) and conte
 ### 3.1 Part enumeration
 
 `PartLoader.LoadedPartsList`, every `AvailablePart` with a `partPrefab`. Excluded, each with a
-reason recorded in the manifest (never silently dropped): `kerbalEVA*`, `flag`, space objects
-(`PotatoRoid`, `PotatoComet`).
+reason recorded in the manifest (never silently dropped): `kerbalEVA*` (`eva-kerbal`), `flag`,
+space objects (`PotatoRoid`, `PotatoComet`: `space-object`), and a part whose prefab carries a
+GROUND-ONLY module (`PartParityCaseRules.GroundOnlyModules`, today `LaunchClamp`: reason
+`ground-only`). A launch clamp only exists anchored to the ground: spawned in orbit it packs and
+unloads about 0.2 s after it unpacks (P3 flight, `launchclamp1`), so the orbital sweep could only
+ever record it `died-settling`. It needs a ground context, a later axis (9.1).
 
 Hidden parts (`TechHidden`, `category = none`, ReStock's deprecated parts) are captured and tagged
-`hidden` (an old craft can still fly them). Launch clamps, ground-anchored parts, wheels and landing
-legs (which extend or settle in free fall) are captured and tagged `context-dependent`.
+`hidden` (an old craft can still fly them). Ground-anchored parts other than the clamps, wheels and
+landing legs (which extend or settle in free fall) exist in orbit, so they are captured and tagged
+`context-dependent`; the ground-only modules are a subset of `ContextDependentModules`.
 
 Per part the manifest records: `name`, `title`, `partUrl`, `modelUrls` (every MODEL node's `model` /
 `mesh` from `partConfig`), `source` (first path segment of the first model url: `Squad`,
@@ -174,6 +179,32 @@ settle until no `Animation` on the real part is playing and 0.5 s has passed (ca
 `still-animating`, captured anyway and tagged); capture each case; destroy every ghost and its
 cloned materials; `Die()` every spawned vessel and wait until gone. Every K = 10 waves,
 `Resources.UnloadUnusedAssets()`, and one memory line in the wave log.
+
+A case vessel can die after it settled, while the cases before it in the wave capture (the
+mirrored `largepropeller` variant exploded on unpack in P3, a negative-scale collider). The capture
+rechecks the real vessel and its root part right before `Prepare` (pure
+`PartParityHostIntegrity.IsCaseVesselLost`, the same rule the settle wait and the per-view check
+read): a lost vessel is `died-settling` (detail `vessel lost before prepare`, one Verbose line),
+never a prepare exception recorded `crashed`.
+
+Host integrity (`PartParityHostIntegrity`, pure; built after the P3 flights, where a broken host
+let PP-1 run on until its next step was refused `host-not-orbiting` with 125 cases never run, and
+PP-2's exploded pod froze the clock so 496 later cases recorded `spawn-timeout` across three
+steps). The label's first `op=run` step records the host in `host.txt` (persistent id, part count,
+situation; Info `host baseline:`), and every later step compares against that FIRST host, so a host
+damaged between two steps still trips. The guard checks at a step's start (later steps), before
+each wave, every frame of the spawn and settle waits, and after each case's sidecar. Damage, in
+decision order: `gone` (no live vessel with the baseline pid, or it is not the active vessel),
+`parts` (fewer parts than the baseline), `situation` (no longer `ORBITING`). On the first trip the
+sweep stops at once: `hostdamage.txt` (reason, detail) is written to the label directory, one Warn
+`PartParity host damaged label= reason= detail=<what changed and where>: the sweep stops; <n>
+case(s) left unrun ...`, the live wave's uncaptured cases are left UNRUN (no sidecar, not a setup
+fault: their spawn or settle read the broken host), its `inflight.txt` is deleted (no process
+died), the wave is torn down, and the step answers OK with `done=false hostDamaged=true
+hostDamage=<reason>` (7). Every later `op=run` step of the label reads `hostdamage.txt` BEFORE the
+host admission and answers the same at once (Info `host damage recorded by an earlier step`), so a
+broken host never turns into a refused step or a run of setup faults. The manifest carries it as
+`progress.hostDamaged` / `hostDamage` / `hostDamageDetail`; `op=reset` clears both files.
 
 ### 4.2 One case, in order
 
@@ -356,12 +387,17 @@ Per sweep directory:
 
 - `manifest.json` - schema `parsek-part-parity/1`: header (profile, `GameData` mod list, DLL hash,
   tile, views, settings), controls, every case with its raw summary, exclusions with reasons,
-  progress (`complete`, `cases`, `crashed`).
+  progress (`complete`, `cases`, `completeCases`, `setupFaults`, `controls`, `crashed`, and the
+  host guard's `hostDamaged`, `hostDamage` (`gone|parts|situation` or null), `hostDamageDetail`).
 - `<caseId>.png` - the atlas; `<caseId>.thumb.png` - 2 x 128 px `side-a` pair for the grid;
   `<caseId>.part.json` - the sidecar.
 - `inflight.txt` - the case(s) in flight, one id per line, plus a `#solo` line on a solo rerun
   (5.3).
 - `isolate.txt` - the cases still owed a solo run, one id per line (5.3); absent when none.
+- `host.txt` - the label's host baseline (`pid=`, `parts=`, `situation=`), written by its first
+  `op=run` step (4.1).
+- `hostdamage.txt` - the host damage record (`reason=`, `detail=`); once present every later run
+  step stops at once (4.1). A torn record still stops the sweep (it reads as `gone`).
 
 Harvest (built in P3, `run.py` `_harvest_part_parity`, pure decisions in `hlib`): right after the
 drive returns (the lane's KSP has exited) and while the instance lock is still held, before the
@@ -431,6 +467,12 @@ The `skin` block (3.2) has the same six keys under every skin kind; a B9 case na
 (the builder applies no B9 subtype); `skin-not-applied` is the `setup.status`. A crash record
 (5.3) of a skin case carries the option's `module`, `moduleId` and `requested`. The manifest's
 `settings.skinsNote` says what the step's `skins=` covered.
+
+Setup statuses: `spawn-timeout` (no vessel, or never loaded and unpacked in 20 s),
+`still-animating` (captured anyway), `died-settling` (the vessel died or lost its root part while
+settling, before `Prepare`, or between two views), `crashed` (a prepare that threw, or the stale
+inflight rule of 5.3), `skin-not-applied` (3.2). A case a damaged host left unrun has NO sidecar
+and no status (4.1).
 
 Per case the KSP.log carries, under `[PartParity]`: for a B9 case one Verbose `case <id>: authored
 B9 currentSubtype=<subtype> moduleID=<id> b9Index=<k> written=true|false` at spawn; for every case
@@ -520,7 +562,12 @@ hand-checked sample, a re-pin needs no flight):
 | case `error` | a setup fault (`TestCommandPartParitySweep.IsSetupFault`: any status but `ok` and `still-animating`), the skin proof's `requested != real` (`skin-not-applied`), or a non-fault case with no measured view; `still-animating` is judged on its measures |
 
 The control cases are not judged as parts: the C# judge's recorded outcomes are the controls'
-verdicts (below). Three INSTRUMENT gates run on every sweeping lane from the start, armed or not:
+verdicts (below). Four INSTRUMENT gates run on every sweeping lane from the start, armed or not:
+
+- Host: `progress.hostDamaged = true` (the C# guard of 4.1 stopped the sweep) is
+  INVALID(parity-host-damaged), ahead of every other gate: the controls still pending and the
+  sweep left incomplete are its symptoms (they stay listed among the problems), and nothing the
+  sweep did not run is a part finding.
 
 - Controls: every id of 4.5 recorded with outcome `ok`, and `progress.controls = ok` (a sweep run
   with `controls=false` proves nothing and fails this too). Else INVALID(parity-controls).
@@ -542,8 +589,8 @@ verdicts (below). Three INSTRUMENT gates run on every sweeping lane from the sta
   layout disagrees with the sidecar is INVALID(parity-instrument). Measured on the green P2 flight's
   `pp1` directory: all 28 sidecars (8 controls, 20 parts) recompute with zero differences.
 
-The row's status: INVALID when any gate fails (controls first, then the recompute, then
-completeness); else REPORT, or, armed, FAIL on any `fail` case and PASS otherwise. An `error` case
+The row's status: INVALID when any gate fails (the host first, then the controls, then the
+recompute, then completeness; across labels the same order); else REPORT, or, armed, FAIL on any `fail` case and PASS otherwise. An `error` case
 never fails an armed lane (it is a setup fault, not a ghost finding). The row logs one Info line
 `verify partParity status= gating= subkind= label= status= cases= pass= warn= fail= error=
 controls= complete= recompute= mismatches= worst=[<id>(<verdict>:<first reason>),...]` (the five
@@ -559,7 +606,10 @@ mismatches, every part case's verdict and reasons) beside each sweep.
 
 - Scene `RequiresFlight` with an orbiting active vessel (refusals for a landed or suborbital host).
 - In `DEFERRED_SEAM_VERBS`; the spec's step budget is at most 540 s (S8). A step answers OK
-  `label done=true|false next= cases= complete= crashed= setupFaults= controls=ok|bad|pending wall=`.
+  `label done=true|false next= cases= complete= crashed= setupFaults= controls=ok|bad|pending wall=
+  hostDamaged=true|false hostDamage=none|gone|parts|situation`. The two host keys are last, so a
+  pin written for the first nine keys still matches; a step the host guard stopped (4.1), and every
+  later step of that label, answers OK with `done=false hostDamaged=true`, never a refusal.
 - Timeout: the applier keeps the runner's step iterator and, on the 540 s timeout, DISPOSES it
   before `StopCoroutine` (which only abandons an iterator, so no `finally` would run). `RunStep`
   releases everything in a `finally` (`StepContext.Cleanup`: idempotent, safe between waves,
@@ -726,8 +776,10 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
   1050 s against 1440 s). Both declare `[expectations.partParity] gating = false` and keep the P2
   log pins (the run-step line with `crashed=0 controls=ok`, the applier's OK line) as a second
   guard; `[retry] policy = "none"` (a retry's `op=reset` would discard the sweep). A last step that
-  still answers `done=false` reads INVALID(parity-incomplete): add a step. The verdict classes are
-  terminal INVALID(`parity-controls` / `parity-instrument` / `parity-incomplete`), placed after the
+  still answers `done=false` reads INVALID(parity-incomplete): add a step. A sweep the host guard
+  stopped (4.1) reads INVALID(parity-host-damaged): re-fly it, nothing about the unrun parts is
+  known. The verdict classes are terminal INVALID(`parity-controls` / `parity-instrument` /
+  `parity-incomplete` / `parity-host-damaged`), placed after the
   analyzer and ahead of the contract verifiers in `hlib.classify_verdict` (a bad control also
   misses the step-line pin, and must not read as a log-contract red), and PARSEK-FAIL(`part-parity`)
   for an armed failing case. The armed set is pinned by `PARTPARITY_ARMED_SPECS` in
@@ -759,6 +811,7 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
 | `Source/Parsek/TestCommands/PartParitySkinRules.cs` | Pure (P3): the `skins=all` enumeration over ConfigNode part configs (`EnumerateSkinOptions`, `CaseKeys`), B9 authoring into the PART node, the snapshot read-back, the skin proof's request and flags (`skin-mismatch`, `skin-not-modelled:b9`, `skin-not-applied`), the reflection read of a B9 module's subtype, the per-step counts. |
 | `Source/Parsek/TestCommands/PartParityCapture.cs` | Live: camera, light rig, hide / render / read / restore (`PartParityCaptureMath` is its pure camera math). |
 | `Source/Parsek/TestCommands/PartParityCaseCapture.cs` | Live: one case in the order of 4.2 (records, seeds, ghost, framing, views, files) and the manifest writer. |
+| `Source/Parsek/TestCommands/PartParityHostIntegrity.cs` | Pure: the host-integrity guard of 4.1 (the damage decision, its detail and Warn line, `host.txt` / `hostdamage.txt`) and the case-vessel-lost rule. |
 | `Source/Parsek/TestCommands/PartParitySweepRunner.cs` | Live: the step and wave coroutine (`RunStep(args, onDone)`), shared by the seam verb and the in-game cell. |
 | `Source/Parsek/TestCommands/ParsekTestCommandAddon.PartParitySweep.cs` | Thin applier: starts `PartParitySweepRunner.RunStep` and answers the seam. |
 | `Source/Parsek/Ghost/GhostPlaybackEngine.*` | The extracted build-and-initialise seam (D2), `GhostPlaybackEngine.InitializeBuiltGhostVisuals(state, buildResult, traj)`, the engine's own load path (`TryPopulateGhostVisuals`) rewired through it. Proof of no behaviour change: `il_compare.py` before / after reports only the new method and the caller's body, and inlining the seam's body back at the call site gives the caller's old body exactly (`--fold` models moves between types, not an extract-method). The loop-reuse re-init (`SpawnDestroy`) and the KSC spawn run other subsets (no pivot; KSC passes no trajectory) and stay as they are. Activation stays the engine's deferred `ActivateGhostVisualsIfNeeded`. P2 adds the seed-prefix prime (4.2 step 3): `ApplyPartStateForFrame` and `StopVisualFxForFrame` extracted from `ApplyFrameVisuals` (proved the same way: the multi-seam inline fold of both gives the old body), composed by `PrimeHiddenPartStateAtUT`. |

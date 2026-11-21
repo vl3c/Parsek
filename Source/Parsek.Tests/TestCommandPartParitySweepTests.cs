@@ -561,13 +561,23 @@ namespace Parsek.Tests
                 Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
                 var payload = TestCommandPartParitySweep.BuildPayload("pp-1", false, 42, 900, 41, 1, 3, "ok", 471.26);
                 Assert.Equal(
-                    new[] { "label", "done", "next", "cases", "complete", "crashed", "setupFaults", "controls", "wall" },
+                    new[] { "label", "done", "next", "cases", "complete", "crashed", "setupFaults", "controls", "wall",
+                            "hostDamaged", "hostDamage" },
                     payload.Select(p => p.Key));
-                Assert.Equal("label=pp-1 done=false next=42 cases=900 complete=41 crashed=1 setupFaults=3 controls=ok wall=471.3",
+                Assert.Equal("label=pp-1 done=false next=42 cases=900 complete=41 crashed=1 setupFaults=3 controls=ok wall=471.3 "
+                    + "hostDamaged=false hostDamage=none",
                     TestCommandPartParitySweep.FormatPayload(payload));
                 var nan = TestCommandPartParitySweep.BuildPayload("x", true, 0, 0, 0, 0, 0, null, double.NaN);
-                Assert.Equal("0.0", nan.Last().Value);
+                Assert.Equal("0.0", nan[8].Value);
                 Assert.Equal("pending", nan[7].Value);
+                // The host keys come last: a pin written for the first nine keys still matches.
+                var damaged = TestCommandPartParitySweep.BuildPayload("pp1", false, 7, 900, 7, 0, 0, "ok", 30.0,
+                    PartParityHostIntegrity.DamageParts);
+                Assert.EndsWith("controls=ok wall=30.0 hostDamaged=true hostDamage=parts",
+                    TestCommandPartParitySweep.FormatPayload(damaged));
+                Assert.Equal("hostDamaged=false hostDamage=none", string.Join(" ",
+                    TestCommandPartParitySweep.BuildPayload("x", true, 0, 0, 0, 0, 0, "ok", 1.0,
+                        PartParityHostIntegrity.DamageNone).Skip(9).Select(p => p.Key + "=" + p.Value)));
             }
             finally
             {
