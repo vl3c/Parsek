@@ -173,5 +173,85 @@ namespace Parsek.Tests
             Assert.Equal(1, SplitParentLinks.RepairStaleParents(tree, "test"));
             Assert.Equal("t", bp.ParentRecordingIds[0]);
         }
+
+        // ------------------------------------------------------------ the backward readers
+
+        [Fact]
+        public void PreviousChainIndexBefore_StepsOverAHole()
+        {
+            var head = Piece("h", 0, 0, 100);
+            var mid = Piece("m", 2, 100, 200);
+            var last = Piece("l", 5, 200, 300);
+            var otherChain = Piece("o", 4, 0, 100, chainId: "chain_other");
+            var otherBranch = Piece("b", 4, 0, 100, branch: 1);
+            var unindexed = Piece("x", -1, 0, 1);
+            var list = new List<Recording> { last, otherChain, mid, otherBranch, head, unindexed, null };
+
+            Assert.Equal(2, RecordingChainQueries.PreviousChainIndexBefore(last, list));
+            Assert.Equal(0, RecordingChainQueries.PreviousChainIndexBefore(mid, list));
+            Assert.Equal(RecordingChainQueries.NoPreviousChainIndex, RecordingChainQueries.PreviousChainIndexBefore(head, list));
+            Assert.Equal(RecordingChainQueries.NoPreviousChainIndex,
+                RecordingChainQueries.PreviousChainIndexBefore(Piece("u", 3, 0, 1, chainId: null), list));
+            Assert.Equal(2, RecordingChainQueries.PreviousChainIndexBefore(last, TreeOf(head, mid, last).Recordings));
+            Assert.Equal(RecordingChainQueries.NoPreviousChainIndex, RecordingChainQueries.PreviousChainIndexBefore(otherBranch, list));
+        }
+
+        [Fact]
+        public void ChainQueries_GetChainPredecessorIndex_AcrossAHole()
+        {
+            var head = Piece("h", 0, 0, 100);
+            var tail = Piece("t", 2, 100, 200);
+            RecordingStore.AddCommittedInternal(head);
+            RecordingStore.AddCommittedInternal(tail);
+            Assert.Equal(0, RecordingChainQueries.GetChainPredecessorIndex(tail));
+            Assert.Equal(-1, RecordingChainQueries.GetChainPredecessorIndex(head));
+        }
+
+        [Fact]
+        public void GhostMapPresence_TryFindChainPredecessor_AcrossAHole()
+        {
+            var head = Piece("h", 0, 0, 100);
+            var tail = Piece("t", 2, 100, 200);
+            Assert.Equal("h", GhostMapPresence.TryFindChainPredecessor(TreeOf(head, tail), tail));
+        }
+
+        [Fact]
+        public void RouteHarvestAnalysis_FindChainPredecessor_AcrossAHole()
+        {
+            var head = Piece("h", 0, 0, 100);
+            var tail = Piece("t", 2, 100, 200);
+            MethodInfo find = typeof(Parsek.Logistics.RouteHarvestAnalysis).GetMethod(
+                "FindChainPredecessor", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(find);
+            Assert.Same(head, find.Invoke(null, new object[] { TreeOf(head, tail), tail }));
+        }
+
+        [Fact]
+        public void MissionStructureList_ChainPredecessor_AcrossAHole()
+        {
+            var head = Piece("h", 0, 0, 100);
+            var tail = Piece("t", 2, 100, 200);
+            Type ctxType = typeof(MissionStructureListBuilder).GetNestedType("BuildContext", BindingFlags.NonPublic);
+            Assert.NotNull(ctxType);
+            object ctx = Activator.CreateInstance(ctxType, BindingFlags.NonPublic | BindingFlags.Instance, null,
+                new object[] { TreeOf(head, tail), null, null, null, null, null }, null);
+            var predecessors = (Dictionary<string, List<string>>)ctxType
+                .GetField("Predecessors", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(ctx);
+            Assert.True(predecessors.TryGetValue("t", out List<string> list));
+            Assert.Contains("h", list);
+        }
+
+        [Fact]
+        public void RecordingTreeSplitter_TryFindChainPredecessor_AcrossAHole()
+        {
+            var head = Piece("h", 0, 0, 100);
+            var tail = Piece("t", 2, 100, 200);
+            RecordingStore.AddCommittedInternal(head);
+            RecordingStore.AddCommittedInternal(tail);
+            MethodInfo find = typeof(RecordingTreeSplitter).GetMethod(
+                "TryFindChainPredecessor", BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(find);
+            Assert.Same(head, find.Invoke(null, new object[] { tail }));
+        }
     }
 }
