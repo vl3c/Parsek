@@ -3969,7 +3969,9 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         logger.info("Verify", "verify saveParse status=SKIPPED reason=driver-invalid")
     else:
         sampling_input = None
-        if "recordings.sampling" in saveparse.declared_structure_blocks(expectations):
+        declared_sp = saveparse.declared_structure_blocks(expectations)
+        if "recordings.sampling" in declared_sp or "recordings.endings" in declared_sp:
+            # The endings block reads the same `.prec.txt` mirrors.
             sampling_input = read_sampling_input(save_dir, log_text)
         sp = saveparse.evaluate_save_structure(expectations, snapshot, sampling_input)
         if sp.gating:

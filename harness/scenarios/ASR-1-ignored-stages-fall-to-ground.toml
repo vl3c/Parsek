@@ -1,0 +1,223 @@
+schema = 1
+id = "ASR-1-ignored-stages-fall-to-ground"
+# =====================================================================================
+# ASR-1: STAGES THE PLAYER STOPPED FLYING END AT THE GROUND, NOT IN MID-AIR. AUTHORED
+# 2026-11-21, NEVER FLOWN. Report-only: every save-shape assertion below waits on the
+# C# change that gives an abandoned stage a predicted tail (owner rulings, in flight on
+# other branches), and on a first reading run.
+# =====================================================================================
+#
+# WHAT IT PROVES. When the player keeps flying one vessel and leaves the others, Parsek
+# stops watching them (the stage leaves the physics bubble, its 60 s debris watch ends,
+# KSP deletes it out of range in the air, or the scene exit commits the tree) and must
+# finalize each one with a PREDICTED tail (`ORBIT_SEGMENT isPredicted = True`) and an
+# ending: a suborbital stage ends `Destroyed` at the drag-free GROUND impact, so its end
+# UT lies well after the moment Parsek stopped watching it. Before the change it ended
+# at the close time (mid-air) or at the 70 km atmosphere top.
+#
+# THE FLIGHT, and what each stage covers. RF-9's act 1 (the Kerbal X coast-exit profile
+# on `gs1-two-stage-pad`) plus ONE opt-in, `coastExitUpperBurnSeconds = 10`:
+#   - the three booster pairs (`Kerbal X Debris`, no probe core) drop at burnout and the
+#     Mainsail core leaves them behind: they leave the bubble (`Debris TTL: vessel left
+#     physics bubble`, six of six on GS-7's identical ascent) and stock deletes them out
+#     of range once they fall below the 1 kPa line. THE DEBRIS CASE.
+#   - the fueled core (`Kerbal X Probe`, probeStackLarge: a CONTROLLED child) is dropped
+#     inside the atmosphere at a 95 km apoapsis. Without the burn it rides the stack's arc
+#     a few metres away and never unloads (RF-9's shape). With it the Poodle burns 10 s
+#     prograde (~170 m/s), the stack is past the 2.25 km load range within seconds, the
+#     core goes on rails out of range and is still on its way up (or near its apex) when
+#     the scene exit commits. THE PROBE-CORED CASE, "KSP still has it".
+#   - the crewed stack (`Kerbal X`) is the vessel the player flies: the mission ends once
+#     it is OBSERVED coasting SUB_ORBITAL above 71 km, and the spec's ExitToSpaceCenter
+#     commits the tree with it falling. THE CREWED CASE: a predicted crash of a vessel KSP
+#     did not destroy must not mark its crew Dead.
+#
+# WHAT IS READ, and from where. The new `[expectations.recordings.endings]` block
+# (harness/lib/endingsq.py) reads only the produced save: the RECORDING node's
+# `terminalState` / `explicitEndUT` / `chainId` and the `.prec.txt` mirrors (ORBIT_SEGMENT
+# `isPredicted`, `endUT`, elements; TRACK_SECTION POINT `ut`). Per vessel name, every
+# ENDED recording (its chain measured whole, so an optimizer split does not hide the
+# head's samples) must carry:
+#   terminalStates     the ending (Destroyed for all three here);
+#   predictedSegments  at least one isPredicted segment on the chain;
+#   tailSeconds        endUT minus the last WATCHED datum (a real POINT sample or the end
+#                      of a non-predicted segment): how long the recording runs past the
+#                      moment Parsek stopped watching. Margins: the boosters are cut loose
+#                      at ~10-15 km climbing and fall back in ~30 s, so >= 20 s;
+#                      the core and the stack are near or above 70 km at the exit and
+#                      climbing, so the ground is minutes away, >= 60 s. A mid-air close
+#                      reads ~0.
+#   endAltitudeMeters  the two-body altitude at the last predicted segment's endUT: the
+#                      ground (sea level to a few km of terrain), window [-500, 5000]. A
+#                      prediction cut at 70 km reads ~70000 and reds this one.
+# Measured with the block: `recordings.endings.vessels.<name>.endings[]` in the result
+# JSON carries every number above per recording.
+#
+# OFFLINE READING (the parser on real bytes, 2026-11-21): over RF-13H's harvest
+# `refly-split-crewed-recorded` (same ascent, the stack still INSIDE the atmosphere at
+# the exit) the block reads every row in-window ALREADY: Kerbal X / Kerbal X Probe end
+# Destroyed, 1 predicted segment, tail 186.6 s, end altitude 0 m; the six debris end
+# Destroyed, 1 predicted segment each, tail 32.6-33.6 s, end altitude 763-2952 m. So the
+# DEBRIS rows are the target behaviour but NOT a negative control on today's build (the
+# bubble-exit close already applies the finalization cache's impact there); the core and
+# stack rows are, because on this profile both are near or ABOVE 70 km at the exit, the
+# case the brief reports ending at the atmosphere top today.
+#
+# WHAT DEPENDS ON THE NOT-YET-MERGED C# (so a red on today's build is EXPECTED):
+#   every endings window (save fields above) and the forbidden crew-death line
+#   (`PopulateCrewEndStates: recording='Kerbal X' ... dead=N`, an EXISTING literal in
+#   Crew/KerbalsModule.CrewEndStates.cs that today's scene-exit finalizer drives to dead
+#   > 0 on a predicted crash; RF-13H's host tokens depend on that today).
+# WHAT DOES NOT (existing literals, true on today's build): the split, the commit, the
+# boosters' bubble exits and the core's go-on-rails chained to its controlled-child pid.
+#
+# PRE-REGISTERED OUTCOMES, read off the run's own KSP.log and result JSON before any edit:
+#   (A) EXPECTED on the new C#: MISSION-OK (five rows, `upperStageBurned` met), every
+#       token, endings 0 mismatches. Then arm the endings block (ARMED_ALLOWLIST) and pin
+#       the windows off the reading.
+#   (B) `upperStageBurned` unmet / the core never goes on rails: the burn did not light
+#       (staging order moved) or was too short - a mission outcome, not a finding.
+#   (C) endings tailSeconds ~0 with predictedSegments 0 on the boosters: the bubble-exit
+#       close still ends the recording mid-air - the C# change's own subject, a PARSEK
+#       finding on a build that claims it.
+#   (D) endAltitudeMeters ~70000: the prediction stopped at the atmosphere top.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane").
+#   1 Reuse a flight: RF-9 / RF-13H fly the same ascent, but neither lets the core leave
+#     the bubble (no upper burn) and both continue past the exit into a re-fly, so the
+#     claim would ride a longer lane whose own subject this change moves (RF-9's slot
+#     reasons). A separate act-1-only lane is the shorter flight.
+#   2 No idle waits: none; the mission ends on an observed gate.
+#   3 Minimal dwells: coastSeconds 15 (separation before the Poodle lights), burn 10 s.
+#   4 Burns at 1x: yes (the COAST physics warp is forced off before COAST-EXIT).
+#   5 b5 coasts: not applicable.
+#   6 Fail fast: the machine's own give-ups (fueled-core gate, coast-exit frame cap).
+#   7 Tight windows: count {8,14} derived (parent + core + six boosters = 8 at the
+#     commit, plus optimizer splits of the parent / core); tighten after flight 1.
+#   8 Tier by measured cost: nightly (RF-13H's act is ~6-8 min wall).
+#   9 Measure: run tools/flight_efficiency.py on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "Ignored stages fall to the ground: RF-9's Kerbal X coast-exit ascent with a 10 s Poodle burn after the core discard, so the six booster debris AND the probe-cored core really leave the physics bubble while the crewed stack coasts out above 71 km; ExitToSpaceCenter commits. Report-only endings block: each stage (debris, probe core, crewed stack) ends Destroyed with predicted segments, its end UT a minute or more past the last watched datum, its predicted arc ending at the ground; the crewed stack's crew are not marked Dead."
+instanceProfile = "stock-minimal"
+tags = ["ASR", "ASR-1", "predicted-tail", "staging", "debris", "controlled-child",
+        "scene-exit", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# RF-9's / RF-13H's host verbatim.
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+# RF-13H's act: `autoMerge=true` is mandatory for ExitToSpaceCenter (else it REJECTs
+# `dialog-required`), `verboseLogging=true` puts the finalize / crew lines in the log.
+# SaveGame after the exit: the tree commits on arrival at the Space Center, after the
+# exit's own persistent.sfs write.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
+  { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                           expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+coastExitProfile = true
+# RF-9's gate: the stack's apex 25 km outside the atmosphere, the discard inside it.
+coreDiscardApoapsisMeters   = 95000.0
+coreDiscardMaxFlightSeconds = 300.0
+# Decoupler separation before the Poodle lights (its plume points at the core).
+coastSeconds                = 15.0
+# THE OPT-IN: ~170 m/s prograde, the stack out of the core's load range in seconds.
+coastExitUpperBurnSeconds   = 10.0
+coastExitMinAltitudeMeters  = 71000.0
+coastExitSituations         = ["SUB_ORBITAL"]
+coastExitDebounceFrames     = 2
+coastExitFrames             = 600
+flightMaxSeconds            = 700.0
+recordedSpanWindowSeconds   = { min = 60.0, max = 650.0 }
+
+[dimensionsCovered]
+# BASICS ONLY until the first green flight.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 8, max = 14 }
+
+[expectations.logContracts]
+# Every literal read from the source at the file named.
+required  = [
+  "Recording started",
+  # Recording/SegmentBoundaryLogic.cs + ParsekFlightSplitBrancher: the core is a
+  # controlled child (RF-9 / GS-4's measured lines).
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  # Recording/BackgroundRecorder.cs CheckDebrisTTL: a booster left the bubble.
+  "Debris TTL: vessel left physics bubble, ending recording:",
+  # The core really left the load range: its controlled-child pid goes on rails
+  # (BackgroundRecorder.OnBackgroundVesselGoOnRails `Mode transition loaded->on-rails`,
+  # the arrow is one non-ASCII character, hence \\S{1,3}).
+  "ProcessBreakupEvent: controlled child created: pid=([0-9]+)[\\s\\S]*?Mode transition loaded\\S{1,3}on-rails: pid=\\1\\b",
+  # The commit (RF-9's tokens).
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # C#-DEPENDENT (wp3): KSP never destroyed the crewed stack, so its predicted crash
+  # must not kill the crew (Crew/KerbalsModule.CrewEndStates.cs PopulateCrewEndStates).
+  "PopulateCrewEndStates: recording='Kerbal X' \\(id=\\S+\\) crew=[1-9][0-9]* aboard=[0-9]+ dead=[1-9]",
+]
+
+# REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
+[expectations.recordings.endings.vessels."Kerbal X Debris"]
+ended             = { min = 4, max = 6 }
+terminalStates    = ["Destroyed"]
+predictedSegments = { min = 1 }
+tailSeconds       = { min = 20 }
+endAltitudeMeters = { min = -500, max = 5000 }
+
+[expectations.recordings.endings.vessels."Kerbal X Probe"]
+ended             = { min = 1, max = 1 }
+terminalStates    = ["Destroyed"]
+predictedSegments = { min = 1 }
+tailSeconds       = { min = 60 }
+endAltitudeMeters = { min = -500, max = 5000 }
+
+[expectations.recordings.endings.vessels."Kerbal X"]
+ended             = { min = 1, max = 1 }
+terminalStates    = ["Destroyed"]
+predictedSegments = { min = 1 }
+tailSeconds       = { min = 60 }
+endAltitudeMeters = { min = -500, max = 5000 }
+
+# REPORT-ONLY: one committed tree, nothing re-flown, nobody tombstoned.
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+terminalStates = { Destroyed = { min = 6 } }
+
+[runtime]
+# LoadGame 660 + SetSetting x3 360 + mission 1600 + ExitToSpaceCenter 240 + SaveGame 120
+#   + FlushAndQuit 120 = 3100. 3400 clears it.
+budgetSeconds = 3400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

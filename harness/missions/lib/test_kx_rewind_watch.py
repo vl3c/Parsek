@@ -3164,6 +3164,84 @@ class CoastExitProfileTests(unittest.TestCase):
         self.assertEqual(mlib.MISSION_ASSERT_FAIL, st.verdict)
 
 
+class CoastExitUpperBurnTests(unittest.TestCase):
+    """ASR-1 / ASR-5's opt-in on top of RF-9's coast exit: burn the Poodle for a few
+    game seconds at the start of COAST-EXIT so the stack leaves the discarded
+    probe-cored core outside the physics bubble. Off (absent or 0) must leave RF-9's
+    COAST-EXIT frame for frame identical; on, the gate is not read until the burn
+    has run and been cut, and the fifth row reads the OBSERVED burn."""
+
+    _to_coast = CoastExitProfileTests._to_coast
+    _coast_out = CoastExitProfileTests._coast_out
+
+    def _replay(self, **over):
+        st = self._to_coast(coastExitProfile=True, **over)
+        trace = []
+        ut = 1160.0
+        for _ in range(30):
+            burning = (st.phase == mlib.KXRW_COAST_EXIT and not st.upper_burn_done
+                       and st.params.coast_exit_upper_burn_seconds > 0.0)
+            # The altitude MOVES every frame: identical readings for ten frames are
+            # the frozen-telemetry (destroyed craft) detector's signal.
+            st, acts = self._coast_out(
+                st, ut=ut, altitude=72000.0 + 100.0 * (ut - 1160.0),
+                situation="SUB_ORBITAL",
+                throttle=1.0 if burning else 0.0,
+                available_thrust=250000.0 if burning else 0.0)
+            trace.append((st.phase, tuple((a.kind, a.value) for a in acts)))
+            ut += 1.0
+            if st.done:
+                break
+        return st, tuple(trace)
+
+    def test_zero_is_rf9_frame_for_frame(self):
+        absent_state, absent_trace = self._replay()
+        zero_state, zero_trace = self._replay(coastExitUpperBurnSeconds=0.0)
+        self.assertEqual(absent_trace, zero_trace)
+        self.assertEqual(mlib.KXRW_DONE, absent_state.phase)
+        self.assertFalse(any(k == mlib.ACTION_ACTIVATE_STAGE
+                             for _, acts in absent_trace for k, _ in acts))
+
+    def test_the_burn_lights_the_stage_then_cuts_before_the_gate(self):
+        st, trace = self._replay(coastExitUpperBurnSeconds=10.0)
+        self.assertEqual(mlib.KXRW_DONE, st.phase)
+        self.assertIsNone(st.verdict)
+        first = trace[0]
+        self.assertEqual(mlib.KXRW_COAST_EXIT, first[0])
+        self.assertEqual((mlib.ACTION_AP_POINT_PROGRADE, mlib.ACTION_ACTIVATE_STAGE,
+                          mlib.ACTION_SET_THROTTLE), tuple(k for k, _ in first[1]))
+        cut = [i for i, (_, acts) in enumerate(trace)
+               if any(k == mlib.ACTION_CUT_THROTTLE for k, _ in acts)]
+        self.assertEqual(1, len(cut))
+        # Start stamped on the first COAST-EXIT frame (1161), cut 10 s later (1171),
+        # and the gate (debounce 2) closes the mission two frames after the cut.
+        self.assertEqual(1161.0, st.upper_burn_start_ut)
+        self.assertEqual(1171.0, st.upper_burn_end_ut)
+        self.assertEqual(1173.0, st.coast_exit_ut)
+        self.assertEqual(250000.0, st.upper_burn_peak_thrust)
+        self.assertEqual(1.0, st.upper_burn_peak_throttle)
+
+    def test_the_fifth_row_reads_the_observed_burn(self):
+        p = mlib.kxrw_params_from_dict(params(
+            coastExitProfile=True, coastExitUpperBurnSeconds=10.0,
+            recordedSpanWindowSeconds={"min": 60.0, "max": 600.0}))
+        st, _ = self._replay(coastExitUpperBurnSeconds=10.0)
+        rows = mlib.evaluate_kxrw_assertions([], p, st)
+        self.assertEqual(["coreDiscardedWithEnginesOff", "boosterStagesDropped",
+                          "recordedSpanSeconds", "handedOverAboveAtmosphere",
+                          "upperStageBurned"], [r.name for r in rows])
+        self.assertTrue(rows[-1].met, rows[-1].to_dict())
+        # An engine that never lit (no available thrust) fails the row even though
+        # the burn was commanded and timed out normally.
+        dead = dataclasses.replace(st, upper_burn_peak_thrust=0.0)
+        self.assertFalse(mlib.evaluate_kxrw_assertions([], p, dead)[-1].met)
+        # Off: still four rows.
+        p0 = mlib.kxrw_params_from_dict(params(
+            coastExitProfile=True,
+            recordedSpanWindowSeconds={"min": 60.0, "max": 600.0}))
+        self.assertEqual(4, len(mlib.evaluate_kxrw_assertions([], p0, st)))
+
+
 class CraftAndSchemaSyncTests(unittest.TestCase):
     """The staging plan is a FACT about the committed craft file, and the params
     are a fact about the machine's own reads. Both are derived MECHANICALLY here -

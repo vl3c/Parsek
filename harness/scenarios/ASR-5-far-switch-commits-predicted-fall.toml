@@ -1,0 +1,160 @@
+schema = 1
+id = "ASR-5-far-switch-commits-predicted-fall"
+# =====================================================================================
+# ASR-5: A FAR SWITCH-TO WHILE THE STAGES FALL COMMITS THE TREE WITH THEIR PREDICTED
+# FALLS ATTACHED. AUTHORED 2026-11-21, NEVER FLOWN. Report-only until the predicted-tail
+# C# change merges and a reading run sizes the windows. ASR-1's flight, ended by a far
+# switch instead of a scene exit.
+# =====================================================================================
+#
+# WHAT IT PROVES (owner ruling). A Switch-To an UNLOADED vessel is a FLIGHT -> FLIGHT
+# scene reload; Parsek decides the live recording BEFORE stock switches (Case B: no
+# session, a live recording, `target.loaded == false`, auto-merge -> Merge ->
+# `CommitTreeFlight`, S0.14's measured chain). The commit is where Parsek stops watching
+# every stage, so each one must leave the commit with its predicted fall attached:
+# Destroyed, predicted segments, end UT past the commit, the arc ending at the ground.
+#
+# THE FLIGHT. ASR-1's Kerbal X coast-exit ascent with the 10 s Poodle burn (the six
+# booster debris and the probe-cored core out of the physics bubble, the crewed stack
+# coasting SUB_ORBITAL above 71 km) on `eva2-lko-crewed`, whose LKO holds an OWNED,
+# commandable `Kerbal X Probe` (pid 2614652043, ~100 km, never loaded from the pad). When
+# the mission ends, `AlarmJump pid=2614652043 jump=shown` presses a stock alarm's Jump on
+# it - the seam's one route to Case B (`SimulateStockSwitchClick` refuses an unloaded
+# target by design; S0.14 flew this verb green). `ListHandles kind=chains` then holds the
+# lane until the reloaded scene's OnFlightReady (S0.14's idiom). The stack is coasting
+# with the throttle cut above the atmosphere, so stock's ClearToSave lets the switch run.
+# The fixture's own orbiting `Kerbal X` / `Kerbal X Probe` carry no recordings (no
+# ParsekScenario trees), so every endings row below is this flight's.
+#
+# C#-DEPENDENT (red on today's build by design): the endings block (save fields), the
+# forbidden `CommitTreeFlight terminal: ... terminalState=SubOrbital` (EXISTING literal;
+# today the in-flight commit stamps the falling stack SubOrbital) and the forbidden crew
+# death line (EXISTING literal). NOT C#-dependent: the Case B chain (S0.14's literals).
+#
+# PRE-REGISTERED OUTCOMES. (A) EXPECTED: MISSION-OK, every token, endings 0 mismatches.
+# (B) `resolution=StockWillRefuse reason=stock-not-clear-to-save:<status>`: stock would
+# refuse the switch at that moment (S0.14's P4) - a physics outcome, lengthen the coast.
+# (C) `alarmjump rejected reason=alarmjump-target-not-found`: the target pid moved on the
+# fixture - a fixture outcome. (D) the endings tail ~0 / no predicted segment: the C#
+# change's own subject, a PARSEK finding on a build that claims it.
+#
+# FAST-LANE CHECKLIST: ASR-1's, plus 2: the post-switch wait is ListHandles' own
+# OnFlightReady hold, not a fixed dwell. Tier nightly (ASR-1's flight + ~1 min).
+# =====================================================================================
+tier = "nightly"
+description = "A far Switch-To during the fall commits the predicted falls: ASR-1's Kerbal X coast-exit ascent with a 10 s Poodle burn on eva2-lko-crewed, then a stock Alarm Clock Jump to the fixture's unloaded Kerbal X Probe in LKO auto-resolves Case B Merge and CommitTreeFlight runs before the FLIGHT reload. Report-only endings block: debris, probe core and crewed stack each end Destroyed with predicted segments, past the commit, at the ground; no SubOrbital commit verdict, no crew death."
+instanceProfile = "stock-minimal"
+tags = ["ASR", "ASR-5", "predicted-tail", "far-switch", "alarm-jump", "staging", "debris",
+        "controlled-child", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+# `autoMerge=true` is LOAD-BEARING twice: Case B decides Merge only with it on (S0.14),
+# and it is the kx coast-exit profile's own requirement.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
+  { cmd = "AlarmJump",         args = { pid = "2614652043", jump = "shown" },            expect = "OK", budget = 120 },
+  { cmd = "ListHandles",       args = { kind = "chains" },                               expect = "OK", budget = 240 },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+# ASR-1's params verbatim.
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+coastExitProfile = true
+coreDiscardApoapsisMeters   = 95000.0
+coreDiscardMaxFlightSeconds = 300.0
+coastSeconds                = 15.0
+coastExitUpperBurnSeconds   = 10.0
+coastExitMinAltitudeMeters  = 71000.0
+coastExitSituations         = ["SUB_ORBITAL"]
+coastExitDebounceFrames     = 2
+coastExitFrames             = 600
+flightMaxSeconds            = 700.0
+recordedSpanWindowSeconds   = { min = 60.0, max = 650.0 }
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 8, max = 14 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  "Debris TTL: vessel left physics bubble, ending recording:",
+  "ProcessBreakupEvent: controlled child created: pid=([0-9]+)[\\s\\S]*?Mode transition loaded\\S{1,3}on-rails: pid=\\1\\b",
+  # S0.14's Case B chain (TestCommands/ParsekTestCommandAddon.AlarmJump.cs,
+  # Patches/MapFocusObjectOnSelectPatch.cs, Controllers/ParsekFlightMergeFlow.cs).
+  "alarmjump start targetPid=2614652043 vessel='Kerbal X Probe' targetIsGhost=false targetLoaded=false ",
+  "pre-switch auto-resolve: resolution=Merge case=B-unloaded ",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "(?s)pre-switch-dialog-merge-chosen-no-session priorTreeId=\\S+ newTargetPid=2614652043\\b.*?Scene change requested: FLIGHT at UT=",
+  "listhandles kind=chains count=[0-9]+ truncated=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "pre-switch-dialog opening",
+  "alarmjump rejected",
+  "alarmjump failed",
+  # C#-DEPENDENT: the falling stages leave the commit with an ending, not SubOrbital.
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=SubOrbital",
+  # C#-DEPENDENT (wp3): KSP never destroyed the crewed stack.
+  "PopulateCrewEndStates: recording='Kerbal X' \\(id=\\S+\\) crew=[1-9][0-9]* aboard=[0-9]+ dead=[1-9]",
+]
+
+# REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
+[expectations.recordings.endings.vessels."Kerbal X Debris"]
+ended             = { min = 4, max = 6 }
+terminalStates    = ["Destroyed"]
+predictedSegments = { min = 1 }
+tailSeconds       = { min = 20 }
+endAltitudeMeters = { min = -500, max = 5000 }
+
+[expectations.recordings.endings.vessels."Kerbal X Probe"]
+ended             = { min = 1, max = 1 }
+terminalStates    = ["Destroyed"]
+predictedSegments = { min = 1 }
+tailSeconds       = { min = 60 }
+endAltitudeMeters = { min = -500, max = 5000 }
+
+[expectations.recordings.endings.vessels."Kerbal X"]
+ended             = { min = 1, max = 1 }
+terminalStates    = ["Destroyed"]
+predictedSegments = { min = 1 }
+tailSeconds       = { min = 60 }
+endAltitudeMeters = { min = -500, max = 5000 }
+
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+# LoadGame 660 + SetSetting x3 360 + mission 1600 + AlarmJump 120 + ListHandles 300
+#   + FlushAndQuit 120 = 3160. 3400 clears it.
+budgetSeconds = 3400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1,0 +1,146 @@
+schema = 1
+id = "ASR-2-chute-stage-ends-landed"
+# =====================================================================================
+# ASR-2: A STAGE LEFT UNDER OPEN PARACHUTES ENDS LANDED AT TOUCHDOWN. AUTHORED
+# 2026-11-21, NEVER FLOWN. Report-only until the predicted-tail C# change merges and a
+# reading run sizes the windows.
+# =====================================================================================
+#
+# WHAT IT PROVES (owner ruling). When the player stops flying a stage whose chutes are
+# open, Parsek predicts its chute-speed descent and ends the recording `Landed` (or
+# `Splashed`) at touchdown instead of `SubOrbital` in mid-air.
+#
+# THE FLIGHT. RF-1's act 1 verbatim on `gs1-two-stage-pad`: the GS1 Auto-Chute Booster
+# hops to a ~700 m apoapsis, stages at the apex (the probe-cored booster's six Mk2-R
+# canopies arm in the decoupler's own stage), the pod comes down on its Mk16 and lands
+# first, and `siblingAirborneAtExit = true` ends the mission as soon as the booster is
+# OBSERVED still airborne under canopy after the pod is down. The spec's
+# ExitToSpaceCenter then commits the tree with the booster hanging under its chutes.
+# The booster is still inside the physics bubble at the commit (a hop cannot carry a
+# stage out of range), so this covers the COMMIT trigger with the stage still held by
+# KSP; ASR-1 covers the out-of-range triggers.
+#
+# TODAY (measured on RF-1's flights): the booster closes `terminal=SubOrbital` and the
+# classifier opens an Unfinished Flight for it (`IsUnfinishedFlight=true ...
+# reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital`). After the change
+# it ends Landed / Splashed, the slot is stable and the RewindPoint is expected to reap
+# (reported below, not gated: that is the classifier's decision downstream of the ending).
+# NOTE FOR THE SUPERVISOR: every lane that relies on that SubOrbital open slot (RF-1,
+# RB-4 / RB-5, QL-4 family, VN-2 / VN-9 / VN-14, RF-4, RF-C1, RF-L2, STR-2 / STR-3, L13,
+# QL-2b / QL-2c, QL-7) changes meaning with the same C#.
+#
+# WHAT IS READ. `[expectations.recordings.endings]` (harness/lib/endingsq.py) over the
+# produced save: the booster's ended recording terminal in {Landed, Splashed}, and its
+# end UT past its last watched datum (tailSeconds >= 5: the booster is still descending
+# at ~5-7 m/s under six canopies when the mission exits, from tens to hundreds of
+# metres). No predicted-segment or altitude window: a chute descent is not a two-body
+# arc and the change's representation of it is not specified, so the numbers are
+# REPORTED (`predictedSegments`, `endAltitudeMeters`) and not asserted.
+#
+# C#-DEPENDENT: the endings windows (save fields) and the forbidden SubOrbital classifier
+# line (an EXISTING literal, Rewind/EffectiveState.cs, that today's build prints).
+# NOT C#-dependent: the flight and the commit tokens.
+#
+# FAST-LANE CHECKLIST. 1 RF-1's act 1 is this flight, but RF-1 continues into a re-fly of
+# the very slot this change closes, so its tokens move with the C#; a separate act-1 lane
+# is the short honest host. 2 No idle waits (observed exit). 3 Dwells: none added. 4 No
+# burns beyond the hop. 6 Fail fast: the gs1 machine's named give-ups. 7 count {2,8}
+# from GS-1 / RF-1, tighten after flight 1. 8 Tier nightly (the act is ~2-3 min of
+# flight). 9 flight_efficiency.py on the first green flight.
+# =====================================================================================
+tier = "nightly"
+description = "A stage left under open chutes ends Landed at touchdown: RF-1's GS1 hop, the probe-cored booster still under its six canopies when the pod lands and ExitToSpaceCenter commits. Report-only endings block: the booster's recording ends Landed or Splashed, past its last watched sample; the SubOrbital open-slot classifier line is forbidden."
+instanceProfile = "stock-minimal"
+tags = ["ASR", "ASR-2", "predicted-tail", "parachute", "staging", "controlled-child",
+        "scene-exit", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { phase = "mission",                                                                   expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                           expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+# RF-1's params verbatim.
+[driver.missionParams]
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 8 }
+
+[expectations.logContracts]
+required  = [
+  "Recording started",
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # C#-DEPENDENT: today's open-slot verdict for the booster (Rewind/EffectiveState.cs).
+  "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital",
+]
+
+# REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
+[expectations.recordings.endings.vessels."GS1 Auto-Chute Booster Probe"]
+ended          = { min = 1, max = 1 }
+terminalStates = ["Landed", "Splashed"]
+tailSeconds    = { min = 5 }
+
+[expectations.recordings.endings.vessels."GS1 Auto-Chute Booster"]
+ended          = { min = 1, max = 1 }
+terminalStates = ["Landed", "Splashed"]
+
+# REPORT-ONLY: the RewindPoint the split authored is expected to reap once both slots
+# end stable (GS-1's shape); read, not gated.
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+terminalStates = { SubOrbital = { max = 0 } }
+
+[runtime]
+# LoadGame 660 + SetSetting x3 360 + mission 900 + ExitToSpaceCenter 240 + SaveGame 120
+#   + FlushAndQuit 120 = 2400. 2700 clears it.
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
