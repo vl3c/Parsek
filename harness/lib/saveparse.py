@@ -445,6 +445,11 @@ class RecordingRow:
     # The codec omits nothing here, but a hand-written or pre-codec node may, so
     # None = absent / unparseable and 0 = "not spawned" stay distinct.
     spawned_pid: Optional[int] = None
+    # `explicitEndUT` (written only when the recording's ExplicitEndUT is set; None =
+    # absent) and `chainId` (the optimizer's chain pieces share it; "" = none). Read by
+    # the `[expectations.recordings.endings]` block (endingsq.py).
+    explicit_end_ut: Optional[float] = None
+    chain_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -832,6 +837,8 @@ def _parse_recording(node: SfsNode) -> RecordingRow:
         schema_generation=_parse_int(node.value("recordingSchemaGeneration")),
         point_count=_parse_int(node.value("pointCount")),
         spawned_pid=_parse_int(node.value("spawnedPid")),
+        explicit_end_ut=_parse_float(node.value("explicitEndUT")),
+        chain_id=node.value("chainId") or "",
     )
 
 
@@ -1742,6 +1749,9 @@ ROUTES_BLOCK_KEYS: Tuple[str, ...] = (GATING_KEY,) + ROUTES_ASSERTION_KEYS
 # arming / mismatch machinery). Nested under [expectations.recordings] beside
 # structure / points.
 SAMPLING_BLOCK = "sampling"
+# The sixth block: how each named vessel's recording ENDED (endingsq.py), nested
+# under [expectations.recordings] beside `sampling`, and read off the same mirrors.
+ENDINGS_BLOCK = "endings"
 
 STATUS_REPORT = "REPORT"
 STATUS_PASS = "PASS"
@@ -2030,6 +2040,13 @@ def save_structure_expectation_warnings(expectations: Optional[Dict]) -> List[st
         if not any(k in sampling for k in samplingq.SAMPLING_ASSERTION_KEYS):
             warns.append("expectations.recordings.sampling: declared with no assertion "
                          "key - the block reports its facets and gates nothing")
+    endings = (recordings.get(ENDINGS_BLOCK)
+               if isinstance(recordings, dict) else None)
+    if isinstance(endings, dict):
+        import endingsq  # local: endingsq imports this module
+        if not endingsq.has_assertion(endings):
+            warns.append("expectations.recordings.endings: declared with no per-vessel "
+                         "assertion key - the block reports nothing and gates nothing")
     return warns
 
 
@@ -2105,6 +2122,10 @@ def _sampling_block(expectations: Dict) -> Optional[Dict]:
     return _recordings_sub_block(expectations, SAMPLING_BLOCK)
 
 
+def _endings_block(expectations: Dict) -> Optional[Dict]:
+    return _recordings_sub_block(expectations, ENDINGS_BLOCK)
+
+
 def declared_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
     """Which of the four M-C2 save-parse blocks the spec declares, stable order."""
     expectations = expectations or {}
@@ -2119,6 +2140,8 @@ def declared_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
         out.append(ROUTES_BLOCK)
     if _sampling_block(expectations) is not None:
         out.append("recordings.sampling")
+    if _endings_block(expectations) is not None:
+        out.append("recordings.endings")
     return tuple(out)
 
 
@@ -2143,6 +2166,9 @@ def armed_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
     sampling = _sampling_block(expectations)
     if sampling is not None and sampling.get(GATING_KEY) is True:
         out.append("recordings.sampling")
+    endings = _endings_block(expectations)
+    if endings is not None and endings.get(GATING_KEY) is True:
+        out.append("recordings.endings")
     return tuple(out)
 
 
@@ -2203,8 +2229,9 @@ def evaluate_save_structure(
 
     ``sampling`` is the ``samplingq.SamplingInput`` the caller read off the
     produced save's sidecars and the collected log; it is only consulted when
-    ``[expectations.recordings.sampling]`` is declared (its facets land under
-    ``observed["recordings"]["sampling"]``).
+    ``[expectations.recordings.sampling]`` or ``[expectations.recordings.endings]``
+    is declared (their facets land under ``observed["recordings"]["sampling"]`` /
+    ``["endings"]``).
     """
     expectations = expectations or {}
     blocks = declared_structure_blocks(expectations)
@@ -2218,6 +2245,15 @@ def evaluate_save_structure(
         observed = dict(observed)
         recs = dict(observed.get("recordings") or {})
         recs["sampling"] = sampling_facets
+        observed["recordings"] = recs
+    endings_spec = _endings_block(expectations)
+    endings_facets: Dict[str, Any] = {}
+    if endings_spec is not None:
+        import endingsq  # local: endingsq imports this module
+        endings_facets = endingsq.observed_endings_facets(endings_spec, snapshot, sampling)
+        observed = dict(observed)
+        recs = dict(observed.get("recordings") or {})
+        recs["endings"] = endings_facets
         observed["recordings"] = recs
     # Per-block mismatch partition (finding 3): only armed blocks' mismatches
     # drive PASS/FAIL; everything lands in the report list.
@@ -2332,6 +2368,11 @@ def evaluate_save_structure(
             import samplingq  # local: samplingq imports this module
             per_block["recordings.sampling"].extend(
                 samplingq.evaluate_sampling(sampling_spec, sampling_facets))
+
+        if endings_spec is not None:
+            import endingsq  # local: endingsq imports this module
+            per_block["recordings.endings"].extend(
+                endingsq.evaluate_endings(endings_spec, endings_facets))
 
     # Dedupe while preserving order: a STRUCTURAL fault is attributed to every
     # declared block (it must gate whichever block is armed), but the flattened
