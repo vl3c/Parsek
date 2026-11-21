@@ -18,6 +18,8 @@ namespace Parsek
         public int ClippedSegmentCount;
         public int KeptCoastSegmentCount;
         public int RemovedDescentPointCount;
+        // Takeover after the end: predicted descent sections kept as recorded history.
+        public int KeptDescentSectionCount;
         public TerminalState? PreviousTerminal;
         public bool PreviousTerminalPredicted;
         public double PreviousExplicitEndUT;
@@ -312,7 +314,8 @@ namespace Parsek
         /// <summary>
         /// The takeover-after-the-end branch of <see cref="DropPredictedEndingForTakeover"/>
         /// (<see cref="IsTakeoverAfterPredictedEnd"/>): the whole predicted tail stays and
-        /// becomes recorded history (every predicted segment loses <c>isPredicted</c>); only
+        /// becomes recorded history (every predicted segment loses <c>isPredicted</c>, every
+        /// predicted descent section becomes a Background section); only
         /// the ending goes (terminal, predicted flag, terminal orbit and surface metadata, the
         /// crew answer it decided), so the flight continues from the spawn and its commit
         /// stamps the real ending. Logs one Info line.
@@ -322,7 +325,8 @@ namespace Parsek
             PredictedEndingDropResult result)
         {
             result.CutUT = double.NaN;
-            result.KeptCoastSegmentCount = MarkWholePredictedTailRecorded(rec);
+            result.KeptCoastSegmentCount = MarkWholePredictedTailRecorded(
+                rec, out result.KeptDescentSectionCount);
             rec.StampTerminalState(null, "PredictedEndingTakeover.AfterEnd:" + (context ?? "(none)"));
             result.TerminalCleared = true;
             result.CrewEndStatesCleared = ClearDroppedEndingCrewAnswer(rec, result.PreviousTerminal);
@@ -341,8 +345,8 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "Predicted ending kept for takeover after its end: context={0} rec={1} vessel='{2}' pid={3} " +
                     "takeoverUT={4} lastRealUT={5} predictedEndUT={6} keptSegments={7} previousTerminal={8} " +
-                    "previousTerminalPredicted={9} crewEndStatesCleared={10} (the replay reached the ending " +
-                    "and spawned the vessel; the flight continues from the spawn)",
+                    "previousTerminalPredicted={9} crewEndStatesCleared={10} keptDescentSections={11} " +
+                    "(the replay reached the ending and spawned the vessel; the flight continues from the spawn)",
                     context ?? "(none)",
                     rec.RecordingId ?? "(null)",
                     rec.VesselName ?? "",
@@ -353,19 +357,42 @@ namespace Parsek
                     result.KeptCoastSegmentCount,
                     result.PreviousTerminal.HasValue ? result.PreviousTerminal.Value.ToString() : "null",
                     result.PreviousTerminalPredicted ? "true" : "false",
-                    result.CrewEndStatesCleared ? "true" : "false"));
+                    result.CrewEndStatesCleared ? "true" : "false",
+                    result.KeptDescentSectionCount));
             return result;
         }
 
         /// <summary>
         /// Every predicted segment of <paramref name="rec"/> becomes recorded history (the
-        /// takeover-after-the-end branch). A predicted descent stored outside the orbit
-        /// segments is converted here too where that storage exists. Returns how many
-        /// segments it marked.
+        /// takeover-after-the-end branch), and so does every predicted descent section
+        /// (<see cref="TrackSectionSource.Predicted"/> becomes
+        /// <see cref="TrackSectionSource.Background"/>; its frames and the flat points it added
+        /// are unchanged), so the last real sample now counts the descent. Returns how many
+        /// segments it marked; <paramref name="sectionsMarked"/> is how many sections.
         /// </summary>
-        private static int MarkWholePredictedTailRecorded(Recording rec)
+        private static int MarkWholePredictedTailRecorded(Recording rec, out int sectionsMarked)
         {
-            if (rec?.OrbitSegments == null)
+            sectionsMarked = 0;
+            if (rec == null)
+                return 0;
+            if (rec.TrackSections != null)
+            {
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    TrackSection section = rec.TrackSections[i];
+                    if (!RecordingFinalizationCacheApplier.IsPredictedSection(section))
+                        continue;
+                    section.source = TrackSectionSource.Background;
+                    rec.TrackSections[i] = section;
+                    sectionsMarked++;
+                }
+                if (sectionsMarked > 0)
+                {
+                    rec.CachedStats = null;
+                    rec.CachedStatsPointCount = 0;
+                }
+            }
+            if (rec.OrbitSegments == null)
                 return 0;
             int marked = 0;
             for (int i = 0; i < rec.OrbitSegments.Count; i++)

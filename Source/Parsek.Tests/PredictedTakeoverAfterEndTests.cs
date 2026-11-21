@@ -267,5 +267,126 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.Landed, committed.TerminalStateValue);
             Assert.Equal(1, PredictedCount(committed));
         }
+
+        // A capsule recorded in one Absolute section to UT 160 at 1500 m, then a predicted
+        // chute descent (a TrackSectionSource.Predicted section) to a touchdown at UT 400.
+        private static Recording MakePredictedChuteTouchdown()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec_capsule",
+                TreeId = "tree_asr",
+                VesselName = "Capsule",
+                VesselPersistentId = StagePid,
+                RecordedVesselGuid = StageGuid,
+            };
+            var real = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", latitude = 1, longitude = 2, altitude = 3000 },
+                new TrajectoryPoint { ut = 160.0, bodyName = "Kerbin", latitude = 1, longitude = 2, altitude = 1500 },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 160.0,
+                frames = new List<TrajectoryPoint>(real),
+                source = TrackSectionSource.Background,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+            });
+            rec.Points.AddRange(real);
+            var descent = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 250.0, bodyName = "Kerbin", latitude = 1, longitude = 2, altitude = 800 },
+                new TrajectoryPoint { ut = 400.0, bodyName = "Kerbin", latitude = 1, longitude = 2, altitude = 70 },
+            };
+            Assert.Equal(2, RecordingFinalizationCacheApplier.AppendPredictedDescent(
+                rec, descent, 160.0, 400.0, "test"));
+            rec.StampTerminalState(TerminalState.Landed, "test", predicted: true);
+            rec.ExplicitEndUT = 400.0;
+            rec.TerminalPosition = new SurfacePosition { body = "Kerbin", latitude = 1, longitude = 2, altitude = 70 };
+            rec.TerrainHeightAtEnd = 65.0;
+            return rec;
+        }
+
+        private static int PredictedSectionCount(Recording rec)
+        {
+            int n = 0;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+                if (rec.TrackSections[i].source == TrackSectionSource.Predicted) n++;
+            return n;
+        }
+
+        // catches: a takeover at the end of a predicted chute descent keeping the descent
+        // section marked predicted (the last real sample would still read UT 160, so the next
+        // takeover or finalization would remove the descent the replay already flew), or
+        // dropping it.
+        [Fact]
+        public void Drop_TakeoverAtPredictedChuteTouchdown_KeepsTheDescentAsRecorded()
+        {
+            Recording rec = MakePredictedChuteTouchdown();
+            Assert.True(PredictedEndingTakeover.HasPredictedEnding(rec));
+            Assert.True(PredictedEndingTakeover.TryGetLastRealUT(rec, out double before));
+            Assert.Equal(160.0, before, 6);
+            int pointsBefore = rec.Points.Count;
+
+            PredictedEndingDropResult result =
+                PredictedEndingTakeover.DropPredictedEndingForTakeover(rec, 400.0, "test");
+
+            Assert.False(result.Dropped);
+            Assert.Equal("takeover-after-predicted-end", result.Reason);
+            Assert.Equal(1, result.KeptDescentSectionCount);
+            Assert.Equal(0, PredictedSectionCount(rec));
+            Assert.Equal(2, rec.TrackSections.Count);
+            Assert.Equal(TrackSectionSource.Background, rec.TrackSections[1].source);
+            Assert.Equal(400.0, rec.TrackSections[1].frames[rec.TrackSections[1].frames.Count - 1].ut, 6);
+            Assert.Equal(pointsBefore, rec.Points.Count);
+            Assert.Equal(400.0, rec.EndUT, 6);
+            Assert.True(PredictedEndingTakeover.TryGetLastRealUT(rec, out double after));
+            Assert.Equal(400.0, after, 6);
+            Assert.Null(rec.TerminalStateValue);
+            Assert.False(rec.TerminalPredicted);
+            Assert.Null(rec.TerminalPosition);
+            Assert.False(PredictedEndingTakeover.HasPredictedEnding(rec));
+            Assert.Contains(logLines, l => l.Contains("[PredictedTakeover]")
+                && l.Contains("Predicted ending kept for takeover after its end")
+                && l.Contains("keptDescentSections=1"));
+        }
+
+        // catches: Tracking Station Fly of a capsule spawned at its predicted chute touchdown
+        // resuming a clone that still carries the descent as a prediction.
+        [Fact]
+        public void TryTakeCommittedTree_SpawnedChuteCapsuleFlownAfterTouchdown_DescentBecomesRecorded()
+        {
+            Recording committed = MakePredictedChuteTouchdown();
+            committed.VesselSpawned = true;
+            committed.SpawnedVesselPersistentId = SpawnPid;
+            int pointsBefore = committed.Points.Count;
+            var tree = new RecordingTree { Id = "tree_asr", TreeName = "ASR" };
+            tree.AddOrReplaceRecording(committed);
+            tree.ActiveRecordingId = committed.RecordingId;
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddCommittedInternal(committed);
+
+            bool taken = ParsekFlight.TryTakeCommittedTreeForSpawnedVesselRestore(
+                SpawnPid, out RecordingTree liveTree, out string recId, out _,
+                activeVesselGuid: null, liveUT: 450.0);
+
+            Assert.True(taken);
+            Assert.Equal("rec_capsule", recId);
+            Recording clone = liveTree.Recordings["rec_capsule"];
+            Assert.Equal(0, PredictedSectionCount(clone));
+            Assert.Equal(2, clone.TrackSections.Count);
+            Assert.Equal(pointsBefore, clone.Points.Count);
+            Assert.Equal(400.0, clone.EndUT, 6);
+            Assert.Null(clone.TerminalStateValue);
+            Assert.True(PredictedEndingTakeover.TryGetLastRealUT(clone, out double lastReal));
+            Assert.Equal(400.0, lastReal, 6);
+
+            Assert.Equal(TerminalState.Landed, committed.TerminalStateValue);
+            Assert.Equal(1, PredictedSectionCount(committed));
+        }
     }
 }
