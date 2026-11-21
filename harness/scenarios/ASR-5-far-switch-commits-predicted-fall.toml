@@ -119,7 +119,9 @@ required = [
   "alarmjump start targetPid=2614652043 vessel='Kerbal X Probe' targetIsGhost=false targetLoaded=false ",
   "pre-switch auto-resolve: resolution=Merge case=B-unloaded ",
   "CommitTreeFlight: starting tree commit at UT=",
-  "(?s)pre-switch-dialog-merge-chosen-no-session priorTreeId=\\S+ newTargetPid=2614652043\\b.*?Scene change requested: FLIGHT at UT=",
+  # The far switch leaves the flight scene (owner ruling Q14's far Switch-To case,
+  # `leavesFlightScene=` suffix from asr-fix-exit 1fa2e6913).
+  "(?s)pre-switch-dialog-merge-chosen-no-session priorTreeId=\\S+ newTargetPid=2614652043 leavesFlightScene=True\\b.*?Scene change requested: FLIGHT at UT=",
   "listhandles kind=chains count=[0-9]+ truncated=",
 ]
 forbidden = [

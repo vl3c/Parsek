@@ -38,9 +38,11 @@ id = "ASR-2-chute-stage-ends-landed"
 # promoted `CommittedProvisional` (`CommitTree promoted ... slot=1 ... reason=crashed`,
 # Recording/TreeCommitService.cs) and the RewindPoint is NOT reaped (rewindPoints 1). The
 # quiet end is read off the save (`quietEnd = True` on the booster's RECORDING node,
-# RecordingTreeRecordCodec) and off `Recording.StampTerminalState`'s Verbose
-# `terminal quiet-end flag false->true rec=<id> context=<site>` line (context not pinned:
-# the exit site is new in asr-fix-exit). The Q4 `predictedTouchdown` verdict is forbidden.
+# RecordingTreeRecordCodec) and off the exit's own verdict line
+# (`[Extrapolator] Chute descent at scene exit: ... outcome=mission-lost
+# terminal=Landed->Destroyed ... predicted=False quietEnd=True exit=scene-exit`,
+# PredictedTouchdownStockFate.ApplyFlightSceneLeave, branch asr-fix-exit). The Q4
+# `predictedTouchdown` verdict is forbidden.
 #
 # WHAT IS READ. `[expectations.recordings.endings]` (harness/lib/endingsq.py) over the
 # produced save: the booster's ended recording terminal Destroyed with `quietEnd = true`,
@@ -50,7 +52,7 @@ id = "ASR-2-chute-stage-ends-landed"
 # chute descent is not a two-body arc, so those numbers are REPORTED, not asserted.
 #
 # C#-DEPENDENT: the endings windows and flags (save fields), the required crashed pair, the
-# quiet-end flag line, and the forbidden predictedTouchdown / SubOrbital classifier lines.
+# scene-exit chute verdict line, and the forbidden predictedTouchdown / SubOrbital classifier lines.
 # NOT C#-dependent: the flight and the commit tokens.
 #
 # FAST-LANE CHECKLIST. 1 RF-1's act 1 is this flight, but RF-1 continues into a re-fly of
@@ -120,9 +122,9 @@ required  = [
   # C#-DEPENDENT (owner ruling Q14): the exit ends the booster Destroyed, slot open as a crash.
   "IsUnfinishedFlight=true rec=\\S+ reason=crashed terminal=Destroyed",
   "CommitTree promoted rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' slot=1 rp=\\S+ reason=crashed to CommittedProvisional",
-  # C#-DEPENDENT, UNVERIFIED against asr-fix-exit: the quiet end is stamped on the booster's
-  # recording (Recording.StampTerminalState's flag-change line; the context is not pinned).
-  "terminal quiet-end flag false->true rec=[0-9a-f]{32} context=",
+  # C#-DEPENDENT (asr-fix-exit 1fa2e6913, PredictedTouchdownStockFate.ApplyFlightSceneLeave):
+  # the exit decides the airborne chuted booster as a lost mission, quiet end.
+  "\\[Extrapolator\\] Chute descent at scene exit: rec=[0-9a-f]{32} pid=[0-9]+ vessel='GS1 Auto-Chute Booster Probe' outcome=mission-lost terminal=(?:Landed|Splashed)->Destroyed touchdownUT=[0-9.]+ commitUT=[0-9.]+ predicted=False quietEnd=True exit=scene-exit ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

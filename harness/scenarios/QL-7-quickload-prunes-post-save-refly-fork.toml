@@ -218,11 +218,11 @@ required = [
   "savegame name=ql7-in-flight folder=.+ saved=true[\\s\\S]*exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='GS1 Auto-Chute Booster' recordings=[1-9][0-9]*",
   # The reason follows how the background booster ends at the commit. It is still in the air
-  # under its chutes at a SCENE EXIT, so since owner ruling Q14 (2026-11-21) it ends Destroyed
-  # at the exit (crashed); the older readings were a PREDICTED touchdown (predictedTouchdown,
-  # Q4 / Q4c) and SubOrbital (stableLeafUnconcluded), kept in the alternation. Each is an
+  # under its chutes at a SCENE EXIT, so since owner ruling Q14 (2026-11-21, asr-fix-exit) it
+  # ends Destroyed at the exit (crashed); the older readings were a PREDICTED touchdown
+  # (predictedTouchdown, Q4 / Q4c) and SubOrbital (stableLeafUnconcluded). Each is an
   # Unfinished Flight; the promotion is what this lane needs.
-  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=(crashed|predictedTouchdown|stableLeafUnconcluded) to CommittedProvisional",
+  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=crashed to CommittedProvisional",
   # GROUP 3 - THE RE-FLY MERGES AFTER THE SAVE (RF-1's and QL-3's).
   "listhandles kind=rewindpoints count=1 truncated=false",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
