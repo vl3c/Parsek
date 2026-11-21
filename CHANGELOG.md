@@ -63,9 +63,10 @@ Not released yet.
 - **A flight with a missing middle row still plays and follows as one flight.** When a row was
   gone from the middle of a split flight, watching, the end-of-flight walk and the parent links
   stopped at the gap. (CHAIN-NEXT-PIECE-EXACT-INDEX)
-- **A loop or hide set on one row of a flight stays on that row when you fly it again.** When
-  the new flight absorbed the old row, its loop, hide or ghost-off setting used to spread over
-  the whole flight and every row cut from it later. (FOLDED-PIECE-ROW-SETTINGS-SPREAD)
+- **A loop set on one row of a flight still loops just that part when you fly it again.** When
+  the new flight absorbed the old row, its loop, hide or ghost-off setting spread over the whole
+  flight and every row cut from it later. The loop now covers the old row's span only; a hide or
+  ghost-off on that row is not carried over. (FOLDED-PIECE-ROW-SETTINGS-SPREAD)
 - **A flight you fly again keeps everything it earned after Parsek splits it.** Science and
   milestones from the later part of a re-flown flight reached the career only on the next load,
   and a vessel whose ending moved to the new part could fail to appear.

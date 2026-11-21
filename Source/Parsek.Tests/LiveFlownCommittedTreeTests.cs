@@ -166,13 +166,15 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.Landed, liveHead.TerminalStateValue);
             // RULE 1: the shared id keeps the committed head's player settings, and what only the
             // tip owned is not lost with it: the seal (slot state is read from the tip) and the
-            // spawn claim. A per-row setting only the tail had (its loop) covered only the tail,
-            // so it does not spread over the whole survivor (BATCH-B4).
+            // spawn claim. The loop only the tail had covered only the tail, so it comes over as
+            // a loop range over the tail's own span, never the whole survivor (BATCH-B4).
             Assert.True(liveHead.Hidden);
             Assert.Equal(MergeState.Immutable, liveHead.MergeState);
             Assert.True(liveHead.VesselSpawned);
             Assert.Equal(777u, liveHead.SpawnedVesselPersistentId);
-            Assert.False(liveHead.LoopPlayback);
+            Assert.True(liveHead.LoopPlayback);
+            Assert.Equal(100.0, liveHead.LoopStartUT);
+            Assert.Equal(200.0, liveHead.LoopEndUT);
             // What named the tail now names the survivor.
             Assert.Equal("rec_head", anchored.ParentAnchorRecordingId);
             Assert.Contains("rec_head", committed.BranchPoints.Single(bp => bp.Id == "bp_probe").ParentRecordingIds);
@@ -283,14 +285,14 @@ namespace Parsek.Tests
             Assert.Equal("", TreeCommitService.CarryTipOwnedStateOnFold(null, head));
         }
 
-        // BATCH-B4: a folded piece's per-row settings (hide, ghost off, loop) covered only that
-        // piece. Carried onto the survivor they covered the whole flight, and every later split
-        // of the survivor copied them onto every re-cut row. They stay with the piece; the
-        // survivor keeps its own, and the dropped ones are logged.
-        // MUTATION NOTE: restoring the Hidden / PlaybackEnabled / Loop carry in
-        // CarryUnsetPlayerSettings reds this.
+        // BATCH-B4: a folded piece's per-row settings covered only that piece. Hide and ghost-off
+        // have no range, so they stay with the piece (logged as dropped). A loop (RULE 1, always
+        // keep it) comes over as a loop RANGE over exactly the span it covered: the piece's own
+        // range, else the piece's [StartUT, EndUT]. A range keeps the optimizer from splitting the
+        // survivor, so the loop is never copied onto re-cut rows.
+        // MUTATION NOTE: carrying the loop without the range, or dropping it, reds this.
         [Fact]
-        public void CarryTipOwnedStateOnFold_LoopOnTheFoldedPieceOnly_DoesNotSpread()
+        public void CarryTipOwnedStateOnFold_LoopOnTheFoldedPieceOnly_BecomesARangeOverThePiece()
         {
             var head = Rec("h2", 0, 100, "chain_B", 0);
             var tip = Rec("t2", 100, 200, "chain_B", 1);
@@ -302,20 +304,28 @@ namespace Parsek.Tests
 
             string carried = TreeCommitService.CarryTipOwnedStateOnFold(tip, head);
 
-            Assert.False(head.LoopPlayback);
+            Assert.True(head.LoopPlayback);
+            Assert.Equal(45, head.LoopIntervalSeconds);
+            Assert.Equal(100.0, head.LoopStartUT);
+            Assert.Equal(200.0, head.LoopEndUT);
+            Assert.True(RecordingOptimizer.HasPlayerLoopRange(head));
             Assert.False(head.Hidden);
             Assert.True(head.PlaybackEnabled);
-            Assert.DoesNotContain("Loop", carried);
+            Assert.Contains("LoopRange", carried);
             Assert.Contains("RecordingGroups", carried);
             Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
                 && l.Contains("fold of 't2' into 'h2'")
-                && l.Contains("dropped=[Hidden,PlaybackEnabled,Loop]"));
+                && l.Contains("dropped=[Hidden,PlaybackEnabled]"));
 
-            // A later split of the survivor copies only the survivor's own settings.
-            var second = Rec("h2_tail", 50, 100, "chain_B", 1);
-            RecordingOptimizer.CopyPlayerRowSettings(head, second);
-            Assert.False(second.LoopPlayback);
-            Assert.False(second.Hidden);
+            // The piece's own loop range wins over its span.
+            var head4 = Rec("h4", 0, 100, "chain_D", 0);
+            var tip4 = Rec("t4", 100, 200, "chain_D", 1);
+            tip4.LoopPlayback = true;
+            tip4.LoopStartUT = 120;
+            tip4.LoopEndUT = 180;
+            TreeCommitService.CarryTipOwnedStateOnFold(tip4, head4);
+            Assert.Equal(120.0, head4.LoopStartUT);
+            Assert.Equal(180.0, head4.LoopEndUT);
 
             // Mirror: a setting the survivor has itself stays, and nothing is logged as dropped.
             logLines.Clear();
