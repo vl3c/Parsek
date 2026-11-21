@@ -889,6 +889,13 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: a compound part whose persisted target pid is 0 has no target; stock
+        /// <c>CompoundPart.OnSave</c> always writes <c>tpersID</c>, 0 when unconnected.
+        /// </summary>
+        internal static bool IsUnconnectedLinkedMesh(uint targetPersistentId)
+            => targetPersistentId == 0;
+
+        /// <summary>
         /// Fixes up compound part visuals (fuel lines, struts) by repositioning the
         /// target anchor and stretching the line mesh using PARTDATA from the snapshot.
         /// In KSP, CModuleLinkedMesh handles this at runtime; ghosts need manual fixup.
@@ -919,6 +926,20 @@ namespace Parsek
             if (srcLine != null) cloneMap.TryGetValue(srcLine, out ghostLine);
             if (srcTargetAnchor != null) cloneMap.TryGetValue(srcTargetAnchor, out ghostTargetAnchor);
             if (srcTargetCap != null) cloneMap.TryGetValue(srcTargetCap, out ghostTargetCap);
+
+            if (IsUnconnectedLinkedMesh(data.targetPersistentId))
+            {
+                // Stock CModuleLinkedMesh.OnStart hides the line and the target anchor (the end
+                // cap rides on it) and only OnTargetSet shows them; an unconnected strut or fuel
+                // line (PARTDATA tpersID = 0) never gets a target.
+                if (ghostLine != null) ghostLine.gameObject.SetActive(false);
+                if (ghostTargetAnchor != null) ghostTargetAnchor.gameObject.SetActive(false);
+                ParsekLog.VerboseRateLimited("GhostVisual", $"compound-unconnected-{partName}",
+                    $"  Compound part '{partName}' pid={persistentId}: no target (tpersID=0); " +
+                    $"line '{data.lineObjName}' found={ghostLine != null} and target anchor " +
+                    $"'{data.targetAnchorName}' found={ghostTargetAnchor != null} hidden as stock does", 60.0);
+                return compoundPartInfo;
+            }
 
             if (ghostLine == null)
             {
@@ -1143,6 +1164,18 @@ namespace Parsek
             // "blueish missing texture" on ReStock claws and jet exhausts). Skip them.
             HashSet<string> depthMaskNames = GetDepthMaskTransformNames(partConfig);
             LogPartRendererExclusionNames(depthMaskNames, partName, persistentId, damagedWheelNames);
+
+            // Transforms a stock module hides on every flight start (a flag part's other flag
+            // meshes, a hinge's piston arm): their renderers are left off the ghost, on the same name-or-ancestor
+            // test as the busted wheel names.
+            HashSet<string> stockHiddenNames = ResolveStockHiddenTransformNames(
+                prefab, partConfig, partNode, selectedVariantName, partName, persistentId);
+            if (stockHiddenNames.Count > 0)
+            {
+                if (damagedFilterNames != null)
+                    stockHiddenNames.UnionWith(damagedFilterNames);
+                damagedFilterNames = stockHiddenNames;
+            }
 
             // Asteroids and comets: stock builds the rock at runtime from the persisted seed and
             // destroys the prefab's placeholder lump, so the ghost does the same (null for any
@@ -1374,7 +1407,7 @@ namespace Parsek
             }
 
             // Detect light parts and clone Light components for ghost playback
-            lightInfo = BuildLightGhostInfo(prefab, modelRoot, modelNode.transform, cloneMap,
+            lightInfo = BuildLightGhostInfo(prefab, partNode, modelRoot, modelNode.transform, cloneMap,
                 persistentId, partName, raiseLightVisualOnly);
 
             // Detect ModuleColorChanger: cabin lights (Pattern A) and heat shield char (Pattern B)
@@ -1389,6 +1422,14 @@ namespace Parsek
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);
             if (fairingInfo != null)
                 added = true;
+
+            // ModuleStructuralNode on a part that is not a procedural fairing (the Making
+            // History MEM lander's Adapter): stock applies the same CheckDisplay rule.
+            if (ShouldBuildNonFairingStructureNodes(partNode, prefab.partInfo?.partConfig))
+            {
+                BuildFairingStructureNodes(
+                    prefab.partInfo?.partConfig, partNode, modelNode.transform, persistentId, partName);
+            }
 
             // Wheel damage swap: resolved LAST, against the fully populated cloneMap, so every
             // cloned busted transform is found and hidden before the ghost is ever shown.
@@ -1616,11 +1657,28 @@ namespace Parsek
                     continue;
                 }
 
-                // Evaluate color curves from config to get off/on colors
-                // Pattern A: off = curves at t=0 (black), on = curves at t=1 (warm glow)
-                // Pattern B: off = curves at t=0 (unburnt), on = curves at t=1 (fully charred)
-                Color offColor = EvaluateColorCurves(colorChangerNodes[m], 0f);
-                Color onColor = EvaluateColorCurves(colorChangerNodes[m], 1f);
+                // Pattern A: off = curves at t=0 (black), on = curves at t=1 (warm glow).
+                // Pattern B: stock ModuleAblator drives the char module with
+                // charMin + (charMax - charMin) * remainingAblatorFraction, so an unburnt
+                // shield sits near t=charMax and a spent one at t=charMin; off is the
+                // snapshot's current char, on is fully charred. A _BurnColor module no
+                // ablator drives keeps stock's own Start colour, the curves at t=0.
+                float offScalar = 0f;
+                float onScalar = 1f;
+                bool ablatorDriven = false;
+                if (isAblationChar)
+                {
+                    string moduleId = colorChangerNodes[m].GetValue("moduleID");
+                    ablatorDriven = TryResolveAblationCharScalars(
+                        partNode, prefabPartConfig, moduleId, out offScalar, out onScalar);
+                    if (!ablatorDriven)
+                    {
+                        offScalar = 0f;
+                        onScalar = 0f;
+                    }
+                }
+                Color offColor = EvaluateColorCurves(colorChangerNodes[m], offScalar);
+                Color onColor = EvaluateColorCurves(colorChangerNodes[m], onScalar);
 
                 // Find renderers on the ghost model that have this shader property
                 var renderers = ghostModelNode.GetComponentsInChildren<Renderer>(true);
@@ -1664,6 +1722,98 @@ namespace Parsek
                 $"unrecognisedPattern={skippedUnrecognisedPattern}", 60.0);
 
             return results;
+        }
+
+        /// <summary>
+        /// Resolves the char scalars stock ModuleAblator writes into the ModuleColorChanger
+        /// whose moduleID equals the ablator's <c>charModuleName</c>: the snapshot's current
+        /// char (<c>charMin + (charMax - charMin) * fraction</c>, fraction = remaining ablator
+        /// amount times the persisted <c>nominalAmountRecip</c>, capped at 1) and the fully
+        /// charred end (<c>charMin</c>). Config-only ablator fields come from the prefab config.
+        /// Returns false when no ablator with <c>useChar</c> and a non-empty
+        /// <c>ablativeResource</c> drives this colour changer (stock then never calls SetScalar).
+        /// </summary>
+        internal static bool TryResolveAblationCharScalars(
+            ConfigNode snapshotPartNode, ConfigNode prefabPartConfig, string colorChangerModuleId,
+            out float currentScalar, out float charredScalar)
+        {
+            currentScalar = 0f;
+            charredScalar = 0f;
+            string moduleId = string.IsNullOrEmpty(colorChangerModuleId)
+                ? "colorChanger" : colorChangerModuleId;
+
+            ConfigNode ablatorConfig = FindModuleNode(prefabPartConfig, "ModuleAblator");
+            ConfigNode ablatorSnapshot = FindModuleNode(snapshotPartNode, "ModuleAblator");
+            if (ablatorConfig == null)
+                ablatorConfig = ablatorSnapshot;
+            if (ablatorConfig == null)
+                return false;
+
+            bool useChar = true;
+            string useCharStr = ablatorConfig.GetValue("useChar");
+            if (!string.IsNullOrEmpty(useCharStr) && bool.TryParse(useCharStr, out bool parsedUseChar))
+                useChar = parsedUseChar;
+            if (!useChar)
+                return false;
+
+            string charModuleName = ablatorConfig.GetValue("charModuleName");
+            if (string.IsNullOrEmpty(charModuleName))
+                charModuleName = "shieldChar";
+            if (!string.Equals(charModuleName, moduleId, System.StringComparison.Ordinal))
+                return false;
+
+            string ablativeResource = ablatorConfig.GetValue("ablativeResource");
+            if (string.IsNullOrEmpty(ablativeResource))
+                return false;
+
+            float charMax = ParseFloatOr(ablatorConfig.GetValue("charMax"), 0.85f);
+            float charMin = ParseFloatOr(ablatorConfig.GetValue("charMin"), 0.1f);
+
+            float fraction = 1f;
+            ConfigNode resourceNode = FindResourceNode(snapshotPartNode, ablativeResource);
+            if (resourceNode != null
+                && double.TryParse(resourceNode.GetValue("amount"), NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out double amount))
+            {
+                double recip = -1.0;
+                if (ablatorSnapshot != null)
+                    double.TryParse(ablatorSnapshot.GetValue("nominalAmountRecip"), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out recip);
+                if (recip <= 0.0
+                    && double.TryParse(resourceNode.GetValue("maxAmount"), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out double maxAmount)
+                    && maxAmount > 0.0)
+                {
+                    recip = 1.0 / maxAmount;
+                }
+                if (recip > 0.0)
+                    fraction = (float)System.Math.Max(0.0, System.Math.Min(1.0, amount * recip));
+            }
+
+            currentScalar = charMin + (charMax - charMin) * fraction;
+            charredScalar = charMin;
+            return true;
+        }
+
+        private static ConfigNode FindResourceNode(ConfigNode partNode, string resourceName)
+        {
+            if (partNode == null) return null;
+            ConfigNode[] resources = partNode.GetNodes("RESOURCE");
+            if (resources == null) return null;
+            for (int i = 0; i < resources.Length; i++)
+            {
+                if (resources[i] != null && resources[i].GetValue("name") == resourceName)
+                    return resources[i];
+            }
+            return null;
+        }
+
+        private static float ParseFloatOr(string value, float fallback)
+        {
+            if (!string.IsNullOrEmpty(value)
+                && float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed))
+                return parsed;
+            return fallback;
         }
 
         /// <summary>

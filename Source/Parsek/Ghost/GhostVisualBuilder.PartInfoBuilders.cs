@@ -442,10 +442,12 @@ namespace Parsek
                     sampledStates, modelNodeTransform, persistentId, partName, "AnimationGroup", logUnresolved: true);
             }
 
-            // Detect standalone ModuleAnimateGeneric deploy animations (e.g. science/inflatable parts)
+            // Detect standalone ModuleAnimateGeneric deploy animations (e.g. science/inflatable parts).
+            // Fixed stock animTime endpoints, never endpoint scoring: an inflatable's model rest
+            // pose is the inflated one.
             if (deployableInfo == null && hasStandaloneAnimateGenericDeploy)
             {
-                var sampledStates = SampleLadderStates(prefab, standaloneAnimateGenericAnimName, null);
+                var sampledStates = SampleStandaloneAnimateGenericStates(prefab, standaloneAnimateGenericAnimName);
                 deployableInfo = ResolveSampledStatesToDeployableInfo(
                     sampledStates, modelNodeTransform, persistentId, partName, "AnimateGeneric", logUnresolved: true);
             }
@@ -666,7 +668,7 @@ namespace Parsek
         /// Returns null if no lights were found or cloned.
         /// </summary>
         private static LightGhostInfo BuildLightGhostInfo(
-            Part prefab, Transform modelRoot, Transform modelNodeTransform,
+            Part prefab, ConfigNode partNode, Transform modelRoot, Transform modelNodeTransform,
             Dictionary<Transform, Transform> cloneMap,
             uint persistentId, string partName,
             bool raiseLightVisualOnly)
@@ -724,14 +726,127 @@ namespace Parsek
 
             if (clonedLights.Count > 0)
             {
-                return new LightGhostInfo
+                var info = new LightGhostInfo
                 {
                     partPersistentId = persistentId,
                     lights = clonedLights
                 };
+                AttachLightLensAndFlare(info, lightModule, partNode, modelRoot, cloneMap,
+                    persistentId, partName);
+                return info;
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Binds the ghost clones of stock ModuleLight's lens renderer
+        /// (<c>lightMeshRendererName</c>) and flare renderer (<c>flareRendererName</c>,
+        /// default "Flare") and starts them OFF, as stock does on a light that is off: its
+        /// FixedUpdate fades the lens <c>_EmissiveColor</c> between black and the light colour
+        /// and the flare <c>_TintColor</c> between black and white (KSP 1.12.5, decompiled).
+        /// Stock's OnStart writes the off colour (the default, transparent black) at once for a
+        /// light that is off, so without this the lens of an unlit ghost keeps the prefab
+        /// material's lit emissive and glows. Only the first material is driven (stock writes
+        /// <c>renderer.material</c>); it is cloned per ghost so the prefab's shared material
+        /// is never written. With no lens name, or a name that finds nothing, stock falls back
+        /// to the part's first renderer (the one-mesh spotLight1 / spotLight2 bodies), and so
+        /// does the ghost; the flare's TransparentFX-layer fallback is not transcribed.
+        /// </summary>
+        private static void AttachLightLensAndFlare(
+            LightGhostInfo info, ModuleLight lightModule, ConfigNode partNode,
+            Transform modelRoot, Dictionary<Transform, Transform> cloneMap,
+            uint persistentId, string partName)
+        {
+            ConfigNode snapshotLight = FindModuleNode(partNode, "ModuleLight");
+            info.lensOnColor = ResolveLightOnColor(snapshotLight,
+                lightModule.lightR, lightModule.lightG, lightModule.lightB);
+
+            info.lensMaterials = CloneFirstMaterialOfNamedRenderer(
+                modelRoot, cloneMap, lightModule.lightMeshRendererName, "_EmissiveColor",
+                fallbackToFirstRenderer: true);
+            info.flareMaterials = CloneFirstMaterialOfNamedRenderer(
+                modelRoot, cloneMap, lightModule.flareRendererName, "_TintColor",
+                fallbackToFirstRenderer: false);
+
+            GhostPlaybackLogic.WriteLightLensAndFlare(info, false);
+
+            int lensCount = info.lensMaterials != null ? info.lensMaterials.Count : 0;
+            int flareCount = info.flareMaterials != null ? info.flareMaterials.Count : 0;
+            ParsekLog.VerboseRateLimited("GhostVisual", "light-lens-" + partName,
+                "  Light '" + partName + "' pid=" + persistentId + ": lens='"
+                + lightModule.lightMeshRendererName + "' materials=" + lensCount
+                + " flare='" + lightModule.flareRendererName + "' materials=" + flareCount
+                + " onColor=" + info.lensOnColor, 60.0);
+        }
+
+        private static List<Material> CloneFirstMaterialOfNamedRenderer(
+            Transform modelRoot, Dictionary<Transform, Transform> cloneMap,
+            string rendererName, string shaderProperty, bool fallbackToFirstRenderer)
+        {
+            if (modelRoot == null || cloneMap == null)
+                return null;
+            MeshRenderer src = null;
+            if (!string.IsNullOrEmpty(rendererName))
+            {
+                MeshRenderer[] prefabRenderers = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
+                for (int i = 0; i < prefabRenderers.Length; i++)
+                {
+                    if (prefabRenderers[i] != null && prefabRenderers[i].transform.name == rendererName)
+                    {
+                        src = prefabRenderers[i];
+                        break;
+                    }
+                }
+            }
+            if (src == null && fallbackToFirstRenderer)
+            {
+                // Stock: lightMeshRenderer = (MeshRenderer)part.GetPartRenderers()[0], the
+                // first renderer under the part's "model" transform.
+                Renderer[] all = modelRoot.GetComponentsInChildren<Renderer>(true);
+                if (all != null && all.Length > 0)
+                    src = all[0] as MeshRenderer;
+            }
+            if (src == null)
+                return null;
+
+            Transform ghostTransform;
+            if (!cloneMap.TryGetValue(src.transform, out ghostTransform) || ghostTransform == null)
+                return null;
+            MeshRenderer ghostRenderer = ghostTransform.GetComponent<MeshRenderer>();
+            if (ghostRenderer == null) return null;
+            Material[] mats = ghostRenderer.sharedMaterials;
+            if (mats == null || mats.Length == 0 || mats[0] == null
+                || !mats[0].HasProperty(shaderProperty))
+                return null;
+            var copy = (Material[])mats.Clone();
+            copy[0] = new Material(mats[0]);
+            ghostRenderer.sharedMaterials = copy;
+            return new List<Material> { copy[0] };
+        }
+
+        /// <summary>
+        /// Pure: the colour stock ModuleLight lights with, <c>new Color(lightR, lightG,
+        /// lightB)</c> from the persisted fields in the snapshot module, each falling back to
+        /// the prefab's value.
+        /// </summary>
+        internal static Color ResolveLightOnColor(
+            ConfigNode snapshotLightModule, float prefabR, float prefabG, float prefabB)
+        {
+            return new Color(
+                ReadFloatOr(snapshotLightModule, "lightR", prefabR),
+                ReadFloatOr(snapshotLightModule, "lightG", prefabG),
+                ReadFloatOr(snapshotLightModule, "lightB", prefabB));
+        }
+
+        private static float ReadFloatOr(ConfigNode node, string key, float fallback)
+        {
+            string raw = node != null ? node.GetValue(key) : null;
+            float v;
+            if (!string.IsNullOrEmpty(raw)
+                && float.TryParse(raw.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out v))
+                return v;
+            return fallback;
         }
 
         /// <summary>
@@ -977,8 +1092,23 @@ namespace Parsek
 
                 // A shroud list over variant meshes (engine plates): only the one stock
                 // recorded as active, never a forced-on mesh of another variant.
-                List<string> jettisonNames = SelectJettisonNames(
-                    jettisonNameList, snapJettison != null ? snapJettison.GetValue("activejettisonName") : null);
+                string activeJettisonName = snapJettison != null ? snapJettison.GetValue("activejettisonName") : null;
+                List<string> jettisonNames = SelectJettisonNamesForGhost(
+                    jettisonNameList, activeJettisonName,
+                    name =>
+                    {
+                        Transform src = prefab.FindModelTransform(name);
+                        Transform ghost;
+                        return src != null && cloneMap.TryGetValue(src, out ghost) && ghost != null;
+                    });
+                if (!string.IsNullOrEmpty(activeJettisonName) && jettisonNames.Count == 1
+                    && !string.Equals(jettisonNames[0], activeJettisonName.Trim(), System.StringComparison.Ordinal))
+                {
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_active_remap_{partName}_{moduleIndex}",
+                        $"    Part '{partName}' pid={persistentId} ModuleJettison[{moduleIndex}]: persisted " +
+                        $"activejettisonName '{activeJettisonName}' has no ghost mesh in this variant; " +
+                        $"using '{jettisonNames[0]}' (stock re-resolves on variant apply)", 60.0);
+                }
 
                 // Stock's flight-start rule decides whether this module's shroud is up when the
                 // part starts; the ghost mirrors it so no event is needed to hide a shroud stock
