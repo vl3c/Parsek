@@ -350,6 +350,7 @@ namespace Parsek
             private readonly Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot;
             private readonly Func<Recording, Vessel, Recording> findLaterSpawnOwner;
             private readonly Func<Recording, Vessel, bool> isRecordedIdentityLost;
+            private readonly Func<Vessel, bool> remnantSurvives;
 
             internal FinalizationLiveVesselAccess(
                 Func<Vessel, bool> isFound = null,
@@ -359,8 +360,10 @@ namespace Parsek
                 Func<Vessel, ConfigNode> tryBackupSnapshot = null,
                 Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot = null,
                 Func<Recording, Vessel, Recording> findLaterSpawnOwner = null,
-                Func<Recording, Vessel, bool> isRecordedIdentityLost = null)
+                Func<Recording, Vessel, bool> isRecordedIdentityLost = null,
+                Func<Vessel, bool> remnantSurvives = null)
             {
+                this.remnantSurvives = remnantSurvives ?? IdentityLossClassifier.RemnantSurvives;
                 this.isRecordedIdentityLost = isRecordedIdentityLost
                     ?? ParsekFlight.IsRecordedIdentityLostAtFinalization;
                 this.findLaterSpawnOwner = findLaterSpawnOwner
@@ -401,6 +404,8 @@ namespace Parsek
 
             internal bool IsRecordedIdentityLost(Recording rec, Vessel vessel) =>
                 isRecordedIdentityLost(rec, vessel);
+
+            internal bool RemnantSurvives(Vessel vessel) => remnantSurvives(vessel);
         }
 
         /// <summary>
@@ -917,12 +922,15 @@ namespace Parsek
             if (vesselAccess.IsRecordedIdentityLost(rec, finalizeVessel))
             {
                 double terminalUT = rec.EndUT;
+                bool remnantSurvives = vesselAccess.RemnantSurvives(finalizeVessel);
                 ParsekLog.Info("Flight",
                     $"FinalizeTreeRecordings: recorded controllable identity lost for " +
                     $"'{rec.RecordingId ?? "(null)"}' pid={rec.VesselPersistentId} " +
                     $"recordedControllers={rec.Controllers?.Count ?? 0} sceneExit={isSceneExit} " +
-                    $"- classifying as Destroyed at UT={terminalUT.ToString("F2", CultureInfo.InvariantCulture)}");
-                rec.MarkDestroyedAtTerminal(terminalUT, "FinalizeTreeRecordings.identityLost");
+                    $"- classifying as Destroyed at UT={terminalUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"remnantSurvives={remnantSurvives}");
+                rec.MarkDestroyedAtTerminal(terminalUT, "FinalizeTreeRecordings.identityLost",
+                    vesselSurvives: remnantSurvives);
                 return;
             }
 
