@@ -158,9 +158,9 @@ namespace Parsek
         /// player just switched TO this vessel, so it is ALIVE at the switch UT
         /// by construction. A finalization cache can nonetheless carry a
         /// PREDICTED <see cref="TerminalState.Destroyed"/> — the ballistic
-        /// extrapolator writes one for a tail it expects to end in impact — and
-        /// <c>BackgroundRecorder.ScopeFinalizationCacheToBackgroundEnd</c>
-        /// clamps that terminal back to the end UT, so the applier's
+        /// extrapolator writes one for a tail it expects to end in impact — whose
+        /// terminal UT is at or after the switch UT (the switch-close apply also
+        /// pulls a future one back to the switch UT), so the applier's
         /// <c>RejectedTerminalBeforeLastSample</c> guard does not fire. Applying
         /// it would seal a living vessel as destroyed: playback would fire a
         /// false explosion at the switch UT, and if the continuation segment is

@@ -12938,8 +12938,8 @@ namespace Parsek.InGameTests
         // ─────────────────────────────────────────────────────────────
 
         [InGameTest(Category = "RecordingFinalization", Scene = GameScenes.FLIGHT,
-            Description = "Destroyed background cache trims predicted tail to the stock deletion UT")]
-        public void RecordingFinalization_BackgroundDestroyedCache_TrimsAtDeletionUT()
+            Description = "Destroyed background cache keeps the predicted fall past the stock deletion UT")]
+        public void RecordingFinalization_BackgroundDestroyedCache_KeepsFallPastDeletionUT()
         {
             uint vesselPid = 910001u;
             var tree = MakeRuntimeFinalizationTree(
@@ -12974,11 +12974,11 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsTrue(applied, $"cache should apply, status={result.Status}");
                 InGameAssert.AreEqual(TerminalState.Destroyed, rec.TerminalStateValue.Value);
-                InGameAssert.ApproxEqual(130.0, rec.ExplicitEndUT);
+                InGameAssert.ApproxEqual(180.0, rec.ExplicitEndUT);
                 InGameAssert.AreEqual(1, rec.OrbitSegments.Count);
                 InGameAssert.IsTrue(rec.OrbitSegments[0].isPredicted,
                     "Appended cache tail must stay marked predicted");
-                InGameAssert.ApproxEqual(130.0, rec.OrbitSegments[0].endUT);
+                InGameAssert.ApproxEqual(180.0, rec.OrbitSegments[0].endUT);
                 AssertRuntimeFinalizationLog(
                     logLines,
                     "[Parsek][INFO][BgRecorder]",

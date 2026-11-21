@@ -881,8 +881,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ScopeFinalizationCacheToBackgroundEnd_DestroyedCapsAtDeletionUT()
+        public void ScopeFinalizationCacheToBackgroundEnd_DestroyedAfterEnd_KeepsPredictedImpactUT()
         {
+            // Owner rulings Q1a / Q1b: a fall Parsek stopped watching (debris time limit,
+            // unload, parent close, stock deletion in the air) keeps falling to where it hits.
+            // The old contract cut the terminal to the close time (GS-7: a 20 ms tail).
             RecordingFinalizationCache cache = MakeFinalizationCache(
                 "rec_bg1",
                 100u,
@@ -895,11 +898,262 @@ namespace Parsek.Tests
                     cache,
                     endUT: 130.0);
 
-            Assert.Equal(130.0, scoped.TerminalUT);
+            Assert.Equal(180.0, scoped.TerminalUT);
+            Assert.Equal(100.0, scoped.TailStartsAtUT);
             Assert.Equal(180.0, cache.TerminalUT);
             Assert.Single(scoped.PredictedSegments);
+            Assert.Equal(180.0, scoped.PredictedSegments[0].endUT);
             Assert.Single(cache.PredictedSegments);
             Assert.NotSame(cache.PredictedSegments, scoped.PredictedSegments);
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Landed)]
+        [InlineData(TerminalState.Splashed)]
+        public void ScopeFinalizationCacheToBackgroundEnd_TouchdownAfterEnd_KeepsPredictedUT(
+            TerminalState terminal)
+        {
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1", 100u, terminal, terminalUT: 180.0, Segment(100.0, 180.0));
+
+            RecordingFinalizationCache scoped =
+                BackgroundRecorder.ScopeFinalizationCacheToBackgroundEndForTesting(cache, endUT: 130.0);
+
+            Assert.Equal(180.0, scoped.TerminalUT);
+            Assert.Equal(terminal, scoped.TerminalState);
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Orbiting, 180.0)]
+        [InlineData(TerminalState.Orbiting, 120.0)]
+        [InlineData(TerminalState.SubOrbital, 180.0)]
+        public void ScopeFinalizationCacheToBackgroundEnd_ObservedEndings_EndAtCloseTime(
+            TerminalState terminal, double terminalUT)
+        {
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1", 100u, terminal, terminalUT: terminalUT);
+
+            RecordingFinalizationCache scoped =
+                BackgroundRecorder.ScopeFinalizationCacheToBackgroundEndForTesting(cache, endUT: 130.0);
+
+            Assert.Equal(130.0, scoped.TerminalUT);
+        }
+
+        [Fact]
+        public void ScopeFinalizationCacheToBackgroundEnd_DestroyedBeforeEnd_KeepsEarlierUT()
+        {
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1", 100u, TerminalState.Destroyed, terminalUT: 120.0, Segment(100.0, 120.0));
+
+            RecordingFinalizationCache scoped =
+                BackgroundRecorder.ScopeFinalizationCacheToBackgroundEndForTesting(cache, endUT: 130.0);
+
+            Assert.Equal(120.0, scoped.TerminalUT);
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Destroyed)]
+        [InlineData(TerminalState.Landed)]
+        public void ScopeFinalizationCacheToBackgroundEnd_NoRetain_PullsFutureEndingBackToClose(
+            TerminalState terminal)
+        {
+            // The switch-close stamp: the vessel goes on in the continuation segment, so a
+            // predicted tail past the switch would overlap it.
+            RecordingFinalizationCache cache = MakeFinalizationCache(
+                "rec_bg1", 100u, terminal, terminalUT: 180.0, Segment(100.0, 180.0));
+
+            RecordingFinalizationCache scoped =
+                BackgroundRecorder.ScopeFinalizationCacheToBackgroundEndForTesting(
+                    cache, endUT: 130.0, retainPredictedTailPastEnd: false);
+
+            Assert.Equal(130.0, scoped.TerminalUT);
+        }
+
+        [Fact]
+        public void TryApplyFinalizationCacheForBackgroundEnd_DestroyedFallPastEnd_AppendsTheWholeTail()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", altitude = 5000.0 });
+            bgRecorder.AdoptFinalizationCacheForTesting(
+                100,
+                "rec_bg1",
+                MakeFinalizationCache("rec_bg1", 100u, TerminalState.Destroyed, terminalUT: 180.0,
+                    Segment(100.0, 180.0)));
+
+            bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                rec,
+                100u,
+                endUT: 130.0,
+                consumerPath: "unit-ttl-end",
+                allowStale: true,
+                requireDestroyedTerminal: false,
+                confirmedDestroyed: false,
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied, result.Status.ToString());
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Equal(180.0, rec.ExplicitEndUT);
+            Assert.Single(rec.OrbitSegments);
+            Assert.True(rec.OrbitSegments[0].isPredicted);
+            Assert.Equal(180.0, rec.OrbitSegments[0].endUT);
+            Assert.Contains(logLines, l => l.Contains("[FinalizerCache]")
+                && l.Contains("Background end scope")
+                && l.Contains("decision=kept-predicted-ending-past-end")
+                && l.Contains("scopedTerminalUT=180.000")
+                && l.Contains("endUT=130.000"));
+        }
+
+        [Fact]
+        public void EndDebrisRecording_TimeLimitWithPredictedFall_KeepsTheTailPastTheEnd()
+        {
+            // GS-7 (2026-11-15): a debris recording that hit its 60 s time limit was cut to
+            // terminalUT=endUT. The applied tail must win over the ExplicitEndUT the close
+            // stamps before the apply.
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.ExplicitEndUT = double.NaN;
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", altitude = 8000.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 112.5, bodyName = "Kerbin", altitude = 6000.0 });
+            bgRecorder.AdoptFinalizationCacheForTesting(
+                100,
+                "rec_bg1",
+                MakeFinalizationCache("rec_bg1", 100u, TerminalState.Destroyed, terminalUT: 175.0,
+                    Segment(112.5, 175.0)));
+
+            Assert.True(bgRecorder.EndDebrisRecordingForLifetime(100u, 112.5, 112.54, "unit-ttl"));
+
+            Assert.False(tree.BackgroundMap.ContainsKey(100u));
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Equal(175.0, rec.ExplicitEndUT);
+            OrbitSegment tail = rec.OrbitSegments.Single(s => s.isPredicted);
+            Assert.Equal(112.5, tail.startUT);
+            Assert.Equal(175.0, tail.endUT);
+        }
+
+        [Fact]
+        public void ClearEagerDestroyStampAfterFalseDestroy_ClearsTheRefreshStampAndItsCache()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            RecordingFinalizationCache destroyCache =
+                MakeFinalizationCache("rec_bg1", 100u, TerminalState.Destroyed, terminalUT: 150.0);
+            destroyCache.RefreshReason = RecordingFinalizationCacheProducer.BackgroundDestroyRefreshReason;
+            bgRecorder.AdoptFinalizationCacheForTesting(100, "rec_bg1", destroyCache);
+            rec.StampTerminalState(TerminalState.Destroyed, "unit-eager");
+            bgRecorder.NoteEagerDestroyStampForTesting(100u, rec, hadTerminalBeforeRefresh: false);
+
+            Assert.True(bgRecorder.ClearEagerDestroyStampAfterFalseDestroy(100u, "rec_bg1"));
+
+            Assert.Null(rec.TerminalStateValue);
+            Assert.Equal(200.0, rec.ExplicitEndUT);
+            Assert.False(bgRecorder.HasFinalizationCache(100u));
+            Assert.Contains(logLines, l => l.Contains("[BgRecorder]")
+                && l.Contains("False destroy: cleared the eager Destroyed stamp")
+                && l.Contains("pid=100 rec=rec_bg1")
+                && l.Contains("droppedDestroyRefreshCache=True"));
+
+            // One-shot: the note is consumed.
+            rec.StampTerminalState(TerminalState.Destroyed, "unit-other");
+            Assert.False(bgRecorder.ClearEagerDestroyStampAfterFalseDestroy(100u, "rec_bg1"));
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+        }
+
+        [Fact]
+        public void ClearEagerDestroyStampAfterFalseDestroy_LeavesAStampTheRefreshDidNotWrite()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.StampTerminalState(TerminalState.Destroyed, "unit-prior");
+            // The terminal was already set before the destroy refresh: not an eager stamp.
+            bgRecorder.NoteEagerDestroyStampForTesting(100u, rec, hadTerminalBeforeRefresh: true);
+
+            Assert.False(bgRecorder.ClearEagerDestroyStampAfterFalseDestroy(100u, "rec_bg1"));
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+        }
+
+        [Theory]
+        [InlineData(true, "rec_a", "rec_a", TerminalState.Destroyed, true)]
+        [InlineData(false, null, "rec_a", TerminalState.Destroyed, false)]
+        [InlineData(true, "rec_b", "rec_a", TerminalState.Destroyed, false)]
+        [InlineData(true, "rec_a", "rec_a", TerminalState.Landed, false)]
+        [InlineData(true, "rec_a", "rec_a", null, false)]
+        public void ShouldClearEagerDestroyStampAfterFalseDestroy_Table(
+            bool stamped, string stampedId, string recId, TerminalState? terminal, bool expected)
+        {
+            Assert.Equal(expected, BackgroundRecorder.ShouldClearEagerDestroyStampAfterFalseDestroy(
+                stamped, stampedId, recId, terminal));
+        }
+
+        [Theory]
+        [InlineData(false, TerminalState.Destroyed, true)]
+        [InlineData(true, TerminalState.Destroyed, false)]
+        [InlineData(false, TerminalState.Landed, false)]
+        [InlineData(false, null, false)]
+        public void ShouldTrackEagerDestroyStamp_Table(bool hadTerminal, TerminalState? after, bool expected)
+        {
+            Assert.Equal(expected, BackgroundRecorder.ShouldTrackEagerDestroyStamp(hadTerminal, after));
+        }
+
+        [Fact]
+        public void MarkConfirmedDestroyedAfterCacheApply_SetsTheFlagOnlyForAnAppliedDestroyed()
+        {
+            var applied = new Recording { RecordingId = "a" };
+            applied.StampTerminalState(TerminalState.Destroyed, "unit");
+            Assert.True(ParsekFlight.MarkConfirmedDestroyedAfterCacheApply(true, applied));
+            Assert.True(applied.VesselDestroyed);
+
+            var notApplied = new Recording { RecordingId = "b" };
+            notApplied.StampTerminalState(TerminalState.Destroyed, "unit");
+            Assert.False(ParsekFlight.MarkConfirmedDestroyedAfterCacheApply(false, notApplied));
+            Assert.False(notApplied.VesselDestroyed);
+
+            var landed = new Recording { RecordingId = "c" };
+            landed.StampTerminalState(TerminalState.Landed, "unit");
+            Assert.False(ParsekFlight.MarkConfirmedDestroyedAfterCacheApply(true, landed));
+            Assert.False(landed.VesselDestroyed);
+        }
+
+        [Fact]
+        public void TryApplyFinalizationCacheForBackgroundEnd_NoRetain_EndsAtCloseWithNoTail()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            Recording rec = tree.Recordings["rec_bg1"];
+            rec.Points.Add(new TrajectoryPoint { ut = 130.0, bodyName = "Kerbin", altitude = 5000.0 });
+            bgRecorder.AdoptFinalizationCacheForTesting(
+                100,
+                "rec_bg1",
+                MakeFinalizationCache("rec_bg1", 100u, TerminalState.Landed, terminalUT: 180.0,
+                    Segment(100.0, 180.0)));
+
+            bool applied = bgRecorder.TryApplyFinalizationCacheForBackgroundEnd(
+                rec,
+                100u,
+                endUT: 130.0,
+                consumerPath: "unit-switch-close",
+                allowStale: true,
+                requireDestroyedTerminal: false,
+                confirmedDestroyed: false,
+                retainPredictedTailPastEnd: false,
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied, result.Status.ToString());
+            Assert.Equal(130.0, rec.ExplicitEndUT);
+            Assert.Empty(rec.OrbitSegments);
         }
 
         [Fact]
@@ -1432,11 +1686,13 @@ namespace Parsek.Tests
             Assert.False(bgRecorder.HasFinalizationCache(100));
             Assert.Equal(0, bgRecorder.DebrisTTLCount);
             Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
-            Assert.Equal(130.0, rec.ExplicitEndUT);
+            // Owner ruling Q1a: the vanished debris keeps falling to its predicted impact
+            // (the old contract cut the tail to the TTL check UT, 130).
+            Assert.Equal(180.0, rec.ExplicitEndUT);
             Assert.Single(rec.OrbitSegments);
             Assert.True(rec.OrbitSegments[0].isPredicted);
             Assert.Equal(100.0, rec.OrbitSegments[0].startUT);
-            Assert.Equal(130.0, rec.OrbitSegments[0].endUT);
+            Assert.Equal(180.0, rec.OrbitSegments[0].endUT);
         }
 
         [Fact]
