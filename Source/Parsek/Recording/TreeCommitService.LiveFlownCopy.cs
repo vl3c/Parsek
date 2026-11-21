@@ -231,7 +231,8 @@ namespace Parsek
             for (int p = 0; p < coveredPieces.Count; p++)
             {
                 Recording piece = committed.Recordings[coveredPieces[p].Key];
-                string refusal = CommittedListOptimizer.SplitPieceFoldRefusal(piece);
+                string refusal = CommittedListOptimizer.SplitPieceFoldRefusal(
+                    piece, incoming.Recordings[coveredPieces[p].Value]);
                 if (refusal != null)
                 {
                     ParsekLog.Info("RecordingStore",

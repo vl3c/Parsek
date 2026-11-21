@@ -650,7 +650,7 @@ All prior phases target stock KSP (including Making History DLC). This phase add
 
 ## Phase 17: Mission Profile (future: analyze, design, build)
 
-Read every recording of a mission from launch to its last ending and produce a NASA / Apollo-style mission profile: first as a text report, later as a graph with visuals (a phase diagram of the flight path with numbered events, like the classic Apollo mission profile charts). Not designed yet; analysis comes first.
+Read every recording of a mission from launch to its last ending and produce a NASA / Apollo-style mission profile: first as a text report, later as a graph with visuals (a phase diagram of the flight path with numbered events, like the classic Apollo mission profile charts). Not designed yet; analysis comes first. Foundation notes from the 2026-11 recording split / merge review (why optimizer rows cannot be the profile elements, a recommended shared phase analyzer, vessel-line walker, recorder stamps and role table, orbit-kind model): `docs/dev/research/mission-profile-foundation-notes-2026-11-21.md`.
 
 Typical contents of a real mission profile, all derivable from Parsek recordings:
 

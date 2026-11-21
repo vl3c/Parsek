@@ -120,6 +120,13 @@ namespace Parsek
                 return false;
             }
 
+            // Owner ruling Q5: rows cut under different rules never merge (a merge would mix a
+            // row the old rules froze with one the new rules made), and two rows with
+            // different profile roles were cut apart on purpose: the split pass runs after
+            // this one on every pass and would only cut them again.
+            if (SplitRulesKeepApart(a, b))
+                return false;
+
             // Neither has ghosting-trigger events (snapshot would be wrong for merged recording)
             if (GhostingTriggerClassifier.HasGhostingTriggerEvents(a)) return false;
             if (GhostingTriggerClassifier.HasGhostingTriggerEvents(b)) return false;
@@ -143,7 +150,7 @@ namespace Parsek
             // witnesses for the boundary-bridging rule (plan D5) and a merge
             // would destroy the leg-boundary operands. Blocking on ANY run
             // manifest instead would disable the merge pass for every post-M2
-            // recording (RunOptimizationPass runs on every save load) - a
+            // recording (RunOptimizationPass runs on every cold load and commit) - a
             // silent global regression. Window-less run manifests COMPOSE in
             // MergeInto on matching pid scope and void on mismatch.
             int harvestWindowsA = a.RouteHarvestWindows?.Count ?? 0;
@@ -193,6 +200,17 @@ namespace Parsek
                 $"CanAutoMerge: rejecting merge of '{a.RecordingId}' + '{b.RecordingId}' " +
                 $"- {namedBy} (Re-Fly merge not finished)");
             return true;
+        }
+
+        /// <summary>
+        /// True when a supersede row names <paramref name="rec"/>: the optimizer never splits,
+        /// merges or trims such a recording (it is not played, and the row names its id).
+        /// </summary>
+        internal static bool IsSupersededForOptimizer(
+            Recording rec, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            return supersedes != null && supersedes.Count > 0
+                && EffectiveState.IsSupersededByRelation(rec, supersedes);
         }
 
         private static bool TryGetHeldReason(
@@ -432,7 +450,15 @@ namespace Parsek
             SuppressedSurfaceGrazeBackward,
             SuppressedBoundarySeam,
             SuppressedExoCoastBodyChange,
-            SuppressedLaunchSiteLeadingRun
+            SuppressedLaunchSiteLeadingRun,
+            // Version-2 rules (RecordingOptimizer.SplitRules.cs).
+            FinalDescentEntry,
+            BrakingPassEntry,
+            SuppressedInsidePass,
+            SuppressedBrakingPassExit,
+            SuppressedLaterBrakingPass,
+            SuppressedOwnPassEntry,
+            SuppressedBriefTouchdown
         }
 
         /// <summary>
@@ -464,6 +490,10 @@ namespace Parsek
         internal static bool IsSplittableEnvOrBodyBoundary(
             Recording rec, int s, out SplitBoundaryReason reason)
         {
+            // Owner ruling Q5: a recording is judged by the rules it was committed under.
+            if (UsesCurrentSplitRules(rec))
+                return IsSplittableBoundaryV2(rec, s, null, out reason);
+
             var prev = rec.TrackSections[s - 1];
             var next = rec.TrackSections[s];
 
@@ -883,8 +913,13 @@ namespace Parsek
         /// keeps the returned `(recordingIndex, sectionIndex)` pairs valid: `SplitAtSection`
         /// reads `original.TrackSections[sectionIndex].startUT` off the SAME live list before
         /// running its own Ensure, so analysis and split must see one section list.
+        ///
+        /// <paramref name="reasons"/> (parallel to the result; may be null) receives why each
+        /// candidate's boundary splits. A candidate the discontinuity rule moved keeps the reason
+        /// of the boundary it was moved from, which is what the split pass names the new row by.
         /// </remarks>
-        internal static List<(int, int)> FindSplitCandidatesForOptimizer(IReadOnlyList<Recording> committed)
+        internal static List<(int, int)> FindSplitCandidatesForOptimizer(
+            IReadOnlyList<Recording> committed, List<SplitBoundaryReason> reasons = null)
         {
             var candidates = new List<(int, int)>();
             if (committed == null) return candidates;
@@ -895,6 +930,7 @@ namespace Parsek
             int normalizedRecordings = 0;
             int normalizedOrdinalShifts = 0;
             int skippedSuperseded = 0;
+            int skippedLoopRange = 0;
 
             // A superseded recording is never split (mirror of CanAutoMerge's supersede
             // guard). The supersede relation names it by RecordingId, so a fresh-id second
@@ -926,26 +962,26 @@ namespace Parsek
                     skippedSuperseded++;
                     continue;
                 }
+                if (HasPlayerLoopRange(rec))
+                {
+                    skippedLoopRange++;
+                    continue;
+                }
 
-                // Per-recording aggregate counters (CLAUDE.md "Batch counting convention" —
+                // Per-recording aggregate counters (CLAUDE.md "Batch counting convention" -
                 // an eccentric grazing recording can present hundreds of suppressed boundaries,
                 // exactly the spam this gate is meant to avoid).
-                int evaluatedBoundaries = 0;
-                int suppressedGrazeForward = 0;
-                int suppressedGrazeBackward = 0;
-                int suppressedSurfaceGrazeForward = 0;
-                int suppressedSurfaceGrazeBackward = 0;
-                int suppressedBoundarySeam = 0;
-                int suppressedExoCoastBodyChange = 0;
-                int splittableButRejected = 0;
-                int suppressedLaunchSiteLeadingRun = 0;
-                int suppressedDiscontinuity = 0;
+                var tally = new SplitScanTally();
                 List<DiscontinuityWindow> discontinuities = null;
+                bool currentRules = UsesCurrentSplitRules(rec);
+                PassMap passMap = currentRules ? BuildPassMap(rec) : null;
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
                     SplitBoundaryReason reason;
-                    bool isSplittable = IsSplittableEnvOrBodyBoundary(rec, s, out reason);
+                    bool isSplittable = currentRules
+                        ? IsSplittableBoundaryV2(rec, s, passMap, out reason)
+                        : IsSplittableEnvOrBodyBoundary(rec, s, out reason);
 
                     if (isSplittable)
                     {
@@ -954,88 +990,38 @@ namespace Parsek
                             int placed = PlaceSplitOutsideDiscontinuity(rec, s, ref discontinuities);
                             if (placed < 0)
                             {
-                                evaluatedBoundaries++;
-                                suppressedDiscontinuity++;
+                                tally.Evaluated++;
+                                tally.Discontinuity++;
                                 continue;
                             }
-                            // Per-candidate accept log — bounded by the `break` after one
-                            // split per recording per pass × the maxSplitsPerPass cap from
-                            // RunOptimizationSplitPass.
+                            // Per-candidate accept log, bounded by the `break` after one split
+                            // per recording per scan.
                             ParsekLog.Verbose("Optimizer",
                                 $"Split candidate ({reason}): rec={rec.RecordingId} sec={placed} " +
                                 $"splitUT={rec.TrackSections[placed].startUT.ToString("F2", CultureInfo.InvariantCulture)} " +
                                 $"prev={rec.TrackSections[placed - 1].environment} next={rec.TrackSections[placed].environment}");
                             candidates.Add((i, placed));
+                            if (reasons != null) reasons.Add(reason);
                             break; // One split per recording per pass (re-scan after split).
                         }
                         // Splittable boundary that CanAutoSplit rejects (e.g. too-short halves,
-                        // EVA atmo↔surface continuous gate). Counted as evaluated and as
+                        // EVA atmo/surface continuous gate). Counted as evaluated and as
                         // "splittable-but-rejected" so the summary log surfaces a recording
                         // where every boundary is rejected for the same downstream reason.
-                        evaluatedBoundaries++;
-                        splittableButRejected++;
+                        tally.Evaluated++;
+                        tally.SplittableButRejected++;
                         continue;
                     }
 
-                    // NotABoundary → env unchanged + body unchanged. Not a decision to count
-                    // or log; just keep scanning later boundaries.
+                    // NotABoundary: env unchanged + body unchanged. Not a decision to count.
                     if (reason == SplitBoundaryReason.NotABoundary) continue;
 
                     // Suppression cases (env or body changed but the predicate said no).
-                    evaluatedBoundaries++;
-                    switch (reason)
-                    {
-                        case SplitBoundaryReason.SuppressedGrazeForward:
-                            suppressedGrazeForward++;
-                            break;
-                        case SplitBoundaryReason.SuppressedGrazeBackward:
-                            suppressedGrazeBackward++;
-                            break;
-                        case SplitBoundaryReason.SuppressedSurfaceGrazeForward:
-                            suppressedSurfaceGrazeForward++;
-                            break;
-                        case SplitBoundaryReason.SuppressedSurfaceGrazeBackward:
-                            suppressedSurfaceGrazeBackward++;
-                            break;
-                        case SplitBoundaryReason.SuppressedBoundarySeam:
-                            suppressedBoundarySeam++;
-                            break;
-                        case SplitBoundaryReason.SuppressedExoCoastBodyChange:
-                            suppressedExoCoastBodyChange++;
-                            break;
-                        case SplitBoundaryReason.SuppressedLaunchSiteLeadingRun:
-                            suppressedLaunchSiteLeadingRun++;
-                            break;
-                    }
+                    tally.Evaluated++;
+                    tally.CountSuppressed(reason);
                 }
 
-                // Aggregate per-recording summary line. Covers both predicate-suppressed
-                // boundaries (graze patterns, coasting cross-body Exo transitions, seam short-circuits)
-                // AND splittable boundaries
-                // that CanAutoSplit later rejected. The line title is "Split summary" because
-                // "splittableButRejected" is downstream-rejected by CanAutoSplit, not
-                // suppressed by the §3 predicate — calling the whole line "Split suppressed"
-                // would imply the predicate caused all of it. launchSiteRunKept is appended
-                // LAST so every committed token over the earlier fields stays a substring.
-                if (suppressedGrazeForward > 0 || suppressedGrazeBackward > 0
-                    || suppressedSurfaceGrazeForward > 0 || suppressedSurfaceGrazeBackward > 0
-                    || suppressedBoundarySeam > 0 || suppressedExoCoastBodyChange > 0
-                    || splittableButRejected > 0 || suppressedLaunchSiteLeadingRun > 0
-                    || suppressedDiscontinuity > 0)
-                {
-                    ParsekLog.Verbose("Optimizer",
-                        $"Split summary: rec={rec.RecordingId} " +
-                        $"evaluated={evaluatedBoundaries} " +
-                        $"grazeForward={suppressedGrazeForward} " +
-                        $"grazeBackward={suppressedGrazeBackward} " +
-                        $"surfaceGrazeForward={suppressedSurfaceGrazeForward} " +
-                        $"surfaceGrazeBackward={suppressedSurfaceGrazeBackward} " +
-                        $"seamSkipped={suppressedBoundarySeam} " +
-                        $"exoCoastBodyChangeKept={suppressedExoCoastBodyChange} " +
-                        $"splittableButRejected={splittableButRejected} " +
-                        $"launchSiteRunKept={suppressedLaunchSiteLeadingRun} " +
-                        $"discontinuityKept={suppressedDiscontinuity}");
-                }
+                tally.LogSummary(rec.RecordingId, currentRules);
             }
 
             if (normalizedRecordings > 0)
@@ -1056,7 +1042,88 @@ namespace Parsek
                     "superseded recording(s) (a split half would escape the supersede relation)");
             }
 
+            if (skippedLoopRange > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"FindSplitCandidatesForOptimizer: kept {skippedLoopRange.ToString(CultureInfo.InvariantCulture)} " +
+                    "recording(s) whole: the player set a loop range on them");
+            }
+
             return candidates;
+        }
+
+        /// <summary>
+        /// Per-recording counters of the optimizer's split scan and its one summary line. The
+        /// line covers both predicate-suppressed boundaries (graze patterns, coasting
+        /// cross-body Exo transitions, seam short-circuits) AND splittable boundaries
+        /// CanAutoSplit later rejected, hence "Split summary". Every later token is appended
+        /// LAST so each committed token over the earlier fields stays a substring; the
+        /// version-2 tokens appear only on a version-2 row.
+        /// </summary>
+        private sealed class SplitScanTally
+        {
+            internal int Evaluated;
+            internal int GrazeForward;
+            internal int GrazeBackward;
+            internal int SurfaceGrazeForward;
+            internal int SurfaceGrazeBackward;
+            internal int BoundarySeam;
+            internal int ExoCoastBodyChange;
+            internal int SplittableButRejected;
+            internal int LaunchSiteLeadingRun;
+            internal int Discontinuity;
+            internal int Pass;
+            internal int BriefTouchdown;
+
+            internal void CountSuppressed(SplitBoundaryReason reason)
+            {
+                switch (reason)
+                {
+                    case SplitBoundaryReason.SuppressedGrazeForward: GrazeForward++; break;
+                    case SplitBoundaryReason.SuppressedGrazeBackward: GrazeBackward++; break;
+                    case SplitBoundaryReason.SuppressedSurfaceGrazeForward: SurfaceGrazeForward++; break;
+                    case SplitBoundaryReason.SuppressedSurfaceGrazeBackward: SurfaceGrazeBackward++; break;
+                    case SplitBoundaryReason.SuppressedBoundarySeam: BoundarySeam++; break;
+                    case SplitBoundaryReason.SuppressedExoCoastBodyChange: ExoCoastBodyChange++; break;
+                    case SplitBoundaryReason.SuppressedLaunchSiteLeadingRun: LaunchSiteLeadingRun++; break;
+                    case SplitBoundaryReason.SuppressedInsidePass:
+                    case SplitBoundaryReason.SuppressedBrakingPassExit:
+                    case SplitBoundaryReason.SuppressedLaterBrakingPass:
+                    case SplitBoundaryReason.SuppressedOwnPassEntry:
+                        Pass++;
+                        break;
+                    case SplitBoundaryReason.SuppressedBriefTouchdown: BriefTouchdown++; break;
+                }
+            }
+
+            private bool AnyKept()
+            {
+                return GrazeForward > 0 || GrazeBackward > 0
+                    || SurfaceGrazeForward > 0 || SurfaceGrazeBackward > 0
+                    || BoundarySeam > 0 || ExoCoastBodyChange > 0
+                    || SplittableButRejected > 0 || LaunchSiteLeadingRun > 0
+                    || Discontinuity > 0 || Pass > 0 || BriefTouchdown > 0;
+            }
+
+            internal void LogSummary(string recordingId, bool currentRules)
+            {
+                if (!AnyKept()) return;
+                string currentRuleTokens = currentRules
+                    ? $" passKept={Pass} touchdownKept={BriefTouchdown} rules=v2"
+                    : "";
+                ParsekLog.Verbose("Optimizer",
+                    $"Split summary: rec={recordingId} " +
+                    $"evaluated={Evaluated} " +
+                    $"grazeForward={GrazeForward} " +
+                    $"grazeBackward={GrazeBackward} " +
+                    $"surfaceGrazeForward={SurfaceGrazeForward} " +
+                    $"surfaceGrazeBackward={SurfaceGrazeBackward} " +
+                    $"seamSkipped={BoundarySeam} " +
+                    $"exoCoastBodyChangeKept={ExoCoastBodyChange} " +
+                    $"splittableButRejected={SplittableButRejected} " +
+                    $"launchSiteRunKept={LaunchSiteLeadingRun} " +
+                    $"discontinuityKept={Discontinuity}" + currentRuleTokens);
+            }
         }
 
         /// <summary>
@@ -1692,7 +1759,8 @@ namespace Parsek
             }
             if (original.TrackSections.Count > 0)
             {
-                var env = original.TrackSections[0].environment;
+                int labelSection = ResolveHeadPhaseSection(original);
+                var env = original.TrackSections[labelSection].environment;
                 original.SegmentPhase = SegmentPhaseClassifier.EnvironmentToPhase(env);
             }
 
@@ -1733,11 +1801,21 @@ namespace Parsek
             // in-place mutation; the `second` (newly-allocated) half needs the explicit copy.
             second.ParentAnchorRecordingId = original.ParentAnchorRecordingId;
             second.RecordingFormatVersion = original.RecordingFormatVersion;
+            // Both halves are judged by the rules the recording was committed under (Q5); the
+            // role is the original's until the optimizer pass names the new row.
+            second.SplitRuleVersion = original.SplitRuleVersion;
+            second.SegmentRole = original.SegmentRole;
             // Both halves are the same vessel — share Generation. (#284)
             second.Generation = original.Generation;
             // EVA linkage: both halves represent the same EVA kerbal
             second.EvaCrewName = original.EvaCrewName;
             second.ParentRecordingId = original.ParentRecordingId;
+            // The player's row settings stay on both halves (owner RULE 1, "always keep
+            // them"): a hidden or disabled flight stays hidden or disabled in full, and a
+            // whole-recording loop keeps looping on both rows on the same period. A loop
+            // RANGE cannot be divided, so the optimizer never splits a recording that has
+            // one (HasPlayerLoopRange).
+            CopyPlayerRowSettings(original, second);
 
             var secondFlatTailSource = new Recording
             {
@@ -1849,6 +1927,65 @@ namespace Parsek
                     ? " (crew death respawn stamp moved: respawn=" + second.CrewDeathRespawns.Value +
                       " timer=" + second.CrewDeathRespawnSeconds.ToString("R", CultureInfo.InvariantCulture) + ")"
                     : ""));
+        }
+
+        /// <summary>
+        /// The section a split's first half takes its <see cref="Recording.SegmentPhase"/>
+        /// from: its first section, except for a launch-site start, whose leading pad or runway
+        /// run stays with the flight (step 5b) and so must not name the row; that half is
+        /// labelled by the section where the vessel leaves the site
+        /// (<see cref="FindLaunchSiteDepartureSection"/>). A launch that never leaves its site
+        /// inside the half keeps section 0.
+        /// </summary>
+        internal static int ResolveHeadPhaseSection(Recording head)
+        {
+            if (head?.TrackSections == null || head.TrackSections.Count == 0) return 0;
+            int departure = FindLaunchSiteDepartureSection(head);
+            if (departure <= 0) return 0;
+            ParsekLog.Verbose("Optimizer",
+                $"Split: head {head.RecordingId ?? "<no-id>"} labelled by its launch-site departure " +
+                $"section {departure.ToString(CultureInfo.InvariantCulture)} " +
+                $"({head.TrackSections[departure].environment}), not its pad run");
+            return departure;
+        }
+
+        /// <summary>
+        /// Copies the player's row settings from <paramref name="original"/> onto the split's
+        /// second half: <see cref="Recording.Hidden"/>, <see cref="Recording.PlaybackEnabled"/>
+        /// and the whole-recording loop (<see cref="Recording.LoopPlayback"/>, its period, unit
+        /// and anchor). The seal (<see cref="Recording.MergeState"/>) and the groups travel
+        /// through their own copies. Logs one line when any non-default setting moved.
+        /// </summary>
+        internal static void CopyPlayerRowSettings(Recording original, Recording second)
+        {
+            if (original == null || second == null) return;
+            second.Hidden = original.Hidden;
+            second.PlaybackEnabled = original.PlaybackEnabled;
+            second.LoopPlayback = original.LoopPlayback;
+            second.LoopIntervalSeconds = original.LoopIntervalSeconds;
+            second.LoopTimeUnit = original.LoopTimeUnit;
+            second.LoopAnchorVesselId = original.LoopAnchorVesselId;
+            second.LoopAnchorBodyName = original.LoopAnchorBodyName;
+            if (original.Hidden || !original.PlaybackEnabled || original.LoopPlayback
+                || original.LoopAnchorVesselId != 0
+                || original.LoopIntervalSeconds != LoopTiming.UntouchedLoopIntervalSentinel)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"Split: player row settings kept on both halves (original={original.RecordingId ?? "<no-id>"} " +
+                    $"hidden={original.Hidden} playbackEnabled={original.PlaybackEnabled} " +
+                    $"loop={original.LoopPlayback} loopAnchor={original.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture)})");
+            }
+        }
+
+        /// <summary>
+        /// True when the player set a loop RANGE on <paramref name="rec"/>
+        /// (<see cref="Recording.LoopStartUT"/> or <see cref="Recording.LoopEndUT"/>). Such a
+        /// recording is never split or tail-trimmed by the optimizer: the range names UTs of
+        /// the whole flight, and no division of it keeps the loop the player chose.
+        /// </summary>
+        internal static bool HasPlayerLoopRange(Recording rec)
+        {
+            return rec != null && (!double.IsNaN(rec.LoopStartUT) || !double.IsNaN(rec.LoopEndUT));
         }
 
         /// <summary>
@@ -1965,6 +2102,39 @@ namespace Parsek
 
             second.SurfacePos = original.SurfacePos;
             original.SurfacePos = null;
+
+            MoveEndOfFlightFieldsToSecondHalf(original, second);
+        }
+
+        /// <summary>
+        /// The end-of-flight fields that describe the recording's END go to the second half
+        /// with the terminal: the end situation text (<see cref="Recording.VesselSituation"/>,
+        /// read by the timeline's spawn wording), the dock and route-transfer partner at the
+        /// end boundary (<see cref="Recording.DockTargetVesselPid"/>,
+        /// <see cref="Recording.TransferTargetVesselPid"/> and its
+        /// <see cref="Recording.TransferKind"/>), and every route connection window that is
+        /// not complete before the cut (its undock at or after the split, or not undocked).
+        /// A window that closed inside the first half stays there.
+        /// </summary>
+        internal static void MoveEndOfFlightFieldsToSecondHalf(Recording original, Recording second)
+        {
+            if (original == null || second == null) return;
+            double splitUT = second.TrackSections != null && second.TrackSections.Count > 0
+                ? second.TrackSections[0].startUT
+                : double.NaN;
+            int windowsMoved;
+            int windowsKept;
+            original.MoveEndOfFlightFieldsTo(second, splitUT, out windowsMoved, out windowsKept);
+
+            if (second.VesselSituation != null || second.DockTargetVesselPid != 0
+                || second.TransferTargetVesselPid != 0 || windowsMoved > 0 || windowsKept > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"Split: end-of-flight fields moved onto the second half (original={original.RecordingId ?? "<no-id>"} " +
+                    $"situation='{second.VesselSituation ?? "<none>"}' dockTarget={second.DockTargetVesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"transferTarget={second.TransferTargetVesselPid.ToString(CultureInfo.InvariantCulture)} " +
+                    $"windowsMoved={windowsMoved.ToString(CultureInfo.InvariantCulture)} windowsKept={windowsKept.ToString(CultureInfo.InvariantCulture)})");
+            }
         }
 
         /// <summary>

@@ -527,6 +527,77 @@ hook's Apply path): `PatchCrossedBuildingRows: flight clock crossed 1 committed 
 while the ledger patch is deferred (live recorder active)`, the demolish, and no
 `Game state: BuildingDestroyed` after the rewind (no second row on that flight's commit).
 
+## ~~OPTIMIZER-SPLIT-RULES-V2~~: the 2026-11 split rules: atmosphere passes, one row across an SOI change, a touch-and-go as a graze, for new flights only (owner rulings Q5, Q7 with A1 / B1, Q8, Q9) [FILED 2026-11-18 by the recording split / trim / merge review (design questions 1-3 and 14), ruled by the owner 2026-11-18 and 2026-11-20 (`docs/handoff/recording-split-review/atmosphere-pass-analysis.md`, step 1 of section 8). BUILT 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; NOT FLOWN; OPEN: step 2 (cuts where the orbit changes kind, the deorbit row) waits on the Phase 0 re-aim measurement]
+
+**Cause:** the 2-minute graze clock, not what a pass did, decided how atmosphere passes split (a skip reentry had no row of its own, ten deep aerobraking passes made 21 rows, a short aerocapture was invisible); an engine running at an SOI change or the atmosphere line decided whether a leg was its own row; every touch-and-go cost two rows; and a rule change re-cut every old flight on the next load (ruling Q5: "freeze old recordings").
+
+**Fix:** design `docs/dev/done/plans/optimizer-persistence-split.md` section 14, code `RecordingOptimizer.SplitRules.cs`.
+- Version gate: `Recording.SplitRuleVersion` (key `splitRuleVersion`, written only above 1; absent = 1). Stamped 2 when a recording enters the committed list (tree commit append, Re-Fly provisional) or when an in-flight tree is saved; a recording that has a version keeps it. Both halves of a split carry it; `CanAutoMerge` refuses mixed versions. Version 1 runs the old predicate body unchanged.
+- Row role: `Recording.SegmentRole` (key `segmentRole`), stamped on both halves of a version-2 split (ascent, space, aerobraking, reentry, approach, surface, atmosphere). At every cut the first half's pass role is read again from its own content (`ResolveHeadRoleAfterCut`: a grown reentry row whose first pass now ends back in space becomes an aerobraking row). `CanAutoMerge` refuses different roles AND, for two version-2 rows, any join the version-2 split predicate would cut again (`WouldSplitRulesCutJoin`, Verbose `the split rules would cut the join again`), so the merge pass (which runs before the split pass) and the split pass can never undo each other on every load. The existing row label (`RecordingSegmentLabels.GetSegmentPhaseLabel`) reads the role in place of the phase ("Kerbin reentry"); no new UI; the table's phase sort reads `GetSegmentPhaseSortLabel` (the phase), so the table order does not move.
+- Atmosphere passes (Q7 / A1 / B1): a pass entered from space that ends on the ground or in the air is cut at its first entry (reentry row; skip dips inside it); one that ends back in space is cut at its first accepted touch of the row (aerobraking row; later passes and the exit stay inside it). The engine at the crossing no longer matters for such a pass; ascents and the airless approach band keep the old rules. Debris follows these rules; EVA kerbals keep version 1.
+- The first touch of an aerobraking row resets at a body change: a braking pass at another body (a Duna aerocapture after a Kerbin aerobrake, one row across the SOI change per Q9) opens its own aerobraking row.
+- Q9: any SOI change between two space sections stays one row. Q8: a Surface run under 30 s between air or approach runs is never cut and reads as air, except inside a launch-site start's leading run, where rule 5b already keeps a bounce off the pad with the ascent (the two rules must agree on where that run ends).
+- Logs: `Split candidate (FinalDescentEntry|BrakingPassEntry)`, `Split roles: ...`, `Split rules: stamped version 2 ...`, the split summary's appended `passKept= touchdownKept= rules=v2`, `CanAutoMerge: rejecting ... split rules vA/vB roles ...`.
+- Accepted: a Re-Fly attempt committed later is version 2 beside version-1 pieces of the same tree. The split recorder's fallback commit (`TreeCommitService.CommitRecordingDirect`) stamps too. The RULE 3 fold of a covered split piece into a re-flown live recording (`CommittedListOptimizer.ReabsorbSplitPieceIntoLiveCopy`) refuses a piece cut under another rule version than the live recording (`SplitPieceFoldRefusal`, the piece kept beside it like the other refusals) and re-reads the survivor's pass role from its content after the fold (`ReReadSurvivorRoleAfterFold`, Info `role re-read after the fold: A -> B`); the next pass re-cuts it and the merge guard never re-joins the cut. `ForceSplitRuleVersionForTesting` judges a fixture by version 2 (Phase 0). Tests: `OptimizerSplitRulesIntegrationTests` (the fold refusal, the fold role re-read, the direct-commit stamp; the last two red with the fix disabled).
+
+**Tests:** `OptimizerSplitRulesV2Tests` (every shape of the analysis section 3 with its version-1 pin where it differs, debris, EVA, Q8, Q9, the gate, the codec, the merge refusals, the stamps, a version-1 boundary-by-boundary pin), each shape run twice through the real pass with the second pass changing nothing; every existing optimizer cell is unchanged (the version-1 pin). `OptimizerRepeatPassSweepTests` loads every committed fixture save headlessly (74 with track sections, harness and xUnit fixtures) and runs the pass twice under version 1 and forced version 2: the second pass changes nothing.
+
+## ~~OPTIMIZER-SPLIT-IN-ONE-PASS~~: a big mission needed several loads to finish splitting (owner ruling Q19, "finish in one go") [FILED 2026-11-18 by the recording split / trim / merge review (design question 15), ruled by the owner 2026-11-18. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane]
+
+**Cause:** the split loop of `CommittedListOptimizer.RunOptimizationPass` stopped after 50 splits (and the merge loop after 50 merges), leaving the rest for the next cold load or commit.
+
+**Fix:** both loops run until no candidate remains. The split loop is bounded by the committed list's section count plus its recording count (`ComputeSplitSafetyBound`, at least 50; every cut consumes a boundary), the merge loop by the list size; hitting a bound Warns `Optimization pass: hit split|merge safety bound (N), some candidates may remain`. Applies to every rule version (it changes when a cut happens, not where).
+
+**Tests:** `OptimizerSplitRulesV2Tests.OnePass_SplitsAMissionPastTheOldFiftySplitCap` (79 cuts in one pass), `SplitSafetyBound_CountsSectionsAndRecordings`.
+
+## ~~CHAIN-INDEX-HOLE-RESTORES-EARLIER-PIECE~~: a hole in a chain's indices made an earlier piece look like the chain's end to the committed-tree restore [FILED 2026-11-18 by the recording split / trim / merge review (finding L11), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a resume of a committed vessel could record onto an earlier piece)]
+
+**Cause:** `ParsekFlight.HasNextChainSegmentInTree` (the "a later piece exists" check of `IsCommittedSpawnedRecordingRestorable`) looked for exactly `ChainIndex + 1`, so when that piece was gone (a hole in the indices) an earlier piece passed as the chain's last one.
+
+**Fix:** the check accepts any later piece of the same chain and branch (`ChainIndex > rec.ChainIndex`).
+
+**Tests:** `CommittedRestoreChainTipTests.ChainIndexHole_HeadIsNotRestorable` (red before the fix).
+
+## ~~TRIM-IGNORES-SUPERSEDE-AND-REFLY~~: the boring-tail trim cut superseded recordings and the recordings of a live Re-Fly [FILED 2026-11-18 by the recording split / trim / merge review (finding L7), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a superseded or in-merge recording lost its tail behind the merge's back)]
+
+**Cause:** the split pass skips superseded recordings and defers the live Re-Fly provisional, and the merge pass refuses both and the recordings the live session names, but `CommittedListOptimizer.TrimBoringTailsForOptimization` held only supply route sources.
+
+**Fix:** `DescribeTrimHold` adds two skip categories to the trim pass: `superseded` (a supersede row names the recording) and `active-refly` (the live Re-Fly's provisional, or a recording the live session or merge journal names, `CommittedListOptimizer.CollectLiveReFlyMergeHeldIds`). They are counted in the existing `TrimBoringTail skipped N recording(s)` summary.
+
+**Tests:** `CommittedListOptimizerUnitTests.TrimHolds_SupersededAndLiveReFlyRecordings` (red before the fix).
+
+## ~~SPLIT-LEAVES-END-FIELDS-ON-HEAD~~: an optimizer split left the end situation, dock partner and route windows on the first half [FILED 2026-11-18 by the recording split / trim / merge review (finding L6), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (the timeline's spawn wording for the real end fell back to generic text)]
+
+**Cause:** `RecordingOptimizer.TransferTerminalFieldsToSecondHalf` moved the terminal state, snapshot and terminal orbit to the second half but left `VesselSituation`, `DockTargetVesselPid`, `TransferTargetVesselPid` / `TransferKind` and `RouteConnectionWindows` on the first half.
+
+**Fix:** `MoveEndOfFlightFieldsToSecondHalf` moves them with the terminal; a route connection window that closed (undocked) before the cut stays on the first half, every other window moves (Verbose `Split: end-of-flight fields moved onto the second half (... windowsMoved=N windowsKept=M)`). The Re-Fly cut (`SplitAtUT`) goes through the same step, so TIP carries them. `SceneExitSituation` was not in the finding and is unchanged.
+
+**Tests:** `OptimizerSplitPlayerSettingsTests.Split_MovesEndOfFlightFieldsToTheSecondHalf` (red before the fix).
+
+## ~~LOOP-SYNC-PARENT-LINK-WRONG~~: a debris piece's loop-sync parent link pointed at the wrong recording [FILED 2026-11-18 by the recording split / trim / merge review (findings L4 and L5), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a looping debris ghost follows another recording's loop clock)]
+
+**Cause:** (L4) `Recording.LoopSyncParentIdx` is a committed-list position the engine reads as an index into its trajectory list, but nothing shifted it on a mid-list removal or insertion between optimization passes, so after a discard or an insert it named whatever recording slid into that slot. (L5) `CommittedListOptimizer.PopulateLoopSyncParentIndices` picked the first non-debris recording of the tree whose range covered the debris's start, ignoring the debris's own parent (`ParentAnchorRecordingId`), so a sibling stage listed first won.
+
+**Fix:** (L4) the two committed-list primitives `RecordingStore.RemoveCommittedAt` / `InsertCommittedAt` shift every link through `ShiftLoopSyncParentIndices` (a link to the removed recording is dropped; Verbose `Loop sync parent links after removal|insertion at index N: shifted=.. dropped=..`). (L5) `FindLoopSyncParentIndex` prefers the parent anchor when it covers the debris's start, then the piece of the anchor's chain that does (an optimizer split moved the birth onto a later piece), and falls back to the covering rule; the summary line gains `byParentAnchor=N`.
+
+**Tests:** `OptimizerLoopSyncParentTests` (removal shifts and drops, insertion shifts, the anchor wins over an earlier covering sibling, the anchor's chain piece is found, no anchor keeps the covering rule); four red before the fix.
+
+## ~~LAUNCH-HEAD-LABELLED-SURFACE~~: every launch's first row was labelled "surface" [FILED 2026-11-18 by the recording split / trim / merge review (finding M10), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; low (a wrong label in the Recordings table and the map)]
+
+**Cause:** since the launch-site rule (step 5b, owner ruling 2026-10-07) keeps the pad or runway time with the ascent, a split's first half starts on the pad, and `SplitAtSection` took its `SegmentPhase` from section 0, so the ascent row read "Kerbin surface".
+
+**Fix:** `RecordingOptimizer.ResolveHeadPhaseSection` labels a launch-site start's first half by the section where it leaves the site (`FindLaunchSiteDepartureSection`); any other first half keeps section 0. Verbose `Split: head <id> labelled by its launch-site departure section N (...)`. Rows split earlier keep their label.
+
+**Tests:** `OptimizerLaunchSiteLeadingRunTests.PadLaunch_Split_HeadIsLabelledByItsAscentNotThePad` (red before the fix) and `NonLaunchSurfaceStart_Split_HeadKeepsTheSurfaceLabel`.
+
+## ~~SPLIT-DROPS-PLAYER-ROW-SETTINGS~~: an optimizer split dropped the player's hide / disable / loop settings on the new piece [FILED 2026-11-18 by the recording split / trim / merge review (finding H6), by code reading. FIXED 2026-11-21, branch `rsr-wp5-optimizer`; xUnit; no lane; high (a hidden flight's second half reappears; a loop replays only the first half)]
+
+**Cause:** the merge pass refuses recordings with player settings (`CanAutoMerge`: loop, `PlaybackEnabled`, `Hidden`), but the split pass checked none and `SplitAtSection` / `CopySplitIdentityFields` copied none of them, so a recording the player hid, disabled or looped while its split was postponed (a live Re-Fly, a supply route hold) came apart on the next cold load with the new piece visible, enabled and not looping. The tail trim also cut looped recordings.
+
+**Fix:** owner RULE 1 ("always keep them"). `SplitAtSection` copies `Hidden`, `PlaybackEnabled` and the whole-recording loop (`LoopPlayback`, period, unit, anchor) onto the second half through `RecordingOptimizer.CopyPlayerRowSettings` (the seal and the groups already travelled). Both halves of a whole-recording loop share the period, so each cycle still runs head then tail. A loop RANGE (`LoopStartUT` / `LoopEndUT`) names UTs of the whole flight and cannot be divided, so `FindSplitCandidatesForOptimizer` keeps such a recording whole (Verbose `kept N recording(s) whole: the player set a loop range on them`), and `TrimBoringTailInternal` skips a recording with a loop or a loop range (category `loop-settings`).
+
+**Tests:** `OptimizerSplitPlayerSettingsTests` (split keeps hidden / disabled / loop / seal / groups on both halves through the real pass; a loop range is neither split nor trimmed; the trim skips a looped recording), all three red before the fix.
+
 ## ~~BG-SEPARATION-CLOSES-PARENT-RECORDING~~: a background vessel's staging closed its recording and started a second one [FIXED 2026-11-21, branch `rsr-wp8-bg-shape`; xUnit `BackgroundSeparationShapeTests`; low (two recordings-table rows for one vessel; no data lost)]
 
 Cause: a decouple or a broken-off part of a BACKGROUND vessel went through

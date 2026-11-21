@@ -38,6 +38,9 @@ namespace Parsek
             }
 
             rec.FilesDirty = true;
+            // The split recorder's fallback commit: a new recording judged by the current
+            // split rules, like the tree commit's append (owner ruling Q5).
+            RecordingOptimizer.StampSplitRulesAtCommit(rec, "direct commit");
             RecordingStore.AddCommittedInternal(rec);
             RecordingStore.Log($"[Parsek] Committed recording from {rec.VesselName} " +
                 $"({rec.Points.Count} points). Total committed: {RecordingStore.CommittedRecordings.Count}");

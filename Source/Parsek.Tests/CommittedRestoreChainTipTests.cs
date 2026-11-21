@@ -207,6 +207,18 @@ namespace Parsek.Tests
             Assert.Equal("rec_tip", recId);
         }
 
+        // CHAIN-INDEX-HOLE-RESTORES-EARLIER-PIECE (review L11): a hole in the chain indices
+        // (the piece at ChainIndex + 1 is gone) must not make the head look like the chain's end.
+        [Fact]
+        public void ChainIndexHole_HeadIsNotRestorable()
+        {
+            var tree = StaleHeadTree();
+            tree.Recordings["rec_tip"].ChainIndex = 2;
+
+            Assert.False(ParsekFlight.IsCommittedSpawnedRecordingRestorable(tree, tree.Recordings["rec_head"]));
+            Assert.True(ParsekFlight.IsCommittedSpawnedRecordingRestorable(tree, tree.Recordings["rec_tip"]));
+        }
+
         // MUTATION NOTE: deleting the earlier-chain-piece branch in
         // PrepareCommittedTreeRestoreForSpawnedVessel reds this (it falls to the background
         // promote, which parks the head in the background map under the live vessel's pid).

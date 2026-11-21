@@ -10,7 +10,9 @@ namespace Parsek
     internal static class RecordingSegmentLabels
     {
         /// <summary>
-        /// Returns a human-readable phase label like "Kerbin atmo" or "exo".
+        /// Returns a human-readable phase label like "Kerbin atmo" or "exo". A row the
+        /// version-2 split rules named (<see cref="Recording.SegmentRole"/>) reads by its
+        /// mission-profile role instead ("Kerbin reentry", "Kerbin aerobraking").
         /// Returns empty string for untagged/legacy recordings.
         /// </summary>
         internal static string GetSegmentPhaseLabel(Recording rec)
@@ -19,7 +21,22 @@ namespace Parsek
             return GetSegmentPhaseLabel(rec, GetSegmentBodyDisplayLabel(rec));
         }
 
+        /// <summary>
+        /// The phase label the Recordings table SORTS by: always the phase ("Kerbin atmo"),
+        /// never the role, so a version-2 role does not move rows in the table order.
+        /// </summary>
+        internal static string GetSegmentPhaseSortLabel(Recording rec)
+        {
+            if (rec == null) return "";
+            return GetSegmentPhaseLabel(rec, GetSegmentBodyDisplayLabel(rec), preferRole: false);
+        }
+
         internal static string GetSegmentPhaseLabel(Recording rec, string displayBody)
+        {
+            return GetSegmentPhaseLabel(rec, displayBody, preferRole: true);
+        }
+
+        private static string GetSegmentPhaseLabel(Recording rec, string displayBody, bool preferRole)
         {
             if (rec == null) return "";
             if (ShouldSuppressEvaBoundaryPhaseLabel(rec))
@@ -27,10 +44,12 @@ namespace Parsek
                 return displayBody ?? "";
             }
 
-            if (string.IsNullOrEmpty(rec.SegmentPhase)) return "";
+            string phase = preferRole && !string.IsNullOrEmpty(rec.SegmentRole)
+                ? rec.SegmentRole : rec.SegmentPhase;
+            if (string.IsNullOrEmpty(phase)) return "";
             if (!string.IsNullOrEmpty(displayBody))
-                return displayBody + " " + rec.SegmentPhase;
-            return rec.SegmentPhase;
+                return displayBody + " " + phase;
+            return phase;
         }
 
         internal static string GetSegmentBodyDisplayLabel(Recording rec)
