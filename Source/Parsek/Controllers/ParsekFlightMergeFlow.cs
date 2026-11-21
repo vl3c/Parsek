@@ -823,7 +823,11 @@ namespace Parsek
         /// on the post-split chain tips, and moves the live active vessel's stamp onto its tip
         /// (<see cref="InFlightCommitOptimization"/>).</para>
         /// </summary>
-        public void CommitTreeFlight()
+        /// <param name="abandonActiveVessel">True when the commit leaves the active vessel
+        /// unflown (the pre-switch dialog's Merge, which switches away right after): the active
+        /// leaf then gets the lifetime finalizer like every other live leaf. False for a commit
+        /// after which the player keeps flying it.</param>
+        public void CommitTreeFlight(bool abandonActiveVessel = false)
         {
             if (host.activeTree == null)
             {
@@ -834,9 +838,13 @@ namespace Parsek
             double commitUT = host.CurrentUniversalTime();
             ParsekLog.Info("Flight", "CommitTreeFlight: starting tree commit at UT=" +
                 commitUT.ToString("F1", CultureInfo.InvariantCulture));
+            if (abandonActiveVessel)
+                ParsekLog.Info("Flight",
+                    "CommitTreeFlight: the commit abandons the active vessel (pre-switch Merge) - " +
+                    "its leaf gets the lifetime finalizer like every other live leaf");
 
             // Finalize all recordings (active + background)
-            FinalizeTreeRecordings(host.activeTree, commitUT, isSceneExit: false);
+            FinalizeTreeRecordings(host.activeTree, commitUT, isSceneExit: false, abandonActiveVessel);
 
             // Name the finalized terminal verdict for every recording the commit is
             // about to consume. "starting tree commit at UT=" above only proves the
@@ -1099,7 +1107,8 @@ namespace Parsek
         /// Finalizes all recordings in the tree: stops active recorder, flushes data,
         /// captures terminal state/orbit/position for all recordings.
         /// </summary>
-        internal void FinalizeTreeRecordings(RecordingTree tree, double commitUT, bool isSceneExit)
+        internal void FinalizeTreeRecordings(
+            RecordingTree tree, double commitUT, bool isSceneExit, bool abandonActiveVessel = false)
         {
             string activeRecordingId = tree?.ActiveRecordingId;
             bool activeRecorderDestroyedDuringRecording =
@@ -1134,7 +1143,8 @@ namespace Parsek
                 resolveDestroyedDuringRecording: rec =>
                     activeRecorderDestroyedDuringRecording
                     && !string.IsNullOrEmpty(activeRecordingId)
-                    && string.Equals(rec?.RecordingId, activeRecordingId, StringComparison.Ordinal));
+                    && string.Equals(rec?.RecordingId, activeRecordingId, StringComparison.Ordinal),
+                abandonActiveVessel: abandonActiveVessel);
         }
 
         internal static bool IsActiveRecorderCacheCandidate(

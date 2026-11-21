@@ -19,6 +19,8 @@ namespace Parsek
         /// Decision table:
         ///   TerminalState == null           -> Unknown (recording still active or legacy)
         ///   TerminalState == Destroyed      -> Dead (vessel destroyed with crew aboard)
+        ///   Destroyed, predicted            -> Aboard (a crash Parsek only predicted; owner
+        ///                                      ruling Q6: crew die only when KSP destroyed it)
         ///   TerminalState == Recovered      -> Recovered
         ///   TerminalState == Boarded        -> if in snapshot: Aboard, else Unknown
         ///   TerminalState == Docked         -> if in snapshot: Aboard, else Unknown
@@ -216,7 +218,8 @@ namespace Parsek
         internal static KerbalEndState InferCrewEndState(
             string crewName,
             TerminalState? terminalState,
-            HashSet<string> snapshotCrew)
+            HashSet<string> snapshotCrew,
+            bool terminalPredicted = false)
         {
             // No terminal state -> recording still active or legacy data
             if (!terminalState.HasValue)
@@ -227,6 +230,18 @@ namespace Parsek
             }
 
             var ts = terminalState.Value;
+
+            // A crash Parsek only predicted (the vessel still existed, or KSP never destroyed
+            // it): the crew are not killed by the prediction. They stay with the vessel, the
+            // answer a SubOrbital ending gives a seated kerbal, whatever the end snapshot
+            // holds (a predicted crash may carry none).
+            if (ts == TerminalState.Destroyed && terminalPredicted)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"InferCrewEndState: crew='{crewName}' terminalState=Destroyed predicted=True -> Aboard " +
+                    "(predicted crash, not a confirmed destruction)");
+                return KerbalEndState.Aboard;
+            }
 
             // Vessel destroyed -> all crew aboard are dead
             if (ts == TerminalState.Destroyed)
@@ -437,11 +452,27 @@ namespace Parsek
             TerminalState? updated,
             string context)
         {
+            return InvalidateCrewEndStatesForTerminalStamp(rec, previous, updated, context, false);
+        }
+
+        /// <summary>
+        /// The observer itself. <paramref name="predictedChanged"/> is true when the stamp
+        /// moved <see cref="Recording.TerminalPredicted"/>: a Destroyed verdict that turned
+        /// from predicted to confirmed (or back) is a real change of the crew answer even when
+        /// the terminal value did not change, so it re-infers like an X->Y stamp.
+        /// </summary>
+        internal static bool InvalidateCrewEndStatesForTerminalStamp(
+            Recording rec,
+            TerminalState? previous,
+            TerminalState? updated,
+            string context,
+            bool predictedChanged)
+        {
             if (rec == null) return false;
 
             // Retraction, or no actual change: nothing to re-infer against.
             if (!updated.HasValue) return false;
-            if (previous.HasValue && previous.Value == updated.Value) return false;
+            if (previous.HasValue && previous.Value == updated.Value && !predictedChanged) return false;
 
             // Nothing to invalidate. A crewless recording resolves with a null dictionary
             // (PopulateCrewEndStates' "no crew in ghost snapshot" branch) — re-running it
@@ -788,7 +819,7 @@ namespace Parsek
                 string name = startingCrew[i];
                 var state = useGhostOnlyChainHandoffFallback
                     ? InferGhostOnlyChainHandoffEndState(rec.TerminalStateValue)
-                    : InferCrewEndState(name, rec.TerminalStateValue, endCrewSet);
+                    : InferCrewEndState(name, rec.TerminalStateValue, endCrewSet, rec.TerminalPredicted);
                 state = ApplySplitDeparture(name, state, endCrewSet, carriedAway, rec.RecordingId);
                 rec.CrewEndStates[name] = state;
 
@@ -883,7 +914,9 @@ namespace Parsek
                 && (rec.GhostVisualSnapshot != null || !string.IsNullOrEmpty(rec.EvaCrewName))
                 && (!rec.TerminalStateValue.HasValue
                     || rec.TerminalStateValue == TerminalState.Boarded
-                    || rec.TerminalStateValue == TerminalState.Destroyed
+                    // A predicted crash is not a handoff: its crew read Aboard through
+                    // InferCrewEndState, never the handoff fallback's Dead.
+                    || (rec.TerminalStateValue == TerminalState.Destroyed && !rec.TerminalPredicted)
                     || rec.TerminalStateValue == TerminalState.Recovered);
         }
 

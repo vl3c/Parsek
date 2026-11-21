@@ -1052,6 +1052,9 @@ namespace Parsek
         // scene-exit discard and finalize); the bodies live on MergeFlow.
         private void OnTreeCommittedFromMergeDialog(RecordingTree tree) => MergeFlow.OnTreeCommittedFromMergeDialog(tree);
         public void CommitTreeFlight() => MergeFlow.CommitTreeFlight();
+        // The pre-switch dialog's Merge: the player switches away from the active vessel.
+        internal void CommitTreeFlightAbandoningActiveVessel() =>
+            MergeFlow.CommitTreeFlight(abandonActiveVessel: true);
         internal bool IsActiveTreeIdleOnPad() => MergeFlow.IsActiveTreeIdleOnPad();
         internal void AutoDiscardIdleActiveTree(string reason) => MergeFlow.AutoDiscardIdleActiveTree(reason);
         internal void AutoDiscardActiveTreeWithMessage(

@@ -1424,7 +1424,10 @@ namespace Parsek
             }
             if (absorbed.TerminalStateValue.HasValue)
             {
-                target.StampTerminalState(absorbed.TerminalStateValue, "RecordingOptimizer.AbsorbInto");
+                // The predicted-crash flag is part of the verdict and travels with it.
+                target.StampTerminalState(
+                    absorbed.TerminalStateValue, "RecordingOptimizer.AbsorbInto",
+                    predicted: absorbed.TerminalPredicted);
 
                 // Mirror of the split's MergeState carry (see
                 // TransferTerminalFieldsToSecondHalf): open/closed for a Re-Fly slot is
@@ -2080,6 +2083,8 @@ namespace Parsek
             TerminalState? carriedTerminal = original.TerminalStateValue;
             second.TerminalStateValue = original.TerminalStateValue;
             original.TerminalStateValue = null;
+            second.TerminalPredicted = original.TerminalPredicted;
+            original.TerminalPredicted = false;
 
             // The destroyed flag is part of the terminal verdict and travels with it: left on
             // the first half it would read destroyed with no terminal, and the merge pass

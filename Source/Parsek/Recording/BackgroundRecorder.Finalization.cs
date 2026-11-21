@@ -513,7 +513,8 @@ namespace Parsek
             var options = new RecordingFinalizationCacheApplyOptions
             {
                 ConsumerPath = consumerPath,
-                AllowStale = allowStale
+                AllowStale = allowStale,
+                DestructionConfirmed = confirmedDestroyed
             };
 
             bool applied = RecordingFinalizationCacheApplier.TryApply(

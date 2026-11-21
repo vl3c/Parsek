@@ -431,7 +431,8 @@ namespace Parsek
             Func<Recording, RecordingFinalizationCache> resolveFinalizationCache = null,
             Func<Recording, bool> resolveDestroyedDuringRecording = null,
             Func<uint, Vessel> findVesselByPid = null,
-            FinalizationLiveVesselAccess liveVesselAccess = null)
+            FinalizationLiveVesselAccess liveVesselAccess = null,
+            bool abandonActiveVessel = false)
         {
             var sceneExitLifetimeExtendedIds = isSceneExit
                 ? new HashSet<string>(StringComparer.Ordinal)
@@ -470,7 +471,8 @@ namespace Parsek
                         tree,
                         vesselDestroyedDuringRecording,
                         findVesselByPid,
-                        liveVesselAccess)
+                        liveVesselAccess,
+                        abandonActiveVessel)
                     && sceneExitLifetimeExtendedIds != null
                     && !string.IsNullOrEmpty(recording?.RecordingId))
                 {
@@ -487,7 +489,8 @@ namespace Parsek
                         tree,
                         isSceneExit,
                         commitUT,
-                        activeFinalizationCache)
+                        activeFinalizationCache,
+                        abandonActiveVessel)
                 && sceneExitLifetimeExtendedIds != null
                 && !string.IsNullOrEmpty(tree.ActiveRecordingId))
             {
