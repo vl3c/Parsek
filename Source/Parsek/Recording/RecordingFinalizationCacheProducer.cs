@@ -186,6 +186,37 @@ namespace Parsek
             IList<TrackSection> unflushedTrackSections,
             out RecordingFinalizationCache cache)
         {
+            bool stockDeletion = vessel != null
+                && IsStockOnRailsDeletionRefresh(reason, vessel.IsPacked, vessel.IsLoaded, vessel.Situation);
+            bool success = TryBuildFromLiveVesselCore(
+                recording,
+                vessel,
+                refreshUT,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                recordingTree,
+                unflushedTrackSections,
+                stockDeletion,
+                out cache);
+            if (!stockDeletion || IsAlreadyClassifiedDestroyedSkip(cache))
+                return success;
+
+            return CoerceStockDeletionCache(cache, refreshUT, success);
+        }
+
+        private static bool TryBuildFromLiveVesselCore(
+            Recording recording,
+            IRecordingFinalizationVesselView vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            RecordingTree recordingTree,
+            IList<TrackSection> unflushedTrackSections,
+            bool stockDeletion,
+            out RecordingFinalizationCache cache)
+        {
             string recordingId = recording?.RecordingId;
             uint vesselPid = ResolveVesselPid(recording, vessel);
             cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
@@ -223,7 +254,15 @@ namespace Parsek
             // for residual parts) before they reach the surface-terminal
             // branch and re-stamp Landed on the same transient LANDED
             // situation.
-            if (IsDestroyRefreshReason(reason))
+            //
+            // A background_destroy on a PACKED, airborne vessel is not a crash
+            // Parsek watched: it is stock deleting an unattended vessel on rails
+            // (above 1 kPa outside the pack range, or below the terrain). It takes
+            // the normal extrapolation path below so the cache carries the fall to
+            // where the vessel would hit (owner ruling Q1a), with no eager stamp,
+            // so the confirmed-destruction apply can still land that tail; the
+            // outer TryBuildFromLiveVessel coerces the result to Destroyed.
+            if (IsDestroyRefreshReason(reason) && !stockDeletion)
                 return CompleteRefresh(
                     cache, PopulateDestroyEventTerminalCache(recording, cache, refreshUT, reason, vessel.Situation),
                     recordingsExamined, 0, 1);
@@ -1199,7 +1238,164 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(reason)) return false;
             return string.Equals(reason, "destroy_event", StringComparison.Ordinal)
-                || string.Equals(reason, "background_destroy", StringComparison.Ordinal);
+                || string.Equals(reason, BackgroundDestroyRefreshReason, StringComparison.Ordinal);
+        }
+
+        internal const string BackgroundDestroyRefreshReason = "background_destroy";
+        internal const string StockDeletionNoFallDeclineReason = "stock-deletion-no-predicted-fall";
+
+        /// <summary>
+        /// True when a destroy refresh is stock deleting an unattended vessel on rails rather
+        /// than a crash Parsek watched in physics. Stock (decompiled <c>Vessel</c>, KSP 1.12.5)
+        /// deletes a PACKED, non-active vessel that is not landed or splashed when it sits
+        /// above 1 kPa outside the active vessel's pack range, and an unloaded vessel below the
+        /// terrain, firing <c>onVesselWillDestroy</c> while it is still packed. Only the
+        /// background path (<see cref="BackgroundDestroyRefreshReason"/>) qualifies: stock never
+        /// deletes the active vessel this way. A surface situation keeps the destroy-event
+        /// branch, whose eager stamp stops a transient LANDED re-stamp.
+        /// </summary>
+        internal static bool IsStockOnRailsDeletionRefresh(
+            string reason,
+            bool isPacked,
+            bool isLoaded,
+            Vessel.Situations situation)
+        {
+            return string.Equals(reason, BackgroundDestroyRefreshReason, StringComparison.Ordinal)
+                && (isPacked || !isLoaded)
+                && !IsSurfaceTerminalSituation(situation);
+        }
+
+        /// <summary>
+        /// True when <paramref name="cache"/> carries a predicted fall that ends after
+        /// <paramref name="refreshUT"/>: an applicable Destroyed terminal later than the
+        /// refresh with at least one predicted segment to draw it.
+        /// </summary>
+        internal static bool IsPredictedFallCache(RecordingFinalizationCache cache, double refreshUT)
+        {
+            return IsPotentiallyApplicableCache(cache)
+                && cache.TerminalState.Value == TerminalState.Destroyed
+                && IsFinite(refreshUT)
+                && cache.TerminalUT > refreshUT + RecordingFinalizationCacheApplier.UtEpsilon
+                && cache.PredictedSegments != null
+                && cache.PredictedSegments.Count > 0;
+        }
+
+        /// <summary>
+        /// The ending of a stock deletion is always Destroyed: the vessel is gone. A predicted
+        /// impact (Destroyed) is kept with its tail; a predicted touchdown (Landed / Splashed,
+        /// a ballistic ground contact the deletion beat) becomes Destroyed at the same UT with
+        /// the same tail; anything else (a stable or open orbit, a decline, a failure) carries
+        /// no fall and becomes "Destroyed now" at the refresh UT with no tail, so
+        /// <see cref="ResolveStockOnRailsDeletionCache"/> can still prefer an earlier fall.
+        /// </summary>
+        private static bool CoerceStockDeletionCache(
+            RecordingFinalizationCache cache,
+            double refreshUT,
+            bool success)
+        {
+            TerminalState? fresh = cache.TerminalState;
+            string outcome;
+            if (success
+                && fresh.HasValue
+                && (fresh.Value == TerminalState.Landed || fresh.Value == TerminalState.Splashed)
+                && IsFinite(cache.TerminalUT)
+                && cache.TerminalUT >= refreshUT
+                && cache.PredictedSegments != null
+                && cache.PredictedSegments.Count > 0)
+            {
+                cache.TerminalState = TerminalState.Destroyed;
+                cache.TerminalOrbit = null;
+                outcome = "touchdown-as-impact";
+            }
+            else if (success
+                && fresh == TerminalState.Destroyed
+                && IsFinite(cache.TerminalUT)
+                && cache.TerminalUT >= refreshUT - RecordingFinalizationCacheApplier.UtEpsilon
+                && ((cache.PredictedSegments != null && cache.PredictedSegments.Count > 0)
+                    || cache.TerminalUT <= refreshUT + RecordingFinalizationCacheApplier.UtEpsilon))
+            {
+                // A future impact needs the tail that reaches it; a Destroyed with no
+                // tail is only honest at the deletion itself.
+                outcome = "predicted-impact";
+            }
+            else
+            {
+                cache.Status = FinalizationCacheStatus.Fresh;
+                cache.DeclineReason = StockDeletionNoFallDeclineReason;
+                cache.TerminalState = TerminalState.Destroyed;
+                cache.TerminalUT = refreshUT;
+                cache.TerminalBodyName = cache.LastObservedBodyName;
+                cache.TerminalOrbit = null;
+                cache.TerminalPosition = null;
+                cache.TerrainHeightAtEnd = null;
+                cache.TailStartsAtUT = refreshUT;
+                cache.PredictedSegments = new List<OrbitSegment>();
+                outcome = "destroyed-now";
+            }
+
+            ParsekLog.Info("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Stock deletion refresh: rec={0} pid={1} outcome={2} extrapolated={3} " +
+                    "terminalUT={4:F3} refreshUT={5:F3} segments={6} eagerRecordingStamp=False",
+                    cache.RecordingId ?? "(pending)",
+                    cache.VesselPersistentId,
+                    outcome,
+                    success && fresh.HasValue ? fresh.Value.ToString() : "(none)",
+                    cache.TerminalUT,
+                    refreshUT,
+                    cache.PredictedSegments?.Count ?? 0));
+            return true;
+        }
+
+        /// <summary>
+        /// Picks the cache a stock deletion keeps (owner ruling Q1a): the fresh refresh when it
+        /// carries a predicted fall, else the previous applicable cache when IT carries a fall
+        /// still ahead of the deletion (marked Stale: it is older than the deletion), else the
+        /// fresh "Destroyed now". Mutates only <paramref name="previous"/>'s staleness fields
+        /// when it is chosen.
+        /// </summary>
+        internal static RecordingFinalizationCache ResolveStockOnRailsDeletionCache(
+            RecordingFinalizationCache previous,
+            RecordingFinalizationCache refreshed,
+            double refreshUT,
+            out string source)
+        {
+            RecordingFinalizationCache chosen;
+            if (IsPredictedFallCache(refreshed, refreshUT))
+            {
+                source = "fresh-fall";
+                chosen = refreshed;
+            }
+            else if (IsPredictedFallCache(previous, refreshUT))
+            {
+                source = "previous-fall";
+                previous.Status = FinalizationCacheStatus.Stale;
+                previous.LastObservedUT = refreshUT;
+                previous.RefreshReason = refreshed?.RefreshReason ?? BackgroundDestroyRefreshReason;
+                chosen = previous;
+            }
+            else
+            {
+                source = "destroyed-now";
+                chosen = refreshed;
+            }
+
+            ParsekLog.Info("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Stock deletion cache: rec={0} pid={1} source={2} terminal={3} terminalUT={4:F3} " +
+                    "refreshUT={5:F3} segments={6} previousTerminal={7} previousTerminalUT={8:F3}",
+                    chosen?.RecordingId ?? "(pending)",
+                    chosen != null ? chosen.VesselPersistentId : 0u,
+                    source,
+                    chosen?.TerminalState?.ToString() ?? "(null)",
+                    chosen != null ? chosen.TerminalUT : double.NaN,
+                    refreshUT,
+                    chosen?.PredictedSegments?.Count ?? 0,
+                    previous?.TerminalState?.ToString() ?? "(none)",
+                    previous != null ? previous.TerminalUT : double.NaN));
+            return chosen;
         }
 
         private static bool Accept(RecordingFinalizationCache cache)

@@ -1798,8 +1798,8 @@ namespace Parsek
             // EVA-construction pocket: the LAST part of a DroppedPart/Debris vessel
             // being stored in an inventory is a deliberate disassembly, not a loss.
             // Stamped HERE, before the background recorder's "background_destroy"
-            // finalization refresh, because that refresh eagerly stamps
-            // TerminalState.Destroyed onto a still-unstamped recording
+            // finalization refresh, because for a loaded vessel that refresh eagerly
+            // stamps TerminalState.Destroyed onto a still-unstamped recording
             // (RecordingFinalizationCacheProducer.PopulateDestroyEventTerminalCache);
             // stamping first turns that eager write into a no-op instead of a
             // one-frame Destroyed flicker that later has to be re-stamped.

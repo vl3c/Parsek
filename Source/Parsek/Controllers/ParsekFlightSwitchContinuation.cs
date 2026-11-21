@@ -1041,8 +1041,8 @@ namespace Parsek
                     // it. This site is the only background close that knows the
                     // vessel is alive (the player just switched TO it), so a
                     // PREDICTED Destroyed from a ballistic-extrapolator cache must
-                    // be vetoed here — the scoping clamp pulls it back to switchUT,
-                    // so the applier's RejectedTerminalBeforeLastSample guard cannot.
+                    // be vetoed here: its terminal UT is at or after switchUT, so the
+                    // applier's RejectedTerminalBeforeLastSample guard cannot.
                     TerminalState? cacheTerminal;
                     host.backgroundRecorder.TryPeekFinalizationCacheTerminalForBackgroundEnd(
                         bgRec, focusedPid, switchUT, out cacheTerminal);
@@ -1071,6 +1071,10 @@ namespace Parsek
                                 allowStale: true,
                                 requireDestroyedTerminal: false,
                                 confirmedDestroyed: false,
+                                // The vessel goes on in the continuation segment, so a
+                                // predicted Landed / Splashed tail past switchUT would
+                                // overlap it: end this recording at the switch.
+                                retainPredictedTailPastEnd: false,
                                 out cacheResult))
                         {
                             source = "cache";

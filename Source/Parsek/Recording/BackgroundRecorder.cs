@@ -1337,10 +1337,20 @@ namespace Parsek
                 return;
             }
 
+            Recording destroyRefreshRec = null;
+            if (!string.IsNullOrEmpty(recordingId))
+                tree.Recordings.TryGetValue(recordingId, out destroyRefreshRec);
+            bool hadTerminalBeforeDestroyRefresh =
+                destroyRefreshRec != null && destroyRefreshRec.TerminalStateValue.HasValue;
+
+            // A loaded crash stamps the recording Destroyed eagerly here; a packed airborne
+            // vessel is a stock deletion and caches its predicted fall instead
+            // (RecordingFinalizationCacheProducer.IsStockOnRailsDeletionRefresh).
             RefreshFinalizationCacheForVessel(v, recordingId, v.loaded && !v.packed
                 ? FinalizationCacheOwner.BackgroundLoaded
                 : FinalizationCacheOwner.BackgroundOnRails,
-                "background_destroy", force: true);
+                RecordingFinalizationCacheProducer.BackgroundDestroyRefreshReason, force: true);
+            NoteEagerDestroyStamp(pid, destroyRefreshRec, hadTerminalBeforeDestroyRefresh);
 
             BackgroundOnRailsState railsState;
             if (onRailsStates.TryGetValue(pid, out railsState))

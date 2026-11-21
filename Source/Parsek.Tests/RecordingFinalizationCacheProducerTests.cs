@@ -666,6 +666,271 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.Landed, cache.TerminalState);
         }
 
+        private static void OverrideDefaultFinalizer(TerminalState terminal, double terminalUT, bool withSegment)
+        {
+            RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
+                (Recording recording, Vessel vessel, double refreshUT, out IncompleteBallisticFinalizationResult result) =>
+                {
+                    var segments = new List<OrbitSegment>();
+                    if (withSegment)
+                    {
+                        segments.Add(new OrbitSegment
+                        {
+                            bodyName = "Kerbin",
+                            startUT = refreshUT,
+                            endUT = terminalUT,
+                            semiMajorAxis = 650000.0,
+                            eccentricity = 0.2,
+                            inclination = 1.0
+                        });
+                    }
+                    result = new IncompleteBallisticFinalizationResult
+                    {
+                        terminalState = terminal,
+                        terminalUT = terminalUT,
+                        extrapolatedSegmentCount = segments.Count,
+                        appendedOrbitSegments = segments
+                    };
+                    return true;
+                };
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_PackedBackgroundDestroy_CachesThePredictedFallWithoutEagerStamp()
+        {
+            // GS-10 / GS-11: stock deleting a packed stage in the air used to cache
+            // "Destroyed now, no segments" and stamp the recording eagerly, so the confirmed
+            // apply was RejectedAlreadyFinalized and the stage exploded where last seen.
+            OverrideDefaultFinalizer(TerminalState.Destroyed, 190.0, withSegment: true);
+            var vessel = MakeFlyingView(808u, packed: true, loaded: true, inAtmosphere: true);
+            var recording = new Recording { RecordingId = "rec-stock-deleted", VesselPersistentId = 808u };
+            recording.Points.Add(new TrajectoryPoint { ut = 120.0, bodyName = "Kerbin", altitude = 20000.0 });
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                120.0,
+                FinalizationCacheOwner.BackgroundOnRails,
+                "background_destroy",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+            Assert.Equal(190.0, cache.TerminalUT);
+            Assert.Single(cache.PredictedSegments);
+            Assert.True(RecordingFinalizationCacheProducer.IsPredictedFallCache(cache, 120.0));
+            Assert.Null(recording.TerminalStateValue);
+            Assert.DoesNotContain(logLines, l => l.Contains("Destroy-reason override"));
+            Assert.Contains(logLines, l => l.Contains("[Parsek][INFO][FinalizerCache]")
+                && l.Contains("Stock deletion refresh")
+                && l.Contains("rec=rec-stock-deleted")
+                && l.Contains("outcome=predicted-impact")
+                && l.Contains("terminalUT=190.000")
+                && l.Contains("eagerRecordingStamp=False"));
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_PackedBackgroundDestroy_TouchdownBecomesImpact()
+        {
+            OverrideDefaultFinalizer(TerminalState.Landed, 190.0, withSegment: true);
+            var vessel = MakeFlyingView(809u, packed: true, loaded: false, inAtmosphere: true);
+            var recording = new Recording { RecordingId = "rec-stock-touchdown", VesselPersistentId = 809u };
+
+            Assert.True(RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording, vessel, 120.0, FinalizationCacheOwner.BackgroundOnRails,
+                "background_destroy", hasMeaningfulThrust: false, out RecordingFinalizationCache cache));
+
+            Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+            Assert.Equal(190.0, cache.TerminalUT);
+            Assert.Single(cache.PredictedSegments);
+            Assert.Contains(logLines, l => l.Contains("Stock deletion refresh")
+                && l.Contains("outcome=touchdown-as-impact")
+                && l.Contains("extrapolated=Landed"));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Orbiting, true)]
+        [InlineData(TerminalState.SubOrbital, true)]
+        [InlineData(TerminalState.Destroyed, false)]
+        public void TryBuildFromLiveVessel_PackedBackgroundDestroy_NoFall_IsDestroyedNow(
+            TerminalState extrapolated, bool withSegment)
+        {
+            // An orbit (no fall) or a future Destroyed with no tail to reach it.
+            OverrideDefaultFinalizer(extrapolated, 190.0, withSegment);
+            var vessel = MakeFlyingView(810u, packed: true, loaded: true, inAtmosphere: true);
+            var recording = new Recording { RecordingId = "rec-stock-nofall", VesselPersistentId = 810u };
+
+            Assert.True(RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording, vessel, 120.0, FinalizationCacheOwner.BackgroundOnRails,
+                "background_destroy", hasMeaningfulThrust: false, out RecordingFinalizationCache cache));
+
+            Assert.Equal(FinalizationCacheStatus.Fresh, cache.Status);
+            Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+            Assert.Equal(120.0, cache.TerminalUT);
+            Assert.Empty(cache.PredictedSegments);
+            Assert.Null(cache.TerminalOrbit);
+            Assert.Null(recording.TerminalStateValue);
+            Assert.Contains(logLines, l => l.Contains("Stock deletion refresh") && l.Contains("outcome=destroyed-now"));
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_LoadedBackgroundDestroy_KeepsTheEagerStamp()
+        {
+            // A crash Parsek watched in physics keeps today's behavior.
+            OverrideDefaultFinalizer(TerminalState.Destroyed, 190.0, withSegment: true);
+            var vessel = MakeFlyingView(811u, packed: false, loaded: true, inAtmosphere: true);
+            var recording = new Recording { RecordingId = "rec-loaded-crash", VesselPersistentId = 811u };
+
+            Assert.True(RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording, vessel, 120.0, FinalizationCacheOwner.BackgroundLoaded,
+                "background_destroy", hasMeaningfulThrust: false, out RecordingFinalizationCache cache));
+
+            Assert.Equal(120.0, cache.TerminalUT);
+            Assert.Empty(cache.PredictedSegments);
+            Assert.Equal(TerminalState.Destroyed, recording.TerminalStateValue);
+            Assert.Contains(logLines, l => l.Contains("Destroy-reason override") && l.Contains("eagerRecordingStamp=True"));
+        }
+
+        [Theory]
+        [InlineData("background_destroy", true, true, Vessel.Situations.FLYING, true)]
+        [InlineData("background_destroy", false, false, Vessel.Situations.SUB_ORBITAL, true)]
+        [InlineData("background_destroy", false, true, Vessel.Situations.FLYING, false)]
+        [InlineData("background_destroy", true, true, Vessel.Situations.LANDED, false)]
+        [InlineData("background_destroy", true, true, Vessel.Situations.SPLASHED, false)]
+        [InlineData("background_destroy", true, true, Vessel.Situations.PRELAUNCH, false)]
+        [InlineData("destroy_event", true, true, Vessel.Situations.FLYING, false)]
+        [InlineData("periodic", true, true, Vessel.Situations.FLYING, false)]
+        public void IsStockOnRailsDeletionRefresh_Table(
+            string reason, bool packed, bool loaded, Vessel.Situations situation, bool expected)
+        {
+            Assert.Equal(expected, RecordingFinalizationCacheProducer.IsStockOnRailsDeletionRefresh(
+                reason, packed, loaded, situation));
+        }
+
+        private static RecordingFinalizationCache MakeDestroyedCache(double terminalUT, bool withSegment, double startUT)
+        {
+            var cache = new RecordingFinalizationCache
+            {
+                RecordingId = "rec-resolve",
+                VesselPersistentId = 900u,
+                Owner = FinalizationCacheOwner.BackgroundOnRails,
+                Status = FinalizationCacheStatus.Fresh,
+                RefreshReason = "background_destroy",
+                TerminalState = TerminalState.Destroyed,
+                TerminalUT = terminalUT,
+                TailStartsAtUT = startUT,
+                PredictedSegments = new List<OrbitSegment>()
+            };
+            if (withSegment)
+                cache.PredictedSegments.Add(new OrbitSegment
+                {
+                    bodyName = "Kerbin", startUT = startUT, endUT = terminalUT, semiMajorAxis = 650000.0
+                });
+            return cache;
+        }
+
+        [Fact]
+        public void ResolveStockOnRailsDeletionCache_FreshFallWins()
+        {
+            var previous = MakeDestroyedCache(200.0, withSegment: true, startUT: 110.0);
+            previous.RefreshReason = "periodic";
+            var fresh = MakeDestroyedCache(190.0, withSegment: true, startUT: 120.0);
+
+            var chosen = RecordingFinalizationCacheProducer.ResolveStockOnRailsDeletionCache(
+                previous, fresh, 120.0, out string source);
+
+            Assert.Same(fresh, chosen);
+            Assert.Equal("fresh-fall", source);
+            Assert.Equal(FinalizationCacheStatus.Fresh, previous.Status);
+        }
+
+        [Fact]
+        public void ResolveStockOnRailsDeletionCache_FallsBackToThePreviousFall()
+        {
+            var previous = MakeDestroyedCache(200.0, withSegment: true, startUT: 110.0);
+            previous.RefreshReason = "periodic";
+            var freshNow = MakeDestroyedCache(120.0, withSegment: false, startUT: 120.0);
+
+            var chosen = RecordingFinalizationCacheProducer.ResolveStockOnRailsDeletionCache(
+                previous, freshNow, 120.0, out string source);
+
+            Assert.Same(previous, chosen);
+            Assert.Equal("previous-fall", source);
+            Assert.Equal(FinalizationCacheStatus.Stale, chosen.Status);
+            Assert.Equal(200.0, chosen.TerminalUT);
+            Assert.Contains(logLines, l => l.Contains("[Parsek][INFO][FinalizerCache]")
+                && l.Contains("Stock deletion cache")
+                && l.Contains("source=previous-fall")
+                && l.Contains("terminalUT=200.000"));
+        }
+
+        [Fact]
+        public void ResolveStockOnRailsDeletionCache_NoFallAnywhere_IsDestroyedNow()
+        {
+            // A previous fall that already ended before the deletion is not a fall ahead.
+            var previous = MakeDestroyedCache(115.0, withSegment: true, startUT: 100.0);
+            var freshNow = MakeDestroyedCache(120.0, withSegment: false, startUT: 120.0);
+
+            var chosen = RecordingFinalizationCacheProducer.ResolveStockOnRailsDeletionCache(
+                previous, freshNow, 120.0, out string source);
+
+            Assert.Same(freshNow, chosen);
+            Assert.Equal("destroyed-now", source);
+
+            Assert.Same(freshNow, RecordingFinalizationCacheProducer.ResolveStockOnRailsDeletionCache(
+                null, freshNow, 120.0, out string nullSource));
+            Assert.Equal("destroyed-now", nullSource);
+        }
+
+        [Fact]
+        public void PackedBackgroundDestroy_ThenConfirmedDestroyedApply_AppendsThePredictedFall()
+        {
+            // End to end over the headless seams: the destroy refresh's cache, kept by the
+            // background recorder, is what DeferredDestructionCheck applies with
+            // requireDestroyedTerminal + confirmedDestroyed at the deletion UT.
+            RecordingStore.SuppressLogging = true;
+            OverrideDefaultFinalizer(TerminalState.Destroyed, 190.0, withSegment: true);
+            var tree = new RecordingTree { Id = "tree-stock-delete", TreeName = "Stock delete" };
+            var recording = new Recording
+            {
+                RecordingId = "rec-stock-e2e",
+                VesselPersistentId = 812u,
+                TreeId = tree.Id
+            };
+            recording.Points.Add(new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", altitude = 30000.0 });
+            recording.Points.Add(new TrajectoryPoint { ut = 120.0, bodyName = "Kerbin", altitude = 20000.0 });
+            tree.Recordings[recording.RecordingId] = recording;
+            tree.BackgroundMap[812u] = recording.RecordingId;
+            var bg = new BackgroundRecorder(tree);
+
+            var vessel = MakeFlyingView(812u, packed: true, loaded: true, inAtmosphere: true);
+            Assert.True(RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording, vessel, 120.0, FinalizationCacheOwner.BackgroundOnRails,
+                "background_destroy", hasMeaningfulThrust: false, out RecordingFinalizationCache cache));
+            bg.AdoptFinalizationCacheForTesting(812u, recording.RecordingId, cache);
+
+            bool applied = bg.TryApplyFinalizationCacheForBackgroundEnd(
+                recording,
+                812u,
+                120.0,
+                "DeferredDestructionCheck",
+                allowStale: true,
+                requireDestroyedTerminal: true,
+                confirmedDestroyed: true,
+                out RecordingFinalizationCacheApplyResult result);
+
+            Assert.True(applied, result.Status.ToString());
+            Assert.Equal(TerminalState.Destroyed, recording.TerminalStateValue);
+            Assert.Equal(190.0, recording.ExplicitEndUT);
+            Assert.Equal(1, result.AppendedSegmentCount);
+            OrbitSegment tail = Assert.Single(recording.OrbitSegments);
+            Assert.True(tail.isPredicted);
+            Assert.Equal(120.0, tail.startUT);
+            Assert.Equal(190.0, tail.endUT);
+            Assert.DoesNotContain(logLines, l => l.Contains("RejectedAlreadyFinalized"));
+        }
+
         [Fact]
         public void IsDestroyRefreshReason_MatchesDestroyEventAndBackgroundDestroyOnly()
         {
