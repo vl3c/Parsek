@@ -43,8 +43,10 @@ namespace Parsek
         /// <summary>The snapshot names no recovery type, location or target.</summary>
         NotReadable,
         /// <summary>Every target (the kerbal aboard some vessel, the part in some vessel) is
-        /// already in the world: nothing to do. A regeneration's vessel is saved with the game,
-        /// so the next rebuild of the same contract finds it here. With
+        /// already in the world: nothing to do. A regeneration's vessel is live at once and saved
+        /// with the game at the next save, and the world index reads both lists
+        /// (<see cref="ContractAcceptWorldIndexer"/>), so the next rebuild of the same contract
+        /// finds it here, in the same scene or after a load. With
         /// <see cref="PartiallyPresent"/> it is what keeps a regeneration from running twice:
         /// a compound rescue is checked target by target, never only as the pair.</summary>
         TargetPresent,

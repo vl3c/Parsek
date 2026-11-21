@@ -11,17 +11,6 @@ namespace Parsek
     // Contract rebuild: the stock accept-side world effects Contract.Load does not run.
     internal static partial class KspStatePatcher
     {
-        /// <summary>
-        /// The live world facts a restored contract's accept-side check reads, built once per
-        /// patch and only when a restored contract's template has an accept-side world effect.
-        /// </summary>
-        private sealed class ContractAcceptWorldIndex
-        {
-            internal readonly HashSet<uint> PartFlightIds = new HashSet<uint>();
-            internal readonly HashSet<string> CrewAboard = new HashSet<string>(StringComparer.Ordinal);
-            internal int VesselCount;
-        }
-
         private const BindingFlags RecoverAssetPrivate = BindingFlags.Instance | BindingFlags.NonPublic;
 
         /// <summary>The <c>onContractsLoaded</c> subscription that drains
@@ -108,7 +97,8 @@ namespace Parsek
                     if (RegenerateRebuiltStrandedAsset(contractId, contract, plan.Target))
                     {
                         repaired++;
-                        // The new vessel is in flightState now; the next contract re-reads it.
+                        // The new vessel is live (FlightGlobals) and not yet in flightState;
+                        // the next contract's index re-reads both lists.
                         world = null;
                     }
                     break;
@@ -403,7 +393,12 @@ namespace Parsek
             }
 
             uint partIdBefore = (uint)partIdField.GetValue(rescue);
-            int vesselsBefore = flightState.protoVessels.Count;
+            // Game.AddVessel registers the vessel with FlightGlobals and leaves
+            // flightState.protoVessels alone until the next save's Game.Updated() recaptures
+            // it, so the witness diffs both lists (todo RESCUE-REGEN-COUNTS-PROTOVESSELS).
+            int savedBefore = flightState.protoVessels.Count;
+            HashSet<object> keysBefore = CaptureWorldVesselKeys();
+            List<WorldVesselFact> added;
             try
             {
                 using (SuppressionGuard.Crew())
@@ -412,31 +407,27 @@ namespace Parsek
             catch (TargetInvocationException ex)
             {
                 Exception inner = ex.InnerException ?? ex;
+                added = ReadAddedWorldVessels(keysBefore);
                 ParsekLog.Warn(Tag,
                     $"PatchContracts: RecoverAsset.{generatorName} threw for rebuilt contract '{contractId}' " +
                     $"({inner.GetType().Name}: {inner.Message}); vessels added before the throw=" +
-                    $"{(flightState.protoVessels.Count - vesselsBefore).ToString(IC)}");
-                return flightState.protoVessels.Count > vesselsBefore;
+                    $"{added.Count.ToString(IC)} [{ContractAcceptWorldIndexer.Describe(added)}]");
+                return added.Count > 0;
             }
             uint partIdAfter = (uint)partIdField.GetValue(rescue);
-            int added = flightState.protoVessels.Count - vesselsBefore;
+            added = ReadAddedWorldVessels(keysBefore);
+            int savedGrew = flightState.protoVessels.Count - savedBefore;
 
-            var names = new List<string>();
-            for (int i = vesselsBefore; i < flightState.protoVessels.Count; i++)
-            {
-                ProtoVessel pv = flightState.protoVessels[i];
-                if (pv != null)
-                    names.Add("'" + pv.vesselName + "' pid=" + pv.persistentId.ToString(IC));
-            }
             ParsekLog.Info(Tag,
                 $"PatchContracts: regenerated stranded asset for rebuilt contract '{contractId}' through " +
-                $"RecoverAsset.{generatorName}: added={added.ToString(IC)} " +
-                $"[{string.Join(", ", names.ToArray())}] ({ContractAcceptWorldEffects.DescribeTarget(target)}; " +
-                $"partID {partIdBefore.ToString(IC)} -> {partIdAfter.ToString(IC)})");
+                $"RecoverAsset.{generatorName}: added={added.Count.ToString(IC)} " +
+                $"[{ContractAcceptWorldIndexer.Describe(added)}] ({ContractAcceptWorldEffects.DescribeTarget(target)}; " +
+                $"partID {partIdBefore.ToString(IC)} -> {partIdAfter.ToString(IC)}; " +
+                $"flightStateGrew={savedGrew.ToString(IC)}, stock's next save captures it)");
 
             if (ContractAcceptWorldEffects.NeedsPartListRepair(target.RecoveringPart, partIdBefore, partIdAfter))
                 RepairRebuiltRescuePartLists(contractId, rescue, partIdBefore, partIdAfter);
-            return added > 0;
+            return added.Count > 0;
         }
 
         /// <summary>The rebuilt AcquirePart / RecoverPart still list the snapshot's part id;
@@ -513,35 +504,178 @@ namespace Parsek
                 || index.FirstFuture(CommittedFutureKind.ContractCancel, contractId, double.NegativeInfinity) != null;
         }
 
+        /// <summary>
+        /// The accept-side world index over BOTH vessel lists, <c>flightState.protoVessels</c>
+        /// and <c>FlightGlobals.Vessels</c>. A vessel stock created this scene (a regeneration,
+        /// any other <c>Game.AddVessel</c>) is only in the live list until the next save, so an
+        /// index read from flightState alone would let a second rebuild or drain in the same
+        /// scene regenerate it again (todo RESCUE-REGEN-COUNTS-PROTOVESSELS).
+        /// </summary>
         private static ContractAcceptWorldIndex BuildContractAcceptWorldIndex()
         {
-            var index = new ContractAcceptWorldIndex();
+            List<WorldVesselFact> saved = ReadSavedWorldVesselFacts();
+            int deadSkipped;
+            List<WorldVesselFact> live = ReadLiveWorldVesselFacts(out deadSkipped);
+            ContractAcceptWorldIndex index = ContractAcceptWorldIndexer.Build(saved, live);
+            ParsekLog.Verbose(Tag,
+                $"PatchContracts: accept-side world index: vessels={index.VesselCount.ToString(IC)} " +
+                $"saved={saved.Count.ToString(IC)} live={live.Count.ToString(IC)} " +
+                $"liveOnly={index.LiveOnlyCount.ToString(IC)} deadSkipped={deadSkipped.ToString(IC)} " +
+                $"parts={index.PartFlightIds.Count.ToString(IC)} crewAboard={index.CrewAboard.Count.ToString(IC)}");
+            return index;
+        }
+
+        /// <summary>Every saved and live vessel object now, for the regeneration witness.</summary>
+        private static HashSet<object> CaptureWorldVesselKeys()
+        {
+            var keys = new HashSet<object>();
+            int dead;
+            AddWorldVesselKeys(keys, ReadSavedWorldVesselFacts());
+            AddWorldVesselKeys(keys, ReadLiveWorldVesselFacts(out dead));
+            return keys;
+        }
+
+        private static void AddWorldVesselKeys(HashSet<object> keys, List<WorldVesselFact> facts)
+        {
+            for (int i = 0; i < facts.Count; i++)
+            {
+                if (facts[i].Key != null)
+                    keys.Add(facts[i].Key);
+            }
+        }
+
+        private static List<WorldVesselFact> ReadAddedWorldVessels(HashSet<object> keysBefore)
+        {
+            int dead;
+            return ContractAcceptWorldIndexer.SelectAdded(
+                keysBefore, ReadSavedWorldVesselFacts(), ReadLiveWorldVesselFacts(out dead));
+        }
+
+        private static List<WorldVesselFact> ReadSavedWorldVesselFacts()
+        {
+            var facts = new List<WorldVesselFact>();
             FlightState flightState = HighLogic.CurrentGame != null ? HighLogic.CurrentGame.flightState : null;
             if (flightState == null || flightState.protoVessels == null)
-                return index;
+                return facts;
             for (int v = 0; v < flightState.protoVessels.Count; v++)
             {
                 ProtoVessel pv = flightState.protoVessels[v];
                 if (pv == null || pv.protoPartSnapshots == null)
                     continue;
-                index.VesselCount++;
-                for (int p = 0; p < pv.protoPartSnapshots.Count; p++)
+                facts.Add(ProtoVesselFact(pv, pv, live: false));
+            }
+            return facts;
+        }
+
+        /// <summary>The live vessels, or none when FlightGlobals cannot be read (logged; the
+        /// index then reads flightState alone).</summary>
+        private static List<WorldVesselFact> ReadLiveWorldVesselFacts(out int deadSkipped)
+        {
+            deadSkipped = 0;
+            try
+            {
+                return ReadLiveWorldVesselFactsCore(out deadSkipped);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    "PatchContracts: accept-side world index could not read FlightGlobals.Vessels " +
+                    $"({ex.GetType().Name}: {ex.Message}); live vessels not indexed");
+                return new List<WorldVesselFact>();
+            }
+        }
+
+        /// <summary>
+        /// FlightGlobals.Vessels as world facts: a loaded vessel by its live parts, an unloaded
+        /// one by its ProtoVessel; dead vessels (the ones stock's save leaves out) are skipped.
+        /// Parsek's ghost map vessels need no IsGhostMapVessel check here: each is one
+        /// sensorBarometer part made with flight id 0 and no crew
+        /// (<c>GhostMapPresence.ProtoVesselLifecycle</c>), and the index answers only "is this
+        /// kerbal aboard" and "is this part id in a vessel", dropping flight id 0, so a ghost
+        /// adds nothing either answer reads (and naming GhostMapPresence from KspStatePatcher
+        /// would add a backward layer pair).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static List<WorldVesselFact> ReadLiveWorldVesselFactsCore(out int deadSkipped)
+        {
+            deadSkipped = 0;
+            var facts = new List<WorldVesselFact>();
+            if (FlightGlobals.fetch == null)
+                return facts;
+            List<Vessel> vessels = FlightGlobals.Vessels;
+            if (vessels == null)
+                return facts;
+            for (int i = 0; i < vessels.Count; i++)
+            {
+                Vessel vessel = vessels[i];
+                if (vessel == null)
+                    continue;
+                if (vessel.state == Vessel.State.DEAD)
                 {
-                    ProtoPartSnapshot pps = pv.protoPartSnapshots[p];
-                    if (pps == null)
-                        continue;
-                    index.PartFlightIds.Add(pps.flightID);
-                    if (pps.protoModuleCrew == null)
-                        continue;
-                    for (int c = 0; c < pps.protoModuleCrew.Count; c++)
+                    deadSkipped++;
+                    continue;
+                }
+                if (vessel.loaded && vessel.parts != null && vessel.parts.Count > 0)
+                {
+                    var f = new WorldVesselFact
                     {
-                        ProtoCrewMember crew = pps.protoModuleCrew[c];
-                        if (crew != null && !string.IsNullOrEmpty(crew.name))
-                            index.CrewAboard.Add(crew.name);
+                        Key = vessel,
+                        Id = vessel.id,
+                        PersistentId = vessel.persistentId,
+                        Name = vessel.vesselName,
+                        Live = true
+                    };
+                    for (int p = 0; p < vessel.parts.Count; p++)
+                    {
+                        Part part = vessel.parts[p];
+                        if (part == null)
+                            continue;
+                        f.PartFlightIds.Add(part.flightID);
+                        AddWorldVesselCrew(f, part.protoModuleCrew);
                     }
+                    facts.Add(f);
+                }
+                else if (vessel.protoVessel != null && vessel.protoVessel.protoPartSnapshots != null)
+                {
+                    WorldVesselFact f = ProtoVesselFact(vessel.protoVessel, vessel, live: true);
+                    f.Id = vessel.id;
+                    f.PersistentId = vessel.persistentId;
+                    facts.Add(f);
                 }
             }
-            return index;
+            return facts;
+        }
+
+        private static WorldVesselFact ProtoVesselFact(ProtoVessel pv, object key, bool live)
+        {
+            var f = new WorldVesselFact
+            {
+                Key = key,
+                Id = pv.vesselID,
+                PersistentId = pv.persistentId,
+                Name = pv.vesselName,
+                Live = live
+            };
+            for (int p = 0; p < pv.protoPartSnapshots.Count; p++)
+            {
+                ProtoPartSnapshot pps = pv.protoPartSnapshots[p];
+                if (pps == null)
+                    continue;
+                f.PartFlightIds.Add(pps.flightID);
+                AddWorldVesselCrew(f, pps.protoModuleCrew);
+            }
+            return f;
+        }
+
+        private static void AddWorldVesselCrew(WorldVesselFact f, List<ProtoCrewMember> crew)
+        {
+            if (crew == null)
+                return;
+            for (int c = 0; c < crew.Count; c++)
+            {
+                if (crew[c] != null && !string.IsNullOrEmpty(crew[c].name))
+                    f.Crew.Add(crew[c].name);
+            }
         }
     }
 }

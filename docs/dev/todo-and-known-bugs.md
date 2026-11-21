@@ -31,11 +31,16 @@ Flown (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, D
 
 Report-only readings recorded, no block armed (an owner decision): STR-3 `rewindPointFiles=1 unlistedRewindPointFiles=1`; RSQ-1 / RSQ-2 `crewAboard` `Rayvan Kerman = 1` (in the final saves); VN-14 `legsRenamed=0` on the cold apply pass; SURV-2 no rewind point as predicted, but its structure block reads both recordings Destroyed (SURVIVOR-DESTROYED-AT-SCENE-EXIT).
 
-## RESCUE-REGEN-COUNTS-PROTOVESSELS: the rebuilt rescue's stranded-vessel regeneration reports `added=0`, so the repair reads as failed and a deferred rescue is dropped [FILED 2026-11-20 from the first flights of RSQ-1 / RSQ-2 (branch `test-gaps-batch3`); NOT FIXED; medium (the regeneration's own result is misread, and the after-crossing save lacked the stranded vessel)]
+## ~~RESCUE-REGEN-COUNTS-PROTOVESSELS~~: the rebuilt rescue's stranded-vessel regeneration reported `added=0`, so the repair read as failed and the same-scene double-spawn guard could not see the new vessel [FILED 2026-11-20 from the first flights of RSQ-1 / RSQ-2 (branch `test-gaps-batch3`); FIXED 2026-11-21, branch `test-gaps-batch1`; xUnit `ContractAcceptWorldIndexTests` (red first on the stubbed indexer: 6 of 8); OPEN: RSQ-1 / RSQ-2 re-flown on this fix (live proof); medium (the regeneration's own result was misread, and a second rebuild or drain in the same scene would have regenerated the vessel again)]
 
-Evidence: RSQ-1 `2026-11-20_2308_RSQ-1-rescue-rebuilt-at-space-center` and RSQ-2 `2026-11-20_2311_RSQ-2-rescue-rebuilt-in-flight-deferred` (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc; logs in `automation/results-archive/<runId>/KSP.log.gz`). RSQ-1 at the Space Center crossing: `PatchContracts: accept-side world effect not run on rebuild: contractId='e8ba5ea6-...' ... worldMissing=True repair=RegenerateStrandedAsset skip=none`, then `PatchContracts: regenerated stranded asset for rebuilt contract 'e8ba5ea6-...' through RecoverAsset.GenerateOrbitalRecovery: added=0 [] (orbit kerbal='Rayvan Kerman'; partID 4161328136 -> 268551258)` and `1 rebuilt contract(s) name world objects ...; repaired=0`. RSQ-2 at the Space Center drain: the same `added=0 []` line, `Rescue accept deferral removed: ... (drain evaluated: outcome=Regenerate regenerated=False); pending=0` and `drained ... evaluated=1 regenerated=0`. The partID swap proves stock's generator ran. RSQ-1's save taken right after the crossing (`rsq1-01-after-crossing.sfs` in the run's `_save` snapshot) holds no `Rayvan's Shipwreck`; both final produced saves do, with Rayvan aboard (report-only `crewAboard`), by an unexplained later path.
+Evidence: RSQ-1 `2026-11-20_2308_RSQ-1-rescue-rebuilt-at-space-center` and RSQ-2 `2026-11-20_2311_RSQ-2-rescue-rebuilt-in-flight-deferred` (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc; logs in `automation/results-archive/<runId>/KSP.log.gz`). RSQ-1 at the Space Center crossing: `PatchContracts: accept-side world effect not run on rebuild: contractId='e8ba5ea6-...' ... worldMissing=True repair=RegenerateStrandedAsset skip=none (...; vessels=3 scene=SPACECENTER)`, then `PatchContracts: regenerated stranded asset for rebuilt contract 'e8ba5ea6-...' through RecoverAsset.GenerateOrbitalRecovery: added=0 [] (orbit kerbal='Rayvan Kerman'; partID 4161328136 -> 268551258)` and `1 rebuilt contract(s) name world objects ...; repaired=0`. RSQ-2 at the Space Center drain: the same `added=0 []` line, `Rescue accept deferral removed: ... (drain evaluated: outcome=Regenerate regenerated=False); pending=0` and `drained ... evaluated=1 regenerated=0`. The partID swap proves stock's generator ran.
 
-Lead (decompiled `logs/decompile/2026-10-26_full/`): `RecoverAsset.GenerateOrbitalRecovery` calls `HighLogic.CurrentGame.AddVessel(node)`, and `Game.AddVessel` builds a live vessel through `ProtoVessel.Load(flightState)` and fires `onNewVesselCreated`; nothing there appends to `flightState.protoVessels`, which is the list `KspStatePatcher.RegenerateRebuiltStrandedAsset` (`GameActions/KspStatePatcher.ContractAcceptEffects.cs`) counts before and after the call. So the count is likely the wrong witness (read `FlightGlobals.Vessels`, or the `onNewVesselCreated` vessel, instead), and the deferral drain must not drop an entry on a false `regenerated=False`. Still to settle before a fix: why the after-crossing save has no shipwreck (does a vessel created at the Space Center reach the saved flightState only at a later scene change?). Fix needs a red xUnit cell over the counting seam, then RSQ-1 / RSQ-2 re-flown.
+Correction to the filing: RSQ-1's save taken right after the crossing (`rsq1-01-after-crossing.sfs` in the run's `_save` snapshot) DOES hold the vessel: its FLIGHTSTATE has `name = Rayvan's Shipwreck` (line 13238) with Rayvan aboard. A FLIGHTSTATE `VESSEL` names itself with `name =`; the filing grepped `vesselName =`, which only the contract and recording nodes use. The vessel was in the world from the regeneration on.
+
+Cause (decompiled KSP 1.12.5, `logs/decompile/2026-10-26_full/`). `RecoverAsset.GenerateOrbitalRecovery` / `GenerateLandRecovery` end in `HighLogic.CurrentGame.AddVessel(node)`. `Game.AddVessel` is `new ProtoVessel(node, this)`, `protoVessel.Load(flightState)`, `GameEvents.onNewVesselCreated.Fire(protoVessel.vesselRef)`; `ProtoVessel.Load(st, null)` builds the `Vessel`, runs `StartFromBackup(this, st)` (which only sets `protoVessel` and the orbit driver) and ends with `FlightGlobals.AddVessel(vesselRef)` and `onVesselCreate`. Nothing appends to `flightState.protoVessels` (the only appenders are `ContractSystem`'s pre-built-ship spawn and `MissionSystem`, both outside the FLIGHT scene, and `FlightState`'s own constructors). That list is rebuilt from `FlightGlobals.Vessels` by `new FlightState()` inside `Game.Updated()` whenever `HighLogic.LoadedSceneHasPlanetarium` (FLIGHT, TRACKSTATION, SPACECENTER), i.e. at every save there ("Flight State Captured", the line right after `cmd=SaveGame start` in both logs). So the vessel is live at once and saved with the game at the next save, as after stock's own accept; Parsek need not add it to `flightState.protoVessels`, and does not (stock's accept at Mission Control does not either). But `KspStatePatcher.RegenerateRebuiltStrandedAsset` counted `flightState.protoVessels` before and after the call (always 0), and `BuildContractAcceptWorldIndex`, the double-spawn guard's world, read only that list, so until the next save a second rebuild or drain in the same scene would have read the target missing and regenerated it again.
+
+Fix. `GameActions/ContractAcceptWorldIndex.cs` (pure `ContractAcceptWorldIndexer`, `WorldVesselFact`): `Build` indexes the union of the saved and the live vessels (a vessel in both counted once by its id; flight id 0, the part Parsek's ghost map vessels carry, ignored), `SelectAdded` diffs both lists by object before and after the generator (one entry per vessel, live first), `Describe` names each added vessel (`'name' pid=N crew=(a; b) parts=K live`, no square bracket inside the logged list). `KspStatePatcher.ContractAcceptEffects.cs` reads `FlightGlobals.Vessels` in the `[NoInlining]` `ReadLiveWorldVesselFactsCore` (a loaded vessel by its live parts, an unloaded one by its ProtoVessel, dead vessels skipped as stock's save does; a failed read logs a Warn and indexes flightState alone), builds both the index and the witness from it, logs `PatchContracts: accept-side world index: vessels=N saved=N live=N liveOnly=N deadSkipped=N parts=N crewAboard=N` (Verbose) and adds `; flightStateGrew=N, stock's next save captures it` inside the regeneration line's parentheses. The `added=N [...]`, `vessels=N scene=S)` and `regenerated=` tokens RSQ-1 / RSQ-2 pin are unchanged in form; on this fix they must read `added=1 ['Rayvan's Shipwreck' pid=... crew=(Rayvan Kerman) parts=1 live]`, `repaired=1`, `regenerated=True` and `regenerated=1`. The drain still takes an evaluated id off the list whatever it decided (by design); the false `regenerated=False` was the witness, now fixed. Tests: `ContractAcceptWorldIndexTests` (9 cases: the live-only vessel indexed, one vessel in both lists counted once, a ghost map vessel adds nothing, the witness counts the live-only vessel RSQ-1 / RSQ-2 missed, a second rebuild in the same scene plans `TargetPresent` / no repair where the flightState-only index planned a second regeneration).
+
 
 ## SURVIVOR-DESTROYED-AT-SCENE-EXIT: a crash's living probe survivor is finalized Destroyed at the scene exit [FILED 2026-11-20 from SURV-2's first flight (report-only structure block), branch `test-gaps-batch3`; NOT FIXED; high (the surviving vessel's recording ends Destroyed with its spawn snapshot dropped, so its replay and end-of-flight spawn are lost)]
 
@@ -45,7 +50,7 @@ Evidence: SURV-2 `2026-11-20_2313_SURV-2-recorded-half-destroyed-survivor-record
 
 Evidence: SOI-3 `2026-11-20_2310_SOI-3-bg-probe-mun-exit-on-rails` (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc). The recorder side looks right: `SOI change for background vessel: pid=4070220036 from=Mun to=Kerbin` at UT 1317.09 with the Mun segment closed `UT=1250.1-1317.1 body=Mun` and the Kerbin one opened there, `bg probe recording ok: ... seamUT=1317.090 munSegments=182 kerbinSegments=3`, and the placement cell put the probe on the Mun inside its SOI before the seam and on Kerbin outside it after. But `BgSoiCrossingPlaybackInGameTests.BackgroundProbeSeamWorldPositionsAreContinuous` measured `bg probe seam Mun->Kerbin ut=1317.090 gap=9127.7m (tolerance 5000m)`, the two sides evaluated 0.5 s either side of the seam through `TrajectoryMath.EvaluateOrbitSegmentTruePositionAtUT`, where the cell's derivation expects under about 0.7 km (the probe's own travel in 1 s). Either the two segments' elements disagree at the seam (the Mun segment was captured at 1250.1 and propagated; the Kerbin one at the event) or the evaluation path is off; both would show on a ghost replaying the crossing. Next: evaluate both segments at the exact seam UT headlessly from the produced save (`2026-11-20_2310_..._save`) to split element error from evaluation error, then a red xUnit cell. The C# tolerance is not to be widened to pass the lane.
 
-## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; PC LANES AUTHORED 2026-11-20, branch `test-gaps-b3-rescue-lane`: RSQ-1 / RSQ-2, FLOWN 2026-11-20 and red on RESCUE-REGEN-COUNTS-PROTOVESSELS; OPEN: that finding, then their re-flights (live proof), and the prebuilt-ship / experimental-part templates (measure first, item 4); high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
+## CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS: after a rewind to before a rescue accept, the rebuilt rescue contract has no stranded vessel and can only fail [FILED 2026-11-18 from the test-gap analysis, by decompile and code reading; DETECTION 2026-11-18, branch `tkh1m4-rescuecontract`: a pure classifier and guard plus one Info line per rebuilt contract, no world change; FIXED 2026-11-20 (rescue and tourism), branch `test-gaps-rescuecontract`: the rebuild regenerates the stranded vessel through RecoverAsset's own stock generator and converts the tourists, xUnit only; FOLLOW-UP 2026-11-20, branch `test-gaps-batch1` (owner rulings): a rescue rebuilt in Flight or an editor is regenerated at the next Space Center or Tracking Station visit, tourism skips a committed resolution, a half-present compound rescue is never regenerated, xUnit only; FIX 2026-11-21, same branch: the regeneration's witness and the double-spawn world index read the live vessels too (RESCUE-REGEN-COUNTS-PROTOVESSELS), xUnit only; OPEN: the PC lanes RSQ-1 / RSQ-2 (branch `test-gaps-b3-rescue-lane`, re-flight on this fix = the live proof), and the prebuilt-ship / experimental-part templates (measure first, item 4); high (an Active contract that cannot be completed charges its failure penalty at the deadline)]
 
 **What happens.** The player accepts a rescue contract (`Contracts.Templates.RecoverAsset`) at UT
 T, rewinds to before T, and the clock reaches T again. `KspStatePatcher.PatchContractsCore`
@@ -79,11 +84,12 @@ the template's accept-side effect; `ReadRecoverAssetTarget` reads the snapshot's
 `recoveryType` / `recoveryLocation` / `kerbalName` / `partID`; `DecideStrandedAsset` is the guard a
 regeneration must pass, first match wins: `NotReadable`, `TargetPresent` (the kerbal aboard some
 vessel, the part in some vessel; also what keeps a regeneration from running twice, since the
-vessel it adds is saved with the game), `CommittedResolution` (the committed timeline completes,
+vessel it adds is live at once and saved with the game at the next save), `CommittedResolution` (the committed timeline completes,
 fails or cancels the contract at any UT), `KerbalReserved` (`KerbalsModule.ShouldBlockDismissal`: managed or
 named by a committed flight; or either side of the crew swap map), `KerbalNotInRoster`, `KerbalNotUnowned`
 (the kerbal is no longer the offer's Unowned stranded kerbal), `Regenerate`. `KspStatePatcher.ContractAcceptEffects.cs` builds the world facts
-from `flightState.protoVessels` once per patch, only when a rebuilt contract has an effect, and logs
+from `flightState.protoVessels` and `FlightGlobals.Vessels` (`ContractAcceptWorldIndexer`, see
+RESCUE-REGEN-COUNTS-PROTOVESSELS) once per patch, only when a rebuilt contract has an effect, and logs
 `PatchContracts: accept-side world effect not run on rebuild: contractId=... effect=StrandedAsset
 outcome=Regenerate worldMissing=True (...)`, plus one summary line naming this id. Tests:
 `ContractAcceptWorldEffectsTests` (28 cases; 11 red with `Classify` stubbed to the rebuild's current
@@ -105,7 +111,8 @@ this; its vessel is in that save).
    before and after; when the generator re-drew it for a part recovery (`NeedsPartListRepair`),
    `AcquirePart` / `RecoverPart` swap the old id for the new one (the live contract only: the
    accept snapshot keeps the old id). Double-spawn guards: the world check reads
-   `flightState.protoVessels` target by target. `TargetPresent` when every named target is in the
+   `flightState.protoVessels` and `FlightGlobals.Vessels` target by target (a vessel `Game.AddVessel`
+   made this scene is only in the live list until the next save). `TargetPresent` when every named target is in the
    world (the kerbal aboard any vessel, the part in any vessel); `PartiallyPresent` (review finding
    2026-11-20) when a compound rescue has one target in the world and not the other, because stock's
    generators make both together: with the kerbal aboard, `GenerateKerbalInPart` -> `SeatKerbal`
@@ -117,7 +124,8 @@ this; its vessel is in that save).
    list so later patches skip it. The orbit is stock's (`ChooseOrbit`; low orbits are random), so the vessel
    sits elsewhere than in the first timeline (no committed flight depends on it: `KerbalReserved` /
    `CommittedResolution` skip that case). Lines: `PatchContracts: regenerated stranded asset for
-   rebuilt contract '<id>' through RecoverAsset.<generator>: added=N [...]` and, on a part swap,
+   rebuilt contract '<id>' through RecoverAsset.<generator>: added=N [...]` (N counted on both
+   vessel lists, each added vessel with its pid, crew and part count) and, on a part swap,
    `rebuilt rescue '<id>' part lists now name partID=...`.
 1a. Deferral (owner ruling 2026-11-20). A `Regenerate` decision in FLIGHT or an editor plans
    `ContractAcceptRepair.DeferStrandedAsset` (the line still reads `skip=scene=<scene>`) and lists
@@ -324,6 +332,89 @@ OPEN:
   coordinate refresh in OnSave for a locked servo).
 
 SRV-1's first flight 2026-11-20 (`2026-11-20_2314_SRV-1-hinge-followers-ghost`, runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): PARSEK-FAIL(expectation) attempt 1, with no Parsek defect shown. The `ServoFollowers` cell passed on its synthetic rig (`carried its moving-side part through 45`), but the flight itself recorded nothing to replay: both `PartAction servomax` / `servomin` set the target (`state='servo:target=90.00'` / `-90.00`) and the recorder tracked the hinge (`Robotics: tracking 'hinge.01' ... source=currentAngle`), yet 0 part events were recorded (no `RoboticMotionStarted` / `RoboticPositionSample`), and the committed pad rig's ghost is hidden by the launch-site rule (`LaunchSiteGhost: Ghost hidden: vessel 'SRV1 Hinge Rig' ... never left the launch site`), so no `Servo follower plan for 'SRV1 Hinge Rig'` was ever logged. Two lane problems: the derived craft (`build_srv_hinge_pad.py`) writes no MODULE nodes, so the hinge runs on prefab defaults (KSPCF `ModuleIndexingMismatch`) and was not seen to move (read the hinge's state next flight: locked, motor disengaged, or unpowered); and a rig that never leaves the pad has its ghost hidden by design. Redesign: give the craft its hinge MODULE (unlocked, motor engaged) and fly the rig off the pad (a hop), or replay away from the launch-site circle.
+## ~~DEBRIS-LIFETIME-LOST-ON-PROMOTION~~: a debris piece the player switched to lost its 60 s limit [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a promoted booster recorded until it crashed; GS-11 measured it)]
+
+Cause: the debris time limit lived only in `BackgroundRecorder.debrisTTLExpiry`. A promotion to the
+active recorder cancels that entry (D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: the background recorder no
+longer owns the piece), and the active recorder had no limit, so the booster recorded to impact
+(GS-11 `points=271 terminal=Destroyed`). Switching away again did not re-arm it, a Fly / Switch-To
+continuation segment of the piece recorded as a plain, non-debris segment with no limit, and a
+post-switch watch armed while the piece was tracked started a fresh recording once its limit ended
+it (draft review question 7). Owner ruling Q13 (2026-11-18): "Always the 60 s limit".
+
+Fix: the limit is read from the tree by the pure `BackgroundRecorder.TryResolveDebrisExpiryUT` (separation
+branch point UT + 60 s, walking up through `VesselSwitchContinuation` points). The active recorder
+honours it: `ParsekFlight.CheckActiveDebrisLifetime` (pure gate `EvaluateActiveDebrisLifetimeEnd`,
+deferred while a split, an unprocessed split check, dock merge, restore or hand-off is in progress)
+hands the piece back to the background recorder the way a vessel switch does, flushing the coalescer
+window and unprocessed decouple captures first (`FlushPendingSplits`) and ends it there
+(`BackgroundRecorder.EndDebrisRecordingForLifetime`, a background time-limit end); the vessel stays
+focused, unrecorded. `OnVesselBackgrounded` re-arms the same limit for a debris piece with none
+(`Debris lifetime re-armed from the tree`, Info for a hand-back, Verbose for a recording created this
+frame; a background split child sets its own deadline before the hand-off). `SwitchSegmentBuilder.InheritDebrisIdentityFromParent`
+keeps `IsDebris`, `ParentAnchorRecordingId` and `Generation` on a continuation of a debris piece whose limit still
+runs (a piece past its limit, from an older flight, continues as a plain segment, as before).
+`CheckDebrisTTL` returns the pids it ended and the flight host disarms a post-switch watch armed on
+one (`reason=debris-recording-ended`). Promotion already kept `IsDebris` and
+`ParentAnchorRecordingId` (same `Recording` object); only the limit was lost.
+
+Tests: `DebrisLifetimeTests` (lifetime resolution, the active gate, the hand-back re-arm and end, the
+continuation inheritance, `CheckDebrisTTL`'s ended pids). Red before the fix, by disabling the two
+new call sites: `HandBackToBackground_RearmsTheSeparationLifetime`,
+`SwitchContinuation_OfLiveDebris_StaysDebris`; the active gate and resolver are new code. The live
+hand-back (`TransitionToBackground` -> flush -> `OnVesselBackgrounded` -> end) is not headless-testable;
+lane GS-11 flies it (expected to change: the promoted booster now ends at its limit, not at impact).
+
+## ~~EVA-MARKS-SHIP-AS-SPINOFF-GENERATION~~: an EVA gave the ship the spinoff generation and the kerbal the ship's [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `BackgroundSplitTests`; low (no player-visible effect left after BG-BREAKUP-GENERATION-CAP)]
+
+Cause: `ParsekFlight.BuildSplitBranchData` gives the ACTIVE child the parent's generation and the
+background child one more. On an EVA KSP hands focus to the kerbal, so the kerbal kept the
+generation and the ship was marked as the spinoff; with the old cascade cap a landed ship that
+tipped over after an EVA recorded no breakup (draft review question 9).
+
+Fix: on an EVA branch whose kerbal is the active child, the ship (background child) keeps the
+parent's generation and the kerbal gets one more, as when the kerbal is the background child.
+BG-BREAKUP-GENERATION-CAP already lets the ship record its breakups (its recording is not debris),
+so this corrects the stored generation only. Merge note: a five-line edit inside the EVA block of
+`BuildSplitBranchData` in `ParsekFlight.SplitBranching.cs`.
+
+Tests: `BackgroundSplitTests.BuildSplitBranchData_EvaFromActiveShip_ShipKeepsGeneration_KerbalIsSpinoff`
+(red before the fix), `BuildSplitBranchData_EvaKerbalInBackground_ShipKeepsGeneration`.
+
+## ~~BG-BREAKUP-GENERATION-CAP~~: a background vessel never recorded its own breakup after its first split [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `BackgroundSplitTests`; medium (a second separation of a probe or crewed vessel left its pieces unrecorded)]
+
+Cause: `BackgroundRecorder.HandleBackgroundVesselSplit` skipped every split whose parent recording
+was at `Generation >= MaxRecordingGeneration` (1), so a probe or crewed vessel that had come off
+the launched vessel (generation 1) never recorded its own later separations while in the
+background (draft review question 9; the cap was undocumented).
+
+Fix: owner ruling Q14 (2026-11-18), "Yes, for controllable ones". `ShouldSkipForCascadeCap` takes
+whether the parent is controllable (`IsCascadeCapControllableParent`: a recording that is not
+debris, or a live parent that `ParsekFlight.ShouldRecordAsOwnBranch` accepts) and caps plain debris
+only. A lifted cap logs `Cascade depth cap lifted for a controllable parent`; the cap line gains
+`parentIsDebris` and `liveParentOwnBranch`. The flight-recorder design doc now states the rule.
+
+Tests: `BackgroundSplitTests.ShouldSkipForCascadeCap_ControllableParent_NeverSkips` (red before the
+fix), `IsCascadeCapControllableParent_PlainDebrisOnlyIsCapped`; the existing cap cells pass
+`parentControllable: false` and keep their expectations.
+
+## ~~DEBRIS-ENDS-WHEN-PARENT-GOES-ON-RAILS~~: time warp ended every parent-anchored debris recording [FIXED 2026-11-20, branch `rsr-wp4-background-debris`; xUnit `DebrisLifetimeTests`; medium (a booster's fall was cut off whenever the player warped)]
+
+Cause: `BackgroundRecorder.CheckDebrisTTL` ended a parent-anchored debris recording when its parent
+vessel was packed or unloaded (`ParentOnRailsOrDestroyed`, plan Decision section 10). Time warp
+packs every loaded vessel, so warping right after staging ended every dropped stage's recording at
+once (draft review question 6). Owner ruling Q12 (2026-11-18): keep to the time limit.
+
+Fix: the per-entry verdict is the pure `BackgroundRecorder.ClassifyDebrisTtlEntry`. A parent that
+is on rails (packed or unloaded) no longer ends the debris; only a parent vessel that is gone does
+(`ParentVesselDestroyed`, log `Debris TTL: parent vessel gone, ending recording`). The debris keeps
+its 60 s limit and its other ends (vessel gone, left the physics bubble, parent recording missing
+or no longer written). While on rails it records through the existing background on-rails state
+(orbit checkpoints); no section is added to that state. A kept entry logs, rate-limited,
+`Debris TTL: parent on rails, debris keeps recording to its time limit`.
+
+Tests: `DebrisLifetimeTests` (the verdict table; `ParentPackedByTimeWarp_DebrisKeepsRecording` and
+`ParentUnloaded_DebrisKeepsRecording` red before the fix).
 
 ## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
 
