@@ -84,6 +84,12 @@ namespace Parsek
         public Vector3d terminalVelocity;
         public List<OrbitSegment> segments;
         public ExtrapolationFailureReason failureReason;
+        // Owner ruling Q8: the tail ended on its final conic (a stable orbit, or an open conic
+        // around a body with no parent and nothing ahead). The last entry of `segments` is that
+        // conic's settle span (BallisticExtrapolator.FinalConicSettleSeconds) and
+        // finalConicStartUT is the UT the flight entered it.
+        public bool endedOnFinalConic;
+        public double finalConicStartUT;
     }
 
     internal sealed class ExtrapolationBody
@@ -151,6 +157,14 @@ namespace Parsek
         // Terminal reasons of a Destroyed cutoff (the `Terminal reason=` log token).
         internal const string CutoffReasonSurfaceImpact = "surface-impact";
         internal const string CutoffReasonDeletionPeriapsis = "deletion-periapsis";
+        // Terminal reasons of a final-conic ending (owner ruling Q8, the `Terminal reason=` token).
+        internal const string TerminalReasonStableConic = "stable-conic";
+        internal const string TerminalReasonFinalEscape = "final-escape";
+        // A final-conic ending keeps this much of the final conic (at most a quarter of a
+        // closed conic's period): a positive span in the final body, so the recording's last
+        // segment, its terminal orbit and its endpoint all name that body, and the spawn sits
+        // clear of the sphere-of-influence boundary just crossed.
+        internal const double FinalConicSettleSeconds = 60.0;
         // Any start-state altitude below this is treated as a destroyed-vessel
         // fingerprint (see `ExtrapolationFailureReason.SubSurfaceStart`).
         // Chosen well below Kerbin's deepest natural terrain (~5 km) so
@@ -196,6 +210,46 @@ namespace Parsek
         {
             double year = limits.calendarSecondsPerYear;
             return year > 0.0 && !double.IsInfinity(year) ? year : KerbinCalendarSecondsPerYear;
+        }
+
+        /// <summary>
+        /// Pure: the span of the final conic a final-conic ending keeps
+        /// (<see cref="FinalConicSettleSeconds"/>, at most a quarter of a closed conic's
+        /// period; an open or unknown period keeps the full settle span).
+        /// </summary>
+        internal static double ResolveFinalConicSettleSeconds(double period)
+        {
+            if (period > 0.0 && !double.IsInfinity(period) && !double.IsNaN(period))
+                return Math.Min(FinalConicSettleSeconds, 0.25 * period);
+            return FinalConicSettleSeconds;
+        }
+
+        /// <summary>
+        /// Pure: is this conic the stable final orbit of a tail (owner ruling Q8)? Bound with a
+        /// finite period, periapsis strictly above the body's periapsis floor
+        /// (<see cref="OrbitClearance.IsBoundOrbitClear"/>, the line commit classification and
+        /// spawn safety read), and inside the body's sphere of influence (no parent, or an
+        /// apoapsis within the sphere). The caller adds the event checks (no surface event, no
+        /// sphere-of-influence change within one period).
+        /// </summary>
+        internal static bool IsStableFinalConicShape(
+            double eccentricity,
+            double periapsisRadius,
+            double apoapsisRadius,
+            double period,
+            ExtrapolationBody body)
+        {
+            if (body == null
+                || !(period > 0.0) || double.IsInfinity(period) || double.IsNaN(period)
+                || !OrbitClearance.IsBoundOrbitClear(
+                    eccentricity, periapsisRadius, body.Radius, body.PeriapsisFloorAltitude))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(body.ParentBodyName) && body.SphereOfInfluence > body.Radius)
+                return !double.IsNaN(apoapsisRadius) && apoapsisRadius <= body.SphereOfInfluence;
+            return true;
         }
 
         internal static bool ShouldExtrapolate(
@@ -246,13 +300,20 @@ namespace Parsek
         /// <param name="initialSuppressedChildEntryBodyName">When set, an immediate entry into
         /// this child body's sphere at the start UT is not taken (a patch start just outside
         /// the child's sphere it was leaving).</param>
+        /// <param name="stopOnFinalConic">Owner ruling Q8 (default): end at the first stable
+        /// conic (<see cref="IsStableFinalConicShape"/>, no surface event and no
+        /// sphere-of-influence change within one period) as Orbiting, and on an open conic
+        /// around a body with no parent and nothing ahead as SubOrbital, each after
+        /// <see cref="FinalConicSettleSeconds"/> of it. False follows the path to the horizon
+        /// (a caller that carries an orbit to a given UT).</param>
         internal static ExtrapolationResult Extrapolate(
             BallisticStateVector startState,
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
             ExtrapolationLimits? limitsOverride = null,
             bool warnOnSubSurfaceStart = true,
             string initialSuppressedParentExitParentBodyName = null,
-            string initialSuppressedChildEntryBodyName = null)
+            string initialSuppressedChildEntryBodyName = null,
+            bool stopOnFinalConic = true)
         {
             ExtrapolationLimits limits = limitsOverride ?? ExtrapolationLimits.Default;
             var result = new ExtrapolationResult
@@ -263,7 +324,9 @@ namespace Parsek
                 terminalPosition = startState.position,
                 terminalVelocity = startState.velocity,
                 segments = new List<OrbitSegment>(),
-                failureReason = ExtrapolationFailureReason.None
+                failureReason = ExtrapolationFailureReason.None,
+                endedOnFinalConic = false,
+                finalConicStartUT = double.NaN
             };
 
             if (!TryGetBody(bodies, startState.bodyName, out ExtrapolationBody currentBody))
@@ -414,6 +477,28 @@ namespace Parsek
                 if (localCutoff.HasValue)
                     childSearchEndUT = Math.Min(childSearchEndUT, localCutoff.Value.UT);
 
+                // Owner ruling Q8: a stable conic is the flight's final orbit unless a child
+                // sphere is entered within one period; an open conic around a body with no
+                // parent (the Sun) is final unless a child sphere is entered before the horizon.
+                bool stableFinalCandidate = stopOnFinalConic
+                    && !parentExit.HasValue
+                    && !localCutoff.HasValue
+                    && orbit.IsElliptic
+                    && IsStableFinalConicShape(
+                        orbit.Eccentricity,
+                        orbit.PeriapsisRadius,
+                        orbit.ApoapsisRadius,
+                        orbit.Period,
+                        currentBody);
+                bool finalEscapeCandidate = stopOnFinalConic
+                    && !stableFinalCandidate
+                    && !parentExit.HasValue
+                    && !localCutoff.HasValue
+                    && !orbit.IsElliptic
+                    && string.IsNullOrEmpty(currentBody.ParentBodyName);
+                if (stableFinalCandidate)
+                    childSearchEndUT = Math.Min(childSearchEndUT, currentState.ut + orbit.Period);
+
                 EventCandidate? childEntry = FindChildEntry(
                     orbit,
                     currentBody,
@@ -423,6 +508,46 @@ namespace Parsek
                     limits,
                     suppressedImmediateChildEntryBodyName,
                     suppressedImmediateUT);
+
+                if ((stableFinalCandidate || finalEscapeCandidate) && !childEntry.HasValue)
+                {
+                    double settleEndUT = Math.Min(
+                        horizonUT,
+                        currentState.ut + ResolveFinalConicSettleSeconds(
+                            stableFinalCandidate ? orbit.Period : double.NaN));
+                    if (settleEndUT > currentState.ut)
+                    {
+                        result.segments.Add(CreateSegment(
+                            orbit,
+                            currentBody.Name,
+                            currentState.ut,
+                            settleEndUT,
+                            currentState.orbitalFrameRotation));
+                    }
+
+                    orbit.GetStateAtUT(settleEndUT, out Vector3d finalPosition, out Vector3d finalVelocity);
+                    result.terminalState = stableFinalCandidate ? TerminalState.Orbiting : TerminalState.SubOrbital;
+                    result.terminalUT = settleEndUT;
+                    result.terminalBodyName = currentBody.Name;
+                    result.terminalPosition = finalPosition;
+                    result.terminalVelocity = finalVelocity;
+                    result.endedOnFinalConic = true;
+                    result.finalConicStartUT = currentState.ut;
+                    ParsekLog.Info(LogTag, string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Terminal reason={0}: body={1} enteredUT={2:F3} ut={3:F3} ecc={4:F5} sma={5:F1} " +
+                        "periapsisAlt={6:F1} floor={7:F1} soiTransitions={8}",
+                        stableFinalCandidate ? TerminalReasonStableConic : TerminalReasonFinalEscape,
+                        currentBody.Name,
+                        currentState.ut,
+                        settleEndUT,
+                        orbit.Eccentricity,
+                        orbit.SemiMajorAxis,
+                        orbit.PeriapsisRadius - currentBody.Radius,
+                        currentBody.PeriapsisFloorAltitude,
+                        soiTransitions));
+                    return result;
+                }
 
                 EventCandidate chosen = ChooseEarliestEvent(
                     localCutoff,
@@ -478,12 +603,19 @@ namespace Parsek
                     result.terminalBodyName = currentBody.Name;
                     result.terminalPosition = horizonPosition;
                     result.terminalVelocity = horizonVelocity;
+                    // Unresolved: no final conic was reached (the stop disabled by the caller,
+                    // or a low point among the peaks the terrain scan budget did not settle).
                     ParsekLog.Warn(LogTag, string.Format(
                         CultureInfo.InvariantCulture,
-                        "Terminal reason=horizon-cap: body={0} ut={1:F3} soiTransitions={2}",
+                        "Terminal reason=horizon-cap: body={0} ut={1:F3} soiTransitions={2} ecc={3:F5} " +
+                        "periapsisAlt={4:F1} floor={5:F1} finalConicStop={6}",
                         currentBody.Name,
                         segmentEndUT,
-                        soiTransitions));
+                        soiTransitions,
+                        orbit.Eccentricity,
+                        orbit.PeriapsisRadius - currentBody.Radius,
+                        currentBody.PeriapsisFloorAltitude,
+                        stopOnFinalConic));
                     return result;
                 }
 

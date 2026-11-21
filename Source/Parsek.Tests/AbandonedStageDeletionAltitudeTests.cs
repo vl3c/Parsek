@@ -173,10 +173,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Extrapolate_From60KmOn80x10KmArc_WithoutDeletionAltitude_RunsToTheHorizon()
+        public void Extrapolate_From60KmOn80x10KmArc_WithoutDeletionAltitude_EndsOnItsStableConic()
         {
             // The mechanism of finding B8, kept as a contrast: with no deletion altitude the
-            // same drag-free arc never meets the ground and only the horizon ends it.
+            // same drag-free arc never meets the ground, so its conic is a stable orbit and
+            // the tail ends on it at once (owner ruling Q8), not at the horizon.
             ExtrapolationBody kerbin = MakeKerbin();
             kerbin.DeletionAltitude = 0.0;
             var bodies = new Dictionary<string, ExtrapolationBody> { ["Kerbin"] = kerbin };
@@ -187,7 +188,9 @@ namespace Parsek.Tests
                 ShortLimits());
 
             Assert.Equal(TerminalState.Orbiting, result.terminalState);
-            Assert.Contains(logLines, l => l.Contains("Terminal reason=horizon-cap"));
+            Assert.True(result.endedOnFinalConic);
+            Assert.Contains(logLines, l => l.Contains("Terminal reason=" + BallisticExtrapolator.TerminalReasonStableConic));
+            Assert.DoesNotContain(logLines, l => l.Contains("Terminal reason=horizon-cap"));
         }
 
         [Fact]
