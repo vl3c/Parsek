@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 157 |
 | seam-only lanes | 477 |
-| LIVE-PROVEN date in status row | 514 |
-| no LIVE-PROVEN date | 120 |
+| LIVE-PROVEN date in status row | 515 |
+| no LIVE-PROVEN date | 119 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -85,7 +85,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | OC | 1 | - | 1 | - | - | - | 1 |
 | PAD | 1 | - | 1 | - | - | - | 1 |
 | PADG | 1 | - | 1 | - | - | - | 1 |
-| PP | 1 | - | - | 1 | - | - | - |
+| PP | 1 | - | - | 1 | - | - | 1 |
 | PPB | 3 | - | - | 3 | - | - | 3 |
 | PWR | 3 | - | 3 | - | - | 3 | 3 |
 | QL | 21 | - | 21 | - | - | 10 | 21 |
@@ -321,7 +321,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 388 | 126 | 317 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +75 |
+| Kerbin | 388 | 126 | 318 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +75 |
 | Mun | 59 | 15 | 49 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, SOI 2, EVA 1, GUI 1 +9 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -1442,7 +1442,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| PP-1-part-parity-stock | operator | eva2-lko-crewed | seam | Kerbin | warp | - | AUTHORED, NEVER FLOWN |
+| PP-1-part-parity-stock | operator | eva2-lko-crewed | seam | Kerbin | warp | - | LIVE-PROVEN 2026-11-21 |
 
 ### PPB (3)
 

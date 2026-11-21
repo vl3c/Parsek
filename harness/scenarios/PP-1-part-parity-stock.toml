@@ -46,11 +46,12 @@ tier = "operator"
 # files a reading run exists to keep. (7) Recording count pinned at 0. (8)/(9) after the first
 # flight: tier by measured p50 and a flight_efficiency.py check.
 #
-# NEVER FLOWN (authored 2026-11-21 against the P2 verb wiring; the capture engine lands
-# separately).
-description = "AUTHORED 2026-11-21, NEVER FLOWN: the part ghost parity tool's P2 dev-size reading run on stock - one PartParitySweep step over the first 20 parts plus the control cases beside their Parsek ghosts in LKO, files under parsek-partparity/pp1/."
+# LIVE-PROVEN 2026-11-21 on its fifth flight (`2026-11-21_1739`, PASS attempt 1, 134 s wall,
+# 19.0 s of sweep wall over 4 waves, controls=ok). Flights 1-4 were red only on the
+# missing-mesh control, which now plants a small cube on the real part.
+description = "LIVE-PROVEN 2026-11-21: the part ghost parity tool's P2 dev-size reading run on stock - one PartParitySweep step over the first 20 parts plus the control cases beside their Parsek ghosts in LKO, files under parsek-partparity/pp1/."
 instanceProfile = "stock-minimal"
-tags = ["part-parity", "ghost-visual", "pending-flight", "PP-1"]
+tags = ["part-parity", "ghost-visual", "flown", "PP-1"]
 
 [fixture]
 saveTemplate = "fixtures/saves/eva2-lko-crewed"

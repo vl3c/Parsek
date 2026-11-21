@@ -600,7 +600,7 @@ summary; per-case Verbose lines; Warn for a setup fault.
 | --- | --- | --- |
 | P0 (DONE 2026-11-21, Appendix B) | Capture spike on both harness installs, stock and ReStock / ReStock+ parts: `Camera.Render` into an MSAA target, resolve, double clear, ortho with KSP shaders, light rig, `pixelLightCount`, `masterTextureLimit`, `forceRenderingOff`. | Pictures read by eye; every unknown in 4.4 answered and written into this doc. |
 | P1 | Pure halves + xUnit (measures on synthetic masks incl. shifted / rotated / missing-blob shapes, structural diff, sharding, case ids, resume decision, JSON writer, args); `GhostCoOrbitalRig` extraction; D2 seam extraction with the IL fold proof. | `dotnet test` green; FGV-1 flown green on the refactor. |
-| P2 | Capture engine + verb + in-game test + files; controls; default skins; a 20-part dev run. | Controls behave; per-wave wall time measured; chunk size set from it. |
+| P2 (DONE 2026-11-21, Appendix C) | Capture engine + verb + in-game test + files; controls; default skins; a 20-part dev run. | Controls behave; per-wave wall time measured; chunk size set from it. |
 | P3 | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. | First full reading run on both installs; thresholds re-pinned; findings filed. |
 | P4 | Viewer (grid, filters, detail, blend difference, backdrop, structure table, regression mode). | Owner reads the full stock + ReStock site. |
 | P5 | Baseline + accepted list; gate armed after a second matching reading run. | A deliberately broken ghost (mutation) reds the armed lane. |
@@ -698,4 +698,38 @@ Findings:
    against 10 on the ghost; the real box was 10 m, so the part filled a corner of the tile. Fixed in
    4.2 step 1 (frame from the part's model renderers only); P2 logs which renderers it dropped.
 3. **Installs run at 1/8 texture resolution** (finding behind 4.4).
+
+## Appendix C. P2 first flights (2026-11-21)
+
+Lane `PP-1-part-parity-stock` on stock-minimal, branch `part-parity-p2`. Five flights, the fifth
+green (`2026-11-21_1739`, PASS attempt 1, 134 s run wall, automation DLL sha256 prefix a46e8133):
+
+| Measure | Value |
+| --- | --- |
+| Install | 479 loaded parts, 11 excluded (3.1), 20 planned (`limit=20`), default skins |
+| Sweep wall | 19.0 s for 8 controls plus 20 parts in 4 waves (5.3 / 7.8 / 3.6 / 2.2 s); flights 1-4 read 18.5 to 23.9 s |
+| Per case | about 0.7 s; settle and spawn dominate, the 4 views x 2 sides x 2 clears take about 0.15 s (Appendix B) |
+| Setup | 0 setup faults, 0 crashed; 1 to 3 cases per run `still-animating` (CircularIntake, Clydesdale, LV-T45), captured anyway |
+| Controls | all 8 ok on the fifth flight |
+| Parts | every part case iou 1.0000, colour blobs at most 44 px (deployed science parts), structure diffs empty |
+
+Chunk size: the full stock list (about 470 cases with default skins) runs in about 330 s, under one
+480 s step; `skins=all` roughly doubles it, so P3 plans two `op=run` steps per install and measures.
+
+The missing-mesh control took four flights to get right, and each failure was the instrument
+telling the truth:
+
+1. Flight 1: "smallest renderer whose diagonal is >= 4 % of the box" hid the LV-T45's whole engine
+   bell (IoU 0.68).
+2. Flight 2: a projected-box-area pick chose an animated telescopic ladder whose real and ghost
+   sides already differed (real retracted, ghost extended). That difference is a real ghost defect,
+   later confirmed by the owner from play and fixed separately (PR #2743).
+3. Flight 3: a measured solo-coverage pick chose the Mk1 pod's flag decal, which lies flat on the
+   hull: removing it changes nothing visible (shape blob 0, colour blob 35 px).
+4. Flight 4: a silhouette-contribution pick over 8 still stock parts found none in the window
+   (bodies of 100k+ px, flag decals of 0 px, ladder rungs of about 13.5k px each).
+
+The control now plants a small cube (0.3 % of the `side-a` box projection, at least 12 px) on the
+real `fuelTankSmallFlat` only (4.5). On flight 5 it failed a local measure, kept IoU >= 0.99 and
+listed the cube as missing on the ghost, as required.
 
