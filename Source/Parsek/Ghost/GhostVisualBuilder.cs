@@ -883,6 +883,13 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: a compound part whose persisted target pid is 0 has no target; stock
+        /// <c>CompoundPart.OnSave</c> always writes <c>tpersID</c>, 0 when unconnected.
+        /// </summary>
+        internal static bool IsUnconnectedLinkedMesh(uint targetPersistentId)
+            => targetPersistentId == 0;
+
+        /// <summary>
         /// Fixes up compound part visuals (fuel lines, struts) by repositioning the
         /// target anchor and stretching the line mesh using PARTDATA from the snapshot.
         /// In KSP, CModuleLinkedMesh handles this at runtime; ghosts need manual fixup.
@@ -913,6 +920,20 @@ namespace Parsek
             if (srcLine != null) cloneMap.TryGetValue(srcLine, out ghostLine);
             if (srcTargetAnchor != null) cloneMap.TryGetValue(srcTargetAnchor, out ghostTargetAnchor);
             if (srcTargetCap != null) cloneMap.TryGetValue(srcTargetCap, out ghostTargetCap);
+
+            if (IsUnconnectedLinkedMesh(data.targetPersistentId))
+            {
+                // Stock CModuleLinkedMesh.OnStart hides the line and the target anchor (the end
+                // cap rides on it) and only OnTargetSet shows them; an unconnected strut or fuel
+                // line (PARTDATA tpersID = 0) never gets a target.
+                if (ghostLine != null) ghostLine.gameObject.SetActive(false);
+                if (ghostTargetAnchor != null) ghostTargetAnchor.gameObject.SetActive(false);
+                ParsekLog.VerboseRateLimited("GhostVisual", $"compound-unconnected-{partName}",
+                    $"  Compound part '{partName}' pid={persistentId}: no target (tpersID=0); " +
+                    $"line '{data.lineObjName}' found={ghostLine != null} and target anchor " +
+                    $"'{data.targetAnchorName}' found={ghostTargetAnchor != null} hidden as stock does", 60.0);
+                return compoundPartInfo;
+            }
 
             if (ghostLine == null)
             {

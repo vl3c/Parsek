@@ -90,6 +90,9 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **A strut or fuel line attached to nothing shows no line on its ghost.** The replay drew the
+  line and its far end even when the real strut or fuel line had no target. It now shows only the
+  base, as the real part does. (GHOST-LINKED-MESH-NO-TARGET)
 - **ReStock Skiff engines with the orange shroud lose it like the real engine.** On the alternate
   shroud variant, the replay kept the orange shroud on even where the real engine had none. The
   ghost now hides and drops the shroud the variant shows. (GHOST-JETTISON-STALE-ACTIVE-NAME)

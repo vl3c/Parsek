@@ -453,5 +453,36 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Unconnected strut / fuel line
+
+        [Fact]
+        public void LinkedMesh_TargetPidZero_IsUnconnected()
+        {
+            Assert.True(GhostVisualBuilder.IsUnconnectedLinkedMesh(0));
+            Assert.False(GhostVisualBuilder.IsUnconnectedLinkedMesh(123456));
+        }
+
+        [Fact]
+        public void LinkedMesh_StockUnconnectedPartData_ParsesTargetPidZero()
+        {
+            // What stock CompoundPart.OnSave writes for a strut placed with no target.
+            var partConfig = new ConfigNode("PART");
+            var linked = partConfig.AddNode("MODULE");
+            linked.AddValue("name", "CModuleLinkedMesh");
+            linked.AddValue("lineObjName", "obj_strut");
+            var partNode = new ConfigNode("PART");
+            var data = partNode.AddNode("PARTDATA");
+            data.AddValue("tpersID", "0");
+            data.AddValue("pos", "0,0,0");
+            data.AddValue("rot", "0,0,0,1");
+
+            Assert.True(GhostVisualBuilder.TryParseCompoundPartData(
+                partNode, partConfig, true, 100000, "strutConnector", out var parsed));
+            Assert.True(GhostVisualBuilder.IsUnconnectedLinkedMesh(parsed.targetPersistentId));
+            Assert.Equal("obj_strut", parsed.lineObjName);
+        }
+
+        #endregion
     }
 }
