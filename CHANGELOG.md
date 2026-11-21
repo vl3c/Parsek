@@ -32,14 +32,25 @@ Not released yet.
   (ABANDONED-STAGE-D1)
 - **Stages left under open parachutes come down and land.** The replay shows the stage descending
   under its chutes; it appears where it touches down, Landed or Splashed, still offered for Re-Fly.
-  A stage that would land faster than about 12 m/s, or whose chutes are staged but still closed,
-  crashes. If the game deletes it on the way down it stays lost: the replay ends at the ground.
-  (ABANDONED-STAGE-CHUTES)
+  Its landing speed is worked out from its chutes and the air: faster than about 12 m/s, or with
+  its chutes staged but still closed, it crashes. (ABANDONED-STAGE-CHUTES)
+- **A stage still under its chutes when you leave the flight is lost.** Going to the Space Center,
+  the Tracking Station or the main menu, or switching to a far vessel, while a stage is still
+  coming down ends it the way the game does: lost with its crew, its ghost coming down to the
+  ground with no explosion, nothing left there. If you keep flying, it lands as predicted.
+  (ABANDONED-STAGE-Q14)
+- **A stage the game deleted is never brought back.** When the game deletes a stage Parsek said
+  would land or settle in orbit, the replay no longer recreates it at its end: it ends lost with
+  its crew, the ghost coming down quietly. If the game keeps it flying instead, Parsek follows the
+  real stage. (ABANDONED-STAGE-STOCK-FATE)
 - **The crew of a crashed stage are lost, as the game would have it.** A crewed stage whose replay
   ends in a crash loses its crew, whether the game destroyed it or Parsek worked the crash out. In a
   breakup only kerbals whose part was destroyed die, and no reputation is taken that the game did
-  not take. Flying the stage again, or recovering it before it falls, keeps them alive.
-  (ABANDONED-STAGE-C1)
+  not take. Flying the stage again keeps them alive. (ABANDONED-STAGE-C1)
+- **Recovering a stage Parsek said would crash brings it home.** Recover it from the Tracking
+  Station, the Space Center or in flight, before or after its predicted crash, and it ends Recovered
+  with its crew, each kerbal counted by the seat he was really in. A crash the game itself carried
+  out stays final. (ABANDONED-STAGE-RECOVERY)
 - **A stage on its way to the Sun settles into its final orbit.** A stage on an escape path is
   followed until it settles on an orbit around the last body it reaches, and appears there as a real
   vessel, crew aboard, when the replay gets there. It used to fly on for 50 years and never appear.
