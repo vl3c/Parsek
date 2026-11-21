@@ -948,11 +948,13 @@ namespace Parsek
             {
                 int recordedControllerCount = onRailsRec.Controllers?.Count ?? 0;
                 int survivingPartCount = v.parts?.Count ?? 0;
+                bool remnantSurvives = IdentityLossClassifier.RemnantSurvives(v);
                 ParsekLog.Info("BgRecorder",
                     $"Recorded controllable identity lost on go-on-rails: pid={pid} " +
                     $"recordedControllers={recordedControllerCount} survivingParts={survivingPartCount} " +
-                    $"sit={v.situation} rec={recordingId} — classifying as Destroyed");
-                onRailsRec.MarkDestroyedAtTerminal(ut, "BgRecorder.OnBackgroundVesselGoOnRails");
+                    $"sit={v.situation} rec={recordingId} remnantSurvives={remnantSurvives} — classifying as Destroyed");
+                onRailsRec.MarkDestroyedAtTerminal(ut, "BgRecorder.OnBackgroundVesselGoOnRails",
+                    vesselSurvives: remnantSurvives);
                 RetireDestroyedBackgroundEntry(pid, recordingId, ut);
                 return;
             }

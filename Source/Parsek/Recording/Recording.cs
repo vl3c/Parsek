@@ -973,14 +973,20 @@ namespace Parsek
         /// terrain height, or endpoint phase). Used by the BG go-on-rails identity-loss
         /// override (and available to any future destruction-detection seam that needs
         /// the same hygiene). Idempotent.
+        /// <para><paramref name="vesselSurvives"/>: KSP still has the vessel (a breakup remnant
+        /// that lost the recorded controllers). The ending is then stamped as one KSP did not
+        /// carry out (<see cref="TerminalPredicted"/>), so the crew still sitting in it are not
+        /// killed by it (owner rulings Q6 / Q6b); only a kerbal whose part KSP destroyed dies.</para>
         /// </summary>
-        internal void MarkDestroyedAtTerminal(double terminalUT, string source)
+        internal void MarkDestroyedAtTerminal(double terminalUT, string source, bool vesselSurvives = false)
         {
             bool wasAlreadyDestroyed = VesselDestroyed
-                && TerminalStateValue == TerminalState.Destroyed;
+                && TerminalStateValue == TerminalState.Destroyed
+                && TerminalPredicted == vesselSurvives;
 
             VesselDestroyed = true;
-            StampTerminalState(TerminalState.Destroyed, "MarkDestroyedAtTerminal:" + (source ?? "(none)"));
+            StampTerminalState(TerminalState.Destroyed, "MarkDestroyedAtTerminal:" + (source ?? "(none)"),
+                predicted: vesselSurvives);
             ExplicitEndUT = terminalUT;
 
             // Clear surface-terminal data — leaving these set produces contradictory
@@ -1020,7 +1026,7 @@ namespace Parsek
                 ParsekLog.Info("Recording",
                     $"MarkDestroyedAtTerminal: rec={RecordingId ?? "(null)"} " +
                     $"terminalUT={terminalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"source={source ?? "(none)"}");
+                    $"source={source ?? "(none)"} vesselSurvives={vesselSurvives}");
             }
         }
 

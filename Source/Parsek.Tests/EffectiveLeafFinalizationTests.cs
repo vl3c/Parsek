@@ -391,7 +391,8 @@ namespace Parsek.Tests
             Assert.False(ParsekFlight.PropagateRecorderDestructionToTreeRecording(true, null, "t"));
         }
 
-        private static ParsekFlight.FinalizationLiveVesselAccess IdentityAccess(bool identityLost) =>
+        private static ParsekFlight.FinalizationLiveVesselAccess IdentityAccess(
+            bool identityLost, bool remnantSurvives = true) =>
             new ParsekFlight.FinalizationLiveVesselAccess(
                 isFound: vessel => !ReferenceEquals(vessel, null),
                 determineTerminalState: vessel =>
@@ -400,7 +401,8 @@ namespace Parsek.Tests
                 captureTerminalPosition: (rec, vessel) => { },
                 tryBackupSnapshot: vessel => null,
                 tryRefreshStableTerminalSnapshot: (rec, vessel, isSceneExit, logPrefix) => false,
-                isRecordedIdentityLost: (rec, vessel) => identityLost);
+                isRecordedIdentityLost: (rec, vessel) => identityLost,
+                remnantSurvives: vessel => remnantSurvives);
 
         private static Recording RemnantRecording(string id)
         {
@@ -445,6 +447,44 @@ namespace Parsek.Tests
             Assert.Null(rec.TerminalPosition);
             Assert.Contains(logLines, l => l.Contains("[Flight]")
                 && l.Contains("recorded controllable identity lost for 'remnant'"));
+        }
+
+        // Owner ruling Q6b: a wreck KSP still has is not a death for the crew sitting in it, so
+        // the identity-loss Destroyed is stamped as one KSP did not carry out; a remnant whose
+        // parts all died is a real destruction.
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void FinalizeIndividualRecording_IdentityLoss_PredictedOnlyWhileTheRemnantSurvives(bool survives)
+        {
+            var tree = new RecordingTree { Id = "tree-remnant-q6b", TreeName = "Kerbal X" };
+            Recording rec = RemnantRecording("remnant-q6b");
+            tree.Recordings[rec.RecordingId] = rec;
+            Vessel wreck = TestVessel(rec.VesselPersistentId, Vessel.Situations.LANDED);
+
+            ParsekFlight.FinalizeIndividualRecording(
+                rec,
+                commitUT: 120.0,
+                isSceneExit: false,
+                treeContext: tree,
+                findVesselByPid: pid => pid == rec.VesselPersistentId ? wreck : null,
+                liveVesselAccess: IdentityAccess(identityLost: true, remnantSurvives: survives));
+
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Equal(survives, rec.TerminalPredicted);
+            Assert.Contains(logLines, l => l.Contains("[Flight]")
+                && l.Contains("recorded controllable identity lost for 'remnant-q6b'")
+                && l.Contains("remnantSurvives=" + survives));
+        }
+
+        [Fact]
+        public void RemnantSurvives_TruthTable()
+        {
+            Assert.False(IdentityLossClassifier.RemnantSurvives(vesselDead: true, vesselLoaded: true, loadedPartCount: 4));
+            Assert.False(IdentityLossClassifier.RemnantSurvives(vesselDead: false, vesselLoaded: true, loadedPartCount: 0));
+            Assert.True(IdentityLossClassifier.RemnantSurvives(vesselDead: false, vesselLoaded: true, loadedPartCount: 1));
+            Assert.True(IdentityLossClassifier.RemnantSurvives(vesselDead: false, vesselLoaded: false, loadedPartCount: 0));
+            Assert.False(IdentityLossClassifier.RemnantSurvives(null));
         }
 
         [Fact]
