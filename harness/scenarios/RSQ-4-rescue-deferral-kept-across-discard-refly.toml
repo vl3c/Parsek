@@ -1,0 +1,317 @@
+schema = 1
+id = "RSQ-4-rescue-deferral-kept-across-discard-refly"
+# =====================================================================================
+# RSQ-4: A RESCUE DEFERRAL THE REWIND POINT HOLDS SURVIVES A DISCARD RE-FLY TO THAT POINT, AND
+# THE LANDED SPACE CENTER REGENERATES THE STRANDED POD ONCE (todo
+# RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD, the Discard Re-fly half; RSQ-3 is the plain-rewind half).
+#
+# THE FIX UNDER TEST (0c50dd0a5). `RESCUE_ACCEPT_DEFERRALS` describes the world of the .sfs that
+# carries it. A Discard Re-fly writes the rewind point's game to persistent.sfs through
+# RevertInterceptor.WriteRewindPointGameAsPersistent -> SpliceLiveParsekScenarioNode, which
+# carries the session's PARSEK node around the rewind point's world. Before the fix the
+# DiscardReFly cell of LoadReconcilePolicy.DecideRescueAcceptDeferrals CLEARED the list, so a
+# rescue the rewind point held Active with its stranded vessel missing was never regenerated (the
+# landed Space Center's contract patch skips an existing contract). The splice now keeps the
+# rewind point's own list (`persistent.sfs splice kept the landed save's own
+# RESCUE_ACCEPT_DEFERRALS: landed=N session=M`, RewindSave tag), the DiscardReFly cell is Save
+# (`Rescue accept deferrals installed (load DiscardReFly): pending=N (was M)`), and the landed
+# Space Center's drain re-plans and regenerates it.
+#
+# WHAT MAKES THE READING DECISIVE. The pre-fix build logs `Rescue accept deferrals cleared (load
+# DiscardReFly (Clear)): dropped=1` and never evaluates the id at the landed Space Center, so the
+# DiscardReFly install line and the landed drain are the gates. The splice line itself is
+# predicted to read `landed=1 session=1` (the Re-Fly start installs the rewind point's own copy,
+# `installed (load ReFlyStart): pending=1`, and the Re-Fly flight's persistent.sfs carries it),
+# so `session=` is regexed: unlike RSQ-3 the session cannot drain its copy first (a drain runs
+# only at the Space Center or the Tracking Station, and leaving the Re-Fly ends it). No Space
+# Center visit happens between the deferral and the discard, so the whole log holds exactly one
+# regeneration (forbidden twice).
+#
+# PLAN (cs-career-mun4, UT ~185734; RecoverAsset e8ba5ea6-570c-4b7f-99b4-44c9dee51030 Offered,
+# Rayvan Kerman Unowned, low Kerbin orbit; RSQ-3's prefix, RW-5's rewind point, stash and
+# discard):
+#   boot       LoadGame persistent at the Space Center; warp to 185800.
+#   H          a Jumping Flea on the pad, recorded to 185840, committed, recovered at its marker.
+#   accept     warp to 185900; accept-contract e8ba5ea6 (stock spawns the pod in this timeline).
+#   rewind     InvokeRewindToLaunch tree=latest: clock ~185785, no pod, the accept future.
+#   pad        warp to 185860 at the Space Center, the CS Flea Probe (G, unrecorded so far; RW-5's
+#              two-command craft, committed in the host's Ships/VAB) onto the pad.
+#   jump       TimeJump to 185980 in FLIGHT: the rebuild plans DeferStrandedAsset and lists the
+#              contract (pending=1); no vessel is added in flight (RSQ-2's leg).
+#   G          StartRecording, PartAction decouple on the radial decoupler: the stand is a
+#              controlled child, the split authors a rewind point whose deferred quicksave is
+#              written NOW, with the list pending=1 and the contract Active with no pod. 1x to
+#              185995, stop, CommitTree in flight, StashSlot slot 0 (both slots end Landed on the
+#              pad, RW-5's reason: the stash keeps the point from the next OnLoad's reap).
+#   Re-Fly     InvokeRewind slot 0 from that flight; the ReFlyStart load installs the rewind
+#              point's list (pending=1); the drain keeps it in FLIGHT.
+#   discard    ReFlyRevert choice=discard target=launch: the splice keeps the rewind point's own
+#              list (landed=1), the DiscardReFly OnLoad installs it (pending=1), and the landed
+#              Space Center's drain regenerates the pod once (pending=0).
+#   visit 2    warp to 186010, SaveGame rsq4-02-after-drain, LoadGame it with playerLoad=true at
+#              the Space Center: the list is empty, nothing is regenerated.
+#   save       the default slot (persistent), read by saveParse: Rayvan aboard exactly one vessel
+#              (`crewAboard`, report-only until the first green flight arms it).
+#
+# STEP SAVES (temporary analysis artifacts): rsq4-02-after-drain. None inside the Re-Fly (RW-5's
+# reason: a save there writes the attempt's sidecars, not this lane's subject).
+#
+# PINNED LITERALS (read 2026-11-21 on `test-gaps-batch3` 5f04c0547):
+#   persistent.sfs splice kept the landed save's own RESCUE_ACCEPT_DEFERRALS: landed=N session=M
+#                                                Rewind/RevertInterceptor.cs SpliceLiveParsekScenarioNode
+#   DiscardReFly: rewind point game written to persistent.sfs
+#                                                Rewind/RevertInterceptor.cs WriteRewindPointGameAsPersistent
+#   Rescue accept deferrals installed (<EarlyLoadKind>): pending=N (was N) / cleared (...)
+#                                                GameActions/RescueAcceptDeferrals.cs Replace / Clear
+#                                                (reason "load " + EarlyLoadKind, ParsekScenario.LoadSteps.cs)
+#   Rescue accept deferral listed / evaluated / removed, Rescue accept deferrals drained
+#                                                GameActions/RescueAcceptDeferrals.cs,
+#                                                KspStatePatcher.ContractAcceptEffects.cs
+#   PatchContracts: regenerated stranded asset for rebuilt contract '<id>' through
+#     RecoverAsset.<gen>: added=N [...] (...)    KspStatePatcher.ContractAcceptEffects.cs
+#   RewindPoint begin: / slot capture:           Rewind/RewindPointAuthor.cs
+#   Stashed slot= / stashslot complete           Rewind/UnfinishedFlightStashHandler.cs /
+#                                                TestCommands/ParsekTestCommandAddon.StashSlot.cs
+#   Re-Fly (Rewind-to-Separation) StartInvoke / Invocation complete
+#                                                Rewind/RewindInvoker.cs / RewindInvoker.StripActivate.cs
+#   Revert dialog shown / reflyrevert ...        Rewind/ReFlyRevertDialog.cs / TestCommands/TestCommandReFlyRevert.cs
+#   the decouple, commit, stash, invoke and discard tokens: RW-5's (live-proven 2026-11-15).
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - `installed (load ReFlyStart): pending=0`: the rewind point's quicksave carried no list (the
+#     split's deferred quicksave ran before the jump's listing, or OnSave dropped it).
+#   - the splice line reads `landed=0`: the rewind point the discard loaded is not the one
+#     authored after the jump.
+#   - the landed drain reads `kept=1 keepReason=KeepLoadOrPatchPending` and never a second
+#     onContractsLoaded evaluation: the id waits for the next visit (visit 2 then drains it and
+#     the post-landed-visit forbids red); a product reading, file it.
+#   - `Single-controllable split: no RP` or `stashslot rejected`: RW-5's readings.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"): 1 considered, not applied:
+# RSQ-3 flies the same prefix, but its F is a one-command Flea that cannot author a rewind point,
+# and a Re-Fly appended after its second rewind would read its regenerations; RW-5's decouple,
+# stash and discard are reused verbatim. 2 applied: every wait is an explicit-UT WarpToUT or
+# TimeJump. 3-5: no dwell beyond the 15 s 1x pad recording RW-5 needs for the split's deferred
+# frame and quicksave; no EVA or burn inside the Re-Fly. 6: `[retry] policy = "once"`. 7: the
+# recordings count pinned (34 host + H + G's two); crewAboard pinned to the one claim. 8-9 owed
+# on the first flight.
+#
+# STATUS: AUTHORED 2026-11-21 (branch `test-gaps-batch3`), NEVER FLOWN.
+# =====================================================================================
+tier = "operator"
+description = "Rescue deferral kept across a Discard Re-fly (todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD): on cs-career-mun4 a committed pad Flea and the rescue of Rayvan Kerman (RecoverAsset e8ba5ea6) accepted after its launch; after a Rewind-to-Launch a time jump in flight defers the stranded pod and lists the contract, a two-command craft recorded then decouples on the pad and authors a rewind point holding the list, its slot is stashed and Re-Flown, and Discard Re-fly keeps the rewind point's list (landed=1) and installs it (load DiscardReFly, pending=1), so the landed Space Center regenerates the pod once and a second visit adds nothing; the produced save holds Rayvan aboard one vessel."
+instanceProfile = "stock-tree"
+tags = ["RSQ-4", "career", "ledger", "rewind", "rewind-to-launch", "refly", "discard-refly",
+        "revert-dialog", "stash", "unfinished-flights", "controlled-child", "contracts",
+        "contract-accept", "rescue", "pending-flight", "time-jump", "ksc-marker", "editor",
+        "timeline-ops", "save-load", "scene-change"]
+
+[fixture]
+saveTemplate = "fixtures/saves/cs-career-mun4"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 2 x 300 LoadGame + 7 x 120 warps + 2 x (120 GoToEditor + 180
+# LaunchFromEditor) + 2 x 180 StartRecording + 2 x 120 CommitTree + 120 ExitToSpaceCenter
+# + 60 KscMarkerRecover + 60 KscAction + 300 rewind + 120 TimeJump + 300 InvokeRewind
+# + 300 ReFlyRevert + 2 x 120 SaveGame = 4140; runtime 5000 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "185800", maxRate = "100" },                     expect = "OK", budget = 120 },
+  # ---- H: the Flea on the pad, recorded, committed, recovered at its marker ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Jumping Flea" },           expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "h",             expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "185840" },                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rsq4-h-committed" },                         expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                             expect = "OK", budget = 120 },
+  { cmd = "KscMarkerRecover", args = { pid = "${h.pid}" },                                 expect = "OK", budget = 60 },
+  # ---- the accept, after H's launch ----
+  { cmd = "WarpToUT",       args = { ut = "185900", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rsq4-before-accept" },                       expect = "OK" },
+  { cmd = "KscAction",      args = { action = "accept-contract", contract = "e8ba5ea6-570c-4b7f-99b4-44c9dee51030" }, expect = "OK", budget = 60 },
+  { cmd = "MissionMark",    args = { label = "rsq4-accepted" },                            expect = "OK" },
+  # ---- the rewind, onto H's launch ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rsq4-rewound" },                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },          expect = "OK" },
+  # ---- past H's replay, before the accept: the two-command craft onto the pad ----
+  { cmd = "WarpToUT",       args = { ut = "185860", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "CS Flea Probe" },          expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                     label = "g",             expect = "OK", budget = 180 },
+  { cmd = "MissionMark",    args = { label = "rsq4-in-flight" },                           expect = "OK" },
+  # ---- the clock reaches the accept in FLIGHT: the rebuild defers the pod and lists it ----
+  { cmd = "TimeJump",       args = { ut = "185980" },                                      expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rsq4-jumped" },                              expect = "OK" },
+  # ---- G recorded and split on the pad: the rewind point is written while the list holds the
+  # contract ----
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "PartAction",     args = { button = "decouple", part = "radialDecoupler" }, label = "dec", expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  # 1x so the split's deferred frame and the rewind point's deferred quicksave run with the
+  # recorder live (RW-5's reason).
+  { cmd = "WarpToUT",       args = { ut = "185995", maxRate = "1" },                       expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",           expect = "OK" },
+  # Both slots ended Landed (closed): the stash opens the pod's slot before any OnLoad reap.
+  { cmd = "StashSlot",      args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rsq4-g-committed" },                         expect = "OK" },
+  # ---- the Re-Fly of G's pod slot, invoked from the same flight ----
+  { cmd = "MissionMark",    args = { label = "rsq4-refly-armed" },                         expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "0" },                  expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY, RF-3's order).
+  { cmd = "ListHandles",    args = { kind = "chains" },                                    expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                        expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rsq4-refly-started" },                       expect = "OK" },
+  # ---- Discard Re-fly: Esc > Revert Flight > Revert to Launch > Discard Re-Fly ----
+  { cmd = "MissionMark",    args = { label = "rsq4-discard" },                             expect = "OK" },
+  { cmd = "ReFlyRevert",    args = { choice = "discard", target = "launch" },              expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "rsq4-discarded" },                           expect = "OK" },
+  # ---- the landed Space Center (the rewind point's world) has drained the list ----
+  { cmd = "WarpToUT",       args = { ut = "186010", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rsq4-landed-visit" },                        expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "rsq4-02-after-drain" },                      expect = "OK", budget = 120 },
+  # ---- visit 2: a Cold load at the Space Center, the list empty, nothing added ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "rsq4-02-after-drain", scene = "spacecenter", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "186030", maxRate = "100" },                     expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "rsq4-second-visit" },                        expect = "OK" },
+  # The DEFAULT slot (persistent): the one saveParse reads.
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+# Every D9 Re-Fly value is backed by a REQUIRED token below:
+#   rewind-to-separation        <- StartInvoke + Invocation complete
+#   unfinished-flights-stash    <- `Stashed slot=0 ...` + `reflyrevert complete ... slotListed=true`
+#   revert-during-refly-dialog  <- `Revert dialog shown` + `reflyrevert pressed dialog button='Discard Re-Fly'`
+D8  = ["contracts", "recalc-engine", "ksp-state-patcher"]
+D9  = ["rewind-to-launch", "rewind-to-separation", "unfinished-flights-stash", "revert-during-refly-dialog"]
+D14 = ["kerbin", "career", "scene-ksc", "scene-editor", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 34 recordings, H, and G's two (the launch recording that continues as the pod and
+# the stand's child; RW-5 measured 37 with the same H shape and G). The discarded attempt's
+# recordings are gone.
+count = { min = 37, max = 37 }
+
+# Report-only until the first green flight reads it (then arm with `gating = true` and add the
+# id to ARMED_ALLOWLIST in harness/lib/test_hlib.py): Rayvan aboard exactly one vessel in the
+# landed world. Zero means the landed drain never regenerated; two means it regenerated twice.
+[expectations.recordings.structure]
+crewAboard = { "Rayvan Kerman" = 1 }
+
+[expectations.logContracts]
+required = [
+  # ---- the live accept, then the rewind ----
+  "MISSIONMARK label=rsq4-before-accept ut=(?:(?!MISSIONMARK label=rsq4-accepted )[\\s\\S])*?kscaction action=accept-contract target=e8ba5ea6-570c-4b7f-99b4-44c9dee51030 applied=true",
+  "MISSIONMARK label=rsq4-accepted ut=[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT [\\s\\S]*?MISSIONMARK label=rsq4-rewound ut=1857[0-9]{2}\\.",
+  "MISSIONMARK label=rsq4-rewound ut=[\\s\\S]*?launchfromeditor complete scene=FLIGHT vessel=CS Flea Probe pid=[0-9]+ site=LaunchPad situation=PRELAUNCH[\\s\\S]*?MISSIONMARK label=rsq4-in-flight ut=1858[0-9]{2}\\.",
+
+  # ---- the jump in FLIGHT: the rebuild deferred and listed ----
+  "MISSIONMARK label=rsq4-in-flight ut=1858[0-9]{2}\\.(?:(?!MISSIONMARK label=rsq4-jumped )[\\s\\S])*?PatchContracts: accept-side world effect not run on rebuild: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030' type='RecoverAsset' effect=StrandedAsset outcome=Regenerate worldMissing=True repair=DeferStrandedAsset skip=scene=FLIGHT \\(orbit kerbal='Rayvan Kerman'; vessels=[0-9]+ scene=FLIGHT\\)",
+  "MISSIONMARK label=rsq4-in-flight ut=(?:(?!MISSIONMARK label=rsq4-jumped )[\\s\\S])*?Rescue accept deferral listed: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030' \\(rebuild scene=FLIGHT\\); its stranded vessel is regenerated at the next Space Center or Tracking Station visit; pending=1",
+
+  # ---- G split on the pad after the jump: the rewind point is authored with the list listed ----
+  "MISSIONMARK label=rsq4-jumped ut=1859[0-9]{2}\\.(?:(?!MISSIONMARK label=rsq4-g-committed )[\\s\\S])*?partaction applied button=decouple pid=[0-9]+ part='radialDecoupler' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
+  "MISSIONMARK label=rsq4-jumped ut=(?:(?!MISSIONMARK label=rsq4-g-committed )[\\s\\S])*?RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=1859[89][0-9]\\.[0-9]{2}[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  "MISSIONMARK label=rsq4-jumped ut=(?:(?!MISSIONMARK label=rsq4-g-committed )[\\s\\S])*?committree committed=true",
+  "Stashed slot=0 rec=\\S+ bp=\\S+ rp=rp_[0-9a-f]{32} tip=\\S+ tipMergeState=CommittedProvisional tipDemoted=True terminal=Landed reaperBlocked=True",
+  "stashslot complete rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ tipMergeState=Immutable->CommittedProvisional stashed=true unfinishedFlight=true unfinishedRow=\\S+",
+
+  # ---- the Re-Fly: the rewind point's own list comes back with its world ----
+  "MISSIONMARK label=rsq4-refly-armed ut=[\\s\\S]*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0",
+  "MISSIONMARK label=rsq4-refly-armed ut=[\\s\\S]*?Load classified: early=ReFlyStart refined=ReFlyStart scene=FLIGHT ",
+  "MISSIONMARK label=rsq4-refly-armed ut=(?:(?!MISSIONMARK label=rsq4-refly-started )[\\s\\S])*?Rescue accept deferrals installed \\(load ReFlyStart\\): pending=1 \\(was [0-9]+\\)",
+  "Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=0 activePid=[0-9]+",
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
+
+  # ---- Discard Re-fly: the splice keeps the rewind point's own list, the load installs it ----
+  "MISSIONMARK label=rsq4-discard ut=[\\s\\S]*?reflyrevert start choice=discard target=launch sess=\\S+ rp=rp_[0-9a-f]{32} slot=[0-9a-f]{32} ",
+  "Revert dialog shown sess=\\S+ target=Launch",
+  "reflyrevert pressed dialog button='Discard Re-Fly' choice=discard",
+  "MISSIONMARK label=rsq4-discard ut=(?:(?!MISSIONMARK label=rsq4-discarded )[\\s\\S])*?persistent\\.sfs splice kept the landed save's own RESCUE_ACCEPT_DEFERRALS: landed=1 session=[0-9]+ [^\\r\\n]*[\\s\\S]*?DiscardReFly: rewind point game written to persistent\\.sfs rp=rp_[0-9a-f]{32} ",
+  "End reason=discardReFly sess=\\S+ target=Launch facility=-- dispatched=true persistentWritten=true ",
+  "MISSIONMARK label=rsq4-discard ut=(?:(?!MISSIONMARK label=rsq4-discarded )[\\s\\S])*?Load classified: early=DiscardReFly refined=DiscardReFly scene=SPACECENTER ",
+  "MISSIONMARK label=rsq4-discard ut=(?:(?!MISSIONMARK label=rsq4-discarded )[\\s\\S])*?Rescue accept deferrals installed \\(load DiscardReFly\\): pending=1 \\(was [0-9]+\\)",
+  "reflyrevert complete choice=discard target=launch scene=SPACECENTER sess=\\S+ rp=rp_[0-9a-f]{32} rpKept=true slot=[0-9a-f]{32} slotListed=true ",
+
+  # ---- the landed Space Center drains it and regenerates the pod in the landed world ----
+  "Load classified: early=DiscardReFly (?:(?!MISSIONMARK label=rsq4-landed-visit )[\\s\\S])*?Rescue accept deferral evaluated: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030' outcome=Regenerate repair=RegenerateStrandedAsset skip=none \\(orbit kerbal='Rayvan Kerman'; vessels=[0-9]+ scene=SPACECENTER\\)",
+  "Load classified: early=DiscardReFly (?:(?!MISSIONMARK label=rsq4-landed-visit )[\\s\\S])*?PatchContracts: regenerated stranded asset for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030' through RecoverAsset\\.GenerateOrbitalRecovery: added=1 \\[[^\\]\\r\\n]+\\] \\(orbit kerbal='Rayvan Kerman'; partID ",
+  "Load classified: early=DiscardReFly (?:(?!MISSIONMARK label=rsq4-landed-visit )[\\s\\S])*?Rescue accept deferral removed: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030' \\(drain evaluated: outcome=Regenerate regenerated=True\\); pending=0",
+  "Load classified: early=DiscardReFly (?:(?!MISSIONMARK label=rsq4-landed-visit )[\\s\\S])*?Rescue accept deferrals drained \\(onContractsLoaded, scene=SPACECENTER\\): evaluated=1 regenerated=1 dropped=0 kept=0 pending=0",
+
+  # ---- visit 2: the player's load at the Space Center ----
+  "MISSIONMARK label=rsq4-landed-visit ut=(?:(?!MISSIONMARK label=rsq4-second-visit )[\\s\\S])*?loadgame start save=\\S+ name=rsq4-02-after-drain [^\\r\\n]*playerLoad=true",
+  "savegame name=rsq4-02-after-drain folder=\\S+ saved=true",
+  "MISSIONMARK label=rsq4-second-visit ut=[\\s\\S]*?savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  # Never in flight, never before the discard: no Regenerate repair planned in FLIGHT and no
+  # regeneration from the rewind to the discard (no Space Center visit happens in that window).
+  "repair=RegenerateStrandedAsset [^\\r\\n]*scene=FLIGHT\\)",
+  "MISSIONMARK label=rsq4-rewound ut=(?:(?!MISSIONMARK label=rsq4-discard )[\\s\\S])*?regenerated stranded asset for rebuilt contract",
+  # One regeneration in the whole run (the landed world's).
+  "regenerated stranded asset for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'[\\s\\S]*regenerated stranded asset for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'",
+  # Listed once (the rewind point holds the contract Active, so it is not rebuilt again).
+  "MISSIONMARK label=rsq4-jumped ut=[\\s\\S]*Rescue accept deferral listed: ",
+  # The discard never lands without the rewind point's list, and never clears it (the pre-fix cell).
+  "MISSIONMARK label=rsq4-discard ut=[\\s\\S]*splice kept the landed save's own RESCUE_ACCEPT_DEFERRALS: landed=0",
+  "Rescue accept deferrals cleared \\(load DiscardReFly",
+  # After the landed drain the list stays empty: no later load installs a pending id, no drain
+  # evaluates.
+  "MISSIONMARK label=rsq4-landed-visit ut=[\\s\\S]*Rescue accept deferrals installed \\(load \\w+\\): pending=[1-9]",
+  "MISSIONMARK label=rsq4-landed-visit ut=[\\s\\S]*Rescue accept deferral evaluated: ",
+  # The id is never dropped unevaluated, and the shell never fails.
+  "Rescue accept deferral removed: contractId='e8ba5ea6-570c-4b7f-99b4-44c9dee51030' \\((?:drain Drop|rebuilt again)",
+  "Rescue accept deferrals: drain [^\\r\\n]*threw",
+  "Rescue accept deferrals: drain subscription failed",
+  "stranded asset not regenerated for 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'",
+  "RecoverAsset\\.Generate\\w+ threw for rebuilt contract 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030'",
+  "accept-side world effect check for 'e8ba5ea6-570c-4b7f-99b4-44c9dee51030' threw",
+  "DiscardReFly: kept the session's persistent\\.sfs",
+  # One rewind to launch only, onto H; the decouple authors the point; no seam refusal.
+  "\\A(?:[\\s\\S]*?\\[Rewind\\] Rewind-to-Launch initiated to UT ){2}",
+  "Single-controllable split: no RP",
+  "invokerewindtolaunch refused",
+  "invokerewind refused",
+  "stashslot rejected",
+  "stashslot readback-failed",
+  "partaction rejected",
+  "partaction error ",
+  "reflyrevert rejected",
+  "reflyrevert error",
+  "warptout refused",
+  "kscaction refused",
+  "savegame refused ",
+  "savegame failed ",
+  # A discard is not a merge.
+  "End reason=merged ",
+  "Added [1-9][0-9]* supersede relations",
+  "Game state: ContractFailed ",
+]
+
+[runtime]
+budgetSeconds = 5000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

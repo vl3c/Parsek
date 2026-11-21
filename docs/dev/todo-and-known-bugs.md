@@ -286,7 +286,7 @@ green flight arms it. The pre-rewind live accept is stock's own and logs no Pars
 
 Flown 2026-11-20 (runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): RSQ-1 `2026-11-20_2308` and RSQ-2 `2026-11-20_2311`, both PARSEK-FAIL(expectation) attempt 1. Every plan and deferral line held (`repair=RegenerateStrandedAsset skip=none` at the Space Center; `repair=DeferStrandedAsset skip=scene=FLIGHT`, listed, kept across the Cold load, drained at the next Space Center visit), and stock's generator ran (the partID swapped), but the regeneration line reads `added=0 []` in both lanes, so `repaired=0` and the RSQ-2 deferral was removed with `regenerated=False`. Filed as RESCUE-REGEN-COUNTS-PROTOVESSELS (top of this file).
 
-## ~~RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD~~: a rescue the landed save already holds Active with its stranded vessel missing is not regenerated after a plain rewind or Discard Re-fly [FILED 2026-11-20 from the batch-1 re-review of the CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS follow-up; FIXED 2026-11-21 on branch `test-gaps-rescue-rewind` (xUnit; lane owed, RSQ-3); low (needs a rescue rebuilt in Flight before a rewind save or rewind point was written, then a rewind or Discard Re-fly to that save)]
+## ~~RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD~~: a rescue the landed save already holds Active with its stranded vessel missing is not regenerated after a plain rewind or Discard Re-fly [FILED 2026-11-20 from the batch-1 re-review of the CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS follow-up; FIXED 2026-11-21 on branch `test-gaps-rescue-rewind` (xUnit; lanes owed, RSQ-3 / RSQ-4); low (needs a rescue rebuilt in Flight before a rewind save or rewind point was written, then a rewind or Discard Re-fly to that save)]
 
 **What happened.** `RESCUE_ACCEPT_DEFERRALS` describes the world of the `.sfs` that carries it. A plain rewind's OnLoad
 node is persistent.sfs carrying the session's PARSEK node, and a Discard Re-fly's is the session's node carried around
@@ -324,7 +324,15 @@ and persistent is saved empty, and a Rewind-to-Launch onto that recording must s
 `Rescue accept deferrals installed (load PlainRewind): pending=1 (was 0)`, the `Rescue accept deferral
 evaluated: ... outcome=Regenerate` line, `regenerated stranded asset ... added=1` and `drained
 (onContractsLoaded, scene=SPACECENTER): evaluated=1 regenerated=1`, then a Cold reload adding nothing. The
-Discard Re-fly path (a rewind point holding the list) has no lane.
+Discard Re-fly path has its own lane, `RSQ-4-rescue-deferral-kept-across-discard-refly` (authored 2026-11-21 on
+`test-gaps-batch3`, never flown; stock-tree, cs-career-mun4, the same prefix on RW-5's two-command `CS Flea Probe`):
+after the deferral is listed in Flight, G is recorded and decoupled on the pad so its rewind point is written with the
+list, committed in flight and its slot stashed, the Re-Fly is invoked from that flight (`installed (load ReFlyStart):
+pending=1`), and Discard Re-fly must show `landed=1` on the splice line (`session=` regexed: the Re-Fly holds the rewind
+point's copy too, so the splice line alone does not discriminate), `Rescue accept deferrals installed (load
+DiscardReFly): pending=1` (the pre-fix cell logged `cleared (load DiscardReFly (Clear))`), the landed Space Center's
+`evaluated ... outcome=Regenerate`, `added=1` and `drained ... evaluated=1 regenerated=1`, exactly one regeneration in
+the whole run, and a Cold reload adding nothing. Both flights owed (PC).
 
 ## ~~SAVE-FREEZE-ON-MISSING-SIDECAR~~: one recording whose sidecar cannot be written froze its whole tree in every later save [FILED 2026-11-18 by code reading (test-gap pass, branch `test-gaps-savefreeze`); CONFIRMED 2026-11-20 by two red xUnit cells on the pre-fix code. FIXED 2026-11-20, same branch; xUnit; ST-4 re-pinned by code read and RE-FLOWN GREEN 2026-11-20 (`2026-11-20_2317`); high (silent loss of every later change to the tree; the sidecars of recordings the save no longer named were left as orphans on disk)]
 
