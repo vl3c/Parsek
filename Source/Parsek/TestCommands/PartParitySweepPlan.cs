@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 
 namespace Parsek.TestCommands
 {
@@ -15,6 +16,45 @@ namespace Parsek.TestCommands
 
         /// <summary>The settle cap passed with an Animation still playing: capture anyway, tag it.</summary>
         StillAnimating,
+    }
+
+    /// <summary>One candidate subject of the missing-mesh control: its rendered renderer
+    /// records (part-local bounds) and whether its prefab carries an Animation.</summary>
+    internal sealed class PartParityMissingMeshCandidate
+    {
+        internal string Subject;
+        internal bool HasAnimation;
+        internal List<PartParityRendererRecord> Records = new List<PartParityRendererRecord>();
+    }
+
+    /// <summary>The missing-mesh control's pick: a subject, the renderer to hide
+    /// (<c>RendererIndex</c> into the records it was chosen from, -1 when none), and its
+    /// projected fractions per view.</summary>
+    internal sealed class PartParityMissingMeshPick
+    {
+        internal string Subject;
+        internal int RendererIndex = -1;
+        internal string RendererPath;
+        internal List<string> Views = new List<string>();
+        internal double[] Fractions;
+        internal bool Animated;
+        internal string Why;
+
+        /// <summary>The flag / log value: <c>subject=&lt;s&gt;;renderer=&lt;path&gt;;side-a=0.123%;...</c>
+        /// (percent, three decimals, invariant), or the reason when nothing qualified.</summary>
+        internal string Describe()
+        {
+            var sb = new StringBuilder();
+            sb.Append("subject=").Append(Subject ?? "<none>");
+            if (RendererIndex < 0)
+                return sb.Append(";none=").Append(Why ?? "<none>").ToString();
+            sb.Append(";renderer=").Append(RendererPath ?? "<none>");
+            sb.Append(";animated=").Append(Animated ? "true" : "false");
+            for (int i = 0; i < Views.Count && Fractions != null && i < Fractions.Length; i++)
+                sb.Append(';').Append(Views[i]).Append('=')
+                    .Append((Fractions[i] * 100.0).ToString("0.000", CultureInfo.InvariantCulture)).Append('%');
+            return sb.ToString();
+        }
     }
 
     /// <summary>
@@ -128,22 +168,41 @@ namespace Parsek.TestCommands
         /// <summary>The asymmetric part of the rotation controls (hatch and ladder).</summary>
         internal const string ControlPodPart = "mk1pod.v2";
 
-        /// <summary>Candidates for <c>ctl-ghost-missing-mesh</c>, the first loaded part with at
-        /// least <see cref="MinMissingMeshRenderers"/> mesh renderers wins.</summary>
+        /// <summary>
+        /// Candidate subjects for <c>ctl-ghost-missing-mesh</c>, stock parts with several
+        /// meshes, in preference order (runtime dot-form names; an absent part is skipped). The
+        /// subject and the renderer it hides are chosen from data by
+        /// <see cref="ChooseMissingMeshSubject"/>, never by list position alone.
+        /// </summary>
         internal static readonly string[] MissingMeshCandidates =
-            { "mk1pod.v2", "probeCoreOcto.v2", "liquidEngine2", "Mark1Cockpit", "mk2LanderCabin.v2" };
+        {
+            "mk1pod.v2", "Mark1Cockpit", "landerCabinSmall", "probeCoreHex.v2", "probeCoreOcto.v2",
+            "RCSBlock.v2", "RCSblock.01.small", "ladder1", "telescopicLadder", "telescopicLadderBay",
+            "spotLight1", "spotLight2", "spotLight3", "solarPanels5", "solarPanels4", "solarPanels3",
+            "solarPanels2", "solarPanels1", "mk2LanderCabin.v2", "liquidEngine2",
+        };
 
-        internal const int MinMissingMeshRenderers = 3;
+        /// <summary>The hidden renderer must cover at least this fraction of the shared box's
+        /// projected area in at least one view (0.1 %: a blob over the 64 px shape limit at
+        /// tile 512), so some view fails on a local measure.</summary>
+        internal const double MissingMeshMinViewFraction = 0.001;
+
+        /// <summary>The hidden renderer must cover at most this fraction of the shared box's
+        /// projected area in every view (0.6 %), so every view keeps IoU >= 0.99.</summary>
+        internal const double MissingMeshMaxViewFraction = 0.006;
+
+        /// <summary>The sidecar flag of a missing-mesh control with no qualifying subject: the
+        /// judge reports it <c>bad</c> with a <c>no-subject</c> detail rather than guessing.</summary>
+        internal const string FlagControlNoSubject = "control-no-subject";
+
+        /// <summary>The sidecar flag carrying the missing-mesh pick (subject, renderer, the
+        /// per-view fractions); the control's log line repeats it.</summary>
+        internal const string FlagControlPickPrefix = "control-pick:";
 
         /// <summary>Candidates for <c>ctl-wrong-skin</c>, the first loaded part with a non-base
         /// colour variant wins (<c>FairingGhostVisualMath.ChooseColourVariant</c>).</summary>
         internal static readonly string[] WrongSkinCandidates =
             { "fuelTank", "fuelTankSmallFlat", "fuelTankSmall", "mk1pod.v2", "probeCoreOcto.v2" };
-
-        /// <summary>The missing-mesh control hides the smallest rendered ghost renderer whose
-        /// bounds diagonal is at least this fraction of the shared box diagonal (a renderer
-        /// much smaller may be sub-pixel or fully inside the part).</summary>
-        internal const double MissingMeshMinDiagonalFraction = 0.04;
 
         /// <summary>Starting guesses mirrored from the design's Python verdicts (6), used ONLY to
         /// judge the controls; part verdicts are Python's.</summary>
@@ -205,8 +264,29 @@ namespace Parsek.TestCommands
         /// </summary>
         internal static string JudgeControl(
             string controlId, IList<PartParityViewRecord> views, string setupStatus, out string detail)
+            => JudgeControl(controlId, views, setupStatus, null, out detail);
+
+        /// <summary>
+        /// As above, reading the sidecar flags too: a control flagged
+        /// <see cref="FlagControlNoSubject"/> is <c>bad</c> with a <c>no-subject</c> detail
+        /// before anything else. <c>still-animating</c> is NOT a setup fault
+        /// (<see cref="TestCommandPartParitySweep.IsSetupFault"/>): it never turns a control
+        /// <c>ok</c> or <c>bad</c> by itself; the views decide.
+        /// </summary>
+        internal static string JudgeControl(
+            string controlId, IList<PartParityViewRecord> views, string setupStatus,
+            IList<string> flags, out string detail)
         {
             detail = null;
+            if (flags != null)
+            {
+                foreach (string f in flags)
+                {
+                    if (f == null || !f.StartsWith(FlagControlNoSubject, StringComparison.Ordinal)) continue;
+                    detail = "no-subject";
+                    return TestCommandPartParitySweep.ControlsBad;
+                }
+            }
             if (TestCommandPartParitySweep.IsSetupFault(setupStatus))
             {
                 detail = "setup " + (setupStatus ?? "<none>");
@@ -287,24 +367,135 @@ namespace Parsek.TestCommands
             return false;
         }
 
-        /// <summary>
-        /// The missing-mesh control's target among the ghost's rendered renderers: the
-        /// smallest (by bounds diagonal) whose diagonal is at least
-        /// <see cref="MissingMeshMinDiagonalFraction"/> of <paramref name="sharedDiagonal"/>;
-        /// -1 when none qualifies.
-        /// </summary>
-        internal static int ChooseMissingMeshTarget(IList<double> renderedDiagonals, double sharedDiagonal)
+        // ----- the missing-mesh pick (design 4.5) -----
+
+        /// <summary>The camera direction of a view in PART-LOCAL axes (the part looks along
+        /// minus this), the same table as <c>PartParityCapture.TryViewAxes</c>.</summary>
+        internal static bool TryViewDirection(string view, out double[] dir)
         {
-            int best = -1;
-            if (renderedDiagonals == null) return best;
-            double floor = MissingMeshMinDiagonalFraction * sharedDiagonal;
-            for (int i = 0; i < renderedDiagonals.Count; i++)
+            switch (view)
             {
-                double d = renderedDiagonals[i];
-                if (double.IsNaN(d) || d < floor) continue;
-                if (best < 0 || d < renderedDiagonals[best]) best = i;
+                case TestCommandPartParitySweep.ViewSideA: dir = new[] { 0.0, 0.0, -1.0 }; return true;
+                case TestCommandPartParitySweep.ViewSideB: dir = new[] { 1.0, 0.0, 0.0 }; return true;
+                case TestCommandPartParitySweep.ViewTop: dir = new[] { 0.0, 1.0, 0.0 }; return true;
+                case TestCommandPartParitySweep.ViewBottom: dir = new[] { 0.0, -1.0, 0.0 }; return true;
+                case TestCommandPartParitySweep.ViewSideC: dir = new[] { 0.0, 0.0, 1.0 }; return true;
+                case TestCommandPartParitySweep.ViewSideD: dir = new[] { -1.0, 0.0, 0.0 }; return true;
+                case TestCommandPartParitySweep.ViewHero:
+                {
+                    double n = Math.Sqrt(1.0 + 0.36 + 1.0);
+                    dir = new[] { 1.0 / n, 0.6 / n, -1.0 / n };
+                    return true;
+                }
+                default:
+                    dir = null;
+                    return false;
             }
-            return best;
+        }
+
+        /// <summary>The area of an axis-aligned box's projection along a unit direction:
+        /// |dx| sy sz + |dy| sx sz + |dz| sx sy (each face pair seen at its cosine).</summary>
+        internal static double ProjectedBoxArea(double[] size, double[] dir)
+        {
+            if (size == null || dir == null || size.Length != 3 || dir.Length != 3) return 0.0;
+            return Math.Abs(dir[0]) * size[1] * size[2]
+                 + Math.Abs(dir[1]) * size[0] * size[2]
+                 + Math.Abs(dir[2]) * size[0] * size[1];
+        }
+
+        /// <summary>The renderer's projected bounds as a fraction of the shared box's projected
+        /// area, per view (in <paramref name="views"/> order); NaN for a view with no
+        /// direction or an empty shared projection, null when the renderer has no bounds.</summary>
+        internal static double[] ProjectedFractions(PartParityRendererRecord r, PartParityAabb shared, IList<string> views)
+        {
+            if (r == null || views == null) return null;
+            PartParityAabb rb = PartParityFramingRule.BoundsOf(r);
+            if (rb.IsEmpty) return null;
+            double[] rs = rb.Size();
+            double[] ss = shared != null && !shared.IsEmpty ? shared.Size() : null;
+            var f = new double[views.Count];
+            for (int i = 0; i < views.Count; i++)
+            {
+                if (ss == null || !TryViewDirection(views[i], out double[] dir)) { f[i] = double.NaN; continue; }
+                double denom = ProjectedBoxArea(ss, dir);
+                f[i] = denom > 0.0 ? ProjectedBoxArea(rs, dir) / denom : double.NaN;
+            }
+            return f;
+        }
+
+        /// <summary>The window of <see cref="MissingMeshMinViewFraction"/> /
+        /// <see cref="MissingMeshMaxViewFraction"/>: at least the floor in one view, at most
+        /// the ceiling in every view (a NaN view disqualifies).</summary>
+        internal static bool FractionsQualify(double[] fractions)
+        {
+            if (fractions == null || fractions.Length == 0) return false;
+            bool any = false;
+            foreach (double f in fractions)
+            {
+                if (double.IsNaN(f) || f > MissingMeshMaxViewFraction) return false;
+                if (f >= MissingMeshMinViewFraction) any = true;
+            }
+            return any;
+        }
+
+        /// <summary>
+        /// The first qualifying rendered renderer of one subject, in record order: its bounds
+        /// projected in every view of <paramref name="views"/> as a fraction of
+        /// <paramref name="shared"/> (<see cref="FractionsQualify"/>). The pick has
+        /// <c>RendererIndex = -1</c> and a reason when none qualifies.
+        /// </summary>
+        internal static PartParityMissingMeshPick ChooseMissingMeshRenderer(
+            string subject, IList<PartParityRendererRecord> records, PartParityAabb shared, IList<string> views)
+        {
+            var pick = new PartParityMissingMeshPick { Subject = subject, Views = views == null ? new List<string>() : new List<string>(views) };
+            int rendered = 0;
+            if (records != null)
+            {
+                for (int i = 0; i < records.Count; i++)
+                {
+                    PartParityRendererRecord r = records[i];
+                    if (r == null || !r.Rendered) continue;
+                    rendered++;
+                    double[] f = ProjectedFractions(r, shared, views);
+                    if (!FractionsQualify(f)) continue;
+                    pick.RendererIndex = i;
+                    pick.RendererPath = r.Path;
+                    pick.Fractions = f;
+                    return pick;
+                }
+            }
+            pick.Why = "no rendered renderer in the window (" + rendered.ToString(CultureInfo.InvariantCulture) + " rendered)";
+            return pick;
+        }
+
+        /// <summary>
+        /// The missing-mesh control's (subject, renderer): over the candidates in order, the
+        /// ones whose prefab plays no Animation first (a moving part would be captured
+        /// <c>still-animating</c> and its blob would mix motion into the measure), then the
+        /// animated ones; per subject the shared box is the union of its rendered renderers'
+        /// bounds and the renderer is <see cref="ChooseMissingMeshRenderer"/>'s. Null when no
+        /// candidate qualifies (the control is then <c>bad</c>, <c>no-subject</c>).
+        /// </summary>
+        internal static PartParityMissingMeshPick ChooseMissingMeshSubject(
+            IList<PartParityMissingMeshCandidate> candidates, IList<string> views)
+        {
+            if (candidates == null) return null;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                foreach (var c in candidates)
+                {
+                    if (c == null || c.HasAnimation != (pass == 1)) continue;
+                    var shared = new PartParityAabb();
+                    if (c.Records != null)
+                        foreach (var r in c.Records)
+                            if (r != null && r.Rendered) shared.Encapsulate(PartParityFramingRule.BoundsOf(r));
+                    PartParityMissingMeshPick p = ChooseMissingMeshRenderer(c.Subject, c.Records, shared, views);
+                    if (p.RendererIndex < 0) continue;
+                    p.Animated = c.HasAnimation;
+                    return p;
+                }
+            }
+            return null;
         }
 
         // ----- manifest summaries -----

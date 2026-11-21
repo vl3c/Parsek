@@ -152,27 +152,62 @@ namespace Parsek.TestCommands
             wc.GhostRecords = Records(partT, wc.GhostRenderers, wc.GhostLayers, meshRenderers);
             if (wc.ControlId != TestCommandPartParitySweep.ControlGhostMissingMesh) return;
 
-            // Hide one small rendered ghost renderer, then re-read the records so the
-            // structure shows it as not rendered.
+            // Hide the renderer the pick rule chooses on the LIVE ghost's records and shared
+            // box (the same rule the prefab pre-pass used to choose the subject), then re-read
+            // the records so the structure shows it as not rendered.
             PartParityFramingDecision pre = PartParityFramingRule.Decide(wc.RealRecords, wc.GhostRecords);
-            double[] size = pre.Shared.Size();
-            double sharedDiag = size == null ? 0.0 : Math.Sqrt(size[0] * size[0] + size[1] * size[1] + size[2] * size[2]);
-            var diagonals = new List<double>();
-            foreach (var r in wc.GhostRecords)
+            PartParityMissingMeshPick pick = PartParitySweepPlan.ChooseMissingMeshRenderer(
+                wc.Entry?.Name ?? wc.Key?.Part, wc.GhostRecords, pre.Shared, wc.Views);
+            if (pick.RendererIndex < 0)
             {
-                double[] s = r.Rendered ? PartParityFramingRule.BoundsOf(r).Size() : null;
-                diagonals.Add(s == null ? double.NaN : Math.Sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]));
-            }
-            int target = PartParitySweepPlan.ChooseMissingMeshTarget(diagonals, sharedDiag);
-            if (target < 0)
-            {
-                wc.Detail = wc.Detail ?? "no ghost renderer qualifies to hide";
+                wc.Flags.Add(PartParitySweepPlan.FlagControlNoSubject);
+                wc.Detail = wc.Detail ?? "no-subject: live ghost " + pick.Describe();
+                ParsekLog.Warn(PartParitySweepRunner.Tag, $"case {wc.CaseId}: no live ghost renderer in the window ({pick.Describe()})");
                 return;
             }
+            int target = pick.RendererIndex;
             meshRenderers[target].enabled = false;
             wc.Flags.Add(FlagMissingMeshTargetPrefix + wc.GhostRecords[target].Path);
+            wc.Flags.RemoveAll(f => f.StartsWith(PartParitySweepPlan.FlagControlPickPrefix, StringComparison.Ordinal));
+            wc.Flags.Add(PartParitySweepPlan.FlagControlPickPrefix + pick.Describe());
+            ParsekLog.Info(PartParitySweepRunner.Tag, $"case {wc.CaseId}: missing-mesh live pick {pick.Describe()} " +
+                "(prefab pick " + (wc.MissingMeshPick != null ? wc.MissingMeshPick.Describe() : "<none>") + ")");
             wc.GhostLayers.Clear();
             wc.GhostRecords = Records(partT, wc.GhostRenderers, wc.GhostLayers, null);
+        }
+
+        /// <summary>
+        /// One missing-mesh candidate from a part prefab (design 4.5): its renderer records in
+        /// prefab-root space, with <c>Rendered</c> read from the prefab's OWN active chain (the
+        /// prefab root is inactive, so <c>activeInHierarchy</c> is false everywhere), and
+        /// whether it carries any Animation. Null when the part has no prefab.
+        /// </summary>
+        internal static PartParityMissingMeshCandidate PrefabCandidate(string name, AvailablePart info)
+        {
+            Part prefab = info?.partPrefab;
+            if (prefab == null) return null;
+            Transform root = prefab.transform;
+            var renderers = new List<Renderer>(prefab.GetComponentsInChildren<Renderer>(true));
+            var meshRenderers = new List<Renderer>();
+            List<PartParityRendererRecord> records = Records(root, renderers, null, meshRenderers);
+            for (int i = 0; i < records.Count; i++)
+            {
+                Renderer r = meshRenderers[i];
+                records[i].Rendered = r.enabled && !r.forceRenderingOff && ActiveBelow(r.transform, root);
+            }
+            return new PartParityMissingMeshCandidate
+            {
+                Subject = name,
+                HasAnimation = prefab.GetComponentsInChildren<Animation>(true).Length > 0,
+                Records = records,
+            };
+        }
+
+        private static bool ActiveBelow(Transform t, Transform root)
+        {
+            for (Transform cur = t; cur != null && cur != root; cur = cur.parent)
+                if (!cur.gameObject.activeSelf) return false;
+            return true;
         }
 
         private static void Frame(WaveCase wc)

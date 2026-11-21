@@ -668,8 +668,13 @@ namespace Parsek.TestCommands
 
         private static void JudgeAndLogControl(PartParityCaseSidecar s)
         {
-            string outcome = PartParitySweepPlan.JudgeControl(s.CaseId, s.Views, s.Setup?.Status, out string detail);
-            ParsekLog.Info(Tag, $"control {s.CaseId}: outcome={outcome} subject={s.Part ?? "<none>"} detail={detail ?? "<none>"}");
+            string outcome = PartParitySweepPlan.JudgeControl(s.CaseId, s.Views, s.Setup?.Status, s.Flags, out string detail);
+            string pick = null;
+            foreach (string f in s.Flags)
+                if (f != null && f.StartsWith(PartParitySweepPlan.FlagControlPickPrefix, StringComparison.Ordinal))
+                    pick = f.Substring(PartParitySweepPlan.FlagControlPickPrefix.Length);
+            ParsekLog.Info(Tag, $"control {s.CaseId}: outcome={outcome} subject={s.Part ?? "<none>"} " +
+                $"setup={s.Setup?.Status ?? "<none>"} detail={detail ?? "<none>"}" + (pick != null ? " pick=" + pick : string.Empty));
         }
 
         internal static void WriteSidecar(StepContext ctx, PartParityCaseSidecar sidecar)
@@ -703,8 +708,17 @@ namespace Parsek.TestCommands
                 CaseId = id, Index = -1, ControlId = id,
                 Views = new List<string>(TestCommandPartParitySweep.RequiredViews),
             };
-            string part = ControlPart(ctx, id, out string ghostVariant, out string why);
+            string part = ControlPart(ctx, id, out string ghostVariant, out string why, out PartParityMissingMeshPick pick);
             wc.Key = new PartParityCaseKey { Part = part ?? why };
+            wc.MissingMeshPick = pick;
+            if (id == TestCommandPartParitySweep.ControlGhostMissingMesh)
+            {
+                if (pick == null) wc.Flags.Add(PartParitySweepPlan.FlagControlNoSubject);
+                else wc.Flags.Add(PartParitySweepPlan.FlagControlPickPrefix + "prefab:" + pick.Describe());
+                ParsekLog.Info(Tag, $"control {id}: prefab pick " + (pick != null
+                    ? pick.Describe()
+                    : "none (no-subject): no candidate subject has a rendered renderer in the window"));
+            }
             if (part != null && ctx.EntriesByName.TryGetValue(part, out PartParityPartEntry e))
             {
                 wc.Entry = e;
@@ -717,21 +731,32 @@ namespace Parsek.TestCommands
             return wc;
         }
 
-        private static string ControlPart(StepContext ctx, string id, out string ghostVariant, out string why)
+        private static string ControlPart(StepContext ctx, string id, out string ghostVariant, out string why,
+            out PartParityMissingMeshPick pick)
         {
             ghostVariant = null;
             why = null;
+            pick = null;
             switch (id)
             {
                 case TestCommandPartParitySweep.ControlGhostRot90:
                 case TestCommandPartParitySweep.ControlGhostFlip:
                     return PartParitySweepPlan.ControlPodPart;
                 case TestCommandPartParitySweep.ControlGhostMissingMesh:
+                {
+                    var candidates = new List<PartParityMissingMeshCandidate>();
                     foreach (string n in PartParitySweepPlan.MissingMeshCandidates)
-                        if (ctx.EntriesByName.TryGetValue(n, out var e) && CountMeshRenderers(e.Info) >= PartParitySweepPlan.MinMissingMeshRenderers)
-                            return n;
-                    why = "no multi-renderer candidate";
+                    {
+                        if (!ctx.EntriesByName.TryGetValue(n, out var e)) continue;
+                        PartParityMissingMeshCandidate c = PartParityCaseCapture.PrefabCandidate(n, e.Info);
+                        if (c != null) candidates.Add(c);
+                    }
+                    pick = PartParitySweepPlan.ChooseMissingMeshSubject(
+                        candidates, new List<string>(TestCommandPartParitySweep.RequiredViews));
+                    if (pick != null) return pick.Subject;
+                    why = "no-subject";
                     return null;
+                }
                 case TestCommandPartParitySweep.ControlWrongSkin:
                     foreach (string n in PartParitySweepPlan.WrongSkinCandidates)
                     {
@@ -746,9 +771,6 @@ namespace Parsek.TestCommands
                     return PartParitySweepPlan.ControlTankPart;
             }
         }
-
-        private static int CountMeshRenderers(AvailablePart info)
-            => info?.partPrefab == null ? 0 : info.partPrefab.GetComponentsInChildren<MeshRenderer>(true).Length;
 
         // =====================================================================================
         // step end
@@ -792,7 +814,7 @@ namespace Parsek.TestCommands
                 };
                 if (ctx.Known.TryGetValue(id, out PartParityCaseSidecar s))
                 {
-                    rec.Outcome = PartParitySweepPlan.JudgeControl(id, s.Views, s.Setup?.Status, out string detail);
+                    rec.Outcome = PartParitySweepPlan.JudgeControl(id, s.Views, s.Setup?.Status, s.Flags, out string detail);
                     rec.Detail = (s.Part != null ? "part=" + s.Part + " " : string.Empty) + (detail ?? string.Empty);
                 }
                 list.Add(rec);
@@ -877,6 +899,10 @@ namespace Parsek.TestCommands
             internal SortedSet<int> RealLayers = new SortedSet<int>();
             internal SortedSet<int> GhostLayers = new SortedSet<int>();
             internal double? GhostRootOffsetM;
+
+            /// <summary>The missing-mesh control's prefab pick (null for every other case,
+            /// and when no candidate qualified).</summary>
+            internal PartParityMissingMeshPick MissingMeshPick;
             internal int SeedEvents;
             internal int SeedApplied;
             internal PartParitySkinProof Skin;

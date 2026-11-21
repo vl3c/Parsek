@@ -263,6 +263,28 @@ proof that the instrument sees what it claims to.
 | `ctl-ghost-missing-mesh` | a multi-renderer stock part, one small ghost renderer forced off | fails on the local-defect measures (6) while whole-image IoU stays above 0.99 |
 | `ctl-wrong-skin` | a stock part with a colour-only variant (chosen at run time, FGV's `ChooseColourVariant`), ghost built from a snapshot naming another variant | fails on colour with IoU near 1 |
 
+The missing-mesh pick is data-driven and pure (`PartParitySweepPlan.ChooseMissingMeshSubject` /
+`ChooseMissingMeshRenderer`; the first flight hid the LV-T45's whole bell, IoU 0.68, so "the
+smallest renderer above a diagonal floor" cannot guarantee a SMALL mesh). Over the candidate list
+`PartParitySweepPlan.MissingMeshCandidates` (stock parts with several meshes: pods, cockpits, lander
+cans, probe cores, RCS blocks, ladders, lights, solar panels, then the LV-T45 last), for each
+rendered renderer, its part-local bounds are projected along each required view's camera
+direction (`|dx| sy sz + |dy| sx sz + |dz| sx sy`) as a fraction of the shared box's projection
+in that view. The first (subject, renderer) whose fraction is >= 0.1 % in at least one view (a
+blob over the 64 px shape limit at tile 512) and <= 0.6 % in every view (IoU stays >= 0.99)
+wins; candidates whose prefab carries no `Animation` are tried before those that do, so the
+control is not captured `still-animating` when a still subject qualifies. The subject is chosen
+before the spawn from the prefab's records (shared box = union of its rendered renderers,
+`Rendered` read from the prefab's own active chain); the renderer actually hidden is re-chosen
+by the same rule on the LIVE ghost's records and shared box. No qualifying candidate (either
+pass) flags the case `control-no-subject` and the judge reports `bad`, detail `no-subject`,
+rather than guessing. The pick rides the sidecar flag `control-pick:subject=;renderer=;animated=;
+<view>=<pct>%;...` and the control's log line (`pick=`). The model ignores occlusion: a renderer
+hidden behind another can still read as no local failure, which the control then reports `bad`.
+
+`still-animating` is never a setup fault for the judge (`TestCommandPartParitySweep.IsSetupFault`):
+the views alone decide every control's outcome, with or without it.
+
 ### 4.6 Structural diff
 
 Per side, per renderer: transform path relative to the part (with `(Clone)` stripped and the

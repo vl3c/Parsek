@@ -219,12 +219,187 @@ namespace Parsek.Tests
             Assert.False(PartParitySweepPlan.IsControl("fueltank--default--00000000"));
         }
 
+        // ----- the missing-mesh pick -----
+
+        private static PartParityRendererRecord Rec(string path, double[] min, double[] max, bool rendered = true)
+            => new PartParityRendererRecord { Path = path, Rendered = rendered, BoundsMin = min, BoundsMax = max };
+
+        // A 2 x 2 x 2 m body (projected 4 m2 in every axis view) plus small parts.
+        private static PartParityRendererRecord Body()
+            => Rec("model/body", new[] { -1.0, -1.0, -1.0 }, new[] { 1.0, 1.0, 1.0 });
+
+        private static PartParityRendererRecord Cube(string path, double side, double at = 0.5)
+            => Rec(path, new[] { at, at, at }, new[] { at + side, at + side, at + side });
+
+        private static readonly string[] Required = TestCommandPartParitySweep.RequiredViews;
+
         [Fact]
-        public void MissingMeshTarget_SmallestAboveTheFloor()
+        public void ProjectedBoxArea_IsTheFaceAreasSeenAtTheirCosines()
         {
-            var diag = new List<double> { 2.0, 0.01, double.NaN, 0.3, 0.5 };
-            Assert.Equal(3, PartParitySweepPlan.ChooseMissingMeshTarget(diag, 3.0)); // floor 0.12
-            Assert.Equal(-1, PartParitySweepPlan.ChooseMissingMeshTarget(new List<double> { 0.01 }, 3.0));
+            Assert.Equal(6.0, PartParitySweepPlan.ProjectedBoxArea(new[] { 1.0, 2.0, 3.0 }, new[] { 1.0, 0.0, 0.0 }), 9);
+            Assert.Equal(3.0, PartParitySweepPlan.ProjectedBoxArea(new[] { 1.0, 2.0, 3.0 }, new[] { 0.0, -1.0, 0.0 }), 9);
+            Assert.Equal(2.0, PartParitySweepPlan.ProjectedBoxArea(new[] { 1.0, 2.0, 3.0 }, new[] { 0.0, 0.0, -1.0 }), 9);
+            double h = System.Math.Sqrt(0.5);
+            Assert.Equal(h * 6.0 + h * 2.0, PartParitySweepPlan.ProjectedBoxArea(new[] { 1.0, 2.0, 3.0 }, new[] { h, 0.0, h }), 9);
+            Assert.Equal(0.0, PartParitySweepPlan.ProjectedBoxArea(null, new[] { 1.0, 0.0, 0.0 }));
+        }
+
+        [Fact]
+        public void ViewDirections_MatchTheCaptureCameraTable()
+        {
+            foreach (string v in TestCommandPartParitySweep.AllViews)
+            {
+                Assert.True(PartParitySweepPlan.TryViewDirection(v, out double[] d), v);
+                Assert.True(PartParityCapture.TryViewAxes(v, out UnityEngine.Vector3 cam, out UnityEngine.Vector3 _, out bool _), v);
+                Assert.Equal(cam.x, d[0], 5);
+                Assert.Equal(cam.y, d[1], 5);
+                Assert.Equal(cam.z, d[2], 5);
+            }
+            Assert.False(PartParitySweepPlan.TryViewDirection("nope", out double[] _));
+        }
+
+        [Fact]
+        public void ProjectedFractions_PerViewOfTheSharedBox()
+        {
+            var shared = PartParityFramingRule.BoundsOf(Body());
+            // 0.2 m cube: 0.04 m2 of a 4 m2 projection = 1 % in every axis view.
+            double[] f = PartParitySweepPlan.ProjectedFractions(Cube("c", 0.2), shared, Required);
+            Assert.Equal(4, f.Length);
+            foreach (double x in f) Assert.Equal(0.01, x, 9);
+            Assert.Null(PartParitySweepPlan.ProjectedFractions(Rec("nobounds", null, null), shared, Required));
+            double[] unknown = PartParitySweepPlan.ProjectedFractions(Cube("c", 0.2), shared, new[] { "nope" });
+            Assert.True(double.IsNaN(unknown[0]));
+        }
+
+        [Theory]
+        [InlineData(new[] { 0.002, 0.0005, 0.0005, 0.0005 }, true)]  // floor met in one view
+        [InlineData(new[] { 0.0009, 0.0009, 0.0009, 0.0009 }, false)] // floor met nowhere
+        [InlineData(new[] { 0.002, 0.007, 0.001, 0.001 }, false)]     // ceiling broken in one view
+        [InlineData(new[] { 0.006, 0.006, 0.001, 0.001 }, true)]      // both bounds inclusive
+        public void FractionsQualify_TheWindow(double[] f, bool expected)
+        {
+            Assert.Equal(expected, PartParitySweepPlan.FractionsQualify(f));
+        }
+
+        [Fact]
+        public void FractionsQualify_NaNOrEmptyDisqualifies()
+        {
+            Assert.False(PartParitySweepPlan.FractionsQualify(null));
+            Assert.False(PartParitySweepPlan.FractionsQualify(new double[0]));
+            Assert.False(PartParitySweepPlan.FractionsQualify(new[] { 0.002, double.NaN, 0.001, 0.001 }));
+        }
+
+        [Fact]
+        public void ChooseRenderer_FirstInTheWindow_SkipsHiddenTooBigAndTooSmall()
+        {
+            var shared = PartParityFramingRule.BoundsOf(Body());
+            var records = new List<PartParityRendererRecord>
+            {
+                Body(),                          // 100 %: too big
+                Cube("bell", 0.5),               // 6.25 %: too big (the LV-T45 bell case)
+                Cube("hidden", 0.1, 0.0) ,       // in the window but not rendered
+                Cube("speck", 0.02),             // 0.01 %: too small
+                Cube("ladder", 0.1),             // 0.25 %: in the window
+                Cube("light", 0.12),             // also in the window, later
+            };
+            records[2].Rendered = false;
+            PartParityMissingMeshPick p = PartParitySweepPlan.ChooseMissingMeshRenderer("pod", records, shared, Required);
+            Assert.Equal(4, p.RendererIndex);
+            Assert.Equal("ladder", p.RendererPath);
+            Assert.Equal(0.0025, p.Fractions[0], 9);
+            Assert.Equal("subject=pod;renderer=ladder;animated=false;side-a=0.250%;side-b=0.250%;top=0.250%;bottom=0.250%", p.Describe());
+
+            var none = PartParitySweepPlan.ChooseMissingMeshRenderer("tank", new List<PartParityRendererRecord> { Body() }, shared, Required);
+            Assert.Equal(-1, none.RendererIndex);
+            Assert.StartsWith("subject=tank;none=no rendered renderer in the window (1 rendered)", none.Describe());
+        }
+
+        [Fact]
+        public void ChooseSubject_DataDriven_StillPartsFirst_NullWhenNoneQualifies()
+        {
+            var engine = new PartParityMissingMeshCandidate
+            {
+                Subject = "liquidEngine2", HasAnimation = true,
+                Records = new List<PartParityRendererRecord> { Body(), Cube("small", 0.1) },
+            };
+            var bellOnly = new PartParityMissingMeshCandidate
+            {
+                Subject = "mk1pod.v2", HasAnimation = false,
+                Records = new List<PartParityRendererRecord> { Body(), Cube("bell", 0.5) },
+            };
+            var still = new PartParityMissingMeshCandidate
+            {
+                Subject = "probeCoreHex.v2", HasAnimation = false,
+                Records = new List<PartParityRendererRecord> { Body(), Cube("antenna", 0.1) },
+            };
+
+            // The animated engine is listed first but a still part that qualifies wins;
+            // the first still candidate has no renderer in the window, so the next is taken.
+            PartParityMissingMeshPick p = PartParitySweepPlan.ChooseMissingMeshSubject(
+                new List<PartParityMissingMeshCandidate> { engine, bellOnly, still }, Required);
+            Assert.Equal("probeCoreHex.v2", p.Subject);
+            Assert.Equal("antenna", p.RendererPath);
+            Assert.False(p.Animated);
+
+            // Only an animated candidate qualifies: it is used, and says so.
+            p = PartParitySweepPlan.ChooseMissingMeshSubject(
+                new List<PartParityMissingMeshCandidate> { bellOnly, engine }, Required);
+            Assert.Equal("liquidEngine2", p.Subject);
+            Assert.True(p.Animated);
+
+            Assert.Null(PartParitySweepPlan.ChooseMissingMeshSubject(
+                new List<PartParityMissingMeshCandidate> { bellOnly }, Required));
+            Assert.Null(PartParitySweepPlan.ChooseMissingMeshSubject(null, Required));
+        }
+
+        [Fact]
+        public void MissingMeshCandidates_AreDistinctDotFormNames()
+        {
+            var seen = new HashSet<string>();
+            foreach (string n in PartParitySweepPlan.MissingMeshCandidates)
+            {
+                Assert.True(seen.Add(n), n);
+                Assert.DoesNotContain("_", n); // runtime names are dot-form
+            }
+            Assert.True(PartParitySweepPlan.MissingMeshMinViewFraction < PartParitySweepPlan.MissingMeshMaxViewFraction);
+        }
+
+        [Fact]
+        public void Control_NoSubjectFlag_IsBadWithNoSubjectDetail()
+        {
+            var views = Four(v => View(v, iou: 0.995));
+            views[0] = View("side-a", realBlob: 200, iou: 0.993);
+            var flags = new List<string> { PartParitySweepPlan.FlagControlNoSubject };
+            Assert.Equal("bad", PartParitySweepPlan.JudgeControl(
+                TestCommandPartParitySweep.ControlGhostMissingMesh, views, "spawn-timeout", flags, out string detail));
+            Assert.Equal("no-subject", detail);
+            // Without the flag the same views judge on their own.
+            Assert.Equal("ok", PartParitySweepPlan.JudgeControl(
+                TestCommandPartParitySweep.ControlGhostMissingMesh, views, "ok", new List<string> { "control-pick:x" }, out detail));
+        }
+
+        [Fact]
+        public void Control_StillAnimating_NeverMasksTheViews()
+        {
+            // still-animating is a tag on a real measurement: the views decide both ways.
+            Assert.False(TestCommandPartParitySweep.IsSetupFault(TestCommandPartParitySweep.SetupStillAnimating));
+            var good = Four(v => View(v, iou: 0.995));
+            good[0] = View("side-a", realBlob: 200, iou: 0.993);
+            Assert.Equal("ok", PartParitySweepPlan.JudgeControl(
+                TestCommandPartParitySweep.ControlGhostMissingMesh, good, "still-animating", out string _));
+            var badIou = Four(v => View(v, iou: 0.995));
+            badIou[0] = View("side-a", realBlob: 26484, iou: 0.68);
+            Assert.Equal("bad", PartParitySweepPlan.JudgeControl(
+                TestCommandPartParitySweep.ControlGhostMissingMesh, badIou, "still-animating", out string detail));
+            Assert.Equal("iou below 0.99 in side-a", detail);
+            foreach (string id in TestCommandPartParitySweep.ControlIds)
+            {
+                var anyViews = Four(v => View(v, realBlob: 400, colorBlob: 400, iou: 0.5));
+                Assert.Equal(
+                    PartParitySweepPlan.JudgeControl(id, anyViews, "ok", out string a),
+                    PartParitySweepPlan.JudgeControl(id, anyViews, "still-animating", out string b));
+                Assert.Equal(a, b);
+            }
         }
 
         // ----- summaries -----

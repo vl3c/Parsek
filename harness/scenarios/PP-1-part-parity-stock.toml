@@ -9,8 +9,9 @@ tier = "operator"
 # the first 20 parts of the stable case order plus the eight control cases (design 4.5), so
 # the per-wave wall time can be measured and the chunk size of the full sweep set from it.
 # P3 widens it to the full part list (`skins=all`, no `limit`, N x `op=run` steps sized from
-# that measurement) and adds the `partParity` verifier row; until then the lane gates only
-# that the seam carried the step out and the engine reported its step summary.
+# that measurement) and adds the `partParity` verifier row; until then the lane gates that
+# the seam carried the step out and that the engine's run-step summary reports every control
+# `ok` and no case `crashed` (the log contract below).
 #
 # WHAT THE LANE FLIES. `eva2-lko-crewed` (sandbox, every part available, the 13-part Kerbal X
 # Probe ORBITING Kerbin at ~100 km; FGV-1's host, design 4.1) boots into FLIGHT, turns every
@@ -27,8 +28,13 @@ tier = "operator"
 # where a following step would resume.
 #
 # LOG CONTRACT. The capture engine writes one `[PartParity]` Info line per step summary
-# (design 11 "Logging"); its message carries the literal `PartParity step`, which the first
-# pin anchors on loosely. The second pin is the seam applier's own OK line.
+# (design 11 "Logging"), e.g.
+#   PartParity step label=pp1 op=run ok=true label=pp1 done=true next=20 cases=20 complete=20
+#   crashed=0 setupFaults=0 controls=ok wall=21.8
+# The first pin requires the RUN step's line with `ok=true`, `crashed=0` and `controls=ok`, so a
+# bad or pending control or a crashed case reds the lane until P3's verifier row owns those
+# verdicts (the reset step's line says `op=reset ... controls=pending` and never matches). The
+# second pin is the seam applier's own OK line.
 #
 # FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: considered, not applied - FGV-1
 # flies the same host and setup, but its batch photographs fairings beside the active vessel
@@ -83,8 +89,9 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
-  # The capture engine's per-step summary line (design 11 "Logging").
-  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] .*PartParity step",
+  # The capture engine's run-step summary line (design 11 "Logging"): every control ok,
+  # no case crashed.
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp1 op=run ok=true label=pp1 done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
   # The seam applier's OK line for the run step.
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp1 elapsed=[0-9.]+s label=pp1 done=(true|false) ",
 ]

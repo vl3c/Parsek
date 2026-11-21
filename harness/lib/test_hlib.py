@@ -19223,6 +19223,32 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         self.assertTrue(any(hlib.PARTPARITY_STEP_LINE_LITERAL in p for p in required), required)
         self.assertEqual(0, spec["expectations"]["recordings"]["count"]["max"])
 
+    def test_the_lane_gates_the_controls_and_crashes_on_the_run_step_line(self):
+        """Until P3's partParity row exists, PP-1's step-line pin is the only gate on the
+        controls and the crash count: it must match the run step's real line (the 2026-11-21
+        flight's, with `controls=ok`) and miss it for a bad or pending control, a crashed
+        case, a refused step and the reset step's line."""
+        spec = load_spec("PP-1-part-parity-stock.toml")
+        required = spec["expectations"]["logContracts"]["required"]
+        pins = [p for p in required if hlib.PARTPARITY_STEP_LINE_LITERAL in p]
+        self.assertEqual(1, len(pins), required)
+        pin = re.compile(pins[0])
+        good = ("[LOG 18:28:19.068] [Parsek][INFO][PartParity] PartParity step label=pp1 op=run ok=true "
+                "label=pp1 done=true next=20 cases=20 complete=20 crashed=0 setupFaults=0 controls=ok wall=21.8")
+        self.assertTrue(pin.search(good), pins[0])
+        self.assertTrue(pin.search(good.replace("done=true", "done=false")))
+        for bad in (good.replace("controls=ok", "controls=bad"),
+                    good.replace("controls=ok", "controls=pending"),
+                    good.replace("crashed=0", "crashed=1"),
+                    good.replace("crashed=0", "crashed=10"),
+                    good.replace("ok=true", "ok=false"),
+                    good.replace("op=run", "op=reset")):
+            with self.subTest(line=bad):
+                self.assertIsNone(pin.search(bad))
+        reset = ("[Parsek][INFO][PartParity] PartParity step label=pp1 op=reset ok=true label=pp1 "
+                 "done=false next=0 cases=0 complete=0 crashed=0 setupFaults=0 controls=pending wall=0.0")
+        self.assertIsNone(pin.search(reset))
+
 
 class NewGameSourceSyncTests(unittest.TestCase):
     """`NewGame`. Reads OUTSIDE harness/: the verb, the three arg keys, the mode and preset
