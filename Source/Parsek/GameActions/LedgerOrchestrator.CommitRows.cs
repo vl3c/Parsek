@@ -16,7 +16,9 @@ namespace Parsek
         /// (owner ruling Q1b) and the forecast that killed the crew (Q6c) was replaced by what
         /// the vessel did. A predicted chute touchdown (Landed / Splashed, predicted) qualifies
         /// the same way: its Aboard rows give way when stock deleted the craft (owner ruling Q4d,
-        /// the crew died with it) or contradicted the touchdown. A confirmed ending is history
+        /// the crew died with it) or contradicted the touchdown, and so does a predicted final
+        /// orbit (Orbiting / SubOrbital, owner ruling Q8) stock destroyed or the player flew on
+        /// from. A confirmed ending is history
         /// and never qualifies, and an untouched copy (same ending, same end) does not either.
         /// </summary>
         internal static bool ShouldRefreshCrewRowsOnReplace(Recording existing, Recording incoming)
@@ -24,9 +26,7 @@ namespace Parsek
             if (existing == null || incoming == null || ReferenceEquals(existing, incoming))
                 return false;
             if (!existing.TerminalPredicted
-                || (existing.TerminalStateValue != TerminalState.Destroyed
-                    && existing.TerminalStateValue != TerminalState.Landed
-                    && existing.TerminalStateValue != TerminalState.Splashed))
+                || !Recording.IsPredictableTerminal(existing.TerminalStateValue))
                 return false;
             if (incoming.TerminalStateValue != existing.TerminalStateValue
                 || incoming.TerminalPredicted != existing.TerminalPredicted)

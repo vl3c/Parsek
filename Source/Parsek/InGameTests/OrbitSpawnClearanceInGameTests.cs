@@ -269,6 +269,63 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "OrbitSpawnClearance", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - spawns a probe beside the active vessel and destroys it. Use " +
+                "Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "The end-spawn gate's live vessel lookup answers gone right after Vessel.Die: in FLIGHT " +
+                "it reads FlightGlobals.Vessels only, never flightState.protoVessels, which keeps a vessel stock " +
+                "just destroyed until the next save")]
+        public IEnumerator SpawnGateLiveLookup_AVesselJustDestroyedIsGone()
+        {
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active == null)
+                InGameAssert.Skip("no active vessel");
+            if (PartLoader.getPartInfoByName(ProbePartName) == null)
+                InGameAssert.Skip($"'{ProbePartName}' is not in PartLoader");
+
+            string runId = "osc-die-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            Vessel probe = null;
+            try
+            {
+                uint probePid = GrappleCaptureInGameTest.SpawnSinglePartVessel(
+                    ProbePartName, runId, VesselType.Probe, active, RockSpawnOffsetMeters);
+                if (probePid == 0)
+                    InGameAssert.Skip("probe spawn failed (SpawnAtPosition returned 0)");
+                IEnumerator probeWait = GrappleCaptureInGameTest.WaitForSpawnedVesselLive(probePid, "probe", v => probe = v);
+                while (probeWait.MoveNext())
+                    yield return probeWait.Current;
+                if (probe == null)
+                    InGameAssert.Skip("the probe never became loaded and unpacked");
+
+                string guid = probe.id.ToString("N", IC);
+                InGameAssert.AreEqual(true, PredictedTouchdownStockFate.IsVesselWithGuidLive(guid),
+                    "a live probe must read live");
+                probe.Die();
+                bool storedAfter = false;
+                var protos = HighLogic.CurrentGame?.flightState?.protoVessels;
+                if (protos != null)
+                    for (int i = 0; i < protos.Count; i++)
+                        if (protos[i] != null && protos[i].vesselID == probe.id)
+                            storedAfter = true;
+                bool? liveAfter = PredictedTouchdownStockFate.IsVesselWithGuidLive(guid);
+                ParsekLog.Info("TestRunner", string.Format(IC,
+                    "SpawnGate live lookup after Vessel.Die: guid={0} live={1} stillInProtoVessels={2}",
+                    guid, liveAfter.HasValue ? liveAfter.Value.ToString() : "unknown", storedAfter));
+                InGameAssert.AreEqual(false, liveAfter,
+                    "a vessel Vessel.Die just removed must read gone in FLIGHT (stillInProtoVessels=" + storedAfter + ")");
+            }
+            finally
+            {
+                if (probe != null && probe.state != Vessel.State.DEAD) probe.Die();
+            }
+        }
+
         private static Vessel RequireOrbitingActiveVessel()
         {
             Vessel active = FlightGlobals.ActiveVessel;

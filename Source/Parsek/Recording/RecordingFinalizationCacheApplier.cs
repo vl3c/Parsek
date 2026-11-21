@@ -125,6 +125,7 @@ namespace Parsek
                 predicted: IsPredictedDestroyedTerminal(cache, options)
                     || (appendedDescentPoints > 0 && IsPredictedTouchdownCache(cache)),
                 quietEnd: cache.QuietEnd && appendedDescentPoints > 0);
+            MarkPredictedFinalOrbit(recording, CountPredicted(retainedSegments), "RecordingFinalizationCacheApplier");
             ApplyTerminalMetadata(recording, cache, retainedSegments);
             if (appendedDescentPoints > 0 && recording.TerminalPosition.HasValue)
             {
@@ -499,6 +500,46 @@ namespace Parsek
                 && cache.TerminalState == TerminalState.Destroyed
                 && !options.DestructionConfirmed
                 && !IsDestroyEventReason(cache.RefreshReason);
+        }
+
+        /// <summary>
+        /// Owner ruling Q8: an Orbiting / SubOrbital ending a predicted tail reached (the
+        /// recording carries <paramref name="predictedTailSegments"/> predicted segments past its
+        /// last authored sample: an escape followed to its final orbit, a coast through a
+        /// patched-conic change) is Parsek's prediction, not a state KSP was seen in; stock holds
+        /// the vessel on rails meanwhile and may still meet what the predictor missed. Re-stamps
+        /// the ending as predicted (<see cref="Recording.TerminalPredicted"/>) so the stock-fate
+        /// reconciler squares it with stock. A stable orbit carries no predicted tail and is left
+        /// alone. Returns true when it marked.
+        /// </summary>
+        internal static bool MarkPredictedFinalOrbit(Recording recording, int predictedTailSegments, string context)
+        {
+            if (recording == null || predictedTailSegments <= 0 || recording.TerminalPredicted)
+                return false;
+            if (recording.TerminalStateValue != TerminalState.Orbiting
+                && recording.TerminalStateValue != TerminalState.SubOrbital)
+                return false;
+            recording.StampTerminalState(recording.TerminalStateValue, (context ?? LogTag) + ".predictedFinalOrbit",
+                predicted: true);
+            ParsekLog.Verbose(LogTag,
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: final orbit marked predicted rec={1} terminal={2} predictedTailSegments={3}",
+                    context ?? LogTag,
+                    recording.RecordingId ?? "(null)",
+                    recording.TerminalStateValue,
+                    predictedTailSegments));
+            return true;
+        }
+
+        internal static int CountPredicted(IList<OrbitSegment> segments)
+        {
+            if (segments == null)
+                return 0;
+            int n = 0;
+            for (int i = 0; i < segments.Count; i++)
+                if (segments[i].isPredicted)
+                    n++;
+            return n;
         }
 
         internal static bool IsDestroyEventReason(string reason)

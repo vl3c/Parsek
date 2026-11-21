@@ -32,6 +32,9 @@ namespace Parsek
         StockStillDeciding,
         // In the air past the touchdown, loaded and unpacked: stock physics decides right now.
         StockStillSimulating,
+        // A predicted final orbit (owner ruling Q8) whose vessel stock still holds: left as
+        // committed (its orbit is not compared with the prediction).
+        FinalOrbitHeld,
         // In the air past the touchdown, on rails, still falling toward stock's deletion line.
         StockMayStillRemove,
         // Gone, and the player recovered or terminated it (a ledger row says so, Q13).
@@ -52,6 +55,9 @@ namespace Parsek
     internal struct PredictedTouchdownCandidateFacts
     {
         public bool IsPredictedTouchdown;
+        // A predicted final orbit (Orbiting / SubOrbital, owner ruling Q8): only its
+        // disappearance is reconciled.
+        public bool IsPredictedFinalOrbit;
         public bool HasLaunchGuid;
         public bool OwnedElsewhere;
         public bool MaterializedBySpawn;
@@ -97,6 +103,12 @@ namespace Parsek
     /// stamp therefore means "stock held this vessel in the timeline the game is in now", so
     /// its absence from stock is stock's decision unless a recovery / termination row or a
     /// live merge explains it.</para>
+    /// <para>A final orbit a predicted tail reached (owner ruling Q8, <see cref="IsPredictedFinalOrbit"/>)
+    /// runs through the same pass with the same "gone" rules (two sightings, the stock-held
+    /// stamp): gone from stock in this timeline with no recovery, termination or merge, stock
+    /// destroyed it (an encounter or a deletion the predictor missed) and it ends Destroyed,
+    /// crew dead, quietly. A vessel stock still holds is left as committed: its orbit is not
+    /// compared with the prediction.</para>
     /// <para>Pure decisions plus two guarded live reads (the guid lookup and the clock), each
     /// behind a test override; the committed-history change is
     /// <c>PredictedCrashReconciler.ApplyStockDeletion</c>, the scene host is
@@ -137,6 +149,28 @@ namespace Parsek
                     || rec.TerminalStateValue == TerminalState.Splashed);
         }
 
+        /// <summary>
+        /// Pure: an Orbiting / SubOrbital ending a predicted tail reached (owner ruling Q8,
+        /// <see cref="RecordingFinalizationCacheApplier.MarkPredictedFinalOrbit"/>). Stock holds
+        /// the vessel on rails meanwhile; when it is gone from stock in this timeline with no
+        /// recovery, termination or merge, stock destroyed it (an encounter or a deletion the
+        /// predictor did not foresee) and the recording follows (P-STOCK).
+        /// </summary>
+        internal static bool IsPredictedFinalOrbit(Recording rec)
+        {
+            return rec != null
+                && rec.TerminalPredicted
+                && (rec.TerminalStateValue == TerminalState.Orbiting
+                    || rec.TerminalStateValue == TerminalState.SubOrbital);
+        }
+
+        /// <summary>Pure: a predicted ending whose fate this reconciler reads from stock: a
+        /// chute touchdown or a final orbit.</summary>
+        internal static bool IsStockFatePrediction(Recording rec)
+        {
+            return IsPredictedTouchdown(rec) || IsPredictedFinalOrbit(rec);
+        }
+
         /// <summary>Pure: the recording's launch guid in N form, null when unknown or empty.</summary>
         internal static string UsableLaunchGuid(Recording rec)
         {
@@ -170,9 +204,10 @@ namespace Parsek
                 TouchdownUT = double.NaN,
                 StockHeldUT = double.NaN,
             };
-            if (!IsPredictedTouchdown(rec))
+            facts.IsPredictedTouchdown = IsPredictedTouchdown(rec);
+            facts.IsPredictedFinalOrbit = !facts.IsPredictedTouchdown && IsPredictedFinalOrbit(rec);
+            if (!facts.IsPredictedTouchdown && !facts.IsPredictedFinalOrbit)
                 return facts;
-            facts.IsPredictedTouchdown = true;
             facts.HasLaunchGuid = UsableLaunchGuid(rec) != null;
             facts.OwnedElsewhere = isOwnedElsewhere != null && isOwnedElsewhere(rec);
             facts.MaterializedBySpawn = IsMaterializedBySpawn(rec);
@@ -195,7 +230,7 @@ namespace Parsek
             bool observedBefore,
             double secondsSinceFirstObservation)
         {
-            if (!candidate.IsPredictedTouchdown)
+            if (!candidate.IsPredictedTouchdown && !candidate.IsPredictedFinalOrbit)
                 return PredictedTouchdownOutcome.NotPredictedTouchdown;
             if (!candidate.HasLaunchGuid)
                 return PredictedTouchdownOutcome.NoLaunchGuid;
@@ -211,6 +246,8 @@ namespace Parsek
             {
                 if (live.IsActiveVessel)
                     return PredictedTouchdownOutcome.VesselIsActive;
+                if (candidate.IsPredictedFinalOrbit)
+                    return PredictedTouchdownOutcome.FinalOrbitHeld;
                 if (live.LandedOrSplashed)
                     return PredictedTouchdownOutcome.Consistent;
                 if (!IsFinite(candidate.TouchdownUT) || !IsFinite(nowUT)
@@ -267,7 +304,7 @@ namespace Parsek
                         continue;
                     PredictedTouchdownCandidateFacts candidate =
                         BuildCandidate(rec, isOwnedElsewhere, isRemovedByPlayer);
-                    if (!candidate.IsPredictedTouchdown)
+                    if (!candidate.IsPredictedTouchdown && !candidate.IsPredictedFinalOrbit)
                         continue;
                     result.Candidates++;
 
@@ -330,7 +367,7 @@ namespace Parsek
                 "Touchdown pass: scene={0} nowUT={1} candidates={2} stockDeleted={3} contradicted={4} " +
                 "failed={5} consistent={6} stillDeciding={7} stillSimulating={8} mayStillRemove={9} " +
                 "awaitingConfirmation={10} removedByPlayer={11} notInThisTimeline={12} spawned={13} " +
-                "active={14} ownedElsewhere={15} noLaunchGuid={16} recheck={17}",
+                "active={14} ownedElsewhere={15} noLaunchGuid={16} recheck={17} finalOrbitHeld={18}",
                 scene ?? "(none)",
                 FormatUT(nowUT),
                 pass.Candidates,
@@ -348,7 +385,8 @@ namespace Parsek
                 pass.Count(PredictedTouchdownOutcome.VesselIsActive),
                 pass.Count(PredictedTouchdownOutcome.OwnedElsewhere),
                 pass.Count(PredictedTouchdownOutcome.NoLaunchGuid),
-                pass.NeedsRecheck ? "true" : "false");
+                pass.NeedsRecheck ? "true" : "false",
+                pass.Count(PredictedTouchdownOutcome.FinalOrbitHeld));
         }
 
         /// <summary>
@@ -395,7 +433,7 @@ namespace Parsek
         /// </summary>
         internal static bool StampIfStockHoldsVesselNow(Recording rec, string context)
         {
-            if (!IsPredictedTouchdown(rec))
+            if (!IsStockFatePrediction(rec))
                 return false;
             string guid = UsableLaunchGuid(rec);
             if (guid == null)
@@ -404,7 +442,7 @@ namespace Parsek
             if (live != true)
             {
                 ParsekLog.Verbose(LogTag,
-                    $"{context ?? "(none)"}: predicted touchdown rec={rec.RecordingId ?? "(null)"} " +
+                    $"{context ?? "(none)"}: predicted {KindLabel(rec)} rec={rec.RecordingId ?? "(null)"} " +
                     $"vessel='{rec.VesselName ?? ""}' not stamped (live={(live.HasValue ? live.Value.ToString() : "unknown")}): " +
                     "stock does not hold the vessel now");
                 return false;
@@ -413,7 +451,7 @@ namespace Parsek
             if (!NoteStockHeld(rec, now))
                 return false;
             ParsekLog.Info(LogTag,
-                $"{context ?? "(none)"}: predicted touchdown rec={rec.RecordingId ?? "(null)"} " +
+                $"{context ?? "(none)"}: predicted {KindLabel(rec)} rec={rec.RecordingId ?? "(null)"} " +
                 $"vessel='{rec.VesselName ?? ""}' committed while stock holds the vessel: " +
                 $"stockHeldUT={FormatUT(now)} touchdownUT={FormatUT(rec.EndUT)}");
             return true;
@@ -479,14 +517,14 @@ namespace Parsek
         internal static bool IsStockDeletedTouchdown(Recording rec, out string reason)
         {
             reason = null;
-            if (!IsPredictedTouchdown(rec) || !IsFinite(rec.StockHeldVesselUT))
+            if (!IsStockFatePrediction(rec) || !IsFinite(rec.StockHeldVesselUT))
                 return false;
             string guid = UsableLaunchGuid(rec);
             if (guid == null)
                 return false;
             if (IsVesselWithGuidLive(guid) != false)
                 return false;
-            reason = "predicted touchdown of a vessel stock deleted (held at ut=" +
+            reason = "predicted " + KindLabel(rec) + " of a vessel stock deleted (held at ut=" +
                 FormatUT(rec.StockHeldVesselUT) + ", now gone with no recovery)";
             return true;
         }
@@ -503,13 +541,28 @@ namespace Parsek
         /// </summary>
         internal static bool ConvertToStockDeleted(Recording rec, string context)
         {
-            if (!IsPredictedTouchdown(rec))
+            bool finalOrbit = IsPredictedFinalOrbit(rec);
+            if (!IsPredictedTouchdown(rec) && !finalOrbit)
                 return false;
             bool descent = HasPredictedDescentSection(rec);
+            // A final orbit stock destroyed somewhere unknown after the last sighting ends
+            // quietly too: no explosion at an invented place, nothing spawns.
             rec.StampTerminalState(TerminalState.Destroyed, context ?? "PredictedTouchdownStockFate",
-                predicted: false, quietEnd: descent);
+                predicted: false, quietEnd: descent || finalOrbit);
             rec.TerminalPosition = null;
             rec.TerrainHeightAtEnd = double.NaN;
+            if (finalOrbit)
+            {
+                // A Destroyed ending keeps no terminal orbit (the codec gates the block on the body).
+                rec.TerminalOrbitBody = null;
+                rec.TerminalOrbitInclination = 0.0;
+                rec.TerminalOrbitEccentricity = 0.0;
+                rec.TerminalOrbitSemiMajorAxis = 0.0;
+                rec.TerminalOrbitLAN = 0.0;
+                rec.TerminalOrbitArgumentOfPeriapsis = 0.0;
+                rec.TerminalOrbitMeanAnomalyAtEpoch = 0.0;
+                rec.TerminalOrbitEpoch = 0.0;
+            }
             RecordingEndpointResolver.RefreshEndpointDecision(rec, context, logDecision: false);
             rec.MarkFilesDirty();
             return true;
@@ -565,45 +618,90 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Pure: the live answer from the two stock lists. <paramref name="liveVesselGuids"/>
+        /// are the launch guids (N form) of <c>FlightGlobals.Vessels</c> not marked dead,
+        /// <paramref name="storedVesselGuids"/> those of <c>flightState.protoVessels</c>; null
+        /// = the list could not be read.
+        /// <para>In FLIGHT only the live list counts: <c>Vessel.Die</c> (a <c>CheckKill</c>
+        /// deletion included) removes the vessel from <c>FlightGlobals.Vessels</c> at once but
+        /// never touches <c>flightState.protoVessels</c>, which stock rebuilds only at a save
+        /// (<c>Game.Updated</c>), so a craft deleted since the last save is still "stored"
+        /// there. An empty live list in FLIGHT is a scene transient (the active vessel is always
+        /// in it), so it answers unknown. Elsewhere (Space Center, Tracking Station, editor)
+        /// stock deletes nothing on its own, and a vessel in either list is live.</para>
+        /// <para>Ghost map vessels never match: <c>ProtoVessel.CreateVesselNode</c> gives each a
+        /// fresh guid, never a recorded launch guid.</para>
+        /// </summary>
+        internal static bool? DecideVesselWithGuidLive(
+            string guid, bool flightScene, IList<string> liveVesselGuids, IList<string> storedVesselGuids)
+        {
+            if (string.IsNullOrEmpty(guid))
+                return null;
+            if (flightScene)
+            {
+                if (liveVesselGuids == null || liveVesselGuids.Count == 0)
+                    return null;
+                return ContainsGuid(liveVesselGuids, guid);
+            }
+            if (liveVesselGuids == null && storedVesselGuids == null)
+                return null;
+            return ContainsGuid(liveVesselGuids, guid) || ContainsGuid(storedVesselGuids, guid);
+        }
+
+        private static bool ContainsGuid(IList<string> guids, string guid)
+        {
+            if (guids == null)
+                return false;
+            for (int i = 0; i < guids.Count; i++)
+                if (string.Equals(guids[i], guid, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static bool? IsVesselWithGuidLiveCore(string guid)
         {
             if (HighLogic.CurrentGame == null)
                 return null;
-            bool any = false;
+            bool flightScene = HighLogic.LoadedSceneIsFlight;
+            List<string> live = null;
             var vessels = FlightGlobals.Vessels;
             if (vessels != null)
             {
-                any = true;
+                live = new List<string>(vessels.Count);
                 for (int i = 0; i < vessels.Count; i++)
                 {
                     Vessel v = vessels[i];
-                    if (v != null && v.id != Guid.Empty
-                        && string.Equals(v.id.ToString("N", CultureInfo.InvariantCulture), guid,
-                            StringComparison.OrdinalIgnoreCase))
-                        return true;
+                    if (v != null && v.state != Vessel.State.DEAD && v.id != Guid.Empty)
+                        live.Add(v.id.ToString("N", CultureInfo.InvariantCulture));
                 }
             }
-            var protos = HighLogic.CurrentGame.flightState?.protoVessels;
+            List<string> stored = null;
+            var protos = flightScene ? null : HighLogic.CurrentGame.flightState?.protoVessels;
             if (protos != null)
             {
-                any = true;
+                stored = new List<string>(protos.Count);
                 for (int i = 0; i < protos.Count; i++)
                 {
                     ProtoVessel pv = protos[i];
-                    if (pv != null && pv.vesselID != Guid.Empty
-                        && string.Equals(pv.vesselID.ToString("N", CultureInfo.InvariantCulture), guid,
-                            StringComparison.OrdinalIgnoreCase))
-                        return true;
+                    if (pv != null && pv.vesselID != Guid.Empty)
+                        stored.Add(pv.vesselID.ToString("N", CultureInfo.InvariantCulture));
                 }
             }
-            return any ? (bool?)false : null;
+            return DecideVesselWithGuidLive(guid, flightScene, live, stored);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static double ReadNowUTCore()
         {
             return Planetarium.GetUniversalTime();
+        }
+
+        /// <summary>"touchdown" or "final orbit", for log lines and reasons.</summary>
+        internal static string KindLabel(Recording rec)
+        {
+            return IsPredictedFinalOrbit(rec) ? "final orbit" : "touchdown";
         }
 
         private static bool IsFinite(double v)

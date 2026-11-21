@@ -309,7 +309,11 @@ namespace Parsek
         // them whether KSP destroyed the vessel or Parsek predicted the crash (owner ruling
         // Q6c); the takeover (Q1b) and the playback read it. Landed / Splashed: a chute
         // descent Parsek predicted to touchdown (owner ruling Q4), which keeps the separation
-        // open for a Re-Fly (Q4c); the crew stay Aboard as on any landing. Every other
+        // open for a Re-Fly (Q4c); the crew stay Aboard as on any landing. Orbiting /
+        // SubOrbital: a final orbit a predicted tail reached (owner ruling Q8: an escape
+        // followed to its last body, a coast past a patched-conic change); stock holds the
+        // vessel on rails meanwhile and may still meet what the predictor missed, so the
+        // reconciler squares it with stock (P-STOCK); the crew stay Aboard. Every other
         // terminal keeps it false (Recording.IsPredictableTerminal). Persisted sparse as
         // terminalPredicted (written only when true; absent = false). Decided only through
         // StampTerminalState (the codec and the copy sites carry it).
@@ -933,15 +937,18 @@ namespace Parsek
         internal static TerminalStampObserver OnTerminalStamped;
 
         /// <summary>
-        /// The endings a prediction can write: a crash (Destroyed) and a chute touchdown
-        /// (Landed / Splashed, owner ruling Q4). <see cref="TerminalPredicted"/> is kept only
-        /// with one of them.
+        /// The endings a prediction can write: a crash (Destroyed), a chute touchdown
+        /// (Landed / Splashed, owner ruling Q4) and a final orbit a predicted tail reached
+        /// (Orbiting / SubOrbital, owner ruling Q8). <see cref="TerminalPredicted"/> is kept
+        /// only with one of them.
         /// </summary>
         internal static bool IsPredictableTerminal(TerminalState? value)
         {
             return value == TerminalState.Destroyed
                 || value == TerminalState.Landed
-                || value == TerminalState.Splashed;
+                || value == TerminalState.Splashed
+                || value == TerminalState.Orbiting
+                || value == TerminalState.SubOrbital;
         }
 
         /// <summary>

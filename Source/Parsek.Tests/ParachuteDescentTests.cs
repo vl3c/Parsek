@@ -915,10 +915,14 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "rec-flag" };
             rec.StampTerminalState(TerminalState.Splashed, "test", predicted: true);
             Assert.True(rec.TerminalPredicted);
-            rec.StampTerminalState(TerminalState.Orbiting, "test", predicted: true);
+            rec.StampTerminalState(TerminalState.Recovered, "test", predicted: true);
             Assert.False(rec.TerminalPredicted);
             Assert.True(Recording.IsPredictableTerminal(TerminalState.Landed));
-            Assert.False(Recording.IsPredictableTerminal(TerminalState.SubOrbital));
+            // Owner ruling Q8: a final orbit a predicted tail reached is a prediction too.
+            Assert.True(Recording.IsPredictableTerminal(TerminalState.SubOrbital));
+            Assert.True(Recording.IsPredictableTerminal(TerminalState.Orbiting));
+            Assert.False(Recording.IsPredictableTerminal(TerminalState.Recovered));
+            Assert.False(Recording.IsPredictableTerminal(TerminalState.Docked));
         }
 
         [Fact]

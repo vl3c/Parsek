@@ -140,7 +140,8 @@ namespace Parsek.Tests
         public void Stamp_PredictedKeptOnlyWithDestroyed_AndEveryOtherStampClearsIt()
         {
             var rec = new Recording { RecordingId = "rec-seam" };
-            rec.StampTerminalState(TerminalState.SubOrbital, "test", predicted: true);
+            // Recovered is never a prediction (Destroyed, a touchdown and a Q8 final orbit are).
+            rec.StampTerminalState(TerminalState.Recovered, "test", predicted: true);
             Assert.False(rec.TerminalPredicted);
 
             rec.StampTerminalState(TerminalState.Destroyed, "test", predicted: true);
@@ -263,8 +264,9 @@ namespace Parsek.Tests
         [Fact]
         public void Codec_KeyBesideAnotherEnding_ReadsFalse()
         {
+            // An ending no prediction writes (an Orbiting one may be a Q8 final orbit).
             var rec = new Recording { RecordingId = "rec-codec-orb" };
-            rec.StampTerminalState(TerminalState.Orbiting, "test");
+            rec.StampTerminalState(TerminalState.Docked, "test");
             var node = new ConfigNode("RECORDING");
             RecordingTree.SaveRecordingInto(node, rec);
             node.AddValue("terminalPredicted", "True");

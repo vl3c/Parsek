@@ -3700,10 +3700,13 @@ namespace Parsek
             if (recording == null)
                 return;
 
+            int predictedTailSegments = 0;
             if (result.appendedOrbitSegments != null && result.appendedOrbitSegments.Count > 0)
             {
-                recording.OrbitSegments.AddRange(ClipAppendedSegmentsToLastAuthoredUT(
-                    recording, result.appendedOrbitSegments, logContext));
+                List<OrbitSegment> kept = ClipAppendedSegmentsToLastAuthoredUT(
+                    recording, result.appendedOrbitSegments, logContext);
+                predictedTailSegments = RecordingFinalizationCacheApplier.CountPredicted(kept);
+                recording.OrbitSegments.AddRange(kept);
             }
 
             int descentPoints = ApplyPredictedDescent(recording, result, logContext);
@@ -3712,6 +3715,8 @@ namespace Parsek
                 result.terminalState.Value,
                 (logContext ?? "SceneExitFinalizer") + ".Apply",
                 predicted: descentPoints > 0 && result.terminalState != TerminalState.Destroyed);
+            RecordingFinalizationCacheApplier.MarkPredictedFinalOrbit(
+                recording, predictedTailSegments, (logContext ?? "SceneExitFinalizer") + ".Apply");
             recording.ExplicitEndUT = result.terminalUT;
             if (result.terminalOrbit.HasValue)
                 StampTerminalOrbit(recording, result.terminalOrbit.Value);
