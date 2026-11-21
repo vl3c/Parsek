@@ -484,5 +484,56 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Reentry glow keeps ghost-owned materials
+
+        [Fact]
+        public void ReentryGlow_UnownedMaterial_IsClonedAndItsEmissiveDriven()
+        {
+            var plan = GhostVisualBuilder.DecideReentryGlowMaterial(false, null, "_EmissiveColor");
+            Assert.True(plan.cloneMaterial);
+            Assert.True(plan.driveEmissive);
+        }
+
+        [Fact]
+        public void ReentryGlow_LensOrCabinLightMaterial_IsReusedAndItsEmissiveLeftToTheOwner()
+        {
+            // The light lens / cabin-light colour changer drive _EmissiveColor themselves.
+            var plan = GhostVisualBuilder.DecideReentryGlowMaterial(true, "_EmissiveColor", "_EmissiveColor");
+            Assert.False(plan.cloneMaterial);
+            Assert.False(plan.driveEmissive);
+        }
+
+        [Fact]
+        public void ReentryGlow_HeatShieldCharMaterial_IsReusedButStillGlows()
+        {
+            // The ablation-char colour changer drives _BurnColor, so the glow keeps _EmissiveColor.
+            var plan = GhostVisualBuilder.DecideReentryGlowMaterial(true, "_BurnColor", "_EmissiveColor");
+            Assert.False(plan.cloneMaterial);
+            Assert.True(plan.driveEmissive);
+        }
+
+        [Fact]
+        public void ReentryGlow_NoEmissiveProperty_DrivesNoEmissive()
+        {
+            Assert.False(GhostVisualBuilder.DecideReentryGlowMaterial(false, null, null).driveEmissive);
+            Assert.False(GhostVisualBuilder.DecideReentryGlowMaterial(true, "_TintColor", null).driveEmissive);
+        }
+
+        [Theory]
+        [InlineData(false, false, false, true)]  // never written: write
+        [InlineData(false, false, true, true)]
+        [InlineData(true, false, false, false)]  // unchanged: skip
+        [InlineData(true, true, true, false)]
+        [InlineData(true, false, true, true)]    // changed: write
+        [InlineData(true, true, false, true)]
+        public void LightLensWrite_OnlyWhenTheStateChanges(
+            bool hasWritten, bool lastOn, bool on, bool expectWrite)
+        {
+            Assert.Equal(expectWrite,
+                GhostPlaybackLogic.ShouldWriteLightLensAndFlare(hasWritten, lastOn, on));
+        }
+
+        #endregion
     }
 }

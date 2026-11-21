@@ -448,6 +448,9 @@ namespace Parsek
         public List<Material> lensMaterials;
         public Color lensOnColor;
         public List<Material> flareMaterials;
+        // Last lens / flare write, so the every-frame light driver skips unchanged writes.
+        public bool lensFlareWritten;
+        public bool lensFlareWrittenOn;
     }
 
     internal struct ColorChangerMaterialState
