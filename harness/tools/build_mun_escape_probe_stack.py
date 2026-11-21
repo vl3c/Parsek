@@ -116,7 +116,10 @@ def _replace_one(text: str, pattern: str, replacement: str) -> str:
 
 
 def _fmt(value: float) -> str:
-    return repr(float(value))
+    # 12 significant digits: the derived orbit comes from libm calls (cosh, asinh, ...)
+    # whose last bit differs between platforms, so full repr() would not rebuild
+    # byte-identically on CI; 1e-12 relative is far below any flight effect.
+    return repr(float("%.12g" % float(value)))
 
 
 def derive_persistent_sfs(source_bytes: bytes) -> bytes:
