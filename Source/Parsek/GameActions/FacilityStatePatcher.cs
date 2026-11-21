@@ -360,7 +360,8 @@ namespace Parsek
         /// does to the building later lies outside every earlier window.
         /// </summary>
         internal static void PatchCrossedBuildingRowsWhileTreeLives(
-            double windowAfterUT, double currentUT, string reason)
+            double windowAfterUT, double currentUT, string reason,
+            IReadOnlyCollection<string> reFlyExcludedRecordingIds = null)
         {
             if (KspStatePatcher.SuppressUnityCallsForTesting)
                 return;
@@ -382,11 +383,7 @@ namespace Parsek
                 return;
             }
 
-            var scenario = ParsekScenario.Instance;
-            ReFlySessionMarker marker = ReferenceEquals(null, scenario) ? null : scenario.ActiveReFlySessionMarker;
-            IReadOnlyCollection<string> excluded = marker != null
-                ? EffectiveState.ComputeSessionSuppressedSubtree(marker)
-                : null;
+            IReadOnlyCollection<string> excluded = reFlyExcludedRecordingIds;
             var crossed = ComputeBuildingStatesCrossed(
                 EffectiveState.ComputeELS(), windowAfterUT, liveUt, excluded);
             if (crossed.Count == 0)
