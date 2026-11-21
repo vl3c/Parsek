@@ -445,6 +445,24 @@ namespace Parsek
             return realVesselExists(rec);
         }
 
+        /// <summary>
+        /// The one predicate every scene that draws a recording's own ghost reads (FLIGHT's
+        /// playback flags, the Space Center pass): a non-looping ghost on its predicted tail is
+        /// hidden while the vessel the tail predicts is in the world
+        /// (<see cref="ShouldHidePredictedTailGhostWhileVesselLives"/>). A loop replays on its
+        /// own clock and keeps drawing. The map presence of FLIGHT and the Tracking Station
+        /// hides more: its materialized gate
+        /// (<c>GhostMapPresence.TryDecideMapPresenceMaterializedGate</c>) drops a non-loop map
+        /// ghost whenever the launch-matched vessel exists, tail or not.
+        /// </summary>
+        internal static bool ShouldHidePredictedTailGhostForScene(
+            Recording rec, double currentUT, bool loopingLike, Func<Recording, bool> realVesselExists)
+        {
+            if (loopingLike)
+                return false;
+            return ShouldHidePredictedTailGhostWhileVesselLives(rec, currentUT, realVesselExists);
+        }
+
         private static int CountPredictedSegmentsPast(Recording rec, double lastRealUT)
         {
             if (rec?.OrbitSegments == null)

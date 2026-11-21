@@ -1625,9 +1625,9 @@ namespace Parsek
                 // Owner ruling Q1b: past its last real sample a recording's predicted tail is
                 // not drawn while the vessel it predicts is still in the world (the player
                 // took it over, or the clone that dropped the tail is not committed yet).
-                if (!externalVesselSuppressed && !loopingLike
-                    && PredictedEndingTakeover.ShouldHidePredictedTailGhostWhileVesselLives(
-                        rec, currentUT, RealVesselExistsForRecordingDelegate))
+                if (!externalVesselSuppressed
+                    && PredictedEndingTakeover.ShouldHidePredictedTailGhostForScene(
+                        rec, currentUT, loopingLike, RealVesselExistsForRecordingDelegate))
                 {
                     externalVesselSuppressed = true;
                     ParsekLog.VerboseRateLimited(
