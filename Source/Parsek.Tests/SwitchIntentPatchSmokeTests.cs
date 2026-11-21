@@ -535,7 +535,9 @@ namespace Parsek.Tests
             // (a) Commits the active tree via the session-agnostic
             //     in-flight commit entry point, abandoning the active vessel
             //     (the player switches away, so it gets the lifetime finalizer).
-            Assert.Contains("flight.CommitTreeFlightAbandoningActiveVessel()", mergeBody);
+            //     A far target (unloaded) leaves the flight scene (owner ruling Q14).
+            Assert.Contains("flight.CommitTreeFlightAbandoningActiveVessel(leavesFlightScene)", mergeBody);
+            Assert.Contains("PreSwitchMergeLeavesFlightScene(target != null && target.loaded)", mergeBody);
 
             // (b) Invokes the chain-evaluation hook (CommitTreeFlight
             //     itself does not fire OnTreeCommitted).
