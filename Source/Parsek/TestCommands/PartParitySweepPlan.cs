@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Text;
 
 namespace Parsek.TestCommands
 {
@@ -16,43 +15,6 @@ namespace Parsek.TestCommands
 
         /// <summary>The settle cap passed with an Animation still playing: capture anyway, tag it.</summary>
         StillAnimating,
-    }
-
-    /// <summary>One candidate subject of the missing-mesh control, read from its part
-    /// prefab: its renderer records (part-local bounds), whether it carries an
-    /// <c>Animation</c> component, and its PartModule names.</summary>
-    internal sealed class PartParityMissingMeshCandidate
-    {
-        internal string Subject;
-        internal bool HasAnimation;
-        internal List<string> ModuleNames = new List<string>();
-        internal List<PartParityRendererRecord> Records = new List<PartParityRendererRecord>();
-    }
-
-    /// <summary>A still subject in pick order, with its prefab size estimate (the first
-    /// renderer whose estimated fractions fall in the window, or none).</summary>
-    internal sealed class PartParityMissingMeshSubject
-    {
-        internal string Subject;
-
-        /// <summary>The family sub-case id (<see cref="PartParitySweepPlan.MissingMeshSubCaseId"/>).</summary>
-        internal string SubCaseId;
-        internal bool EstimateQualifies;
-        internal string EstimateRendererPath;
-        internal double[] EstimateFractions;
-
-        /// <summary><c>subject=&lt;s&gt;;estimate=&lt;path&gt;;side-a=0.123%;...</c> or
-        /// <c>;estimate=none</c> (percent, three decimals, invariant).</summary>
-        internal string Describe(IList<string> views)
-        {
-            var sb = new StringBuilder("subject=").Append(Subject ?? "<none>");
-            if (!EstimateQualifies) return sb.Append(";estimate=none").ToString();
-            sb.Append(";estimate=").Append(EstimateRendererPath ?? "<none>");
-            for (int i = 0; views != null && EstimateFractions != null && i < views.Count && i < EstimateFractions.Length; i++)
-                sb.Append(';').Append(views[i]).Append('=')
-                    .Append((EstimateFractions[i] * 100.0).ToString("0.000", CultureInfo.InvariantCulture)).Append('%');
-            return sb.ToString();
-        }
     }
 
     /// <summary>
@@ -166,77 +128,20 @@ namespace Parsek.TestCommands
         /// <summary>The asymmetric part of the rotation controls (hatch and ladder).</summary>
         internal const string ControlPodPart = "mk1pod.v2";
 
-        /// <summary>
-        /// Candidate subjects for <c>ctl-ghost-missing-mesh</c>, stock parts with several
-        /// meshes, in preference order (runtime dot-form names; an absent part is skipped).
-        /// Only STILL parts are used (<see cref="IsStillSubject"/>); the prefab estimate orders
-        /// them (<see cref="OrderMissingMeshSubjects"/>), and the renderer to hide is MEASURED
-        /// on the live ghost (<see cref="ChooseContributionRenderer"/>).
-        /// </summary>
-        internal static readonly string[] MissingMeshCandidates =
-        {
-            "mk1pod.v2", "Mark1Cockpit", "landerCabinSmall", "probeCoreHex.v2", "probeCoreOcto.v2",
-            "RCSBlock.v2", "RCSblock.01.small", "ladder1", "telescopicLadder", "telescopicLadderBay",
-            "spotLight1", "spotLight2", "spotLight3", "solarPanels5", "solarPanels4", "solarPanels3",
-            "solarPanels2", "solarPanels1", "mk2LanderCabin.v2", "liquidEngine2",
-            "Mark2Cockpit", "mk1-3pod", "MK1CrewCabin", "cupola", "probeCoreSphere.v2",
-            "probeStackSmall", "probeStackLarge", "roverBody.v2", "seatExternalCmd", "mk2DroneCore",
-        };
-
-        /// <summary>PartModules that move or reshape a part's meshes (or play an Animation): a
-        /// subject carrying one would measure animation, not the hide.</summary>
-        internal static readonly string[] AnimatingModuleNames =
-        {
-            "ModuleAnimateGeneric", "RetractableLadder", "ModuleAnimationGroup", "ModuleAnimateHeat",
-            "ModuleAnimateEmissive", "ModuleAnimatedDecoupler", "ModuleGimbal", "ModuleControlSurface",
-            "ModuleAeroSurface", "ModuleCargoBay", "ModuleServiceModule", "ModuleProceduralFairing",
-            "ModuleJettison", "ModuleParachute", "ModuleLight", "ModuleResourceHarvester",
-            "ModuleAsteroidDrill", "ModuleGroundExperiment", "ModuleGroundCommsPart",
-        };
-
-        /// <summary>Name prefixes of animating PartModule families (deployables, the
-        /// animate-* family, robotics, wheels).</summary>
-        internal static readonly string[] AnimatingModulePrefixes =
-        {
-            "ModuleDeployable", "ModuleAnimate", "FXModuleAnimate", "ModuleRobotic", "ModuleWheel",
-        };
-
-        /// <summary>The prefab estimate's window, used ONLY to order subjects: a renderer's
-        /// projected bounds as a fraction of the SUM of every rendered renderer's projected
-        /// bounds in that view, at least this in one view...</summary>
-        internal const double MissingMeshMinViewFraction = 0.001;
-
-        /// <summary>... and at most this in every view.</summary>
-        internal const double MissingMeshMaxViewFraction = 0.006;
-
-        /// <summary>The measured pick: hiding the renderer removes at least this many pixels
-        /// of the ghost's silhouette in at least one view (over the 64 px shape limit)...</summary>
-        internal const int MissingMeshMinContributionPx = 100;
-
-        /// <summary>... and at most this fraction of the FULL ghost coverage in every view (so
-        /// every view keeps IoU >= 0.99).</summary>
-        internal const double MissingMeshMaxContributionFraction = 0.006;
-
-        /// <summary>The most sub-cases of the missing-mesh family (one wave holds 8 cases).</summary>
-        internal const int MaxMissingMeshSubCases = 8;
-
-        /// <summary>Every family sub-case id starts with this: the control's own id, then the
-        /// <c>--</c> separator case ids use, then the subject.</summary>
-        internal const string MissingMeshSubCasePrefix = TestCommandPartParitySweep.ControlGhostMissingMesh + "--";
-
-        /// <summary>The sidecar flag of a missing-mesh control with no still subject or no
-        /// measured renderer in the window: the judge reports it <c>bad</c>, detail
-        /// <c>no-subject</c>, rather than guessing.</summary>
-        internal const string FlagControlNoSubject = "control-no-subject";
-
-        /// <summary>The sidecar flag carrying the missing-mesh pick (the subject, the measured
-        /// renderer and its counts); the control's log line repeats it.</summary>
-        internal const string FlagControlPickPrefix = "control-pick:";
-
         /// <summary>Candidates for <c>ctl-wrong-skin</c>, the first loaded part with a non-base
         /// colour variant wins (<c>FairingGhostVisualMath.ChooseColourVariant</c>).</summary>
         internal static readonly string[] WrongSkinCandidates =
             { "fuelTank", "fuelTankSmallFlat", "fuelTankSmall", "mk1pod.v2", "probeCoreOcto.v2" };
+
+        /// <summary>The planted cube of <c>ctl-ghost-missing-mesh</c> (design 4.5): its face
+        /// covers about this fraction of the real box's projected area in <c>side-a</c>...</summary>
+        internal const double PlantedCubeAreaFraction = 0.003;
+
+        /// <summary>... and is at least this many pixels across at the capture's ortho scale.</summary>
+        internal const int PlantedCubeMinPx = 12;
+
+        /// <summary>The planted cube's GameObject name (its path in the structure diff).</summary>
+        internal const string PlantedCubeName = "PartParityPlantedCube";
 
         /// <summary>Starting guesses mirrored from the design's Python verdicts (6), used ONLY to
         /// judge the controls; part verdicts are Python's.</summary>
@@ -257,7 +162,7 @@ namespace Parsek.TestCommands
                 case TestCommandPartParitySweep.ControlGhostScale90: return ControlTankPart + ", ghost scaled 0.9";
                 case TestCommandPartParitySweep.ControlGhostRot90: return ControlPodPart + ", ghost rotated 90 deg about +Y";
                 case TestCommandPartParitySweep.ControlGhostFlip: return ControlPodPart + ", ghost rotated 180 deg about +X";
-                case TestCommandPartParitySweep.ControlGhostMissingMesh: return "a family of up to 8 still multi-mesh stock parts; the first whose ghost has a mesh of small silhouette contribution, that mesh forced off";
+                case TestCommandPartParitySweep.ControlGhostMissingMesh: return ControlTankPart + ", a small cube planted on the real part's +X face that the ghost lacks";
                 case TestCommandPartParitySweep.ControlWrongSkin: return "colour-variant part, ghost built from a snapshot naming another variant";
                 default: return null;
             }
@@ -273,96 +178,13 @@ namespace Parsek.TestCommands
                 case TestCommandPartParitySweep.ControlGhostScale90: return "fails every view on shape";
                 case TestCommandPartParitySweep.ControlGhostRot90: return "fails side-a and side-b on shape";
                 case TestCommandPartParitySweep.ControlGhostFlip: return "fails every view";
-                case TestCommandPartParitySweep.ControlGhostMissingMesh: return "fails a view on local measures, iou >= 0.99 everywhere";
+                case TestCommandPartParitySweep.ControlGhostMissingMesh: return "fails a view on local measures, iou >= 0.99 everywhere, a rendered mesh missing on the ghost";
                 case TestCommandPartParitySweep.ControlWrongSkin: return "fails a view on colour, iou >= 0.98 everywhere";
                 default: return null;
             }
         }
 
         internal static bool IsControl(string id) => Array.IndexOf(TestCommandPartParitySweep.ControlIds, id) >= 0;
-
-        /// <summary>A sub-case of the missing-mesh family (not a part, not a control of its own).</summary>
-        internal static bool IsMissingMeshSubCase(string id)
-            => id != null && id.StartsWith(MissingMeshSubCasePrefix, StringComparison.Ordinal);
-
-        /// <summary>The family sub-case id of a subject: the prefix, then the subject lower-cased
-        /// with every character outside <c>[a-z0-9._-]</c> mapped to <c>-</c>, cut to the label
-        /// limit (a valid <c>CaptureScreenshot</c> label; a trailing <c>.</c> or <c>_</c> becomes
-        /// <c>-</c>).</summary>
-        internal static string MissingMeshSubCaseId(string subject)
-        {
-            var sb = new StringBuilder(MissingMeshSubCasePrefix);
-            foreach (char ch in (subject ?? string.Empty).ToLowerInvariant())
-                sb.Append((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == '_' ? ch : '-');
-            if (sb.Length == MissingMeshSubCasePrefix.Length) sb.Append('x');
-            if (sb.Length > TestCommandPartParitySweep.MaxCaseIdLength) sb.Length = TestCommandPartParitySweep.MaxCaseIdLength;
-            char last = sb[sb.Length - 1];
-            if (last == '.' || last == '_') sb[sb.Length - 1] = '-';
-            return sb.ToString();
-        }
-
-        /// <summary>The missing-mesh family: the first <see cref="MaxMissingMeshSubCases"/>
-        /// subjects of the still order, each with its sub-case id (a duplicate id is skipped).</summary>
-        internal static List<PartParityMissingMeshSubject> MissingMeshFamily(IList<PartParityMissingMeshSubject> order)
-        {
-            var family = new List<PartParityMissingMeshSubject>();
-            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (order == null) return family;
-            foreach (var o in order)
-            {
-                if (o == null || family.Count >= MaxMissingMeshSubCases) continue;
-                string id = MissingMeshSubCaseId(o.Subject);
-                if (!ids.Add(id)) continue;
-                o.SubCaseId = id;
-                family.Add(o);
-            }
-            return family;
-        }
-
-        /// <summary>
-        /// The family's control outcome: the outcome of the FIRST sub-case, in family order,
-        /// that found a qualifying renderer (its sidecar carries the pick flag), judged by the
-        /// unchanged missing-mesh requirement. A sub-case that found none (or never measured,
-        /// a setup fault) is passed over. <c>pending</c> while an earlier sub-case has no
-        /// sidecar yet; <c>bad</c>, detail <c>no-subject</c>, when the family is empty or no
-        /// sub-case found a renderer. <paramref name="chosen"/> is the deciding sub-case.
-        /// </summary>
-        internal static string ResolveMissingMeshFamily(IList<string> subCaseIds,
-            Func<string, PartParityCaseSidecar> lookup, out PartParityCaseSidecar chosen, out string detail)
-        {
-            chosen = null;
-            detail = null;
-            if (subCaseIds == null || subCaseIds.Count == 0 || lookup == null)
-            {
-                detail = "no-subject";
-                return TestCommandPartParitySweep.ControlsBad;
-            }
-            foreach (string id in subCaseIds)
-            {
-                PartParityCaseSidecar s = lookup(id);
-                if (s == null)
-                {
-                    detail = "waiting for " + id;
-                    return TestCommandPartParitySweep.ControlsPending;
-                }
-                if (!HasFlagPrefix(s.Flags, FlagControlPickPrefix)) continue;
-                chosen = s;
-                string outcome = JudgeControl(TestCommandPartParitySweep.ControlGhostMissingMesh,
-                    s.Views, s.Setup?.Status, s.Flags, out string d);
-                detail = "sub=" + id + (d != null ? " " + d : string.Empty);
-                return outcome;
-            }
-            detail = "no-subject";
-            return TestCommandPartParitySweep.ControlsBad;
-        }
-
-        internal static bool HasFlagPrefix(IList<string> flags, string prefix)
-        {
-            if (flags == null) return false;
-            foreach (string f in flags)
-                if (f != null && f.StartsWith(prefix, StringComparison.Ordinal)) return true;
-            return false;
-        }
 
         internal static bool ShapeFails(PartParityViewMeasures m)
         {
@@ -384,26 +206,16 @@ namespace Parsek.TestCommands
             => JudgeControl(controlId, views, setupStatus, null, out detail);
 
         /// <summary>
-        /// As above, reading the sidecar flags too: a control flagged
-        /// <see cref="FlagControlNoSubject"/> is <c>bad</c> with a <c>no-subject</c> detail
-        /// before anything else. <c>still-animating</c> is NOT a setup fault
-        /// (<see cref="TestCommandPartParitySweep.IsSetupFault"/>): it never turns a control
-        /// <c>ok</c> or <c>bad</c> by itself; the views decide.
+        /// As above, with the case's structural diff: <c>ctl-ghost-missing-mesh</c> also needs
+        /// at least one RENDERED real renderer missing on the ghost (the planted cube). A
+        /// <c>still-animating</c> case is judged on its views like any other
+        /// (<see cref="TestCommandPartParitySweep.IsSetupFault"/> excludes it).
         /// </summary>
         internal static string JudgeControl(
             string controlId, IList<PartParityViewRecord> views, string setupStatus,
-            IList<string> flags, out string detail)
+            PartParityStructureDiff structure, out string detail)
         {
             detail = null;
-            if (flags != null)
-            {
-                foreach (string f in flags)
-                {
-                    if (f == null || !f.StartsWith(FlagControlNoSubject, StringComparison.Ordinal)) continue;
-                    detail = "no-subject";
-                    return TestCommandPartParitySweep.ControlsBad;
-                }
-            }
             if (TestCommandPartParitySweep.IsSetupFault(setupStatus))
             {
                 detail = "setup " + (setupStatus ?? "<none>");
@@ -415,6 +227,11 @@ namespace Parsek.TestCommands
                 return TestCommandPartParitySweep.ControlsBad;
             }
             bool ok = JudgeViews(controlId, views, out detail);
+            if (ok && controlId == TestCommandPartParitySweep.ControlGhostMissingMesh && MissingRendered(structure) < 1)
+            {
+                detail = "structure lists no rendered mesh missing on the ghost";
+                ok = false;
+            }
             return ok ? TestCommandPartParitySweep.ControlsOk : TestCommandPartParitySweep.ControlsBad;
         }
 
@@ -484,223 +301,43 @@ namespace Parsek.TestCommands
             return false;
         }
 
-        // ----- the missing-mesh pick (design 4.5) -----
-
-        /// <summary>
-        /// Whether a prefab can be the missing-mesh subject: no <c>Animation</c> component and
-        /// no animating PartModule (<see cref="AnimatingModuleNames"/>, or a name starting with
-        /// one of <see cref="AnimatingModulePrefixes"/>). <paramref name="why"/> names the first
-        /// reason it cannot.
-        /// </summary>
-        internal static bool IsStillSubject(bool hasAnimationComponent, IEnumerable<string> moduleNames, out string why)
+        /// <summary>How many renderers the structural diff lists as missing on the ghost while
+        /// rendered on the real side; 0 for a null diff.</summary>
+        internal static int MissingRendered(PartParityStructureDiff structure)
         {
-            why = null;
-            if (hasAnimationComponent)
-            {
-                why = "Animation component";
-                return false;
-            }
-            if (moduleNames == null) return true;
-            foreach (string m in moduleNames)
-            {
-                if (string.IsNullOrEmpty(m)) continue;
-                if (Array.IndexOf(AnimatingModuleNames, m) >= 0) { why = m; return false; }
-                foreach (string prefix in AnimatingModulePrefixes)
-                    if (m.StartsWith(prefix, StringComparison.Ordinal)) { why = m; return false; }
-            }
-            return true;
-        }
-
-        /// <summary>The camera direction of a view in PART-LOCAL axes (the part looks along
-        /// minus this), the same table as <c>PartParityCapture.TryViewAxes</c>.</summary>
-        internal static bool TryViewDirection(string view, out double[] dir)
-        {
-            switch (view)
-            {
-                case TestCommandPartParitySweep.ViewSideA: dir = new[] { 0.0, 0.0, -1.0 }; return true;
-                case TestCommandPartParitySweep.ViewSideB: dir = new[] { 1.0, 0.0, 0.0 }; return true;
-                case TestCommandPartParitySweep.ViewTop: dir = new[] { 0.0, 1.0, 0.0 }; return true;
-                case TestCommandPartParitySweep.ViewBottom: dir = new[] { 0.0, -1.0, 0.0 }; return true;
-                case TestCommandPartParitySweep.ViewSideC: dir = new[] { 0.0, 0.0, 1.0 }; return true;
-                case TestCommandPartParitySweep.ViewSideD: dir = new[] { -1.0, 0.0, 0.0 }; return true;
-                case TestCommandPartParitySweep.ViewHero:
-                {
-                    double n = Math.Sqrt(1.0 + 0.36 + 1.0);
-                    dir = new[] { 1.0 / n, 0.6 / n, -1.0 / n };
-                    return true;
-                }
-                default:
-                    dir = null;
-                    return false;
-            }
-        }
-
-        /// <summary>The area of an axis-aligned box's projection along a unit direction:
-        /// |dx| sy sz + |dy| sx sz + |dz| sx sy (each face pair seen at its cosine).</summary>
-        internal static double ProjectedBoxArea(double[] size, double[] dir)
-        {
-            if (size == null || dir == null || size.Length != 3 || dir.Length != 3) return 0.0;
-            return Math.Abs(dir[0]) * size[1] * size[2]
-                 + Math.Abs(dir[1]) * size[0] * size[2]
-                 + Math.Abs(dir[2]) * size[0] * size[1];
+            int n = 0;
+            if (structure?.MissingOnGhost == null) return n;
+            foreach (var r in structure.MissingOnGhost)
+                if (r != null && r.Rendered) n++;
+            return n;
         }
 
         /// <summary>
-        /// The prefab size estimate of one renderer: its projected bounds as a fraction of the
-        /// SUM of every rendered renderer's projected bounds, per view (in
-        /// <paramref name="views"/> order). The sum, not the part's box, is the denominator: a
-        /// thin part's box overstates how much of the image its meshes cover. NaN for a view
-        /// with no direction or an empty sum; null when the renderer has no bounds.
+        /// The planted cube's edge in metres (design 4.5), from the real box's size (part-local
+        /// metres, before the cube) and the capture tile: its <c>side-a</c> face (edge squared;
+        /// <c>side-a</c> looks along the part's Z axis) covers
+        /// <see cref="PlantedCubeAreaFraction"/> of the box's <c>side-a</c> projection (size x
+        /// times size y), and it is at least <see cref="PlantedCubeMinPx"/> pixels across at the
+        /// ortho scale of the box GROWN by the cube on +X (the cube sits outside the +X face, so
+        /// it widens the box it is framed in). NaN for an empty or non-finite box.
         /// </summary>
-        internal static double[] EstimateFractions(PartParityRendererRecord r,
-            IList<PartParityRendererRecord> all, IList<string> views)
+        internal static double PlantedCubeEdge(double[] realBoxSize, int tile)
         {
-            if (r == null || views == null) return null;
-            PartParityAabb rb = PartParityFramingRule.BoundsOf(r);
-            if (rb.IsEmpty) return null;
-            var f = new double[views.Count];
-            for (int i = 0; i < views.Count; i++)
+            if (realBoxSize == null || realBoxSize.Length != 3 || tile <= 0) return double.NaN;
+            foreach (double d in realBoxSize)
+                if (double.IsNaN(d) || double.IsInfinity(d) || d <= 0.0) return double.NaN;
+            double edge = Math.Sqrt(PlantedCubeAreaFraction * realBoxSize[0] * realBoxSize[1]);
+            // The floor depends on the grown box; three passes settle it (the growth per pass
+            // shrinks by the margin's factor).
+            for (int pass = 0; pass < 3; pass++)
             {
-                if (!TryViewDirection(views[i], out double[] dir)) { f[i] = double.NaN; continue; }
-                double sum = 0.0;
-                if (all != null)
-                    foreach (var o in all)
-                    {
-                        if (o == null || !o.Rendered) continue;
-                        PartParityAabb ob = PartParityFramingRule.BoundsOf(o);
-                        if (!ob.IsEmpty) sum += ProjectedBoxArea(ob.Size(), dir);
-                    }
-                f[i] = sum > 0.0 ? ProjectedBoxArea(rb.Size(), dir) / sum : double.NaN;
+                double ortho = PartParityCaptureMath.OrthoSize(new[]
+                    { (realBoxSize[0] + edge) / 2.0, realBoxSize[1] / 2.0, realBoxSize[2] / 2.0 });
+                double floor = PlantedCubeMinPx * 2.0 * ortho / tile;
+                if (edge >= floor) break;
+                edge = floor;
             }
-            return f;
-        }
-
-        /// <summary>The estimate window: at least <see cref="MissingMeshMinViewFraction"/> in
-        /// one view, at most <see cref="MissingMeshMaxViewFraction"/> in every view (a NaN view
-        /// disqualifies).</summary>
-        internal static bool FractionsQualify(double[] fractions)
-        {
-            if (fractions == null || fractions.Length == 0) return false;
-            bool any = false;
-            foreach (double f in fractions)
-            {
-                if (double.IsNaN(f) || f > MissingMeshMaxViewFraction) return false;
-                if (f >= MissingMeshMinViewFraction) any = true;
-            }
-            return any;
-        }
-
-        /// <summary>
-        /// The missing-mesh subjects in pick order: ONLY still candidates
-        /// (<see cref="IsStillSubject"/>; no animated fallback), those with a rendered renderer
-        /// in the estimate window first, then the other still ones, each group in list order.
-        /// The runner spawns the first; an empty list means <c>no-subject</c>. The estimate
-        /// only orders: the renderer actually hidden is measured on the live ghost.
-        /// </summary>
-        internal static List<PartParityMissingMeshSubject> OrderMissingMeshSubjects(
-            IList<PartParityMissingMeshCandidate> candidates, IList<string> views)
-        {
-            var qualified = new List<PartParityMissingMeshSubject>();
-            var rest = new List<PartParityMissingMeshSubject>();
-            if (candidates == null) return qualified;
-            foreach (var c in candidates)
-            {
-                if (c == null || !IsStillSubject(c.HasAnimation, c.ModuleNames, out string _)) continue;
-                var subject = new PartParityMissingMeshSubject { Subject = c.Subject };
-                if (c.Records != null)
-                {
-                    foreach (var r in c.Records)
-                    {
-                        if (r == null || !r.Rendered) continue;
-                        double[] f = EstimateFractions(r, c.Records, views);
-                        if (!FractionsQualify(f)) continue;
-                        subject.EstimateQualifies = true;
-                        subject.EstimateRendererPath = r.Path;
-                        subject.EstimateFractions = f;
-                        break;
-                    }
-                }
-                (subject.EstimateQualifies ? qualified : rest).Add(subject);
-            }
-            qualified.AddRange(rest);
-            return qualified;
-        }
-
-        /// <summary>A renderer's silhouette contribution per view: the full ghost's coverage
-        /// minus the coverage with that one renderer hidden (never below zero). A decal lying on
-        /// the hull contributes nothing: the hull covers the same pixels without it.</summary>
-        internal static int[] ContributionPx(int[] fullPx, int[] withoutPx)
-        {
-            if (fullPx == null || withoutPx == null || fullPx.Length != withoutPx.Length) return null;
-            var c = new int[fullPx.Length];
-            for (int v = 0; v < c.Length; v++) c[v] = Math.Max(0, fullPx[v] - withoutPx[v]);
-            return c;
-        }
-
-        /// <summary>
-        /// The measured pick, by SIZE only (never by outcome): <paramref name="contributionPx"/>[i][v]
-        /// is rendered ghost renderer i's silhouette contribution in view v
-        /// (<see cref="ContributionPx"/>, same camera, box and clears as the capture),
-        /// <paramref name="fullPx"/>[v] the coverage of the whole ghost. The first renderer
-        /// contributing at least <see cref="MissingMeshMinContributionPx"/> in one view and at
-        /// most <see cref="MissingMeshMaxContributionFraction"/> of the full coverage in every
-        /// view wins; -1 when none does.
-        /// </summary>
-        internal static int ChooseContributionRenderer(IList<int[]> contributionPx, int[] fullPx)
-        {
-            if (contributionPx == null || fullPx == null || fullPx.Length == 0) return -1;
-            for (int i = 0; i < contributionPx.Count; i++)
-            {
-                int[] c = contributionPx[i];
-                if (c == null || c.Length != fullPx.Length) continue;
-                bool any = false, within = true;
-                for (int v = 0; v < c.Length && within; v++)
-                {
-                    if (c[v] > MissingMeshMaxContributionFraction * fullPx[v]) within = false;
-                    if (c[v] >= MissingMeshMinContributionPx) any = true;
-                }
-                if (within && any) return i;
-            }
-            return -1;
-        }
-
-        /// <summary>The measured counts for the Verbose line: <c>full=side-a:N,...</c> then one
-        /// <c>| &lt;label&gt; side-a:N,...</c> entry (its contribution) per candidate renderer
-        /// (invariant).</summary>
-        internal static string FormatMeasuredCounts(IList<string> views, int[] fullPx,
-            IList<string> labels, IList<int[]> contributionPx)
-        {
-            var sb = new StringBuilder("full=");
-            AppendCounts(sb, views, fullPx);
-            for (int i = 0; labels != null && contributionPx != null && i < labels.Count && i < contributionPx.Count; i++)
-            {
-                sb.Append(" | ").Append(labels[i] ?? "<null>").Append(' ');
-                AppendCounts(sb, views, contributionPx[i]);
-            }
-            return sb.ToString();
-        }
-
-        /// <summary>The pick flag / Info value: <c>subject=;renderer=;side-a=N/M;...</c>
-        /// (contribution px over full px per view), or the reason when none qualified.</summary>
-        internal static string FormatMeasuredPick(string subject, string rendererPath, IList<string> views,
-            int[] soloPx, int[] fullPx, string none)
-        {
-            var sb = new StringBuilder("subject=").Append(subject ?? "<none>");
-            if (rendererPath == null) return sb.Append(";none=").Append(none ?? "<none>").ToString();
-            sb.Append(";renderer=").Append(rendererPath);
-            for (int v = 0; views != null && soloPx != null && fullPx != null && v < views.Count && v < soloPx.Length && v < fullPx.Length; v++)
-                sb.Append(';').Append(views[v]).Append('=').Append(soloPx[v].ToString(CultureInfo.InvariantCulture))
-                    .Append('/').Append(fullPx[v].ToString(CultureInfo.InvariantCulture));
-            return sb.ToString();
-        }
-
-        private static void AppendCounts(StringBuilder sb, IList<string> views, int[] px)
-        {
-            for (int v = 0; views != null && px != null && v < views.Count && v < px.Length; v++)
-            {
-                if (v > 0) sb.Append(',');
-                sb.Append(views[v]).Append(':').Append(px[v].ToString(CultureInfo.InvariantCulture));
-            }
+            return edge;
         }
 
         // ----- manifest summaries -----

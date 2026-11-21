@@ -164,48 +164,10 @@ namespace Parsek.TestCommands
             IList<Renderer> all, IList<Renderer> showReal, IList<Renderer> showGhost, int cullingMask)
         {
             var shot = new PartParityViewShot { View = view, OrthoSize = orthoSize };
-            RunInRig(shot, partT, sharedLocal, orthoSize, view, all, cullingMask, saved =>
-            {
-                shot.Real = RenderSide(saved, showReal, out shot.RealMatte);
-                shot.Ghost = RenderSide(saved, showGhost, out shot.GhostMatte);
-            });
-            return shot;
-        }
-
-        /// <summary>
-        /// The coverage in pixels (alpha &gt;= 0.5 of the two-clear matte) of each renderer set
-        /// in <paramref name="sets"/>, each rendered ALONE (every other renderer of
-        /// <paramref name="all"/> forced off) in one view, with the same camera, box, light rig
-        /// and clears as <see cref="CaptureView"/>. Restores everything on every path. Null
-        /// with <paramref name="error"/> set on a failure; never throws.
-        /// </summary>
-        internal int[] MeasureCoverage(
-            Transform partT, PartParityAabb sharedLocal, double orthoSize, string view,
-            IList<Renderer> all, IList<IList<Renderer>> sets, int cullingMask, out string error)
-        {
-            var shot = new PartParityViewShot { View = view, OrthoSize = orthoSize };
-            var px = new int[sets == null ? 0 : sets.Count];
-            RunInRig(shot, partT, sharedLocal, orthoSize, view, all, cullingMask, saved =>
-            {
-                for (int i = 0; i < px.Length; i++)
-                    px[i] = PartParityMetrics.CoveragePx(RenderSide(saved, sets[i], out PartParityMatteStats _));
-            });
-            error = shot.Error;
-            return shot.Error == null ? px : null;
-        }
-
-        // The shared hide / light / pose / render / restore rig of one view: poses the camera
-        // on the box, turns every scene light off for the neutral rig, runs body (which
-        // renders), then restores every renderer flag, light and setting, on every path. A
-        // throw becomes shot.Error.
-        private void RunInRig(PartParityViewShot shot, Transform partT, PartParityAabb sharedLocal,
-            double orthoSize, string view, IList<Renderer> all, int cullingMask,
-            Action<Dictionary<Renderer, bool>> body)
-        {
             if (!TryViewAxes(view, out Vector3 dirLocal, out Vector3 upLocal, out bool perspective))
             {
                 shot.Error = "unknown view";
-                return;
+                return shot;
             }
             var saved = new Dictionary<Renderer, bool>();
             foreach (Renderer r in all) if (r != null && !saved.ContainsKey(r)) saved[r] = r.forceRenderingOff;
@@ -235,7 +197,8 @@ namespace Parsek.TestCommands
                 RenderSettings.ambientLight = new Color(0.25f, 0.25f, 0.25f, 1f);
                 QualitySettings.pixelLightCount = 4;
 
-                body(saved);
+                shot.Real = RenderSide(saved, showReal, out shot.RealMatte);
+                shot.Ghost = RenderSide(saved, showGhost, out shot.GhostMatte);
             }
             catch (Exception ex)
             {
@@ -255,6 +218,7 @@ namespace Parsek.TestCommands
                 if (cam != null) cam.targetTexture = null;
                 RenderTexture.active = activeBefore;
             }
+            return shot;
         }
 
         private Quaternion PoseCamera(Transform partT, PartParityAabb box, double orthoSize,

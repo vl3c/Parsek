@@ -228,6 +228,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PlantedCube_IsMadeBeforeTheRealRecords_AndDiesWithTheCase()
+        {
+            string capture = Source("TestCommands", "PartParityCaseCapture.cs");
+            string prepare = MethodText(capture, "internal static void Prepare(");
+            int plant = prepare.IndexOf("PlantCube(ctx, wc, part);", StringComparison.Ordinal);
+            int records = prepare.IndexOf("wc.RealRecords = Records(", StringComparison.Ordinal);
+            Assert.True(plant >= 0 && records > plant, $"plant={plant} records={records}");
+
+            string plantBody = MethodText(capture, "private static void PlantCube(");
+            int made = plantBody.IndexOf("GameObject.CreatePrimitive(PrimitiveType.Cube)", StringComparison.Ordinal);
+            int owned = plantBody.IndexOf("wc.PlantedCube = cube;", StringComparison.Ordinal);
+            int collider = plantBody.IndexOf("DestroyImmediate(collider)", StringComparison.Ordinal);
+            Assert.True(made >= 0 && owned > made && collider > owned,
+                $"made={made} owned={owned} collider={collider}"); // owned before anything can throw
+
+            // DestroyCase removes it, and both the wave teardown and the step cleanup call it.
+            string runner = RunnerSource();
+            string destroy = MethodText(runner, "internal static void DestroyCase(");
+            Assert.Contains("UnityEngine.Object.Destroy(wc.PlantedCube);", destroy);
+            Assert.Contains("DestroyCase(wc)", MethodText(runner, "private static IEnumerator TearDownWave("));
+            Assert.Contains("DestroyCase(wc)", MethodText(runner, "internal string Cleanup("));
+        }
+
+        [Fact]
         public void Runner_StaleInflightRecordsAreWrittenBeforeTheDelete()
         {
             string body = MethodText(RunnerSource(), "private static void ResolveStaleInflight(");

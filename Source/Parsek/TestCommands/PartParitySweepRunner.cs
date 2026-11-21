@@ -210,11 +210,7 @@ namespace Parsek.TestCommands
             ctx.Planned = TestCommandPartParitySweep.SelectCases(keys, ctx.Args);
             foreach (var p in ctx.Planned) LoadKnownSidecar(ctx, p.CaseId);
             if (ctx.Args.Controls)
-            {
                 foreach (string id in TestCommandPartParitySweep.ControlIds) LoadKnownSidecar(ctx, id);
-                PlanMissingMeshFamily(ctx);
-                foreach (var sub in ctx.MissingMeshFamily) LoadKnownSidecar(ctx, sub.SubCaseId);
-            }
             var keysById = new Dictionary<string, PartParityCaseKey>(StringComparer.Ordinal);
             foreach (var k in keys) keysById[TestCommandPartParitySweep.CaseId(k)] = k;
             ResolveStaleInflight(ctx, keysById);
@@ -376,19 +372,7 @@ namespace Parsek.TestCommands
             if (ctx.Args.Controls)
             {
                 foreach (string id in TestCommandPartParitySweep.ControlIds)
-                {
-                    if (id != TestCommandPartParitySweep.ControlGhostMissingMesh)
-                    {
-                        ResumeOrQueue(ctx, id, () => BuildControlCase(ctx, id), solo, normal);
-                        continue;
-                    }
-                    foreach (var sub in ctx.MissingMeshFamily)
-                    {
-                        PartParityMissingMeshSubject member = sub;
-                        ResumeOrQueue(ctx, member.SubCaseId, () => BuildMissingMeshSubCase(ctx, member), solo, normal);
-                    }
-                    if (ctx.MissingMeshFamily.Count == 0) TryLogMissingMeshFamily(ctx);
-                }
+                    ResumeOrQueue(ctx, id, () => BuildControlCase(ctx, id), solo, normal);
             }
             foreach (var p in ctx.Planned)
                 ResumeOrQueue(ctx, p.CaseId, () => BuildPartCase(ctx, p), solo, normal);
@@ -606,6 +590,13 @@ namespace Parsek.TestCommands
         internal static void DestroyCase(WaveCase wc)
         {
             if (wc == null) return;
+            if (wc.PlantedCube != null)
+            {
+                try { UnityEngine.Object.Destroy(wc.PlantedCube); }
+                catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: planted cube destroy threw {ex.GetType().Name}: {ex.Message}"); }
+                wc.PlantedCube = null;
+                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: planted cube destroyed");
+            }
             try { GhostCoOrbitalRig.DestroyLiveGhost(wc.Ghost); }
             catch (Exception ex) { ParsekLog.Warn(Tag, $"case {wc.CaseId}: ghost destroy threw {ex.GetType().Name}: {ex.Message}"); }
             wc.Ghost = null;
@@ -630,23 +621,6 @@ namespace Parsek.TestCommands
             {
                 Guard(ctx, wc, "prepare", () => PartParityCaseCapture.Prepare(ctx, wc));
                 if (wc.Status != null || wc.Shared == null) yield break;
-                if (wc.ControlId == TestCommandPartParitySweep.ControlGhostMissingMesh
-                    && !wc.Flags.Contains(PartParitySweepPlan.FlagControlNoSubject))
-                {
-                    // The measured pick renders, so it runs where the views do: at a frame end.
-                    yield return new WaitForEndOfFrame();
-                    if (wc.Real == null || wc.Real.rootPart == null || wc.Real.state == Vessel.State.DEAD)
-                    {
-                        wc.Status = TestCommandPartParitySweep.SetupDiedSettling;
-                        wc.Detail = "vessel lost before the missing-mesh pick";
-                        yield break;
-                    }
-                    Guard(ctx, wc, "pick", () => PartParityCaseCapture.MeasuredHide(ctx, wc));
-                    if (wc.Flags.Contains("exception-pick") && !wc.Flags.Contains(PartParitySweepPlan.FlagControlNoSubject))
-                        wc.Flags.Add(PartParitySweepPlan.FlagControlNoSubject);
-                    // A sub-case is captured only when its pick found a renderer.
-                    if (wc.Flags.Contains(PartParitySweepPlan.FlagControlNoSubject)) yield break;
-                }
                 foreach (string view in wc.Views)
                 {
                     yield return new WaitForEndOfFrame();
@@ -692,17 +666,7 @@ namespace Parsek.TestCommands
                 PartParityCaseCapture.WritePictures(ctx, wc, sidecar);
             WriteSidecar(ctx, sidecar);
             ClearIsolated(ctx, wc.CaseId);
-            if (PartParitySweepPlan.IsMissingMeshSubCase(wc.CaseId))
-            {
-                ParsekLog.Info(Tag, $"control sub-case {wc.CaseId}: subject={sidecar.Part ?? "<none>"} " +
-                    $"found={(PartParitySweepPlan.HasFlagPrefix(sidecar.Flags, PartParitySweepPlan.FlagControlPickPrefix) ? "true" : "false")} " +
-                    $"setup={sidecar.Setup?.Status ?? "<none>"} views={sidecar.Views.Count.ToString(Ic)} detail={sidecar.Setup?.Detail ?? "<none>"}");
-                TryLogMissingMeshFamily(ctx);
-            }
-            else if (wc.ControlId != null)
-            {
-                JudgeAndLogControl(sidecar);
-            }
+            if (wc.ControlId != null) JudgeAndLogControl(sidecar);
             string status = sidecar.Setup?.Status ?? TestCommandPartParitySweep.SetupOk;
             if (TestCommandPartParitySweep.IsSetupFault(status))
                 ParsekLog.Warn(Tag, $"case {wc.CaseId}: setup fault {status} detail={sidecar.Setup?.Detail ?? "<none>"}");
@@ -711,10 +675,9 @@ namespace Parsek.TestCommands
 
         private static void JudgeAndLogControl(PartParityCaseSidecar s)
         {
-            string outcome = PartParitySweepPlan.JudgeControl(s.CaseId, s.Views, s.Setup?.Status, s.Flags, out string detail);
-            string pick = PickOf(s);
+            string outcome = PartParitySweepPlan.JudgeControl(s.CaseId, s.Views, s.Setup?.Status, s.Structure, out string detail);
             ParsekLog.Info(Tag, $"control {s.CaseId}: outcome={outcome} subject={s.Part ?? "<none>"} " +
-                $"setup={s.Setup?.Status ?? "<none>"} detail={detail ?? "<none>"}" + (pick != null ? " pick=" + pick : string.Empty));
+                $"setup={s.Setup?.Status ?? "<none>"} detail={detail ?? "<none>"}");
         }
 
         internal static void WriteSidecar(StepContext ctx, PartParityCaseSidecar sidecar)
@@ -760,96 +723,6 @@ namespace Parsek.TestCommands
             if (wc.Entry == null)
                 wc.Detail = "control subject not loaded: " + (part ?? why);
             return wc;
-        }
-
-        /// <summary>
-        /// One sub-case of the missing-mesh family (design 4.5): a still subject spawned and
-        /// built like a control case under its own sub-case id. It runs the contribution pick
-        /// and is captured only when the pick found a renderer.
-        /// </summary>
-        private static WaveCase BuildMissingMeshSubCase(StepContext ctx, PartParityMissingMeshSubject sub)
-        {
-            var wc = new WaveCase
-            {
-                CaseId = sub.SubCaseId, Index = -1, ControlId = TestCommandPartParitySweep.ControlGhostMissingMesh,
-                Views = new List<string>(TestCommandPartParitySweep.RequiredViews),
-                Key = new PartParityCaseKey { Part = sub.Subject },
-                MissingMeshSubject = sub,
-            };
-            if (ctx.EntriesByName.TryGetValue(sub.Subject, out PartParityPartEntry e))
-            {
-                wc.Entry = e;
-                wc.RealVariant = e.BaseVariant;
-                wc.Key.Skin = e.BaseVariant ?? TestCommandPartParitySweep.DefaultSkinName;
-            }
-            else
-            {
-                wc.Detail = "control subject not loaded: " + sub.Subject;
-            }
-            return wc;
-        }
-
-        /// <summary>The still subjects of the install in pick order, the first
-        /// <see cref="PartParitySweepPlan.MaxMissingMeshSubCases"/> of them as the family.</summary>
-        private static void PlanMissingMeshFamily(StepContext ctx)
-        {
-            var views = new List<string>(TestCommandPartParitySweep.RequiredViews);
-            var candidates = new List<PartParityMissingMeshCandidate>();
-            var seen = new StringBuilder();
-            foreach (string n in PartParitySweepPlan.MissingMeshCandidates)
-            {
-                if (!ctx.EntriesByName.TryGetValue(n, out var e)) continue;
-                PartParityMissingMeshCandidate c = PartParityCaseCapture.PrefabCandidate(n, e.Info);
-                if (c == null) continue;
-                candidates.Add(c);
-                bool still = PartParitySweepPlan.IsStillSubject(c.HasAnimation, c.ModuleNames, out string notStill);
-                seen.Append(seen.Length > 0 ? " " : string.Empty).Append(n).Append('=')
-                    .Append(still ? "still" : "animated(" + notStill + ")");
-            }
-            ctx.MissingMeshFamily = PartParitySweepPlan.MissingMeshFamily(
-                PartParitySweepPlan.OrderMissingMeshSubjects(candidates, views));
-            ParsekLog.Verbose(Tag, $"control {TestCommandPartParitySweep.ControlGhostMissingMesh}: subject candidates " +
-                (seen.Length > 0 ? seen.ToString() : "<none loaded>"));
-            var family = new StringBuilder();
-            foreach (var sub in ctx.MissingMeshFamily)
-                family.Append(family.Length > 0 ? " " : string.Empty).Append(sub.SubCaseId).Append(" (").Append(sub.Describe(views)).Append(')');
-            ParsekLog.Info(Tag, $"control {TestCommandPartParitySweep.ControlGhostMissingMesh}: family " +
-                $"subCases={ctx.MissingMeshFamily.Count.ToString(Ic)} " + (family.Length > 0 ? family.ToString() : "<none> (no-subject)"));
-        }
-
-        private static List<string> MissingMeshFamilyIds(StepContext ctx)
-            => ctx.MissingMeshFamily.ConvertAll(f => f.SubCaseId);
-
-        /// <summary>Logs the family's control line once, as soon as the family is decided
-        /// (the first sub-case that found a renderer has its sidecar, or every sub-case found
-        /// none, or the family is empty). Every sub-case's counts were logged when measured.</summary>
-        private static void TryLogMissingMeshFamily(StepContext ctx)
-        {
-            if (ctx.MissingMeshFamilyLogged) return;
-            string outcome = PartParitySweepPlan.ResolveMissingMeshFamily(MissingMeshFamilyIds(ctx),
-                id => ctx.Known.TryGetValue(id, out PartParityCaseSidecar s) ? s : null,
-                out PartParityCaseSidecar chosen, out string detail);
-            if (outcome == TestCommandPartParitySweep.ControlsPending) return;
-            ctx.MissingMeshFamilyLogged = true;
-            var subs = new StringBuilder();
-            foreach (var sub in ctx.MissingMeshFamily)
-            {
-                bool has = ctx.Known.TryGetValue(sub.SubCaseId, out PartParityCaseSidecar s);
-                subs.Append(subs.Length > 0 ? "," : string.Empty).Append(sub.SubCaseId).Append(':')
-                    .Append(!has ? "not-run" : PartParitySweepPlan.HasFlagPrefix(s.Flags, PartParitySweepPlan.FlagControlPickPrefix) ? "found" : "none");
-            }
-            ParsekLog.Info(Tag, $"control {TestCommandPartParitySweep.ControlGhostMissingMesh}: outcome={outcome} " +
-                $"subject={chosen?.Part ?? "<none>"} setup={chosen?.Setup?.Status ?? "<none>"} detail={detail ?? "<none>"}" +
-                (chosen != null ? " pick=" + PickOf(chosen) : string.Empty) + " subs=" + (subs.Length > 0 ? subs.ToString() : "<none>"));
-        }
-
-        private static string PickOf(PartParityCaseSidecar s)
-        {
-            string pick = null;
-            foreach (string f in s.Flags)
-                if (f != null && f.StartsWith(PartParitySweepPlan.FlagControlPickPrefix, StringComparison.Ordinal))
-                    pick = f.Substring(PartParitySweepPlan.FlagControlPickPrefix.Length);
-            return pick;
         }
 
         private static string ControlPart(StepContext ctx, string id, out string ghostVariant, out string why)
@@ -916,16 +789,9 @@ namespace Parsek.TestCommands
                     Required = PartParitySweepPlan.ControlRequired(id),
                     Outcome = TestCommandPartParitySweep.ControlsPending,
                 };
-                if (id == TestCommandPartParitySweep.ControlGhostMissingMesh)
+                if (ctx.Known.TryGetValue(id, out PartParityCaseSidecar s))
                 {
-                    rec.Outcome = PartParitySweepPlan.ResolveMissingMeshFamily(MissingMeshFamilyIds(ctx),
-                        fid => ctx.Known.TryGetValue(fid, out PartParityCaseSidecar fs) ? fs : null,
-                        out PartParityCaseSidecar chosen, out string fdetail);
-                    rec.Detail = (chosen?.Part != null ? "part=" + chosen.Part + " " : string.Empty) + (fdetail ?? string.Empty);
-                }
-                else if (ctx.Known.TryGetValue(id, out PartParityCaseSidecar s))
-                {
-                    rec.Outcome = PartParitySweepPlan.JudgeControl(id, s.Views, s.Setup?.Status, s.Flags, out string detail);
+                    rec.Outcome = PartParitySweepPlan.JudgeControl(id, s.Views, s.Setup?.Status, s.Structure, out string detail);
                     rec.Detail = (s.Part != null ? "part=" + s.Part + " " : string.Empty) + (detail ?? string.Empty);
                 }
                 list.Add(rec);
@@ -943,15 +809,7 @@ namespace Parsek.TestCommands
         private static bool AllControlsRan(StepContext ctx)
         {
             foreach (string id in TestCommandPartParitySweep.ControlIds)
-            {
-                if (id == TestCommandPartParitySweep.ControlGhostMissingMesh)
-                {
-                    foreach (var sub in ctx.MissingMeshFamily)
-                        if (!ctx.Known.ContainsKey(sub.SubCaseId)) return false;
-                    continue;
-                }
                 if (!ctx.Known.ContainsKey(id)) return false;
-            }
             return true;
         }
 
@@ -1019,13 +877,9 @@ namespace Parsek.TestCommands
             internal SortedSet<int> GhostLayers = new SortedSet<int>();
             internal double? GhostRootOffsetM;
 
-            /// <summary>The missing-mesh control's subject in prefab order (null for every
-            /// other case, and when no still candidate is loaded).</summary>
-            internal PartParityMissingMeshSubject MissingMeshSubject;
-
-            /// <summary>The ghost's mesh renderers, parallel to <c>GhostRecords</c> before the
-            /// missing-mesh hide re-reads them.</summary>
-            internal List<Renderer> GhostMeshRenderers;
+            /// <summary>The missing-mesh control's planted cube on the real part (design 4.5);
+            /// null for every other case and once destroyed.</summary>
+            internal GameObject PlantedCube;
             internal int SeedEvents;
             internal int SeedApplied;
             internal PartParitySkinProof Skin;
@@ -1057,11 +911,6 @@ namespace Parsek.TestCommands
             /// <summary>The cases owed a solo run (the on-disk <c>isolate.txt</c>), as a set
             /// and in file order.</summary>
             internal readonly HashSet<string> Isolate = new HashSet<string>(StringComparer.Ordinal);
-
-            /// <summary>The missing-mesh family (design 4.5): its sub-cases in order; empty when
-            /// no still subject is loaded (or controls are off).</summary>
-            internal List<PartParityMissingMeshSubject> MissingMeshFamily = new List<PartParityMissingMeshSubject>();
-            internal bool MissingMeshFamilyLogged;
             internal readonly List<string> IsolateOrder = new List<string>();
             internal PartParityCapture Capture;
             internal List<WaveCase> Live;

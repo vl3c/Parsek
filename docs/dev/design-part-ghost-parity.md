@@ -260,61 +260,47 @@ proof that the instrument sees what it claims to.
 | `ctl-ghost-scale90` | same tank, ghost scaled 0.9 | fails every view on shape |
 | `ctl-ghost-rot90` | `mk1pod.v2` (hatch and ladder: no rotational symmetry), ghost rotated 90 deg about +Y | fails `side-a` / `side-b` on shape |
 | `ctl-ghost-flip` | `mk1pod.v2`, ghost rotated 180 deg about +X | fails every view |
-| `ctl-ghost-missing-mesh` | a multi-renderer stock part, one small ghost renderer forced off | fails on the local-defect measures (6) while whole-image IoU stays above 0.99 |
+| `ctl-ghost-missing-mesh` | `fuelTankSmallFlat` with a small cube planted on the REAL part's +X face (the ghost lacks it) | fails on the local-defect measures (6) while whole-image IoU stays above 0.99, and the structure lists a rendered mesh missing on the ghost |
 | `ctl-wrong-skin` | a stock part with a colour-only variant (chosen at run time, FGV's `ChooseColourVariant`), ghost built from a snapshot naming another variant | fails on colour with IoU near 1 |
 
-The missing-mesh pick (owner follow-ups 2026-11-21, after three flights: hiding the LV-T45's
-whole bell read IoU 0.68; an estimate over the shared BOX chose the animated telescopic ladder,
-whose real and ghost already differed; a solo-coverage measure chose the Mk1 pod's flag decal,
-which lies on the hull, so hiding it changed nothing):
+The missing-mesh control plants a DETERMINISTIC defect. Four flights on 2026-11-21 tried to hide a
+small mesh of a stock part's ghost and showed that stock still parts carry no separable small
+mesh: hiding the LV-T45's bell read IoU 0.68; an estimate over the shared box chose the animated
+telescopic ladder, whose real and ghost already differed; the Mk1 pod's only other mesh is its flag
+decal, which lies on the hull (0 / 331 / 283 / 0 px drawn alone, contribution 0); and measured
+silhouette contributions over eight still parts found nothing between 100 px and 0.6 %: mk1pod body
+147k / flag 0, landerCabinSmall base 144k / flag 0, probeCoreHex and probeCoreSphere one mesh each,
+probeCoreOcto body 112k / tapas 8.7k, ladder1 three rungs at about 13.5k each, mk1-3pod flag 0 /
+74 px, cupola flag 0. So the control adds the mesh to the REAL side instead:
 
-- Subjects are STILL parts only (`PartParitySweepPlan.IsStillSubject`): no `Animation` component
-  on the prefab and no animating PartModule (`AnimatingModuleNames`: `ModuleAnimateGeneric`,
-  `RetractableLadder`, `ModuleAnimationGroup`, `ModuleAnimateHeat`, `ModuleAnimateEmissive`,
-  `ModuleAnimatedDecoupler`, `ModuleGimbal`, `ModuleControlSurface`, `ModuleAeroSurface`,
-  `ModuleCargoBay`, `ModuleServiceModule`, `ModuleProceduralFairing`, `ModuleJettison`,
-  `ModuleParachute`, `ModuleLight`, `ModuleResourceHarvester`, `ModuleAsteroidDrill`,
-  `ModuleGroundExperiment`, `ModuleGroundCommsPart`; `AnimatingModulePrefixes`:
-  `ModuleDeployable*`, `ModuleAnimate*`, `FXModuleAnimate*`, `ModuleRobotic*`, `ModuleWheel*`).
-  An animated subject measures animation, not the hide: there is no animated fallback.
-- The control is a FAMILY (`MissingMeshFamily`): one sub-case per still subject of
-  `MissingMeshCandidates`, up to 8 (one wave), in pick order. A prefab estimate only orders them
-  (`OrderMissingMeshSubjects`: a renderer's projected bounds, `|dx| sy sz + |dy| sx sz + |dz| sx
-  sy` along each required view's camera direction, as a fraction of the SUM of every rendered
-  renderer's projected bounds; subjects with a renderer at >= 0.1 % in one view and <= 0.6 % in
-  every view first, then the other still ones, in list order). A sub-case's id is
-  `ctl-ghost-missing-mesh--<subject>` (`MissingMeshSubCaseId`: lower-cased, outside
-  `[a-z0-9._-]` mapped to `-`): it is not a part (the manifest's `cases[]` and the step's
-  counts list planned parts only) and not a control of its own (`IsControl` is false); it has
-  its own sidecar and follows the resume, crash and isolation rules like any case.
-- Each sub-case measures its pick at capture, by size only, never by outcome
-  (`PartParityCaseCapture.MeasuredHide`): after the ghost is built and framed, before any view,
-  at the end of a frame, the whole ghost is drawn once per required view through the capture
-  primitive (`PartParityCapture.MeasureCoverage`: same camera, box, light rig and two clears),
-  and again with each rendered ghost renderer hidden in turn (`forceRenderingOff`). A renderer's
-  SILHOUETTE CONTRIBUTION is the full coverage minus the coverage without it (`ContributionPx`;
-  a decal lying on the hull contributes 0). The first renderer contributing >= 100 px in at least
-  one view and <= 0.6 % of the full coverage in every view (`ChooseContributionRenderer`) is
-  forced off and the views are captured, keeping the box, ortho size and culling mask the counts
-  were measured in. A sub-case with no such renderer is not captured (`control-no-subject` on its
-  sidecar, no views).
-- The control's outcome (`ResolveMissingMeshFamily`) is that of the FIRST sub-case, in family
-  order, that found a renderer, judged by the unchanged requirement; it is `pending` while an
-  earlier sub-case has not run, and `bad`, detail `no-subject`, when the family is empty or no
-  sub-case found a renderer. `ctl-ghost-missing-mesh` stays the control id in the manifest
-  (detail `part=<subject> sub=<sub-case id> ...`) and on the control line.
+- Subject `fuelTankSmallFlat` (the tank controls' part). After the spawn and settle, BEFORE the real
+  renderer records and box are read, `PartParityCaseCapture.PlantCube` parents a
+  `GameObject.CreatePrimitive(PrimitiveType.Cube)` named `PartParityPlantedCube` to the real part:
+  its collider destroyed at once (`DestroyImmediate`, so it never joins the part's physics), its
+  `sharedMaterial` the part's own first rendered material (it lights like the part, and nothing is
+  cloned), the layer of that renderer, centred on the +X face of the real renderer box at the box
+  centre, wholly outside the face (centre x = box max x + edge / 2).
+- The edge (`PartParitySweepPlan.PlantedCubeEdge`, pure): the cube's `side-a` face covers 0.3 % of
+  the real box's `side-a` projection (size x times size y), and is at least 12 px across at the
+  ortho scale of the box grown by the cube (`PartParityCaptureMath.OrthoSize`).
+- The ghost is built from the unchanged snapshot, so it lacks the cube: the real side has a small
+  rendered mesh the ghost does not, exactly a ghost missing a mesh. The required outcome is
+  unchanged (a view fails on a local measure, every covered view keeps IoU >= 0.99), and the judge
+  also needs the structure to list at least one RENDERED real renderer missing on the ghost
+  (`PartParitySweepPlan.MissingRendered`).
+- The cube dies with the case: `DestroyCase` destroys it first, in the wave teardown and in the
+  step's `Cleanup`, so no exit path leaves it behind.
 
-Log lines: Verbose `control ctl-ghost-missing-mesh: subject candidates <name>=still|animated(<why>)
-...`; Info `control ctl-ghost-missing-mesh: family subCases=<n> <sub id> (subject=..;estimate=..)
-...`; per sub-case Verbose `case <sub id>: missing-mesh contribution counts subject= candidates=
-<n> full=<view>:<px>,... | <path> <view>:<contribution>,...` and Info `case <sub id>: missing-mesh
-measured pick subject=;renderer=;<view>=<contribution>/<full>;...` (or `none=<why> (control bad,
-no-subject) counts ...`); Info `control sub-case <sub id>: subject= found=true|false setup= views=
-detail=`; and once the family is decided, Info `control ctl-ghost-missing-mesh: outcome= subject=
-setup= detail= pick= subs=<sub id>:found|none|not-run,...`. Occlusion is measured, not modelled.
+Log lines: Info `case ctl-ghost-missing-mesh: planted cube edge=<m>m local=(<x>,<y>,<z>) box=<sx>x
+<sy>x<sz> material=<name> layer=<n> tile=<px>` (or Warn `planted cube not made (...)`), Verbose
+`case ctl-ghost-missing-mesh: planted cube destroyed`, and the control line `control
+ctl-ghost-missing-mesh: outcome= subject=fuelTankSmallFlat setup= detail=`. The sidecar carries the
+flag `control-planted:edge=<m>;local=<x>,<y>,<z>` and lists `PartParityPlantedCube` under
+`structure.missingOnGhost`.
 
 `still-animating` is never a setup fault for the judge (`TestCommandPartParitySweep.IsSetupFault`):
-the views alone decide every control's outcome, with or without it.
+the views (and, for the missing-mesh control, its structure) decide every control's outcome, with
+or without it.
 
 ### 4.6 Structural diff
 
