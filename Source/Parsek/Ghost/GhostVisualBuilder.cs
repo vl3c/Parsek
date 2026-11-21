@@ -669,10 +669,10 @@ namespace Parsek
                 { "Size3AdvancedEngine",    2.7f  }, // KR-2L+ Rhino — widen prefab plume
             };
 
-        // Cache: partName → (semi-deployed + deployed canopy states) — sample once per part type, reuse across ghosts
-        private static readonly Dictionary<string, (Vector3 sdScale, Vector3 sdPos, Quaternion sdRot, bool semiDeployedSampled,
-            Vector3 dScale, Vector3 dPos, Quaternion dRot)> canopyCache =
-            new Dictionary<string, (Vector3, Vector3, Quaternion, bool, Vector3, Vector3, Quaternion)>();
+        // Cache: partName -> semi-deployed + deployed canopy states (root and animated bones);
+        // sampled once per part type, reused across ghosts.
+        private static readonly Dictionary<string, CanopySample> canopyCache =
+            new Dictionary<string, CanopySample>();
 
         // Unified cache for all animation-sampled transform states (deployable, gear, ladder, cargo bay).
         // Key collision is impossible: Deployable/Gear/CargoBay use plain part names but a part enters

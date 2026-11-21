@@ -58,6 +58,9 @@ Not released yet.
 
 ### Fixed
 
+- **Ghosts of ReStock parts look like the real parts again.** The LV-T45 boosters of a replayed
+  Kerbal X no longer show a skirt and a second shroud, and a deployed Mk16-XL parachute opens to
+  its full size instead of staying small and folded. (RESTOCK-GHOST-SKIRT-AND-CHUTE)
 - **A flight's rows settle when it is merged, not over the next loads.** Some rows Parsek split
   were joined back to their neighbour only on a later load, so the rows changed again after
   loading the save. (OPTIMIZER-PASS-NOT-A-FIXED-POINT)
