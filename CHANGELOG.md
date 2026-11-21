@@ -49,6 +49,11 @@ Not released yet.
 
 ### Fixed
 
+- **In flight, committed events now happen at their time.** A launch pad a recorded flight
+  crashed into, a Space Center purchase or a contract outcome from your committed timeline now
+  takes effect when the flight clock reaches it, as at the Space Center, instead of at the next
+  warp exit or commit. A pad crash shows even while you record.
+  (FLIGHT-CLOCK-CROSSING-COMMITTED-ROWS)
 - **A vessel that ends in orbit next to another no longer appears inside it.** When the spot is
   taken, it now appears a few metres ahead of or behind it on its own orbit. If no free spot is near,
   it is held back, never placed overlapping. (SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS)
