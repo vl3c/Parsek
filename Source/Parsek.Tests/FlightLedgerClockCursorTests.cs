@@ -318,7 +318,7 @@ namespace Parsek.Tests
             int teardown = body.IndexOf("if (sceneChangeInProgress) return;", StringComparison.Ordinal);
             int guarded = body.IndexOf(
                 "if (!RecordingStore.RewindUTAdjustmentPending) { double flightClockUT = Planetarium.GetUniversalTime(); " +
-                "committedMilestoneClock.Advance(flightClockUT); flightLedgerClock.Advance(flightClockUT); }",
+                "committedMilestoneClock.Advance(flightClockUT); if (flightClockUT > 0.0) flightLedgerClock.Advance(flightClockUT); }",
                 StringComparison.Ordinal);
             Assert.True(teardown >= 0, "teardown early-out not found");
             Assert.True(guarded > teardown, "flight cursor advance not found after the teardown early-out");

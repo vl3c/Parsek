@@ -1310,7 +1310,10 @@ namespace Parsek
             {
                 double flightClockUT = Planetarium.GetUniversalTime();
                 committedMilestoneClock.Advance(flightClockUT);
-                flightLedgerClock.Advance(flightClockUT);
+                // An unready clock reads 0: seeding there would make the first crossing window
+                // fold all history (and repair a building the live tree knocked down).
+                if (flightClockUT > 0.0)
+                    flightLedgerClock.Advance(flightClockUT);
             }
 
             // Vessel name decisions re-applied when the committed set moved or (1 Hz) the
