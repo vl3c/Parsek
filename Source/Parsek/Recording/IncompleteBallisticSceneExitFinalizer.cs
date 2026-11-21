@@ -700,6 +700,9 @@ namespace Parsek
             // propagate from). It is one half of the no-solver destroyed fingerprint - see
             // IsNoSolverDestroyedFallback.
             bool usedLiveOrbitFallback = false;
+            // Set when the propagation starts at the last kept patch's end on that patch's own
+            // conic, so a final-conic ending there can be moved back to the patch start.
+            bool startedAtLastPatchEnd = false;
             if (appendedSegments.Count > 0
                 && BallisticExtrapolator.TryFindAtmosphericReentryClip(
                     (IReadOnlyList<OrbitSegment>)appendedSegments,
@@ -761,6 +764,7 @@ namespace Parsek
                         $"(body={lastSegment.bodyName ?? "(null)"}, endUT={lastSegment.endUT:F1})");
                     return false;
                 }
+                startedAtLastPatchEnd = true;
             }
             else if (buildLiveStartState == null || !buildLiveStartState(out startState))
             {
@@ -860,6 +864,17 @@ namespace Parsek
                         noSolverMessage,
                         minIntervalSeconds: 30.0);
                 }
+            }
+
+            if (startedAtLastPatchEnd)
+            {
+                TryMoveFinalConicEndingToPatchStart(
+                    recordingId,
+                    appendedSegments,
+                    ref extrapolated,
+                    startState.ut,
+                    bodies,
+                    recording == null ? double.NaN : recording.EndUT);
             }
 
             if (extrapolated.segments != null)
@@ -996,7 +1011,7 @@ namespace Parsek
                             result.terrainHeightAtEnd = null;
                             result.terminalOrbit = null;
 
-                            if (result.terminalState == TerminalState.Orbiting
+                            if (IsTerminalOrbitFromLastSegment(result.terminalState, recovered)
                                 && appendedSegments.Count > 0)
                             {
                                 result.terminalOrbit = RecordingFinalizationTerminalOrbit.FromSegment(
@@ -1086,7 +1101,7 @@ namespace Parsek
                 }
             }
 
-            if (result.terminalState == TerminalState.Orbiting && appendedSegments.Count > 0)
+            if (IsTerminalOrbitFromLastSegment(result.terminalState, extrapolated) && appendedSegments.Count > 0)
                 result.terminalOrbit =
                     RecordingFinalizationTerminalOrbit.FromSegment(appendedSegments[appendedSegments.Count - 1]);
 
@@ -1114,6 +1129,91 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        /// <summary>
+        /// Pure: does the finalized terminal orbit come from the last appended segment? An
+        /// Orbiting ending always; a SubOrbital one when it is a final-conic ending (owner
+        /// ruling Q8: an open conic around a body with no parent, which spawns on its path
+        /// through <see cref="EscapeTrajectoryTerminal"/>).
+        /// </summary>
+        internal static bool IsTerminalOrbitFromLastSegment(
+            TerminalState? terminalState,
+            ExtrapolationResult extrapolated)
+        {
+            if (!terminalState.HasValue)
+                return false;
+            if (terminalState.Value == TerminalState.Orbiting)
+                return true;
+            return terminalState.Value == TerminalState.SubOrbital && extrapolated.endedOnFinalConic;
+        }
+
+        /// <summary>
+        /// Pure: when the propagation started at the last kept stock patch's end
+        /// (<paramref name="propagationStartUT"/>) and ended at once on that same conic as its
+        /// final conic (owner ruling Q8), the flight entered its final conic at the patch START
+        /// (the sphere-of-influence entry the stock solver already found), not at the patch
+        /// end a period or more later. Trims that patch to the settle span from its start
+        /// (never before <paramref name="recordingEndUT"/>), drops the extrapolator's own
+        /// settle segment and moves the terminal UT there. False (and nothing changed) for
+        /// any other result.
+        /// </summary>
+        internal static bool TryMoveFinalConicEndingToPatchStart(
+            string recordingId,
+            List<OrbitSegment> appendedSegments,
+            ref ExtrapolationResult extrapolated,
+            double propagationStartUT,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            double recordingEndUT)
+        {
+            if (!extrapolated.endedOnFinalConic
+                || appendedSegments == null
+                || appendedSegments.Count == 0
+                || !IsFinite(extrapolated.finalConicStartUT)
+                || Math.Abs(extrapolated.finalConicStartUT - propagationStartUT) > 1e-6)
+            {
+                return false;
+            }
+
+            OrbitSegment last = appendedSegments[appendedSegments.Count - 1];
+            if (!string.Equals(last.bodyName, extrapolated.terminalBodyName, StringComparison.Ordinal))
+                return false;
+
+            double period = double.NaN;
+            if (last.semiMajorAxis > 0.0
+                && last.eccentricity < 1.0
+                && bodies != null
+                && bodies.TryGetValue(last.bodyName, out ExtrapolationBody body)
+                && body != null
+                && body.GravitationalParameter > 0.0)
+            {
+                period = 2.0 * Math.PI * Math.Sqrt(
+                    last.semiMajorAxis * last.semiMajorAxis * last.semiMajorAxis / body.GravitationalParameter);
+            }
+
+            double newEndUT = last.startUT + BallisticExtrapolator.ResolveFinalConicSettleSeconds(period);
+            if (IsFinite(recordingEndUT) && newEndUT < recordingEndUT)
+                newEndUT = recordingEndUT;
+            if (!(newEndUT < last.endUT - 1e-6) || !(newEndUT > last.startUT))
+                return false;
+
+            double oldEndUT = last.endUT;
+            last.endUT = newEndUT;
+            appendedSegments[appendedSegments.Count - 1] = last;
+            extrapolated.segments = new List<OrbitSegment>();
+            extrapolated.terminalUT = newEndUT;
+            extrapolated.finalConicStartUT = last.startUT;
+            ParsekLog.Info("Extrapolator", string.Format(
+                CultureInfo.InvariantCulture,
+                "TryFinalizeRecording: final conic of '{0}' is the last stock patch; ending moved to its " +
+                "entry (body={1} enteredUT={2:F3} terminalUT={3:F3} patchEndUT={4:F3} ecc={5:F5})",
+                recordingId ?? "(null)",
+                last.bodyName ?? "(null)",
+                last.startUT,
+                newEndUT,
+                oldEndUT,
+                last.eccentricity));
+            return true;
         }
 
         /// <summary>

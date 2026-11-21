@@ -541,7 +541,8 @@ namespace Parsek.Tests
                     orbitalFrameRotation = Quaternion.identity
                 },
                 new Dictionary<string, ExtrapolationBody> { ["Kerbin"] = MakeKerbin() },
-                new ExtrapolationLimits { maxHorizonYears = 0.001, maxSoiTransitions = 4, soiSampleStep = 60.0 });
+                new ExtrapolationLimits { maxHorizonYears = 0.001, maxSoiTransitions = 4, soiSampleStep = 60.0 },
+                stopOnFinalConic: false);
             Assert.Equal(TerminalState.Orbiting, result.terminalState);
             Assert.Equal(0.001 * 426.0 * 21600.0, result.terminalUT, 3);
         }
