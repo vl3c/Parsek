@@ -38,8 +38,9 @@ id = "ASR-5-far-switch-commits-predicted-fall"
 # fixture - a fixture outcome. (D) the endings tail ~0 / no predicted segment: the C#
 # change's own subject, a PARSEK finding on a build that claims it.
 #
-# FAST-LANE CHECKLIST: ASR-1's (its explicit-UT WarpToUT 280 included, so the core is out
-# of the load range at the jump), plus 2: the post-switch wait is ListHandles' own
+# FAST-LANE CHECKLIST: ASR-1's (its explicit-UT out-of-range wait, re-timed to this
+# fixture's clock: WarpToUT 680, so the core is out of the load range at the jump), plus 2:
+# the post-switch wait is ListHandles' own
 # OnFlightReady hold, not a fixed dwell. Tier nightly (ASR-1's flight + ~1 min).
 # =====================================================================================
 tier = "nightly"
@@ -64,12 +65,16 @@ steps = [
   { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
   { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
   { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
-  # ASR-1's out-of-range wait (reading `2026-11-21_1845`: the jump came ~40 s after the core
-  # separation with the core ~2.3 km away, still loaded, so it was finalized loaded and never
-  # went on rails). The gap grows at ~110 m/s; stock packs a SUB_ORBITAL vessel at 10 km,
-  # ~UT 240. UT 280, phys 2x: the stack is still near its apex above the atmosphere, so
-  # stock's ClearToSave lets the jump run.
-  { cmd = "WarpToUT",          args = { ut = "280", maxRate = "2", ladder = "phys" },    expect = "OK", budget = 300 },
+  # ASR-1's out-of-range wait, on THIS fixture's clock (absolute UT only: the seam takes no
+  # delta). `eva2-lko-crewed` loads at UT ~421.5; reading `2026-11-21_2005` separated the core
+  # at UT 528.0 and ended the mission at 569.1 (ASR-1's `ut = "280"` was refused
+  # backward-warp). The gap grows at ~110 m/s and stock packs a SUB_ORBITAL vessel at 10 km,
+  # ~90 s after the separation (~UT 616); ASR-1 (separation 132.4) saw the core unloaded by
+  # ~UT 252 and jumped at 280, 147.6 s after the separation, with the stack at 108 km and
+  # its atmosphere entry 114 s later. 528.0 + 147.6 = 675.6, so UT 680, phys 2x (~56 s
+  # wall): the core is unloaded and the stack is still above the atmosphere, so stock's
+  # ClearToSave lets the jump run.
+  { cmd = "WarpToUT",          args = { ut = "680", maxRate = "2", ladder = "phys" },    expect = "OK", budget = 300 },
   { cmd = "AlarmJump",         args = { pid = "2614652043", jump = "shown" },            expect = "OK", budget = 120 },
   { cmd = "ListHandles",       args = { kind = "chains" },                               expect = "OK", budget = 240 },
   { cmd = "FlushAndQuit",                                                                expect = "OK" },
