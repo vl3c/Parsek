@@ -237,9 +237,10 @@ namespace Parsek
         // before it is saved).
         public int SplitRuleVersion;
 
-        // The row's mission-profile role, stamped by the optimizer split pass on version-2 rows
-        // (RecordingOptimizer.SegmentRoles: ascent, space, aerobraking, reentry, approach,
-        // surface, atmosphere). null = untagged (version 1, EVA, never split). Two rows with
+        // The row's mission-profile role, stamped by the optimizer split pass on version-2 and
+        // later rows (RecordingOptimizer.SegmentRoles: ascent, space, aerobraking, reentry,
+        // approach, surface, atmosphere; version 3 adds circularization, orbit, transfer,
+        // injection, deorbit, descent). null = untagged (version 1, EVA, never split). Two rows with
         // different roles never merge back. Persisted as `segmentRole`.
         public string SegmentRole;
 

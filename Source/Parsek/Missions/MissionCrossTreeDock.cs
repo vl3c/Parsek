@@ -721,7 +721,7 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(rec.ChainId))
                 return null;
-            int nextIdx = rec.ChainIndex + 1;
+            int nextIdx = RecordingChainQueries.NextChainIndexAfter(rec, tree.Recordings);
             foreach (var kvp in tree.Recordings)
             {
                 Recording candidate = kvp.Value;

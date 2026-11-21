@@ -458,7 +458,17 @@ namespace Parsek
             SuppressedBrakingPassExit,
             SuppressedLaterBrakingPass,
             SuppressedOwnPassEntry,
-            SuppressedBriefTouchdown
+            SuppressedBriefTouchdown,
+            // Version-3 rules (RecordingOptimizer.BurnCuts.cs).
+            OrbitInsertionBurnEnd,
+            CaptureBurnEnd,
+            CaptureToAtmosphereBurnEnd,
+            InjectionBurnEnd,
+            DepartureBurnStart,
+            DeorbitBurnStart,
+            DirectDescentBurnStart,
+            SuppressedBurnShortRow,
+            SuppressedInterplanetaryTransfer
         }
 
         /// <summary>
@@ -931,6 +941,7 @@ namespace Parsek
             int normalizedOrdinalShifts = 0;
             int skippedSuperseded = 0;
             int skippedLoopRange = 0;
+            int skippedNewerRules = 0;
 
             // A superseded recording is never split (mirror of CanAutoMerge's supersede
             // guard). The supersede relation names it by RecordingId, so a fresh-id second
@@ -941,10 +952,18 @@ namespace Parsek
             var scenario = ParsekScenario.Instance;
             IReadOnlyList<RecordingSupersedeRelation> supersedes =
                 !object.ReferenceEquals(null, scenario) ? scenario.RecordingSupersedes : null;
+            Dictionary<string, List<Recording>> burnChains = null;
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
+                // Cut by a newer build under rules this one does not know: held verbatim, not
+                // even normalized (IsSplitRuleVersionNewerThanBuild).
+                if (IsSplitRuleVersionNewerThanBuild(rec))
+                {
+                    skippedNewerRules++;
+                    continue;
+                }
                 var ensureStats = RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
                     rec,
                     markDirty: true,
@@ -975,6 +994,7 @@ namespace Parsek
                 List<DiscontinuityWindow> discontinuities = null;
                 bool currentRules = UsesCurrentSplitRules(rec);
                 PassMap passMap = currentRules ? BuildPassMap(rec) : null;
+                AttachBurnMapForScan(committed, rec, passMap, ref burnChains);
 
                 for (int s = 1; s < rec.TrackSections.Count; s++)
                 {
@@ -1021,7 +1041,7 @@ namespace Parsek
                     tally.CountSuppressed(reason);
                 }
 
-                tally.LogSummary(rec.RecordingId, currentRules);
+                tally.LogSummary(rec.RecordingId, currentRules, passMap?.Burns);
             }
 
             if (normalizedRecordings > 0)
@@ -1049,6 +1069,14 @@ namespace Parsek
                     "recording(s) whole: the player set a loop range on them");
             }
 
+            if (skippedNewerRules > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"FindSplitCandidatesForOptimizer: held {skippedNewerRules.ToString(CultureInfo.InvariantCulture)} " +
+                    $"recording(s) whole: split rules newer than this build " +
+                    $"(v{SplitRuleVersionCurrent.ToString(CultureInfo.InvariantCulture)}), kept verbatim");
+            }
+
             return candidates;
         }
 
@@ -1074,6 +1102,8 @@ namespace Parsek
             internal int Discontinuity;
             internal int Pass;
             internal int BriefTouchdown;
+            internal int BurnShortRow;
+            internal int TransferWhole;
 
             internal void CountSuppressed(SplitBoundaryReason reason)
             {
@@ -1093,6 +1123,8 @@ namespace Parsek
                         Pass++;
                         break;
                     case SplitBoundaryReason.SuppressedBriefTouchdown: BriefTouchdown++; break;
+                    case SplitBoundaryReason.SuppressedBurnShortRow: BurnShortRow++; break;
+                    case SplitBoundaryReason.SuppressedInterplanetaryTransfer: TransferWhole++; break;
                 }
             }
 
@@ -1102,15 +1134,21 @@ namespace Parsek
                     || SurfaceGrazeForward > 0 || SurfaceGrazeBackward > 0
                     || BoundarySeam > 0 || ExoCoastBodyChange > 0
                     || SplittableButRejected > 0 || LaunchSiteLeadingRun > 0
-                    || Discontinuity > 0 || Pass > 0 || BriefTouchdown > 0;
+                    || Discontinuity > 0 || Pass > 0 || BriefTouchdown > 0
+                    || BurnShortRow > 0 || TransferWhole > 0;
             }
 
-            internal void LogSummary(string recordingId, bool currentRules)
+            internal void LogSummary(string recordingId, bool currentRules, BurnMap burns)
             {
-                if (!AnyKept()) return;
+                if (!AnyKept() && (burns == null || burns.Burns.Count == 0)) return;
                 string currentRuleTokens = currentRules
-                    ? $" passKept={Pass} touchdownKept={BriefTouchdown} rules=v2"
+                    ? $" passKept={Pass} touchdownKept={BriefTouchdown} rules=v{(burns != null ? 3 : 2)}"
                     : "";
+                if (burns != null)
+                    currentRuleTokens +=
+                        $" burns={burns.Burns.Count} burnsUnjudged={burns.Unjudged} " +
+                        $"burnKindKept={burns.KindKept} burnShortRowKept={BurnShortRow} " +
+                        $"transferWholeKept={TransferWhole}";
                 ParsekLog.Verbose("Optimizer",
                     $"Split summary: rec={recordingId} " +
                     $"evaluated={Evaluated} " +

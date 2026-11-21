@@ -10,6 +10,91 @@ namespace Parsek
     /// </summary>
     internal static class RecordingChainQueries
     {
+        /// <summary>What <see cref="NextChainIndexAfter(Recording, IReadOnlyList{Recording})"/>
+        /// returns when no piece follows: matches no recording's <see cref="Recording.ChainIndex"/>.</summary>
+        internal const int NoNextChainIndex = int.MinValue;
+
+        /// <summary>
+        /// The chain index of the piece that follows <paramref name="rec"/> on its chain among
+        /// <paramref name="candidates"/>: the LOWEST <see cref="Recording.ChainIndex"/> above
+        /// rec's among the recordings with the same <see cref="Recording.ChainId"/> (ordinal)
+        /// and <see cref="Recording.ChainBranch"/>, so a hole in the indices (a piece removed
+        /// from the chain) is stepped over. <see cref="NoNextChainIndex"/> when rec has no chain
+        /// id or nothing follows. The readers keep their own match loop over this index (first
+        /// match, duplicate checks), so only the "+1" moved here. Pure.
+        /// </summary>
+        internal static int NextChainIndexAfter(Recording rec, IReadOnlyList<Recording> candidates)
+        {
+            int next = NoNextChainIndex;
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId) || candidates == null) return next;
+            for (int i = 0; i < candidates.Count; i++)
+                next = LowerFollowingIndex(rec, candidates[i], next);
+            return next;
+        }
+
+        /// <summary>The dictionary form of <see cref="NextChainIndexAfter(Recording, IReadOnlyList{Recording})"/>
+        /// (a tree's recordings). Pure.</summary>
+        internal static int NextChainIndexAfter(Recording rec, Dictionary<string, Recording> candidates)
+        {
+            int next = NoNextChainIndex;
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId) || candidates == null) return next;
+            foreach (var candidate in candidates.Values)
+                next = LowerFollowingIndex(rec, candidate, next);
+            return next;
+        }
+
+        /// <summary>What <see cref="PreviousChainIndexBefore(Recording, IReadOnlyList{Recording})"/>
+        /// returns when no piece precedes: matches no recording's <see cref="Recording.ChainIndex"/>.</summary>
+        internal const int NoPreviousChainIndex = int.MinValue;
+
+        /// <summary>
+        /// The mirror of <see cref="NextChainIndexAfter(Recording, IReadOnlyList{Recording})"/>: the
+        /// chain index of the piece that precedes <paramref name="rec"/>, the HIGHEST non-negative
+        /// <see cref="Recording.ChainIndex"/> below rec's among the recordings of the same chain id
+        /// (ordinal) and branch, so a hole in the indices is stepped over.
+        /// <see cref="NoPreviousChainIndex"/> when rec has no chain id or nothing precedes. Pure.
+        /// </summary>
+        internal static int PreviousChainIndexBefore(Recording rec, IReadOnlyList<Recording> candidates)
+        {
+            int previous = NoPreviousChainIndex;
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId) || candidates == null) return previous;
+            for (int i = 0; i < candidates.Count; i++)
+                previous = HigherPrecedingIndex(rec, candidates[i], previous);
+            return previous;
+        }
+
+        /// <summary>The dictionary form of <see cref="PreviousChainIndexBefore(Recording, IReadOnlyList{Recording})"/>
+        /// (a tree's recordings). Pure.</summary>
+        internal static int PreviousChainIndexBefore(Recording rec, Dictionary<string, Recording> candidates)
+        {
+            int previous = NoPreviousChainIndex;
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId) || candidates == null) return previous;
+            foreach (var candidate in candidates.Values)
+                previous = HigherPrecedingIndex(rec, candidate, previous);
+            return previous;
+        }
+
+        private static int HigherPrecedingIndex(Recording rec, Recording candidate, int best)
+        {
+            if (candidate == null
+                || candidate.ChainIndex < 0
+                || candidate.ChainIndex >= rec.ChainIndex
+                || candidate.ChainBranch != rec.ChainBranch
+                || !string.Equals(candidate.ChainId, rec.ChainId, System.StringComparison.Ordinal))
+                return best;
+            return candidate.ChainIndex > best ? candidate.ChainIndex : best;
+        }
+
+        private static int LowerFollowingIndex(Recording rec, Recording candidate, int best)
+        {
+            if (candidate == null
+                || candidate.ChainIndex <= rec.ChainIndex
+                || candidate.ChainBranch != rec.ChainBranch
+                || !string.Equals(candidate.ChainId, rec.ChainId, System.StringComparison.Ordinal))
+                return best;
+            return best == NoNextChainIndex || candidate.ChainIndex < best ? candidate.ChainIndex : best;
+        }
+
         /// <summary>
         /// Returns true if this recording is a mid-chain segment (not the last in its chain).
         /// Mid-chain ghosts should hold at their final position instead of being despawned.
@@ -42,7 +127,7 @@ namespace Parsek
             if (string.IsNullOrEmpty(rec.ChainId)) return -1;
             if (rec.ChainBranch != 0) return -1;
             if (rec.ChainIndex <= 0) return -1;
-            int expectedPredecessorIndex = rec.ChainIndex - 1;
+            int expectedPredecessorIndex = PreviousChainIndexBefore(rec, RecordingStore.CommittedRecordings);
             for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
             {
                 var other = RecordingStore.CommittedRecordings[i];

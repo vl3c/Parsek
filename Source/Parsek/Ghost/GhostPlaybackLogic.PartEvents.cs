@@ -884,6 +884,7 @@ namespace Parsek
             semiInfo.canopyTransform.localScale = semiInfo.semiDeployedCanopyScale;
             semiInfo.canopyTransform.localPosition = semiInfo.semiDeployedCanopyPos;
             semiInfo.canopyTransform.localRotation = semiInfo.semiDeployedCanopyRot;
+            ApplyCanopyBonePoses(semiInfo, CanopyPoseStage.SemiDeployed);
             if (semiInfo.capTransform != null)
                 semiInfo.capTransform.gameObject.SetActive(false);
             return GhostPartEventOutcome.Applied;
@@ -991,6 +992,7 @@ namespace Parsek
                         repackInfo.canopyTransform.localScale = repackInfo.stowedCanopyScale;
                         repackInfo.canopyTransform.localPosition = repackInfo.stowedCanopyPos;
                         repackInfo.canopyTransform.localRotation = repackInfo.stowedCanopyRot;
+                        ApplyCanopyBonePoses(repackInfo, CanopyPoseStage.Stowed);
                         touched = true;
                     }
                     if (repackInfo.capTransform != null &&
@@ -1640,6 +1642,7 @@ namespace Parsek
                     info.canopyTransform.localScale = info.deployedCanopyScale;
                     info.canopyTransform.localPosition = info.deployedCanopyPos;
                     info.canopyTransform.localRotation = info.deployedCanopyRot;
+                    ApplyCanopyBonePoses(info, CanopyPoseStage.Deployed);
                     if (info.capTransform != null)
                         info.capTransform.gameObject.SetActive(false);
                     usedRealCanopy = true;
@@ -1658,6 +1661,58 @@ namespace Parsek
             }
 
             return GhostPartEventOutcome.Applied;
+        }
+
+        /// <summary>
+        /// Picks a canopy bone's local pose for a stage. False when the stage was not sampled
+        /// for this bone (the semi-deployed clip was missing), so the caller leaves the bone.
+        /// </summary>
+        internal static bool TrySelectCanopyBonePose(
+            CanopyBonePose bone, CanopyPoseStage stage,
+            out Vector3 pos, out Quaternion rot, out Vector3 scale)
+        {
+            pos = Vector3.zero;
+            rot = Quaternion.identity;
+            scale = Vector3.one;
+            if (bone == null)
+                return false;
+            switch (stage)
+            {
+                case CanopyPoseStage.Stowed:
+                    pos = bone.stowedPos; rot = bone.stowedRot; scale = bone.stowedScale;
+                    return true;
+                case CanopyPoseStage.SemiDeployed:
+                    if (!bone.semiDeployedSampled)
+                        return false;
+                    pos = bone.semiPos; rot = bone.semiRot; scale = bone.semiScale;
+                    return true;
+                case CanopyPoseStage.Deployed:
+                    pos = bone.deployedPos; rot = bone.deployedRot; scale = bone.deployedScale;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Poses the animated bones under a rigged canopy (see ParachuteGhostInfo.canopyBones)
+        /// for a stage. No-op for canopies without sampled bones.
+        /// </summary>
+        internal static void ApplyCanopyBonePoses(ParachuteGhostInfo info, CanopyPoseStage stage)
+        {
+            if (info?.canopyBones == null)
+                return;
+            for (int i = 0; i < info.canopyBones.Count; i++)
+            {
+                CanopyBonePose bone = info.canopyBones[i];
+                if (bone?.bone == null)
+                    continue;
+                if (!TrySelectCanopyBonePose(bone, stage, out Vector3 pos, out Quaternion rot, out Vector3 scale))
+                    continue;
+                bone.bone.localPosition = pos;
+                bone.bone.localRotation = rot;
+                bone.bone.localScale = scale;
+            }
         }
 
         internal static void TrackFakeCanopy(GhostPlaybackState state, uint partPid, GameObject canopy)

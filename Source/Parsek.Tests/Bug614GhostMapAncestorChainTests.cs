@@ -524,10 +524,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryFindChainPredecessor_ReturnsNullForMissingPredecessor()
+        public void TryFindChainPredecessor_StepsOverAHoleInTheIndices()
         {
-            // Recording claims ChainIndex=2 but no ChainIndex=1 exists in the
-            // tree. The lookup must return null (not stumble onto ChainIndex=0).
+            // Recording claims ChainIndex=2 but no ChainIndex=1 exists in the tree (a piece
+            // removed from the chain): the piece before it is ChainIndex=0 (BATCH-B5 mirror,
+            // RecordingChainQueries.PreviousChainIndexBefore).
             var tree = new RecordingTree { Id = TreeId };
             tree.Recordings["rec-zero"] = new Recording
             {
@@ -543,7 +544,7 @@ namespace Parsek.Tests
             };
             tree.Recordings["rec-two"] = rec;
 
-            Assert.Null(GhostMapPresence.TryFindChainPredecessor(tree, rec));
+            Assert.Equal("rec-zero", GhostMapPresence.TryFindChainPredecessor(tree, rec));
         }
 
         // -----------------------------------------------------------------

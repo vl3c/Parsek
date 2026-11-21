@@ -193,7 +193,7 @@ namespace Parsek
                 || current.ChainIndex < 0
                 || current.ChainBranch != 0)
                 return -1;
-            int nextChainIndex = current.ChainIndex + 1;
+            int nextChainIndex = RecordingChainQueries.NextChainIndexAfter(current, committed);
             // Ordinal string compare here is deliberately stricter than
             // FindNextWatchTarget's plain `==` operator (same effect for
             // System.String today, but Ordinal is unambiguous about the
@@ -303,7 +303,7 @@ namespace Parsek
             if (!string.IsNullOrEmpty(currentRec.ChainId) && currentRec.ChainIndex >= 0
                 && currentRec.ChainBranch == 0)
             {
-                int nextChainIndex = currentRec.ChainIndex + 1;
+                int nextChainIndex = RecordingChainQueries.NextChainIndexAfter(currentRec, committed);
                 for (int j = 0; j < committed.Count; j++)
                 {
                     var candidate = committed[j];
@@ -577,7 +577,7 @@ namespace Parsek
                 && currentRec.ChainIndex >= 0
                 && currentRec.ChainBranch == 0)
             {
-                int nextChainIndex = currentRec.ChainIndex + 1;
+                int nextChainIndex = RecordingChainQueries.NextChainIndexAfter(currentRec, committed);
                 for (int j = 0; j < committed.Count; j++)
                 {
                     var candidate = committed[j];

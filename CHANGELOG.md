@@ -34,6 +34,10 @@ Not released yet.
   touch-and-go and an SOI change in space add no rows. New rows are named by their part of the
   mission (ascent, space, aerobraking, reentry). Flights already on the timeline keep their rows,
   and a big mission is split in one go. (OPTIMIZER-SPLIT-RULES-V2)
+- **New flights also split where a burn changes the orbit.** Reaching orbit, leaving it for
+  another body, being captured and deorbiting each start a new row: circularization, orbit,
+  transfer, deorbit or descent. Small corrections stay inside their row, a trip between planets
+  stays one row, and flights already on the timeline keep their rows. (OPTIMIZER-SPLIT-RULES-V3)
 - **No Re-Fly on a flight a supply route uses.** Re-flying it would take the route's recorded
   trip away, so the Fly button is greyed out and its tooltip says to delete the route first.
   (REFLY-ROUTE-SOURCE-REFUSED)
@@ -82,6 +86,26 @@ Not released yet.
   half of a symmetry pair, or a rotation servo set to Inverted, began its replay turned the
   opposite way to the real part until it first moved. It now starts where the real part stood.
   (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE)
+- **Ghosts of ReStock parts look like the real parts again.** The LV-T45 boosters of a replayed
+  Kerbal X no longer show a skirt and a second shroud, and a deployed Mk16-XL parachute opens to
+  its full size instead of staying small and folded. (RESTOCK-GHOST-SKIRT-AND-CHUTE)
+- **A flight's rows settle when it is merged, not over the next loads.** Some rows Parsek split
+  were joined back to their neighbour only on a later load, so the rows changed again after
+  loading the save. (OPTIMIZER-PASS-NOT-A-FIXED-POINT)
+- **Every row of a new flight is named by its part of the mission.** A row Parsek never had to
+  split was labelled by its raw phase ("exo") beside rows named "space", and a reentry row that
+  flew back up to orbit when you continued it kept the name "reentry". (ROW-ROLE-STALE-OR-MISSING)
+- **A flight with a missing middle row still plays and follows as one flight.** When a row was
+  gone from the middle of a split flight, watching, the end-of-flight walk and the parent links
+  stopped at the gap. (CHAIN-NEXT-PIECE-EXACT-INDEX)
+- **A loop set on one row of a flight still loops just that part when you fly it again.** When
+  the new flight absorbed the old row, its loop, hide or ghost-off setting spread over the whole
+  flight and every row cut from it later. The loop now covers the old row's span only; a hide or
+  ghost-off on that row is not carried over. (FOLDED-PIECE-ROW-SETTINGS-SPREAD)
+- **A flight you fly again keeps everything it earned after Parsek splits it.** Science and
+  milestones from the later part of a re-flown flight reached the career only on the next load,
+  and a vessel whose ending moved to the new part could fail to appear.
+  (UNION-COMMIT-STALE-INCOMING-TREE)
 - **A rescue or tourism contract still works after you go back in time.** If you go back to before
   you accepted a rescue, the stranded kerbal or part reappears when the clock reaches the accept
   again (at your next Space Center or Tracking Station visit if you are flying then), and tourism

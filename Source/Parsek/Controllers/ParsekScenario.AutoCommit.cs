@@ -38,7 +38,8 @@ namespace Parsek
                     }
                     else
                     {
-                        LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
+                        LedgerOrchestrator.NotifyLedgerTreeCommitted(
+                            TreeCommitService.ResolveCommittedTreeAfterCommit(treeToCommit, "safety-net"));
                         ParsekLog.Warn("Scenario",
                             "Safety net: committed pending tree on save outside Flight");
                     }
@@ -423,7 +424,8 @@ namespace Parsek
                     }
                     else
                     {
-                        LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
+                        LedgerOrchestrator.NotifyLedgerTreeCommitted(
+                            TreeCommitService.ResolveCommittedTreeAfterCommit(pt, "ghost-only-auto-commit"));
                         ScreenMessages.PostScreenMessage("[Parsek] Tree recording merged to timeline", 5f);
                         CommittedListOptimizer.RunOptimizationPass();
                         // snapshotsNulled is the fidelity fact this line exists to carry: it
