@@ -117,7 +117,7 @@ Cause: the cell compared two DIFFERENT instants in the world frame, and `getTrue
 
 Fix (test only): the cell evaluates both sides at the seam UT itself (the instant playback hands the ghost from one segment to the other; a one-segment list is closed at both ends) in one synchronous pass, and logs `kerbinEpoch=`, `seamMinusKerbinEpoch=` and `munSideFromMun=`. Tolerance 5 km -> 1 km, derived in the cell's comment: the same-UT residual is the patched-conic divergence 0.5 * da * L^2 (da below 0.025 m/s^2 at the Mun SOI edge, L the event's lateness behind the crossing; millimetres at SOI-3's 0.43 s, 1 km allows about 280 s of warp lag), while a wrong-body side (~12,000 km), a frame rotation above ~0.005 deg and an evaluation more than ~0.11 s off the seam all stay above it. xUnit `BgSoiSeamWorldGapTests` (3 cases) pins the three readings above from the recorded elements.
 
-Mirror check: S1.8's `SoiCrossingPlaybackInGameTests.SoiSeamWorldPositionsAreContinuous` uses the same 0.5 s either side and its pinned readings (10,146.3 m at Kerbin -> Sun, 7,284.0 m at Sun -> Duna) are the same artifact (about 1 s of heliocentric travel just after Kerbin escape and at Duna arrival), not the "capture jitter" its comment names; its 25 km tolerance therefore guards only the 50-90 thousand km class. Left unchanged here (a live-proven lane; a same-UT re-pin needs a reading flight): follow-up worth taking when S1.8 is next touched.
+Mirror check: S1.8's `SoiCrossingPlaybackInGameTests.SoiSeamWorldPositionsAreContinuous` uses the same 0.5 s either side and its pinned readings (10,146.3 m at Kerbin -> Sun, 7,284.0 m at Sun -> Duna) are the same artifact (about 1 s of heliocentric travel just after Kerbin escape and at Duna arrival), not the "capture jitter" its comment names; its 25 km tolerance therefore guards only the 50-90 thousand km class. Taken: S18-SEAM-CELL-ONE-SECOND-SPREAD (branch `test-gaps-s18-seam`) moved that cell to the same seam-UT evaluation with a 1 km tolerance and owes S1.8's re-flight.
 
 Owed: SOI-3's re-flight on a DLL from this branch; expected `bg probe seam Mun->Kerbin ut=1317.090 gap=<1 m (tolerance 1000m, both sides at the seam UT) kerbinEpoch=1316.656 seamMinusKerbinEpoch=0.434s munSideFromMun=2429672m` (the seam UT moves if the warp lands the event on another frame).
 
@@ -428,6 +428,45 @@ OPEN:
   coordinate refresh in OnSave for a locked servo).
 
 SRV-1's first flight 2026-11-20 (`2026-11-20_2314_SRV-1-hinge-followers-ghost`, runner runs `b3-flights-1` / `b3-flights-2` / `b3-flights-3` on V's PC, Debug automation DLL sha256 prefix 5b46a1c1 from `test-gaps-batch3` e59ceeebc): PARSEK-FAIL(expectation) attempt 1, with no Parsek defect shown. The `ServoFollowers` cell passed on its synthetic rig (`carried its moving-side part through 45`), but the flight itself recorded nothing to replay: both `PartAction servomax` / `servomin` set the target (`state='servo:target=90.00'` / `-90.00`) and the recorder tracked the hinge (`Robotics: tracking 'hinge.01' ... source=currentAngle`), yet 0 part events were recorded (no `RoboticMotionStarted` / `RoboticPositionSample`), and the committed pad rig's ghost is hidden by the launch-site rule (`LaunchSiteGhost: Ghost hidden: vessel 'SRV1 Hinge Rig' ... never left the launch site`), so no `Servo follower plan for 'SRV1 Hinge Rig'` was ever logged. Two lane problems: the derived craft (`build_srv_hinge_pad.py`) writes no MODULE nodes, so the hinge runs on prefab defaults (KSPCF `ModuleIndexingMismatch`) and was not seen to move (read the hinge's state next flight: locked, motor disengaged, or unpowered); and a rig that never leaves the pad has its ghost hidden by design. Redesign: give the craft its hinge MODULE (unlocked, motor engaged) and fly the rig off the pad (a hop), or replay away from the launch-site circle.
+## S18-SEAM-CELL-ONE-SECOND-SPREAD: S1.8's seam cell measured 1 s of heliocentric travel, not a seam gap [FOUND 2026-11-21 from the BG-SOI-SEAM-WORLD-GAP mirror check (branch `test-gaps-bgsoi-gap`, SOI-3's sibling cell); CELL FIXED 2026-11-21, branch `test-gaps-s18-seam`, test only; OPEN: S1.8's re-flight; low (a gate too loose to catch anything under ~25 km, no product effect)]
+
+`SoiCrossingPlaybackInGameTests.SoiSeamWorldPositionsAreContinuous` evaluated the before side at
+seam - 0.5 s and the after side at seam + 0.5 s through `TrajectoryMath.EvaluateOrbitSegmentTruePositionAtUT`,
+whose world frame `getTruePositionAtUT` anchors on the Sun. Its pinned readings (flight 3,
+2026-08-06: 10,146.3 m Kerbin -> Sun, 7,284.0 m Sun -> Duna) are exactly the probe's heliocentric
+speeds there (10,146.3 m/s and 7,284.0 m/s), not "capture jitter", and its 25 km tolerance only
+guarded the 50-90 thousand km class. The same mistake as SOI-3's cell (BG-SOI-SEAM-WORLD-GAP, on
+the `test-gaps-batch3` line).
+
+Measured headless from the corpus elements (`LoopedInterplanetaryFixture`, the flown duna-direct
+segments) through `TwoBodyOrbit` in the stored frame: each after segment's epoch is the true
+crossing (the non-Sun side sits on Kerbin's SOI radius, 84,159,286 m, and Duna's, 47,921,949 m,
+there), the handoff fired 0.015 s / 0.048 s later, and at the seam UT the two sides agree to 0.1 mm
+in position and 1e-5 m/s in velocity. The 1 s spread reproduces 10,146.3 m and 7,284.0 m to 0.01 m.
+That needs the body constants the game holds, not the rounded cfg ones: the stock prefab keeps the
+orbit elements as floats (mean anomaly 3.14f, Duna's eccentricity 0.051f and inclination 0.06f) and
+mu_Sun is 1.1723327948324905e18; the rounded values put 1.3 km / 2.1 km of along-track ephemeris
+drift into the comparison (97 m / 159 m with float elements but the rounded mu_Sun). The in-game
+cell resolves against the live bodies, so none of that reaches it. (SOI-3's headless 0.57 m Mun ->
+Kerbin residual is the same float effect: the Mun's mean anomaly 1.7f vs 1.7 is 4.8e-8 rad, 0.57 m
+at its 12,000 km orbit.)
+
+Fix (test only): the cell evaluates both sides at the seam UT in one synchronous pass and logs
+`afterEpoch=`, `seamMinusAfterEpoch=`, `localBody=`, `localSideFromBody=` and `localSoi=`. Tolerance
+25 km -> 1 km, derived in the cell's comment (patched-conic divergence 0.5 * da * L^2 with da below
+1e-3 m/s^2 at either SOI edge; 1 km allows about 1,400 s of handoff lag and still catches a
+wrong-body side, a rotation of one side's body-relative vector above ~0.0007 deg, and an evaluation
+more than ~0.1 s off the seam). xUnit `SoiSeamWorldGapTests` (7 cases) pins the crossing, the
+same-UT agreement, the 1 s readings and the wrong-body class. The S1.8 spec's two seam tokens now
+require the new tail, so a stale DLL reds them. Comments in `GhostRenderTrace` (loop-seam teleport
+floor) and `SeamEndpointOracle` that took the 10 / 7 km readings as the healthy population now call
+them an upper bound; neither threshold moves.
+
+Owed: S1.8's re-flight on a DLL from this branch (stock-minimal, daily). Expected lines:
+`seam Kerbin->Sun ut=4742953.221 gap=0.0m (tolerance 1000m, both sides at the seam UT) afterEpoch=4742953.206 seamMinusAfterEpoch=0.015s localBody=Kerbin localSideFromBody=84159300m localSoi=84159286m`
+and `seam Sun->Duna ut=9128108.755 gap=0.0m (...) afterEpoch=9128108.707 seamMinusAfterEpoch=0.048s localBody=Duna localSideFromBody=47921878m localSoi=47921949m`,
+then `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0`. After it, tighten the spec's `gap=` windows.
+
 ## ~~BG-SEPARATION-CLOSES-PARENT-RECORDING~~: a background vessel's staging closed its recording and started a second one [FIXED 2026-11-21, branch `rsr-wp8-bg-shape`; xUnit `BackgroundSeparationShapeTests`; low (two recordings-table rows for one vessel; no data lost)]
 
 Cause: a decouple or a broken-off part of a BACKGROUND vessel went through

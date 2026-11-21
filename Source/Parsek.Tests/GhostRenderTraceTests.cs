@@ -590,7 +590,7 @@ namespace Parsek.Tests
         {
             // The two measured populations: the 2026-06-15 defect (49.19 Mm at
             // Sun->Duna, 87.76 Mm at Kerbin->Sun) vs S1.8's healthy recorded
-            // seams (10,146.3 m / 7,284.0 m).
+            // seam readings (10,146.3 m / 7,284.0 m, an upper bound).
             Assert.True(SeamCall(49_190_000.0));
             Assert.True(SeamCall(87_760_000.0));
             Assert.False(SeamCall(10_146.3));

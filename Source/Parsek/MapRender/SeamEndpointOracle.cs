@@ -64,11 +64,14 @@ namespace Parsek.MapRender
         /// <c>GhostRenderTrace.IsLoopSeamTeleport</c>'s 1,000 km floor uses):</para>
         /// <list type="bullet">
         ///   <item><b>Healthy ceiling, MEASURED</b> - the S1.8 <c>S1.8-soi-crossing-playback</c> daily
-        ///     (live-proven on the committed duna-direct fixture) resolves the two flown seams
-        ///     continuous to 10,146.3 m (Kerbin-&gt;Sun) and 7,284.0 m (Sun-&gt;Duna) against a 25 km
-        ///     pin. As a fraction of the crossed sphere: 10,146.3 / 84,159,286 = 1.21e-4 (Kerbin),
-        ///     7,284.0 / 47,921,949 = 1.52e-4 (Duna); the 25 km PIN itself is 5.22e-4 of Duna's sphere.
-        ///     So measured healthy geometry lives below ~5e-4.</item>
+        ///     (live-proven on the committed duna-direct fixture) read the two flown seams at
+        ///     10,146.3 m (Kerbin-&gt;Sun) and 7,284.0 m (Sun-&gt;Duna) against its former 25 km pin. Those
+        ///     readings are 1 s of heliocentric travel (the cell compared seam - 0.5 s with
+        ///     seam + 0.5 s); at the seam UT the recorded sides agree to under a metre
+        ///     (SoiSeamWorldGapTests), so they are an UPPER bound on healthy geometry. As a fraction
+        ///     of the crossed sphere: 10,146.3 / 84,159,286 = 1.21e-4 (Kerbin),
+        ///     7,284.0 / 47,921,949 = 1.52e-4 (Duna); the 25 km figure is 5.22e-4 of Duna's sphere.
+        ///     So healthy geometry lives below ~5e-4.</item>
         ///   <item><b>Defect floor, MEASURED</b> - the 2026-06-15 forensics read 1.027 (Sun-&gt;Duna,
         ///     49.19 Mm vs a 47,921,949 m sphere) and 1.043 (Kerbin-&gt;Sun, 87.76 Mm vs 84,159,286 m).
         ///     A faithful loop replay of an interplanetary transfer reads far higher still (the

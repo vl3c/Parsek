@@ -22,9 +22,10 @@ namespace Parsek.Tests
     ///     figure is a reachable field population, and it is the one the 1.005 sizing binds on. See
     ///     the M-06 entry in todo-and-known-bugs.md.</item>
     ///   <item><b>HEALTHY (S1.8 <c>S1.8-soi-crossing-playback</c>, live-proven on the committed
-    ///     duna-direct fixture):</b> the two flown seams resolve continuous to 10,146.3 m and
-    ///     7,284.0 m, against a 25 km pin. None of those may raise - that is the whole justification
-    ///     for the 0.005 slack over the ideal 1.0 boundary.</item>
+    ///     duna-direct fixture):</b> the two flown seams read 10,146.3 m and 7,284.0 m against its
+    ///     former 25 km pin (1 s of heliocentric travel, an upper bound: at the seam UT the sides agree to
+    ///     under a metre, SoiSeamWorldGapTests). None of those may raise - that is the whole
+    ///     justification for the 0.005 slack over the ideal 1.0 boundary.</item>
     /// </list>
     ///
     /// <para>Pure math: no Unity, no shared static state, so this class does NOT need the Sequential
@@ -90,10 +91,11 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        // S1.8 MEASURED healthy seam continuity: 10,146.3 m (Kerbin->Sun) and 7,284.0 m (Sun->Duna).
+        // S1.8's healthy seam readings, an upper bound (1 s of heliocentric travel):
+        // 10,146.3 m (Kerbin->Sun) and 7,284.0 m (Sun->Duna).
         [InlineData(KerbinSoi + 10146.3, KerbinSoi)]
         [InlineData(DunaSoi + 7284.0, DunaSoi)]
-        // ...and the 25 km PIN those measurements are gated against, on the tighter sphere.
+        // ...and the former 25 km pin those readings were gated against, on the tighter sphere.
         [InlineData(DunaSoi + 25000.0, DunaSoi)]
         public void TheMeasuredHealthySeamContinuityDoesNotRaise(double dist, double soi)
         {
@@ -185,7 +187,7 @@ namespace Parsek.Tests
         {
             // The calibration claim itself, as an assertion rather than prose: the tolerance sits
             // strictly above every measured healthy reading and strictly below every measured defect.
-            double worstHealthy = (DunaSoi + 25000.0) / DunaSoi;      // the S1.8 25 km pin
+            double worstHealthy = (DunaSoi + 25000.0) / DunaSoi;      // the former S1.8 25 km pin
             double smallestDefect = 49190000.0 / DunaSoi;             // the 2026-06-15 Duna reading
 
             Assert.True(worstHealthy < SeamEndpointOracle.DefaultRatioTolerance);
