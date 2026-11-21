@@ -1076,6 +1076,9 @@ namespace Parsek
         /// </summary>
         internal const float RotorSpinningRpmThreshold = 0.5f;
 
+        /// <summary>The moving-source label of a rotor sampled through a measured RPM.</summary>
+        internal const string RotorRpmMovingSource = "rotor-rpm";
+
         /// <summary>
         /// Pure: the moving signal <see cref="CheckRoboticTransition"/> receives, and the label the
         /// tracking line logs for it. A rotor sampled through a MEASURED RPM
@@ -1099,7 +1102,7 @@ namespace Parsek
             {
                 moving = !float.IsNaN(positionValue)
                     && Math.Abs(positionValue) > RotorSpinningRpmThreshold;
-                movingSource = "rotor-rpm";
+                movingSource = RotorRpmMovingSource;
                 return;
             }
 

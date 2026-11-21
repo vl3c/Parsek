@@ -228,6 +228,22 @@ namespace Parsek
 
         #endregion
 
+        /// <summary>
+        /// Pure: the angle a Rotational servo's moving transform turns from its prefab rest
+        /// (<see cref="RoboticGhostInfo.stowedRot"/>) for a recorded value. Every recorded angle is
+        /// in stock's DISPLAYED convention (the live read, the part menu's <c>currentAngle</c> and
+        /// the snapshot's <c>targetAngle</c>), and the hinge displays its transform angle plus its
+        /// <c>modelInitialAngle</c>: stock poses the moving transform at
+        /// <c>AngleAxis(targetAngle - modelInitialAngle, mainAxis)</c>
+        /// (<c>ModuleRoboticServoHinge.JointTargetAngle</c>, decompiled KSP 1.12.5), so the prefab
+        /// rest is the displayed <c>modelInitialAngle</c>. Taking the offset back off poses a
+        /// hinge_03 / hinge_04 (offset 90) right; every offset-0 servo poses the value as before.
+        /// </summary>
+        internal static float ComputeRoboticPoseAngleDegrees(float recordedValue, float poseAngleOffsetDegrees)
+        {
+            return recordedValue - poseAngleOffsetDegrees;
+        }
+
         private static void ApplyRoboticPose(RoboticGhostInfo info, float value)
         {
             if (info == null || info.servoTransform == null)
@@ -243,8 +259,8 @@ namespace Parsek
             }
             else if (info.visualMode == RoboticVisualMode.Rotational)
             {
-                info.servoTransform.localRotation =
-                    info.stowedRot * Quaternion.AngleAxis(value, axis);
+                info.servoTransform.localRotation = info.stowedRot * Quaternion.AngleAxis(
+                    ComputeRoboticPoseAngleDegrees(value, info.poseAngleOffsetDegrees), axis);
             }
 
             if (info.followers != null)

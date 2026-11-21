@@ -152,13 +152,15 @@ namespace Parsek.InGameTests
             InGameAssert.IsLessThan(Quaternion.Angle(baseRestRot, baseSide.localRotation), RotationToleranceDegrees,
                 "the base-side part must not turn with the servo");
 
+            // The spawn pose's recorded value: 0 for most servos, the displayed rest angle
+            // (modelInitialAngle) for an offset hinge such as hinge_03.
             GhostPlaybackLogic.ApplyRoboticEvent(state, new PartEvent
             {
                 ut = 2.0,
                 partPersistentId = ServoPid,
                 moduleIndex = 0,
                 eventType = PartEventType.RoboticMotionStopped,
-                value = 0f,
+                value = info.spawnValue,
             }, 2.0);
 
             InGameAssert.IsLessThan((moving.localPosition - movingRestPos).magnitude, PositionToleranceMeters,

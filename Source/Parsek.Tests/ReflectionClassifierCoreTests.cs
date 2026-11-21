@@ -1467,6 +1467,7 @@ namespace Parsek.Tests
             var movingSet = new HashSet<ulong>();
             var positions = new Dictionary<ulong, float>();
             var sampleUT = new Dictionary<ulong, double>();
+            var windows = new Dictionary<ulong, FlightRecorder.RoboticMotionWindow>();
             var events = new List<PartEvent>();
 
             // 0.02 s physics frames: spin up 0 -> 230 RPM over 1 s, hold 3 s, spin down over 1 s,
@@ -1480,12 +1481,12 @@ namespace Parsek.Tests
                 else if (frame <= 250) rpm = 230f * (250 - frame) / 50f;
                 else rpm = 0f;
 
-                FlightRecorder.ResolveRoboticMovingSignal(
-                    "ModuleRoboticServoRotor", "servoRateOfMotion", rpm,
-                    hasModuleFlag: false, moduleFlag: false, out bool moving, out _);
-                events.AddRange(FlightRecorder.CheckRoboticTransition(
-                    key, 400, 0, "rotor.01", moving, rpm, 0.5f, ut,
-                    movingSet, positions, sampleUT, 0.25));
+                events.AddRange(FlightRecorder.EvaluateRoboticPoll(
+                    key, 400, 0, "rotor.01", "ModuleRoboticServoRotor", "servoRateOfMotion",
+                    hasModuleFlag: false, moduleFlag: false, positionValue: rpm, deadband: 0.5f, ut: ut,
+                    movingSet: movingSet, lastPositionMap: positions, lastSampleMap: sampleUT,
+                    motionWindows: windows, sampleIntervalSeconds: 0.25,
+                    movingSource: out _, sampleDeadband: out _));
             }
 
             Assert.Single(events, e => e.eventType == PartEventType.RoboticMotionStarted);

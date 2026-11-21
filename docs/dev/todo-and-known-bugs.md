@@ -346,9 +346,15 @@ gained `IModuleFieldValues.TryGetServoTransformAngleDegrees`; its live half
 `TrySelectServoMainAxisAngle` picks the axis and wraps above 180 the same way. The new stage
 (`TryClassifyLiveServoAngleFromFieldValues`) adds the hinge's `modelInitialAngle` (the
 rotation servo adds nothing), so the value is what `currentAngle` shows with the menu open: the
-same convention as `targetAngle` and the ghost's snapshot baseline, so playback is unchanged.
-The tracking line reads `source=servoTransformAngle`. A servo with no moving object yet falls
-back to the old plan. No save-format change (the event values keep their meaning).
+same convention as `targetAngle` and the ghost's snapshot baseline. The tracking line reads
+`source=servoTransformAngle`. A servo with no moving object yet falls back to the old plan. No
+save-format change (the event values keep their meaning).
+
+Follow-ups from the review (2026-11-21, branch `test-gaps-robotics-debounce`): a servo moving
+slower than about 6 deg/s flooded the event stream with Started / Stopped pairs
+(RECORDER-ROBOTIC-MOTION-DEBOUNCE, below), and the ghost posed every recorded hinge angle without
+taking the hinge's `modelInitialAngle` back off, so hinge_03 / hinge_03_s / hinge_04 replay 90 deg
+off (GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE, below). Both fixed.
 
 The rotor has the same shape (its `currentRPM` is refreshed only in `UpdatePAWUI`): fixed
 separately, RECORDER-ROTOR-RPM-PAW-ONLY below.
@@ -384,8 +390,15 @@ recorder, makes a rotor sampled through a measured RPM (`servoRateOfMotion` or `
 moving while it spins above 0.5 RPM (stock's `IsMoving()` threshold); every other module keeps
 its module flag or the inference, and a rotor read through `rpmLimit` (a setting) stays inferred.
 A steady spin now records Started, samples while the RPM changes, and Stopped only once it spins
-down. The tracking line reads `Robotics: tracking 'rotor...' ... module=ModuleRoboticServoRotor
-source=servoRateOfMotion ... moving=rotor-rpm`. No save-format change (the event values keep their
+down. Follow-up 2026-11-21 (review, branch `test-gaps-robotics-debounce`, with
+RECORDER-ROBOTIC-MOTION-DEBOUNCE): the spin signal was OR'd with the value inference, so a
+spin-down whose last sample sat between 0.125 and 0.5 RPM never emitted Stopped and the ghost kept
+creeping round until the recording ended; for the rotor-rpm source the signal now decides alone
+(Stopped the frame the RPM falls to 0.5). And the fixed 0.5 RPM sample deadband turned a hovering
+rotor's normal wobble into a 4 Hz sample stream; the rotor-rpm deadband is now
+max(0.5 RPM, 2% of the RPM). The tracking line reads `Robotics: tracking 'rotor...' ...
+module=ModuleRoboticServoRotor source=servoRateOfMotion deadband=max(0.500,2%rpm) sampleHz=4.0
+moving=rotor-rpm stopHold=0.25s stop=signal`. No save-format change (the event values keep their
 meaning). Not changed: the recorded RPM is unsigned, as `currentRPM` is, so the ghost spins in its
 snapshot's direction.
 
@@ -405,6 +418,75 @@ OPEN:
   mark, a Stopped after it, then the replay's follower plan / bind (servos=1 followers=1), a
   robotic apply, the first rotor spin and the rotor's first follower re-pose. The ServoFollowers
   in-game cell skips rotors (it poses a servo), so SRV-2 runs no batch.
+
+## ~~RECORDER-ROBOTIC-MOTION-DEBOUNCE~~: a slow servo flooded the recording with Started / Stopped pairs, and a rotor could end a spin-down still "moving" [FILED 2026-11-21 from the review of RECORDER-SERVO-ANGLE-PAW-ONLY / RECORDER-ROTOR-RPM-PAW-ONLY. FIXED 2026-11-21, branch `test-gaps-robotics-debounce`; xUnit `RoboticMotionDebounceTests` (21 red before the fix; mutating the rotor's signal-decides, the start deadband or the stop hold reds 9 / 4 / 3 cells); live proof owed (SRV-1 re-flight for the hinge; no rotor lane); medium (event volume on every Breaking Ground servo, and a spin-down that never stopped on the replay)]
+
+Cause: `FlightRecorder.CheckRoboticTransition` (shared by both recorders) inferred motion from ONE
+frame's change against the last EMITTED value, at a quarter of the deadband (0.125 deg). A servo
+moving slower than about 6.25 deg/s changes by less than that per 0.02 s physics frame, so it read
+stopped, then moving again two frames later: a RoboticMotionStarted / RoboticMotionStopped pair
+every 2-3 frames (about 33 events a second at 5 deg/s), and about a dozen extra pairs in the
+settle tail of every ordinary swing as stock's drive eases in. For the rotor the inference was
+OR'd with the spin signal (RECORDER-ROTOR-RPM-PAW-ONLY), so a spin-down whose last sample sat
+between 0.125 and 0.5 RPM kept reading moving at 0 RPM and the ghost's RotorRpm mode crept round
+until the recording ended. And the rotor's sample deadband was the angular 0.5, applied to an RPM
+near 460: a steady hover's wobble of more than 0.5 RPM emitted a sample at the 4 Hz cap forever.
+
+Fix (`FlightRecorder.PartEvents.cs`): one poll, `EvaluateRoboticPoll`, used by the active and the
+background recorder alike (the BG recorder now also logs the tracking line, with `(bg vessel N)`,
+and an unsampleable module once). A pose servo is debounced by a per-key `RoboticMotionWindow`
+(new instance dictionaries `roboticMotionWindows`, no static): at rest it starts only on a module
+flag or a change of a whole deadband from its rest value (`RoboticStartDeadbandFraction`); while
+moving, a change of a quarter deadband from the window reference (or a true flag) is evidence and
+restarts the window, and it stops only once a whole stop hold (one 0.25 s sample interval) passes
+without evidence; the Stopped event carries the settled value. A window whose key lost its
+`lastRoboticPosition` entry (rails transition, departed part, reset) re-seeds on the next poll, so
+those clear paths need no change. For the rotor-rpm source the spin signal decides alone, and the
+sample deadband is `ResolveRoboticSampleDeadband` = max(0.5 RPM, 2% of the RPM): at hundreds of RPM
+the blades turn several revolutions per rendered frame and a 2% rate difference is not visible.
+The tracking line gained `stopHold=0.25s stop=debounced|signal` and, for the rotor,
+`deadband=max(0.500,2%rpm)` (the `source=` / `moving=` tokens are unchanged). Measured in the
+xUnit loop: 10 s at 5 deg/s gives 1 Started, at most 41 samples, 1 Stopped (it was hundreds of
+events); sub-deadband creep is silent; the worst stop-start rhythm (0.45 deg/s) stays within 2
+events a second; a noisy 460 RPM hover gives at most 4 samples a minute; every spin-down profile
+of a sweep ends Stopped. `GearSuspensionRoboticGateTests`' root-cause cell now pins that the core
+alone no longer storms on suspension jitter (the suspension gate stays). No save-format change.
+
+## ~~GHOST-HINGE-POSE-MODEL-INITIAL-ANGLE~~: a hinge_03 / hinge_03_s / hinge_04 ghost posed 90 deg off [FILED 2026-11-21 from the review of RECORDER-SERVO-ANGLE-PAW-ONLY (code reading + decompile). FIXED 2026-11-21, branch `test-gaps-robotics-debounce`; xUnit `RoboticPoseAngleOffsetTests` (4 red before the fix); live proof owed: no lane flies an offset hinge; medium (visual only: the G-11 Hinge's larger siblings replay bent at the wrong angle)]
+
+Cause (pre-existing): every recorded hinge angle is in stock's DISPLAYED convention. The live read
+and the part menu's `currentAngle` are `currentTransformAngle() + modelInitialAngle`
+(`ModuleRoboticServoHinge.UpdatePAWUI`), and the snapshot baseline reads the commanded
+`targetAngle`. Decompiled KSP 1.12.5, stock poses the moving transform at
+`AngleAxis(JointTargetAngle, mainAxis)` with `JointTargetAngle = targetAngle - modelInitialAngle`
+(`OnVisualizeServo`, `SetTargetRotation(..., setRotation: true)`), so the model's rest pose IS the
+displayed `modelInitialAngle` (hinge_03.cfg: `targetAngle = 90`, `modelInitialAngle = 90`). No
+ghost code read `modelInitialAngle`: `ApplyRoboticPose` turned `stowedRot` (the prefab rest) by the
+displayed value, so the three `modelInitialAngle = 90` hinges posed 90 deg off, at rest and through
+every swing, and with no snapshot baseline spawned at the displayed 0 (fully closed) instead of the
+rest.
+
+Fix: the ghost builder reads the prefab hinge's `modelInitialAngle`
+(`GhostVisualBuilder.ResolveRoboticPoseAngleOffsetDegrees`, hinge only, a missing or non-finite
+field is 0; one rate-limited `Servo pose offset for '<part>' ... modelInitialAngle=90.0 taken off
+every recorded angle` Verbose line when non-zero) into `RoboticGhostInfo.poseAngleOffsetDegrees`,
+`ApplyRoboticPose` turns by `ComputeRoboticPoseAngleDegrees(value, offset)` = value - offset, and a
+servo with no snapshot baseline spawns at `ResolveRoboticDefaultSpawnValue` (the offset for a
+Rotational servo), which poses the prefab rest. Every offset-0 servo (hinge_01 / hinge_01_s /
+hinge_02, every rotation servo) poses exactly as before, so their existing recordings replay
+identically. The in-game `ServoFollowers` cell now returns its servo to the spawn pose through
+the servo's own `spawnValue` rather than a literal 0 (the same for an offset-0 servo, the rest for
+an offset hinge). No save-format change.
+
+OPEN:
+- Live proof: an offset hinge lane (or an in-game cell over a hinge_03 ghost) must show the
+  `Servo pose offset` line and the ghost's moving transform within a degree of stock's at rest and
+  after a swing.
+- Not fixed (pre-existing, separate): a hinge with `mirrorRotation` (stock mirrors it on a
+  symmetry counterpart) poses its moving transform at `-targetAngle - modelInitialAngle` and also
+  turns its base. The live recorded value (transform angle + offset) poses right after this fix,
+  but the snapshot baseline's `targetAngle` has the wrong sign for a mirrored hinge, and the base
+  turn is not modelled.
 
 ## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
 

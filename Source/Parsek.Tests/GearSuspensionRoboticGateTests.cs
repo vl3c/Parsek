@@ -46,6 +46,8 @@ namespace Parsek.Tests
             private readonly HashSet<ulong> moving = new HashSet<ulong>();
             private readonly Dictionary<ulong, float> lastPosition = new Dictionary<ulong, float>();
             private readonly Dictionary<ulong, double> lastSample = new Dictionary<ulong, double>();
+            private readonly Dictionary<ulong, FlightRecorder.RoboticMotionWindow> windows =
+                new Dictionary<ulong, FlightRecorder.RoboticMotionWindow>();
             private readonly HashSet<ulong> loggedKeys = new HashSet<ulong>();
             private readonly string subsystem;
             private readonly uint? backgroundVesselPid;
@@ -72,7 +74,7 @@ namespace Parsek.Tests
                     events.AddRange(FlightRecorder.CheckRoboticTransition(
                         key, pid, moduleIndex, partName, false, values[i], deadband,
                         startUT + i * frameSeconds, moving, lastPosition, lastSample,
-                        SampleIntervalSeconds));
+                        SampleIntervalSeconds, windows));
                 }
                 return events;
             }
@@ -96,13 +98,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RootCause_TheUngatedTransitionTurnsMillimetreJitterIntoAStartStopStorm()
+        public void TheTransitionCoreAloneNoLongerTurnsMillimetreJitterIntoAStartStopStorm()
         {
-            // Documents the defect the gate removes: the transition core alone, fed the jitter,
-            // emits a Started / Stopped pair every few frames.
+            // The defect the gate was added for: the transition core, fed the jitter, emitted a
+            // Started / Stopped pair every few frames (over 200 events). Since the motion debounce
+            // (todo RECORDER-ROBOTIC-MOTION-DEBOUNCE) a resting module starts only on a whole
+            // deadband of change, so sub-deadband jitter is silent even ungated; the gate stays
+            // because suspension travel is not recorded at all.
             var moving = new HashSet<ulong>();
             var last = new Dictionary<ulong, float>();
             var sample = new Dictionary<ulong, double>();
+            var windows = new Dictionary<ulong, FlightRecorder.RoboticMotionWindow>();
             ulong key = FlightRecorder.EncodeEngineKey(4001u, 0);
             List<float> values = RunwayRollJitter(1100);
             int events = 0;
@@ -110,10 +116,10 @@ namespace Parsek.Tests
             {
                 events += FlightRecorder.CheckRoboticTransition(
                     key, 4001u, 0, "GearMedium", false, values[i], SuspensionDeadband,
-                    100.0 + i * 0.02, moving, last, sample, SampleIntervalSeconds).Count;
+                    100.0 + i * 0.02, moving, last, sample, SampleIntervalSeconds, windows).Count;
             }
 
-            Assert.True(events > 200, "ungated jitter emitted only " + events + " events");
+            Assert.Equal(0, events);
         }
 
         [Fact]

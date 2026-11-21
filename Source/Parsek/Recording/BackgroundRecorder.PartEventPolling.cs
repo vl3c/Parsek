@@ -461,18 +461,31 @@ namespace Parsek
                 bool hasPosition = FlightRecorder.TryGetRoboticPositionValue(
                     module, moduleName, out float positionValue, out float deadband, out string sourceField);
 
-                if (!hasPosition) continue;
+                if (!hasPosition)
+                {
+                    if (state.loggedRoboticModuleKeys.Add(key))
+                        ParsekLog.Verbose("BgRecorder", $"Robotics: unable to sample '{part.partInfo?.name}' " +
+                            $"pid={part.persistentId} midx={moduleIndex} module={moduleName} " +
+                            $"(bg vessel {state.vesselPid})");
+                    continue;
+                }
 
                 bool hasMovingSignal = FlightRecorder.TryGetRoboticMovingState(module, out bool movingSignal);
-                FlightRecorder.ResolveRoboticMovingSignal(moduleName, sourceField, positionValue,
-                    hasMovingSignal, movingSignal, out movingSignal, out _);
 
-                var events = FlightRecorder.CheckRoboticTransition(
+                // The same poll as the active recorder (FlightRecorder.CheckRoboticState): moving
+                // signal, sample deadband and the debounced transition machine.
+                var events = FlightRecorder.EvaluateRoboticPoll(
                     key, part.persistentId, moduleIndex,
-                    part.partInfo?.name ?? "unknown",
-                    movingSignal, positionValue, deadband, ut,
+                    part.partInfo?.name ?? "unknown", moduleName, sourceField,
+                    hasMovingSignal, movingSignal, positionValue, deadband, ut,
                     state.activeRoboticKeys, state.lastRoboticPosition,
-                    state.lastRoboticSampleUT, roboticSampleIntervalSeconds);
+                    state.lastRoboticSampleUT, state.roboticMotionWindows,
+                    roboticSampleIntervalSeconds, out string movingSource, out _);
+
+                if (state.loggedRoboticModuleKeys.Add(key))
+                    ParsekLog.Verbose("BgRecorder", FlightRecorder.FormatRoboticTrackingLine(
+                        part.partInfo?.name, part.persistentId, moduleIndex, moduleName, sourceField,
+                        deadband, movingSource, roboticSampleIntervalSeconds, state.vesselPid));
 
                 for (int e = 0; e < events.Count; e++)
                 {
