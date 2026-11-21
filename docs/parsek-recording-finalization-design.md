@@ -24,6 +24,8 @@ The landed implementation includes:
 - Maneuver-node-safe finalization: UI maneuver nodes are detected and stock node-contaminated tails are discarded in favor of current-state propagation.
 - Headless xUnit coverage and `RecordingFinalization` in-game runtime canaries, with the remaining gameplay checklist kept in the manual-testing doc.
 
+The abandoned-stage contract (owner rulings of 2026-11-18 and 2026-11-21, todo ABANDONED-STAGE-REPLAY) sets what a predicted ending is: a drag-free fall ends at ground or water impact, an orbit dipping below the deletion line crashes on its first pass, a tail with no natural end settles on its final orbit and spawns there, a stage under open chutes descends to a touchdown, a Destroyed ending kills the crew whether stock destroyed the vessel or Parsek predicted it, flying the stage again drops the prediction, and a prediction stock contradicts is taken back. Every rule below is the current one; the ruling ids name where it came from.
+
 Known limitation:
 
 - `docs/dev/done/todo-and-known-bugs-v5.md` item 639 tracked a patched-conic atmospheric-tail cache refresh that could flip from `Destroyed` to `Orbiting` from a far-future segment. It was closed 2026-05-10 as not-pursued: it is a diagnostic-only cache thrash, not a correctness bug, because the active-recorder `VesselDestroyedDuringRecording` override is authoritative. Reopen only if a future path comes to depend on that cache without the override.
@@ -100,7 +102,7 @@ when a recording ends:
         use today's inference fallback and log the degraded result
 ```
 
-KSP's unload model gives the policy its shape. Unloaded vessels move on rails; atmospheric forces are not applied to distant vessels. Community-facing KSP API docs describe unloaded/on-rails motion as orbital-only rather than full-atmosphere physics, and KSP players document the stock auto-delete behavior for objects below the body-specific deletion altitude and outside the active vessel's physics bubble. Parsek mirrors that gameplay outcome: in-atmosphere unfocused deletion is `Destroyed`; stable vacuum orbit is `Orbiting`.
+KSP's unload model gives the policy its shape. Unloaded vessels move on rails along their drag-free conic; atmospheric forces are not applied to distant vessels. Decompiled `Vessel.cs` (KSP 1.12.5): a packed, non-active vessel that is not landed or splashed and is outside the active vessel's pack range is deleted, its crew killed (`MurderCrew`), when `mainBody.GetPressure(altitude) > 1.0` kPa; an unloaded vessel below the terrain is deleted too. This document calls that 1 kPa altitude of a body the **deletion line** (about 25 km on Kerbin; it is not the atmosphere top). Parsek follows the game (owner principle P-STOCK, 2026-11-21: committed endings and crew outcomes must not contradict stock's background simulation): a vessel stock would delete in the air ends `Destroyed` with its fall followed to the ground; an orbit whose low point clears the deletion line (and the highest terrain) is `Orbiting`.
 
 ## Gameplay Scenarios
 
@@ -111,9 +113,10 @@ The player launches a two-stage rocket. The first stage has a probe core and par
 Expected Parsek behavior:
 
 - The booster background recording has its own finalization cache.
-- While the booster is loaded, the cache refreshes from its falling state.
-- When KSP unloads/deletes the booster, Parsek consumes the cache, appends the predicted/descent tail, sets `TerminalStateValue = Destroyed`, and records the terminal UT.
-- The booster appears as an Unfinished Flight if its parent branch has a Rewind Point.
+- While the booster is loaded, the cache refreshes from its falling state: a drag-free fall to ground impact, or, once its chutes are open, a chute descent to a touchdown.
+- When KSP unloads or deletes the booster, Parsek consumes the cache and appends the predicted tail past the close, never cut to the close time.
+- Chutes open and stock still holds the booster: it ends `Landed` / `Splashed` at the predicted touchdown (if the descent is slow enough) and spawns there. Stock deleted it in the air: it ends `Destroyed` as stock decided, crew dead, no spawn, and its ghost descends under its chutes and ends quietly at the ground. No chutes, or chutes still closed: `Destroyed` at ground impact, with the explosion there.
+- The booster appears as an Unfinished Flight if its parent branch has a Rewind Point; a predicted touchdown keeps the separation open too.
 
 ### Mun Lander and Orbiter
 
@@ -210,7 +213,20 @@ Ownership:
 - `VesselPersistentId = 0` means unknown legacy/test identity. Cache application still requires `RecordingId` to match, and when both sides have a nonzero vessel PID, those PIDs must match too.
 - The cache payload is copied into the target `Recording` only when a consumer finalizes that recording.
 
-No `Recording` field is needed for the cache itself. Applying a cache reuses existing persisted fields: `OrbitSegments`, `ExplicitEndUT`, `TerminalStateValue`, terminal orbit fields, `TerminalPosition`, and `TerrainHeightAtEnd`.
+No `Recording` field is needed for the cache itself. Applying a cache reuses existing persisted fields: `OrbitSegments`, `ExplicitEndUT`, `TerminalStateValue`, terminal orbit fields, `TerminalPosition`, and `TerrainHeightAtEnd`. A chute descent also carries its points in the cache (`PredictedDescentPoints`), copied by both background cache copies.
+
+### Persisted markers of a predicted ending
+
+Four persisted markers record what the finalizer predicted, as opposed to what was watched. All four are ADDITIVE under the save-format policy (`docs/dev/design-save-format-policy.md`): no recording format or schema generation bump, an absent key reads as false / the old behaviour, and an older build ignores the keys (an older text reader reads the new section source as `Active`).
+
+| Key / member | Where | Meaning |
+| --- | --- | --- |
+| `terminalPredicted` (`Recording.TerminalPredicted`) | recording, sparse | The Destroyed / Landed / Splashed ending was predicted while KSP still had the vessel, not observed. `StampTerminalState(predicted)` keeps it only beside those three endings; every other stamp clears it. Read by the takeover, playback hiding, the reconciler, the recovery overwrite rule and the Unfinished Flights classifier. |
+| `terminalRemnantSurvives` (`Recording.TerminalRemnantSurvives`) | recording, sparse, only beside Destroyed | An identity loss sealed the recording while a remnant KSP keeps still exists (`MarkDestroyedAtTerminal(vesselSurvives)`); the crew are then judged per part (edge case 30). |
+| `quietEnd` (`Recording.QuietDestroyedEnd`) | recording, sparse | A chuted craft stock deleted ends `Destroyed` with no explosion: the ghost comes down under its chutes and ends at the ground (edge case 28). A marker, not derived: a chute descent ending `Destroyed` is otherwise the too-fast crash, which explodes. |
+| `TrackSectionSource.Predicted` (= 3) | track section `src` | A section the finalizer predicted (the chute descent), not watched samples. Carried by the binary sidecar as the int and read by the text reader. |
+
+`OrbitSegment.isPredicted` stays the marker for predicted orbit segments. The codec, `DeepClone` / `ApplyPersistenceArtifactsFrom`, `SessionMerger`, `SplitAtUT`, `AbsorbInto` and `IPlaybackTrajectory` carry the three recording flags. `RecordingTree.MergePartnerCoastEvidence` (the merged vessel's orbit at a dock or board, edge case 32) is in memory only and never serialized.
 
 ## Behavior
 
@@ -251,22 +267,51 @@ The active recorder attempts the highest-fidelity cache:
 Background recorders do not have the same solver access as the active vessel. They still cache a reliable terminal outcome:
 
 - Loaded background vessels in the physics bubble can refresh from live vessel/orbit state.
-- On-rails background vessels can refresh from `vessel.orbit` and existing on-rails checkpoints.
-- Stable vacuum orbits cache `Orbiting` plus terminal orbit metadata. "Stable" means a bound orbit whose periapsis clears the body's periapsis floor (`OrbitClearance`: the atmosphere top, or the highest terrain on an airless body), the same line the terminal-orbit spawn check reads (operator ruling 2026-09-27, flight-recorder design 13.5). An extrapolated `Orbiting` whose last segment's periapsis is under the floor (the extrapolator ran out its horizon on an airless-body orbit whose sampled ground track missed the peaks) is downgraded to `SubOrbital`.
-- Atmospheric or suborbital cases cache `Destroyed` at the predicted KSP deletion/destruction endpoint. If KSP deletes the vessel before the extrapolator's endpoint, the deletion event wins the terminal state but the cached tail still explains the end.
+- On-rails background vessels can refresh from `vessel.orbit` and existing on-rails checkpoints. Only the active vessel has a patched-conic solver (decompiled `Vessel.MakeActive` / `MakeInactive`), so a solver-less live vessel (debris, an EVA kerbal, an undocked craft) is followed along its live orbit to its natural ending, never read as "Destroyed now" (`IsLiveVesselAlive`).
+- A vessel packed by warp inside the atmosphere records its on-rails conic too (stock moves it on that drag-free conic until it deletes, unpacks or hands it over). The span carries one fixed environment label, Atmospheric, cleared at an SOI change (`BackgroundOnRailsState.packedInsideAtmosphere`), so it adds no optimizer split candidate; the refresh keeps the live-vessel cache for such a span and rebuilds from the conic only when the cache is missing, empty or failed.
+- Stable orbits cache `Orbiting` plus terminal orbit metadata. "Stable" means a bound orbit whose periapsis clears the body's **periapsis floor** (`OrbitClearance`: max(deletion line, highest terrain); the deletion line is 0 on an airless body), the same line commit classification (`RecordingTree.IsBoundOrbitClearOfFloor`), the terminal-orbit spawn check (`TerminalOrbitSpawnSafety`, operator ruling 2026-09-27 "any orbit Parsek calls Orbiting will spawn", flight-recorder design 13.5), the Re-Fly auto-seal preview and the extrapolator read. The on-rails stable-orbit cache (`TryBuildFromStableOrbitSegment`) checks the floor too: an unbound conic or one under the floor is extrapolated into its real ending. An extrapolated `Orbiting` whose last segment's periapsis is under the floor (the horizon cap ran out on an airless-body orbit whose ground track missed the peaks) is downgraded to `SubOrbital`.
+- Falling, suborbital and escaping cases cache the predicted ending (see "Predicted endings"). A stock deletion does not cut the tail: the predicted fall continues to its end (owner ruling Q1a).
 
 This does not create a cross-scene background recorder. The cache only protects the in-flight session that is already recording.
+
+### Predicted Endings
+
+`BallisticExtrapolator.ShouldExtrapolate` follows a FLYING, SUB_ORBITAL or ORBITING coast that is unbound, under the periapsis floor or unknown, and always an ESCAPING one; a bound coast clear of the floor is a stable orbit and is not extrapolated. The propagation stays a plain drag-free Kepler arc (owner ruling Q5) and ends on the first of:
+
+- **Ground or water impact** (`reason=surface-impact`): `Destroyed` with the explosion there (Q2). There is no atmosphere-top stop. Water counts on an ocean body; on a body without an ocean the fall ends at the real ground below the datum (`ExtrapolationBody.TerrainBelowDatum`). A closed conic whose low point is among the peaks scans later periapsis passes for an impact, with the body turning under it.
+- **Deletion periapsis** (`reason=deletion-periapsis`): a low point above the ground but below the deletion line ends `Destroyed` at the first periapsis pass (Q3).
+- **Final conic** (`reason=stable-conic`, owner ruling Q8): a conic that is bound, has its periapsis strictly above the floor, stays inside the SOI and has no surface event or sphere change within one period is final; the tail ends `Orbiting` after `FinalConicSettleSeconds` (60 s, at most a quarter period) on it, and the vessel spawns there with its crew when the replay reaches it. An open conic around a body with no parent (the Sun) with no child sphere ahead ends `SubOrbital` the same way (`reason=final-escape`) and spawns on its path (ruling Q10). Encounters after the first period are not predicted; the spawned vessel meets them in stock.
+- **Horizon cap**: 50 Kerbin years (KSP's calendar year), only for unresolved cases, with a Warn naming ecc, periapsis and floor.
+
+Child SOI entries are searched inside the child's radial band with every near closest approach refined; the reverse crossing at an SOI transition instant is suppressed. A pending maneuver node keeps the stock patches up to the node and propagates the unburned coast from there. An orbit rebuilt from a recorded body-fixed sample uses the planet rotation of the sample's own UT. Every predicted segment carries the live vessel's spin.
+
+**Chute descent** (owner rulings Q4, Q10b, Q11). A live vessel in an atmosphere with a parachute DEPLOYED or SEMIDEPLOYED (ModuleParachute; for an unloaded vessel also ModuleEvaChute and RealChute's module, read from the persisted proto by `ParachuteProtoModuleRead` on `asr-edgefix`, merge owed) gets a descent instead of the fall: `ParachuteDescentPlanner` keeps the body-fixed lat / lon and descends at constant speed (deployed: the measured rate; semi-deployed: the measured rate down to the full-deploy altitude, then the full-canopy rate). A chute staged but still armed does not count. The stage survives only at or below `MaxSafeLandingRate` = 12 m/s under full canopies; faster it ends `Destroyed` at ground impact. Survived: `Landed` on the terrain or `Splashed` at sea level, the touchdown written into the end snapshot so the spawn sits where the replay lands. The descent is stored as one Absolute, Atmospheric `TrackSectionSource.Predicted` section from the last authored UT to the ending. (RE-CHECK when `asr-semichute` lands: the full-canopy rate of a semi-deployed chute is being changed from a fixed 7 m/s to an estimate from drag and air density, todo ABANDONED-STAGE-SEMICHUTE-RATE.)
+
+### Crew Of A Predicted Ending
+
+A `Destroyed` ending kills the crew, whether KSP destroyed the vessel or Parsek predicted the crash (owner ruling Q6c, "if it's destroyed, the crew is dead"; stock warns that leaving flight in the atmosphere loses the vessel, P-LEAVE). The way out is flying the stage again (Q1b). Parsek never invents a reputation number: a death penalty row exists only when stock took one (Q12b). A chuted craft stock deleted is `Destroyed` with its crew dead and nothing spawned (Q4d); a chuted craft stock still holds keeps `Landed` / `Splashed` and spawns its crew. In a breakup, only kerbals whose part KSP destroyed die (Q6b, edge case 30). A stage recovered before its predicted crash UT ends `Recovered` with its crew (Q13).
+
+### Takeover And Reconcile
+
+A predicted ending is a guess about a vessel KSP may still hold. Two paths take it back, and both only ever move Parsek toward stock:
+
+- **Takeover** (owner ruling Q1b): the player flies the stage again (edge cases 31-33).
+- **Reconciler** (P-STOCK, P-LEAVE): stock kept the vessel alive past its predicted crash (edge case 34).
+
+### Background Close
+
+A background close (debris time limit, unload, parent close, confirmed destruction) keeps the cache's predicted ending when its terminal UT is at or after the close: a `Destroyed` / `Landed` / `Splashed` ending, and an `Orbiting` / `SubOrbital` one when the cache carries a predicted segment past the close (a final orbit). A switch close passes `retainPredictedTailPastEnd=false`, so a tail never overlaps the continuation; an ending pulled back to the close drops the cache's far `TerminalOrbit`, so the applier stamps the orbit of the last retained segment. A close after an ending the cache already predicted (a deletion Parsek did not see) is clamped to that ending.
 
 ### Applying a Cache
 
 When a cache is consumed:
 
-1. Find the last real authored UT on the `Recording` from `Points`, `TrackSections`, and non-predicted `OrbitSegments`.
-2. Drop cached segments that end before that UT.
+1. Find the last real authored UT on the `Recording` from `Points`, `TrackSections`, and non-predicted `OrbitSegments` (`TryGetLastAuthoredUT` skips `Predicted` sections and the flat points after their start).
+2. Drop cached segments that end before that UT; zero-length segments are dropped everywhere.
 3. Clamp the first retained segment start to the last real UT when safe.
-4. Append retained predicted segments with `isPredicted = true`.
+4. Append retained predicted segments with `isPredicted = true`. A chute descent replaces any older one (`RemovePredictedDescent`) and appends its `Predicted` section, whose first frame is the real last sample when body-fixed (deduped), the body-fixed shadow of a Relative last sample, else the descent evaluated there; its points carry the last sample's funds / science / reputation.
 5. Set `ExplicitEndUT` to the cache terminal UT if it extends the recording.
-6. Set `TerminalStateValue`, terminal orbit/surface metadata, and terrain height when present.
+6. Set `TerminalStateValue`, terminal orbit/surface metadata, and terrain height when present. The ending is stamped `TerminalPredicted` unless the cache came from a destroy-event refresh or the caller confirmed the destruction.
 7. Mark files dirty if the recording has already flushed sidecar data.
 8. Emit a single summary log line naming the cache age, freshness, source, and consumer path.
 
@@ -278,13 +323,17 @@ The implementation consumes cache at these seams:
 
 - scene exit for active and background recordings when the live finalizer declines or the vessel is missing
 - manual commit or revert commit when a leaf/background vessel is already missing but has a usable cache
+- an in-flight commit (Commit Flight, the far Switch-To Case B merge, a post-crash merge): a live non-active leaf, and the active leaf when the pre-switch Merge abandons it (`CommitTreeFlightAbandoningActiveVessel`), runs the lifetime finalizer, or a fresh `Destroyed` cache when it declines, before the situation stamp (owner ruling Q1b). A plain CommitTree keeps the active vessel's live situation stamp. The background recorder is torn down after the commit (`ReleaseBackgroundRecorderAfterInFlightCommit`), so committed recordings gain no part events.
 - active vessel destruction after crash coalescing decides the recording/tree should finalize
-- confirmed background destruction through `ParsekFlight.DeferredDestructionCheck` after `OnBackgroundVesselWillDestroy` has refreshed/flushed and kept the cache
-- debris TTL, out-of-bubble, and missing-vessel termination in `BackgroundRecorder.CheckDebrisTTL`
+- confirmed background destruction through `ParsekFlight.DeferredDestructionCheck` after `OnBackgroundVesselWillDestroy` has refreshed/flushed and kept the cache. A destroy refresh of a packed, airborne vessel is a stock on-rails deletion: it runs the normal extrapolation coerced to `Destroyed`, never stamps the recording eagerly, and the recorder prefers the fresh fall, then the previous cache's fall, then "Destroyed now". The false-destroy branch takes back an eager stamp and drops that refresh's cache.
+- debris TTL, out-of-bubble, and missing-vessel termination in `BackgroundRecorder.CheckDebrisTTL` (the Background Close rule above)
 - vessel-unloaded paths that remove or strand a background recording
 - any stop/abandon path that removes a recording from `BackgroundMap` or ends a live recorder without a fresh vessel
+- a restored tree (an F9 or a resumed save): `EnsureBackgroundRecorderAttached` forces one cache refresh per live member (`RebuildFinalizationCachesAfterRestore`), and a member stock dropped meanwhile follows its recorded fall (`CloseMissingBackgroundMembersAtLoad`, edge case 35)
 
 Focus switching is not itself a consumer unless the switch path actually ends the old recording. In the normal tree model, switching transfers cache ownership to the background recorder instead.
+
+Two paths later take a committed or pending prediction back: the takeover (`PredictedEndingTakeover.DropPredictedEndingForTakeover`, edge cases 31-33) and the reconciler (`PredictedCrashReconciler`, edge case 34).
 
 ## Edge Cases
 
@@ -295,15 +344,15 @@ Focus switching is not itself a consumer unless the switch path actually ends th
 5. **Player has a planned maneuver node.** The node is ignored. The cached chain is the real coast/powered trajectory from current state, not the UI plan.
 6. **Burn in progress.** Cache refreshes by cadence and throttle/engine triggers. Scene exit attempts one fresh refresh before consuming anything.
 7. **Thrust stops in vacuum.** Forced refresh captures the new coast. Later refreshes can early-out until SOI/warp/orbit changes.
-8. **Atmospheric unpowered flight.** Cache refreshes while loaded; if KSP unloads/deletes the vessel, terminal state is `Destroyed`.
-9. **Stable vacuum orbit.** Cache can settle as `Orbiting`; no synthetic destruction or 50-year horizon spawn is invented for ordinary stable orbits.
-10. **Suborbital vacuum arc with periapsis in atmosphere.** Cache predicts `Destroyed` even if the vessel is currently above atmosphere.
+8. **Atmospheric unpowered flight.** Cache refreshes while loaded; if KSP unloads or deletes the vessel, the predicted drag-free fall is kept to its end (owner ruling Q1a) and the terminal state is `Destroyed` at ground impact. A vessel under open chutes is edge case 27.
+9. **Falls end at the ground; orbits clear of the deletion line are stable.** A predicted fall ends with the explosion at ground or water impact (owner ruling Q2), never at the atmosphere top or the deletion line. A bound orbit whose periapsis clears the periapsis floor (max(deletion line, highest terrain)) caches `Orbiting` and spawns; no synthetic destruction or horizon run is invented for it (Q3).
+10. **Low point below the deletion line but above the ground.** The drag-free arc never reaches the ground, and stock would delete the vessel there: the ending is `Destroyed` at the first periapsis pass (`reason=deletion-periapsis`, Q3), even if the vessel is currently above the atmosphere. A low point between the deletion line and the atmosphere top is a stable orbit (edge case 9).
 11. **Non-atmospheric body impact.** Cache predicts ground impact using the same ballistic terrain/sea-level fallback policy as the existing extrapolator.
 12. **Background on-rails vessel lacks patched-conic solver.** Use orbit-state and ballistic/conic extrapolation only.
 13. **SOI transition between refreshes.** Last cache may be stale; SOI event forces a refresh. If the vessel disappears in the same frame, the previous cache is still better than no tail and logs as stale.
 14. **Crash coalescer still pending.** Do not apply cache until the coalescer has decided which tree leaves are terminal. The cache supplies the endpoint, not the structural BranchPoint decision.
 15. **Debris TTL expiry while vessel still exists.** Consume cache if it is fresher than the TTL cutoff; otherwise refresh once from the live debris vessel before ending the recording.
-16. **KSP deletes an unfocused atmospheric vessel earlier than Parsek's ballistic impact.** Stock outcome wins: terminal state `Destroyed`. Terminal UT is the earlier of deletion UT and predicted impact UT, and the cached tail is trimmed to that terminal UT. If no predicted impact UT exists, deletion UT is the terminal UT.
+16. **KSP deletes an unfocused atmospheric vessel before Parsek's predicted impact.** The deletion confirms the ending: terminal state `Destroyed` with `VesselDestroyed` set and the crew dead, and the cached fall is KEPT past the deletion UT to the predicted ground impact, which is the terminal UT (owner rulings Q1a, Q2). The deletion refresh never stamps the recording eagerly, so the confirmed apply lands the tail. If no fall can be predicted, the deletion UT is the terminal UT. A chuted craft is edge case 28.
 17. **Cache older than allowed freshness window.** Apply only with a `Stale` log if no live refresh is possible; otherwise refresh first.
 18. **Recording has no real samples.** Do not append a free-floating tail. Mark degraded/destroyed according to the existing zero-point/debris policy.
 19. **Cache terminal UT is before the last real sample.** Reject the cache and fall back to live/inference. This catches stale or mismatched ownership.
@@ -314,20 +363,32 @@ Focus switching is not itself a consumer unless the switch path actually ends th
 24. **Non-final chain segment in a live tree.** A Re-Fly or resumed tree spliced from the committed tree can carry an optimizer chain HEAD (no terminal, no child branch point) next to its successor. It is never finalized as a leaf (`ParsekFlight.IsNonFinalChainSegmentInTree`): its terminal lives on the final segment. Exempt: the tree's active recording, and a segment this session recorded past its successor's start.
 25. **Live vessel owned by later committed history.** A pid match does not date the live vessel. When it is the terminal spawn of a different committed recording that ends after this one (`TreeCommitService.FindLaterCommittedSpawnOwner`, identity through `VesselLaunchIdentity.LiveVesselIsRecordedSpawn`: a unique spawn pid matches alone, an adoption stamp also needs the launch guid not to conclusively differ, an unknown guid falls back to pid-only), the recording is not finalized from it and keeps its committed terminal, snapshot and orbit. A chain-tip spawn keeps both the craft-baked pid and the launch guid, so a launch-guid check alone cannot tell this case apart. The tree's active recording is exempt.
 
+26. **Tail with no natural end (escape to the Sun, a moon escape back to its planet).** Followed to the first final conic around the last body it reaches; it ends `Orbiting` 60 s into that conic (the settle span keeps a positive segment in the final body), or at the stock patch start when the stock solver found the sphere entry, and spawns there with its crew when the replay reaches that UT (owner ruling Q8). A Sun hyperbola with no child sphere ahead ends `SubOrbital` and spawns on its path (Q10). The ending is computed at commit from the last state alone, so a stage committed and rewound before it reaches the Sun's sphere still spawns around the Sun. A background close keeps such an ending (Background Close).
+27. **Stage under open chutes.** It descends at chute speed to a touchdown and ends `Landed` / `Splashed` there with `TerminalPredicted` (Q4), and spawns there, if its full-canopy descent is at or below 12 m/s (Q11); faster, it ends `Destroyed` at ground impact. Chutes staged but not yet open do not count (Q10b). The separation stays open in Unfinished Flights (`reason=predictedTouchdown`, read as in flight by `TerminalKindClassifier`) until flown or dismissed (Q4c); a landing the player flew closes it.
+28. **Chuted craft stock deletes out of range.** Recorded as stock decided (Q4d, P-STOCK): `Destroyed`, crew dead, nothing spawned, no revival. Its descent stays the tail and the recording carries `quietEnd`: the ghost comes down under its chutes and ends at the ground with no explosion (flight, KSC, manual preview). The Re-Fly offer stays (Q4c). A fast-descent crash keeps its descent as the predicted impact and explodes.
+29. **Crew of a predicted crash.** `Dead`, as for a confirmed crash (Q6c), with the death hold; a reputation penalty only where stock took one (Q12b). Recovering the vessel before the predicted crash UT overwrites the predicted `Destroyed` with `Recovered` (`CanOverwriteTerminalState(existingPredicted)`) and its crew are recovered (Q13); a confirmed `Destroyed` stays final. Old recordings without `terminalPredicted` keep `Dead`.
+30. **Breakup with a surviving piece.** An identity loss over a remnant KSP keeps stamps `terminalRemnantSurvives` beside `Destroyed`; only then are the crew judged per part (Q6b): each kerbal's seat is read by part persistentId from the end snapshot, else the start snapshot, and he is `Dead` only when a Destroyed / ParachuteDestroyed part death names his part or the end snapshot no longer carries him. A seat a Breakup / JointBreak child took is carried away with that piece, whose own recording decides (a crewed piece is always recorded). Recovering the remnant keeps `Dead` the kerbal whose part stock destroyed.
+31. **The player flies a stage with a predicted ending again (takeover).** The recording the real flight continues from drops the prediction (Q1b): predicted segments past the cut, the predicted terminal, `TerminalPredicted`, `VesselDestroyed`, terminal orbit and surface metadata, an explicit end past the cut and the crew answer; Recovered / Docked / Boarded are never touched. Every return path does it: committed-tree restore (TS Fly, KSC marker Fly, far Switch-To, alarm Jump; on the clone only, so a Discard keeps the committed copy), the intent consume (committed-clone parent, background member, and a vessel whose ended recording in the live tree holds a prediction continues under it through route 14 `ended-recording-takeover`), background promotion, committed resume and the post-switch fresh start. The cut is the takeover UT when the live vessel is still on the predicted conic there (stored element frame, tolerance max(250 m, 1e-4 r)) and the kept coast becomes recorded history; otherwise the last real sample. A same-id re-commit retires the predicted crash's crew rows and death penalty, so the real flight's rows are filed. While the launch-matched real vessel exists, a ghost on its predicted tail is hidden in FLIGHT and at the Space Center, and map presence refuses it.
+32. **Dock, claw grab or EVA board onto a vessel with a predicted ending.** A takeover. In the live tree the partner's ended recording becomes the merge's second parent, its prediction dropped with the coast rule read from the merged vessel. Against an earlier committed mission, the commit (not the merge, so a Discard or revert leaves the mission as it was) drops the partner's prediction at the merge UT, ends it `Docked` / `Boarded` and re-derives its crew rows. The merged vessel's orbit is kept in memory only; after a reload the cut falls back to the partner's last real sample. (On `asr-edgefix`, merge owed.)
+33. **Takeover after the predicted ending.** Flying a vessel the replay spawned at a predicted `Landed` / `Splashed` / `Orbiting` / `SubOrbital` ending (a chute touchdown, a final orbit) at or after that ending's UT keeps every predicted segment as history (a `Predicted` section becomes `Background`) and drops only the ending; the flight continues from the spawn. A vessel alive after its predicted CRASH UT is still dropped (stock contradicted it). Provenance decides (`HasPredictedEnding`: `TerminalPredicted` or predicted segments past the last real sample; an explicit end counts only for `Destroyed`), so a real `Landed` ending is never read as predicted. (On `asr-edgefix`, merge owed.)
+34. **Stock contradicts a committed predicted crash (reconciler).** `PredictedCrashReconciler` (Flight and Tracking Station; first pass 5 s after the scene settles, then on a committed-list change, the next due UT or a recheck) finds a predicted `Destroyed` whose launch-matched vessel stock still holds after crashUT + 10 s, sighted twice 2 s apart, not the active vessel, not in physics in the air, and whose trajectory no longer reaches the deletion line. It deep-clones the committed tree, drops the prediction as a takeover does, stamps the live vessel's ending and commits the clone (same-id replace: the predicted death's crew rows retire). A vessel stock removed confirms the prediction (no change); a confirmed crash is never reopened. P-STOCK example: an airless orbit grazing the peaks that stock keeps on rails returns to `SubOrbital`.
+35. **Quickload or resumed save with background members.** The caches are rebuilt from the live members after the restore. A member stock dropped from the save whose evidence was `SubOrbital` builds a cache from its recorded data (the last orbit segment, or the orbit reseeded off the last sample with its historical planet rotation) and follows its recorded fall: `Destroyed` at impact or `SubOrbital` at the horizon, with the tail. `Orbiting` / `Landed` / `Splashed` predictions are not adopted there (a removed vessel is never made spawnable); an open parachute, a Relative-only last sample or missing body facts keep the old stamp.
+36. **Background vessel packed inside the atmosphere.** Its on-rails conic is recorded (stock moves it on that drag-free conic until it deletes it), with one fixed Atmospheric label for the span, never a per-checkpoint classification; the predicted tail starts at the recorded conic's end. The load-time clip against physical sections still relabels ExoBallistic, so committed flights are untouched.
+
 ## What Doesn't Change
 
 - Actual sampled history is still authoritative. Synthetic tails never rewrite existing trajectory points.
 - Recording sidecar format does not change for the cache. It is in-memory only.
-- `OrbitSegment.isPredicted` remains the persisted marker for predicted/extrapolated segments that are applied to a committed recording.
-- Committed recordings remain immutable after commit. Cache application happens before commit or as part of the existing finalization path.
+- `OrbitSegment.isPredicted` remains the persisted marker for predicted/extrapolated orbit segments that are applied to a committed recording; a predicted chute descent is a `TrackSectionSource.Predicted` section (Data Model).
+- Committed recordings remain immutable after commit. Cache application happens before commit or as part of the existing finalization path. A takeover or the reconciler changes a committed prediction only by committing a clone over it (same-id replace).
 - Background recording remains an in-flight, physics-bubble system. This design does not add cross-scene background simulation.
-- Parsek does not simulate full atmospheric drag for unloaded vessels. It mirrors stock KSP's practical outcome for unfocused atmospheric deletion/destruction.
+- Parsek does not simulate atmospheric drag for unloaded vessels (owner ruling Q5). It mirrors stock KSP's outcome for unfocused atmospheric deletion; the one drag-aware path is the constant-speed chute descent.
 - Rewind to Separation UI and supersede semantics do not change here. They consume better terminal data from the finalization cache without changing their UI contract.
 - ERS/ELS access rules do not change. The cache is pre-commit finalization state and must not introduce new raw `RecordingStore.CommittedRecordings` or `Ledger.Actions` readers outside the existing grep-audit allowlist.
 
 ## Backward Compatibility
 
-There is no save migration and no new serialized cache node. Existing recordings keep their terminal state and predicted tail data as written.
+There is no save migration and no new serialized cache node. Existing recordings keep their terminal state and predicted tail data as written. The four predicted-ending markers (Data Model) are additive: no format or generation bump, and a recording without them reads as before (a `Destroyed` ending without `terminalPredicted` still kills its crew).
 
 If later work discovers it needs a small persisted marker for "finalization was degraded", that must be a separate design update. The locked decision for this feature is in-memory cache only.
 
@@ -340,6 +401,8 @@ Use subsystem tags that make the finalization decision reconstructable from `KSP
 - `[PatchedSnapshot]` for node-free stock chain capture and maneuver-node exclusion decisions.
 - `[BgRecorder]` for background cache application and persistence paths, including confirmed destruction, unload, TTL, and out-of-bubble.
 - `[Flight]` for tree-level finalization decisions and crash-coalescer timing.
+- `[PredictedTakeover]` for a dropped or kept prediction on a takeover (`coast=kept-to-takeover` / `cut-at-last-real`, `Predicted ending kept for takeover after its end`), and `[PredictedCrashReconcile]` for the reconciler's per-pass summary and each contradiction it applies.
+- `[Extrapolator]` also logs the terminal reason (`reason=surface-impact`, `deletion-periapsis`, `stable-conic`, `final-escape`, the horizon-cap Warn) and every `Chute descent predicted:` decision (canopy, rates, rate source, outcome).
 
 Required log events:
 
@@ -373,6 +436,7 @@ The unit and integration suites cover:
 - stable background/on-rails orbiters classify as `Orbiting`
 - falling atmospheric/suborbital background vessels classify as destroyed or degraded instead of null/orbiting
 - cache application marks sidecar data dirty/persistent when background finalization has already flushed files
+- the abandoned-stage contract (edge cases 8-10, 16, 26-36): `AbandonedStageDeletionAltitudeTests`, `AbandonedStageAccuracyTests`, `FinalConicEndingTests`, `ParachuteDescentTests`, `PredictedCrashCrewTests`, `CrewPartFateTests`, `RecoveredPredictedEndingTests`, `PredictedEndingTakeoverTests`, `PredictedTakeoverCoastTests`, `TakeoverCrewRecommitTests`, `PredictedCrashReconcilerTests`, `QuickloadFinalizationCacheTests`, `BackgroundOnRailsAtmosphereConicTests`; harness lanes ASR-1..ASR-5 (status in `docs/dev/autotest-status.md`)
 
 ### Integration Tests
 
@@ -417,6 +481,7 @@ The completed phase plan is archived in [`dev/done/plans/recording-finalization-
 - [`dev/done/plans/recording-finalization-reliability.md`](dev/done/plans/recording-finalization-reliability.md) - completed implementation phase plan.
 - [`dev/manual-testing/test-recording-finalization-cache.md`](dev/manual-testing/test-recording-finalization-cache.md) - runtime/manual validation checklist.
 - [`dev/development-workflow.md`](dev/development-workflow.md) - design and plan/build/review workflow.
+- `docs/handoff/abandoned-stage-replay/` (umbrella root, outside git) - the 2026-11-18 review "Simulated flight after switching away" and the ruling log behind edge cases 8-10, 16 and 26-36; the todo entry ABANDONED-STAGE-REPLAY carries the ruling table.
 - [kOS Vessel Load Distance docs](https://ksp-kos.github.io/KOS_DOC/structures/misc/loaddistance.html) - describes loaded/unloaded and packed/on-rails behavior in KSP.
 - [KSP forum discussion: 25km auto delete](https://forum.kerbalspaceprogram.com/topic/164961-25km-auto-delete/) - community documentation of stock atmospheric auto-delete rules.
 - [KSP forum discussion: unloaded ships do not aerobrake](https://forum.kerbalspaceprogram.com/topic/107315-unloaded-ships-dont-aerobrake/) - community discussion of unloaded vessels not receiving normal aerobraking.

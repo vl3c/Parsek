@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 161 |
 | seam-only lanes | 501 |
-| LIVE-PROVEN date in status row | 540 |
-| no LIVE-PROVEN date | 122 |
+| LIVE-PROVEN date in status row | 542 |
+| no LIVE-PROVEN date | 120 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -37,7 +37,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | AIR | 3 | - | - | 3 | - | 3 | 3 |
 | AJ | 1 | - | - | 1 | - | - | 1 |
 | AP | 1 | - | 1 | - | - | - | 1 |
-| ASR | 5 | 2 | 3 | - | - | 3 | - |
+| ASR | 5 | 2 | 3 | - | - | 3 | 2 |
 | AST | 4 | - | 4 | - | - | 4 | 4 |
 | AT | 1 | - | 1 | - | - | - | 1 |
 | B | 41 | 1 | 12 | 23 | 5 | 40 | 31 |
@@ -335,7 +335,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 416 | 130 | 343 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, L 17 +83 |
+| Kerbin | 416 | 130 | 345 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, L 17 +83 |
 | Mun | 65 | 15 | 55 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, MC 2, EVA 1 +11 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -886,11 +886,11 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| ASR-1-ignored-stages-fall-to-ground | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | save, scene-change | - | never flown |
-| ASR-2-chute-stage-ends-landed | nightly | gs1-two-stage-pad | gs1_auto_chute_booster | Kerbin | save, scene-change | - | never flown |
-| ASR-3-graze-above-1kpa-stays-orbiting | daily | graze-high-probe-stack | seam | Kerbin | warp | - | never flown |
-| ASR-4-graze-below-1kpa-destroyed | daily | graze-low-probe-stack | seam | Kerbin | warp | - | never flown |
-| ASR-5-far-switch-commits-predicted-fall | nightly | eva2-lko-crewed | kx_rewind_watch | Kerbin | vessel-switch | - | never flown |
+| ASR-1-ignored-stages-fall-to-ground | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | save, scene-change | - | FIRST FLOWN 2026-11-21 2026-11-21_1839 PA... |
+| ASR-2-chute-stage-ends-landed | nightly | gs1-two-stage-pad | gs1_auto_chute_booster | Kerbin | save, scene-change | - | LIVE-PROVEN 2026-11-21 |
+| ASR-3-graze-above-1kpa-stays-orbiting | daily | graze-high-probe-stack | seam | Kerbin | warp | - | LIVE-PROVEN 2026-11-21 |
+| ASR-4-graze-below-1kpa-destroyed | daily | graze-low-probe-stack | seam | Kerbin | warp | - | FIRST FLOWN 2026-11-21 2026-11-21_1843 PA... |
+| ASR-5-far-switch-commits-predicted-fall | nightly | eva2-lko-crewed | kx_rewind_watch | Kerbin | vessel-switch | - | FIRST FLOWN 2026-11-21 2026-11-21_1845 PA... |
 
 ### AST (4)
 

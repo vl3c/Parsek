@@ -20,6 +20,218 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ABANDONED-STAGE-REPLAY~~: the replay of a stage the player stopped watching: falls to the ground, chutes, crew, final orbits, takeovers (owner rulings 2026-11-18 / 2026-11-21) [FILED 2026-11-18 by the review "Simulated flight after switching away" (`docs/handoff/abandoned-stage-replay/`, code read at main e705fc5); SCOPE ruling 2026-11-21: fix every finding (D1, C1, B1-B12, B14, P1, R1-R4 and the lower-impact list L1-L9); BUILT 2026-11-21 on the integration branch `abandoned-stage-replay` (work packages on `asr-*` branches, one closed entry per finding below), xUnit; lanes ASR-1..ASR-5 first flown 2026-11-21 (ASR-2 / ASR-3 PASS, the other three lane-spec reds, ASR-READING-FLIGHT-2026-11-21); OPEN: the follow-ups ABANDONED-STAGE-REALCHUTE-LOADED .. ABANDONED-STAGE-LANES-OWED]
+
+Contract: `docs/parsek-recording-finalization-design.md` (Behavior, Consumer Paths, Edge Cases 9, 10, 16 and 26-36). Stock fact (decompiled `Vessel.cs`, KSP 1.12.5): a packed, non-active vessel that is not landed or splashed and is outside the active vessel's pack range is deleted with its crew killed (`MurderCrew`) when `mainBody.GetPressure(altitude) > 1.0` kPa; an unloaded vessel below the terrain is deleted too. "The deletion line" below is that 1 kPa altitude of the body (about 25 km on Kerbin), not the atmosphere top.
+
+Current owner rulings (V, 2026-11-18 review cards and 2026-11-21 in-session; a later ruling replaces the one it names):
+
+| Id | Date | Ruling |
+| --- | --- | --- |
+| Q1a | 2026-11-18 | After KSP deletes an ignored stage in the air, the replay keeps falling to where it would hit. |
+| Q1b | 2026-11-18 | If KSP still has the stage, save the predicted crash anyway; if the player flies it again, drop the prediction and record it for real. |
+| Q2 | 2026-11-18 | A predicted fall ends with the explosion at ground / water impact, not at the deletion height. |
+| Q3 | 2026-11-18 | A grazing orbit crashes only if its low point is below the deletion line, on the first pass; otherwise it stays Orbiting and spawns. |
+| Q4 | 2026-11-18 | A stage left with parachutes open descends at chute speed and ends Landed / Splashed where it comes down. |
+| Q4c | 2026-11-21 | A predicted touchdown ends Landed / Splashed and spawns, but the separation stays open in Unfinished Flights until flown or dismissed; a landing the player flew closes it. |
+| Q4d | 2026-11-21 ~20:25 | Replaces Q4b. A chuted craft stock deletes (crew killed) is recorded as stock decided: Destroyed, crew dead, nothing spawned. Its ghost descends under its chutes and ends quietly at the ground (no explosion). The Re-Fly offer stays (Q4c). A chuted craft stock still has keeps Landed / Splashed + spawn. |
+| Q5 | 2026-11-18 | No drag: predicted falls stay a plain Kepler arc. |
+| Q6b | 2026-11-21 | Breakup: crew die only if KSP destroyed the part they were in; a capsule that survives as its own piece keeps them alive. |
+| Q6c | 2026-11-21 ~19:10 | Replaces Q6. "If it's destroyed, the crew is dead": a Destroyed ending kills the crew whether KSP destroyed the vessel or Parsek predicted the crash. The way out is Q1b. |
+| Q7 | 2026-11-18 | Spent stages without a probe core stay hidden on the map and in the Tracking Station. |
+| Q8 | 2026-11-21 ~19:10 | A tail with no natural end (escaping to the Sun) is followed to its final orbit around the last body, ends Orbiting there and spawns when the replay reaches it, crew aboard. |
+| Q10b | 2026-11-21 ~20:05 | Chutes staged but not yet open do not count: the stage crashes. |
+| Q11 | 2026-11-21 ~20:05 | A chuted stage lands safely only at or below about 12 m/s under fully open chutes; faster, it crashes. |
+| Q12 | 2026-11-18 (split task) | Debris keeps its 60 s TTL when the parent goes on rails. |
+| Q12b | 2026-11-21 ~20:05 | A predicted death books no reputation loss Parsek invented: a death penalty row exists only when stock took one. |
+| Q13 | 2026-11-21 (supervisor, WP7) | Recovering a stage before its committed predicted crash UT revives its crew; a confirmed crash stays final. |
+| L2 | 2026-11-21 | Above 10x warp a crashing ghost plays its explosion when it is close enough to be seen; a far ghost just ends. |
+| L5 | 2026-11-21 | A gap over 30 s before the predicted path: the ghost slides across it, no freeze, no jump. |
+| R4b | 2026-11-21 | Looped replay of a predicted crash: each repeat's path turns with the planet so it hits the real crash site. |
+| P-STOCK | 2026-11-21 ~20:15 | Parsek's committed endings and crew outcomes must not contradict stock's background simulation; no live-game override. |
+| P-LEAVE | 2026-11-21 ~20:25 | Stock warns that leaving flight in the atmosphere loses the vessel, so a predicted crash with crew dead at commit agrees with stock; a prediction stock later contradicts (vessel alive after the crash UT) is dropped like a Q1b takeover. Q9 (make the live game match) is CLOSED by P-STOCK / Q4d / P-LEAVE. |
+
+Interpretations taken without asking (micro-choices): the periapsis floor (`OrbitClearance`, operator ruling 2026-09-27 "any orbit Parsek calls Orbiting will spawn" kept) is max(deletion line, highest terrain), read by commit, inference, finalizer and spawn safety alike; an arc whose low point is below the line but above the ground ends Destroyed at its first periapsis; a bound FLYING coast clear of the floor is a stable orbit; the horizon cap is 50 Kerbin years; a final orbit ends after a 60 s settle span on it; a Sun hyperbola ends SubOrbital and spawns on its path (ruling Q10, SPAWN-ESCAPE-TRAJECTORY-NEVER-SPAWNS); a member a quickload finds dropped is never made spawnable; an airless orbit grazing the peaks that stock keeps on rails is taken back from a predicted crash to SubOrbital (P-STOCK).
+
+New persisted keys, all additive (no format or generation bump, absent = false / old behaviour): `terminalPredicted`, `terminalRemnantSurvives`, `quietEnd` on the recording, and `TrackSectionSource.Predicted` (= 3) on a track section.
+
+## ~~ABANDONED-STAGE-D1~~: every ignored spent stage exploded in mid-air at the moment Parsek stopped watching it [FILED 2026-11-18 (review finding D1, high, design); FIXED 2026-11-21, branch `asr-destroy` 14250a907, with c219f487e and 9d1694dd4; xUnit `BackgroundRecorderTests`, `RecordingFinalizationCacheProducerTests`; lanes ASR-1 / ASR-5 read the debris and the probe core ending at the ground]
+
+**Cause:** `ResolveBackgroundEndTerminalUT` (`BackgroundRecorder.Finalization.cs`) returned min(predicted terminal UT, close UT) for a Destroyed ending, so a debris time limit, unload, parent close or warp cut the tail to the close (GS-7: a 20 ms tail), and the design's edge case 16 said so.
+**Fix:** a background close (debris time limit, unload, parent close, confirmed destruction) keeps the cache's Destroyed / Landed / Splashed terminal UT when it is at or after the close, so the tail runs to impact. An Orbiting / SubOrbital ending is kept too when the cache carries a predicted segment past the close (a Q8 final orbit, c219f487e from review A); when an ending is pulled back to the close the cache's far `TerminalOrbit` is dropped so the applier stamps the last retained segment's orbit. The switch-close stamp passes `retainPredictedTailPastEnd=false`, so a tail never overlaps the continuation. A close after an ending the cache already predicted (a deletion Parsek did not see) is clamped to that ending (9d1694dd4).
+
+## ~~ABANDONED-STAGE-B1~~: a probe-cored stage KSP deleted out of range exploded where it was last seen [FILED 2026-11-18 (review finding B1, high); FIXED 2026-11-21, branch `asr-destroy` 14250a907; xUnit `RecordingFinalizationCacheProducerTests`, `BackgroundRecorderTests`]
+
+**Cause:** the `background_destroy` refresh replaced the cache with "Destroyed now, no segments" and stamped the recording eagerly, so the confirmed-destruction apply was refused `RejectedAlreadyFinalized` (GS-10 / GS-11 logs: `eagerRecordingStamp=True`).
+**Fix:** a destroy refresh of a packed, airborne vessel is a stock on-rails deletion: it runs the normal extrapolation, coerces the ending to Destroyed (a touchdown read as impact, no fall = Destroyed now), and skips the eager stamp; the recorder prefers the fresh fall, then the previous cache's fall, then Destroyed now. The confirmed apply lands the tail and sets `VesselDestroyed`. Loaded crashes are unchanged. A chuted craft is ABANDONED-STAGE-CHUTES (Q4d).
+
+## ~~ABANDONED-STAGE-B3~~: a predicted fall that started above the air stopped at the atmosphere top [FILED 2026-11-18 (review finding B3, high); FIXED 2026-11-21, branch `abandoned-stage-replay` 31832c443; xUnit `BallisticExtrapolatorTests`, `AbandonedStageDeletionAltitudeTests`, `SceneExitFinalizationIntegrationTests`]
+
+**Fix:** `BallisticExtrapolator.FindLocalCutoff` has no atmosphere-top stop: surface impact first (`reason=surface-impact`), then the deletion periapsis (`reason=deletion-periapsis`). `ExtrapolationBody` carries `DeletionAltitude` and `PeriapsisFloorAltitude` (`TryBuildExtrapolationBodies`); the scene-exit re-entry clip and the horizon Orbiting downgrade read the floor (rulings Q2, Q5).
+
+## ~~ABANDONED-STAGE-B5~~: an on-rails suborbital or escaping stage missing at commit was labelled Orbiting [FILED 2026-11-18 (review finding B5, medium); FIXED 2026-11-21, branch `abandoned-stage-replay` 31832c443; xUnit `RecordingFinalizationCacheProducerTests`, `OrbitClearanceRulingTests`]
+
+**Fix:** `RecordingFinalizationCacheProducer.TryBuildFromStableOrbitSegment` checks the periapsis floor: an on-rails conic that is unbound or under the floor is extrapolated into a predicted tail and its real ending instead of a hard-coded Orbiting. `OrbitClearance` (floor = max(deletion line, highest terrain), `ComputeDeletionAltitude` bisection cached per body) is read by commit classification (`RecordingTree.IsBoundOrbitClearOfFloor`), spawn safety (`TerminalOrbitSpawnSafety.Evaluate`), the Re-Fly auto-seal preview, the finalizer and the cache.
+
+## ~~ABANDONED-STAGE-B6~~: a vessel KSP only unloaded replayed as an explosion [FILED 2026-11-18 (review finding B6, medium); FIXED 2026-11-21, branch `asr-destroy` 14250a907; xUnit `BackgroundRecorderTests`]
+
+**Fix:** the false-destroy branch of `ParsekFlight.DeferredDestructionCheck` takes back a Destroyed stamp the destroy refresh wrote eagerly and drops that refresh's cache before the recorder re-attaches.
+
+## ~~ABANDONED-STAGE-B8~~: a stage starting in the air with its low point above ground circled inside the atmosphere for 50 years [FILED 2026-11-18 (review finding B8, medium); FIXED 2026-11-21, branch `abandoned-stage-replay` 31832c443, 9475d9f35, 834f2bddc; xUnit `AbandonedStageDeletionAltitudeTests`, `AbandonedStageAccuracyTests`, `BallisticExtrapolatorTests`]
+
+**Fix:** a low point between the deletion line and the ground ends Destroyed at the first periapsis pass (ruling Q3); one above the line is a stable orbit. `ShouldExtrapolate` reads the floor for bound ORBITING, SUB_ORBITAL (9475d9f35, no more horizon-cap Warn for a periapsis between the line and the atmosphere top) and FLYING coasts (834f2bddc: clear of the floor = not extrapolated, read Orbiting from the orbit evidence); ESCAPING is always followed. The producer's "packed in atmosphere -> Destroyed now" fallback applies only below the deletion line.
+
+## ~~ABANDONED-STAGE-C1~~: a crewed stage the player ignored killed or kept its kerbals by accident of path, not by rule [FILED 2026-11-18 (review finding C1, high); FIXED 2026-11-21, branches `asr-crew` 70d3e56e7, `asr-crew2` 06c3fed1e, `asr-crew3` bdeb64cd6 / 8beef2e79 / 611aad14a, `asr-edgefix` f05f243cb (merge owed); xUnit `PredictedCrashCrewTests`, `CrewPartFateTests`, `EffectiveLeafFinalizationTests`, `TakeoverCrewRecommitTests`, `RecoveredPredictedEndingTests`; lanes ASR-1 / ASR-5 read the crew-death line of the abandoned crewed stack]
+
+**Rule (Q6c, Q6b, Q12b, Q13, Q4d):** a Destroyed ending kills the crew, predicted or confirmed (`InferCrewEndState` and the ghost-only chain handoff), with the death hold; a reputation penalty row exists only when stock took one. `Recording.TerminalPredicted` (key `terminalPredicted`, kept only beside Destroyed / Landed / Splashed, cleared by every other stamp) still marks a prediction: the takeover, playback, the reconciler and the recovery rule read it. Identity loss over a remnant KSP keeps (`MarkDestroyedAtTerminal(vesselSurvives)` = `IdentityLossClassifier.RemnantSurvives`) stamps `terminalRemnantSurvives`; only that flag sends the crew through the per-part check (seat by part persistentId from the end, else start snapshot; Dead only when a Destroyed / ParachuteDestroyed part death names his part or the end snapshot dropped him; a seat a Breakup / JointBreak child took is read as carried away). A crewed breakup piece is always recorded (`ShouldRecordDebris` crewCount).
+**Fix history (approach changed):** 70d3e56e7 first answered Aboard for a predicted crash (ruling Q6); bdeb64cd6 reverted that to Dead (Q6c). 8beef2e79: a same-id replace after a takeover (`ShouldRefreshCrewRowsOnReplace`) retires the predicted crash's KerbalAssignment rows and its death penalty (`LedgerOrchestrator.RetireTakenOverPredictedCrashCrewRows`). 611aad14a: `CanOverwriteTerminalState(existingPredicted)` lets a Recovered overwrite a predicted Destroyed (Q13), clears `VesselDestroyed` and re-infers the crew Recovered. f05f243cb (review B2): a recovered breakup remnant keeps Dead the kerbal whose part stock destroyed. Old recordings (no key) keep Dead.
+
+## ~~ABANDONED-STAGE-B4~~: a far Switch-To, Commit Flight or post-crash merge froze a still-falling sibling [FILED 2026-11-18 (review finding B4, medium-high); FIXED 2026-11-21, branch `asr-crew` 70d3e56e7; xUnit `InFlightCommitOptimizationTests`, `SwitchIntentPatchSmokeTests`, `ReFlyConclusionChainHeadFinalizeTests`]
+
+**Fix:** an in-flight commit runs the lifetime finalizer for a live non-active leaf, and for the active leaf when the pre-switch Merge abandons it (`CommitTreeFlightAbandoningActiveVessel`, the far Switch-To Case B), or a fresh Destroyed cache when it declines, before the situation stamp (ruling Q1b). A plain CommitTree keeps the active vessel's live situation stamp by design (ASR-4's reading: the active crewed stack ends SubOrbital).
+
+## ~~ABANDONED-STAGE-P1~~: coming back to a stage still falling showed its ghost and the real vessel at once, and flying it again kept the predicted crash [FILED 2026-11-18 (review finding P1, medium); FIXED 2026-11-21, branches `asr-rerecord` 699ae8c89, `asr-crew3` c07cb2d1b / 8beef2e79 / 081b8dd37 / 7509f579c, `asr-reconcile` 66a4dccf4, `asr-edgefix` 6d9ebfcee / 1b55c3c74 / 38f7c2028 (merge owed); xUnit `PredictedEndingTakeoverTests`, `PredictedTakeoverCoastTests`, `PredictedTailSceneHideTests`, `PredictedCrashReconcilerTests`, `PredictedTakeoverAfterEndTests`, `MergePartnerTakeoverTests`]
+
+**Fix (ruling Q1b, P-STOCK, P-LEAVE):** `PredictedEndingTakeover.DropPredictedEndingForTakeover` drops the predicted segments past the cut, the predicted terminal, `TerminalPredicted`, `VesselDestroyed`, terminal orbit / surface metadata, an explicit end past the cut and the crew answer (Recovered / Docked / Boarded never touched; one `[PredictedTakeover]` Info line). Return paths: committed-tree restore (TS Fly, KSC marker Fly, far Switch-To, alarm Jump, the 1 Hz restore; the clone only, so a Discard keeps the committed copy), the intent consume (committed-clone parent, BG member, and route 14 `ended-recording-takeover` for a vessel whose ended recording in the live tree holds a prediction), background promotion, committed resume and the post-switch fresh start. Coast keep (c07cb2d1b): when the live vessel is on the predicted conic at the takeover (stored element frame, tolerance max(250 m, 1e-4 r)) the cut is the takeover UT and the kept segments lose `isPredicted`; off the conic, on another body or with no evidence the cut is the last real sample. After the predicted end (6d9ebfcee): flying a vessel the replay spawned at a predicted Landed / Splashed / Orbiting / SubOrbital ending keeps the whole tail as history and drops only the ending; a vessel alive after its predicted crash is dropped as before; `HasPredictedEnding` decides from provenance (review B1: a real Landed ending is never read as predicted, the explicit-end clue serves Destroyed only). Dock, claw grab and EVA board (1b55c3c74) are takeovers: in the live tree the partner leaf is resolved (`PredictedTakeoverLeaf.ResolveInTree`) and becomes the merge's second parent; against an earlier committed mission `TreeCommitService.TakeOverPredictedEndingsOfMergePartners` drops the partner's prediction at the merge UT at commit time and re-derives its crew rows. Playback hides a ghost on its predicted tail while the launch-matched vessel exists, in FLIGHT and at the Space Center (`GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene`); map presence already refused it. The reconciler (66a4dccf4, `PredictedCrashReconciler` pure + `PredictedCrashReconcilerHost`, Flight and Tracking Station): a predicted crash whose vessel stock still holds, seen twice 2 s apart after crashUT + 10 s, not active, not in physics in the air and whose conic no longer reaches the deletion line, is replaced by a committed clone with the prediction dropped and the live ending stamped; a vessel stock removed confirms the prediction (no change); a confirmed crash is never reopened.
+
+## ~~ABANDONED-STAGE-CHUTES~~: a stage left under open parachutes replayed as a crash or vanished in mid-air [FILED 2026-11-18 (review edge case, ruling Q4); FIXED 2026-11-21, branch `asr-chutes` 834f2bddc..69f2812ab (ee07250cd, 8f13eed0c, 61b144fb7, 69f2812ab), `asr-edgefix` 1d7fa1fe3 (merge owed); xUnit `ParachuteDescentTests`, `UnfinishedFlightClassifierTests`, `ParachuteProtoModuleReadTests`; lane ASR-2 PASS 2026-11-21 (`Chute descent predicted ... terminal=Landed`, `reason=predictedTouchdown`)]
+
+**Fix (Q4, Q10b, Q11, Q4c, Q4d):** a live vessel (loaded, packed or unloaded) in an atmosphere with a parachute DEPLOYED or SEMIDEPLOYED gets a predicted descent instead of the drag-free fall: `ParachuteDescentLiveReader` reads the chutes (deploymentState / deployAltitude; for an unloaded vessel the proto module through `ParachuteProtoModuleRead.TryReadCanopy`, which reads ModuleParachute, ModuleEvaChute and RealChute's RealChuteModule, PREDEPLOYED / LOWDEPLOYED -> SEMIDEPLOYED) and the pure `ParachuteDescentPlanner` keeps the body-fixed lat / lon and descends at constant speed: deployed at the measured rate (7 m/s when not descending yet), semi-deployed at the measured rate down to the largest full-deploy altitude (stock 500 m), then the full-canopy rate. An armed chute (ACTIVE) does not count (Q10b). Survives only at or below `MaxSafeLandingRate` = 12 m/s (Q11), else Destroyed at ground impact. Survived: Landed on the terrain (root height above the lowest part added) or Splashed at sea level on an ocean body; the touchdown is written into the end snapshot so the spawn sits where the replay lands. Representation: one Absolute, Atmospheric `TrackSectionSource.Predicted` section from the last authored UT to the ending, the same points in the flat list; predicted-data readers skip it (`TryGetLastAuthoredUT`, the debris persistence walk), a repair or new descent replaces it, a takeover drops it (on a keep after the predicted end it becomes `Background`). Q4c: a predicted touchdown chain tip stays an Unfinished Flight (`reason=predictedTouchdown`, `TerminalKindClassifier` InFlight, a safe stable retry for supersede). Q4d: a chuted craft stock deletes ends Destroyed, crew dead, no spawn, its descent kept as the tail with the sparse key `quietEnd` (`Recording.QuietDestroyedEnd`): the ghost comes down and ends with no explosion (flight, KSC, manual preview). The harness endings block reads a predicted section as an extension of the end, not watched samples (61b144fb7). Open: ABANDONED-STAGE-SEMICHUTE-RATE, ABANDONED-STAGE-REALCHUTE-LOADED.
+
+## ~~ABANDONED-STAGE-PACKED-IN-ATMOSPHERE~~: a stage packed by warp inside the atmosphere held still, then exploded [FILED 2026-11-18 (review, the warp path of the two-stage table; V 2026-11-21: record what the game simulates); FIXED 2026-11-21, branch `asr-railsatmo` 9d1694dd4 + 1dd8c8930; xUnit `BackgroundOnRailsAtmosphereConicTests`, `EccentricOrbitOptimizerInvariantTests`, characterization goldens]
+
+**Fix:** stock moves a packed vessel on its drag-free conic until it deletes, unpacks or hands it to the player, so `InitializeOnRailsState` opens the conic below the atmosphere top too (`ResolveOnRailsInitialPayload`; a vessel on the pad still opens none). The span carries one fixed label, `BackgroundOnRailsState.packedInsideAtmosphere` (set at open, kept through warp checkpoints and time-jump re-captures, cleared at an SOI change): its checkpoint sections are Atmospheric, so it adds no optimizer split candidate and cannot toggle per orbit; no TrackSection or hysteresis is added to the on-rails state. `RefreshOnRailsFinalizationCache` keeps the live-vessel cache for such a span (chutes, predicted fall) and rebuilds from the conic only when the cache is missing, empty or failed. The load-time clip against physical sections still relabels ExoBallistic, so committed flights are untouched.
+
+## ~~ABANDONED-STAGE-B2~~: a vessel the player flew and left, an EVA kerbal or an undocked craft vanished mid-coast [FILED 2026-11-18 (review finding B2, medium); FIXED 2026-11-21, branch `asr-accuracy` 9475d9f35; xUnit `AbandonedStageAccuracyTests`, `SceneExitFinalizationIntegrationTests`]
+
+**Fix:** only the active vessel has a patched-conic solver (decompiled `Vessel.MakeActive` / `MakeInactive`), so the live-orbit fallback no longer turns a LIVE vessel (`IsLiveVesselAlive`: not DEAD, parts left) into "Destroyed now": it follows the live orbit to its natural ending. An open parachute declines the drag-free tail (ABANDONED-STAGE-CHUTES takes it). The unconfirmed case keeps the `NoSolverStart` classification.
+
+## ~~ABANDONED-STAGE-B7~~: Commit Flight left the background recorder subscribed to the committed tree [FILED 2026-11-18 (review finding B7, medium); FIXED 2026-11-21, branch `asr-crew2` f9836f014; xUnit `MergeFlowDecisionTests` (a source gate pins every drop site)]
+
+**Fix:** `ReleaseBackgroundRecorderAfterInFlightCommit` runs `DiscardWithoutPersist` (unsubscribe, no flush; `FinalizeAllForCommit` already flushed) before the recorder is dropped.
+
+## ~~ABANDONED-STAGE-B9~~: a tail rebuilt from a recorded point started sideways and its crash site drifted about 1 deg per minute of age [FILED 2026-11-18 (review finding B9, medium); FIXED 2026-11-21, branch `asr-accuracy` 9475d9f35; xUnit `AbandonedStageAccuracyTests`]
+
+**Fix:** an orbit rebuilt from a recorded body-fixed sample (recovery start and the predicted-tail reseed) shifts its node back by 360 * age / rotationPeriod (`ComputeHistoricalRotationLanShiftDegrees`).
+
+## ~~ABANDONED-STAGE-B10~~: moon encounters in the tail were often missed [FILED 2026-11-18 (review finding B10, medium); FIXED 2026-11-21, branch `asr-accuracy` 9475d9f35; xUnit `AbandonedStageAccuracyTests`, `BallisticExtrapolatorTests`]
+
+**Fix:** a child SOI entry is searched only inside the child's radial band (child Pe - SOI .. Ap + SOI), sampled at most one SOI of relative motion apart, every near local minimum refined to the closest approach (golden section), budget 16384 samples per child per conic.
+
+## ~~ABANDONED-STAGE-B11~~: a Mun stage with its low point among the peaks got no tail or flew through mountains [FILED 2026-11-18 (review finding B11, medium); FIXED 2026-11-21, branch `asr-accuracy` 9475d9f35; xUnit `AbandonedStageAccuracyTests`]
+
+**Fix:** a closed conic whose low point is below the highest terrain scans later periapsis passes (only the stretch below the highest terrain, with the body turning under it) for an impact, budget 8192 samples; `ShouldExtrapolate` reads the floor, not sea level.
+
+## ~~ABANDONED-STAGE-B12~~: a pending maneuver node discarded the coast before it [FILED 2026-11-18 (review finding B12, medium-low); FIXED 2026-11-21, branch `asr-accuracy` 9475d9f35; xUnit `SceneExitFinalizationIntegrationTests`]
+
+**Fix:** the stock patches up to the node are kept and the unburned coast is propagated from there, instead of dropping the whole chain.
+
+## ~~ABANDONED-STAGE-B14~~: a probe still beside its parent could end Landed at a nonsense spot and spawn there [FILED 2026-11-18 (review finding B14, low-medium); FIXED 2026-11-21, branch `asr-crew2` f9836f014; xUnit `RelativeEndpointInferenceTests`]
+
+**Fix:** `InferTerminalStateFromTrajectory`, `HasOnlySubOrbitalFallbackEvidence`, `PopulateTerminalPositionFromLastPoint` and `TryCaptureTerrainHeightFromLastTrajectoryPoint` read the last flat point through `FlatPointFrameDispatch` (`TryResolveLastPointBodyFixed`): a Relative metre offset is replaced by its body-fixed shadow, or refused.
+
+## ~~ABANDONED-STAGE-R1~~: the map and Tracking Station icon froze at the last recorded point for the whole tail [FILED 2026-11-18 (review finding R1, high; limited by ruling Q7 to flights shown on the map / TS); FIXED 2026-11-21, branch `asr-render` 2bc7ec83a; xUnit `PredictedTailRenderTests`]
+
+**Fix:** the flight map and Tracking Station markers resolve the tail segment the flight mesh rides (`GhostPlaybackLogic.TryFindTailSegment` / `TryGetTailWorldPosition`); the TS time gate accepts "points or tail" (`IsInsidePointsOrTail`).
+
+## ~~ABANDONED-STAGE-R2~~: on the map, a crash flight's coast had no line under its icon [FILED 2026-11-18 (review finding R2, high; Q7 applies); FIXED 2026-11-21, branch `asr-render` 2bc7ec83a; xUnit `GhostTrajectoryPolylineBuildTests`]
+
+**Fix:** the forward pass draws the arc the head sits on when the member has no map vessel and its ending can never get one (crash / landing), `ShouldForwardDrawCurrentArc`. Contract: `docs/dev/design-map-ts-render-architecture.md` appendix.
+
+## ~~ABANDONED-STAGE-R3~~: at the Space Center the ghost hung in the sky during the tail and exploded there [FILED 2026-11-18 (review finding R3, medium); FIXED 2026-11-21, branch `asr-render` 2bc7ec83a; xUnit `PredictedTailRenderTests`]
+
+**Fix:** the KSC ghost follows the tail (`TryResolveKscTailPose`, branch `orbit-tail`) with the flight ghost's continuity blend off the last point and the segment's orbital-frame attitude, so the explosion plays at the ground.
+
+## ~~ABANDONED-STAGE-R4~~: looped replay teleported the ghost at the tail start every cycle and missed the crash site [FILED 2026-11-18 (review finding R4, medium); FIXED 2026-11-21, branch `asr-render` 2bc7ec83a (teleport) and `asr-render2` 1aa334d3e (ruling R4b); xUnit `PredictedTailRenderTests`, `PredictedTailPlanetTurnTests`, `PredictedTailSlideTests`]
+
+**Fix:** loop cycles past the last point ride `PositionFromOrbit` (carrying the continuity blend), and a loop state never reuses a continuity offset cached under another cycle's body rotation. R4b: a predicted path that ends on the ground on the same body (Destroyed, Landed, Splashed) is turned with the planet by the replay offset (playback UT minus now, plus the phasing derotation of its points), read each frame from the body's own surface frame, never cached; position, continuity anchor, attitude and surface velocity turn together, and a turned pose is re-applied body-fixed after floating-origin shifts. Orbiting tails and non-loop ghosts are unchanged; the map / TS markers read non-loop UTs.
+
+## ~~ABANDONED-STAGE-L1~~: an SOI bounce used up the 8-crossing budget [FILED 2026-11-18 (review lower-impact item); FIXED 2026-11-21, branch `asr-accuracy` 9475d9f35; xUnit `BallisticExtrapolatorTests`]
+
+**Fix:** the reverse crossing at an SOI transition instant is always suppressed, so a refined crossing landing a hair outside no longer bounces the state to the cap.
+
+## ~~ABANDONED-STAGE-L2~~: above 10x warp a crashing ghost vanished without its explosion [FILED 2026-11-18 (review lower-impact item); FIXED 2026-11-21, branch `asr-render2` a663ac279 (ruling L2); xUnit `ExplosionFxTests`]
+
+**Fix:** pure `GhostPlaybackLogic.ShouldPlayExplosionFx`: the explosion plays at any warp for a watched ghost or one whose cached view distance is inside the unwatched mesh LOD cutoff (50 km), at the KSC inside the 25 km cull range; a far ghost just ends.
+
+## ~~ABANDONED-STAGE-L3~~: a tumbling stage's spin froze in the tail [FILED 2026-11-18 (review lower-impact item); FIXED 2026-11-21, branch `asr-accuracy` 9475d9f35; xUnit `AbandonedStageAccuracyTests`]
+
+**Fix:** the live vessel's spin is stamped on every predicted segment (`OrbitSegment.angularVelocity` contract), without PersistentRotation.
+
+## ~~ABANDONED-STAGE-L4~~: debris exploded at its first lost part and skipped the rest of its tail [FILED 2026-11-18 (review lower-impact item); FIXED 2026-11-21, branch `asr-render` 2bc7ec83a; xUnit `ExplosionFxTests`]
+
+## ~~ABANDONED-STAGE-L5~~: a gap over 30 s before the tail froze the ghost with flames playing, then jumped [FILED 2026-11-18 (review lower-impact item); FIXED 2026-11-21, branch `asr-render2` 496b28fff (ruling L5); xUnit `PredictedTailSlideTests`, `GhostPlaybackEngineTests`]
+
+**Fix:** the ghost slides from the last recorded point to the predicted path's start along the great circle between the two body-relative directions (monotone cubics on angle and radius seeded from the endpoint velocities, no overshoot, no dip below the lower radius); the orbit is evaluated only at its own start, the slide carries no velocity (no stale FX) and the attitude eases between the two. Flight mesh, flight world-position resolver, map / TS markers and the KSC ghost (branch `orbit-tail-slide`). A last point in a Relative section, on another body, or a recorded next segment keeps the old hold.
+
+## ~~ABANDONED-STAGE-L6~~: the 50-year horizon was counted in Earth years [FILED 2026-11-18 (review lower-impact item); FIXED 2026-11-21, branch `asr-accuracy` 9475d9f35]
+
+**Fix:** counted in KSP's calendar year (`KSPUtil.dateTimeFormatter.Year` via `ExtrapolationLimits.calendarSecondsPerYear`, default 426 days); now only the cap for unresolved cases (ruling Q8).
+
+## ~~ABANDONED-STAGE-L7~~: terrain below sea level was treated as sea level [FILED 2026-11-18 (review lower-impact item); FIXED 2026-11-21, branch `asr-accuracy` 9475d9f35]
+
+**Fix:** on a body without an ocean the fall ends at the real ground below the datum (`ExtrapolationBody.TerrainBelowDatum` / `MinTerrainAltitude`), the sub-surface start guard sits that much lower; ocean bodies still stop at the sea.
+
+## ~~ABANDONED-STAGE-L8~~: an F9 quickload dropped every guess and closed missing members SubOrbital in mid-air [FILED 2026-11-18 (review lower-impact item); FIXED 2026-11-21, branch `asr-quickload` 4c50a04ac; xUnit `QuickloadFinalizationCacheTests`, `BackgroundRecorderCharacterizationTests`]
+
+**Fix:** `EnsureBackgroundRecorderAttached` forces one cache refresh per live member right after the missing-member check (`BackgroundRecorder.RebuildFinalizationCachesAfterRestore`, one `Restore cache rebuild:` line). `CloseMissingBackgroundMembersAtLoad`: a member whose evidence was SubOrbital builds a cache from its recorded data (the last orbit segment, or the orbit reseeded off the last sample with the historical rotation) and applies it like a missing-vessel commit; Orbiting / Landed / Splashed predictions are not adopted (a removed vessel is never made spawnable); open parachute, Relative-only sample and missing body facts keep the old stamp (summary `followedRecordedTail=N`). The cache stays in memory; no OnLoad step added.
+
+## ~~ABANDONED-STAGE-L9~~: a SubOrbital crewed stage left its crew aboard open-ended, and an escaping stage flew 50 years and never spawned [FILED 2026-11-18 (review lower-impact item); SETTLED 2026-11-21 by rulings Q8 + Q6c; FIXED 2026-11-21, branch `asr-finalorbit` c695b197f + c219f487e; xUnit `FinalConicEndingTests`, `BackgroundRecorderTests`]
+
+**Fix (Q8):** `BallisticExtrapolator.Extrapolate` stops on the first final conic: bound, periapsis strictly above the floor (`OrbitClearance.IsBoundOrbitClear`), inside the SOI, no surface event and no sphere change within one period; the tail ends Orbiting after `FinalConicSettleSeconds` (60 s, at most a quarter period) of it (`reason=stable-conic`). An open conic around a body with no parent (the Sun) with no child sphere ahead ends SubOrbital the same way (`reason=final-escape`) and spawns on its path (ruling Q10). When propagation started at the last stock patch's end and ended on that conic, the ending moves to the patch start (`TryMoveFinalConicEndingToPatchStart`). `stopOnFinalConic: false` keeps follow-to-the-horizon for `EscapeTrajectoryTerminal.ResolveAtUT`. Encounters after the first period are not predicted (the spawned vessel meets them in stock). Covered: V's scenario 2026-11-21 (an escaping stage committed and rewound before it reaches the Sun SOI ends Orbiting the Sun and spawns there).
+
+## ABANDONED-STAGE-REALCHUTE-LOADED: a LOADED RealChute stage is not read as under chutes [FILED 2026-11-21 from WP11 (`asr-edgefix`); low (RealChute installs only); OPEN]
+
+`ParachuteProtoModuleRead` reads RealChute's `RealChuteModule` from the persisted proto module of an UNLOADED vessel only; the loaded half of `ParachuteDescentLiveReader` reads `ModuleParachute` (and its subclass `ModuleEvaChute`). A RealChute stage still loaded when Parsek stops watching it is predicted to fall and crash. Fix: read the loaded RealChuteModule's PARACHUTE state through reflection or its saved node, with a test; no RealChute lane exists.
+
+## ABANDONED-STAGE-MERGE-PARTNER-COAST-RELOAD: the commit-time dock / board takeover loses the merged vessel's orbit across a reload [FILED 2026-11-21 from WP11 (1b55c3c74); low; OPEN]
+
+`RecordingTree.MergePartnerCoastEvidence` (the merged vessel's orbit at the merge, read by the coast-keep rule) is in memory only, never serialized. A commit after a reload falls back to cutting the partner at its last real sample, so its replay loses the coast between that sample and the merge. Fix if it matters: persist it as an additive tree key, or re-derive it from the merge recording's first sample.
+
+## ABANDONED-STAGE-TS-PRESENCE-AFTER-RECONCILE: the Tracking Station ghost map presence is not re-read mid-scene after the reconciler replaces a tree [FILED 2026-11-21 from WP12 (66a4dccf4); low; OPEN]
+
+`PredictedCrashReconcilerHost` in the Tracking Station commits a clone over the committed tree; the TS ghost map presence built for the old copy is not rebuilt in that scene, so the dropped prediction can still show until the next scene load. Check whether the committed-list notification reaches the TS presence store; fix there if not.
+
+## ABANDONED-STAGE-CONFIRM-DESTRUCTION-QUIETEND: `ConfirmObservedDestruction` re-stamps Destroyed without `quietEnd` [FILED 2026-11-21 (integration of `asr-chutes`, 8f237810d); likely unreachable; OPEN]
+
+A `quietEnd` recording is already a confirmed stock deletion, so a later observed confirmation should not reach it; if one does, the quiet ending would be lost and the ghost would explode. Fix: pass `quietEnd` through, or prove the path unreachable with a test.
+
+## ABANDONED-STAGE-LOGTAGS-RECONCILE: `scripts/arch/log_tags.json` lacks the tag `PredictedCrashReconcile` [FILED 2026-11-21 from WP12; low (report-only); OPEN]
+
+The run index credits lane health through that map; `test_iltags` reports the drift. Refresh with `python3 scripts/arch/logtags.py Source/Parsek/bin/Debug/Parsek.dll --write` after a Debug build of the integration branch.
+
+## ABANDONED-STAGE-STAGERECOVERY-DOUBLE-PAY: with the StageRecovery mod a recovered stage may also be paid by a Parsek replay outcome [FILED 2026-11-21 (gameplay edge-case review); NOTED, no change planned]
+
+StageRecovery recovers and pays for a stage when stock deletes it; Parsek separately records that stage's ending. No change: a mod-compatibility note only, revisit if a player reports a double payment.
+
+## ABANDONED-STAGE-MANY-BOOSTERS-COST: the cost of many abandoned boosters at once is not measured [FILED 2026-11-18 (review edge case "Many staged boosters"); OPEN]
+
+Each background vessel refreshes its cache (a full tail guess) every 5 s, now with the moon-band search and the peaks scan. One measurement on a many-booster craft (frame time and the refresh summary counts) settles it.
+
+## ABANDONED-STAGE-ASTEROID-AND-MULTI-SOI-LOOP: asteroid capture and looped tails that cross more than one SOI are not checked [FILED 2026-11-21 (gameplay edge-case review); OPEN]
+
+Not traced: a tail that meets a captured asteroid or comet, and a looped replay whose predicted path changes body (the R4b planet turn applies only to a path that ends on the ground of the body it started on).
+
+## ABANDONED-STAGE-SEMICHUTE-RATE: semi-deployed chutes are judged on a fixed 7 m/s full-canopy rate, so they always land [FILED 2026-11-21 from WP4 (ASR-2's reading shows `canopy=SemiDeployed ... rate2=7.00`); IN PROGRESS on `asr-semichute` (no commit yet; RE-CHECK this entry against its commits when it merges)]
+
+Planned: estimate the full-canopy rate from the measured descent rate scaled to terminal speed (drag over weight), to the drag of the same chutes fully open, and to the air density at the ground, then apply the 12 m/s rule (Q11) to that estimate.
+
+## ABANDONED-STAGE-LANES-OWED: lanes still to author or re-pin for the abandoned-stage work [FILED 2026-11-21; OPEN]
+
+- A predicted-crash stage that lands intact inside physics range ends Landed (the reconciler's live proof).
+- An escape stage (fixture-based: decouple on a hyperbolic Kerbin escape, commit; endings: Orbiting, body Sun, end UT = SOI exit).
+- The Q4c / `predictedTouchdown` re-pins on `asr-repins`: RF-1, RF-C1, RF-L2, RB-4, RB-5, RF-4, QL-7, QL-2b, QL-2c, QL-4, QL-4b, QL-4c, ASR-2.
+
+## ASR-READING-FLIGHT-2026-11-21: the first flights of ASR-1..ASR-5; three PARSEK-FAILs, all lane-spec errors [FILED 2026-11-21 from runner run `asr-reading` on V's PC (2 slots, copies 1-3 provisioned with automation DLL sha256 prefix c88cb2b9, integration 8f237810d, before the reconciler); OPEN until the re-pins on `asr-repins` land and re-fly green]
+
+Green, PASS attempt 1: ASR-2 `2026-11-21_1840` (the chute booster's descent predicted, `terminal=Landed`, `IsUnfinishedFlight=true ... reason=predictedTouchdown ... terminal=Landed predicted=True`; its report-only rewind block reads `rewindPoints 1 > max 0`, which is Q4c keeping the slot open: re-pin) and ASR-3 `2026-11-21_1843` (both halves Orbiting, no mismatch).
+
+Red, PARSEK-FAIL(expectation) attempt 1, the product as ruled:
+- ASR-1 `2026-11-21_1839` and ASR-5 `2026-11-21_1845`: the required `ProcessBreakupEvent: controlled child created: pid=N ... Mode transition loaded->on-rails: pid=N` never matched, because the flight exits before the probe core leaves load range; and the endings block's debris `tailSeconds >= 20` failed for every booster (2-9 s, one 41 s): the debris fall inside the bubble, so their recorded data runs nearly to the ground and the predicted tail ends at about 63-65 m (Kerbin terrain). Crewed stack and probe end Destroyed at the ground with predicted tails of about 295 s and 260 s; the Q6c crew-death line is present (`PopulateCrewEndStates: recording='Kerbal X' ... dead=2`). Lane fix: drop or move the on-rails token, lower the debris tail minimum.
+- ASR-4 `2026-11-21_1843`: the lane expected both halves Destroyed, but a plain in-flight CommitTree keeps the flown (active) crewed stack's live situation SubOrbital by design (ABANDONED-STAGE-B4); the probe ends Destroyed at its periapsis 14,988 m (the deletion periapsis) with a predicted tail of 885 s. Lane fix: one Destroyed (the probe) and one SubOrbital (the active stack), drop the SubOrbital forbid for the active one.
+
+Seen, to check whether pre-existing: ASR-4's probe logs `[WARN][RecordingStore] AppendPointsFromTrackSections: skipped 50 non-monotonic frame(s) at flush stitch ... #419`.
+
 ## TEST-GAPS-BATCH3-FLIGHTS-2026-11-21: the batch 3 re-flights, every owed lane green, 14 report-only save blocks armed [FILED 2026-11-21, branch `test-gaps-batch3`; one seam fix (C#, automation-only `PartAction`); OPEN: nothing; the operator / nightly promotion calls of the new lanes are the ordinary ones]
 
 Flown: runner runs `b3-flights-4` / `b3-flights-5` / `b3-flights-6` on V's PC, 3 slots. `b3-flights-4`: 19 lanes on the Debug automation DLL sha256 prefix 4dd8a0d9 built from 87ce236fb; `b3-flights-5`: 12 lanes on prefix b5179f97 (the `rotoron` torque fix below); `b3-flights-6`: 3 lanes on prefix b5d5ae14 (plus `rotorbrake`). Every install carried one hash per run, verified by size, sha256 and markers in both encodings (`ServoMirroredPose`, `RescueAcceptDeferrals`, `PatchCrossedBuildingRows`, `Rotor spin applied in playback`, `Flight clock reached a committed ledger row`, `Rewind point file deleted on revert`, later `partaction rotor torque raised: button=`, `rotorbrake`).
