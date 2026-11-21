@@ -37,13 +37,24 @@ namespace Parsek.InGameTests
         internal const string FromBody = "Mun";
         internal const string ToBody = "Kerbin";
 
-        // Both sides of an on-rails seam come from one frame's state (the old conic closed and
-        // the re-based conic opened at the SOI event UT), so the only spread is the vessel's
-        // own travel between the two probe instants (about 0.7 km at most for a slow Mun
-        // escape). The defect class, a side evaluated against the wrong body, is the Mun's
-        // ~12,000 km orbit radius.
-        internal const double SeamContinuityToleranceMeters = 5_000.0;
-        internal const double SeamProbeOffsetSeconds = 0.5;
+        // Both sides are evaluated at the SAME instant, the seam UT (the Mun segment's endUT and
+        // the Kerbin segment's startUT; a one-segment list is closed at both ends), because that
+        // is the instant playback hands the ghost from one segment to the other. Evaluating the
+        // two sides at different instants measures the vessel's own travel in the world frame,
+        // which getTruePositionAtUT anchors on the Sun: for a Mun escape that is the probe's
+        // HELIOCENTRIC speed (Kerbin's ~9.3 km/s plus the probe's ~0.6 km/s Kerbin-relative),
+        // so a 1 s spread read 9127.7 m on SOI-3's first flight with both conics correct.
+        // At one instant the residual is the patched-conic divergence since the true crossing:
+        // stock re-bases an on-rails orbit at the first frame past the patch end, the new conic
+        // is the next patch (exact at the true crossing), and the two then drift apart by about
+        // 0.5 * da * L^2, with da below 0.025 m/s^2 at the Mun SOI edge (the Mun's own pull,
+        // 0.011, plus Kerbin's tidal difference across one Mun SOI radius, 0.010) and L the
+        // event's lateness behind the crossing (0.43 s on SOI-3: millimetres; the recorded
+        // elements agree to 0.6 m headless, BgSoiSeamWorldGapTests). 1 km allows L up to about
+        // 280 s of warp lag. What it still catches: a side evaluated against the wrong body
+        // (the Mun's ~12,000 km orbit radius), a frame rotation error above ~0.005 deg at that
+        // radius, and a side evaluated more than ~0.11 s off the seam (heliocentric travel).
+        internal const double SeamContinuityToleranceMeters = 1_000.0;
         // How far from the seam the placement cells read (clamped to the segment spans).
         internal const double PlacementOffsetSeconds = 30.0;
 
@@ -176,7 +187,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "BgSoiCrossingPlayback", Scene = GameScenes.FLIGHT,
-            Description = "At the probe recording's Mun -> Kerbin seam the two sides' own segments resolve (epoch-consistent, live bodies) to world positions within the seam tolerance: neither side is evaluated against the wrong body.")]
+            Description = "At the probe recording's Mun -> Kerbin seam the two sides' own segments, both evaluated at the seam UT (epoch-consistent, live bodies), resolve to world positions within the seam tolerance: neither side is evaluated against the wrong body, frame or instant.")]
         public static void BackgroundProbeSeamWorldPositionsAreContinuous()
         {
             Recording rec = FindProbeRecording();
@@ -193,19 +204,27 @@ namespace Parsek.InGameTests
                 return;
             }
 
+            // One synchronous pass at one UT: both stock Orbits read the same Planetarium.Zup
+            // and the Mun / Kerbin anchors are taken at the same instant.
             Vector3d? posBefore = TrajectoryMath.EvaluateOrbitSegmentTruePositionAtUT(
-                new List<OrbitSegment> { before }, seamUT - SeamProbeOffsetSeconds, ResolveBody);
+                new List<OrbitSegment> { before }, seamUT, ResolveBody);
             Vector3d? posAfter = TrajectoryMath.EvaluateOrbitSegmentTruePositionAtUT(
-                new List<OrbitSegment> { after }, seamUT + SeamProbeOffsetSeconds, ResolveBody);
+                new List<OrbitSegment> { after }, seamUT, ResolveBody);
             InGameAssert.IsTrue(posBefore.HasValue, "Mun-side position resolves at the seam");
             InGameAssert.IsTrue(posAfter.HasValue, "Kerbin-side position resolves at the seam");
             if (!posBefore.HasValue || !posAfter.HasValue)
                 return;
 
             double gap = (posAfter.Value - posBefore.Value).magnitude;
+            CelestialBody mun = ResolveBody(FromBody);
+            double munSideFromMun = object.ReferenceEquals(mun, null)
+                ? double.NaN
+                : (posBefore.Value - mun.getTruePositionAtUT(seamUT)).magnitude;
             ParsekLog.Info("SoiCrossPlay", string.Format(ic,
-                "bg probe seam Mun->Kerbin ut={0:F3} gap={1:F1}m (tolerance {2:F0}m)",
-                seamUT, gap, SeamContinuityToleranceMeters));
+                "bg probe seam Mun->Kerbin ut={0:F3} gap={1:F1}m (tolerance {2:F0}m, both sides at the seam UT) "
+                + "kerbinEpoch={3:F3} seamMinusKerbinEpoch={4:F3}s munSideFromMun={5:F0}m",
+                seamUT, gap, SeamContinuityToleranceMeters, after.epoch, seamUT - after.epoch,
+                munSideFromMun));
             InGameAssert.IsTrue(gap <= SeamContinuityToleranceMeters,
                 string.Format(ic, "seam world-position gap {0:F1}m within {1:F0}m",
                     gap, SeamContinuityToleranceMeters));
