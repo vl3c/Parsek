@@ -52,10 +52,10 @@ tier = "operator"
 #   (3) The BgSoiCrossingPlayback batch, three FLIGHT cells over the committed probe
 #       recording (the one non-debris, parent-anchored recording with a Mun -> Kerbin
 #       seam): exactly one seam with the two checkpoint sections touching at it and a
-#       Kerbin terminal orbit body; the two sides' segments resolve within 5 km of each
-#       other across the seam on live bodies; playback and the map display segment are on
-#       the Mun inside its SOI before the seam and on Kerbin outside it after the seam and
-#       at the recording's end. Every cell SKIPS without the subject, so `passed>=1` with
+#       Kerbin terminal orbit body; the two sides' segments, both evaluated at the seam
+#       UT, resolve within 1 km of each other on live bodies; playback and the map
+#       display segment are on the Mun inside its SOI before the seam and on Kerbin
+#       outside it after the seam and at the recording's end. Every cell SKIPS without the subject, so `passed>=1` with
 #       `failed=0` is the proof the flight produced it.
 #   (4) No commit terminal reads `terminalOrbitBody=Mun`: both vessels left the Mun.
 #
