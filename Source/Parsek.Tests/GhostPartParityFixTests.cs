@@ -371,5 +371,46 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Light lens and flare
+
+        [Fact]
+        public void LightLens_OffIsBlack_OnIsTheLightColour()
+        {
+            var onColor = new Color(0.9f, 0.5f, 0.25f);
+            Color off = GhostPlaybackLogic.ResolveLightLensEmissive(false, onColor);
+            Assert.Equal(0f, off.r);
+            Assert.Equal(0f, off.g);
+            Assert.Equal(0f, off.b);
+            Color on = GhostPlaybackLogic.ResolveLightLensEmissive(true, onColor);
+            Assert.Equal(0.9, (double)on.r, 4);
+            Assert.Equal(0.5, (double)on.g, 4);
+            Assert.Equal(0.25, (double)on.b, 4);
+        }
+
+        [Fact]
+        public void LightFlare_OffIsBlack_OnIsWhite()
+        {
+            Assert.Equal(0f, GhostPlaybackLogic.ResolveLightFlareTint(false).r);
+            Assert.Equal(1f, GhostPlaybackLogic.ResolveLightFlareTint(true).r);
+        }
+
+        [Fact]
+        public void LightOnColor_ReadsSnapshotFields_FallingBackToThePrefab()
+        {
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "ModuleLight");
+            module.AddValue("lightR", "0.25");
+            module.AddValue("lightB", "not-a-number");
+            Color c = GhostVisualBuilder.ResolveLightOnColor(module, 0.875f, 0.6f, 0.7f);
+            Assert.Equal(0.25, (double)c.r, 4);
+            Assert.Equal(0.6, (double)c.g, 4);
+            Assert.Equal(0.7, (double)c.b, 4);
+
+            Color fromPrefab = GhostVisualBuilder.ResolveLightOnColor(null, 0.875f, 0.875f, 0.875f);
+            Assert.Equal(0.875, (double)fromPrefab.r, 4);
+        }
+
+        #endregion
     }
 }

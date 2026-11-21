@@ -908,6 +908,46 @@ namespace Parsek
                 if (info.lights[i] != null)
                     info.lights[i].enabled = on;
             }
+            WriteLightLensAndFlare(info, on);
+        }
+
+        /// <summary>
+        /// Pure: stock ModuleLight's settled lens emissive, the light colour when on and
+        /// black when off.
+        /// </summary>
+        internal static Color ResolveLightLensEmissive(bool on, Color onColor)
+            => on ? onColor : Color.black;
+
+        /// <summary>Pure: stock ModuleLight's settled flare tint, white on, black off.</summary>
+        internal static Color ResolveLightFlareTint(bool on)
+            => on ? Color.white : Color.black;
+
+        /// <summary>
+        /// Writes the settled stock lens emissive and flare tint onto the ghost's cloned
+        /// lens / flare materials (stock fades over <c>lightBrightenSpeed</c>; a ghost snaps,
+        /// like its Light components).
+        /// </summary>
+        internal static void WriteLightLensAndFlare(LightGhostInfo info, bool on)
+        {
+            if (info == null) return;
+            if (info.lensMaterials != null)
+            {
+                Color emissive = ResolveLightLensEmissive(on, info.lensOnColor);
+                for (int i = 0; i < info.lensMaterials.Count; i++)
+                {
+                    if (info.lensMaterials[i] != null)
+                        info.lensMaterials[i].SetColor("_EmissiveColor", emissive);
+                }
+            }
+            if (info.flareMaterials != null)
+            {
+                Color tint = ResolveLightFlareTint(on);
+                for (int i = 0; i < info.flareMaterials.Count; i++)
+                {
+                    if (info.flareMaterials[i] != null)
+                        info.flareMaterials[i].SetColor("_TintColor", tint);
+                }
+            }
         }
 
         /// <summary>

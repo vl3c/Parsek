@@ -90,6 +90,9 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **A switched-off light's lens no longer glows on its ghost.** The old spotlight's replay lit
+  its lens even while the real light was off. A light's lens and flare now follow the light:
+  dark when it is off, lit in the light's colour when it is on. (GHOST-LIGHT-LENS-GLOWS-OFF)
 - **The MEM lander's adapter only shows when something is attached below it.** Its ghost always
   drew the lower adapter, even with nothing under the lander. It now follows the same rule as the
   real part. (GHOST-STRUCTURAL-NODE-FAIRINGS-ONLY)

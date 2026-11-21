@@ -1372,7 +1372,7 @@ namespace Parsek
             }
 
             // Detect light parts and clone Light components for ghost playback
-            lightInfo = BuildLightGhostInfo(prefab, modelRoot, modelNode.transform, cloneMap,
+            lightInfo = BuildLightGhostInfo(prefab, partNode, modelRoot, modelNode.transform, cloneMap,
                 persistentId, partName, raiseLightVisualOnly);
 
             // Detect ModuleColorChanger: cabin lights (Pattern A) and heat shield char (Pattern B)
