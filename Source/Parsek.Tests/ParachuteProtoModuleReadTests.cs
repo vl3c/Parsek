@@ -118,5 +118,64 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(alt));
             Assert.Null(ParachuteProtoModuleRead.MapRealChuteState("SPINNING"));
         }
+
+        // ------------------------------------------------ the unloaded-vessel loop's classifier
+
+        // catches: the unloaded-vessel chute count (ParachuteDescentLiveReader) matching the
+        // exact name "ModuleParachute", so an unloaded EVA kerbal under ModuleEvaChute and an
+        // unloaded RealChute craft read as having no open chute and were predicted to crash.
+        [Theory]
+        [InlineData("ModuleParachute", "DEPLOYED", "Deployed")]
+        [InlineData("ModuleParachute", "SEMIDEPLOYED", "SemiDeployed")]
+        [InlineData("ModuleEvaChute", "DEPLOYED", "Deployed")]
+        [InlineData("ModuleEvaChute", "SEMIDEPLOYED", "SemiDeployed")]
+        public void LiveReader_UnloadedStockAndEvaChutes_AreOpen(
+            string moduleName, string persistentState, string expected)
+        {
+            Assert.Equal(expected, ParachuteDescentLiveReader.ClassifyProtoModule(
+                moduleName, StockModule(persistentState, "450"), out double alt).ToString());
+            Assert.Equal(450.0, alt);
+        }
+
+        [Theory]
+        [InlineData("DEPLOYED", "Deployed")]
+        [InlineData("LOWDEPLOYED", "SemiDeployed")]
+        [InlineData("PREDEPLOYED", "SemiDeployed")]
+        public void LiveReader_UnloadedRealChute_IsOpen(string depState, string expected)
+        {
+            Assert.Equal(expected, ParachuteDescentLiveReader.ClassifyProtoModule(
+                "RealChuteModule", RealChuteModule((depState, "700")), out double alt).ToString());
+            Assert.Equal(700.0, alt);
+        }
+
+        // catches (owner ruling Q10b): a staged chute still armed (stock ACTIVE, a RealChute
+        // canopy still STOWED while armed), stowed, cut or not a chute counted as open.
+        [Theory]
+        [InlineData("ModuleParachute", "ACTIVE")]
+        [InlineData("ModuleParachute", "STOWED")]
+        [InlineData("ModuleParachute", "CUT")]
+        [InlineData("ModuleEvaChute", "ACTIVE")]
+        [InlineData("ModuleEvaChute", "STOWED")]
+        [InlineData("ModuleCommand", "DEPLOYED")]
+        public void LiveReader_UnloadedChuteNotOpen_DoesNotCount(string moduleName, string persistentState)
+        {
+            Assert.Equal(ParachuteCanopyState.None, ParachuteDescentLiveReader.ClassifyProtoModule(
+                moduleName, StockModule(persistentState, "450"), out _));
+        }
+
+        [Theory]
+        [InlineData("STOWED")]
+        [InlineData("CUT")]
+        [InlineData("NONE")]
+        public void LiveReader_UnloadedRealChuteNotOpen_DoesNotCount(string depState)
+        {
+            ConfigNode module = RealChuteModule((depState, "700"));
+            module.SetValue("armed", "True");
+            Assert.Equal(ParachuteCanopyState.None, ParachuteDescentLiveReader.ClassifyProtoModule(
+                "RealChuteModule", module, out _));
+            Assert.Equal(ParachuteCanopyState.None, ParachuteDescentLiveReader.ClassifyProtoModule(
+                "RealChuteModule", null, out double alt));
+            Assert.True(double.IsNaN(alt));
+        }
     }
 }

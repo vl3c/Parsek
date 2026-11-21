@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Runtime.CompilerServices;
 using UnityEngine;
 
@@ -9,14 +8,13 @@ namespace Parsek
     /// Live half of the chute descent prediction: reads a vessel's open parachutes and its
     /// state into a <see cref="ParachuteDescentInput"/>. A loaded vessel (packed or not) is
     /// read from its <c>ModuleParachute</c> modules (<c>deploymentState</c>,
-    /// <c>deployAltitude</c>); an unloaded one from the proto modules' persisted
-    /// <c>persistentState</c> / <c>deployAltitude</c>. Every game read sits in a
-    /// non-inlined method so a headless caller never JITs it.
+    /// <c>deployAltitude</c>); an unloaded one from every persisted chute module
+    /// <see cref="ParachuteProtoModuleRead"/> reads (stock <c>ModuleParachute</c>, an EVA
+    /// kerbal's <c>ModuleEvaChute</c>, RealChute's <c>RealChuteModule</c>). Every game read
+    /// sits in a non-inlined method so a headless caller never JITs it.
     /// </summary>
     internal static class ParachuteDescentLiveReader
     {
-        private const string ParachuteModuleName = "ModuleParachute";
-
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static bool TryRead(Vessel vessel, double ut, out ParachuteDescentInput input, out string declineReason)
         {
@@ -126,14 +124,10 @@ namespace Parsek
                 for (int m = 0; m < pps.modules.Count; m++)
                 {
                     ProtoPartModuleSnapshot module = pps.modules[m];
-                    if (module == null || !string.Equals(module.moduleName, ParachuteModuleName, StringComparison.Ordinal))
+                    if (module == null || !ParachuteProtoModuleRead.IsChuteModuleName(module.moduleName))
                         continue;
-                    ConfigNode values = module.moduleValues;
-                    ParachuteCanopyState state = ClassifyPersistentState(values?.GetValue("persistentState"));
-                    double deployAltitude = double.NaN;
-                    string raw = values?.GetValue("deployAltitude");
-                    if (!string.IsNullOrEmpty(raw))
-                        double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out deployAltitude);
+                    ParachuteCanopyState state = ClassifyProtoModule(
+                        module.moduleName, module.moduleValues, out double deployAltitude);
                     Note(state, deployAltitude, pps.persistentId,
                         ref canopy, ref fullDeployAltitudeAgl, ref firstChutePid, ref openCount);
                 }
@@ -177,6 +171,24 @@ namespace Parsek
                 default:
                     return ParachuteCanopyState.None;
             }
+        }
+
+        /// <summary>
+        /// Pure: the canopy state of one persisted module of an unloaded vessel, read through
+        /// <see cref="ParachuteProtoModuleRead.TryReadCanopy"/>, and its full-deployment height
+        /// above the ground (NaN when absent). None for a module that is not a chute and for a
+        /// chute that is not open: stowed, cut, or staged and still armed (owner ruling Q10b).
+        /// </summary>
+        internal static ParachuteCanopyState ClassifyProtoModule(
+            string moduleName, ConfigNode moduleValues, out double deployAltitude)
+        {
+            if (!ParachuteProtoModuleRead.TryReadCanopy(
+                    moduleName, moduleValues, out string persistentState, out deployAltitude))
+            {
+                deployAltitude = double.NaN;
+                return ParachuteCanopyState.None;
+            }
+            return ClassifyPersistentState(persistentState);
         }
 
         /// <summary>Pure: the canopy state a persisted <c>persistentState</c> string names.</summary>
