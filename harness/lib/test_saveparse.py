@@ -1951,6 +1951,49 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "e8fc9f46072b42a2b8d3c39de23c64d2"],
             "schemaGeneration": 4,
         },
+        # --- THE SPLIT-RULE-VERSION-3 REPLAY SUBJECT ---------------------
+        # PROVENANCE: mun-orbit-recorded-v3 <- B11-mun-orbit, run
+        # 2026-11-21_1612, attempt 1 (mission OK; the run read
+        # PARSEK-FAIL(expectation) on recordings.count alone, the window the
+        # v3 cuts moved and that dfa5b9975 re-pinned), --keep-parsek through
+        # the --expect-situation ORBITING gate, from the run's own `_save`
+        # snapshot. The same flight profile as `mun-orbit-recorded`, but
+        # committed under split rule version 3, so every row carries
+        # `splitRuleVersion = 3` and the main craft is FIVE chain segments
+        # (chain c7dfaf33...) instead of one: the commit-time pass cut it at
+        # PersistedPhaseChange 213.08 (ascent | space), OrbitInsertionBurnEnd
+        # 300.77 (circularization | orbit), DepartureBurnStart 1872.79
+        # (orbit | transfer) and CaptureBurnEnd 21593.12 (transfer | orbit,
+        # Mun), read off that run's `Split candidate (` / `Split roles:`
+        # lines. 12 recordings = 5 chain segments + 7 debris. `trees` is 1
+        # although the file holds TWO RECORDING_TREE nodes: the second is the
+        # in-flight copy (isActive = True) of the same tree id, which the
+        # consumer lane discards after its LoadGame. Consumer:
+        # GS-13-mun-v3-chain-loop-replay.
+        # Orbiting 1 = the Mun-parked last segment 350424844d47...; Destroyed
+        # 7 = the seven debris rows; the four earlier chain segments carry no
+        # terminal state.
+        "mun-orbit-recorded-v3": {
+            "trees": 1, "committedTrees": 1, "recordings": 12,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1, "Destroyed": 7},
+            "branchPoints": {"JointBreak": 5},
+            "minAuthoritativeSidecars": 46,
+            "recordingIds": ["090d5cbad16045868b10a7abae12ba20",
+                             "18ded26b320a412e92a110f060ca1de9",
+                             "3174f19b2fde4a46a23608cb70f949dd",
+                             "350424844d47407da6419864e04e31d3",
+                             "690ef7eadb204ad7a5b9cc84bdd4b0e1",
+                             "69c67725ff4148d6914cf9a85d922859",
+                             "6e843fdeb01d4afabd7f009f3b1b178d",
+                             "79e885c790ec4dafad6f047e6632e35a",
+                             "920196de84fc48ed9638fd3ef8b1b631",
+                             "ae8c238d54a34d96b2c29ea35a42010a",
+                             "ddfe3404438e4458b96e1e0c09217b00",
+                             "f679dbeae178460ca06b604bda6cb883"],
+            "schemaGeneration": 4,
+        },
         "minmus-orbit-recorded": {
             "trees": 1, "committedTrees": 1, "recordings": 8,
             "supersedes": 0, "tombstones": 0, "rewind_points": 0,
