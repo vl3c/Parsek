@@ -54,6 +54,9 @@ Not released yet.
 
 ### Fixed
 
+- **A loop or hide set on one row of a flight stays on that row when you fly it again.** When
+  the new flight absorbed the old row, its loop, hide or ghost-off setting used to spread over
+  the whole flight and every row cut from it later. (FOLDED-PIECE-ROW-SETTINGS-SPREAD)
 - **A flight you fly again keeps everything it earned after Parsek splits it.** Science and
   milestones from the later part of a re-flown flight reached the career only on the next load,
   and a vessel whose ending moved to the new part could fail to appear.

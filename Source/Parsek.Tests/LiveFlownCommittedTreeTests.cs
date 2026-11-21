@@ -165,13 +165,14 @@ namespace Parsek.Tests
                 && r.StartUT < liveHead.EndUT && r.EndUT > liveHead.StartUT);
             Assert.Equal(TerminalState.Landed, liveHead.TerminalStateValue);
             // RULE 1: the shared id keeps the committed head's player settings, and what only the
-            // tip carried is not lost with it: the seal (slot state is read from the tip), the
-            // spawn claim, and a setting the head did not have.
+            // tip owned is not lost with it: the seal (slot state is read from the tip) and the
+            // spawn claim. A per-row setting only the tail had (its loop) covered only the tail,
+            // so it does not spread over the whole survivor (BATCH-B4).
             Assert.True(liveHead.Hidden);
             Assert.Equal(MergeState.Immutable, liveHead.MergeState);
             Assert.True(liveHead.VesselSpawned);
             Assert.Equal(777u, liveHead.SpawnedVesselPersistentId);
-            Assert.True(liveHead.LoopPlayback);
+            Assert.False(liveHead.LoopPlayback);
             // What named the tail now names the survivor.
             Assert.Equal("rec_head", anchored.ParentAnchorRecordingId);
             Assert.Contains("rec_head", committed.BranchPoints.Single(bp => bp.Id == "bp_probe").ParentRecordingIds);
@@ -269,7 +270,8 @@ namespace Parsek.Tests
             string carried = TreeCommitService.CarryTipOwnedStateOnFold(tip, head);
 
             Assert.Equal(MergeState.Immutable, head.MergeState);
-            Assert.True(head.Hidden);
+            // Hidden was the tip row's own: it does not spread over the head (BATCH-B4).
+            Assert.False(head.Hidden);
             Assert.Equal(600, head.LoopIntervalSeconds);
             Assert.Equal(new[] { "Head group" }, head.RecordingGroups);
             Assert.True(head.CrewDeathRespawns);
@@ -277,7 +279,53 @@ namespace Parsek.Tests
             Assert.Equal(777u, head.SpawnedVesselPersistentId);
             Assert.Contains("MergeState", carried);
             Assert.DoesNotContain("Loop", carried);
+            Assert.DoesNotContain("Hidden", carried);
             Assert.Equal("", TreeCommitService.CarryTipOwnedStateOnFold(null, head));
+        }
+
+        // BATCH-B4: a folded piece's per-row settings (hide, ghost off, loop) covered only that
+        // piece. Carried onto the survivor they covered the whole flight, and every later split
+        // of the survivor copied them onto every re-cut row. They stay with the piece; the
+        // survivor keeps its own, and the dropped ones are logged.
+        // MUTATION NOTE: restoring the Hidden / PlaybackEnabled / Loop carry in
+        // CarryUnsetPlayerSettings reds this.
+        [Fact]
+        public void CarryTipOwnedStateOnFold_LoopOnTheFoldedPieceOnly_DoesNotSpread()
+        {
+            var head = Rec("h2", 0, 100, "chain_B", 0);
+            var tip = Rec("t2", 100, 200, "chain_B", 1);
+            tip.LoopPlayback = true;
+            tip.LoopIntervalSeconds = 45;
+            tip.Hidden = true;
+            tip.PlaybackEnabled = false;
+            tip.RecordingGroups = new List<string> { "Tip group" };
+
+            string carried = TreeCommitService.CarryTipOwnedStateOnFold(tip, head);
+
+            Assert.False(head.LoopPlayback);
+            Assert.False(head.Hidden);
+            Assert.True(head.PlaybackEnabled);
+            Assert.DoesNotContain("Loop", carried);
+            Assert.Contains("RecordingGroups", carried);
+            Assert.Contains(logLines, l => l.Contains("[RecordingStore]")
+                && l.Contains("fold of 't2' into 'h2'")
+                && l.Contains("dropped=[Hidden,PlaybackEnabled,Loop]"));
+
+            // A later split of the survivor copies only the survivor's own settings.
+            var second = Rec("h2_tail", 50, 100, "chain_B", 1);
+            RecordingOptimizer.CopyPlayerRowSettings(head, second);
+            Assert.False(second.LoopPlayback);
+            Assert.False(second.Hidden);
+
+            // Mirror: a setting the survivor has itself stays, and nothing is logged as dropped.
+            logLines.Clear();
+            var loopingHead = Rec("h3", 0, 100, "chain_C", 0);
+            loopingHead.LoopPlayback = true;
+            var loopingTip = Rec("t3", 100, 200, "chain_C", 1);
+            loopingTip.LoopPlayback = true;
+            TreeCommitService.CarryTipOwnedStateOnFold(loopingTip, loopingHead);
+            Assert.True(loopingHead.LoopPlayback);
+            Assert.DoesNotContain(logLines, l => l.Contains("dropped=["));
         }
 
         [Fact]

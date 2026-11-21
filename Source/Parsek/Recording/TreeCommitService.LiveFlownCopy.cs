@@ -278,9 +278,11 @@ namespace Parsek
         /// there wins), the spawn claim (<see cref="Recording.VesselSpawned"/>,
         /// <see cref="Recording.SpawnedVesselPersistentId"/>) and the spawn counters
         /// (<see cref="PreserveSpawnCountersOnReplace"/>) and the crew death respawn stamp where
-        /// <paramref name="into"/> has none, and every player setting
-        /// <paramref name="into"/> left at its default (hide, ghost off, loop fields, groups).
-        /// Returns the carried field names, comma-separated (empty when none). Pure.
+        /// <paramref name="into"/> has none, and the groups where <paramref name="into"/> has
+        /// none. The tip's per-row settings (hide, ghost off, loop) covered only its own span, so
+        /// they are not carried: on the survivor they would cover the whole flight, and every
+        /// later split copies them onto each new row (<see cref="CarryUnsetPlayerSettings"/>).
+        /// Returns the carried field names, comma-separated (empty when none).
         /// </summary>
         internal static string CarryTipOwnedStateOnFold(Recording tip, Recording into)
         {
@@ -316,22 +318,22 @@ namespace Parsek
             return string.Join(",", carried.ToArray());
         }
 
+        /// <summary>
+        /// The player settings of a folded piece: its groups are carried where the survivor has
+        /// none; its per-row settings (hide, ghost off, loop) stay with the piece, and the ones
+        /// that differ from the survivor's own are logged as dropped (one Info line).
+        /// </summary>
         private static void CarryUnsetPlayerSettings(Recording tip, Recording into, List<string> carried)
         {
-            if (!into.Hidden && tip.Hidden) { into.Hidden = true; carried.Add("Hidden"); }
-            if (into.PlaybackEnabled && !tip.PlaybackEnabled) { into.PlaybackEnabled = false; carried.Add("PlaybackEnabled"); }
-            if (!into.LoopPlayback && tip.LoopPlayback)
-            {
-                // The loop is one setting: its interval, unit, range and anchor go with it.
-                into.LoopPlayback = true;
-                into.LoopIntervalSeconds = tip.LoopIntervalSeconds;
-                into.LoopTimeUnit = tip.LoopTimeUnit;
-                into.LoopStartUT = tip.LoopStartUT;
-                into.LoopEndUT = tip.LoopEndUT;
-                into.LoopAnchorVesselId = tip.LoopAnchorVesselId;
-                into.LoopAnchorBodyName = tip.LoopAnchorBodyName;
-                carried.Add("Loop");
-            }
+            var dropped = new List<string>();
+            if (!into.Hidden && tip.Hidden) dropped.Add("Hidden");
+            if (into.PlaybackEnabled && !tip.PlaybackEnabled) dropped.Add("PlaybackEnabled");
+            if (!into.LoopPlayback && tip.LoopPlayback) dropped.Add("Loop");
+            if (dropped.Count > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"CommitTree: fold of '{tip.RecordingId ?? "<no-id>"}' into '{into.RecordingId ?? "<no-id>"}' " +
+                    $"kept the survivor's own row settings, dropped=[{string.Join(",", dropped.ToArray())}] - " +
+                    "they covered only the folded piece");
             if ((into.RecordingGroups == null || into.RecordingGroups.Count == 0)
                 && tip.RecordingGroups != null && tip.RecordingGroups.Count > 0)
             {
