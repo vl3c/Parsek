@@ -29,8 +29,8 @@ id = "ASR-1-ignored-stages-fall-to-ground"
 #     the scene exit commits. THE PROBE-CORED CASE, "KSP still has it".
 #   - the crewed stack (`Kerbal X`) is the vessel the player flies: the mission ends once
 #     it is OBSERVED coasting SUB_ORBITAL above 71 km, and the spec's ExitToSpaceCenter
-#     commits the tree with it falling. THE CREWED CASE: a predicted crash of a vessel KSP
-#     did not destroy must not mark its crew Dead.
+#     commits the tree with it falling. THE CREWED CASE: a predicted crash kills its crew
+#     (ruling Q6c, 2026-11-21: destroyed means dead).
 #
 # WHAT IS READ, and from where. The new `[expectations.recordings.endings]` block
 # (harness/lib/endingsq.py) reads only the produced save: the RECORDING node's
@@ -98,7 +98,7 @@ id = "ASR-1-ignored-stages-fall-to-ground"
 #   9 Measure: run tools/flight_efficiency.py on the first green flight.
 # =====================================================================================
 tier = "nightly"
-description = "Ignored stages fall to the ground: RF-9's Kerbal X coast-exit ascent with a 10 s Poodle burn after the core discard, so the six booster debris AND the probe-cored core really leave the physics bubble while the crewed stack coasts out above 71 km; ExitToSpaceCenter commits. Report-only endings block: each stage (debris, probe core, crewed stack) ends Destroyed with predicted segments, its end UT a minute or more past the last watched datum, its predicted arc ending at the ground; the crewed stack's crew are not marked Dead."
+description = "Ignored stages fall to the ground: RF-9's Kerbal X coast-exit ascent with a 10 s Poodle burn after the core discard, so the six booster debris AND the probe-cored core really leave the physics bubble while the crewed stack coasts out above 71 km; ExitToSpaceCenter commits. Report-only endings block: each stage (debris, probe core, crewed stack) ends Destroyed with predicted segments, its end UT a minute or more past the last watched datum, its predicted arc ending at the ground; the crewed stack's crew are marked Dead (ruling Q6c)."
 instanceProfile = "stock-minimal"
 tags = ["ASR", "ASR-1", "predicted-tail", "staging", "debris", "controlled-child",
         "scene-exit", "kerbin", "sandbox", "reading-run"]
@@ -158,6 +158,8 @@ count = { min = 8, max = 14 }
 [expectations.logContracts]
 # Every literal read from the source at the file named.
 required  = [
+  # Q6c (V 2026-11-21): a predicted crash of the abandoned crewed stack kills its crew.
+  "PopulateCrewEndStates: recording='Kerbal X' \\(id=\\S+\\) crew=[1-9][0-9]* aboard=[0-9]+ dead=[1-9]",
   "Recording started",
   # Recording/SegmentBoundaryLogic.cs + ParsekFlightSplitBrancher: the core is a
   # controlled child (RF-9 / GS-4's measured lines).
@@ -174,9 +176,6 @@ required  = [
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # C#-DEPENDENT (wp3): KSP never destroyed the crewed stack, so its predicted crash
-  # must not kill the crew (Crew/KerbalsModule.CrewEndStates.cs PopulateCrewEndStates).
-  "PopulateCrewEndStates: recording='Kerbal X' \\(id=\\S+\\) crew=[1-9][0-9]* aboard=[0-9]+ dead=[1-9]",
 ]
 
 # REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.

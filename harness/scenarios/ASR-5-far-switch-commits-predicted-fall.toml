@@ -95,6 +95,8 @@ count = { min = 8, max = 14 }
 
 [expectations.logContracts]
 required = [
+  # Q6c (V 2026-11-21): a predicted crash of the abandoned crewed stack kills its crew.
+  "PopulateCrewEndStates: recording='Kerbal X' \\(id=\\S+\\) crew=[1-9][0-9]* aboard=[0-9]+ dead=[1-9]",
   "Recording started",
   "Controllable split children: \\[[0-9]+,[0-9]+\\]",
   "Debris TTL: vessel left physics bubble, ending recording:",
@@ -114,8 +116,6 @@ forbidden = [
   "alarmjump failed",
   # C#-DEPENDENT: the falling stages leave the commit with an ending, not SubOrbital.
   "CommitTreeFlight terminal: rec=\\w+ terminalState=SubOrbital",
-  # C#-DEPENDENT (wp3): KSP never destroyed the crewed stack.
-  "PopulateCrewEndStates: recording='Kerbal X' \\(id=\\S+\\) crew=[1-9][0-9]* aboard=[0-9]+ dead=[1-9]",
 ]
 
 # REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.

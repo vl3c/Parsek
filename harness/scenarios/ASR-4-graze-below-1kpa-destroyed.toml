@@ -11,9 +11,9 @@ tier = "daily"
 # WHAT IT PROVES (owner rulings). A periapsis below the line where stock deletes an
 # unloaded vessel (static pressure > 1 kPa, about 22-25 km on Kerbin) means the stage
 # would not survive its first pass, so its recording ends `Destroyed` there, with a
-# predicted tail, instead of `SubOrbital` at the commit. And a predicted crash of a
-# CREWED stage never marks its crew Dead unless KSP destroyed the vessel: here KSP still
-# holds the crewed stack (Valentina, Bob) when the recording ends.
+# predicted tail, instead of `SubOrbital` at the commit. The crewed stack's crew
+# outcome (ruling Q6c: a predicted crash kills the crew; the active vessel on a plain
+# CommitTree keeps its live situation) is read on the first run.
 #
 # THE HOST. `graze-low-probe-stack` (harness/tools/build_graze_probe_stacks.py): ASR-3's
 # derivation with a 15 km periapsis. Drag-free the arc never reaches the ground
@@ -38,7 +38,7 @@ tier = "daily"
 #
 # FAST-LANE CHECKLIST: ASR-3's, item for item.
 # =====================================================================================
-description = "A stage left in a grazing orbit whose periapsis (15 km) dips below the 1 kPa line ends Destroyed on its first pass: on graze-low-probe-stack (gs2-orbital-stack's Kerbal X stack on a 106 x 15 km Kerbin orbit, at apoapsis) the probe core is decoupled, both halves dwell at 1x, CommitTree in flight. Both commit terminals read Destroyed; the crewed stack's crew are not marked Dead; report-only endings block (predicted segment, end ~800 s past the commit, ending 10-30 km up)."
+description = "A stage left in a grazing orbit whose periapsis (15 km) dips below the 1 kPa line ends Destroyed on its first pass: on graze-low-probe-stack (gs2-orbital-stack's Kerbal X stack on a 106 x 15 km Kerbin orbit, at apoapsis) the probe core is decoupled, both halves dwell at 1x, CommitTree in flight. Both commit terminals read Destroyed; the crewed stack's crew outcome is read on the first run (ruling Q6c); report-only endings block (predicted segment, end ~800 s past the commit, ending 10-30 km up)."
 instanceProfile = "stock-minimal"
 tags = ["ASR", "ASR-4", "predicted-tail", "grazing-orbit", "controlled-child", "kerbin",
         "sandbox", "crewed", "crew-loss", "reading-run"]
@@ -85,8 +85,6 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   # C#-DEPENDENT: today's demoted verdict.
   "CommitTreeFlight terminal: rec=\\w+ terminalState=SubOrbital",
-  # C#-DEPENDENT (wp3): KSP never destroyed the crewed stack.
-  "PopulateCrewEndStates: recording='Kerbal X' \\(id=\\S+\\) crew=[1-9][0-9]* aboard=[0-9]+ dead=[1-9]",
 ]
 
 # REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
