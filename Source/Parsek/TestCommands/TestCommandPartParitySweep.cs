@@ -34,9 +34,31 @@ namespace Parsek.TestCommands
         /// <summary>A complete sidecar exists: skip it.</summary>
         SkipComplete,
 
-        /// <summary>A stale <c>inflight.txt</c> names it: a previous process died on it.
-        /// Record it crashed (write the crashed sidecar) and skip it.</summary>
-        RecordCrashed,
+        /// <summary>No complete sidecar and it is owed a solo run (<c>isolate.txt</c>): a
+        /// previous process died while it shared a wave with other cases, so it runs in a
+        /// wave of its own and a second crash names it alone.</summary>
+        RunSolo,
+    }
+
+    /// <summary>A parsed <c>inflight.txt</c> (design 5.3): the case ids it names, in order,
+    /// and whether the wave that wrote it was a solo rerun.</summary>
+    internal sealed class PartParityInflight
+    {
+        internal readonly List<string> CaseIds = new List<string>();
+        internal bool Solo;
+    }
+
+    /// <summary>What a stale <c>inflight.txt</c> decides at step start (design 5.3).</summary>
+    internal sealed class PartParityInflightDecision
+    {
+        /// <summary>The one case recorded <c>crashed</c>; null when none is.</summary>
+        internal string CrashedCaseId;
+
+        /// <summary>The cases owed a solo run, in the file's order.</summary>
+        internal readonly List<string> Isolate = new List<string>();
+
+        /// <summary>Named cases that already have a complete sidecar: nothing to do.</summary>
+        internal readonly List<string> Finished = new List<string>();
     }
 
     /// <summary>The parsed args of one <c>PartParitySweep</c> step.</summary>
@@ -119,6 +141,9 @@ namespace Parsek.TestCommands
         internal const string RootDirName = "parsek-partparity";
         internal const string ManifestFileName = "manifest.json";
         internal const string InflightFileName = "inflight.txt";
+
+        /// <summary>The cases still owed a solo run, one id per line (design 5.3).</summary>
+        internal const string IsolateFileName = "isolate.txt";
         internal const string SidecarSuffix = ".part.json";
         internal const string AtlasSuffix = ".png";
         internal const string ThumbSuffix = ".thumb.png";
@@ -639,36 +664,120 @@ namespace Parsek.TestCommands
 
         // ----- resume (design 5.3) -----
 
-        /// <summary>The case id an <c>inflight.txt</c> names: its first line, trimmed; null
-        /// when empty or not a valid case id (a torn write names nothing).</summary>
-        internal static string ParseInflight(string text)
+        /// <summary>The <c>inflight.txt</c> line that marks a solo rerun wave. The leading
+        /// <c>#</c> is outside the case-id alphabet, so it never reads as a case.</summary>
+        internal const string InflightSoloMarker = "#solo";
+
+        /// <summary>The valid case ids of a one-id-per-line text, trimmed, in order, each
+        /// once; blank and invalid lines (a torn or foreign line, the solo marker) are
+        /// skipped.</summary>
+        internal static List<string> ParseCaseIdLines(string text)
         {
-            if (string.IsNullOrEmpty(text)) return null;
-            int nl = text.IndexOfAny(new[] { '\r', '\n' });
-            string first = (nl >= 0 ? text.Substring(0, nl) : text).Trim();
-            if (first.Length == 0) return null;
-            return TestCommandCaptureScreenshot.IsValidLabel(first) ? first : null;
+            var ids = new List<string>();
+            if (string.IsNullOrEmpty(text)) return ids;
+            foreach (string raw in text.Split(new[] { '\r', '\n' }))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || !TestCommandCaptureScreenshot.IsValidLabel(line)) continue;
+                if (!ids.Contains(line)) ids.Add(line);
+            }
+            return ids;
         }
 
-        /// <summary>The <c>inflight.txt</c> text written before a case starts.</summary>
-        internal static string FormatInflight(string caseId) => (caseId ?? string.Empty) + "\n";
+        /// <summary>One id per line, each line ending in <c>\n</c>; null / empty ids skipped.</summary>
+        internal static string FormatCaseIdLines(IEnumerable<string> caseIds)
+        {
+            var sb = new StringBuilder();
+            if (caseIds != null)
+                foreach (string id in caseIds)
+                    if (!string.IsNullOrEmpty(id)) sb.Append(id).Append('\n');
+            return sb.ToString();
+        }
 
         /// <summary>
-        /// The resume rule for one case. <paramref name="staleInflightCaseId"/> is what an
-        /// <c>inflight.txt</c> found at step start names (null when there was none): the
-        /// applier deletes the file after each case, so one found at step start is a
-        /// previous process that died mid-case. A complete sidecar wins over a crash record:
-        /// a process that died between the sidecar write and the inflight delete finished
-        /// the case.
+        /// An <c>inflight.txt</c>: every case id it names (one per line; a one-line file of
+        /// the first format reads as before) and the solo marker. Null when it names no valid
+        /// case id (an empty or torn file names nothing).
+        /// </summary>
+        internal static PartParityInflight ParseInflight(string text)
+        {
+            List<string> ids = ParseCaseIdLines(text);
+            if (ids.Count == 0) return null;
+            var r = new PartParityInflight();
+            r.CaseIds.AddRange(ids);
+            foreach (string raw in text.Split(new[] { '\r', '\n' }))
+                if (string.Equals(raw.Trim(), InflightSoloMarker, StringComparison.Ordinal)) r.Solo = true;
+            return r;
+        }
+
+        /// <summary>The <c>inflight.txt</c> text: the case ids one per line, then the solo
+        /// marker line when the wave is a solo rerun. During a wave's spawn and settle it
+        /// names every case of the wave; during a capture only the case being captured.</summary>
+        internal static string FormatInflight(IList<string> caseIds, bool solo)
+            => FormatCaseIdLines(caseIds) + (solo ? InflightSoloMarker + "\n" : string.Empty);
+
+        /// <summary>The one-case form (the first format, unchanged).</summary>
+        internal static string FormatInflight(string caseId) => FormatInflight(new[] { caseId }, false);
+
+        /// <summary>
+        /// The stale-inflight rule (design 5.3). The applier deletes <c>inflight.txt</c> after
+        /// each case, so one found at step start is a previous process that died while the
+        /// named cases were in flight. Exactly one name: that case is recorded <c>crashed</c>
+        /// (a capture, a single-case wave, or the solo rerun of an isolated case). Several
+        /// names (a multi-case wave died while spawning or settling): no case is blamed; each
+        /// is owed a solo run, so the next crash isolates the culprit. A named case with a
+        /// complete sidecar wins over either: a process that died between the sidecar write
+        /// and the inflight delete finished it.
+        /// </summary>
+        internal static PartParityInflightDecision DecideInflight(
+            PartParityInflight inflight, ICollection<string> completeCaseIds)
+        {
+            var d = new PartParityInflightDecision();
+            if (inflight == null || inflight.CaseIds.Count == 0) return d;
+            var pending = new List<string>();
+            foreach (string id in inflight.CaseIds)
+            {
+                if (completeCaseIds != null && completeCaseIds.Contains(id)) d.Finished.Add(id);
+                else pending.Add(id);
+            }
+            if (inflight.CaseIds.Count == 1)
+            {
+                if (pending.Count == 1) d.CrashedCaseId = pending[0];
+                return d;
+            }
+            d.Isolate.AddRange(pending);
+            return d;
+        }
+
+        /// <summary>The isolation list after a stale-inflight decision: the cases already
+        /// owed a solo run, then the newly isolated ones (each id once, order kept), minus the
+        /// case just recorded crashed and the named cases found complete.</summary>
+        internal static List<string> MergeIsolate(IList<string> existing, PartParityInflightDecision decision)
+        {
+            var merged = new List<string>();
+            if (existing != null)
+                foreach (string id in existing)
+                    if (!string.IsNullOrEmpty(id) && !merged.Contains(id)) merged.Add(id);
+            if (decision != null)
+            {
+                foreach (string id in decision.Isolate)
+                    if (!merged.Contains(id)) merged.Add(id);
+                if (decision.CrashedCaseId != null) merged.Remove(decision.CrashedCaseId);
+                foreach (string id in decision.Finished) merged.Remove(id);
+            }
+            return merged;
+        }
+
+        /// <summary>
+        /// The resume rule for one case at the start of its turn: a complete sidecar skips it
+        /// (a crash record IS a complete sidecar, written at step start by the stale-inflight
+        /// rule); a case owed a solo run runs alone; any other case runs in a normal wave.
         /// </summary>
         internal static PartParityCaseResume DecideCaseResume(
-            string caseId, bool completeSidecarExists, string staleInflightCaseId)
+            bool completeSidecarExists, bool owedSoloRun)
         {
             if (completeSidecarExists) return PartParityCaseResume.SkipComplete;
-            if (staleInflightCaseId != null
-                && string.Equals(caseId, staleInflightCaseId, StringComparison.Ordinal))
-                return PartParityCaseResume.RecordCrashed;
-            return PartParityCaseResume.Run;
+            return owedSoloRun ? PartParityCaseResume.RunSolo : PartParityCaseResume.Run;
         }
 
         /// <summary>

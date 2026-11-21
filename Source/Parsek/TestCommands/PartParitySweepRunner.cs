@@ -41,29 +41,46 @@ namespace Parsek.TestCommands
         private const int MaxCaseLogLines = 200;
 
         // One seam step (or the in-game cell): honours args.Op (reset|run) and args.MaxSeconds,
-        // calls onDone exactly once, never throws out of the coroutine.
+        // calls onDone exactly once when it runs to its end, never throws out of the coroutine.
+        // A caller that abandons the step (the applier's timeout) DISPOSES this iterator, which
+        // runs only the finally below: the nested iterators are disposed first (their own
+        // finally blocks run, inside out), then everything the step owns is released. onDone is
+        // not called on that path; the caller has already fenced the step.
         internal static IEnumerator RunStep(PartParitySweepArgs args, Action<PartParitySweepStepResult> onDone)
         {
             var ctx = new StepContext(args);
             IEnumerator core = StepCore(ctx);
-            while (true)
+            bool ranToEnd = false;
+            try
             {
-                object current = null;
-                bool more;
-                try
+                while (true)
                 {
-                    more = core.MoveNext();
-                    if (more) current = core.Current;
+                    object current = null;
+                    bool more;
+                    try
+                    {
+                        more = core.MoveNext();
+                        if (more) current = core.Current;
+                    }
+                    catch (Exception ex)
+                    {
+                        ctx.FailWithException(ex);
+                        more = false;
+                    }
+                    if (!more) break;
+                    yield return current;
                 }
-                catch (Exception ex)
-                {
-                    ctx.FailWithException(ex);
-                    more = false;
-                }
-                if (!more) break;
-                yield return current;
+                ranToEnd = true;
             }
-            ctx.Cleanup();
+            finally
+            {
+                DisposeNested(core);
+                string released = ctx.Cleanup();
+                if (!ranToEnd)
+                    ParsekLog.Warn(Tag, StepAbandonedLine(args, released));
+                else
+                    ParsekLog.Verbose(Tag, "step cleanup: " + released);
+            }
             PartParitySweepStepResult result = ctx.Result ?? new PartParitySweepStepResult
             {
                 Ok = false, Reason = StepExceptionReason, Detail = "step ended without a result",
@@ -96,6 +113,29 @@ namespace Parsek.TestCommands
             return sb.ToString();
         }
 
+        /// <summary>The literal of the one Warn line a step stopped before its end writes.</summary>
+        internal const string StepAbandonedLiteral = "PartParity step abandoned";
+
+        /// <summary>The Warn line of a step disposed before its end (the applier's timeout):
+        /// what the cleanup released, and that a left <c>inflight.txt</c> stands for a crash.</summary>
+        internal static string StepAbandonedLine(PartParitySweepArgs args, string released)
+            => StepAbandonedLiteral + " label=" + (args?.Label ?? string.Empty)
+               + " op=" + (args != null && args.Op == PartParitySweepOp.Reset ? "reset" : "run")
+               + ": stopped before its end, cleanup ran (" + (released ?? "<none>") + "); an inflight.txt left "
+               + "behind is read by the next step as a crash of the case(s) it names";
+
+        /// <summary>Disposes a hand-driven nested iterator so its pending finally blocks run
+        /// (a compiler-generated iterator runs them on Dispose); never throws.</summary>
+        internal static void DisposeNested(IEnumerator nested)
+        {
+            if (!(nested is IDisposable d)) return;
+            try { d.Dispose(); }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"nested iterator Dispose threw {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         // =====================================================================================
         // step
         // =====================================================================================
@@ -118,12 +158,14 @@ namespace Parsek.TestCommands
             }
 
             IEnumerator unpack = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
-            while (unpack.MoveNext()) yield return unpack.Current;
+            try { while (unpack.MoveNext()) yield return unpack.Current; }
+            finally { DisposeNested(unpack); }
             if (!AdmitHost(ctx)) yield break;
 
             PlanStep(ctx);
             IEnumerator waves = RunWaves(ctx);
-            while (waves.MoveNext()) yield return waves.Current;
+            try { while (waves.MoveNext()) yield return waves.Current; }
+            finally { DisposeNested(waves); }
             FinishStep(ctx);
         }
 
@@ -166,26 +208,105 @@ namespace Parsek.TestCommands
                 keys.Add(PartParityCaseRules.DefaultCaseKey(e));
             }
             ctx.Planned = TestCommandPartParitySweep.SelectCases(keys, ctx.Args);
-            ctx.StaleInflight = ReadStaleInflight(ctx.LabelDir);
             foreach (var p in ctx.Planned) LoadKnownSidecar(ctx, p.CaseId);
             if (ctx.Args.Controls)
                 foreach (string id in TestCommandPartParitySweep.ControlIds) LoadKnownSidecar(ctx, id);
+            var keysById = new Dictionary<string, PartParityCaseKey>(StringComparer.Ordinal);
+            foreach (var k in keys) keysById[TestCommandPartParitySweep.CaseId(k)] = k;
+            ResolveStaleInflight(ctx, keysById);
             ParsekLog.Info(Tag, $"step start: label={ctx.Args.Label} op=run parts={ctx.Entries.Count.ToString(Ic)} " +
                 $"excluded={ctx.Exclusions.Count.ToString(Ic)} planned={ctx.Planned.Count.ToString(Ic)} " +
                 $"knownSidecars={ctx.Known.Count.ToString(Ic)} controls={(ctx.Args.Controls ? "true" : "false")} " +
                 $"filter={ctx.Args.Filter} shard={ctx.Args.ShardK.ToString(Ic)}/{ctx.Args.ShardN.ToString(Ic)} " +
                 $"tile={ctx.Args.Tile.ToString(Ic)} views={string.Join(",", ctx.Args.Views.ToArray())} " +
-                $"maxSeconds={ctx.Args.MaxSeconds.ToString(Ic)} staleInflight={ctx.StaleInflight ?? "<none>"}");
+                $"maxSeconds={ctx.Args.MaxSeconds.ToString(Ic)} staleInflight={ctx.StaleInflight ?? "<none>"} " +
+                $"isolate={ctx.Isolate.Count.ToString(Ic)}");
         }
 
-        private static string ReadStaleInflight(string labelDir)
+        /// <summary>
+        /// The stale-inflight rule at step start (design 5.3), over the WHOLE install, not
+        /// only this step's selection: the crash record (one name) or the isolation list
+        /// (several names) is written to the label directory FIRST, and <c>inflight.txt</c> is
+        /// deleted only after both are on disk, so a stale case outside this step's limit,
+        /// filter, shard or controls keeps its record. A write that throws fails the step and
+        /// leaves <c>inflight.txt</c> for the next one. Then loads the isolation list.
+        /// </summary>
+        private static void ResolveStaleInflight(StepContext ctx, Dictionary<string, PartParityCaseKey> keysById)
         {
-            string path = Path.Combine(labelDir, TestCommandPartParitySweep.InflightFileName);
-            if (!File.Exists(path)) return null;
-            string id = TestCommandPartParitySweep.ParseInflight(File.ReadAllText(path));
-            File.Delete(path);
-            ParsekLog.Warn(Tag, $"stale inflight.txt names case={id ?? "<unreadable>"}: the previous process died mid-case");
-            return id;
+            List<string> isolate = ReadIsolate(ctx.LabelDir);
+            string path = Path.Combine(ctx.LabelDir, TestCommandPartParitySweep.InflightFileName);
+            if (File.Exists(path))
+            {
+                PartParityInflight inflight = TestCommandPartParitySweep.ParseInflight(File.ReadAllText(path));
+                var complete = new HashSet<string>(StringComparer.Ordinal);
+                if (inflight != null)
+                    foreach (string id in inflight.CaseIds)
+                    {
+                        if (!ctx.Known.ContainsKey(id)) LoadKnownSidecar(ctx, id);
+                        if (ctx.Known.ContainsKey(id)) complete.Add(id);
+                    }
+                PartParityInflightDecision d = TestCommandPartParitySweep.DecideInflight(inflight, complete);
+                string named = inflight == null ? "<unreadable>" : string.Join(",", inflight.CaseIds.ToArray());
+                bool solo = inflight != null && inflight.Solo;
+                if (d.CrashedCaseId != null)
+                {
+                    keysById.TryGetValue(d.CrashedCaseId, out PartParityCaseKey key);
+                    var k = key ?? new PartParityCaseKey { Part = d.CrashedCaseId };
+                    WriteSidecar(ctx, PartParityJson.BuildCrashedSidecar(k, d.CrashedCaseId,
+                        solo
+                            ? "a previous process died while this case ran alone (isolation rerun, stale inflight.txt)"
+                            : "a previous process died while this case was in flight (stale inflight.txt)"));
+                    ParsekLog.Warn(Tag, $"case {d.CrashedCaseId}: setup fault crashed (recorded from the stale inflight.txt, " +
+                        $"solo={(solo ? "true" : "false")}, skipped)");
+                }
+                if (d.Isolate.Count > 0)
+                    ParsekLog.Warn(Tag, $"stale inflight.txt names {inflight.CaseIds.Count.ToString(Ic)} cases ({named}): the previous " +
+                        $"process died during a wave's spawn or settle; no case blamed, {d.Isolate.Count.ToString(Ic)} case(s) " +
+                        "re-queued to run alone");
+                isolate = TestCommandPartParitySweep.MergeIsolate(isolate, d);
+                WriteIsolate(ctx.LabelDir, isolate);
+                File.Delete(path);
+                ParsekLog.Info(Tag, $"stale inflight.txt resolved: names={named} solo={(solo ? "true" : "false")} " +
+                    $"crashed={d.CrashedCaseId ?? "<none>"} isolated={d.Isolate.Count.ToString(Ic)} " +
+                    $"alreadyComplete={d.Finished.Count.ToString(Ic)} (records written before the delete)");
+                ctx.StaleInflight = named;
+            }
+            foreach (string id in isolate)
+            {
+                if (ctx.Isolate.Contains(id)) continue;
+                ctx.Isolate.Add(id);
+                ctx.IsolateOrder.Add(id);
+            }
+        }
+
+        private static List<string> ReadIsolate(string labelDir)
+        {
+            string path = Path.Combine(labelDir, TestCommandPartParitySweep.IsolateFileName);
+            return File.Exists(path)
+                ? TestCommandPartParitySweep.ParseCaseIdLines(File.ReadAllText(path))
+                : new List<string>();
+        }
+
+        /// <summary>Writes the isolation list atomically, or deletes the file when it is empty.</summary>
+        private static void WriteIsolate(string labelDir, IList<string> isolate)
+        {
+            string path = Path.Combine(labelDir, TestCommandPartParitySweep.IsolateFileName);
+            if (isolate == null || isolate.Count == 0)
+            {
+                if (File.Exists(path)) File.Delete(path);
+                return;
+            }
+            FileIOUtils.SafeWriteBytes(Encoding.UTF8.GetBytes(TestCommandPartParitySweep.FormatCaseIdLines(isolate)), path, Tag);
+        }
+
+        /// <summary>A case owed a solo run has just finished (its sidecar is on disk): drop it
+        /// from the isolation list on disk.</summary>
+        private static void ClearIsolated(StepContext ctx, string caseId)
+        {
+            if (!ctx.Isolate.Remove(caseId)) return;
+            ctx.IsolateOrder.Remove(caseId);
+            WriteIsolate(ctx.LabelDir, ctx.IsolateOrder);
+            ParsekLog.Info(Tag, $"case {caseId}: solo rerun finished; {ctx.IsolateOrder.Count.ToString(Ic)} case(s) still owed a solo run");
         }
 
         private static void LoadKnownSidecar(StepContext ctx, string caseId)
@@ -226,7 +347,8 @@ namespace Parsek.TestCommands
                 List<WaveCase> wave = TakeWave(queue, ref cursor);
                 float waveStart = Time.realtimeSinceStartup;
                 IEnumerator w = RunWave(ctx, wave);
-                while (w.MoveNext()) yield return w.Current;
+                try { while (w.MoveNext()) yield return w.Current; }
+                finally { DisposeNested(w); }
                 lastWave = Time.realtimeSinceStartup - waveStart;
                 ctx.WavesDone++;
                 LogWave(ctx, wave, lastWave);
@@ -238,41 +360,51 @@ namespace Parsek.TestCommands
             }
         }
 
-        /// <summary>Every case this step still has to run, controls first, in the stable
-        /// order; crash records are written here (the resume rule).</summary>
+        /// <summary>Every case this step still has to run: the cases owed a solo run first
+        /// (one wave each, so the culprit of a multi-case crash is found before anything else
+        /// runs), then the rest; within each group controls first, in the stable order. The
+        /// crash records were written at step start (the stale-inflight rule), so a crashed
+        /// case reads as complete here.</summary>
         private static List<WaveCase> BuildQueue(StepContext ctx)
         {
-            var queue = new List<WaveCase>();
+            var solo = new List<WaveCase>();
+            var normal = new List<WaveCase>();
             if (ctx.Args.Controls)
             {
                 foreach (string id in TestCommandPartParitySweep.ControlIds)
-                {
-                    WaveCase wc = ResumeOrQueue(ctx, id, null, () => BuildControlCase(ctx, id));
-                    if (wc != null) queue.Add(wc);
-                }
+                    ResumeOrQueue(ctx, id, () => BuildControlCase(ctx, id), solo, normal);
             }
             foreach (var p in ctx.Planned)
-            {
-                WaveCase wc = ResumeOrQueue(ctx, p.CaseId, p.Key, () => BuildPartCase(ctx, p));
-                if (wc != null) queue.Add(wc);
-            }
-            return queue;
+                ResumeOrQueue(ctx, p.CaseId, () => BuildPartCase(ctx, p), solo, normal);
+            if (solo.Count > 0)
+                ParsekLog.Info(Tag, $"queue: {solo.Count.ToString(Ic)} case(s) owed a solo run go first, one per wave " +
+                    $"({string.Join(",", solo.ConvertAll(c => c.CaseId).ToArray())})");
+            solo.AddRange(normal);
+            return solo;
         }
 
-        private static WaveCase ResumeOrQueue(StepContext ctx, string caseId, PartParityCaseKey key, Func<WaveCase> build)
+        private static void ResumeOrQueue(StepContext ctx, string caseId, Func<WaveCase> build,
+            List<WaveCase> solo, List<WaveCase> normal)
         {
-            var decision = TestCommandPartParitySweep.DecideCaseResume(caseId, ctx.Known.ContainsKey(caseId), ctx.StaleInflight);
-            if (decision == PartParityCaseResume.SkipComplete) return null;
-            if (decision == PartParityCaseResume.RecordCrashed)
+            var decision = TestCommandPartParitySweep.DecideCaseResume(
+                ctx.Known.ContainsKey(caseId), ctx.Isolate.Contains(caseId));
+            if (decision == PartParityCaseResume.SkipComplete)
             {
-                var k = key ?? new PartParityCaseKey { Part = caseId };
-                PartParityCaseSidecar crashed = PartParityJson.BuildCrashedSidecar(k, caseId,
-                    "a previous process died while this case was in flight (stale inflight.txt)");
-                WriteSidecar(ctx, crashed);
-                ParsekLog.Warn(Tag, $"case {caseId}: setup fault crashed (recorded from the stale inflight.txt, skipped)");
-                return null;
+                // A complete case still listed (a process that died between its sidecar and
+                // the list rewrite) owes nothing more.
+                ClearIsolated(ctx, caseId);
+                return;
             }
-            return build();
+            WaveCase wc = build();
+            if (decision == PartParityCaseResume.RunSolo)
+            {
+                wc.Solo = true;
+                solo.Add(wc);
+            }
+            else
+            {
+                normal.Add(wc);
+            }
         }
 
         private static WaveCase BuildPartCase(StepContext ctx, PartParityPlannedCase p)
@@ -287,8 +419,12 @@ namespace Parsek.TestCommands
 
         private static List<WaveCase> TakeWave(List<WaveCase> queue, ref int cursor)
         {
+            var soloFlags = new List<bool>();
+            for (int i = cursor; i < queue.Count && soloFlags.Count <= PartParitySweepPlan.MaxWaveCases; i++)
+                soloFlags.Add(queue[i].Solo);
+            int candidates = PartParitySweepPlan.WaveCandidateCount(soloFlags);
             var sizes = new List<double>();
-            for (int i = cursor; i < queue.Count && sizes.Count < PartParitySweepPlan.MaxWaveCases; i++)
+            for (int i = cursor; i < cursor + candidates; i++)
                 sizes.Add(queue[i].Entry != null ? queue[i].Entry.SizeMeters : 0.0);
             List<double> offsets = PartParitySweepPlan.PlanWave(sizes);
             var wave = new List<WaveCase>();
@@ -305,23 +441,32 @@ namespace Parsek.TestCommands
         private static IEnumerator RunWave(StepContext ctx, List<WaveCase> wave)
         {
             ctx.Live = wave;
-            WriteInflight(ctx, wave[0].CaseId);
+            bool solo = wave.Count == 1 && wave[0].Solo;
+            // Spawn, unpack and settle are when a bad modded part most likely kills KSP, and
+            // every case of the wave is live: name them all (design 5.3), so a crash here
+            // blames none and isolates each.
+            WriteInflight(ctx, wave.ConvertAll(c => c.CaseId), solo);
             foreach (var wc in wave) Guard(ctx, wc, "spawn", () => SpawnCase(ctx, wc));
             IEnumerator ready = WaitReady(wave);
-            while (ready.MoveNext()) yield return ready.Current;
+            try { while (ready.MoveNext()) yield return ready.Current; }
+            finally { DisposeNested(ready); }
             IEnumerator settle = WaitSettled(wave);
-            while (settle.MoveNext()) yield return settle.Current;
+            try { while (settle.MoveNext()) yield return settle.Current; }
+            finally { DisposeNested(settle); }
 
             foreach (var wc in wave)
             {
-                WriteInflight(ctx, wc.CaseId);
+                // During a capture only the case being captured is named.
+                WriteInflight(ctx, new List<string> { wc.CaseId }, solo);
                 IEnumerator one = RunCaseCapture(ctx, wc);
-                while (one.MoveNext()) yield return one.Current;
+                try { while (one.MoveNext()) yield return one.Current; }
+                finally { DisposeNested(one); }
                 Guard(ctx, wc, "write", () => FinishCase(ctx, wc));
                 DeleteInflight(ctx);
             }
             IEnumerator down = TearDownWave(ctx, wave);
-            while (down.MoveNext()) yield return down.Current;
+            try { while (down.MoveNext()) yield return down.Current; }
+            finally { DisposeNested(down); }
             ctx.Live = null;
         }
 
@@ -513,6 +658,7 @@ namespace Parsek.TestCommands
             if (wc.RealTiles.Count > 0)
                 PartParityCaseCapture.WritePictures(ctx, wc, sidecar);
             WriteSidecar(ctx, sidecar);
+            ClearIsolated(ctx, wc.CaseId);
             if (wc.ControlId != null) JudgeAndLogControl(sidecar);
             string status = sidecar.Setup?.Status ?? TestCommandPartParitySweep.SetupOk;
             if (TestCommandPartParitySweep.IsSetupFault(status))
@@ -533,10 +679,11 @@ namespace Parsek.TestCommands
             ctx.Known[sidecar.CaseId] = sidecar;
         }
 
-        private static void WriteInflight(StepContext ctx, string caseId)
+        /// <summary>Names the case(s) in flight, atomically (a torn file would name nothing).</summary>
+        private static void WriteInflight(StepContext ctx, IList<string> caseIds, bool solo)
         {
-            File.WriteAllText(Path.Combine(ctx.LabelDir, TestCommandPartParitySweep.InflightFileName),
-                TestCommandPartParitySweep.FormatInflight(caseId));
+            FileIOUtils.SafeWriteBytes(Encoding.UTF8.GetBytes(TestCommandPartParitySweep.FormatInflight(caseIds, solo)),
+                Path.Combine(ctx.LabelDir, TestCommandPartParitySweep.InflightFileName), Tag);
         }
 
         private static void DeleteInflight(StepContext ctx)
@@ -677,6 +824,7 @@ namespace Parsek.TestCommands
             }
             ParsekLog.Info(Tag, $"wave {ctx.WavesDone.ToString(Ic)}: cases={wave.Count.ToString(Ic)} setupFaults={faults.ToString(Ic)} " +
                 $"stillAnimating={animating.ToString(Ic)} wall={wall.ToString("0.0", Ic)}s first={wave[0].CaseId} " +
+                $"solo={(wave.Count == 1 && wave[0].Solo ? "true" : "false")} " +
                 $"elapsed={(Time.realtimeSinceStartup - ctx.StartRealtime).ToString("0.0", Ic)}s");
         }
 
@@ -703,6 +851,9 @@ namespace Parsek.TestCommands
             internal string GhostVariant;
             internal List<string> Views;
             internal double AlongTrackM;
+
+            /// <summary>Owed a solo run (<c>isolate.txt</c>): flies in a wave of its own.</summary>
+            internal bool Solo;
 
             internal uint Pid;
             internal float SpawnRealtime;
@@ -750,7 +901,14 @@ namespace Parsek.TestCommands
             internal readonly List<PartParityExclusion> Exclusions = new List<PartParityExclusion>();
             internal List<PartParityPlannedCase> Planned = new List<PartParityPlannedCase>();
             internal readonly Dictionary<string, PartParityCaseSidecar> Known = new Dictionary<string, PartParityCaseSidecar>(StringComparer.Ordinal);
+            /// <summary>The ids a stale <c>inflight.txt</c> named at step start, for the step
+            /// start line; null when there was none.</summary>
             internal string StaleInflight;
+
+            /// <summary>The cases owed a solo run (the on-disk <c>isolate.txt</c>), as a set
+            /// and in file order.</summary>
+            internal readonly HashSet<string> Isolate = new HashSet<string>(StringComparer.Ordinal);
+            internal readonly List<string> IsolateOrder = new List<string>();
             internal PartParityCapture Capture;
             internal List<WaveCase> Live;
             internal int WavesDone;
@@ -785,25 +943,52 @@ namespace Parsek.TestCommands
                 ParsekLog.Warn(Tag, $"step failed: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
             }
 
-            /// <summary>Idempotent: restores the log observer, destroys a wave an exception cut
-            /// short, releases the capture camera and targets.</summary>
-            internal void Cleanup()
+            /// <summary>
+            /// Idempotent, and safe wherever a stop lands (between waves, mid-wave while
+            /// spawning or settling, mid-case between two views, in teardown): restores the
+            /// case-log observer to the one installed before the case (so its closure and the
+            /// tile arrays it holds become unreachable), destroys every case of a live wave (its
+            /// ghost with the state's cloned materials, its spawned vessel killed), releases the
+            /// capture camera, render targets and readback texture. Each part runs even when
+            /// another throws. Returns what it released, for the step's log lines.
+            /// </summary>
+            internal string Cleanup()
             {
+                bool observerRestored = false, captureReleased = false;
+                int casesDestroyed = 0, faults = 0;
                 if (ObserverInstalled)
                 {
                     ParsekLog.TestObserverForTesting = PriorObserver;
+                    PriorObserver = null;
                     ObserverInstalled = false;
+                    observerRestored = true;
                 }
                 if (Live != null)
                 {
-                    foreach (var wc in Live) DestroyCase(wc);
+                    List<WaveCase> live = Live;
                     Live = null;
+                    foreach (var wc in live)
+                    {
+                        try { DestroyCase(wc); casesDestroyed++; }
+                        catch (Exception ex)
+                        {
+                            faults++;
+                            ParsekLog.Warn(Tag, $"cleanup: case {wc?.CaseId ?? "<null>"} destroy threw {ex.GetType().Name}: {ex.Message}");
+                        }
+                    }
                 }
                 if (Capture != null)
                 {
-                    Capture.Dispose();
+                    PartParityCapture capture = Capture;
                     Capture = null;
+                    try { capture.Dispose(); captureReleased = true; }
+                    catch (Exception ex)
+                    {
+                        faults++;
+                        ParsekLog.Warn(Tag, $"cleanup: capture Dispose threw {ex.GetType().Name}: {ex.Message}");
+                    }
                 }
+                return PartParitySweepPlan.FormatCleanup(observerRestored, casesDestroyed, captureReleased, faults);
             }
         }
 

@@ -39,12 +39,16 @@ namespace Parsek.InGameTests
 
             PartParitySweepStepResult reset = null;
             IEnumerator r = PartParitySweepRunner.RunStep(Args(PartParitySweepOp.Reset), res => reset = res);
-            while (r.MoveNext()) yield return r.Current;
+            // Disposed on every exit (a cancelled test stops this coroutine), so the step's
+            // cleanup runs.
+            try { while (r.MoveNext()) yield return r.Current; }
+            finally { PartParitySweepRunner.DisposeNested(r); }
             InGameAssert.IsTrue(reset != null && reset.Ok, "reset step failed: " + Describe(reset));
 
             PartParitySweepStepResult step = null;
             IEnumerator run = PartParitySweepRunner.RunStep(Args(PartParitySweepOp.Run), x => step = x);
-            while (run.MoveNext()) yield return run.Current;
+            try { while (run.MoveNext()) yield return run.Current; }
+            finally { PartParitySweepRunner.DisposeNested(run); }
             InGameAssert.IsTrue(step != null && step.Ok, "run step failed: " + Describe(step));
             string payload = TestCommandPartParitySweep.FormatPayload(step.Payload);
             ParsekLog.Info(PartParitySweepRunner.Tag, "ingame sweep: " + payload);

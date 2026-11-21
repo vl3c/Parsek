@@ -61,5 +61,6 @@ Source/Parsek/TestCommands/ParsekTestCommandAddon.CaptureScreenshot.cs 1
 Source/Parsek/TestCommands/ParsekTestCommandAddon.NewGame.cs 4
 # Part parity sweep (automation / in-game test only): op=reset removes its own label directory
 # under <KSP root>/parsek-partparity/<label>/, and the sweep deletes its own inflight.txt there
-# (once when a stale one is read at step start, once after each case). Nothing under saves/.
-Source/Parsek/TestCommands/PartParitySweepRunner.cs 3
+# (once when a stale one is resolved at step start, once after each case) and its own
+# isolate.txt there when the isolation list empties. Nothing under saves/.
+Source/Parsek/TestCommands/PartParitySweepRunner.cs 4

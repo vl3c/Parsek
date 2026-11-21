@@ -164,11 +164,20 @@ cloned materials; `Die()` every spawned vessel and wait until gone. Every K = 10
    `EmitSeedEvents` at t0 into the throwaway recording's `PartEvents` before the build (D2; the
    rig's `TryBuildGhostFromLiveVessel` overload takes them).
 3. Build the ghost through the D2 seam, replay the t0 prefix of the seed events the way the
-   engine primes a loaded ghost (`PrimeLoadedGhostForPlaybackUT`: `partEventIndex = 0`, then
-   `GhostPlaybackLogic.ApplyPartEvents(rec, t0)` under `HiddenPrimeVisualPolicy`, so no transient
-   FX start; `GhostCoOrbitalRig.ApplySeedPrefix`), disable ghost colliders, freeze rigidbodies
-   (FGV). The emitted and applied counts are the sidecar flags `seed-events:<n>` /
-   `seed-applied:<n>`. Parent the ghost root to `real.rootPart.transform` with zero
+   engine primes a loaded ghost (`PrimeLoadedGhostForPlaybackUT`, whose `ApplyFrameVisuals` runs
+   under `HiddenPrimeVisualPolicy`): `GhostCoOrbitalRig.ApplySeedPrefix` calls the engine-owned
+   `GhostPlaybackEngine.PrimeHiddenPartStateAtUT`, which resets `partEventIndex` and runs the two
+   blocks `ApplyFrameVisuals` itself calls, extracted as statics: `ApplyPartStateForFrame`
+   (`ApplyPartEvents`, `UpdateActiveRobotics`, `UpdateActiveDeployables`,
+   `UpdateSynthesizedMotion`) and, under the policy's FX suppression, `StopVisualFxForFrame`
+   (engine / RCS FX and emissions stopped, reentry FX reset, launch dust to zero, audio muted),
+   then `UpdateAudioAtmosphere`. So no transient FX start, and no part state differs from a
+   playback ghost's first frame. The engine path is unchanged: inlining both statics back at
+   their call sites in `ApplyFrameVisuals` gives its old IL body exactly (ILSpy dumps, the
+   multi-seam inline fold of P1's proof; every other `GhostPlaybackEngine` method byte-equal after
+   normalization). A ghost whose recording carries no part events (FGV's overload passes none) is
+   left exactly as built. Then disable ghost colliders, freeze rigidbodies (FGV). The emitted and
+   applied counts are the sidecar flags `seed-events:<n>` / `seed-applied:<n>`. Parent the ghost root to `real.rootPart.transform` with zero
    offset / identity rotation / unit scale. Record the world offset between `ghost_part_<pid>` and
    the real part transform (expected 0; else `ghost-root-offset`).
 4. Ghost framing box from the ghost's own rendered renderers; the real box by the rule of step 1;
@@ -278,7 +287,9 @@ Per sweep directory:
   progress (`complete`, `cases`, `crashed`).
 - `<caseId>.png` - the atlas; `<caseId>.thumb.png` - 2 x 128 px `side-a` pair for the grid;
   `<caseId>.part.json` - the sidecar.
-- `inflight.txt` - the case being captured (5.3).
+- `inflight.txt` - the case(s) in flight, one id per line, plus a `#solo` line on a solo rerun
+  (5.3).
+- `isolate.txt` - the cases still owed a solo run, one id per line (5.3); absent when none.
 
 Harvest: a new `run.py` leg MOVES (same-volume rename, while the instance lock is still held) the
 label directory into `results/<runId>_partparity/` instead of copying 1 GB into the verifier's
@@ -334,10 +345,40 @@ names live in the sidecar.
 ### 5.3 Resume and crashes
 
 A step processes cases in the stable order until its 480 s time box ends, then answers OK with
-`done=false next=<index>`. The next step skips every case with a complete sidecar. Before a case
-starts, its id is written to `inflight.txt`; if KSP crashes on a bad modded part, the next boot's
-sweep finds the stale `inflight.txt`, records that case `crashed` and skips it. So a retried
+`done=false next=<index>`. The next step skips every case with a complete sidecar. So a retried
 attempt never restarts from zero, and one bad part cannot stop a sweep.
+
+`inflight.txt` (written atomically) names what is in flight. During a wave's spawn, unpack and
+settle, when a bad modded part is most likely to kill KSP and every case of the wave is live, it
+names EVERY case of the wave, one per line. During a capture it names only the case being
+captured, and it is deleted after that case's sidecar is written. A wave that is a solo rerun adds
+a `#solo` line (outside the case-id alphabet). A one-line file of the first format reads as
+before. One found at step start means a previous process died with those cases in flight; the
+rule (pure: `TestCommandPartParitySweep.DecideInflight` / `MergeIsolate`):
+
+- Exactly one name: that case is recorded `crashed` (a crashed sidecar) and skipped. This covers a
+  capture, a single-case wave and the solo rerun of an isolated case, so a second crash of a solo
+  rerun blames the culprit.
+- Several names: no case is recorded crashed. Each is owed a solo run: it joins `isolate.txt` and
+  the queue runs every case owed a solo run first, one per wave (a solo case never joins a normal
+  wave, `PartParitySweepPlan.WaveCandidateCount`), so the next crash names one case. A case leaves
+  `isolate.txt` when its sidecar is written (including its crash record). The list lives in the
+  label directory, so the isolation survives any number of further KSP restarts and time-box ends.
+- A named case with a complete sidecar wins over both: the process died between its sidecar write
+  and the inflight delete, so it finished.
+
+The rule runs over the WHOLE install's case ids, not only the step's selection: the crash record
+and the isolation list are written BEFORE `inflight.txt` is deleted, so a stale case outside the
+next step's limit, filter, shard or `controls=false` keeps its record (a write that throws fails
+the step and leaves `inflight.txt` for the next one). Lines: Warn `case <id>: setup fault crashed
+(recorded from the stale inflight.txt, solo=<bool>, skipped)`, Warn `stale inflight.txt names <n>
+cases (...): ... re-queued to run alone`, Info `stale inflight.txt resolved: names= solo= crashed=
+isolated= alreadyComplete=`, the step-start line's `staleInflight=` and `isolate=<n>`, Info `queue:
+<n> case(s) owed a solo run go first`, the wave line's `solo=`, Info `case <id>: solo rerun
+finished`.
+
+A step stopped by the seam's 540 s timeout (7) is the in-process cousin of a crash: its cleanup
+runs, but `inflight.txt` stays, so the next step reads the case(s) it names under the same rule.
 
 ## 6. Measures and verdicts
 
@@ -377,6 +418,18 @@ PNG codec), as an independent check of the C# instrument.
 - Scene `RequiresFlight` with an orbiting active vessel (refusals for a landed or suborbital host).
 - In `DEFERRED_SEAM_VERBS`; the spec's step budget is at most 540 s (S8). A step answers OK
   `label done=true|false next= cases= complete= crashed= setupFaults= controls=ok|bad|pending wall=`.
+- Timeout: the applier keeps the runner's step iterator and, on the 540 s timeout, DISPOSES it
+  before `StopCoroutine` (which only abandons an iterator, so no `finally` would run). `RunStep`
+  releases everything in a `finally` (`StepContext.Cleanup`: idempotent, safe between waves,
+  mid-spawn / settle, between two views of a case and in teardown; it kills the spawned vessels,
+  destroys the ghosts with their cloned materials, releases the capture camera, render targets and
+  readback texture, and restores the case-log observer that held the tile arrays), after disposing
+  the nested iterators: every iterator the runner drives by hand is disposed in its own `finally`,
+  so the dispose reaches the innermost one (the case's observer `finally` included). A stopped step
+  logs Warn `PartParity step abandoned label= op=: stopped before its end, cleanup ran
+  (observerRestored= casesDestroyed= captureReleased= faults=) ...`; a step that ends normally logs
+  the same tokens on a Verbose `step cleanup:` line. The in-game cell disposes the steps it drives
+  the same way.
   A spec lists enough `op=run` steps for the measured case count; a step after completion answers
   `done=true` at once.
 - `shard=k/n` takes every case whose stable index mod n == k-1. The parallel runner dispatches
@@ -472,20 +525,20 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
 
 | File | Role |
 | --- | --- |
-| `Source/Parsek/TestCommands/TestCommandPartParitySweep.cs` | Pure: args, refusals, case order, sharding, case ids, resume decision, payload. |
+| `Source/Parsek/TestCommands/TestCommandPartParitySweep.cs` | Pure: args, refusals, case order, sharding, case ids, resume decision (the inflight / isolation rule of 5.3), payload. |
 | `Source/Parsek/TestCommands/PartParityMetrics.cs` | Pure: mask from two clears, tolerance mismatch, blobs, bbox, centroid, colour statistics. |
 | `Source/Parsek/TestCommands/PartParityStructure.cs` | Pure: renderer record pairing and the structural diff. |
 | `Source/Parsek/TestCommands/PartParityJson.cs` | Pure: manifest and sidecar model + invariant writer (`MapGeometryJson` pattern), `SchemaId`s. |
 | `Source/Parsek/TestCommands/PartParityFramingRule.cs` | Pure: the framing rule of 4.2 (paired box, the 2x reach for unpaired real renderers, dropped list, `ghost-outside-real-bounds`). |
 | `Source/Parsek/TestCommands/PartParityImaging.cs` | Pure: the PNG encoder (`PartParityPng`), atlas and thumbnail (`PartParityImage`). |
 | `Source/Parsek/TestCommands/PartParityJsonReader.cs` | Pure: a minimal JSON reader, so each step rebuilds the manifest from the sidecars on disk. |
-| `Source/Parsek/TestCommands/PartParitySweepPlan.cs` | Pure: wave slots, the settle rule, the controls' required outcomes and their judge, manifest summaries. |
+| `Source/Parsek/TestCommands/PartParitySweepPlan.cs` | Pure: wave slots and the solo-wave cut, the settle rule, the controls' required outcomes and their judge, manifest summaries, the cleanup tokens. |
 | `Source/Parsek/TestCommands/PartParityCaseAuthoring.cs` | Pure rules (`PartParityCaseRules`: exclusions, model urls, source, tags) + live enumeration and part node authoring. |
 | `Source/Parsek/TestCommands/PartParityCapture.cs` | Live: camera, light rig, hide / render / read / restore (`PartParityCaptureMath` is its pure camera math). |
 | `Source/Parsek/TestCommands/PartParityCaseCapture.cs` | Live: one case in the order of 4.2 (records, seeds, ghost, framing, views, files) and the manifest writer. |
 | `Source/Parsek/TestCommands/PartParitySweepRunner.cs` | Live: the step and wave coroutine (`RunStep(args, onDone)`), shared by the seam verb and the in-game cell. |
 | `Source/Parsek/TestCommands/ParsekTestCommandAddon.PartParitySweep.cs` | Thin applier: starts `PartParitySweepRunner.RunStep` and answers the seam. |
-| `Source/Parsek/Ghost/GhostPlaybackEngine.*` | The extracted build-and-initialise seam (D2), `GhostPlaybackEngine.InitializeBuiltGhostVisuals(state, buildResult, traj)`, the engine's own load path (`TryPopulateGhostVisuals`) rewired through it. Proof of no behaviour change: `il_compare.py` before / after reports only the new method and the caller's body, and inlining the seam's body back at the call site gives the caller's old body exactly (`--fold` models moves between types, not an extract-method). The loop-reuse re-init (`SpawnDestroy`) and the KSC spawn run other subsets (no pivot; KSC passes no trajectory) and stay as they are. Activation stays the engine's deferred `ActivateGhostVisualsIfNeeded`. |
+| `Source/Parsek/Ghost/GhostPlaybackEngine.*` | The extracted build-and-initialise seam (D2), `GhostPlaybackEngine.InitializeBuiltGhostVisuals(state, buildResult, traj)`, the engine's own load path (`TryPopulateGhostVisuals`) rewired through it. Proof of no behaviour change: `il_compare.py` before / after reports only the new method and the caller's body, and inlining the seam's body back at the call site gives the caller's old body exactly (`--fold` models moves between types, not an extract-method). The loop-reuse re-init (`SpawnDestroy`) and the KSC spawn run other subsets (no pivot; KSC passes no trajectory) and stay as they are. Activation stays the engine's deferred `ActivateGhostVisualsIfNeeded`. P2 adds the seed-prefix prime (4.2 step 3): `ApplyPartStateForFrame` and `StopVisualFxForFrame` extracted from `ApplyFrameVisuals` (proved the same way: the multi-seam inline fold of both gives the old body), composed by `PrimeHiddenPartStateAtUT`. |
 | `Source/Parsek/Ghost/GhostVisualBuilder*` | The `GhostBuildResult` applied-skin accessor. |
 | `Source/Parsek/InGameTests/GhostCoOrbitalRig.cs` | `SpawnCoOrbital` (log tag passed in), `UniqueFlightIds`, `AuthorPartNode` (writes `moduleVariantName` and the `ModulePartVariants` `selectedVariant`), `TryBuildGhostFromLiveVessel` (snapshot, throwaway recording, timeline build, the D2 seam) and `NeutralisePhysics`: moved out of `FairingGhostVisualInGameTests`, used by both, FGV's nodes and log lines unchanged. |
 | `Source/Parsek/InGameTests/PartParityInGameTests.cs` | Ctrl+Shift+T entry. |

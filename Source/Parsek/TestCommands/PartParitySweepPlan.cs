@@ -71,6 +71,33 @@ namespace Parsek.TestCommands
             return offsets;
         }
 
+        /// <summary>
+        /// How many queued cases, from the cursor, the next wave may hold before slot
+        /// planning (design 5.3): a case owed a solo run flies in a wave of its own, so the
+        /// next crash names it alone; otherwise the leading run of cases NOT owed one, up to
+        /// <paramref name="maxCases"/> (a solo case never joins a normal wave).
+        /// <paramref name="soloFromCursor"/> holds one flag per queued case from the cursor on.
+        /// </summary>
+        internal static int WaveCandidateCount(IList<bool> soloFromCursor, int maxCases = MaxWaveCases)
+        {
+            if (soloFromCursor == null || soloFromCursor.Count == 0 || maxCases < 1) return 0;
+            if (soloFromCursor[0]) return 1;
+            int n = 0;
+            while (n < soloFromCursor.Count && n < maxCases && !soloFromCursor[n]) n++;
+            return n;
+        }
+
+        /// <summary>What a step's cleanup released, as <c>key=value</c> tokens (the abandoned
+        /// step's Warn line and the normal step's Verbose line carry it).</summary>
+        internal static string FormatCleanup(bool observerRestored, int casesDestroyed, bool captureReleased, int faults)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "observerRestored=" + (observerRestored ? "true" : "false")
+                + " casesDestroyed=" + casesDestroyed.ToString(ic)
+                + " captureReleased=" + (captureReleased ? "true" : "false")
+                + " faults=" + faults.ToString(ic);
+        }
+
         // ----- settle (design 4.1) -----
 
         internal const double SpawnTimeoutSeconds = 20.0;

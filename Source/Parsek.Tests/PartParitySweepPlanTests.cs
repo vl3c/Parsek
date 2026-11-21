@@ -22,6 +22,38 @@ namespace Parsek.Tests
             Assert.Equal(new[] { 60.0, -60.0, 100.0, -100.0, 140.0, -140.0, 180.0, -180.0 }, o.ToArray());
         }
 
+        [Theory]
+        [InlineData("", 0)]
+        [InlineData("S", 1)]          // a case owed a solo run flies alone
+        [InlineData("SS", 1)]
+        [InlineData("SNNN", 1)]
+        [InlineData("N", 1)]
+        [InlineData("NNNS", 3)]       // a solo case never joins a normal wave
+        [InlineData("NSNN", 1)]
+        [InlineData("NNNNNNNNNN", 8)] // capped at MaxWaveCases
+        public void WaveCandidateCount(string flags, int expected)
+        {
+            var solo = flags.Select(c => c == 'S').ToList();
+            Assert.Equal(expected, PartParitySweepPlan.WaveCandidateCount(solo));
+        }
+
+        [Fact]
+        public void WaveCandidateCount_NullAndCap()
+        {
+            Assert.Equal(0, PartParitySweepPlan.WaveCandidateCount(null));
+            Assert.Equal(2, PartParitySweepPlan.WaveCandidateCount(new List<bool> { false, false, false }, 2));
+            Assert.Equal(0, PartParitySweepPlan.WaveCandidateCount(new List<bool> { true }, 0));
+        }
+
+        [Fact]
+        public void FormatCleanup_IsInvariantKeyValues()
+        {
+            Assert.Equal("observerRestored=true casesDestroyed=3 captureReleased=false faults=1",
+                PartParitySweepPlan.FormatCleanup(true, 3, false, 1));
+            Assert.Equal("observerRestored=false casesDestroyed=0 captureReleased=true faults=0",
+                PartParitySweepPlan.FormatCleanup(false, 0, true, 0));
+        }
+
         [Fact]
         public void PlanWave_LargePartTakesTwoSlotsAtTheirMidpoint()
         {

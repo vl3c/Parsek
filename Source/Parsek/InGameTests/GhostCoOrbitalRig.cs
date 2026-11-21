@@ -185,17 +185,18 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Replays the recording's part events up to <paramref name="ut"/> onto the ghost the
-        /// way the engine primes a freshly loaded ghost (<c>PrimeLoadedGhostForPlaybackUT</c>:
-        /// cursor reset, then <see cref="GhostPlaybackLogic.ApplyPartEvents"/> under the hidden
-        /// prime policy, so no transient FX start). Returns the number of events applied.
+        /// way the engine primes a freshly loaded ghost (<c>PrimeLoadedGhostForPlaybackUT</c>),
+        /// through the engine's own <see cref="GhostPlaybackEngine.PrimeHiddenPartStateAtUT"/>:
+        /// cursor reset, the part events, robotics, deployables and synthesized motion under the
+        /// hidden prime policy (no transient FX start), then the FX suppression. A ghost whose
+        /// recording carries no part events (the FGV overload passes none) is left exactly as
+        /// built. Returns the number of events applied.
         /// </summary>
         internal static int ApplySeedPrefix(LiveGhost ghost, double ut)
         {
             if (ghost?.State == null || ghost.Recording == null) return 0;
-            ghost.State.partEventIndex = 0;
-            GhostPlaybackLogic.ApplyPartEvents(-1, ghost.Recording, ut, ghost.State,
-                GhostPlaybackEngine.HiddenPrimeVisualPolicy().allowTransientEffects);
-            return ghost.State.partEventIndex;
+            if (ghost.Recording.PartEvents == null || ghost.Recording.PartEvents.Count == 0) return 0;
+            return GhostPlaybackEngine.PrimeHiddenPartStateAtUT(-1, ghost.Recording, ghost.State, ut);
         }
 
         /// <summary>

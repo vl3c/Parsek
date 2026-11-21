@@ -29,6 +29,11 @@ namespace Parsek.TestCommands
         private int partParityArmId;
         private string partParityLabel;
         private Coroutine partParityRoutine;
+
+        // The runner's step iterator the routine drives by hand. The timeout disposes it
+        // BEFORE StopCoroutine: StopCoroutine only abandons an iterator, so without the
+        // Dispose none of the step's finally blocks (its cleanup) would ever run.
+        private IEnumerator partParityInner;
         private PartParitySweepStepResult partParityResult;
         private bool partParityRoutineEnded;
 
@@ -84,6 +89,8 @@ namespace Parsek.TestCommands
                 OnPartParityStepThrew(armId, ex);
                 yield break;
             }
+            if (armId == partParityArmId)
+                partParityInner = inner;
 
             while (true)
             {
@@ -103,7 +110,10 @@ namespace Parsek.TestCommands
             }
 
             if (armId == partParityArmId)
+            {
                 partParityRoutineEnded = true;
+                partParityInner = null;
+            }
         }
 
         private void OnPartParityStepDone(int armId, PartParitySweepStepResult result)
@@ -123,6 +133,7 @@ namespace Parsek.TestCommands
                 + $"{ex.GetType().Name}: {ex.Message}");
             if (armId != partParityArmId)
                 return;
+            partParityInner = null;
             if (partParityResult == null)
             {
                 partParityResult = new PartParitySweepStepResult
@@ -157,7 +168,13 @@ namespace Parsek.TestCommands
             if (outcome == PartParitySweepPollOutcome.TimedOut)
             {
                 // Fence and stop the runner: a late report must not settle a later step.
+                // Dispose the step iterator first so its finally blocks run (they release
+                // the spawned vessels, ghosts, camera, targets and the case-log observer),
+                // then stop the routine that drove it.
                 partParityArmId++;
+                IEnumerator abandoned = partParityInner;
+                partParityInner = null;
+                PartParitySweepRunner.DisposeNested(abandoned);
                 if (partParityRoutine != null)
                     StopCoroutine(partParityRoutine);
                 partParityRoutine = null;
@@ -170,6 +187,7 @@ namespace Parsek.TestCommands
             }
 
             partParityRoutine = null;
+            partParityInner = null;
             if (outcome == PartParitySweepPollOutcome.Failed)
             {
                 string reason = result != null ? result.Reason : null;
