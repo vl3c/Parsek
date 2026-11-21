@@ -139,5 +139,24 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Variant rules skip flag materials
+
+        [Theory]
+        [InlineData("Flag", true)]
+        [InlineData("roverBody_flag (Instance)", true)]
+        [InlineData("FLAGDECAL", true)]
+        [InlineData("Auto Truss", true)]
+        [InlineData("model_auto truss_mat", true)]
+        [InlineData("roverBody", false)]
+        [InlineData("AutoTruss", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void VariantRules_SkipFlagAndAutoTrussMaterials(string name, bool exempt)
+        {
+            Assert.Equal(exempt, GhostVisualBuilder.IsVariantExemptMaterial(name));
+        }
+
+        #endregion
     }
 }

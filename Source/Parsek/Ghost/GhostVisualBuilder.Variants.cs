@@ -400,6 +400,7 @@ namespace Parsek
                 return 0;
 
             int totalApplied = 0;
+            int exemptSkipped = 0;
 
             for (int ri = 0; ri < renderers.Length; ri++)
             {
@@ -418,6 +419,11 @@ namespace Parsek
                     if (mat == null) continue;
 
                     string matName = mat.name;
+                    if (IsVariantExemptMaterial(matName))
+                    {
+                        exemptSkipped++;
+                        continue;
+                    }
 
                     for (int ruleIdx = 0; ruleIdx < rules.Count; ruleIdx++)
                     {
@@ -508,7 +514,28 @@ namespace Parsek
                     renderer.sharedMaterials = mats;
             }
 
+            if (exemptSkipped > 0)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"variant-exempt-{partName}",
+                    $"Part '{partName}' pid={persistentId}: variant texture rules skipped " +
+                    $"{exemptSkipped} flag / auto truss material slot(s), as stock does");
+            }
+
             return totalApplied;
+        }
+
+        /// <summary>
+        /// Stock <c>ModulePartVariants.OnAwake</c> (KSP 1.12.5, decompiled) leaves out of the
+        /// variant material list every material whose lowercased name contains "flag" or
+        /// "auto truss", so a variant's TEXTURE rules never re-skin a flag decal or the auto
+        /// truss.
+        /// </summary>
+        internal static bool IsVariantExemptMaterial(string materialName)
+        {
+            if (string.IsNullOrEmpty(materialName))
+                return false;
+            string lower = materialName.ToLowerInvariant();
+            return lower.Contains("flag") || lower.Contains("auto truss");
         }
 
         /// <summary>

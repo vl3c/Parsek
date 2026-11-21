@@ -90,6 +90,9 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **A part's flag keeps its look on the ghost when a paint variant is chosen.** Picking the gold
+  or silver finish of the RoveMate also repainted its flag on the replay. The flag now stays a
+  flag, as on the real part. (GHOST-VARIANT-RESKINS-FLAG)
 - **Painted tank and nose cone variants look right on their ghosts.** A variant's bump texture was
   loaded the wrong way, which also spoiled that texture for the real parts until a restart. Ghosts
   of Size3 tanks and the orange nose cones now match the real part, and the real part stays
