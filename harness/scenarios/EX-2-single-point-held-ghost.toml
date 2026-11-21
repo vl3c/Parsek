@@ -62,9 +62,10 @@ id = "EX-2-single-point-held-ghost"
 # SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS, branch `rsr-wp9-orbit-spawn-clear`), NOT
 # RE-FLOWN: a blocked recorded-terminal-orbit spawn now moves along its own orbit (up to
 # 1000 m, `OrbitSpawnClearance`) before it gives up, so the old 155 m box would clear at
-# about 230 m and SPAWN, losing this lane's D13 / D18 reading. The preset's outriggers moved
-# to 1300 m on each axis (a box about 1306 m half-extent) so every phase candidate still
-# covers the probe: the spawn is blocked on the orbit route's no-clear-spot branch
+# about 230 m and SPAWN, losing this lane's D13 / D18 reading. The lane now injects its own
+# preset `single-point-hold-wide`: the `single-point-hold` shape with the outriggers at 1300 m
+# on each axis (a box about 1306 m half-extent), so every phase candidate still covers the
+# probe (`single-point-hold` keeps its 150 m box for SPW-11, whose pins read a spawn): the spawn is blocked on the orbit route's no-clear-spot branch
 # (`VesselSpawner.BlockOrbitRouteSpawn`, `(orbit spawn, no clear spot within 1000m along its
 # orbit)`), which leaves `VesselSpawned` false exactly like the single-point branch, so the
 # hold, the retries and the timeout below are unchanged. The spawn could not become a
@@ -82,7 +83,7 @@ tags = ["EX-2", "D18", "held-ghost", "spawn-blocked", "single-point",
 
 [fixture]
 saveTemplate       = "fixtures/saves/eva2-lko-crewed"
-injectedRecordings = "single-point-hold"
+injectedRecordings = "single-point-hold-wide"
 craft              = []
 
 [driver]

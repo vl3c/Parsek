@@ -299,7 +299,6 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | looped-interplanetary | 2 |
 | pending-limbo-tree | 2 |
 | rewind-crew-loss | 2 |
-| single-point-hold | 2 |
 | spawn-safety | 2 |
 | background-claim | 1 |
 | drill-harvest-route | 1 |
@@ -311,6 +310,8 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | overlap-cap | 1 |
 | relative-loop | 1 |
 | rescan-substitute | 1 |
+| single-point-hold | 1 |
+| single-point-hold-wide | 1 |
 | spawn-room | 1 |
 | spawn-stack | 1 |
 | vessel-budget | 1 |

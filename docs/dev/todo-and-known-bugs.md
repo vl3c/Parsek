@@ -283,12 +283,13 @@ blocked retry and abandon, wiring gates at all three sites, red on the old sourc
 Residue: no lane flies it (recommended: an orbit spawn next to a parked station).
 `EX-2-single-point-held-ghost` reached its D18 hold through this path (its `single-point-hold`
 orbit spawn blocked by the co-orbiting probe): the phase search would now clear at about 230 m and
-spawn it, so the preset's outriggers moved from 150 m to 1300 m (every phase candidate still covers
-the probe) and the lane is re-pinned to the orbit route's no-clear-spot block, with the same hold,
+spawn it, so EX-2 takes its own preset `single-point-hold-wide` (the same shape with the outriggers at
+1300 m instead of 150 m, so every phase candidate still covers the probe) and the lane is re-pinned to the orbit route's no-clear-spot block, with the same hold,
 retries and timeout; re-flight owed. The non-orbit single-point branch EX-2 used to read is now the
 in-game cell `SinglePointSpawnWithNoTerminalOrbit_KeepsTheSinglePointRetry` (a non-orbit single point
 cannot be held in LKO, and no committed fixture has a ground host outside the KSC circles).
-`SPW-11-rsc-warp-orbital-held-target` shares the preset (its pins accept either outcome).
+`SPW-11-rsc-warp-orbital-held-target` keeps `single-point-hold` and its 150 m box (live-proven
+2026-11-20 with the target spawned; the phase search still clears and spawns there).
 `SPW-5-physics-warp-end-spawn-near-active` would read a phase shift if its probe ever blocked, which
 its LeafPlacement verdict may report as `phase`.
 

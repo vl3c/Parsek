@@ -193,8 +193,17 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # InjectSinglePointHold`; the injector
                                         # refuses a target save at another UT.
                                         # No RP. Consumer:
-                                        # EX-2-single-point-held-ghost.
+                                        # SPW-11-rsc-warp-orbital-held-target.
                                         "single-point-hold",
+                                        # single-point-hold-wide: the same
+                                        # recording with its spawn box widened
+                                        # past the 1000 m orbit-route phase
+                                        # search, so the end spawn stays
+                                        # blocked and the ghost is held.
+                                        # `--filter InjectSinglePointHoldWide`.
+                                        # No RP. Consumer:
+                                        # EX-2-single-point-held-ghost.
+                                        "single-point-hold-wide",
                                         # spawn-safety: TWO committed
                                         # single-recording trees on
                                         # eva2-lko-crewed, both ending
