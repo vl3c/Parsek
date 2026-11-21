@@ -126,6 +126,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-split-parent
     vesselPid=4301
   pendingInitialTrajectoryPoints: -
@@ -624,6 +625,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-split-parent
     vesselPid=4301
   pendingInitialTrajectoryPoints: -
@@ -763,6 +765,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-split-parent
     vesselPid=4301
   pendingInitialTrajectoryPoints: -

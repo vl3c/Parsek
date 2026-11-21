@@ -9,7 +9,67 @@ namespace Parsek
     // Per-vessel state initialization: on-rails and loaded state setup, inherited engine state and part-state seeding.
     internal partial class BackgroundRecorder
     {
-        private static bool WillInitializeOnRailsWithPlayablePayload(Vessel v)
+        /// <summary>What an on-rails span opens with when a background vessel packs.</summary>
+        internal enum OnRailsInitialPayload
+        {
+            /// <summary>Landed / splashed: a surface position, no orbit segment.</summary>
+            Landed,
+            /// <summary>A conic above the atmosphere top (or around an airless body).</summary>
+            Orbit,
+            /// <summary>
+            /// A conic opened below the atmosphere top. Stock moves a packed vessel along
+            /// exactly this drag-free conic (there is no atmosphere on rails) until it deletes
+            /// the vessel (pressure above its packed-vessel threshold, or under the terrain),
+            /// unpacks it, or the player takes it over, so it is recorded like any other
+            /// on-rails stretch.
+            /// </summary>
+            AtmosphereOrbit,
+            /// <summary>No orbit and not landed (e.g. a vessel with no orbit yet).</summary>
+            NoOrbit,
+        }
+
+        /// <summary>
+        /// Pure: the payload an on-rails span opens with. <paramref name="insideAtmosphere"/>
+        /// is <see cref="FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere"/> of the vessel's
+        /// body and altitude.
+        /// </summary>
+        internal static OnRailsInitialPayload ResolveOnRailsInitialPayload(
+            bool isLanded, bool isPrelaunch, bool insideAtmosphere, bool hasOrbit)
+        {
+            if (isLanded)
+                return OnRailsInitialPayload.Landed;
+            // A vessel on the pad sits on the ground: its conic (e ~ 0.995) runs through the
+            // planet. Below the atmosphere top it never opened one; it still does not.
+            if (!hasOrbit || (isPrelaunch && insideAtmosphere))
+                return OnRailsInitialPayload.NoOrbit;
+            return insideAtmosphere
+                ? OnRailsInitialPayload.AtmosphereOrbit
+                : OnRailsInitialPayload.Orbit;
+        }
+
+        /// <summary>
+        /// Pure: the environment label of the checkpoint sections an on-rails span closes.
+        /// One label per span (see BackgroundOnRailsState.packedInsideAtmosphere): a span
+        /// packed below the atmosphere top stays Atmospheric, the environment its loaded
+        /// recording was in, so the span adds no environment boundary the optimizer could cut.
+        /// </summary>
+        internal static SegmentEnvironment ResolveOnRailsCheckpointEnvironment(bool packedInsideAtmosphere)
+        {
+            return packedInsideAtmosphere
+                ? SegmentEnvironment.Atmospheric
+                : SegmentEnvironment.ExoBallistic;
+        }
+
+        /// <summary>
+        /// Whether the on-rails span this vessel is about to open carries an ExoBallistic
+        /// orbit payload. Feeds only the no-payload boundary-seam decision
+        /// (<see cref="ShouldPersistNoPayloadOnRailsBoundaryTrackSection"/>): a conic opened
+        /// below the atmosphere top is Atmospheric, so it does not carry the loaded
+        /// recording's next environment class across a lagged Exo -> Atmospheric pack, and
+        /// the seam that keeps that boundary from becoming a split candidate is still
+        /// persisted, exactly as before such conics were recorded.
+        /// </summary>
+        private static bool WillInitializeOnRailsWithExoOrbitPayload(Vessel v)
         {
             bool isLanded = v.situation == Vessel.Situations.LANDED ||
                             v.situation == Vessel.Situations.SPLASHED;
@@ -85,8 +145,16 @@ namespace Parsek
 
             bool isLanded = v.situation == Vessel.Situations.LANDED ||
                             v.situation == Vessel.Situations.SPLASHED;
+            bool insideAtmosphere = v.mainBody != null &&
+                FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere(
+                    v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth);
+            OnRailsInitialPayload payload = ResolveOnRailsInitialPayload(
+                isLanded,
+                v.situation == Vessel.Situations.PRELAUNCH,
+                insideAtmosphere,
+                v.orbit != null);
 
-            if (isLanded)
+            if (payload == OnRailsInitialPayload.Landed)
             {
                 state.isLanded = true;
                 state.hasOpenOrbitSegment = false;
@@ -112,55 +180,61 @@ namespace Parsek
                 ParsekLog.Verbose("BgRecorder", $"On-rails state initialized (landed): pid={vesselPid} " +
                     $"body={v.mainBody?.name} sit={v.situation}");
             }
-            else if (v.mainBody != null &&
-                     FlightRecorder.ShouldSkipOrbitSegmentForAtmosphere(
-                         v.mainBody.atmosphere, v.altitude, v.mainBody.atmosphereDepth))
+            else if (payload == OnRailsInitialPayload.Orbit
+                || payload == OnRailsInitialPayload.AtmosphereOrbit)
             {
-                // In atmosphere — Keplerian orbit ignores drag, skip orbit segment
-                state.hasOpenOrbitSegment = false;
-
-                if (hasTreeRecording)
-                {
-                    treeRec.ExplicitEndUT = ut;
-                }
-
-                string atmoOrbitShape = v.orbit != null
-                    ? string.Format(CultureInfo.InvariantCulture,
-                        " sma={0:F1} ecc={1:F4} periAlt={2:F1} apoAlt={3:F1}",
-                        v.orbit.semiMajorAxis, v.orbit.eccentricity, v.orbit.PeA, v.orbit.ApA)
-                    : "";
-                ParsekLog.Verbose("BgRecorder", $"On-rails state initialized (atmosphere, skip orbit): pid={vesselPid} " +
-                    $"body={v.mainBody?.name} alt={v.altitude:F0} atmoDepth={v.mainBody.atmosphereDepth:F0}{atmoOrbitShape}");
-            }
-            else if (v.orbit != null)
-            {
-                // Open orbit segment
+                // Open orbit segment. Below the atmosphere top this is the drag-free conic
+                // stock itself moves the packed vessel along (no atmosphere on rails); it is
+                // closed at unpack, stock deletion, takeover or the end of the recording, and
+                // a predicted tail (finalization cache) continues after a deletion.
+                double segmentStartUT = hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut;
                 state.currentOrbitSegment = CreateOrbitSegmentFromVessel(
                     v,
-                    hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut,
+                    segmentStartUT,
                     "Kerbin");
                 LogBackgroundReFlyOrbitSegmentVelocityNonFinite(
                     recordingId,
                     v,
-                    hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut,
+                    segmentStartUT,
                     "on-rails-orbit");
                 state.hasOpenOrbitSegment = true;
+                state.packedInsideAtmosphere = payload == OnRailsInitialPayload.AtmosphereOrbit;
 
                 if (hasTreeRecording)
                 {
                     treeRec.ExplicitEndUT = ut;
                 }
 
-                ParsekLog.Verbose("BgRecorder", string.Format(CultureInfo.InvariantCulture,
-                    "On-rails state initialized (orbiting): pid={0} body={1} sma={2:F1} ecc={3:F4} " +
-                    "periAlt={4:F1} apoAlt={5:F1} inc={6:F2}",
-                    vesselPid,
-                    v.mainBody?.name,
-                    v.orbit.semiMajorAxis,
-                    v.orbit.eccentricity,
-                    v.orbit.PeA,
-                    v.orbit.ApA,
-                    v.orbit.inclination));
+                if (state.packedInsideAtmosphere)
+                {
+                    ParsekLog.Info("BgRecorder", string.Format(CultureInfo.InvariantCulture,
+                        "On-rails state initialized (atmosphere, drag-free conic): pid={0} body={1} " +
+                        "alt={2:F0} atmoDepth={3:F0} sma={4:F1} ecc={5:F4} periAlt={6:F1} apoAlt={7:F1} " +
+                        "startUT={8:F2} sectionEnv={9}",
+                        vesselPid,
+                        v.mainBody?.name,
+                        v.altitude,
+                        v.mainBody.atmosphereDepth,
+                        v.orbit.semiMajorAxis,
+                        v.orbit.eccentricity,
+                        v.orbit.PeA,
+                        v.orbit.ApA,
+                        segmentStartUT,
+                        ResolveOnRailsCheckpointEnvironment(true)));
+                }
+                else
+                {
+                    ParsekLog.Verbose("BgRecorder", string.Format(CultureInfo.InvariantCulture,
+                        "On-rails state initialized (orbiting): pid={0} body={1} sma={2:F1} ecc={3:F4} " +
+                        "periAlt={4:F1} apoAlt={5:F1} inc={6:F2}",
+                        vesselPid,
+                        v.mainBody?.name,
+                        v.orbit.semiMajorAxis,
+                        v.orbit.eccentricity,
+                        v.orbit.PeA,
+                        v.orbit.ApA,
+                        v.orbit.inclination));
+                }
             }
             else
             {
@@ -172,7 +246,8 @@ namespace Parsek
                     treeRec.ExplicitEndUT = ut;
                 }
 
-                ParsekLog.Verbose("BgRecorder", $"On-rails state initialized (no orbit): pid={vesselPid}");
+                ParsekLog.Verbose("BgRecorder", $"On-rails state initialized (no orbit): pid={vesselPid} " +
+                    $"insideAtmosphere={insideAtmosphere}");
             }
 
             onRailsStates[vesselPid] = state;

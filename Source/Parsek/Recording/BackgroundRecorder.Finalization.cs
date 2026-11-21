@@ -1116,6 +1116,22 @@ namespace Parsek
                 currentDigest);
         }
 
+        /// <summary>
+        /// Pure: an on-rails span packed below the atmosphere top keeps the cache the live
+        /// vessel produced (the go-on-rails / destroy refreshes) instead of rebuilding it from
+        /// the bare conic, as it did before such conics were recorded. Only a missing, empty or
+        /// failed cache is rebuilt from the conic, so a background end still finds a tail.
+        /// </summary>
+        internal static bool ShouldKeepLiveCacheForAtmosphereConic(
+            bool packedInsideAtmosphere,
+            RecordingFinalizationCache previous)
+        {
+            return packedInsideAtmosphere
+                && previous != null
+                && previous.Status != FinalizationCacheStatus.Failed
+                && previous.Status != FinalizationCacheStatus.Empty;
+        }
+
         private bool RefreshOnRailsFinalizationCache(
             BackgroundOnRailsState state,
             double currentUT,
@@ -1129,6 +1145,19 @@ namespace Parsek
                 state.currentOrbitSegment);
             RecordingFinalizationCache previous;
             finalizationCaches.TryGetValue(state.vesselPid, out previous);
+            if (ShouldKeepLiveCacheForAtmosphereConic(state.packedInsideAtmosphere, previous))
+            {
+                // The cache built from the live vessel when it packed (chutes, atmosphere,
+                // the predicted fall) knows more than the bare conic; the conic itself is
+                // being recorded, and the applier starts the cached tail at its end.
+                ParsekLog.VerboseRateLimited("FinalizerCache",
+                    $"on-rails-atmo-keep-live.{state.vesselPid}",
+                    $"On-rails atmosphere conic keeps the live-vessel cache: pid={state.vesselPid} " +
+                    $"rec={state.recordingId} reason={reason} cacheStatus={previous.Status} " +
+                    $"terminal={previous.TerminalState?.ToString() ?? "(none)"}",
+                    30.0);
+                return false;
+            }
             // Failed caches include already-Destroyed skip caches; refresh them on cadence
             // so the rate-limited skip diagnostic and per-refresh summary remain visible.
             bool requiresPeriodicRefresh = previous == null

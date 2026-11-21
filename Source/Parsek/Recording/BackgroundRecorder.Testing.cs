@@ -97,14 +97,22 @@ namespace Parsek
         /// For testing: injects an open orbit segment into the on-rails state for a vessel PID.
         /// The vessel must already have an on-rails state (created by constructor or OnVesselBackgrounded).
         /// </summary>
-        internal void InjectOpenOrbitSegmentForTesting(uint vesselPid, OrbitSegment segment)
+        internal void InjectOpenOrbitSegmentForTesting(
+            uint vesselPid, OrbitSegment segment, bool packedInsideAtmosphere = false)
         {
             BackgroundOnRailsState state;
             if (onRailsStates.TryGetValue(vesselPid, out state))
             {
                 state.currentOrbitSegment = segment;
                 state.hasOpenOrbitSegment = true;
+                state.packedInsideAtmosphere = packedInsideAtmosphere;
             }
+        }
+
+        internal bool GetOnRailsPackedInsideAtmosphereForTesting(uint pid)
+        {
+            BackgroundOnRailsState state;
+            return onRailsStates.TryGetValue(pid, out state) && state.packedInsideAtmosphere;
         }
 
         internal bool RefreshOnRailsFinalizationCacheForTesting(

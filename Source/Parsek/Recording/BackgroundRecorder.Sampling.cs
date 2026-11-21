@@ -57,7 +57,32 @@ namespace Parsek
         {
             if (!state.hasOpenOrbitSegment) return;
 
+            if (state.packedInsideAtmosphere)
+            {
+                RecordingFinalizationCache cache;
+                finalizationCaches.TryGetValue(state.vesselPid, out cache);
+                double clampedUT = ClampAtmosphereConicCloseUT(
+                    ut,
+                    state.currentOrbitSegment.startUT,
+                    cache?.TerminalState,
+                    cache != null ? cache.TerminalUT : double.NaN);
+                if (clampedUT != ut)
+                {
+                    ParsekLog.Info("BgRecorder", string.Format(CultureInfo.InvariantCulture,
+                        "Atmosphere conic close clamped to the predicted ending: pid={0} rec={1} " +
+                        "closeUT={2:F2} terminal={3} terminalUT={4:F2}",
+                        state.vesselPid,
+                        state.recordingId,
+                        ut,
+                        cache?.TerminalState?.ToString() ?? "(none)",
+                        clampedUT));
+                    ut = clampedUT;
+                }
+            }
+
             state.currentOrbitSegment.endUT = ut;
+            SegmentEnvironment sectionEnvironment =
+                ResolveOnRailsCheckpointEnvironment(state.packedInsideAtmosphere);
 
             Recording treeRec;
             bool appendedCheckpoint = false;
@@ -68,7 +93,8 @@ namespace Parsek
                     treeRec,
                     state.currentOrbitSegment,
                     markDirty: true,
-                    out checkpointSkipReason);
+                    out checkpointSkipReason,
+                    sectionEnvironment);
                 treeRec.ExplicitEndUT = ut;
             }
 
@@ -76,7 +102,39 @@ namespace Parsek
 
             ParsekLog.Verbose("BgRecorder", $"Orbit segment closed: pid={state.vesselPid} " +
                 $"UT={state.currentOrbitSegment.startUT:F1}-{ut:F1} body={state.currentOrbitSegment.bodyName} " +
-                $"checkpointSection={(appendedCheckpoint ? "added" : "skipped:" + (checkpointSkipReason ?? "unknown"))}");
+                $"checkpointSection={(appendedCheckpoint ? "added" : "skipped:" + (checkpointSkipReason ?? "unknown"))} " +
+                $"sectionEnv={sectionEnvironment}");
+        }
+
+        /// <summary>
+        /// Pure: the close UT of a conic opened below the atmosphere top. Stock deletes or
+        /// crashes a packed vessel before its drag-free conic reaches the ground, so when the
+        /// vessel's finalization cache already predicts a Destroyed / Landed / Splashed ending
+        /// inside the open span, a close after it (a deletion Parsek did not see) ends at that
+        /// ending instead of drawing the conic under the surface. Any other close is kept.
+        /// </summary>
+        internal static double ClampAtmosphereConicCloseUT(
+            double closeUT,
+            double segmentStartUT,
+            TerminalState? cacheTerminalState,
+            double cacheTerminalUT)
+        {
+            if (!cacheTerminalState.HasValue)
+                return closeUT;
+            TerminalState terminal = cacheTerminalState.Value;
+            if (terminal != TerminalState.Destroyed
+                && terminal != TerminalState.Landed
+                && terminal != TerminalState.Splashed)
+            {
+                return closeUT;
+            }
+            if (!IsFiniteUT(cacheTerminalUT) || !IsFiniteUT(closeUT))
+                return closeUT;
+            if (cacheTerminalUT >= closeUT)
+                return closeUT;
+            if (IsFiniteUT(segmentStartUT) && cacheTerminalUT <= segmentStartUT)
+                return closeUT;
+            return cacheTerminalUT;
         }
 
         private static bool TryResolveRootPartSurfacePose(
