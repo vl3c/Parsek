@@ -5057,8 +5057,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # _2203, each PASS attempt 1) and TSS-1 on serial run 2026-11-20_2240 (PASS attempt 1,
     # after the re-host on miner-rover-landed); passed=1 failed=0 skipped=0 each, read off
     # each run's KSP.log BATCH_COMPLETE line, pinned whole.
+    # GPOS-2-eva-chute-relative-ghost-position ENTERED on 2026-11-21 (todo
+    # FLIGHT-GHOST-POSITION-LANES-2026-11-20: the host for FlightGhostPosition's
+    # relative-anchor cell, EVA-4's flight rewound and replayed, `total=3` literal with the
+    # split regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its
+    # `total=`. It leaves on its first flight.
     INTERIM_PIN_IDS: set = {
         "FGV-1-fairing-ghost-visual",
+        "GPOS-2-eva-chute-relative-ghost-position",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -11565,6 +11571,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # reading run and the arming sequence its header specifies. Nothing is
         # outstanding beyond flying it, which is what `--tier operator` is for.
         "GPOS-1-kerbalx-ascent-ghost-position.toml": "tier=operator by the calibration discipline (authored 2026-11-20, LIVE-PROVEN on its first flight 2026-11-20_2302 at 269 s, batch split pinned whole), NOT debt; test-gap Batch 3, todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: GS-4's Kerbal X ascent in RF-9's coast-exit profile, committed in flight, rewound to launch, the Mallard on the Runway and a warp into the replay, then the FlightGhostPosition batch reads the live ghosts by position; owed: the ordinary promotion call",
+        "GPOS-2-eva-chute-relative-ghost-position.toml": "tier=operator by the calibration discipline (authored 2026-11-21, never flown; its first run is the reading run that pins the batch split), NOT debt; todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: EVA-4's atmospheric EVA flown verbatim, committed in flight, rewound to launch, the Mallard on the Runway and a warp into the kerbal's anchor-local Relative section, then the FlightGhostPosition batch reads the pod ghost and the anchor-placed kerbal ghost by position; owed: the first flight",
         "GS-1-auto-chute-booster.toml":     "FLOWN 4x 2026-08-05 (flight 4 PASS) and ARMED; operator tier is now an open PROMOTION call, not debt",
         # FLOWN GREEN 2026-08-27, same-day discipline: reading run
         # `2026-08-27_2145` (MISSION-OK attempt 1; red on exactly the two
