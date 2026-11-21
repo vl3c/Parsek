@@ -1388,6 +1388,14 @@ namespace Parsek
             if (fairingInfo != null)
                 added = true;
 
+            // ModuleStructuralNode on a part that is not a procedural fairing (the Making
+            // History MEM lander's Adapter): stock applies the same CheckDisplay rule.
+            if (ShouldBuildNonFairingStructureNodes(partNode, prefab.partInfo?.partConfig))
+            {
+                BuildFairingStructureNodes(
+                    prefab.partInfo?.partConfig, partNode, modelNode.transform, persistentId, partName);
+            }
+
             // Wheel damage swap: resolved LAST, against the fully populated cloneMap, so every
             // cloned busted transform is found and hidden before the ghost is ever shown.
             if (ShouldResolveWheelDamageInfo(damagedWheelNames, undamagedWheelNames))

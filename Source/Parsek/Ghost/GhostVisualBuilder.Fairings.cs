@@ -186,6 +186,20 @@ namespace Parsek
             return nodes;
         }
 
+        /// <summary>
+        /// Pure: whether the stock ModuleStructuralNode rule must be applied outside
+        /// <see cref="BuildFairingVisual"/>, which runs it only for a snapshot carrying a
+        /// ModuleProceduralFairing. Stock ModuleStructuralNode runs CheckDisplay on any part
+        /// (KSP 1.12.5), so a part whose config declares one and whose snapshot has no
+        /// procedural fairing gets the same rule.
+        /// </summary>
+        internal static bool ShouldBuildNonFairingStructureNodes(ConfigNode partNode, ConfigNode partConfig)
+        {
+            if (FindModuleNode(partNode, "ModuleProceduralFairing") != null)
+                return false;
+            return FindModuleNode(partConfig, "ModuleStructuralNode") != null;
+        }
+
         private static Transform FindTransformByName(Transform root, string name)
         {
             if (root == null || string.IsNullOrEmpty(name)) return null;

@@ -90,6 +90,9 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **The MEM lander's adapter only shows when something is attached below it.** Its ghost always
+  drew the lower adapter, even with nothing under the lander. It now follows the same rule as the
+  real part. (GHOST-STRUCTURAL-NODE-FAIRINGS-ONLY)
 - **Inflatable parts start deflated on their ghosts.** The stock inflatable heat shield and the
   ReStock inflatable airlocks were replayed fully inflated even when the real part was packed.
   They now start packed and inflate on the replay when the real part did.

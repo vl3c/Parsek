@@ -314,5 +314,62 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Structural nodes outside fairings
+
+        private static ConfigNode PartWithModules(params string[] moduleNames)
+        {
+            var part = new ConfigNode("PART");
+            foreach (string name in moduleNames)
+                part.AddNode("MODULE").AddValue("name", name);
+            return part;
+        }
+
+        [Fact]
+        public void StructureNodes_NonFairingPartWithStructuralNode_GetsTheRule()
+        {
+            Assert.True(GhostVisualBuilder.ShouldBuildNonFairingStructureNodes(
+                PartWithModules("ModuleCommand"), PartWithModules("ModuleCommand", "ModuleStructuralNode")));
+        }
+
+        [Fact]
+        public void StructureNodes_FairingPart_LeftToTheFairingBuilder()
+        {
+            Assert.False(GhostVisualBuilder.ShouldBuildNonFairingStructureNodes(
+                PartWithModules("ModuleProceduralFairing"),
+                PartWithModules("ModuleProceduralFairing", "ModuleStructuralNode")));
+        }
+
+        [Fact]
+        public void StructureNodes_NoStructuralNode_NothingToBuild()
+        {
+            Assert.False(GhostVisualBuilder.ShouldBuildNonFairingStructureNodes(
+                PartWithModules("ModuleCommand"), PartWithModules("ModuleCommand")));
+        }
+
+        [Fact]
+        public void StructureNodes_MemLanderAdapter_HiddenWhenBottom2IsEmpty()
+        {
+            // Size1_5_Lander: rootObject = Adapter, attachNodeNames = bottom2.
+            var config = PartWithModules("ModuleCommand");
+            var structural = config.AddNode("MODULE");
+            structural.AddValue("name", "ModuleStructuralNode");
+            structural.AddValue("rootObject", "Adapter");
+            structural.AddValue("attachNodeNames", "bottom2");
+
+            var empty = PartWithModules("ModuleCommand", "ModuleStructuralNode");
+            empty.AddValue("attN", "bottom2, -1");
+            var nodes = GhostVisualBuilder.ParseFairingStructureNodes(config, empty);
+            Assert.Single(nodes);
+            Assert.Equal("Adapter", nodes[0].rootObject);
+            Assert.False(GhostVisualBuilder.ComputeStructureNodeVisible(nodes[0]));
+
+            var attached = PartWithModules("ModuleCommand", "ModuleStructuralNode");
+            attached.AddValue("attN", "bottom2, 1");
+            Assert.True(GhostVisualBuilder.ComputeStructureNodeVisible(
+                GhostVisualBuilder.ParseFairingStructureNodes(config, attached)[0]));
+        }
+
+        #endregion
     }
 }
