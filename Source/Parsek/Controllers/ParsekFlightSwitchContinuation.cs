@@ -519,9 +519,122 @@ namespace Parsek
                 return StartBgMemberContinuationSegment(newVessel, marker, switchUT, sourcePid);
             }
 
+            // Owner ruling Q1b: a vessel whose recording in the live tree already ended in a
+            // prediction (debris time limit, unload, stock deletion) is flown again: the
+            // continuation attaches under that recording, which drops the prediction.
+            if (host.activeTree != null)
+            {
+                string takeoverLeafId = PredictedEndingTakeover.ResolveTakeoverLeafInTree(
+                    host.activeTree, newPid,
+                    newVessel.id != Guid.Empty ? newVessel.id.ToString("N") : null);
+                if (!string.IsNullOrEmpty(takeoverLeafId))
+                {
+                    return StartEndedRecordingTakeoverSegment(
+                        newVessel, marker, switchUT, sourcePid, takeoverLeafId);
+                }
+            }
+
             return StartStandaloneContinuationSegment(newVessel, marker, switchUT, sourcePid,
                 fallthroughFromBgLookup: false,
                 fallthroughReason: null);
+        }
+
+        /// <summary>
+        /// Owner ruling Q1b: drops the predicted ending of the recording a continuation
+        /// segment attaches under, so the parent ends at its last real sample and its ghost
+        /// never plays a predicted fall beside the live vessel or the segment's own ghost.
+        /// </summary>
+        private void DropPredictedEndingOfContinuationParent(
+            string parentRecId, double switchUT, string routeTag)
+        {
+            if (string.IsNullOrEmpty(parentRecId) || host.activeTree?.Recordings == null)
+                return;
+            if (host.activeTree.Recordings.TryGetValue(parentRecId, out Recording parentRec)
+                && parentRec != null)
+            {
+                PredictedEndingTakeover.DropPredictedEndingForTakeover(
+                    parentRec, switchUT, "SwitchSegment." + routeTag);
+            }
+        }
+
+        /// <summary>
+        /// Owner ruling Q1b route: the focused vessel is no background member of the live
+        /// tree, but the tree holds its ended recording with a predicted ending
+        /// (<see cref="PredictedEndingTakeover.ResolveTakeoverLeafInTree"/>). The prediction
+        /// is dropped and the continuation segment attaches under that recording (as the
+        /// BG-member route does, without the background close: nothing records the vessel).
+        /// Falls through to the standalone route when the attachment is refused.
+        /// </summary>
+        private StockActionIntentConsumeResult StartEndedRecordingTakeoverSegment(
+            Vessel newVessel,
+            StockActionIntentMarker marker,
+            double switchUT,
+            uint sourcePid,
+            string takeoverLeafId)
+        {
+            uint newPid = newVessel.persistentId;
+            var scenario = ParsekScenario.Instance;
+
+            DropPredictedEndingOfContinuationParent(takeoverLeafId, switchUT, "ended-recording-takeover");
+
+            Guid sessionId = Guid.NewGuid();
+            string newRecordingId = Guid.NewGuid().ToString("D", CultureInfo.InvariantCulture);
+            string newBranchPointId = Guid.NewGuid().ToString("D", CultureInfo.InvariantCulture);
+            string priorActiveRecordingId = host.activeTree.ActiveRecordingId;
+
+            var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
+                host.activeTree,
+                takeoverLeafId,
+                newPid,
+                newVessel.vesselName ?? "Unknown",
+                switchUT,
+                ParsekFlight.MapIntentActionToEntryReason(marker.Action),
+                marker.IntentId,
+                sessionId,
+                newRecordingId,
+                newBranchPointId,
+                ut => ParsekFlight.BuildSwitchSegmentBoundaryPoint(newVessel, ut),
+                sourcePid);
+
+            if (!creation.Created)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"ended-recording-takeover-refused-start-standalone " +
+                    $"failureReason={creation.FailureReason ?? "<null>"} " +
+                    $"takeoverRecId={takeoverLeafId} focusedPid={newPid} intentId={marker.IntentId:D}");
+                return StartStandaloneContinuationSegment(newVessel, marker, switchUT,
+                    sourcePid, fallthroughFromBgLookup: false,
+                    fallthroughReason: "ended-recording-takeover-refused");
+            }
+
+            host.activeTree.BackgroundMap?.Remove(newPid);
+
+            BindLiveRecorderToSwitchSegment(
+                newVessel, priorActiveRecordingId, newRecordingId,
+                routeTag: "ended-recording-takeover", switchUT: switchUT);
+
+            ArmSwitchSegmentSessionForRoute(
+                marker, sessionId, host.activeTree.Id, takeoverLeafId,
+                newRecordingId, switchUT, newPid, sourcePid,
+                committedTreeId: null,
+                entryRoute: SwitchSegmentEntryRoute.StartedEndedRecordingTakeover);
+
+            scenario.ClearStockActionIntent("consumed-into-segment");
+
+            ParsekLog.Info("SwitchSegment",
+                $"route=ended-recording-takeover intentId={marker.IntentId:D} " +
+                $"sessionId={sessionId:D} treeId={host.activeTree.Id ?? "<null>"} " +
+                $"parentRecId={takeoverLeafId} segmentRecId={newRecordingId} " +
+                $"sourcePid={sourcePid} focusedPid={newPid}");
+
+            return new StockActionIntentConsumeResult
+            {
+                Route = SwitchSegmentEntryRoute.StartedEndedRecordingTakeover,
+                NewRecordingId = newRecordingId,
+                NewBranchPointId = newBranchPointId,
+                SessionId = sessionId,
+                DiagnosticReason = "consumed-into-segment",
+            };
         }
 
         /// <summary>
@@ -659,6 +772,7 @@ namespace Parsek
                 == SwitchContinuationParentStatus.UniqueTerminalLeafFound
                     ? resolution.TerminalLeafRecordingId
                     : null;
+            DropPredictedEndingOfContinuationParent(parentRecId, switchUT, "committed-spawned-clone");
 
             Guid sessionId = Guid.NewGuid();
             string newRecordingId = Guid.NewGuid().ToString("D",
@@ -881,6 +995,12 @@ namespace Parsek
                     sourcePid, fallthroughFromBgLookup: true,
                     fallthroughReason: "pid-collision");
             }
+
+            // Owner ruling Q1b: a predicted ending the member already carries is dropped
+            // before the flush appends the boundary sample, so it never overlaps the
+            // continuation.
+            PredictedEndingTakeover.DropPredictedEndingForTakeover(
+                bgRec, switchUT, "SwitchSegment.BgMemberContinuation");
 
             // 2. Plan §"Segment Creation" step 2: close+flush BG parent at switchUT.
             // The public OnVesselRemovedFromBackground samples the current UT

@@ -72,6 +72,11 @@ namespace Parsek
         /// through to start a standalone segment instead. Logged as
         /// <c>bg-lookup-failed-start-standalone</c>.</summary>
         FellThroughBgLookupFailed = 13,
+
+        /// <summary>Started a continuation segment under the live tree's ended
+        /// recording of the focused vessel whose predicted ending the takeover
+        /// dropped (owner ruling Q1b).</summary>
+        StartedEndedRecordingTakeover = 14,
     }
 
     /// <summary>
@@ -95,6 +100,7 @@ namespace Parsek
                     case SwitchSegmentEntryRoute.StartedBgMemberContinuation:
                     case SwitchSegmentEntryRoute.StartedStandalone:
                     case SwitchSegmentEntryRoute.FellThroughBgLookupFailed:
+                    case SwitchSegmentEntryRoute.StartedEndedRecordingTakeover:
                         return true;
                     default:
                         return false;
