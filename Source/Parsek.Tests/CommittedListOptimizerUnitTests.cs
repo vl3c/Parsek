@@ -301,6 +301,47 @@ namespace Parsek.Tests
             Assert.EndsWith("skipped 2 recording(s) — rec-null-or-too-few-points=1, too-short=1", summary);
         }
 
+        // TRIM-IGNORES-SUPERSEDE-AND-REFLY (review L7): the trim holds the recordings the split
+        // and merge passes hold - superseded ones and the ones a live Re-Fly names.
+        [Fact]
+        public void TrimHolds_SupersededAndLiveReFlyRecordings()
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation { RelationId = "rsr_1", OldRecordingId = "old", NewRecordingId = "fork" },
+                },
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess_l7",
+                    TreeId = "tree_l7",
+                    ActiveReFlyRecordingId = "provisional",
+                    OriginChildRecordingId = "origin",
+                    RewindPointId = "rp_l7",
+                },
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var recordings = new List<Recording>
+                {
+                    ShortLeaf("old"), ShortLeaf("provisional"), ShortLeaf("origin"), ShortLeaf("plain"),
+                };
+
+                CommittedListOptimizer.TrimBoringTailsForOptimization(recordings);
+
+                var summary = Assert.Single(logLines, l => l.Contains("Optimization pass: TrimBoringTail skipped"));
+                Assert.EndsWith("skipped 4 recording(s) — active-refly=2, superseded=1, too-short=1", summary);
+            }
+            finally
+            {
+                ParsekScenario.ResetInstanceForTesting();
+            }
+        }
+
         [Fact]
         public void TrimSkipSummary_NothingToSummarizeLogsNothing()
         {

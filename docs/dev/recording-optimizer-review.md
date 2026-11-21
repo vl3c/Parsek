@@ -3,6 +3,14 @@
 Investigation date: 2026-04-07
 Scope: RecordingOptimizer, RecordingStore.RunOptimizationPass, tree-mode recording flow, branch point handling during splits.
 
+> **Historical snapshot (status 2026-11-21).** The file and line references below are from
+> 2026-04 and no longer match the code: the pass is `CommittedListOptimizer.RunOptimizationPass`
+> and the rules live in `docs/dev/done/plans/optimizer-persistence-split.md` (sections 3 and 14,
+> the latter the version-2 rules for flights committed from 2026-11-21). Issue 2 is resolved:
+> an all-boring leaf is trimmed to a minimal window from its start (`TrimBoringTailInternal`).
+> Issue 3 is resolved as its own resolution note says, and under the version-2 rules every SOI
+> change in space stays one row, burning or not. Read the issues as the April state.
+
 ## Context
 
 Traced a Kerbin-launch-to-Mun-landing scenario and a Duna-rover-to-Kerbin-sample-return scenario through the full recording pipeline: tree-mode capture, background recording, optimizer split/merge passes, and final player-facing UI output.
@@ -54,7 +62,7 @@ When a landed vessel goes to background recording, BackgroundRecorder sets `Surf
 
 **Possible improvement:** The rover continuation could be marked with a flag (e.g., `IsStaticBackground`) so the UI can display it differently — perhaps as "(stationary)" or with a pin icon instead of a ghost trail entry. Or it could be hidden from the recordings list entirely and only shown as a map marker.
 
-### Issue 2: All-boring leaf recordings survive boring tail trim
+### Issue 2: All-boring leaf recordings survive boring tail trim (resolved: minimal-window trim)
 
 **Severity:** Low (UX clutter)
 **Location:** RecordingOptimizer.cs:737-804
@@ -67,7 +75,7 @@ When a landed vessel goes to background recording, BackgroundRecorder sets `Surf
 
 **Possible improvement:** Instead of trimming, such recordings could be collapsed into the preceding chain segment's display in the UI (shown as a terminal marker rather than a full recording entry). Or `TrimBoringTail` could have an "all-boring leaf" path that trims to a minimal window (e.g., 5 seconds) from the start, keeping just enough for spawn timing.
 
-### Issue 3: No body-change split in the optimizer
+### Issue 3: No body-change split in the optimizer (resolved: see the resolution note)
 
 **Severity:** Low (correctness OK, labeling could be better)
 **Location:** RecordingOptimizer.cs:148-207, FindSplitCandidatesForOptimizer

@@ -357,8 +357,8 @@ namespace Parsek
                     cmp = 0; // stable -- Array.Sort preserves original order for equal elements
                     break;
                 case SortColumn.Phase:
-                    string pa = RecordingSegmentLabels.GetSegmentPhaseLabel(ra);
-                    string pb = RecordingSegmentLabels.GetSegmentPhaseLabel(rb);
+                    string pa = RecordingSegmentLabels.GetSegmentPhaseSortLabel(ra);
+                    string pb = RecordingSegmentLabels.GetSegmentPhaseSortLabel(rb);
                     cmp = string.Compare(pa, pb, StringComparison.OrdinalIgnoreCase);
                     break;
                 case SortColumn.Name:
