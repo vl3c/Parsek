@@ -3246,7 +3246,8 @@ namespace Parsek
                 "chute-descent." + (recordingId ?? vesselPid.ToString(CultureInfo.InvariantCulture)),
                 string.Format(CultureInfo.InvariantCulture,
                     "Chute descent predicted: rec={0} pid={1} canopy={2} openChutes={3} chutePid={4} " +
-                    "body={5} startUT={6:F3} startAlt={7:F1} verticalSpeed={8:F2} deployAgl={9} {10}",
+                    "body={5} startUT={6:F3} startAlt={7:F1} verticalSpeed={8:F2} deployAgl={9} {10} " +
+                    "dragToWeight={11} chuteDragNow={12} chuteDragFull={13} rhoAlt={14} rhoGround={15}",
                     recordingId ?? "(pending)",
                     vesselPid,
                     input.Canopy,
@@ -3259,8 +3260,20 @@ namespace Parsek
                     double.IsNaN(input.FullDeployAltitudeAgl)
                         ? "-"
                         : input.FullDeployAltitudeAgl.ToString("F0", CultureInfo.InvariantCulture),
-                    ParachuteDescentPlanner.Describe(plan)),
+                    ParachuteDescentPlanner.Describe(plan),
+                    FormatChuteEstimateInput(input.DragToWeightRatio, "F3"),
+                    FormatChuteEstimateInput(input.OpenChuteDragNow, "F2"),
+                    FormatChuteEstimateInput(input.OpenChuteDragFull, "F2"),
+                    FormatChuteEstimateInput(input.DensityAtAltitude, "F4"),
+                    FormatChuteEstimateInput(input.DensityAtTouchdown, "F4")),
                 minIntervalSeconds: 10.0);
+        }
+
+        private static string FormatChuteEstimateInput(double value, string format)
+        {
+            return double.IsNaN(value) || double.IsInfinity(value)
+                ? "-"
+                : value.ToString(format, CultureInfo.InvariantCulture);
         }
 
         /// <summary>
