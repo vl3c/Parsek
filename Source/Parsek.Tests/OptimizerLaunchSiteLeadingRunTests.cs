@@ -162,6 +162,39 @@ namespace Parsek.Tests
             Assert.Null(tail.LaunchSiteName);
         }
 
+        // LAUNCH-HEAD-LABELLED-SURFACE (review M10): the head keeps the pad run, but it is the
+        // ascent, so it is labelled by its first section off the pad, not "surface".
+        [Fact]
+        public void PadLaunch_Split_HeadIsLabelledByItsAscentNotThePad()
+        {
+            EnableLogCapture();
+            var rec = MakeL5Shape();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            CommittedListOptimizer.RunOptimizationPass();
+
+            var head = RecordingStore.CommittedRecordings.Single(r => r.RecordingId == "l5-pad-5s");
+            Assert.Equal("atmo", head.SegmentPhase);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("labelled by its launch-site departure section 2"));
+        }
+
+        [Fact]
+        public void NonLaunchSurfaceStart_Split_HeadKeepsTheSurfaceLabel()
+        {
+            // A landed start that is not a launch site: its leading surface run is its own row.
+            var rec = MakeRecording("landed-start", 17000,
+                (SegmentEnvironment.SurfaceStationary, 60, "Kerbin", false),
+                (SegmentEnvironment.Atmospheric, 300, "Kerbin", false));
+            rec.StartBodyName = "Kerbin";
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            CommittedListOptimizer.RunOptimizationPass();
+
+            var head = RecordingStore.CommittedRecordings.Single(r => r.RecordingId == "landed-start");
+            Assert.Equal("surface", head.SegmentPhase);
+        }
+
         [Fact]
         public void PadLaunch_LongPadRun_FirstCandidateIsTheAtmosphereExit()
         {

@@ -736,7 +736,7 @@ namespace Parsek
         /// recording. Categories: <c>rec-null-or-too-few-points</c>, <c>not-leaf</c>,
         /// <c>too-short</c>, <c>no-track-sections</c>, <c>last-section-not-boring</c>,
         /// <c>all-boring-too-few-points</c>, <c>buffer-not-met</c>, <c>resource-changing-tail</c>,
-        /// <c>terminal-mismatch</c>,
+        /// <c>terminal-mismatch</c>, <c>loop-settings</c>,
         /// <c>unstable-terminal</c>, <c>no-points-past-trim-ut</c>, <c>keep-count-too-low</c>.
         /// </summary>
         internal static bool TrimBoringTailInternal(
@@ -751,6 +751,19 @@ namespace Parsek
                     ParsekLog.Verbose("Optimizer",
                         $"TrimBoringTail: skipped (rec-null-or-too-few-points) " +
                         $"id='{rec?.RecordingId ?? "(null)"}' pointCount={(rec?.Points?.Count ?? 0)}");
+                return false;
+            }
+
+            // A loop the player set covers the recording as it stands; a trim would shorten
+            // the loop (owner RULE 1, "always keep them").
+            if (rec.LoopPlayback || HasPlayerLoopRange(rec))
+            {
+                skipCategory = "loop-settings";
+                if (logSkipReason)
+                    ParsekLog.Verbose("Optimizer",
+                        $"TrimBoringTail: skipped (loop-settings) " +
+                        $"id='{rec.RecordingId}' loop={rec.LoopPlayback} " +
+                        $"rangeSet={HasPlayerLoopRange(rec)}");
                 return false;
             }
 

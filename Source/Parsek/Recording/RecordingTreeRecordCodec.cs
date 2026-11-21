@@ -258,6 +258,14 @@ namespace Parsek
                 recNode.AddValue("segmentPhase", rec.SegmentPhase);
             if (!string.IsNullOrEmpty(rec.SegmentBodyName))
                 recNode.AddValue("segmentBodyName", rec.SegmentBodyName);
+            // Sparse: a recording without the key loads as version 1, so only a later version is
+            // written; old recordings stay byte-identical. An unset (0) recording is stamped
+            // before an in-flight tree is saved (RecordingOptimizer.StampSplitRulesForSave).
+            if (rec.SplitRuleVersion > RecordingOptimizer.SplitRuleVersionLegacy)
+                recNode.AddValue("splitRuleVersion",
+                    rec.SplitRuleVersion.ToString(CultureInfo.InvariantCulture));
+            if (!string.IsNullOrEmpty(rec.SegmentRole))
+                recNode.AddValue("segmentRole", rec.SegmentRole);
         }
 
         private static void SaveLocationContext(ConfigNode recNode, Recording rec)
@@ -856,6 +864,9 @@ namespace Parsek
             // Atmosphere segment metadata
             rec.SegmentPhase = recNode.GetValue("segmentPhase");
             rec.SegmentBodyName = recNode.GetValue("segmentBodyName");
+            rec.SplitRuleVersion = ParseIntOr(recNode, "splitRuleVersion",
+                RecordingOptimizer.SplitRuleVersionLegacy);
+            rec.SegmentRole = recNode.GetValue("segmentRole");
 
             // Location context (Phase 10)
             rec.StartBodyName = recNode.GetValue("startBodyName");

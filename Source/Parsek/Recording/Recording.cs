@@ -44,9 +44,10 @@ namespace Parsek
         public int Generation;
 
         // Loop sync: debris follows parent recording's loop clock (-1 = independent).
-        // Index into CommittedRecordings / engine trajectories list. Recomputed on every
-        // RunOptimizationPass call (after every commit and at load). The list is stable
-        // between passes because commits always trigger a full recompute. Not serialized.
+        // Index into CommittedRecordings / engine trajectories list. Recomputed by every
+        // RunOptimizationPass; between passes the committed-list primitives
+        // (RecordingStore.RemoveCommittedAt / InsertCommittedAt) shift it like any other
+        // index-keyed state. Not serialized.
         public int LoopSyncParentIdx { get; set; } = -1;
 
         public bool LoopPlayback;
@@ -227,6 +228,20 @@ namespace Parsek
         // Atmosphere segment metadata
         public string SegmentPhase;      // "atmo", "exo", "approach", or "surface" (null = untagged/legacy)
         public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")
+
+        // The optimizer split rules this recording is judged by (owner ruling Q5, "freeze old
+        // recordings"; RecordingOptimizer.SplitRules.cs). 0 = not committed yet (stamped with
+        // the current version when it enters the committed list), 1 = the rules before
+        // 2026-11-21 (what a recording saved without the key loads as), 2 = the current rules.
+        // Persisted as `splitRuleVersion`, written only above 1 (an in-flight tree is stamped
+        // before it is saved).
+        public int SplitRuleVersion;
+
+        // The row's mission-profile role, stamped by the optimizer split pass on version-2 rows
+        // (RecordingOptimizer.SegmentRoles: ascent, space, aerobraking, reentry, approach,
+        // surface, atmosphere). null = untagged (version 1, EVA, never split). Two rows with
+        // different roles never merge back. Persisted as `segmentRole`.
+        public string SegmentRole;
 
         // Location context (Phase 10) — body, biome, situation at recording start and end
         public string StartBodyName;     // body at recording start (null = not set / legacy)
@@ -1024,6 +1039,8 @@ namespace Parsek
             RewindReservedRep = source.RewindReservedRep;
             SegmentPhase = source.SegmentPhase;
             SegmentBodyName = source.SegmentBodyName;
+            SplitRuleVersion = source.SplitRuleVersion;
+            SegmentRole = source.SegmentRole;
             PlaybackEnabled = source.PlaybackEnabled;
             Hidden = source.Hidden;
             EndBiome = source.EndBiome;
@@ -1104,6 +1121,44 @@ namespace Parsek
             // preserved across recording creation/commit boundaries within a tree session.
             // Loaded recordings reset to 0 since the field is [NonSerialized].
             Generation = source.Generation;
+        }
+
+        /// <summary>
+        /// Split step: moves the end-of-flight fields onto <paramref name="second"/>, the later
+        /// half of a cut at <paramref name="splitUT"/>: <see cref="VesselSituation"/>,
+        /// <see cref="DockTargetVesselPid"/>, <see cref="TransferTargetVesselPid"/> with its
+        /// <see cref="TransferKind"/>, and every route connection window not closed (undocked)
+        /// before the cut. A window closed before the cut stays here.
+        /// </summary>
+        internal void MoveEndOfFlightFieldsTo(
+            Recording second, double splitUT, out int windowsMoved, out int windowsKept)
+        {
+            windowsMoved = 0;
+            windowsKept = 0;
+            if (second == null) return;
+            second.VesselSituation = VesselSituation;
+            VesselSituation = null;
+            second.DockTargetVesselPid = DockTargetVesselPid;
+            DockTargetVesselPid = 0;
+            second.TransferTargetVesselPid = TransferTargetVesselPid;
+            second.TransferKind = TransferKind;
+            TransferTargetVesselPid = 0;
+            TransferKind = default(RouteConnectionKind);
+
+            if (RouteConnectionWindows == null || RouteConnectionWindows.Count == 0) return;
+            var kept = new List<RouteConnectionWindow>();
+            var moved = new List<RouteConnectionWindow>();
+            for (int i = 0; i < RouteConnectionWindows.Count; i++)
+            {
+                var w = RouteConnectionWindows[i];
+                bool closedBeforeCut = w != null && w.IsComplete
+                    && !double.IsNaN(splitUT) && w.UndockUT < splitUT;
+                if (closedBeforeCut) kept.Add(w); else moved.Add(w);
+            }
+            windowsKept = kept.Count;
+            windowsMoved = moved.Count;
+            RouteConnectionWindows = kept.Count > 0 ? kept : null;
+            second.RouteConnectionWindows = moved.Count > 0 ? moved : null;
         }
 
         /// <summary>

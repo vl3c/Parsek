@@ -36,8 +36,9 @@ namespace Parsek
         /// <summary>
         /// Runs the optimization pass: find merge candidates among committed recordings,
         /// execute merges, re-index chains, then split multi-environment recordings at
-        /// environment boundaries. Called on save load after migrations, and mid-session
-        /// after every tree commit and chain-segment commit.
+        /// environment boundaries. Called on a COLD load (an in-session load such as F9 or a
+        /// revert does not run it), after every tree commit and right after a Re-Fly merge
+        /// finishes.
         ///
         /// Structural changes (a merge removes the absorbed recording mid-list, a split
         /// inserts the second half mid-list) bump <see cref="RecordingStore.StateVersion"/> at the
@@ -108,7 +109,9 @@ namespace Parsek
             int mergeCount = 0;
             HashSet<string> heldForRoutes = null;
             Dictionary<string, string> heldByLiveReFlyMerge = CollectLiveReFlyMergeHeldIds();
-            const int maxMergesPerPass = 50;
+            // Every merge removes a recording, so the list size bounds the merges; the bound
+            // only guards against a pair offered again without being merged.
+            int maxMergesPerPass = recordings.Count + 1;
             // Iterate merge passes until no more candidates (merging may create new adjacent pairs)
             bool changed = true;
             while (changed && mergeCount < maxMergesPerPass)
@@ -167,7 +170,7 @@ namespace Parsek
 
             if (mergeCount >= maxMergesPerPass)
                 ParsekLog.Warn("RecordingStore",
-                    $"Optimization pass: hit merge cap ({maxMergesPerPass}), some candidates may remain");
+                    $"Optimization pass: hit merge safety bound ({maxMergesPerPass}), some candidates may remain");
             else if (mergeCount > 0)
                 ParsekLog.Info("RecordingStore", $"Optimization pass: merged {mergeCount} segment pair(s)");
             else
@@ -326,7 +329,11 @@ namespace Parsek
             // in the same tree still split normally — and let the next
             // optimization pass after the marker clears do the split.
             int splitCount = 0;
-            const int maxSplitsPerPass = 50;
+            // Owner ruling Q19: a mission is split in one go, not 50 cuts per load. Every cut
+            // consumes a section boundary, so the section count bounds the splits; the bound
+            // only guards against a candidate offered again without being split.
+            int maxSplitsPerPass = ComputeSplitSafetyBound(recordings);
+            var splitReasons = new List<RecordingOptimizer.SplitBoundaryReason>();
             string deferredActiveReFlyId =
                 ParsekScenario.Instance?.ActiveReFlySessionMarker?.ActiveReFlyRecordingId;
             int deferredCandidatesObservedTotal = 0;
@@ -335,7 +342,8 @@ namespace Parsek
             while (splitChanged && splitCount < maxSplitsPerPass)
             {
                 splitChanged = false;
-                var splitCandidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(recordings);
+                splitReasons.Clear();
+                var splitCandidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(recordings, splitReasons);
                 if (splitCandidates.Count == 0) break;
 
                 int chosen = ChooseSplitCandidateIndex(
@@ -353,6 +361,7 @@ namespace Parsek
                 var second = RecordingOptimizer.SplitAtSection(original, secIdx);
 
                 CopySplitIdentityFields(original, second);
+                AssignSplitRoles(original, second, splitReasons[chosen]);
 
                 RetagLedgerActionsAfterOptimizationSplit(original, second);
                 // SplitAtSection moved the terminal state onto the second half.
@@ -414,7 +423,7 @@ namespace Parsek
 
             if (splitCount >= maxSplitsPerPass)
                 ParsekLog.Warn("RecordingStore",
-                    $"Optimization pass: hit split cap ({maxSplitsPerPass}), some candidates may remain");
+                    $"Optimization pass: hit split safety bound ({maxSplitsPerPass}), some candidates may remain");
             else if (splitCount > 0)
                 ParsekLog.Info("RecordingStore", $"Optimization pass: split {splitCount} recording(s)");
 
@@ -432,6 +441,37 @@ namespace Parsek
                     $"[{FormatSortedIds(heldForRoutes)}] - a supply route's source recordings stay whole");
 
             return splitCount;
+        }
+
+        /// <summary>
+        /// The split loop's safety bound (ruling Q19): the committed list's section count plus
+        /// its recording count, never under 50 (the old per-pass cap).
+        /// </summary>
+        internal static int ComputeSplitSafetyBound(IReadOnlyList<Recording> recordings)
+        {
+            int sections = 0;
+            if (recordings != null)
+                for (int i = 0; i < recordings.Count; i++)
+                    sections += recordings[i]?.TrackSections?.Count ?? 0;
+            return Math.Max(50, sections + (recordings?.Count ?? 0));
+        }
+
+        /// <summary>
+        /// Names the two rows a version-2 split made (<see cref="Recording.SegmentRole"/>): the
+        /// first half's role is read again from its own content
+        /// (<see cref="RecordingOptimizer.ResolveHeadRoleAfterCut"/>); the second half gets the
+        /// role of the cut that started it. Version-1 and EVA recordings
+        /// get no role. Logs the pair.
+        /// </summary>
+        internal static void AssignSplitRoles(
+            Recording original, Recording second, RecordingOptimizer.SplitBoundaryReason reason)
+        {
+            if (!RecordingOptimizer.UsesCurrentSplitRules(original)) return;
+            original.SegmentRole = RecordingOptimizer.ResolveHeadRoleAfterCut(original);
+            second.SegmentRole = RecordingOptimizer.ResolveCutRole(reason, second);
+            ParsekLog.Verbose("Optimizer",
+                $"Split roles: '{original.RecordingId}'={original.SegmentRole ?? "<none>"} " +
+                $"'{second.RecordingId}'={second.SegmentRole ?? "<none>"} (cut {reason})");
         }
 
         /// <summary>
@@ -523,6 +563,7 @@ namespace Parsek
             // RecordingTreeSplitter.cs's `tip.SupersedeTargetId = null;`).
             second.SupersedeTargetId = original.SupersedeTargetId;
             second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
+            second.SplitRuleVersion = original.SplitRuleVersion;
         }
 
         /// <summary>
@@ -545,15 +586,31 @@ namespace Parsek
             // "skipped (too-short)" lines per scenario load.
             int trimCount = 0;
             Dictionary<string, int> skipCounts = null;
+            // Mirror of the split and merge holds: a superseded recording is not played and its
+            // supersede row names its whole range, and a recording a live Re-Fly names (its
+            // provisional, the origin, the supersede target) belongs to the merge in flight.
+            var scenario = ParsekScenario.Instance;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                !object.ReferenceEquals(null, scenario) ? scenario.RecordingSupersedes : null;
+            string activeReFlyId = !object.ReferenceEquals(null, scenario)
+                ? scenario.ActiveReFlySessionMarker?.ActiveReFlyRecordingId
+                : null;
+            Dictionary<string, string> heldByLiveReFlyMerge = CollectLiveReFlyMergeHeldIds();
             for (int i = 0; i < recordings.Count; i++)
             {
                 double endBeforeTrim = recordings[i] != null ? recordings[i].EndUT : double.NaN;
                 bool trimmed;
                 string skipCategory;
+                string heldBy = DescribeTrimHold(recordings[i], supersedes, activeReFlyId, heldByLiveReFlyMerge);
                 if (IsRouteSource(recordings[i], routeSourceIds))
                 {
                     trimmed = false;
                     skipCategory = "route-source";
+                }
+                else if (heldBy != null)
+                {
+                    trimmed = false;
+                    skipCategory = heldBy;
                 }
                 else
                 {
@@ -589,6 +646,30 @@ namespace Parsek
                     $"Optimization pass: TrimBoringTail skipped {totalSkipped} recording(s) — " +
                     counts);
             }
+        }
+
+        /// <summary>
+        /// The trim hold for <paramref name="rec"/>, or null: <c>superseded</c> when a supersede
+        /// row names it (<see cref="RecordingOptimizer.IsSupersededForOptimizer"/>), <c>active-refly</c>
+        /// when it is the live Re-Fly's provisional or a recording the live session or merge
+        /// journal names (<paramref name="heldByLiveReFlyMerge"/>, built by
+        /// <see cref="CollectLiveReFlyMergeHeldIds"/>; may be null).
+        /// </summary>
+        internal static string DescribeTrimHold(
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            string activeReFlyId,
+            IReadOnlyDictionary<string, string> heldByLiveReFlyMerge)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return null;
+            if (RecordingOptimizer.IsSupersededForOptimizer(rec, supersedes))
+                return "superseded";
+            if (!string.IsNullOrEmpty(activeReFlyId)
+                && string.Equals(rec.RecordingId, activeReFlyId, StringComparison.Ordinal))
+                return "active-refly";
+            if (heldByLiveReFlyMerge != null && heldByLiveReFlyMerge.ContainsKey(rec.RecordingId))
+                return "active-refly";
+            return null;
         }
 
         /// <summary>
@@ -814,6 +895,7 @@ namespace Parsek
             UpdateTreeStateAfterOptimizationMerge(survivor, absorbed);
             if (index >= 0)
                 RecordingStore.RemoveCommittedAt(index, mergeTarget);
+            ReReadSurvivorRoleAfterFold(survivor, mergeTarget);
             ParsekLog.Info("RecordingStore",
                 $"CommitTree: re-absorbed split piece '{absorbed.RecordingId}' into '{survivor.RecordingId}' " +
                 $"(tree={survivor.TreeId ?? "<none>"} " +
@@ -826,15 +908,49 @@ namespace Parsek
         }
 
         /// <summary>
+        /// After a fold the survivor holds the piece's span too, so a version-2 row role it
+        /// carried can contradict its content (a reentry row that now ends back in space): the
+        /// role is read again from the content (<see cref="RecordingOptimizer.ResolveHeadRoleAfterCut"/>),
+        /// on the live recording and on the committed copy of its id. The next optimization pass
+        /// re-cuts the survivor where the version-2 rules cut, and its merge guard
+        /// (<see cref="RecordingOptimizer.WouldSplitRulesCutJoin"/>) never re-joins such a cut.
+        /// One Info line when the role changed.
+        /// </summary>
+        internal static void ReReadSurvivorRoleAfterFold(Recording survivor, Recording mergeTarget)
+        {
+            if (survivor == null || !RecordingOptimizer.UsesCurrentSplitRules(survivor)) return;
+            string before = survivor.SegmentRole;
+            string after = RecordingOptimizer.ResolveHeadRoleAfterCut(survivor);
+            survivor.SegmentRole = after;
+            if (mergeTarget != null && !ReferenceEquals(mergeTarget, survivor))
+                mergeTarget.SegmentRole = after;
+            if (!string.Equals(before, after, StringComparison.Ordinal))
+                ParsekLog.Info("RecordingStore",
+                    $"CommitTree: '{survivor.RecordingId}' role re-read after the fold: " +
+                    $"{before ?? "<none>"} -> {after ?? "<none>"}");
+        }
+
+        /// <summary>
         /// Why a covered split piece must NOT be folded into a re-flown live recording, or null
         /// when it may be: a supersede row names it (either side: the fold would leave the row
         /// pointing at nothing), or a supply route sources from it (the optimizer merge holds
-        /// route sources the same way, <see cref="ChooseMergeCandidateIndex"/>).
+        /// route sources the same way, <see cref="ChooseMergeCandidateIndex"/>), or the piece and
+        /// <paramref name="survivor"/> (the live recording it would fold into; may be null) were
+        /// cut under different split rule versions (owner ruling Q5: the merge pass never joins
+        /// those either, <see cref="RecordingOptimizer.SplitRulesKeepApart"/>).
         /// </summary>
-        internal static string SplitPieceFoldRefusal(Recording piece)
+        internal static string SplitPieceFoldRefusal(Recording piece, Recording survivor = null)
         {
             if (piece == null || string.IsNullOrEmpty(piece.RecordingId))
                 return null;
+            if (survivor != null)
+            {
+                int pieceVersion = RecordingOptimizer.EffectiveSplitRuleVersion(piece);
+                int survivorVersion = RecordingOptimizer.EffectiveSplitRuleVersion(survivor);
+                if (pieceVersion != survivorVersion)
+                    return "it was cut under split rules v" + pieceVersion.ToString(CultureInfo.InvariantCulture)
+                        + " and the live recording carries v" + survivorVersion.ToString(CultureInfo.InvariantCulture);
+            }
             var supersedes = ParsekScenario.Instance?.RecordingSupersedes;
             if (supersedes != null)
             {
@@ -907,6 +1023,7 @@ namespace Parsek
             if (recordings == null) return;
 
             int linked = 0;
+            int linkedByAnchor = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
@@ -921,30 +1038,79 @@ namespace Parsek
                     continue;
                 }
 
-                // Find the non-debris recording in the same tree whose UT range covers this debris's start
-                double debrisStart = rec.StartUT;
-                int parentIdx = -1;
-                for (int j = 0; j < recordings.Count; j++)
-                {
-                    if (j == i) continue;
-                    var candidate = recordings[j];
-                    if (candidate.IsDebris) continue;
-                    if (candidate.TreeId != rec.TreeId) continue;
-                    if (candidate.VesselPersistentId != rec.VesselPersistentId
-                        && debrisStart >= candidate.StartUT && debrisStart <= candidate.EndUT)
-                    {
-                        parentIdx = j;
-                        break;
-                    }
-                }
-
+                string via;
+                int parentIdx = FindLoopSyncParentIndex(recordings, i, out via);
                 rec.LoopSyncParentIdx = parentIdx;
-                if (parentIdx >= 0) linked++;
+                if (parentIdx >= 0)
+                {
+                    linked++;
+                    if (via != "covering") linkedByAnchor++;
+                }
             }
 
             if (linked > 0)
                 ParsekLog.Info("RecordingStore",
-                    $"Loop sync: linked {linked} debris recording(s) to parent recordings");
+                    $"Loop sync: linked {linked} debris recording(s) to parent recordings " +
+                    $"(byParentAnchor={linkedByAnchor.ToString(CultureInfo.InvariantCulture)})");
+        }
+
+        /// <summary>
+        /// The committed index of the recording debris <c>recordings[debrisIdx]</c> loops with,
+        /// or -1. The debris's own parent (<see cref="Recording.ParentAnchorRecordingId"/>) wins
+        /// when it covers the debris's start (<paramref name="via"/> = <c>parent-anchor</c>), then
+        /// the piece of the parent's chain that covers it (an optimizer split moved the debris's
+        /// birth onto another piece; <c>parent-anchor-chain</c>); otherwise the first non-debris
+        /// recording of the same tree, of another vessel, whose range covers the debris's start
+        /// (<c>covering</c>, the rule for debris with no anchor).
+        /// </summary>
+        internal static int FindLoopSyncParentIndex(
+            IReadOnlyList<Recording> recordings, int debrisIdx, out string via)
+        {
+            via = null;
+            var rec = recordings[debrisIdx];
+            double debrisStart = rec.StartUT;
+            Func<Recording, bool> covers = c =>
+                debrisStart >= c.StartUT && debrisStart <= c.EndUT;
+
+            if (!string.IsNullOrEmpty(rec.ParentAnchorRecordingId))
+            {
+                int anchorIdx = RecordingStore.IndexOfRecordingId(recordings, rec.ParentAnchorRecordingId);
+                Recording anchor = anchorIdx >= 0 ? recordings[anchorIdx] : null;
+                if (anchor != null && anchorIdx != debrisIdx && !anchor.IsDebris)
+                {
+                    if (covers(anchor))
+                    {
+                        via = "parent-anchor";
+                        return anchorIdx;
+                    }
+                    if (!string.IsNullOrEmpty(anchor.ChainId))
+                    {
+                        for (int j = 0; j < recordings.Count; j++)
+                        {
+                            var piece = recordings[j];
+                            if (j == debrisIdx || piece == null || piece.IsDebris) continue;
+                            if (!string.Equals(piece.ChainId, anchor.ChainId, StringComparison.Ordinal)) continue;
+                            if (!covers(piece)) continue;
+                            via = "parent-anchor-chain";
+                            return j;
+                        }
+                    }
+                }
+            }
+
+            for (int j = 0; j < recordings.Count; j++)
+            {
+                if (j == debrisIdx) continue;
+                var candidate = recordings[j];
+                if (candidate.IsDebris) continue;
+                if (candidate.TreeId != rec.TreeId) continue;
+                if (candidate.VesselPersistentId != rec.VesselPersistentId && covers(candidate))
+                {
+                    via = "covering";
+                    return j;
+                }
+            }
+            return -1;
         }
     }
 }

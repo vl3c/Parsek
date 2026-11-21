@@ -25,6 +25,11 @@ Not released yet.
 
 ### Changed
 
+- **New flights split the way a mission reads.** A reentry gets its own row from the first touch
+  of the air, skips included; aerobraking or an aerocapture is one row from the first pass; a
+  touch-and-go and an SOI change in space add no rows. New rows are named by their part of the
+  mission (ascent, space, aerobraking, reentry). Flights already on the timeline keep their rows,
+  and a big mission is split in one go. (OPTIMIZER-SPLIT-RULES-V2)
 - **No Re-Fly on a flight a supply route uses.** Re-flying it would take the route's recorded
   trip away, so the Fly button is greyed out and its tooltip says to delete the route first.
   (REFLY-ROUTE-SOURCE-REFUSED)
@@ -49,6 +54,17 @@ Not released yet.
 
 ### Fixed
 
+- **The last row of a split flight keeps its ending details.** Its situation text, docking partner
+  and supply-route dock windows stayed on the first row, so the timeline showed generic wording.
+  (SPLIT-LEAVES-END-FIELDS-ON-HEAD)
+- **Looping debris follows its own rocket.** A looping debris ghost could follow the loop of
+  another stage, or of an unrelated recording after one was removed from the list.
+  (LOOP-SYNC-PARENT-LINK-WRONG)
+- **A launch's first row is labelled by its ascent, not "surface".** The pad time stays with the
+  ascent, and the row used to be named after it. (LAUNCH-HEAD-LABELLED-SURFACE)
+- **A flight you hid, disabled or looped keeps that setting when Parsek splits it.** The new
+  piece used to come back visible, enabled and not looping. A flight with a loop range is now
+  never split or shortened. (SPLIT-DROPS-PLAYER-ROW-SETTINGS)
 - **A vessel that ends in orbit next to another no longer appears inside it.** When the spot is
   taken, it now appears a few metres ahead of or behind it on its own orbit. If no free spot is near,
   it is held back, never placed overlapping. (SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS)
