@@ -121,8 +121,10 @@ namespace Parsek.TestCommands
             int parachuteModules = 0;
             int resourceParts = 0;
             int servoModules = 0;
+            int rotorModules = 0;
             bool transferKind = TestCommandPartAction.IsTransferKind(kind);
             bool servoKind = TestCommandPartAction.IsServoKind(kind);
+            bool rotorKind = TestCommandPartAction.IsRotorKind(kind);
             string servoActionName = TestCommandPartAction.ServoActionNameFor(kind);
             bool radiatorKind = TestCommandPartAction.IsRadiatorKind(kind);
             bool engineKind = TestCommandPartAction.IsEngineKind(kind);
@@ -189,6 +191,20 @@ namespace Parsek.TestCommands
                             });
                         continue;
                     }
+                    if (rotorKind)
+                    {
+                        // Only a rotor's own Engage / Disengage Motor action (BaseServo's
+                        // MotorOnAction / MotorOffAction): the action an action group fires.
+                        if (!TestCommandPartAction.IsRotorModuleName(module.moduleName)) continue;
+                        rotorModules++;
+                        BaseAction act = module.Actions != null ? module.Actions[servoActionName] : null;
+                        if (act != null && act.active)
+                            found.Add(new PartActionCandidate
+                            {
+                                Part = p, Action = act, EventName = servoActionName,
+                            });
+                        continue;
+                    }
                     if (radiatorKind)
                     {
                         // Only the radiator module's Activate / Shutdown: other modules on
@@ -244,7 +260,7 @@ namespace Parsek.TestCommands
                 foreach (int k in TestCommandPartAction.FoldUndockPairs(ports)) candidates.Add(found[k]);
             }
 
-            int typedModules = radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : servoKind ? servoModules : -1;
+            int typedModules = radiatorKind ? radiatorModules : engineKind ? engineModules : parachuteKind ? parachuteModules : transferKind ? resourceParts : servoKind ? servoModules : rotorKind ? rotorModules : -1;
             reason = TestCommandPartAction.DecideCandidates(kind, partName, namedParts, converterName,
                 matchingConverters, experimentModules, typedModules,
                 candidates.Count, all);
@@ -254,7 +270,7 @@ namespace Parsek.TestCommands
                     $"converter={converterName ?? string.Empty} all={all} namedParts={namedParts} " +
                     $"matchingConverters={matchingConverters} experimentModules={experimentModules} " +
                     $"radiatorModules={radiatorModules} engineModules={engineModules} " +
-                    $"parachuteModules={parachuteModules} resourceParts={resourceParts} servoModules={servoModules} " +
+                    $"parachuteModules={parachuteModules} resourceParts={resourceParts} servoModules={servoModules} rotorModules={rotorModules} " +
                     $"partPid={(hasPartPid ? partPid.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty)} " +
                     $"candidates={candidates.Count}");
                 return;
@@ -624,6 +640,13 @@ namespace Parsek.TestCommands
                     && module.Fields != null && module.Fields["targetAngle"] != null
                     && module.Fields["targetAngle"].GetValue(module) is float target)
                     readings.Add(PartActionModuleReading.Servo(target));
+                else if (TestCommandPartAction.IsRotorModuleName(module?.moduleName)
+                    && module.Fields != null
+                    && module.Fields["servoMotorIsEngaged"] != null
+                    && module.Fields["servoMotorIsEngaged"].GetValue(module) is bool engaged
+                    && module.Fields["rpmLimit"] != null
+                    && module.Fields["rpmLimit"].GetValue(module) is float rpmLimit)
+                    readings.Add(PartActionModuleReading.Rotor(engaged, rpmLimit));
             }
             return readings;
         }

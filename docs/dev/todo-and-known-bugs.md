@@ -315,11 +315,10 @@ Breaking Ground (`GameData/SquadExpansion/Serenity`) on the install.
 OPEN:
 - Live proof: SRV-1's re-flight on `srv-hinge-rover` (owed; see the last paragraph). The batch
   split is pinned whole from the first flight (`passed=1 skipped=0`) and the lane left
-  `INTERIM_PIN_IDS`. A rotor lane (SRV-2) was not authored:
-  a rotor's spin is driven by its motor engagement and RPM limit, which no seam button reaches
-  (the servo buttons press the angle actions only; a rotor's stock actions are motor power /
-  direction / brake toggles), so whether and how fast it would spin on the pad is unmeasured;
-  fly SRV-1 first, then decide whether a `MotorPowerAction` button is worth adding.
+  `INTERIM_PIN_IDS`. The rotor lane SRV-2 was AUTHORED 2026-11-21 (branch `test-gaps-rotor`)
+  on a sibling fixture `srv-rotor-rover`, with new `PartAction button=rotoron|rotoroff`
+  (BaseServo's non-toggle `MotorOnAction` / `MotorOffAction`); never flown, see
+  RECORDER-ROTOR-RPM-PAW-ONLY.
 - Known limits, not measured: a servo with an inverted mount keeps its base side still; a strut or
   fuel line spanning the servo keeps its snapshot endpoints; a servo locked in flight after moving
   with no save in between may have saved its children at an older pose (stock skips the
@@ -354,7 +353,7 @@ back to the old plan. No save-format change (the event values keep their meaning
 The rotor has the same shape (its `currentRPM` is refreshed only in `UpdatePAWUI`): fixed
 separately, RECORDER-ROTOR-RPM-PAW-ONLY below.
 
-## ~~RECORDER-ROTOR-RPM-PAW-ONLY~~: a rotor recorded no spin unless its part menu was open, and a steady spin read as stopped [FILED 2026-11-21 from the decompile (RECORDER-SERVO-ANGLE-PAW-ONLY's follow-up). FIXED 2026-11-21, branch `test-gaps-rotor`; xUnit `ReflectionClassifierCoreTests` (2 red before the RPM read, 7 red under a mutation of the spin signal); live proof owed: no lane flies a rotor; medium (a Breaking Ground rotor's blades replayed still)]
+## ~~RECORDER-ROTOR-RPM-PAW-ONLY~~: a rotor recorded no spin unless its part menu was open, and a steady spin read as stopped [FILED 2026-11-21 from the decompile (RECORDER-SERVO-ANGLE-PAW-ONLY's follow-up). FIXED 2026-11-21, branch `test-gaps-rotor`; xUnit `ReflectionClassifierCoreTests` (2 red before the RPM read, 7 red under a mutation of the spin signal); live proof owed: lane SRV-2 authored 2026-11-21, never flown; medium (a Breaking Ground rotor's blades replayed still)]
 
 Cause 1 (the read): the robotic position probe sampled a rotor through its plan
 `currentRPM` / `rpm` / `rpmLimit`. Decompiled KSP 1.12.5: `ModuleRoboticServoRotor` assigns
@@ -391,10 +390,21 @@ meaning). Not changed: the recorded RPM is unsigned, as `currentRPM` is, so the 
 snapshot's direction.
 
 OPEN:
-- Live proof: no lane flies a rotor (GHOST-SERVO-CHILDREN-STATIC's SRV-2 note: no seam button
-  engages a rotor's motor). A rotor lane must show `source=servoRateOfMotion ... moving=rotor-rpm`,
-  one `RoboticMotionStarted` for the rotor, no `RoboticMotionStopped` while it holds its RPM, and
-  the ghost's blades turning on the replay.
+- Live proof: lane `SRV-2-rotor-spin-ghost` AUTHORED 2026-11-21 (branch `test-gaps-rotor`,
+  stock-tree), NEVER FLOWN; owed: its first flight. Host: the new derived fixture
+  `srv-rotor-rover` (`harness/tools/build_srv_rotor_rover.py`, a sibling of SRV-1's
+  `srv-hinge-rover`: an EM-16 `rotor.01` carrying a Z-200 on the rover's front, motor OFF at
+  rpmLimit 30). Seam: `PartAction button=rotoron|rotoroff` press BaseServo's own
+  `MotorOnAction` / `MotorOffAction` KSPAction on a `ModuleRoboticServoRotor` (refusal
+  `partaction-rotor-not-found`; `state=` reads `rotor:engaged=0|1 rpmLimit=<F2>`). Ghost: a new
+  one-shot Verbose `Rotor spin applied in playback: pid= module= rpm= deltaDeg= followers=
+  (first since build)` (`GhostPlaybackLogic.ConsumeFirstRotorSpin` / `FormatRotorSpinLine`,
+  `ServoFollowerPoseTests`), since no playback line showed a rotor turning. The lane pins the
+  tracking line `source=servoRateOfMotion ... moving=rotor-rpm`, no rotor event before the
+  engage, exactly one `RoboticMotionStarted` and no `RoboticMotionStopped` before the spin-down
+  mark, a Stopped after it, then the replay's follower plan / bind (servos=1 followers=1), a
+  robotic apply, the first rotor spin and the rotor's first follower re-pose. The ServoFollowers
+  in-game cell skips rotors (it poses a servo), so SRV-2 runs no batch.
 
 ## ~~ENDPOINT-READS-RELATIVE-OFFSET-AS-LATLON~~: the endpoint resolver read a Relative-frame last point as lat/lon [FIXED 2026-11-20, branch `rsr-wp3-recording-ends`; xUnit `RecordingEndingTests`; low (EVA / controlled-child ends near an anchor with no terminal position)]
 

@@ -21,6 +21,28 @@ namespace Parsek
             return rpm * 6f * (float)deltaSeconds;
         }
 
+        /// <summary>
+        /// True exactly once per ghost build: the first time playback turns a RotorRpm rotor
+        /// (<see cref="RoboticGhostInfo.rotorSpinLogged"/> starts false on every freshly built
+        /// info). One line per rotor per build, so the per-frame spin stays silent after it.
+        /// </summary>
+        internal static bool ConsumeFirstRotorSpin(RoboticGhostInfo rotor)
+        {
+            if (rotor == null || rotor.rotorSpinLogged) return false;
+            rotor.rotorSpinLogged = true;
+            return true;
+        }
+
+        /// <summary>The first-playback-spin line of a rotor (invariant culture).</summary>
+        internal static string FormatRotorSpinLine(uint pid, string moduleName, float rpm,
+            float deltaDegrees, int followers)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Rotor spin applied in playback: pid={0} module={1} rpm={2:F2} deltaDeg={3:F3} " +
+                "followers={4} (first since build)",
+                pid, moduleName ?? "unknown", rpm, deltaDegrees, followers);
+        }
+
         #region Wheel spin derived from ground speed
 
         /// <summary>
@@ -324,6 +346,10 @@ namespace Parsek
                             info.servoTransform.localRotation * Quaternion.AngleAxis(deltaDegrees, axis);
                         if (info.followers != null)
                             PropagateServoFollowers(info);
+                        if (ConsumeFirstRotorSpin(info))
+                            ParsekLog.Verbose("GhostVisual", FormatRotorSpinLine(
+                                info.partPersistentId, info.moduleName, info.currentValue,
+                                deltaDegrees, info.followers?.Count ?? 0));
                     }
                 }
                 else if (info.visualMode == RoboticVisualMode.WheelGroundSpeed)

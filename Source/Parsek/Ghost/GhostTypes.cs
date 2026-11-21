@@ -513,6 +513,11 @@ namespace Parsek
         /// that first re-pose writes one Verbose line (GhostPlaybackLogic.ConsumeFirstFollowerRepose).
         /// </summary>
         public bool followerReposeLogged;
+        /// <summary>
+        /// RotorRpm mode only: false from each ghost build until playback first turns this
+        /// rotor; that first spin writes one Verbose line (GhostPlaybackLogic.ConsumeFirstRotorSpin).
+        /// </summary>
+        public bool rotorSpinLogged;
     }
 
     /// <summary>
