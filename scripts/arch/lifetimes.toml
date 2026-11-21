@@ -704,3 +704,10 @@ resolved = "process: cache keyed on the home body's reference identity"
 homeBodyNameOverrideForTesting = "test-hook"
 LiveHomeBodyReaderForTesting = "test-hook"
 BodyNameReaderForTesting = "test-hook"
+
+[[type]]
+name = "Parsek.ParsekTrackingStation"
+reason = "the Tracking Station scene addon"
+[type.fields]
+tsTailPositionLogKeys = "process: rate-limit keys of the per-frame tail line, composed from the recording id alone, so an entry never goes stale"
+tsTailSlideLogKeys = "process: rate-limit keys of the per-frame tail-slide line, composed from the recording id alone, so an entry never goes stale"
