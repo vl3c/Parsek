@@ -155,10 +155,11 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// The missing-mesh control's MEASURED pick (design 4.5), run after the ghost is built
-        /// and framed, before any view, at the end of a frame: each rendered ghost renderer is
-        /// drawn ALONE once per view through the capture primitive (same camera, box, light
-        /// rig and clears as the views), and so is the whole ghost; the pure size rule
-        /// (<see cref="PartParitySweepPlan.ChooseMeasuredRenderer"/>) picks by those pixel
+        /// and framed, before any view, at the end of a frame: the whole ghost is drawn once
+        /// per view through the capture primitive (same camera, box, light rig and clears as
+        /// the views), and again with each rendered ghost renderer hidden in turn; a
+        /// renderer's silhouette contribution is the difference. The pure size rule
+        /// (<see cref="PartParitySweepPlan.ChooseContributionRenderer"/>) picks by those pixel
         /// counts only, never by an outcome. The pick is forced off and the ghost records
         /// re-read so the structure shows it; the views keep the box, ortho size and culling
         /// mask the counts were measured in. No renderer in the window (or a failure) flags
@@ -188,12 +189,18 @@ namespace Parsek.TestCommands
                 labels.Add(wc.GhostRecords[i].Path);
             }
             var sets = new List<IList<Renderer>> { wc.GhostRenderers };
-            foreach (int i in candidates) sets.Add(new List<Renderer> { wc.GhostMeshRenderers[i] });
+            foreach (int i in candidates)
+            {
+                Renderer hidden = wc.GhostMeshRenderers[i];
+                var rest = new List<Renderer>(wc.GhostRenderers.Count);
+                foreach (Renderer r in wc.GhostRenderers) if (r != hidden) rest.Add(r);
+                sets.Add(rest);
+            }
 
             int views = wc.Views.Count;
             var full = new int[views];
-            var solo = new List<int[]>();
-            for (int k = 0; k < candidates.Count; k++) solo.Add(new int[views]);
+            var without = new List<int[]>();
+            for (int k = 0; k < candidates.Count; k++) without.Add(new int[views]);
             for (int v = 0; v < views; v++)
             {
                 int[] px = ctx.Capture.MeasureCoverage(part.transform, wc.Shared, wc.OrthoSize, wc.Views[v],
@@ -204,22 +211,24 @@ namespace Parsek.TestCommands
                     return;
                 }
                 full[v] = px[0];
-                for (int k = 0; k < candidates.Count; k++) solo[k][v] = px[k + 1];
+                for (int k = 0; k < candidates.Count; k++) without[k][v] = px[k + 1];
             }
-            string counts = PartParitySweepPlan.FormatMeasuredCounts(wc.Views, full, labels, solo);
-            ParsekLog.Verbose(PartParitySweepRunner.Tag, $"case {wc.CaseId}: missing-mesh measured counts " +
+            var contribution = new List<int[]>();
+            foreach (int[] w in without) contribution.Add(PartParitySweepPlan.ContributionPx(full, w));
+            string counts = PartParitySweepPlan.FormatMeasuredCounts(wc.Views, full, labels, contribution);
+            ParsekLog.Verbose(PartParitySweepRunner.Tag, $"case {wc.CaseId}: missing-mesh contribution counts " +
                 $"subject={subject ?? "<none>"} candidates={candidates.Count.ToString(Ic)} {counts}");
 
-            int chosen = PartParitySweepPlan.ChooseMeasuredRenderer(solo, full);
+            int chosen = PartParitySweepPlan.ChooseContributionRenderer(contribution, full);
             if (chosen < 0)
             {
-                NoMeasuredSubject(wc, subject, "no ghost renderer in the size window", counts);
+                NoMeasuredSubject(wc, subject, "no ghost renderer's silhouette contribution in the size window", counts);
                 return;
             }
             int target = candidates[chosen];
             wc.GhostMeshRenderers[target].enabled = false;
             string pick = PartParitySweepPlan.FormatMeasuredPick(subject, wc.GhostRecords[target].Path, wc.Views,
-                solo[chosen], full, null);
+                contribution[chosen], full, null);
             wc.Flags.Add(FlagMissingMeshTargetPrefix + wc.GhostRecords[target].Path);
             wc.Flags.Add(PartParitySweepPlan.FlagControlPickPrefix + pick);
             ParsekLog.Info(PartParitySweepRunner.Tag, $"case {wc.CaseId}: missing-mesh measured pick {pick} " +

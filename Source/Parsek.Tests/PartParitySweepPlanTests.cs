@@ -366,29 +366,169 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MeasuredPick_FirstInTheSizeWindow_ByCountsOnly()
+        public void ContributionPx_IsFullMinusWithout_NeverNegative()
+        {
+            Assert.Equal(new[] { 120, 0, 0, 5 }, PartParitySweepPlan.ContributionPx(
+                new[] { 40000, 30000, 50000, 100 }, new[] { 39880, 30000, 50010, 95 }));
+            Assert.Null(PartParitySweepPlan.ContributionPx(new[] { 1, 2 }, new[] { 1 }));
+            Assert.Null(PartParitySweepPlan.ContributionPx(null, new[] { 1 }));
+        }
+
+        [Fact]
+        public void ContributionPick_FirstInTheWindow_ByCountsOnly()
         {
             int[] full = { 40000, 30000, 50000, 50000 };
-            var solo = new List<int[]>
+            var contribution = new List<int[]>
             {
                 new[] { 38000, 29000, 49000, 49000 }, // the body: far above 0.6 %
+                new[] { 0, 0, 0, 0 },                 // a decal on the hull: removing it changes nothing
                 new[] { 99, 90, 80, 70 },             // under 100 px in every view
                 new[] { 120, 250, 0, 0 },             // 0.83 % of side-b: over the ceiling
                 new[] { 150, 100, 300, 0 },           // in the window (300 = 0.6 % of 50000)
                 new[] { 200, 100, 100, 100 },         // also in, later
             };
-            Assert.Equal(3, PartParitySweepPlan.ChooseMeasuredRenderer(solo, full));
-            solo.RemoveAt(3);
-            Assert.Equal(3, PartParitySweepPlan.ChooseMeasuredRenderer(solo, full));
-            Assert.Equal(-1, PartParitySweepPlan.ChooseMeasuredRenderer(solo.GetRange(0, 3), full));
-            // A view the ghost does not cover at all allows only a renderer that is not there.
-            Assert.Equal(-1, PartParitySweepPlan.ChooseMeasuredRenderer(
+            Assert.Equal(4, PartParitySweepPlan.ChooseContributionRenderer(contribution, full));
+            contribution.RemoveAt(4);
+            Assert.Equal(4, PartParitySweepPlan.ChooseContributionRenderer(contribution, full));
+            Assert.Equal(-1, PartParitySweepPlan.ChooseContributionRenderer(contribution.GetRange(0, 4), full));
+
+            // The 2026-11-21 mk1pod flag: 331 / 283 px drawn alone, but lying on the hull its
+            // contribution is 0 in every view, so it is never picked.
+            var podFull = new[] { 147000, 147000, 120000, 120000 };
+            var flagSolo = new[] { 0, 331, 283, 0 };
+            var flagContribution = PartParitySweepPlan.ContributionPx(podFull, podFull);
+            Assert.Equal(0, PartParitySweepPlan.ChooseContributionRenderer(new List<int[]> { flagSolo }, podFull));
+            Assert.Equal(-1, PartParitySweepPlan.ChooseContributionRenderer(new List<int[]> { flagContribution }, podFull));
+
+            // A view the ghost does not cover at all allows only a renderer that adds nothing there.
+            Assert.Equal(-1, PartParitySweepPlan.ChooseContributionRenderer(
                 new List<int[]> { new[] { 150, 0, 0, 1 } }, new[] { 40000, 30000, 50000, 0 }));
-            Assert.Equal(0, PartParitySweepPlan.ChooseMeasuredRenderer(
+            Assert.Equal(0, PartParitySweepPlan.ChooseContributionRenderer(
                 new List<int[]> { new[] { 150, 0, 0, 0 } }, new[] { 40000, 30000, 50000, 0 }));
-            Assert.Equal(-1, PartParitySweepPlan.ChooseMeasuredRenderer(null, full));
-            Assert.Equal(-1, PartParitySweepPlan.ChooseMeasuredRenderer(
+            Assert.Equal(-1, PartParitySweepPlan.ChooseContributionRenderer(null, full));
+            Assert.Equal(-1, PartParitySweepPlan.ChooseContributionRenderer(
                 new List<int[]> { new[] { 150, 100 } }, full)); // wrong view count
+        }
+
+        // ----- the missing-mesh family -----
+
+        [Theory]
+        [InlineData("mk1pod.v2", "ctl-ghost-missing-mesh--mk1pod.v2")]
+        [InlineData("Mark1Cockpit", "ctl-ghost-missing-mesh--mark1cockpit")]
+        [InlineData("mk1-3pod", "ctl-ghost-missing-mesh--mk1-3pod")]
+        [InlineData("odd name/x", "ctl-ghost-missing-mesh--odd-name-x")]
+        [InlineData("trail.", "ctl-ghost-missing-mesh--trail-")]
+        [InlineData("", "ctl-ghost-missing-mesh--x")]
+        public void SubCaseId_IsAValidLabelUnderTheControlPrefix(string subject, string expected)
+        {
+            string id = PartParitySweepPlan.MissingMeshSubCaseId(subject);
+            Assert.Equal(expected, id);
+            Assert.True(TestCommandCaptureScreenshot.IsValidLabel(id), id);
+            Assert.True(PartParitySweepPlan.IsMissingMeshSubCase(id));
+            Assert.False(PartParitySweepPlan.IsControl(id));     // not a control of its own
+            Assert.False(TestCommandPartParitySweep.ControlIds.Contains(id));
+        }
+
+        [Fact]
+        public void SubCaseId_LongSubjectIsCut_AndPartsAreNotSubCases()
+        {
+            string id = PartParitySweepPlan.MissingMeshSubCaseId(new string('a', 200));
+            Assert.Equal(TestCommandPartParitySweep.MaxCaseIdLength, id.Length);
+            Assert.True(TestCommandCaptureScreenshot.IsValidLabel(id));
+            Assert.False(PartParitySweepPlan.IsMissingMeshSubCase(TestCommandPartParitySweep.ControlGhostMissingMesh));
+            Assert.False(PartParitySweepPlan.IsMissingMeshSubCase("mk1pod.v2--default--01234567"));
+            Assert.False(PartParitySweepPlan.IsMissingMeshSubCase(null));
+        }
+
+        [Fact]
+        public void Family_TakesTheFirstEightStillSubjects()
+        {
+            var order = new List<PartParityMissingMeshSubject>();
+            for (int i = 0; i < 11; i++) order.Add(new PartParityMissingMeshSubject { Subject = "part" + i });
+            order.Insert(2, new PartParityMissingMeshSubject { Subject = "PART0" }); // same id ignoring case
+            List<PartParityMissingMeshSubject> family = PartParitySweepPlan.MissingMeshFamily(order);
+            Assert.Equal(PartParitySweepPlan.MaxMissingMeshSubCases, family.Count);
+            Assert.Equal("ctl-ghost-missing-mesh--part0", family[0].SubCaseId);
+            Assert.Equal("part1", family[1].Subject);
+            Assert.Equal("part2", family[2].Subject);
+            Assert.Empty(PartParitySweepPlan.MissingMeshFamily(null));
+        }
+
+        private static PartParityCaseSidecar Sub(string part, bool found, string status = "ok",
+            List<PartParityViewRecord> views = null)
+        {
+            var s = new PartParityCaseSidecar { CaseId = PartParitySweepPlan.MissingMeshSubCaseId(part), Part = part };
+            s.Setup = new PartParitySetup { Status = status };
+            if (found) s.Flags.Add(PartParitySweepPlan.FlagControlPickPrefix + "subject=" + part + ";renderer=r");
+            else if (status == "ok") s.Flags.Add(PartParitySweepPlan.FlagControlNoSubject);
+            if (views != null) s.Views.AddRange(views);
+            return s;
+        }
+
+        private static List<PartParityViewRecord> GoodMissingMeshViews()
+        {
+            var views = Four(v => View(v, iou: 0.995));
+            views[0] = View("side-a", realBlob: 200, iou: 0.993);
+            return views;
+        }
+
+        private static string Resolve(IList<PartParityCaseSidecar> known, IList<string> ids,
+            out PartParityCaseSidecar chosen, out string detail)
+        {
+            var byId = known.ToDictionary(k => k.CaseId);
+            return PartParitySweepPlan.ResolveMissingMeshFamily(ids,
+                id => byId.TryGetValue(id, out var s) ? s : null, out chosen, out detail);
+        }
+
+        [Fact]
+        public void Family_OutcomeIsTheFirstSubCaseThatFoundARenderer()
+        {
+            var pod = Sub("mk1pod.v2", false);
+            var lander = Sub("landerCabinSmall", false, "spawn-timeout"); // a setup fault never measured
+            var hex = Sub("probeCoreHex.v2", true, "still-animating", GoodMissingMeshViews());
+            var octo = Sub("probeCoreOcto.v2", true, "ok", Four(v => View(v)));   // would judge bad
+            var known = new List<PartParityCaseSidecar> { pod, lander, hex, octo };
+            var ids = known.Select(k => k.CaseId).ToList();
+
+            Assert.Equal("ok", Resolve(known, ids, out var chosen, out string detail));
+            Assert.Same(hex, chosen);
+            Assert.Equal("sub=ctl-ghost-missing-mesh--probecorehex.v2", detail);
+
+            // The first finder decides even when its outcome is bad; a later ok one does not rescue it.
+            ids = new List<string> { pod.CaseId, octo.CaseId, hex.CaseId };
+            Assert.Equal("bad", Resolve(known, ids, out chosen, out detail));
+            Assert.Same(octo, chosen);
+            Assert.Equal("sub=ctl-ghost-missing-mesh--probecoreocto.v2 no view fails", detail);
+        }
+
+        [Fact]
+        public void Family_PendingUntilEarlierSubCasesHaveRun()
+        {
+            var hex = Sub("probeCoreHex.v2", true, "ok", GoodMissingMeshViews());
+            var ids = new List<string> { PartParitySweepPlan.MissingMeshSubCaseId("mk1pod.v2"), hex.CaseId };
+            Assert.Equal("pending", Resolve(new List<PartParityCaseSidecar> { hex }, ids, out var chosen, out string detail));
+            Assert.Null(chosen);
+            Assert.Equal("waiting for ctl-ghost-missing-mesh--mk1pod.v2", detail);
+            // Once the first finder has run, later sub-cases need not have.
+            ids = new List<string> { hex.CaseId, PartParitySweepPlan.MissingMeshSubCaseId("mk1pod.v2") };
+            Assert.Equal("ok", Resolve(new List<PartParityCaseSidecar> { hex }, ids, out chosen, out detail));
+        }
+
+        [Fact]
+        public void Family_NoSubCaseFound_OrEmpty_IsBadNoSubject()
+        {
+            var known = new List<PartParityCaseSidecar>
+            {
+                Sub("mk1pod.v2", false), Sub("landerCabinSmall", false), Sub("ladder1", false, "crashed"),
+            };
+            Assert.Equal("bad", Resolve(known, known.Select(k => k.CaseId).ToList(), out var chosen, out string detail));
+            Assert.Null(chosen);
+            Assert.Equal("no-subject", detail);
+
+            Assert.Equal("bad", Resolve(known, new List<string>(), out chosen, out detail));
+            Assert.Equal("no-subject", detail);
+            Assert.Equal("bad", PartParitySweepPlan.ResolveMissingMeshFamily(null, null, out chosen, out detail));
+            Assert.Equal("no-subject", detail);
         }
 
         [Fact]
@@ -423,8 +563,8 @@ namespace Parsek.Tests
                 Assert.DoesNotContain("_", n); // runtime names are dot-form
             }
             Assert.True(PartParitySweepPlan.MissingMeshMinViewFraction < PartParitySweepPlan.MissingMeshMaxViewFraction);
-            Assert.Equal(100, PartParitySweepPlan.MissingMeshMinSoloPx);
-            Assert.Equal(0.006, PartParitySweepPlan.MissingMeshMaxSoloFraction);
+            Assert.Equal(100, PartParitySweepPlan.MissingMeshMinContributionPx);
+            Assert.Equal(0.006, PartParitySweepPlan.MissingMeshMaxContributionFraction);
         }
 
         [Fact]

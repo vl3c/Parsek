@@ -34,6 +34,9 @@ namespace Parsek.TestCommands
     internal sealed class PartParityMissingMeshSubject
     {
         internal string Subject;
+
+        /// <summary>The family sub-case id (<see cref="PartParitySweepPlan.MissingMeshSubCaseId"/>).</summary>
+        internal string SubCaseId;
         internal bool EstimateQualifies;
         internal string EstimateRendererPath;
         internal double[] EstimateFractions;
@@ -168,7 +171,7 @@ namespace Parsek.TestCommands
         /// meshes, in preference order (runtime dot-form names; an absent part is skipped).
         /// Only STILL parts are used (<see cref="IsStillSubject"/>); the prefab estimate orders
         /// them (<see cref="OrderMissingMeshSubjects"/>), and the renderer to hide is MEASURED
-        /// on the live ghost (<see cref="ChooseMeasuredRenderer"/>).
+        /// on the live ghost (<see cref="ChooseContributionRenderer"/>).
         /// </summary>
         internal static readonly string[] MissingMeshCandidates =
         {
@@ -176,6 +179,8 @@ namespace Parsek.TestCommands
             "RCSBlock.v2", "RCSblock.01.small", "ladder1", "telescopicLadder", "telescopicLadderBay",
             "spotLight1", "spotLight2", "spotLight3", "solarPanels5", "solarPanels4", "solarPanels3",
             "solarPanels2", "solarPanels1", "mk2LanderCabin.v2", "liquidEngine2",
+            "Mark2Cockpit", "mk1-3pod", "MK1CrewCabin", "cupola", "probeCoreSphere.v2",
+            "probeStackSmall", "probeStackLarge", "roverBody.v2", "seatExternalCmd", "mk2DroneCore",
         };
 
         /// <summary>PartModules that move or reshape a part's meshes (or play an Animation): a
@@ -204,13 +209,20 @@ namespace Parsek.TestCommands
         /// <summary>... and at most this in every view.</summary>
         internal const double MissingMeshMaxViewFraction = 0.006;
 
-        /// <summary>The measured pick: the hidden renderer drawn ALONE covers at least this
-        /// many pixels in at least one view (over the 64 px shape limit)...</summary>
-        internal const int MissingMeshMinSoloPx = 100;
+        /// <summary>The measured pick: hiding the renderer removes at least this many pixels
+        /// of the ghost's silhouette in at least one view (over the 64 px shape limit)...</summary>
+        internal const int MissingMeshMinContributionPx = 100;
 
         /// <summary>... and at most this fraction of the FULL ghost coverage in every view (so
         /// every view keeps IoU >= 0.99).</summary>
-        internal const double MissingMeshMaxSoloFraction = 0.006;
+        internal const double MissingMeshMaxContributionFraction = 0.006;
+
+        /// <summary>The most sub-cases of the missing-mesh family (one wave holds 8 cases).</summary>
+        internal const int MaxMissingMeshSubCases = 8;
+
+        /// <summary>Every family sub-case id starts with this: the control's own id, then the
+        /// <c>--</c> separator case ids use, then the subject.</summary>
+        internal const string MissingMeshSubCasePrefix = TestCommandPartParitySweep.ControlGhostMissingMesh + "--";
 
         /// <summary>The sidecar flag of a missing-mesh control with no still subject or no
         /// measured renderer in the window: the judge reports it <c>bad</c>, detail
@@ -245,7 +257,7 @@ namespace Parsek.TestCommands
                 case TestCommandPartParitySweep.ControlGhostScale90: return ControlTankPart + ", ghost scaled 0.9";
                 case TestCommandPartParitySweep.ControlGhostRot90: return ControlPodPart + ", ghost rotated 90 deg about +Y";
                 case TestCommandPartParitySweep.ControlGhostFlip: return ControlPodPart + ", ghost rotated 180 deg about +X";
-                case TestCommandPartParitySweep.ControlGhostMissingMesh: return "multi-renderer part, one small ghost renderer forced off";
+                case TestCommandPartParitySweep.ControlGhostMissingMesh: return "a family of up to 8 still multi-mesh stock parts; the first whose ghost has a mesh of small silhouette contribution, that mesh forced off";
                 case TestCommandPartParitySweep.ControlWrongSkin: return "colour-variant part, ghost built from a snapshot naming another variant";
                 default: return null;
             }
@@ -268,6 +280,89 @@ namespace Parsek.TestCommands
         }
 
         internal static bool IsControl(string id) => Array.IndexOf(TestCommandPartParitySweep.ControlIds, id) >= 0;
+
+        /// <summary>A sub-case of the missing-mesh family (not a part, not a control of its own).</summary>
+        internal static bool IsMissingMeshSubCase(string id)
+            => id != null && id.StartsWith(MissingMeshSubCasePrefix, StringComparison.Ordinal);
+
+        /// <summary>The family sub-case id of a subject: the prefix, then the subject lower-cased
+        /// with every character outside <c>[a-z0-9._-]</c> mapped to <c>-</c>, cut to the label
+        /// limit (a valid <c>CaptureScreenshot</c> label; a trailing <c>.</c> or <c>_</c> becomes
+        /// <c>-</c>).</summary>
+        internal static string MissingMeshSubCaseId(string subject)
+        {
+            var sb = new StringBuilder(MissingMeshSubCasePrefix);
+            foreach (char ch in (subject ?? string.Empty).ToLowerInvariant())
+                sb.Append((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == '_' ? ch : '-');
+            if (sb.Length == MissingMeshSubCasePrefix.Length) sb.Append('x');
+            if (sb.Length > TestCommandPartParitySweep.MaxCaseIdLength) sb.Length = TestCommandPartParitySweep.MaxCaseIdLength;
+            char last = sb[sb.Length - 1];
+            if (last == '.' || last == '_') sb[sb.Length - 1] = '-';
+            return sb.ToString();
+        }
+
+        /// <summary>The missing-mesh family: the first <see cref="MaxMissingMeshSubCases"/>
+        /// subjects of the still order, each with its sub-case id (a duplicate id is skipped).</summary>
+        internal static List<PartParityMissingMeshSubject> MissingMeshFamily(IList<PartParityMissingMeshSubject> order)
+        {
+            var family = new List<PartParityMissingMeshSubject>();
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (order == null) return family;
+            foreach (var o in order)
+            {
+                if (o == null || family.Count >= MaxMissingMeshSubCases) continue;
+                string id = MissingMeshSubCaseId(o.Subject);
+                if (!ids.Add(id)) continue;
+                o.SubCaseId = id;
+                family.Add(o);
+            }
+            return family;
+        }
+
+        /// <summary>
+        /// The family's control outcome: the outcome of the FIRST sub-case, in family order,
+        /// that found a qualifying renderer (its sidecar carries the pick flag), judged by the
+        /// unchanged missing-mesh requirement. A sub-case that found none (or never measured,
+        /// a setup fault) is passed over. <c>pending</c> while an earlier sub-case has no
+        /// sidecar yet; <c>bad</c>, detail <c>no-subject</c>, when the family is empty or no
+        /// sub-case found a renderer. <paramref name="chosen"/> is the deciding sub-case.
+        /// </summary>
+        internal static string ResolveMissingMeshFamily(IList<string> subCaseIds,
+            Func<string, PartParityCaseSidecar> lookup, out PartParityCaseSidecar chosen, out string detail)
+        {
+            chosen = null;
+            detail = null;
+            if (subCaseIds == null || subCaseIds.Count == 0 || lookup == null)
+            {
+                detail = "no-subject";
+                return TestCommandPartParitySweep.ControlsBad;
+            }
+            foreach (string id in subCaseIds)
+            {
+                PartParityCaseSidecar s = lookup(id);
+                if (s == null)
+                {
+                    detail = "waiting for " + id;
+                    return TestCommandPartParitySweep.ControlsPending;
+                }
+                if (!HasFlagPrefix(s.Flags, FlagControlPickPrefix)) continue;
+                chosen = s;
+                string outcome = JudgeControl(TestCommandPartParitySweep.ControlGhostMissingMesh,
+                    s.Views, s.Setup?.Status, s.Flags, out string d);
+                detail = "sub=" + id + (d != null ? " " + d : string.Empty);
+                return outcome;
+            }
+            detail = "no-subject";
+            return TestCommandPartParitySweep.ControlsBad;
+        }
+
+        internal static bool HasFlagPrefix(IList<string> flags, string prefix)
+        {
+            if (flags == null) return false;
+            foreach (string f in flags)
+                if (f != null && f.StartsWith(prefix, StringComparison.Ordinal)) return true;
+            return false;
+        }
 
         internal static bool ShapeFails(PartParityViewMeasures m)
         {
@@ -531,27 +626,38 @@ namespace Parsek.TestCommands
             return qualified;
         }
 
-        /// <summary>
-        /// The measured pick, by SIZE only (never by outcome): <paramref name="soloPx"/>[i][v]
-        /// is the coverage of rendered ghost renderer i drawn ALONE in view v (same camera,
-        /// box and clears as the capture), <paramref name="fullPx"/>[v] the coverage of the
-        /// whole ghost. The first renderer whose solo coverage is at least
-        /// <see cref="MissingMeshMinSoloPx"/> in one view and at most
-        /// <see cref="MissingMeshMaxSoloFraction"/> of the full coverage in every view wins;
-        /// -1 when none does.
-        /// </summary>
-        internal static int ChooseMeasuredRenderer(IList<int[]> soloPx, int[] fullPx)
+        /// <summary>A renderer's silhouette contribution per view: the full ghost's coverage
+        /// minus the coverage with that one renderer hidden (never below zero). A decal lying on
+        /// the hull contributes nothing: the hull covers the same pixels without it.</summary>
+        internal static int[] ContributionPx(int[] fullPx, int[] withoutPx)
         {
-            if (soloPx == null || fullPx == null || fullPx.Length == 0) return -1;
-            for (int i = 0; i < soloPx.Count; i++)
+            if (fullPx == null || withoutPx == null || fullPx.Length != withoutPx.Length) return null;
+            var c = new int[fullPx.Length];
+            for (int v = 0; v < c.Length; v++) c[v] = Math.Max(0, fullPx[v] - withoutPx[v]);
+            return c;
+        }
+
+        /// <summary>
+        /// The measured pick, by SIZE only (never by outcome): <paramref name="contributionPx"/>[i][v]
+        /// is rendered ghost renderer i's silhouette contribution in view v
+        /// (<see cref="ContributionPx"/>, same camera, box and clears as the capture),
+        /// <paramref name="fullPx"/>[v] the coverage of the whole ghost. The first renderer
+        /// contributing at least <see cref="MissingMeshMinContributionPx"/> in one view and at
+        /// most <see cref="MissingMeshMaxContributionFraction"/> of the full coverage in every
+        /// view wins; -1 when none does.
+        /// </summary>
+        internal static int ChooseContributionRenderer(IList<int[]> contributionPx, int[] fullPx)
+        {
+            if (contributionPx == null || fullPx == null || fullPx.Length == 0) return -1;
+            for (int i = 0; i < contributionPx.Count; i++)
             {
-                int[] solo = soloPx[i];
-                if (solo == null || solo.Length != fullPx.Length) continue;
+                int[] c = contributionPx[i];
+                if (c == null || c.Length != fullPx.Length) continue;
                 bool any = false, within = true;
-                for (int v = 0; v < solo.Length && within; v++)
+                for (int v = 0; v < c.Length && within; v++)
                 {
-                    if (solo[v] > MissingMeshMaxSoloFraction * fullPx[v]) within = false;
-                    if (solo[v] >= MissingMeshMinSoloPx) any = true;
+                    if (c[v] > MissingMeshMaxContributionFraction * fullPx[v]) within = false;
+                    if (c[v] >= MissingMeshMinContributionPx) any = true;
                 }
                 if (within && any) return i;
             }
@@ -559,22 +665,23 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>The measured counts for the Verbose line: <c>full=side-a:N,...</c> then one
-        /// <c>| &lt;label&gt; side-a:N,...</c> entry per candidate renderer (invariant).</summary>
+        /// <c>| &lt;label&gt; side-a:N,...</c> entry (its contribution) per candidate renderer
+        /// (invariant).</summary>
         internal static string FormatMeasuredCounts(IList<string> views, int[] fullPx,
-            IList<string> labels, IList<int[]> soloPx)
+            IList<string> labels, IList<int[]> contributionPx)
         {
             var sb = new StringBuilder("full=");
             AppendCounts(sb, views, fullPx);
-            for (int i = 0; labels != null && soloPx != null && i < labels.Count && i < soloPx.Count; i++)
+            for (int i = 0; labels != null && contributionPx != null && i < labels.Count && i < contributionPx.Count; i++)
             {
                 sb.Append(" | ").Append(labels[i] ?? "<null>").Append(' ');
-                AppendCounts(sb, views, soloPx[i]);
+                AppendCounts(sb, views, contributionPx[i]);
             }
             return sb.ToString();
         }
 
         /// <summary>The pick flag / Info value: <c>subject=;renderer=;side-a=N/M;...</c>
-        /// (solo px over full px per view), or the reason when none qualified.</summary>
+        /// (contribution px over full px per view), or the reason when none qualified.</summary>
         internal static string FormatMeasuredPick(string subject, string rendererPath, IList<string> views,
             int[] soloPx, int[] fullPx, string none)
         {
