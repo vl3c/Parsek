@@ -99,6 +99,11 @@ namespace Parsek
         /// replay plants them again (todo LOOP-REPLAY-REPLANTS-REMOVED-FLAG), saved in the PARSEK
         /// node.</summary>
         RemovedReplayFlags,
+        /// <summary><c>RescueAcceptDeferrals</c>: the rescue contracts a contract rebuild re-activated
+        /// in Flight or an editor, whose stranded vessel waits for the next Space Center or Tracking
+        /// Station visit (todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS), saved in the PARSEK
+        /// node.</summary>
+        RescueAcceptDeferrals,
     }
 
     /// <summary>What a load does with one category today.</summary>
@@ -476,6 +481,7 @@ namespace Parsek
                 case LoadStateCategory.LedgerHeldWindow:
                 case LoadStateCategory.PlaybackReplayScope:
                 case LoadStateCategory.RemovedReplayFlags:
+                case LoadStateCategory.RescueAcceptDeferrals:
                     return true;
                 case LoadStateCategory.UntaggedLedgerRowsAfterCutoff:
                 case LoadStateCategory.PendingScience:
@@ -543,6 +549,7 @@ namespace Parsek
                 case LoadStateCategory.LedgerHeldWindow: return DecideLedgerHeldWindow(kind);
                 case LoadStateCategory.PlaybackReplayScope: return DecidePlaybackReplayScope(kind);
                 case LoadStateCategory.RemovedReplayFlags: return DecideRemovedReplayFlags(kind);
+                case LoadStateCategory.RescueAcceptDeferrals: return DecideRescueAcceptDeferrals(kind);
             }
             throw new ArgumentOutOfRangeException(nameof(category), category, "unknown LoadStateCategory");
         }
@@ -1209,6 +1216,45 @@ namespace Parsek
                 case LoadKind.QuickloadFlight:
                 case LoadKind.InSessionOther:
                     return Today(LoadReconcileAction.ReconcileAtCutoff, RemovedReplayFlagsReconcile);
+            }
+            throw UnknownKind(kind);
+        }
+
+        private const string RescueAcceptDeferralsFromSave =
+            "ParsekScenario.LoadRescueAcceptDeferrals -> RescueAcceptDeferrals.LoadFrom installs the loaded node's "
+            + "RESCUE_ACCEPT_DEFERRALS: the rescues Active in the save's world whose stranded vessel that world lacks";
+
+        // Todo CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS (owner ruling 2026-11-20): the list
+        // describes the world of the .sfs that carries it, so every load whose node is that world's
+        // takes the loaded copy (a scene change reads the copy OnSave just wrote). A plain rewind's
+        // OnLoad node is persistent.sfs carrying the session's node, and a Discard Re-fly's carries
+        // the session's node around the rewind point's world: neither describes the landed world,
+        // so both clear it. The landed Space Center's own contract patch regenerates what it
+        // rebuilds there; a rescue the landed save already holds Active with its vessel missing
+        // (its own list named it) is todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD.
+        private static LoadReconcileDecision DecideRescueAcceptDeferrals(LoadKind kind)
+        {
+            switch (kind)
+            {
+                case LoadKind.Cold:
+                case LoadKind.ReFlyStart:
+                    return Today(LoadReconcileAction.Save, RescueAcceptDeferralsFromSave);
+                case LoadKind.PlainRewind:
+                    return Today(LoadReconcileAction.Clear,
+                        "cleared in the prologue: the node is persistent.sfs carrying the session's node, not the rewind "
+                        + "save's world; a rescue the patch rebuilds in the landed Space Center regenerates there, but "
+                        + "one the rewind save already holds Active with its vessel missing is skipped as existing "
+                        + "(todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD)");
+                case LoadKind.DiscardReFly:
+                    return Today(LoadReconcileAction.Clear,
+                        "cleared in the prologue: the node is the session's, carried around the rewind point's world, so "
+                        + "a rescue the rewind point's own save had deferred is not regenerated "
+                        + "(todo RESCUE-DEFERRAL-LOST-ON-REWIND-LOAD)");
+                // Consumed in the prologue, before the revert detector: one cell for all three.
+                case LoadKind.StockRevert:
+                case LoadKind.QuickloadFlight:
+                case LoadKind.InSessionOther:
+                    return Today(LoadReconcileAction.Save, RescueAcceptDeferralsFromSave);
             }
             throw UnknownKind(kind);
         }

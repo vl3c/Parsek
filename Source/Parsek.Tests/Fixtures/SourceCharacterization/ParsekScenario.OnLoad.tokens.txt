@@ -9,6 +9,8 @@ S:"an inert load makes no backup attempt"
 C:InSessionStagedStateHandoff.Drop
 C:SaveFileLoadIntent.Clear
 S:"inert-game-mode"
+C:RescueAcceptDeferrals.Clear
+S:"inert-game-mode"
 A:inertGameModePassthroughNode
 C:InFlightRecoveryRequest.Clear
 S:"OnLoad"
@@ -127,6 +129,9 @@ C:LoadPlaybackReplayScope
 A:ctx.Phase
 S:"removed-replay-flags-load"
 C:LoadRemovedReplayFlags
+A:ctx.Phase
+S:"rescue-accept-deferrals-load"
+C:LoadRescueAcceptDeferrals
 A:ctx.Phase
 S:"rewind-point-carry-over"
 C:RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad

@@ -224,6 +224,9 @@ namespace Parsek
                 info.servoTransform.localRotation =
                     info.stowedRot * Quaternion.AngleAxis(value, axis);
             }
+
+            if (info.followers != null)
+                PropagateServoFollowers(info);
         }
 
         internal static GhostPartEventOutcome ApplyRoboticEvent(
@@ -319,6 +322,8 @@ namespace Parsek
                             : Vector3.up;
                         info.servoTransform.localRotation =
                             info.servoTransform.localRotation * Quaternion.AngleAxis(deltaDegrees, axis);
+                        if (info.followers != null)
+                            PropagateServoFollowers(info);
                     }
                 }
                 else if (info.visualMode == RoboticVisualMode.WheelGroundSpeed)

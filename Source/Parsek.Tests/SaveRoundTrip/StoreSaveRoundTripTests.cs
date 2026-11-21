@@ -26,6 +26,7 @@ namespace Parsek.Tests.SaveRoundTrip
     [SaveRoundTripCovers(typeof(LedgerHeldWindow))]
     [SaveRoundTripCovers(typeof(PlaybackScopeTracker))]
     [SaveRoundTripCovers(typeof(RemovedReplayFlags))]
+    [SaveRoundTripCovers(typeof(RescueAcceptDeferrals))]
     [SaveRoundTripCovers(typeof(StockShadowTakeBack))]
     [SaveRoundTripCovers(typeof(CareerSettingsLock))]
     [SaveRoundTripCovers(typeof(StockPoolReference))]
@@ -56,6 +57,7 @@ namespace Parsek.Tests.SaveRoundTrip
             LedgerHeldWindow.ResetForTesting();
             PlaybackScopeTracker.ResetForTesting();
             RemovedReplayFlags.ResetForTesting();
+            RescueAcceptDeferrals.ResetForTesting();
             StockShadowTakeBack.ResetForTesting();
             CareerSettingsLock.ResetForTesting();
             StockPoolReference.ResetForTesting();
@@ -169,6 +171,18 @@ namespace Parsek.Tests.SaveRoundTrip
                 Spec = () => new FieldSpec(typeof(RemovedReplayFlags))
                     .NotPersisted("re-entry guard held only for the length of a Die() call", "parsekRemovalDepth"),
                 NestedSpecs = () => new[] { new FieldSpec(typeof(RemovedReplayFlags.Tombstone)) },
+            },
+            new StoreCase
+            {
+                Name = "RescueAcceptDeferrals", Store = typeof(RescueAcceptDeferrals),
+                Save = n => RescueAcceptDeferrals.SaveInto(n), Reset = RescueAcceptDeferrals.ResetForTesting,
+                Load = n => RescueAcceptDeferrals.Replace(RescueAcceptDeferrals.LoadFrom(n), "round-trip test"),
+                // The codec keeps only contract guids, in their canonical form.
+                Spec = () => new FieldSpec(typeof(RescueAcceptDeferrals))
+                    .Fill("pending", () => new List<string>
+                    {
+                        "e8ba5ea6-570c-4b7f-99b4-44c9dee51030", "0c1d2e3f-4a5b-4c6d-8e7f-901234567890",
+                    }),
             },
             new StoreCase
             {

@@ -54,6 +54,20 @@ Not released yet.
 
 ### Fixed
 
+- **A rescue or tourism contract still works after you go back in time.** If you go back to before
+  you accepted a rescue, the stranded kerbal or part reappears when the clock reaches the accept
+  again (at your next Space Center or Tracking Station visit if you are flying then), and tourism
+  passengers become tourists again, unless your recorded future already ends that contract.
+  (CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS)
+- **One missing recording file no longer stops a mission from saving.** When one recording of a
+  mission had lost its file, every later save kept that mission exactly as it was before:
+  new flights in it, renames and other changes were silently not saved. The mission now saves
+  normally, and the recording with the missing file keeps pointing at its last saved files.
+  (SAVE-FREEZE-ON-MISSING-SIDECAR)
+- **Parts on robotic hinges, rotors and pistons move on the replay.** A ghost turned only the
+  servo itself, so a panel, arm or wheel mounted on a hinge stayed frozen while the hinge swung.
+  Everything on the moving side of a servo now moves with it, servos on servos included, and
+  parts on the fixed side stay put. (GHOST-SERVO-CHILDREN-STATIC)
 - **The last row of a split flight keeps its ending details.** Its situation text, docking partner
   and supply-route dock windows stayed on the first row, so the timeline showed generic wording.
   (SPLIT-LEAVES-END-FIELDS-ON-HEAD)
