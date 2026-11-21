@@ -144,23 +144,46 @@ cloned materials; `Die()` every spawned vessel and wait until gone. Every K = 10
 
 ### 4.2 One case, in order
 
-1. Collect the REAL renderer list from the part's model subtree and its framing box (each renderer's
-   local bounds corners into part space; SkinnedMeshRenderers from their world `bounds`, since
-   their local bounds are often stale) BEFORE any ghost exists. Record the real per-renderer
-   structure (4.6). The framing box takes `MeshRenderer` / `SkinnedMeshRenderer` on the part's own
-   model layers only: on the modded install a ReStock LV-T45 carries 18 extra mesh renderers (most
-   likely Waterfall plume meshes, invisible at zero throttle; not yet enumerated) that blew the
-   real box to 10 m against a 2 m part
-   (Appendix B).
+1. Collect the REAL renderer records (4.6) BEFORE any ghost exists, each with its part-local
+   bounds (a `MeshRenderer`'s mesh bounds corners into part space; a `SkinnedMeshRenderer` from its
+   world `bounds`, since its local bounds are often stale). Only rendered `MeshRenderer` /
+   `SkinnedMeshRenderer` records frame. The real box is NOT the union of every real renderer: on the
+   modded install a ReStock LV-T45 carries 18 extra mesh renderers (most likely Waterfall plume
+   meshes, invisible at zero throttle) that blew the real box to 10 m against a 2 m part
+   (Appendix B). Rule (`PartParityFramingRule`, applied once the ghost records exist, step 4):
+   pair the two sides' records first (`PartParityStructure.Diff`); the reference box is the union
+   of the rendered PAIRED real renderers (when none paired, the ghost box; when that is empty too,
+   no real renderer is dropped); an UNPAIRED real renderer joins the real box only when its bounds
+   lie inside the reference box grown to twice its extent about its centre (each half-extent at
+   least the reference's largest, so a flat plate does not drop everything off its plane). Every
+   other unpaired real renderer is dropped from framing only: it stays in the structural diff,
+   the case's Verbose line names it with its size, and the sidecar carries one flag
+   `framing-dropped:<key>=<sx>x<sy>x<sz>` (metres) per dropped renderer.
 2. Snapshot: `TryBackupSnapshot(real)`; seed events: `PartStateSeeder.SeedPartStates` on the real
-   vessel and `EmitSeedEvents` into the throwaway recording's `PartEvents` (D2).
-3. Build the ghost through the D2 seam, replay the t0 prefix of the seed events, disable ghost
-   colliders, freeze rigidbodies (FGV). Parent the ghost root to `real.rootPart.transform` with zero
+   vessel (the recorder's arguments: its engine / RCS caches, colour-changer lights seeded) and
+   `EmitSeedEvents` at t0 into the throwaway recording's `PartEvents` before the build (D2; the
+   rig's `TryBuildGhostFromLiveVessel` overload takes them).
+3. Build the ghost through the D2 seam, replay the t0 prefix of the seed events the way the
+   engine primes a loaded ghost (`PrimeLoadedGhostForPlaybackUT`, whose `ApplyFrameVisuals` runs
+   under `HiddenPrimeVisualPolicy`): `GhostCoOrbitalRig.ApplySeedPrefix` calls the engine-owned
+   `GhostPlaybackEngine.PrimeHiddenPartStateAtUT`, which resets `partEventIndex` and runs the two
+   blocks `ApplyFrameVisuals` itself calls, extracted as statics: `ApplyPartStateForFrame`
+   (`ApplyPartEvents`, `UpdateActiveRobotics`, `UpdateActiveDeployables`,
+   `UpdateSynthesizedMotion`) and, under the policy's FX suppression, `StopVisualFxForFrame`
+   (engine / RCS FX and emissions stopped, reentry FX reset, launch dust to zero, audio muted),
+   then `UpdateAudioAtmosphere`. So no transient FX start, and no part state differs from a
+   playback ghost's first frame. The engine path is unchanged: inlining both statics back at
+   their call sites in `ApplyFrameVisuals` gives its old IL body exactly (ILSpy dumps, the
+   multi-seam inline fold of P1's proof; every other `GhostPlaybackEngine` method byte-equal after
+   normalization). A ghost whose recording carries no part events (FGV's overload passes none) is
+   left exactly as built. Then disable ghost colliders, freeze rigidbodies (FGV). The emitted and
+   applied counts are the sidecar flags `seed-events:<n>` / `seed-applied:<n>`. Parent the ghost root to `real.rootPart.transform` with zero
    offset / identity rotation / unit scale. Record the world offset between `ghost_part_<pid>` and
    the real part transform (expected 0; else `ghost-root-offset`).
-4. Ghost framing box from the ghost's own renderers; the SHARED box is the union of the two (one box
-   for both sides, nothing re-centred). `ghost-outside-real-bounds` when the ghost box exceeds the
-   real one by more than 2 %.
+4. Ghost framing box from the ghost's own rendered renderers; the real box by the rule of step 1;
+   the SHARED box is the union of the two (one box for both sides, nothing re-centred).
+   `ghost-outside-real-bounds` when the ghost box exceeds the real one by more than 2 % of the
+   real box's largest dimension.
 5. For each view (4.3): capture (4.4).
 6. Write the thumbnail, the atlas, and LAST the sidecar, atomically (`FileIOUtils.SafeWriteBytes`):
    a case with a complete sidecar is complete (resume rule, 7). One `[PartParity]` Verbose line per
@@ -198,7 +221,7 @@ for side in (real, ghost):
     forceRenderingOff = true on the OTHER side's renderers
     for clear in (black, white):
         camera.backgroundColor = clear; camera.Render() into the MSAA target
-        Graphics.Blit to a non-MSAA target (forces the resolve); ReadPixels; GetRawTextureData
+        Graphics.Blit to a non-MSAA target (forces the resolve); ReadPixels; GetPixels32 (rows flipped top-down)
     forceRenderingOff restored
 light rig off (every saved light restored), camera disabled
 compose RGBA per side (D6); measure (6); blit into the atlas
@@ -237,8 +260,47 @@ proof that the instrument sees what it claims to.
 | `ctl-ghost-scale90` | same tank, ghost scaled 0.9 | fails every view on shape |
 | `ctl-ghost-rot90` | `mk1pod.v2` (hatch and ladder: no rotational symmetry), ghost rotated 90 deg about +Y | fails `side-a` / `side-b` on shape |
 | `ctl-ghost-flip` | `mk1pod.v2`, ghost rotated 180 deg about +X | fails every view |
-| `ctl-ghost-missing-mesh` | a multi-renderer stock part, one small ghost renderer forced off | fails on the local-defect measures (6) while whole-image IoU stays above 0.99 |
+| `ctl-ghost-missing-mesh` | `fuelTankSmallFlat` with a small cube planted on the REAL part's +X face (the ghost lacks it) | fails on the local-defect measures (6) while whole-image IoU stays above 0.99, and the structure lists a rendered mesh missing on the ghost |
 | `ctl-wrong-skin` | a stock part with a colour-only variant (chosen at run time, FGV's `ChooseColourVariant`), ghost built from a snapshot naming another variant | fails on colour with IoU near 1 |
+
+The missing-mesh control plants a DETERMINISTIC defect. Four flights on 2026-11-21 tried to hide a
+small mesh of a stock part's ghost and showed that stock still parts carry no separable small
+mesh: hiding the LV-T45's bell read IoU 0.68; an estimate over the shared box chose the animated
+telescopic ladder, whose real and ghost already differed; the Mk1 pod's only other mesh is its flag
+decal, which lies on the hull (0 / 331 / 283 / 0 px drawn alone, contribution 0); and measured
+silhouette contributions over eight still parts found nothing between 100 px and 0.6 %: mk1pod body
+147k / flag 0, landerCabinSmall base 144k / flag 0, probeCoreHex and probeCoreSphere one mesh each,
+probeCoreOcto body 112k / tapas 8.7k, ladder1 three rungs at about 13.5k each, mk1-3pod flag 0 /
+74 px, cupola flag 0. So the control adds the mesh to the REAL side instead:
+
+- Subject `fuelTankSmallFlat` (the tank controls' part). After the spawn and settle, BEFORE the real
+  renderer records and box are read, `PartParityCaseCapture.PlantCube` parents a
+  `GameObject.CreatePrimitive(PrimitiveType.Cube)` named `PartParityPlantedCube` to the real part:
+  its collider destroyed at once (`DestroyImmediate`, so it never joins the part's physics), its
+  `sharedMaterial` the part's own first rendered material (it lights like the part, and nothing is
+  cloned), the layer of that renderer, centred on the +X face of the real renderer box at the box
+  centre, wholly outside the face (centre x = box max x + edge / 2).
+- The edge (`PartParitySweepPlan.PlantedCubeEdge`, pure): the cube's `side-a` face covers 0.3 % of
+  the real box's `side-a` projection (size x times size y), and is at least 12 px across at the
+  ortho scale of the box grown by the cube (`PartParityCaptureMath.OrthoSize`).
+- The ghost is built from the unchanged snapshot, so it lacks the cube: the real side has a small
+  rendered mesh the ghost does not, exactly a ghost missing a mesh. The required outcome is
+  unchanged (a view fails on a local measure, every covered view keeps IoU >= 0.99), and the judge
+  also needs the structure to list at least one RENDERED real renderer missing on the ghost
+  (`PartParitySweepPlan.MissingRendered`).
+- The cube dies with the case: `DestroyCase` destroys it first, in the wave teardown and in the
+  step's `Cleanup`, so no exit path leaves it behind.
+
+Log lines: Info `case ctl-ghost-missing-mesh: planted cube edge=<m>m local=(<x>,<y>,<z>) box=<sx>x
+<sy>x<sz> material=<name> layer=<n> tile=<px>` (or Warn `planted cube not made (...)`), Verbose
+`case ctl-ghost-missing-mesh: planted cube destroyed`, and the control line `control
+ctl-ghost-missing-mesh: outcome= subject=fuelTankSmallFlat setup= detail=`. The sidecar carries the
+flag `control-planted:edge=<m>;local=<x>,<y>,<z>` and lists `PartParityPlantedCube` under
+`structure.missingOnGhost`.
+
+`still-animating` is never a setup fault for the judge (`TestCommandPartParitySweep.IsSetupFault`):
+the views (and, for the missing-mesh control, its structure) decide every control's outcome, with
+or without it.
 
 ### 4.6 Structural diff
 
@@ -264,7 +326,9 @@ Per sweep directory:
   progress (`complete`, `cases`, `crashed`).
 - `<caseId>.png` - the atlas; `<caseId>.thumb.png` - 2 x 128 px `side-a` pair for the grid;
   `<caseId>.part.json` - the sidecar.
-- `inflight.txt` - the case being captured (5.3).
+- `inflight.txt` - the case(s) in flight, one id per line, plus a `#solo` line on a solo rerun
+  (5.3).
+- `isolate.txt` - the cases still owed a solo run, one id per line (5.3); absent when none.
 
 Harvest: a new `run.py` leg MOVES (same-volume rename, while the instance lock is still held) the
 label directory into `results/<runId>_partparity/` instead of copying 1 GB into the verifier's
@@ -320,10 +384,40 @@ names live in the sidecar.
 ### 5.3 Resume and crashes
 
 A step processes cases in the stable order until its 480 s time box ends, then answers OK with
-`done=false next=<index>`. The next step skips every case with a complete sidecar. Before a case
-starts, its id is written to `inflight.txt`; if KSP crashes on a bad modded part, the next boot's
-sweep finds the stale `inflight.txt`, records that case `crashed` and skips it. So a retried
+`done=false next=<index>`. The next step skips every case with a complete sidecar. So a retried
 attempt never restarts from zero, and one bad part cannot stop a sweep.
+
+`inflight.txt` (written atomically) names what is in flight. During a wave's spawn, unpack and
+settle, when a bad modded part is most likely to kill KSP and every case of the wave is live, it
+names EVERY case of the wave, one per line. During a capture it names only the case being
+captured, and it is deleted after that case's sidecar is written. A wave that is a solo rerun adds
+a `#solo` line (outside the case-id alphabet). A one-line file of the first format reads as
+before. One found at step start means a previous process died with those cases in flight; the
+rule (pure: `TestCommandPartParitySweep.DecideInflight` / `MergeIsolate`):
+
+- Exactly one name: that case is recorded `crashed` (a crashed sidecar) and skipped. This covers a
+  capture, a single-case wave and the solo rerun of an isolated case, so a second crash of a solo
+  rerun blames the culprit.
+- Several names: no case is recorded crashed. Each is owed a solo run: it joins `isolate.txt` and
+  the queue runs every case owed a solo run first, one per wave (a solo case never joins a normal
+  wave, `PartParitySweepPlan.WaveCandidateCount`), so the next crash names one case. A case leaves
+  `isolate.txt` when its sidecar is written (including its crash record). The list lives in the
+  label directory, so the isolation survives any number of further KSP restarts and time-box ends.
+- A named case with a complete sidecar wins over both: the process died between its sidecar write
+  and the inflight delete, so it finished.
+
+The rule runs over the WHOLE install's case ids, not only the step's selection: the crash record
+and the isolation list are written BEFORE `inflight.txt` is deleted, so a stale case outside the
+next step's limit, filter, shard or `controls=false` keeps its record (a write that throws fails
+the step and leaves `inflight.txt` for the next one). Lines: Warn `case <id>: setup fault crashed
+(recorded from the stale inflight.txt, solo=<bool>, skipped)`, Warn `stale inflight.txt names <n>
+cases (...): ... re-queued to run alone`, Info `stale inflight.txt resolved: names= solo= crashed=
+isolated= alreadyComplete=`, the step-start line's `staleInflight=` and `isolate=<n>`, Info `queue:
+<n> case(s) owed a solo run go first`, the wave line's `solo=`, Info `case <id>: solo rerun
+finished`.
+
+A step stopped by the seam's 540 s timeout (7) is the in-process cousin of a crash: its cleanup
+runs, but `inflight.txt` stays, so the next step reads the case(s) it names under the same rule.
 
 ## 6. Measures and verdicts
 
@@ -363,6 +457,18 @@ PNG codec), as an independent check of the C# instrument.
 - Scene `RequiresFlight` with an orbiting active vessel (refusals for a landed or suborbital host).
 - In `DEFERRED_SEAM_VERBS`; the spec's step budget is at most 540 s (S8). A step answers OK
   `label done=true|false next= cases= complete= crashed= setupFaults= controls=ok|bad|pending wall=`.
+- Timeout: the applier keeps the runner's step iterator and, on the 540 s timeout, DISPOSES it
+  before `StopCoroutine` (which only abandons an iterator, so no `finally` would run). `RunStep`
+  releases everything in a `finally` (`StepContext.Cleanup`: idempotent, safe between waves,
+  mid-spawn / settle, between two views of a case and in teardown; it kills the spawned vessels,
+  destroys the ghosts with their cloned materials, releases the capture camera, render targets and
+  readback texture, and restores the case-log observer that held the tile arrays), after disposing
+  the nested iterators: every iterator the runner drives by hand is disposed in its own `finally`,
+  so the dispose reaches the innermost one (the case's observer `finally` included). A stopped step
+  logs Warn `PartParity step abandoned label= op=: stopped before its end, cleanup ran
+  (observerRestored= casesDestroyed= captureReleased= faults=) ...`; a step that ends normally logs
+  the same tokens on a Verbose `step cleanup:` line. The in-game cell disposes the steps it drives
+  the same way.
   A spec lists enough `op=run` steps for the measured case count; a step after completion answers
   `done=true` at once.
 - `shard=k/n` takes every case whose stable index mod n == k-1. The parallel runner dispatches
@@ -458,22 +564,30 @@ MaterialPropertyBlock, which the ghost does not copy) and RCS follow the same pa
 
 | File | Role |
 | --- | --- |
-| `Source/Parsek/TestCommands/TestCommandPartParitySweep.cs` | Pure: args, refusals, case order, sharding, case ids, resume decision, payload. |
+| `Source/Parsek/TestCommands/TestCommandPartParitySweep.cs` | Pure: args, refusals, case order, sharding, case ids, resume decision (the inflight / isolation rule of 5.3), payload. |
 | `Source/Parsek/TestCommands/PartParityMetrics.cs` | Pure: mask from two clears, tolerance mismatch, blobs, bbox, centroid, colour statistics. |
 | `Source/Parsek/TestCommands/PartParityStructure.cs` | Pure: renderer record pairing and the structural diff. |
 | `Source/Parsek/TestCommands/PartParityJson.cs` | Pure: manifest and sidecar model + invariant writer (`MapGeometryJson` pattern), `SchemaId`s. |
-| `Source/Parsek/TestCommands/PartParityCaseAuthoring.cs` | Live: enumeration, skins, part node authoring, tags. |
-| `Source/Parsek/TestCommands/PartParityCapture.cs` | Live: camera, light rig, hide / render / read / restore, atlas, PNG encode. |
-| `Source/Parsek/TestCommands/ParsekTestCommandAddon.PartParitySweep.cs` | Thin applier and the wave coroutine on the seam addon. |
-| `Source/Parsek/Ghost/GhostPlaybackEngine.*` | The extracted build-and-initialise seam (D2), `GhostPlaybackEngine.InitializeBuiltGhostVisuals(state, buildResult, traj)`, the engine's own load path (`TryPopulateGhostVisuals`) rewired through it. Proof of no behaviour change: `il_compare.py` before / after reports only the new method and the caller's body, and inlining the seam's body back at the call site gives the caller's old body exactly (`--fold` models moves between types, not an extract-method). The loop-reuse re-init (`SpawnDestroy`) and the KSC spawn run other subsets (no pivot; KSC passes no trajectory) and stay as they are. Activation stays the engine's deferred `ActivateGhostVisualsIfNeeded`. |
+| `Source/Parsek/TestCommands/PartParityFramingRule.cs` | Pure: the framing rule of 4.2 (paired box, the 2x reach for unpaired real renderers, dropped list, `ghost-outside-real-bounds`). |
+| `Source/Parsek/TestCommands/PartParityImaging.cs` | Pure: the PNG encoder (`PartParityPng`), atlas and thumbnail (`PartParityImage`). |
+| `Source/Parsek/TestCommands/PartParityJsonReader.cs` | Pure: a minimal JSON reader, so each step rebuilds the manifest from the sidecars on disk. |
+| `Source/Parsek/TestCommands/PartParitySweepPlan.cs` | Pure: wave slots and the solo-wave cut, the settle rule, the controls' required outcomes and their judge, manifest summaries, the cleanup tokens. |
+| `Source/Parsek/TestCommands/PartParityCaseAuthoring.cs` | Pure rules (`PartParityCaseRules`: exclusions, model urls, source, tags) + live enumeration and part node authoring. |
+| `Source/Parsek/TestCommands/PartParityCapture.cs` | Live: camera, light rig, hide / render / read / restore (`PartParityCaptureMath` is its pure camera math). |
+| `Source/Parsek/TestCommands/PartParityCaseCapture.cs` | Live: one case in the order of 4.2 (records, seeds, ghost, framing, views, files) and the manifest writer. |
+| `Source/Parsek/TestCommands/PartParitySweepRunner.cs` | Live: the step and wave coroutine (`RunStep(args, onDone)`), shared by the seam verb and the in-game cell. |
+| `Source/Parsek/TestCommands/ParsekTestCommandAddon.PartParitySweep.cs` | Thin applier: starts `PartParitySweepRunner.RunStep` and answers the seam. |
+| `Source/Parsek/Ghost/GhostPlaybackEngine.*` | The extracted build-and-initialise seam (D2), `GhostPlaybackEngine.InitializeBuiltGhostVisuals(state, buildResult, traj)`, the engine's own load path (`TryPopulateGhostVisuals`) rewired through it. Proof of no behaviour change: `il_compare.py` before / after reports only the new method and the caller's body, and inlining the seam's body back at the call site gives the caller's old body exactly (`--fold` models moves between types, not an extract-method). The loop-reuse re-init (`SpawnDestroy`) and the KSC spawn run other subsets (no pivot; KSC passes no trajectory) and stay as they are. Activation stays the engine's deferred `ActivateGhostVisualsIfNeeded`. P2 adds the seed-prefix prime (4.2 step 3): `ApplyPartStateForFrame` and `StopVisualFxForFrame` extracted from `ApplyFrameVisuals` (proved the same way: the multi-seam inline fold of both gives the old body), composed by `PrimeHiddenPartStateAtUT`. |
 | `Source/Parsek/Ghost/GhostVisualBuilder*` | The `GhostBuildResult` applied-skin accessor. |
 | `Source/Parsek/InGameTests/GhostCoOrbitalRig.cs` | `SpawnCoOrbital` (log tag passed in), `UniqueFlightIds`, `AuthorPartNode` (writes `moduleVariantName` and the `ModulePartVariants` `selectedVariant`), `TryBuildGhostFromLiveVessel` (snapshot, throwaway recording, timeline build, the D2 seam) and `NeutralisePhysics`: moved out of `FairingGhostVisualInGameTests`, used by both, FGV's nodes and log lines unchanged. |
 | `Source/Parsek/InGameTests/PartParityInGameTests.cs` | Ctrl+Shift+T entry. |
 | `harness/lib/partparity.py` + tests | Pure manifest reader, verdicts, recompute, verifier row, baseline compare. |
 | `harness/tools/part_parity_view.py` + tests | The viewer and the GIF / APNG writer. |
 
-`Parsek.csproj` gains a thirteenth Unity module reference, `UnityEngine.ImageConversionModule.dll`
-(present in `vl3c/ksp-refs`), for `EncodeToPNG`. No new mutable statics (sweep state lives on the
+`Parsek.csproj` gains NO Unity module reference: PNGs are written by the P0 spike's own encoder
+(`PartParityPng`, zlib over `System.IO.Compression.DeflateStream`, filter 0, colour type 6; xUnit
+round-trips it against a spec decode), so `UnityEngine.ImageConversionModule` and `EncodeToPNG` are
+not used. No new mutable statics (sweep state lives on the
 coroutine and in the label directory). Everything is automation-only and inert unless the seam is
 armed or the in-game test is launched: no player-facing surface.
 
@@ -486,7 +600,7 @@ summary; per-case Verbose lines; Warn for a setup fault.
 | --- | --- | --- |
 | P0 (DONE 2026-11-21, Appendix B) | Capture spike on both harness installs, stock and ReStock / ReStock+ parts: `Camera.Render` into an MSAA target, resolve, double clear, ortho with KSP shaders, light rig, `pixelLightCount`, `masterTextureLimit`, `forceRenderingOff`. | Pictures read by eye; every unknown in 4.4 answered and written into this doc. |
 | P1 | Pure halves + xUnit (measures on synthetic masks incl. shifted / rotated / missing-blob shapes, structural diff, sharding, case ids, resume decision, JSON writer, args); `GhostCoOrbitalRig` extraction; D2 seam extraction with the IL fold proof. | `dotnet test` green; FGV-1 flown green on the refactor. |
-| P2 | Capture engine + verb + in-game test + files; controls; default skins; a 20-part dev run. | Controls behave; per-wave wall time measured; chunk size set from it. |
+| P2 (DONE 2026-11-21, Appendix C) | Capture engine + verb + in-game test + files; controls; default skins; a 20-part dev run. | Controls behave; per-wave wall time measured; chunk size set from it. |
 | P3 | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. | First full reading run on both installs; thresholds re-pinned; findings filed. |
 | P4 | Viewer (grid, filters, detail, blend difference, backdrop, structure table, regression mode). | Owner reads the full stock + ReStock site. |
 | P5 | Baseline + accepted list; gate armed after a second matching reading run. | A deliberately broken ghost (mutation) reds the armed lane. |
@@ -584,4 +698,38 @@ Findings:
    against 10 on the ghost; the real box was 10 m, so the part filled a corner of the tile. Fixed in
    4.2 step 1 (frame from the part's model renderers only); P2 logs which renderers it dropped.
 3. **Installs run at 1/8 texture resolution** (finding behind 4.4).
+
+## Appendix C. P2 first flights (2026-11-21)
+
+Lane `PP-1-part-parity-stock` on stock-minimal, branch `part-parity-p2`. Five flights, the fifth
+green (`2026-11-21_1739`, PASS attempt 1, 134 s run wall, automation DLL sha256 prefix a46e8133):
+
+| Measure | Value |
+| --- | --- |
+| Install | 479 loaded parts, 11 excluded (3.1), 20 planned (`limit=20`), default skins |
+| Sweep wall | 19.0 s for 8 controls plus 20 parts in 4 waves (5.3 / 7.8 / 3.6 / 2.2 s); flights 1-4 read 18.5 to 23.9 s |
+| Per case | about 0.7 s; settle and spawn dominate, the 4 views x 2 sides x 2 clears take about 0.15 s (Appendix B) |
+| Setup | 0 setup faults, 0 crashed; 1 to 3 cases per run `still-animating` (CircularIntake, Clydesdale, LV-T45), captured anyway |
+| Controls | all 8 ok on the fifth flight |
+| Parts | every part case iou 1.0000, colour blobs at most 44 px (deployed science parts), structure diffs empty |
+
+Chunk size: the full stock list (about 470 cases with default skins) runs in about 330 s, under one
+480 s step; `skins=all` roughly doubles it, so P3 plans two `op=run` steps per install and measures.
+
+The missing-mesh control took four flights to get right, and each failure was the instrument
+telling the truth:
+
+1. Flight 1: "smallest renderer whose diagonal is >= 4 % of the box" hid the LV-T45's whole engine
+   bell (IoU 0.68).
+2. Flight 2: a projected-box-area pick chose an animated telescopic ladder whose real and ghost
+   sides already differed (real retracted, ghost extended). That difference is a real ghost defect,
+   later confirmed by the owner from play and fixed separately (PR #2743).
+3. Flight 3: a measured solo-coverage pick chose the Mk1 pod's flag decal, which lies flat on the
+   hull: removing it changes nothing visible (shape blob 0, colour blob 35 px).
+4. Flight 4: a silhouette-contribution pick over 8 still stock parts found none in the window
+   (bodies of 100k+ px, flag decals of 0 px, ladder rungs of about 13.5k px each).
+
+The control now plants a small cube (0.3 % of the `side-a` box projection, at least 12 px) on the
+real `fuelTankSmallFlat` only (4.5). On flight 5 it failed a local measure, kept IoU >= 0.99 and
+listed the cube as missing on the ghost, as required.
 

@@ -29,6 +29,12 @@ namespace Parsek.TestCommands
         internal double[] LocalPosition;
         internal double[] LocalRotation;
         internal double[] LocalScale;
+
+        /// <summary>The renderer's PART-LOCAL axis-aligned bounds (metres), min and max
+        /// corner; null when the capture could not read a mesh bound. Read by the framing
+        /// rule (<see cref="PartParityFramingRule"/>), never by the diff.</summary>
+        internal double[] BoundsMin;
+        internal double[] BoundsMax;
     }
 
     /// <summary>One renderer named by a diff list.</summary>
@@ -250,7 +256,7 @@ namespace Parsek.TestCommands
         /// The records of one side keyed in order: the first record at a path keys by the
         /// bare path, the k-th further one by <c>path#k</c>.
         /// </summary>
-        private static List<KeyValuePair<string, PartParityRendererRecord>> Keyed(
+        internal static List<KeyValuePair<string, PartParityRendererRecord>> Keyed(
             IList<PartParityRendererRecord> records)
         {
             var result = new List<KeyValuePair<string, PartParityRendererRecord>>();

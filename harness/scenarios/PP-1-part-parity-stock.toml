@@ -1,0 +1,110 @@
+schema = 1
+id = "PP-1-part-parity-stock"
+tier = "operator"
+# PART GHOST PARITY, STOCK INSTALL, DEV-SIZE READING RUN (phase P2 of
+# docs/dev/design-part-ghost-parity.md). The part ghost parity tool spawns each part as a real
+# one-part vessel co-orbital with the active vessel, builds Parsek's ghost of it from the real
+# vessel's own snapshot, photographs the pair from fixed views and measures the difference.
+# This lane is the tool's first harness reading: ONE time-boxed `PartParitySweep` step over
+# the first 20 parts of the stable case order plus the eight control cases (design 4.5), so
+# the per-wave wall time can be measured and the chunk size of the full sweep set from it.
+# P3 widens it to the full part list (`skins=all`, no `limit`, N x `op=run` steps sized from
+# that measurement) and adds the `partParity` verifier row; until then the lane gates that
+# the seam carried the step out and that the engine's run-step summary reports every control
+# `ok` and no case `crashed` (the log contract below).
+#
+# WHAT THE LANE FLIES. `eva2-lko-crewed` (sandbox, every part available, the 13-part Kerbal X
+# Probe ORBITING Kerbin at ~100 km; FGV-1's host, design 4.1) boots into FLIGHT, turns every
+# auto-record setting off (so no spawned case vessel is recorded), turns verbose logging on
+# (the per-case lines are verbose-tier), warps on rails to UT 1900 (FGV-1's sunlit window:
+# the pair is lit ~UT 1366-2676 on this orbit, see FGV-1's header arithmetic), clears the
+# label directory (`op=reset`), runs the one sweep step and quits. Nothing is staged on the
+# host and the run's save is a throwaway staged copy.
+#
+# READING THE RESULT. The step's OK payload (`label= done= next= cases= complete= crashed=
+# setupFaults= controls= wall=`) and the files under `<KSP root>/parsek-partparity/pp1/`
+# (manifest.json, one atlas, thumbnail and sidecar per case; design 5.1). `controls=ok` means
+# the self-test cases behaved; `done=false` means the time box ended first and `next=` says
+# where a following step would resume.
+#
+# LOG CONTRACT. The capture engine writes one `[PartParity]` Info line per step summary
+# (design 11 "Logging"), e.g.
+#   PartParity step label=pp1 op=run ok=true label=pp1 done=true next=20 cases=20 complete=20
+#   crashed=0 setupFaults=0 controls=ok wall=21.8
+# The first pin requires the RUN step's line with `ok=true`, `crashed=0` and `controls=ok`, so a
+# bad or pending control or a crashed case reds the lane until P3's verifier row owns those
+# verdicts (the reset step's line says `op=reset ... controls=pending` and never matches). The
+# second pin is the seam applier's own OK line.
+#
+# FAST-LANE CHECKLIST (harness/README.md). (1) Reuse a flight: considered, not applied - FGV-1
+# flies the same host and setup, but its batch photographs fairings beside the active vessel
+# and a sweep's co-orbital spawns would share its frames and its 420 s budget; the sweep needs
+# its own 540 s step. (2) No idle waits: the one game-time wait is an explicit-UT WarpToUT on
+# rails. (3) The time box is the measurement itself (maxSeconds=480, the step's whole budget
+# less teardown), not a dwell. (4)/(5) no burns, no coasts. (6) `[retry] policy = "none"`: a
+# red is deterministic for one build and install, and a retry's `op=reset` would clear the
+# files a reading run exists to keep. (7) Recording count pinned at 0. (8)/(9) after the first
+# flight: tier by measured p50 and a flight_efficiency.py check.
+#
+# LIVE-PROVEN 2026-11-21 on its fifth flight (`2026-11-21_1739`, PASS attempt 1, 134 s wall,
+# 19.0 s of sweep wall over 4 waves, controls=ok). Flights 1-4 were red only on the
+# missing-mesh control, which now plants a small cube on the real part.
+description = "LIVE-PROVEN 2026-11-21: the part ghost parity tool's P2 dev-size reading run on stock - one PartParitySweep step over the first 20 parts plus the control cases beside their Parsek ghosts in LKO, files under parsek-partparity/pp1/."
+instanceProfile = "stock-minimal"
+tags = ["part-parity", "ghost-visual", "flown", "PP-1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # No spawned case vessel may start a recording.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "false" }, expect = "OK" },
+  # The per-case lines are verbose-tier.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # Into FGV-1's sunlit window. Rails warp, explicit UT.
+  { cmd = "WarpToUT",   args = { ut = "1900" }, expect = "OK", budget = 120 },
+  # Clear the label directory so no earlier run's files mix in.
+  { cmd = "PartParitySweep", args = { label = "pp1", op = "reset" }, expect = "OK", budget = 120 },
+  { cmd = "PartParitySweep", args = { label = "pp1", op = "run", limit = "20", controls = "true", maxSeconds = "480" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# No D7 claim: the cases are stand-alone ghosts built beside real vessels, not a recorded
+# event replayed by playback.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: every auto-record setting is off and the spawned case vessels are never recorded.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  # The capture engine's run-step summary line (design 11 "Logging"): every control ok,
+  # no case crashed.
+  "\\[Parsek\\]\\[INFO\\]\\[PartParity\\] PartParity step label=pp1 op=run ok=true label=pp1 done=(true|false) next=[0-9]+ cases=[0-9]+ complete=[0-9]+ crashed=0 setupFaults=[0-9]+ controls=ok wall=[0-9.]+",
+  # The seam applier's OK line for the run step.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] partparitysweep complete label=pp1 elapsed=[0-9.]+s label=pp1 done=(true|false) ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+]
+
+[runtime]
+budgetSeconds = 1260
+
+[retry]
+policy = "none"
+
+[expectedFail]
+bugId = ""

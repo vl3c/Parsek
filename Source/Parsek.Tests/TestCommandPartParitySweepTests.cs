@@ -339,35 +339,170 @@ namespace Parsek.Tests
 
         // ----- resume -----
 
+        private static string Ids(PartParityInflight r)
+            => r == null ? null : string.Join("|", r.CaseIds) + (r.Solo ? "+solo" : string.Empty);
+
         [Theory]
-        [InlineData("case-1\n", "case-1")]
+        [InlineData("case-1\n", "case-1")]                      // the first format, unchanged
         [InlineData("case-1", "case-1")]
-        [InlineData("  case-1  \r\nleftover", "case-1")]
+        [InlineData("  case-1  \r\n", "case-1")]
+        [InlineData("a--1\nb--2\nc--3\n", "a--1|b--2|c--3")]     // a wave's spawn / settle
+        [InlineData("a--1\r\nb--2\r\n", "a--1|b--2")]
+        [InlineData("a--1\n#solo\n", "a--1+solo")]               // a solo rerun
+        [InlineData("#solo\na--1\n", "a--1+solo")]
+        [InlineData("a--1\na--1\n", "a--1")]                     // each id once
+        [InlineData("a--1\n../escape\n", "a--1")]                // a foreign line is skipped
         [InlineData("", null)]
         [InlineData(null, null)]
         [InlineData("   \n", null)]
         [InlineData("../escape\n", null)]
+        [InlineData("#solo\n", null)]                            // the marker alone names nothing
         public void ParseInflight(string text, string expected)
         {
-            Assert.Equal(expected, TestCommandPartParitySweep.ParseInflight(text));
+            Assert.Equal(expected, Ids(TestCommandPartParitySweep.ParseInflight(text)));
         }
 
         [Fact]
-        public void FormatInflight_RoundTrips()
+        public void FormatInflight_OneCaseIsTheFirstFormat()
         {
-            Assert.Equal("a--b--c", TestCommandPartParitySweep.ParseInflight(TestCommandPartParitySweep.FormatInflight("a--b--c")));
+            Assert.Equal("a--b--c\n", TestCommandPartParitySweep.FormatInflight("a--b--c"));
+            Assert.Equal("a--b--c", Ids(TestCommandPartParitySweep.ParseInflight(TestCommandPartParitySweep.FormatInflight("a--b--c"))));
+        }
+
+        [Fact]
+        public void FormatInflight_ManyCasesAndSolo_RoundTrip()
+        {
+            string text = TestCommandPartParitySweep.FormatInflight(new[] { "a--1", "b--2", "c--3" }, false);
+            Assert.Equal("a--1\nb--2\nc--3\n", text);
+            Assert.Equal("a--1|b--2|c--3", Ids(TestCommandPartParitySweep.ParseInflight(text)));
+
+            string solo = TestCommandPartParitySweep.FormatInflight(new[] { "a--1" }, true);
+            Assert.Equal("a--1\n#solo\n", solo);
+            Assert.Equal("a--1+solo", Ids(TestCommandPartParitySweep.ParseInflight(solo)));
+            // The marker is outside the case-id alphabet, so no case id can ever read as it.
+            Assert.False(TestCommandCaptureScreenshot.IsValidLabel(TestCommandPartParitySweep.InflightSoloMarker));
+        }
+
+        private static PartParityInflightDecision Decide(string inflightText, params string[] complete)
+            => TestCommandPartParitySweep.DecideInflight(
+                TestCommandPartParitySweep.ParseInflight(inflightText), new HashSet<string>(complete));
+
+        [Fact]
+        public void DecideInflight_OneName_IsCrashed()
+        {
+            var d = Decide("a--1\n");
+            Assert.Equal("a--1", d.CrashedCaseId);
+            Assert.Empty(d.Isolate);
+        }
+
+        [Fact]
+        public void DecideInflight_SoloRerunCrash_IsCrashed()
+        {
+            // The second crash of an isolated case: it ran alone, so it is the culprit.
+            var d = Decide("a--1\n#solo\n");
+            Assert.Equal("a--1", d.CrashedCaseId);
+            Assert.Empty(d.Isolate);
+        }
+
+        [Fact]
+        public void DecideInflight_SeveralNames_BlameNoneAndIsolateEach()
+        {
+            var d = Decide("a--1\nb--2\nc--3\n");
+            Assert.Null(d.CrashedCaseId);
+            Assert.Equal(new[] { "a--1", "b--2", "c--3" }, d.Isolate.ToArray());
+        }
+
+        [Fact]
+        public void DecideInflight_SeveralNamesOneLeft_StillIsolatedNotCrashed()
+        {
+            // A multi-case wave died; only one of its cases is still incomplete. It was not
+            // alone when the process died, so it is owed a solo run, not blamed.
+            var d = Decide("a--1\nb--2\n", "a--1");
+            Assert.Null(d.CrashedCaseId);
+            Assert.Equal(new[] { "b--2" }, d.Isolate.ToArray());
+            Assert.Equal(new[] { "a--1" }, d.Finished.ToArray());
+        }
+
+        [Fact]
+        public void DecideInflight_CompleteSidecarWins()
+        {
+            var d = Decide("a--1\n", "a--1");
+            Assert.Null(d.CrashedCaseId);
+            Assert.Empty(d.Isolate);
+            Assert.Equal(new[] { "a--1" }, d.Finished.ToArray());
         }
 
         [Theory]
-        [InlineData("a", false, null, "Run")]
-        [InlineData("a", true, null, "SkipComplete")]
-        [InlineData("a", false, "a", "RecordCrashed")]
-        [InlineData("a", true, "a", "SkipComplete")]
-        [InlineData("a", false, "b", "Run")]
-        [InlineData("a", false, "A", "Run")]
-        public void DecideCaseResume(string caseId, bool complete, string inflight, string expected)
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("../escape\n")]
+        public void DecideInflight_NothingNamed_DecidesNothing(string text)
         {
-            Assert.Equal(expected, TestCommandPartParitySweep.DecideCaseResume(caseId, complete, inflight).ToString());
+            var d = Decide(text);
+            Assert.Null(d.CrashedCaseId);
+            Assert.Empty(d.Isolate);
+            Assert.Empty(d.Finished);
+        }
+
+        [Fact]
+        public void MergeIsolate_AddsNewKeepsOrderDropsCrashedAndFinished()
+        {
+            var existing = new List<string> { "x--9", "b--2" };
+            var multi = Decide("a--1\nb--2\nc--3\n", "c--3");
+            Assert.Equal(new[] { "x--9", "b--2", "a--1" },
+                TestCommandPartParitySweep.MergeIsolate(existing, multi).ToArray());
+
+            // The solo rerun of b crashed: b leaves the list (it now has its crash record).
+            var crash = Decide("b--2\n#solo\n");
+            Assert.Equal(new[] { "x--9", "a--1" },
+                TestCommandPartParitySweep.MergeIsolate(new List<string> { "x--9", "b--2", "a--1" }, crash).ToArray());
+
+            Assert.Empty(TestCommandPartParitySweep.MergeIsolate(null, null));
+        }
+
+        [Fact]
+        public void IsolationAcrossRestarts_FindsTheCulpritAndBlamesNoOther()
+        {
+            // A wave of four dies in spawn; restart. The isolated cases run one per wave; the
+            // second (the culprit) dies alone; restart. Only it is recorded crashed, and the
+            // rest are still owed a solo run, read back from the persisted list.
+            var isolate = TestCommandPartParitySweep.MergeIsolate(null, Decide("a--1\nb--2\nc--3\nd--4\n"));
+            string file = TestCommandPartParitySweep.FormatCaseIdLines(isolate);
+            Assert.Equal("a--1\nb--2\nc--3\nd--4\n", file);
+
+            // Restart 1: a ran alone and finished; b's solo wave wrote its inflight and died.
+            var afterA = TestCommandPartParitySweep.ParseCaseIdLines(file);
+            afterA.Remove("a--1");
+            string inflight = TestCommandPartParitySweep.FormatInflight(new[] { "b--2" }, true);
+
+            // Restart 2.
+            var d = TestCommandPartParitySweep.DecideInflight(
+                TestCommandPartParitySweep.ParseInflight(inflight), new HashSet<string> { "a--1" });
+            Assert.Equal("b--2", d.CrashedCaseId);
+            var left = TestCommandPartParitySweep.MergeIsolate(afterA, d);
+            Assert.Equal(new[] { "c--3", "d--4" }, left.ToArray());
+            Assert.Equal(PartParityCaseResume.SkipComplete, TestCommandPartParitySweep.DecideCaseResume(true, false));
+            Assert.Equal(PartParityCaseResume.RunSolo, TestCommandPartParitySweep.DecideCaseResume(false, left.Contains("c--3")));
+        }
+
+        [Theory]
+        [InlineData(false, false, "Run")]
+        [InlineData(true, false, "SkipComplete")]
+        [InlineData(true, true, "SkipComplete")]
+        [InlineData(false, true, "RunSolo")]
+        public void DecideCaseResume(bool complete, bool owedSolo, string expected)
+        {
+            Assert.Equal(expected, TestCommandPartParitySweep.DecideCaseResume(complete, owedSolo).ToString());
+        }
+
+        [Fact]
+        public void CaseIdLines_RoundTrip()
+        {
+            Assert.Equal("", TestCommandPartParitySweep.FormatCaseIdLines(null));
+            Assert.Equal("a--1\nb--2\n", TestCommandPartParitySweep.FormatCaseIdLines(new[] { "a--1", null, "", "b--2" }));
+            Assert.Equal(new[] { "a--1", "b--2" },
+                TestCommandPartParitySweep.ParseCaseIdLines("a--1\r\n\r\nb--2\n#solo\n").ToArray());
+            Assert.Equal("isolate.txt", TestCommandPartParitySweep.IsolateFileName);
         }
 
         [Theory]

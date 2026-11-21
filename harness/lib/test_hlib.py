@@ -1262,7 +1262,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # nearest real flag through stock's own FlagSite.PickUp (FLG-1).
         # 62 / 4 after the map-geometry pair (DumpMapGeometry / MapCamera), an ADDITION by
         # two: the map / Tracking Station picture instrument and its camera framing.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 62)
+        # 63 / 4 after PartParitySweep, an ADDITION by one: one time-boxed step of the part
+        # ghost parity capture (PP-1).
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 63)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -10965,6 +10967,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "FAR-4-gilly-eva-switch-bg-member.toml": "tier=operator by the calibration discipline, NOT debt: CI-1's EVA and map Switch-To in Gilly orbit on `eve-gilly-recorded` (stock-minimal), where the switch target is both the live tree's background member and a committed tree's spawned leaf. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_2324`, third flight, after the Case C fix and a re-pin); owed: the ordinary promotion call",
         "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1639`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1641`, second flight after a spec re-pin); owed: the ordinary promotion call",
+        "PP-1-part-parity-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's P2 dev-size reading run (design-part-ghost-parity.md section 10) on `eva2-lko-crewed`: one PartParitySweep step over the first 20 parts plus the control cases beside their Parsek ghosts, whose product is the per-wave wall time and a case directory for the owner's viewer; parity verdicts are report-only until P5 arms them. Flown green 2026-11-21 (`2026-11-21_1739`, PASS attempt 1, after four reading flights that reworked the missing-mesh control)",
         "FGV-1-fairing-ghost-visual.toml": "tier=operator by PURPOSE, NOT debt: a visual-confirmation lane whose product is a set of PNGs for the owner's eyes (four stock procedural fairings, an engine plate and an engine shroud beside their Parsek ghosts in LKO on `eva2-lko-crewed`, intact / jettisoned / separated) and whose gates are that the cells passed, every image was written and the ghost shows the same truss, shroud and mount meshes as the real part. Flown green 2026-11-07 (one-cell shape twice; two-cell shape `2026-11-07_2342`)",
         "SLM-2-standalone-loop-map-pause.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), read in FLIGHT map view in the pause after its second run, where no map ghost may exist. LIVE-PROVEN 2026-11-01 (`2026-11-01_0036`, 104 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "RW-20-strategy-and-deadline-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a strategy activated at the Space Center and a real contract deadline passed by warp, a Rewind-to-Launch before both, the same strategy refused, and the committed fail applied once when the deadline passes again. LIVE-PROVEN 2026-10-31 (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`); owed: the ordinary promotion call",
@@ -18997,6 +19000,254 @@ class MapGeometrySeamVerbSourceSyncTests(unittest.TestCase):
         steps[1] = {"cmd": "MissionMark", "args": {"label": "x", "focus": "true"}}
         errors = hlib.validate_spec(spec, load_registry()).errors
         self.assertTrue(any("only the UiAction verb reads it" in e for e in errors), errors)
+
+
+class PartParitySweepSourceSyncTests(unittest.TestCase):
+    """`PartParitySweep` (docs/dev/design-part-ghost-parity.md section 7). Reads OUTSIDE
+    harness/: the comment-stripped TestCommands/TestCommandPartParitySweep.cs (the verb, the
+    arg keys IN ORDER, every closed value the parse compares, the view names, the ranges and
+    the REJECTED reasons IN ORDER, each resolved through its const), the ERROR reasons of
+    TestCommandPartParitySweepCompletion.cs, the dispatcher's scene row and budget, and the
+    applier's parse -> admit -> start order, so the pre-launch validator, the refusal
+    subkinds and a spec's pinned reasons cannot drift from what the seam answers."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# PartParitySweep tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    @staticmethod
+    def _string_consts(text):
+        return dict(re.findall(r'internal const string (\w+) = "([^"\\]*)";', text))
+
+    def _pure(self):
+        text = self._source("TestCommands", "TestCommandPartParitySweep.cs")
+        consts = self._string_consts(text)
+        # The two label tokens are CaptureScreenshot's, by delegation.
+        shot = self._string_consts(self._source("TestCommands", "TestCommandCaptureScreenshot.cs"))
+        for name, ref in re.findall(
+                r"internal const string (\w+) = TestCommandCaptureScreenshot\.(\w+);", text):
+            consts[name] = shot[ref]
+        return text, consts
+
+    @staticmethod
+    def _identifier_array(text, field_name, consts):
+        """The members of one C# array initializer of const identifiers, resolved."""
+        start = text.index("%s =" % field_name)
+        body = text[text.index("{", start) + 1:text.index("};", start)]
+        names = re.findall(r"\b([A-Z]\w*)\b", body)
+        return [consts[n] for n in names]
+
+    def _int_const(self, text, name):
+        m = re.search(r"internal const int %s = ([0-9]+);" % name, text)
+        self.assertIsNotNone(m, name)
+        return int(m.group(1))
+
+    def test_the_verb_keys_and_closed_values_mirror_the_c_sharp(self):
+        text, consts = self._pure()
+        self.assertEqual(hlib.PARTPARITY_VERB, consts["VerbName"])
+        self.assertEqual(list(hlib.PARTPARITY_ARG_KEYS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ArgKeys"))
+        # Every closed value TryParseArgs compares, per key, in source order.
+        parse = text[text.index("internal static bool TryParseArgs("):text.index(
+            "private static bool Reject(")]
+        compared = {}
+        for key, block in re.findall(r'raw = Get\(args, "(\w+)"\);(.*?)(?=raw = Get\(|parsed = a;)',
+                                     parse, flags=re.S):
+            compared[key] = re.findall(r'raw == "([^"]+)"', block)
+        self.assertEqual(list(hlib.PARTPARITY_OP_VALUES), compared["op"])
+        self.assertEqual(list(hlib.PARTPARITY_SKINS_VALUES), compared["skins"])
+        self.assertEqual(list(hlib.PARTPARITY_CONTROLS_VALUES), compared["controls"])
+        # The parse reads every key of ArgKeys, and nothing else.
+        self.assertEqual(sorted(hlib.PARTPARITY_ARG_KEYS), sorted(compared))
+        self.assertEqual(list(hlib.PARTPARITY_VIEW_VALUES),
+                         self._identifier_array(text, "KnownViews", consts))
+        self.assertEqual(list(hlib.PARTPARITY_VIEWS_TOKENS),
+                         [consts["ViewsRequiredToken"], consts["ViewsAllToken"]])
+
+    def test_the_ranges_mirror_the_c_sharp(self):
+        text, _ = self._pure()
+        self.assertEqual(hlib.PARTPARITY_TILE_RANGE,
+                         (self._int_const(text, "MinTile"), self._int_const(text, "MaxTile")))
+        self.assertEqual(hlib.PARTPARITY_MAX_SECONDS_RANGE,
+                         (self._int_const(text, "MinMaxSeconds"),
+                          self._int_const(text, "MaxMaxSeconds")))
+        self.assertEqual(hlib.PARTPARITY_DEFAULT_MAX_SECONDS,
+                         self._int_const(text, "DefaultMaxSeconds"))
+        self.assertEqual(hlib.PARTPARITY_LIMIT_RANGE, (1, self._int_const(text, "MaxLimit")))
+        self.assertIn("TryParseIntInRange(raw, 1, MaxLimit, out int limit)", text)
+        self.assertEqual(hlib.PARTPARITY_MAX_SHARDS, self._int_const(text, "MaxShards"))
+        self.assertEqual(hlib.PARTPARITY_MAX_FILTER_LENGTH,
+                         self._int_const(text, "MaxFilterLength"))
+        # The validator's budget floor and the S8 cap agree with the box.
+        self.assertLessEqual(hlib.PARTPARITY_MAX_SECONDS_RANGE[1],
+                             hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS)
+
+    def test_the_reasons_mirror_the_c_sharp_and_are_classified(self):
+        text, consts = self._pure()
+        self.assertEqual(list(hlib.PARTPARITY_REASONS),
+                         self._identifier_array(text, "Reasons", consts))
+        done = self._source("TestCommands", "TestCommandPartParitySweepCompletion.cs")
+        self.assertEqual(list(hlib.PARTPARITY_ERROR_REASONS),
+                         self._identifier_array(done, "ErrorReasons", self._string_consts(done)))
+        label_tokens = ("label-arg-missing", "label-arg-invalid")
+        gates = ("no-active-vessel", "host-not-orbiting")
+        for reason in hlib.PARTPARITY_REASONS:
+            with self.subTest(reason=reason):
+                if reason in gates:
+                    # A live state, not the spec's text: never deterministic.
+                    self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+                else:
+                    self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+                if reason in label_tokens or reason == "op-arg-invalid":
+                    continue  # shared tokens, classified where their first verb put them
+                expected = "driver-gate" if reason in gates else "driver-arg"
+                if reason == "no-active-vessel":
+                    # CycleVessel's outcome token too; unmapped there, so unmapped here.
+                    self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS)
+                    continue
+                self.assertEqual(expected, hlib._SEAM_REFUSAL_SUBKINDS.get(reason))
+        for reason in hlib.PARTPARITY_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS, reason)
+
+    def test_the_dispatcher_row_and_budget_mirror_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandDispatcher.cs")
+        self.assertIn('["%s"] = VerbSceneRequirement.RequiresFlight,' % hlib.PARTPARITY_VERB, text)
+        m = re.search(r"internal const double PartParitySweepSeconds = ([0-9.]+);", text)
+        self.assertIsNotNone(m, "DeferralBudget.PartParitySweepSeconds moved")
+        self.assertEqual(float(m.group(1)),
+                         hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS[hlib.PARTPARITY_VERB])
+        self.assertIn('case "%s":\n                    return PartParitySweepSeconds;'
+                      % hlib.PARTPARITY_VERB, text)
+
+    def test_the_applier_parses_admits_then_starts_the_runner(self):
+        applier = self._source("TestCommands", "ParsekTestCommandAddon.PartParitySweep.cs")
+        order = [applier.find(c) for c in (
+            "TestCommandPartParitySweep.TryParseArgs(",
+            "TestCommandPartParitySweep.DecideHostAdmission(",
+            "StartCoroutine(PartParitySweepRoutine(",
+            "PartParitySweepRunner.RunStep(")]
+        self.assertNotIn(-1, order, order)
+        self.assertEqual(sorted(order), order)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        verb = hlib.PARTPARITY_VERB
+        self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertIn(verb, hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(540.0, hlib.dispatch_deferral_budget(verb))
+        self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, hlib.dispatch_deferral_budget(verb))
+        # Not inert: it spawns and removes vessels.
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE[verb])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING, hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+        self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_step_validator(self):
+        v = hlib.validate_part_parity_sweep_step
+        self.assertEqual([], v(0, {"label": "pp1"}))
+        self.assertEqual([], v(0, {"label": "pp1", "op": "reset"}))
+        self.assertEqual([], v(0, {"label": "pp1", "op": "run", "limit": "20", "controls": "true",
+                                   "maxSeconds": "480"}, 540))
+        self.assertEqual([], v(0, {"label": "pp1", "filter": "fuelTank*", "source": "Squad,ReStock",
+                                   "skins": "all", "views": "top,side-a,hero", "tile": "256",
+                                   "shard": "2/3", "maxSeconds": "60"}, 60))
+        self.assertEqual([], v(0, {"label": "pp1", "views": "required"}))
+        self.assertEqual([], v(0, {"label": "pp1", "limit": "${probe.count}"}))
+        cases = (
+            ({}, "label-arg-missing"),
+            ({"label": "pp 1"}, "label-arg-invalid"),
+            ({"label": "pp1_"}, "label-arg-invalid"),
+            ({"label": "pp1", "op": "Run"}, "op-arg-invalid"),
+            ({"label": "pp1", "filter": ""}, "filter-arg-invalid"),
+            ({"label": "pp1", "filter": "a/b"}, "filter-arg-invalid"),
+            ({"label": "pp1", "filter": "x" * 129}, "filter-arg-invalid"),
+            ({"label": "pp1", "source": "Squad,,ReStock"}, "source-arg-invalid"),
+            ({"label": "pp1", "source": "Sq uad"}, "source-arg-invalid"),
+            ({"label": "pp1", "skins": "base"}, "skins-arg-invalid"),
+            ({"label": "pp1", "views": "front"}, "views-arg-invalid"),
+            ({"label": "pp1", "views": "top,"}, "views-arg-invalid"),
+            ({"label": "pp1", "tile": "255"}, "tile-arg-invalid"),
+            ({"label": "pp1", "tile": "1025"}, "tile-arg-invalid"),
+            ({"label": "pp1", "tile": "+512"}, "tile-arg-invalid"),
+            ({"label": "pp1", "shard": "0/2"}, "shard-arg-invalid"),
+            ({"label": "pp1", "shard": "3/2"}, "shard-arg-invalid"),
+            ({"label": "pp1", "shard": "1/65"}, "shard-arg-invalid"),
+            ({"label": "pp1", "shard": "/2"}, "shard-arg-invalid"),
+            ({"label": "pp1", "shard": "1/2/3"}, "shard-arg-invalid"),
+            ({"label": "pp1", "limit": "0"}, "limit-arg-invalid"),
+            ({"label": "pp1", "limit": "100001"}, "limit-arg-invalid"),
+            ({"label": "pp1", "controls": True}, "controls-arg-invalid"),
+            ({"label": "pp1", "controls": "yes"}, "controls-arg-invalid"),
+            ({"label": "pp1", "maxSeconds": "59"}, "maxseconds-arg-invalid"),
+            ({"label": "pp1", "maxSeconds": "481"}, "maxseconds-arg-invalid"),
+            ({"label": "pp1", "maxSeconds": " 60"}, "maxseconds-arg-invalid"),
+            ({"label": "pp1", "superSize": "2"}, "silently ignored"),
+        )
+        for args, needle in cases:
+            with self.subTest(args=args):
+                errs = v(1, args)
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn(needle, errs[0])
+        # A declared budget must cover the time box (480 s when maxSeconds is absent).
+        errs = v(1, {"label": "pp1"}, 300)
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("below the step's own time box", errs[0])
+        self.assertEqual([], v(1, {"label": "pp1", "maxSeconds": "120"}, 300))
+        self.assertEqual([], v(1, {"label": "pp1", "op": "reset"}, 60))
+
+    def test_validate_spec_lets_the_verb_read_op_and_caps_the_budget(self):
+        """`op=` is UiAction's closed-value row; PartParitySweep reads its own `op=`
+        (reset|run), so the flat table must not claim it. The step budget is a
+        DEFERRED_SEAM_VERBS budget, capped at 540 s (S8)."""
+        spec = load_spec("PP-1-part-parity-stock.toml")
+        self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
+        steps = spec["driver"]["steps"]
+        run = next(s for s in steps if s["cmd"] == hlib.PARTPARITY_VERB
+                   and s["args"].get("op") == "run")
+        run["budget"] = 600
+        errors = hlib.validate_spec(spec, load_registry()).errors
+        self.assertTrue(any("must be <= 540s for a deferred PartParitySweep" in e
+                            for e in errors), errors)
+        run["budget"] = 540
+        run["args"]["op"] = "resume"
+        errors = hlib.validate_spec(spec, load_registry()).errors
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn("op-arg-invalid", errors[0])
+
+    def test_the_lane_pins_the_runner_step_line(self):
+        spec = load_spec("PP-1-part-parity-stock.toml")
+        required = spec["expectations"]["logContracts"]["required"]
+        self.assertTrue(any(hlib.PARTPARITY_STEP_LINE_LITERAL in p for p in required), required)
+        self.assertEqual(0, spec["expectations"]["recordings"]["count"]["max"])
+
+    def test_the_lane_gates_the_controls_and_crashes_on_the_run_step_line(self):
+        """Until P3's partParity row exists, PP-1's step-line pin is the only gate on the
+        controls and the crash count: it must match the run step's real line (the 2026-11-21
+        flight's, with `controls=ok`) and miss it for a bad or pending control, a crashed
+        case, a refused step and the reset step's line."""
+        spec = load_spec("PP-1-part-parity-stock.toml")
+        required = spec["expectations"]["logContracts"]["required"]
+        pins = [p for p in required if hlib.PARTPARITY_STEP_LINE_LITERAL in p]
+        self.assertEqual(1, len(pins), required)
+        pin = re.compile(pins[0])
+        good = ("[LOG 18:28:19.068] [Parsek][INFO][PartParity] PartParity step label=pp1 op=run ok=true "
+                "label=pp1 done=true next=20 cases=20 complete=20 crashed=0 setupFaults=0 controls=ok wall=21.8")
+        self.assertTrue(pin.search(good), pins[0])
+        self.assertTrue(pin.search(good.replace("done=true", "done=false")))
+        for bad in (good.replace("controls=ok", "controls=bad"),
+                    good.replace("controls=ok", "controls=pending"),
+                    good.replace("crashed=0", "crashed=1"),
+                    good.replace("crashed=0", "crashed=10"),
+                    good.replace("ok=true", "ok=false"),
+                    good.replace("op=run", "op=reset")):
+            with self.subTest(line=bad):
+                self.assertIsNone(pin.search(bad))
+        reset = ("[Parsek][INFO][PartParity] PartParity step label=pp1 op=reset ok=true label=pp1 "
+                 "done=false next=0 cases=0 complete=0 crashed=0 setupFaults=0 controls=pending wall=0.0")
+        self.assertIsNone(pin.search(reset))
 
 
 class NewGameSourceSyncTests(unittest.TestCase):

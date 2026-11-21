@@ -603,6 +603,84 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The part-state half of <see cref="ApplyFrameVisuals"/> (its <c>!skipPartEvents</c>
+        /// block): the recorded part events up to <paramref name="ut"/>, then the continuous
+        /// per-frame drivers that do not hang off an event. Static and engine-free, so the part
+        /// parity sweep replays a ghost's seed prefix through exactly this sequence
+        /// (<see cref="PrimeHiddenPartStateAtUT"/>).
+        /// </summary>
+        internal static void ApplyPartStateForFrame(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, double ut, bool allowTransientEffects)
+        {
+            GhostPlaybackLogic.ApplyPartEvents(index, traj, ut, state, allowTransientEffects);
+
+            // Continuous robotic motion (rotor RPM, and wheel spin derived from ground speed)
+            // is driven from HERE rather than from inside ApplyPartEvents, which early-returns
+            // when a recording has no PartEvents at all. Wheel spin no longer depends on any
+            // recorded event, so a rover recording that happens to carry zero part events must
+            // still roll its wheels - under the old call site it silently would not. Rotors are
+            // unaffected: with no events their `active` flag is false and this is a no-op.
+            //
+            // The sections are the wheel-spin ground-contact gate's only input; a null / empty
+            // list holds the wheels still (see GhostPlaybackLogic.ResolveWheelGroundContact).
+            GhostPlaybackLogic.UpdateActiveRobotics(state, ut, traj?.TrackSections);
+
+            // S2: advance any deployable stow<->deploy clip in flight. Progress is a pure
+            // function of the RECORDED event UT, so this call is idempotent within a frame and
+            // correct after a scrub, a warp change or a prefix catch-up with no extra state.
+            GhostPlaybackLogic.UpdateActiveDeployables(state, ut);
+
+            // S3: gimbal / control-surface / sun-tracking synthesis, driven off the ghost's own
+            // APPLIED world rotation. Placed here, after ApplyPartEvents, for the same reason
+            // UpdateActiveRobotics is: it must run on every visible frame, including for a
+            // recording that carries no part events at all.
+            GhostPlaybackLogic.UpdateSynthesizedMotion(state, ut);
+        }
+
+        /// <summary>The FX teardown of a suppressed frame in <see cref="ApplyFrameVisuals"/>:
+        /// engine / RCS FX and emissions stopped, reentry FX reset, launch dust driven to zero,
+        /// audio muted. Static and engine-free (see <see cref="PrimeHiddenPartStateAtUT"/>).</summary>
+        internal static void StopVisualFxForFrame(GhostPlaybackState state, int index)
+        {
+            GhostPlaybackLogic.StopAllEngineFx(state);
+            GhostPlaybackLogic.StopAllRcsFx(state);
+            GhostPlaybackLogic.StopAllRcsEmissions(state);
+            GhostPlaybackLogic.ResetReentryFx(state, index);
+            DriveLaunchDustToZero(state);
+            GhostPlaybackLogic.MuteAllAudio(state);
+        }
+
+        /// <summary>
+        /// What <c>PrimeLoadedGhostForPlaybackUT</c> does to a freshly built ghost's PART
+        /// state, for a caller with no engine instance (the part parity sweep's seed prefix,
+        /// design-part-ghost-parity.md 4.2 step 3): the part-event cursor reset, then
+        /// <see cref="ApplyFrameVisuals"/> under <see cref="HiddenPrimeVisualPolicy"/>, built
+        /// from the same two blocks that method runs: <see cref="ApplyPartStateForFrame"/>
+        /// (events, robotics, deployables, synthesized motion), the FX suppression flag and
+        /// <see cref="StopVisualFxForFrame"/>, then the audio atmosphere update. The policy
+        /// always suppresses FX, so the engine's unsuppressed branch (reentry FX, launch dust,
+        /// audio unmute, which read engine state) is never needed here, nor the FX-teardown
+        /// diagnostic line (it reads engine distances). Positioning, the hidden
+        /// SetActive(false) and the appearance tracking stay the caller's (the sweep places
+        /// the ghost itself). Returns the part-event cursor after the replay (the number of
+        /// events applied).
+        /// </summary>
+        internal static int PrimeHiddenPartStateAtUT(int index, IPlaybackTrajectory traj,
+            GhostPlaybackState state, double ut)
+        {
+            if (state == null || traj == null) return 0;
+            state.partEventIndex = 0;
+            var visualPolicy = HiddenPrimeVisualPolicy();
+            if (!visualPolicy.skipPartEvents)
+                ApplyPartStateForFrame(index, traj, state, ut, visualPolicy.allowTransientEffects);
+            state.visualFxSuppressed = visualPolicy.suppressVisualFx;
+            if (visualPolicy.suppressVisualFx)
+                StopVisualFxForFrame(state, index);
+            GhostPlaybackLogic.UpdateAudioAtmosphere(state);
+            return state.partEventIndex;
+        }
+
+        /// <summary>
         /// Applies per-frame visual events to a ghost: part events, flag events,
         /// reentry FX, and RCS emission state. Called after positioning.
         /// When skipPartEvents is true, only reentry FX and RCS are applied.
@@ -615,30 +693,8 @@ namespace Parsek
 
             if (!skipPartEvents)
             {
-                GhostPlaybackLogic.ApplyPartEvents(index, traj, ut, state, allowTransientEffects);
+                ApplyPartStateForFrame(index, traj, state, ut, allowTransientEffects);
                 // Flag events are applied earlier in RenderInRangeGhost, before zone check (#249).
-
-                // Continuous robotic motion (rotor RPM, and wheel spin derived from ground speed)
-                // is driven from HERE rather than from inside ApplyPartEvents, which early-returns
-                // when a recording has no PartEvents at all. Wheel spin no longer depends on any
-                // recorded event, so a rover recording that happens to carry zero part events must
-                // still roll its wheels — under the old call site it silently would not. Rotors are
-                // unaffected: with no events their `active` flag is false and this is a no-op.
-                //
-                // The sections are the wheel-spin ground-contact gate's only input; a null / empty
-                // list holds the wheels still (see GhostPlaybackLogic.ResolveWheelGroundContact).
-                GhostPlaybackLogic.UpdateActiveRobotics(state, ut, traj?.TrackSections);
-
-                // S2: advance any deployable stow<->deploy clip in flight. Progress is a pure
-                // function of the RECORDED event UT, so this call is idempotent within a frame and
-                // correct after a scrub, a warp change or a prefix catch-up with no extra state.
-                GhostPlaybackLogic.UpdateActiveDeployables(state, ut);
-
-                // S3: gimbal / control-surface / sun-tracking synthesis, driven off the ghost's own
-                // APPLIED world rotation. Placed here, after ApplyPartEvents, for the same reason
-                // UpdateActiveRobotics is: it must run on every visible frame, including for a
-                // recording that carries no part events at all.
-                GhostPlaybackLogic.UpdateSynthesizedMotion(state, ut);
             }
 
             bool priorVisualFxSuppressed = state.visualFxSuppressed;
@@ -658,12 +714,7 @@ namespace Parsek
                         + " renderDist=" + FormatPlaybackDistanceForLog(state.lastRenderDistance)
                         + " ghostPos=" + FormatGhostWorldPosForLog(state)
                         + " anchorPos=" + FormatActiveVesselWorldPosForLog());
-                GhostPlaybackLogic.StopAllEngineFx(state);
-                GhostPlaybackLogic.StopAllRcsFx(state);
-                GhostPlaybackLogic.StopAllRcsEmissions(state);
-                GhostPlaybackLogic.ResetReentryFx(state, index);
-                DriveLaunchDustToZero(state);
-                GhostPlaybackLogic.MuteAllAudio(state);
+                StopVisualFxForFrame(state, index);
             }
             else
             {

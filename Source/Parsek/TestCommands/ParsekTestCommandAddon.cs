@@ -956,6 +956,13 @@ namespace Parsek.TestCommands
                 TryCompleteMapCamera(now);
                 return;
             }
+            // PartParitySweep, in the .PartParitySweep.cs partial: the step's coroutine
+            // reports through its callback; the poll answers OK with its payload or ERROR.
+            if (completionVerb == TestCommandPartParitySweep.VerbName)
+            {
+                TryCompletePartParitySweep(now);
+                return;
+            }
             // GUI census: the settle poll for the two-phase UiAction ops (the set is
         // TestCommandUiAction.OpIsTwoPhase, named there rather than counted here - an
         // earlier version of this comment carried a count that went stale twice)
@@ -1709,6 +1716,10 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.DumpMapGeometry(ParsedCommand cmd) => DumpMapGeometryImpl(cmd);
         void ITestCommandExecutor.MapCamera(ParsedCommand cmd) => MapCameraImpl(cmd);
 
+        // PartParitySweep: body, step coroutine and poll in the sibling
+        // .PartParitySweep.cs partial. TWO-PHASE, polled in TryCompleteTwoPhaseCore.
+        void ITestCommandExecutor.PartParitySweep(ParsedCommand cmd) => PartParitySweepImpl(cmd);
+
         // StockScreen: body and its settle poll in the sibling ParsekTestCommandAddon.StockScreen.cs.
         void ITestCommandExecutor.StockScreen(ParsedCommand cmd) => StockScreenImpl(cmd);
 
@@ -1852,6 +1863,7 @@ namespace Parsek.TestCommands
                 case "PickUpFlag": exec.PickUpFlag(cmd); break;
                 case "DumpMapGeometry": exec.DumpMapGeometry(cmd); break;
                 case "MapCamera": exec.MapCamera(cmd); break;
+                case "PartParitySweep": exec.PartParitySweep(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");
