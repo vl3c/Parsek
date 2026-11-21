@@ -1092,8 +1092,23 @@ namespace Parsek
 
                 // A shroud list over variant meshes (engine plates): only the one stock
                 // recorded as active, never a forced-on mesh of another variant.
-                List<string> jettisonNames = SelectJettisonNames(
-                    jettisonNameList, snapJettison != null ? snapJettison.GetValue("activejettisonName") : null);
+                string activeJettisonName = snapJettison != null ? snapJettison.GetValue("activejettisonName") : null;
+                List<string> jettisonNames = SelectJettisonNamesForGhost(
+                    jettisonNameList, activeJettisonName,
+                    name =>
+                    {
+                        Transform src = prefab.FindModelTransform(name);
+                        Transform ghost;
+                        return src != null && cloneMap.TryGetValue(src, out ghost) && ghost != null;
+                    });
+                if (!string.IsNullOrEmpty(activeJettisonName) && jettisonNames.Count == 1
+                    && !string.Equals(jettisonNames[0], activeJettisonName.Trim(), System.StringComparison.Ordinal))
+                {
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_active_remap_{partName}_{moduleIndex}",
+                        $"    Part '{partName}' pid={persistentId} ModuleJettison[{moduleIndex}]: persisted " +
+                        $"activejettisonName '{activeJettisonName}' has no ghost mesh in this variant; " +
+                        $"using '{jettisonNames[0]}' (stock re-resolves on variant apply)", 60.0);
+                }
 
                 // Stock's flight-start rule decides whether this module's shroud is up when the
                 // part starts; the ghost mirrors it so no event is needed to hide a shroud stock

@@ -412,5 +412,46 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Jettison active name on another variant
+
+        private const string SkiffJettisonNames = "Shroud1p5x3,Shroud2x3,Shroud1p5x3_2,Shroud1p5x3_3";
+
+        [Fact]
+        public void Jettison_StaleActiveName_FallsBackToTheFirstClonedShroud()
+        {
+            // Shroud_Alternate shows Shroud2x3; the snapshot still names Shroud1p5x3_2.
+            var cloned = new HashSet<string> { "Shroud2x3" };
+            List<string> names = GhostVisualBuilder.SelectJettisonNamesForGhost(
+                SkiffJettisonNames, "Shroud1p5x3_2", cloned.Contains);
+            Assert.Equal(new[] { "Shroud2x3" }, names);
+        }
+
+        [Fact]
+        public void Jettison_ActiveNameWithClone_IsKept()
+        {
+            var cloned = new HashSet<string> { "Shroud2x3", "Shroud1p5x3_2" };
+            List<string> names = GhostVisualBuilder.SelectJettisonNamesForGhost(
+                SkiffJettisonNames, "Shroud1p5x3_2", cloned.Contains);
+            Assert.Equal(new[] { "Shroud1p5x3_2" }, names);
+        }
+
+        [Fact]
+        public void Jettison_NoShroudCloned_SelectsNothing()
+        {
+            List<string> names = GhostVisualBuilder.SelectJettisonNamesForGhost(
+                SkiffJettisonNames, "Shroud1p5x3_2", n => false);
+            Assert.Empty(names);
+        }
+
+        [Fact]
+        public void Jettison_NoActiveName_KeepsEveryListedName()
+        {
+            List<string> names = GhostVisualBuilder.SelectJettisonNamesForGhost(
+                SkiffJettisonNames, null, n => false);
+            Assert.Equal(4, names.Count);
+        }
+
+        #endregion
     }
 }

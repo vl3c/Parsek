@@ -90,6 +90,9 @@ Not released yet.
   the ladder fully out, even when the real one was folded away. A ladder now starts the way it was
   recorded, folded or extended, and still slides out and back on the replay when it moved.
   (GHOST-LADDER-SPAWNS-DEPLOYED)
+- **ReStock Skiff engines with the orange shroud lose it like the real engine.** On the alternate
+  shroud variant, the replay kept the orange shroud on even where the real engine had none. The
+  ghost now hides and drops the shroud the variant shows. (GHOST-JETTISON-STALE-ACTIVE-NAME)
 - **A switched-off light's lens no longer glows on its ghost.** The old spotlight's replay lit
   its lens even while the real light was off. A light's lens and flare now follow the light:
   dark when it is off, lit in the light's colour when it is on. (GHOST-LIGHT-LENS-GLOWS-OFF)
