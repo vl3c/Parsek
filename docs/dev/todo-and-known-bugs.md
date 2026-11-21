@@ -51,15 +51,25 @@ reconcile), go-on-rails (before the identity-loss check), `OnBackgroundVesselWil
 emits its window first (`EmitSeparationWindowHoldingControlledChild`) so its own split is
 recorded. `RecordingTree.ChildBranchLeavesVesselLineOpen` / `IsVesselLineEnd`,
 `DebrisParentStateGate` and the Re-Fly HEAD/TIP splitter already handle this shape (the focused
-breakup writes it); comments updated. Residual: a window flushed in the same physics tick as its
-joint break leaves the parent's `ExplicitEndUT` equal to the branch UT, which reads as "closed at
-the split" until the next sample; a save in that tick that is then loaded leaves the parent out of
-the rebuilt BackgroundMap.
+breakup writes it); comments updated.
 
-Tests: `BackgroundSeparationShapeTests` (shape, coalescing and BROKE_OFF combine, dead controlled
-piece, flush / Shutdown / retire emission, recording change, missing parent, the separate-again
-emit, and source gates on every emission site; the gate cells and the retire cell were mutation
-checked red). The `BackgroundSplitTests` continuation / bug #285 simulation cells now pass the
+The vessel-line rule (`RecordingTree.ChildBranchLeavesVesselLineOpen`) read a recording whose
+`ExplicitEndUT` is at or before the branch UT as closed at the split. A background parent's end
+equals the branch UT from the joint break's structural point until its next ordinary sample (2 s
+close in, 3 s / 8 s for a steady parent at Medium / Low density), so an F5 in that span saved a
+parent that F9's `RebuildBackgroundMap` then dropped (never sampled again, no terminal). The
+branch point now says it: `BranchPoint.ParentContinues`, stamped by every
+`ParsekFlight.WireBreakupIntoTree` caller (focused and background), skips the end-UT rule. It is
+an additive optional key `parentContinues = True` on the BRANCH_POINT node (absent reads false,
+today's reading for older saves and for the background undock's close; no format bump), carried
+by both branch-point clones and `ScenarioWriter.SeparationBranch(parentContinues:)`.
+
+Tests: `BackgroundSeparationShapeTests` (shape with the parent's end at the branch UT, the map
+rebuild and the `parentContinues` round trip, the unstamped closed-at-split reading, the focused
+stamp, coalescing and BROKE_OFF combine, dead controlled piece, flush / Shutdown / retire
+emission, recording change, missing parent, the separate-again emit, and source gates on every
+emission site; the stamp cells were red before the fix, the gate cells and the retire cell were
+mutation checked red). The `BackgroundSplitTests` continuation / bug #285 simulation cells now pass the
 `UNDOCK` cause: they pinned the decouple continuation shape the ruling replaces, and the undock
 path is the one that still builds it.
 

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using Parsek.Tests.Generators;
 using Xunit;
 
 namespace Parsek.Tests
@@ -66,9 +67,10 @@ namespace Parsek.Tests
                 VesselName = "Background Stack",
                 VesselPersistentId = ParentPid,
                 ExplicitStartUT = 100.0,
-                // A background recording keeps writing its end at each sample; the
-                // samples after the split put it past the branch UT.
-                ExplicitEndUT = 160.0,
+                // What OnBackgroundPartJointBreak leaves: its structural point at the
+                // joint-break UT (the branch UT) is the parent's latest sample, so its end
+                // equals the branch UT until the next ordinary sample, seconds later.
+                ExplicitEndUT = 150.0,
                 Generation = 0
             };
             tree.Recordings[ParentRecId] = parent;
@@ -143,7 +145,8 @@ namespace Parsek.Tests
             Assert.Equal(ParentRecId, tree.BackgroundMap[ParentPid]);
             Assert.True(tree.IsVesselLineEnd(parent));
             Assert.False(DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(parent, tree));
-            Assert.Equal(160.0, parent.ExplicitEndUT);
+            Assert.Equal(150.0, parent.ExplicitEndUT);
+            Assert.True(bp.ParentContinues);
 
             // No parent continuation: no recording other than the parent carries its pid.
             int parentPidRecordings = 0;
@@ -246,7 +249,7 @@ namespace Parsek.Tests
                 VesselName = "Other Stack",
                 VesselPersistentId = 7400u,
                 ExplicitStartUT = 100.0,
-                ExplicitEndUT = 160.0
+                ExplicitEndUT = 151.0
             };
             tree.Recordings[other.RecordingId] = other;
             tree.BackgroundMap[7400u] = other.RecordingId;
@@ -380,6 +383,80 @@ namespace Parsek.Tests
             int emit = body.IndexOf("EmitSeparationWindowHoldingControlledChild(vesselPid,", StringComparison.Ordinal);
             int membership = body.IndexOf("if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;", StringComparison.Ordinal);
             Assert.True(emit > 0 && membership > emit, $"emit={emit} membership={membership}");
+        }
+
+        // B1: the parent's end equals the branch UT right after the split (the joint break's
+        // structural point is its latest sample). The stamped branch point keeps it on its
+        // vessel's line, so a save then load rebuilds it into the BackgroundMap.
+        [Fact]
+        public void ParentEndingAtTheBranchUT_StaysTheVesselLine_AndSurvivesTheMapRebuild()
+        {
+            var tree = MakeTree(out Recording parent);
+            var bg = MakeRecorder(tree);
+            bg.FeedBackgroundSeparationWindowCore(
+                ParentPid, ParentRecId, 150.0, "DECOUPLE", 7201u, false, Snapshot("A", 7201u), Seed(150.02));
+            bg.FlushBackgroundSeparationWindows("OnSave");
+
+            Assert.Equal(150.0, parent.ExplicitEndUT);
+            Assert.True(tree.IsVesselLineEnd(parent));
+
+            tree.RebuildBackgroundMap();
+            Assert.True(tree.BackgroundMap.TryGetValue(ParentPid, out string mapped));
+            Assert.Equal(ParentRecId, mapped);
+
+            // The same state through a save / load of the branch point.
+            var node = new ConfigNode("BRANCH_POINT");
+            RecordingTree.SaveBranchPointInto(node, tree.BranchPoints[0]);
+            Assert.Equal("True", node.GetValue("parentContinues"));
+            tree.BranchPoints[0] = RecordingTree.LoadBranchPointFrom(node);
+            Assert.True(tree.BranchPoints[0].ParentContinues);
+            Assert.True(tree.IsVesselLineEnd(parent));
+        }
+
+        [Fact]
+        public void UnstampedBranchPoint_KeepsTheClosedAtSplitReading()
+        {
+            // An older save (or the background undock's close): no parentContinues key, the
+            // parent's end at the branch UT and no same-pid child still reads as closed there.
+            var tree = MakeTree(out Recording parent);
+            var bp = new BranchPoint
+            {
+                Id = "bp_old",
+                UT = 150.0,
+                Type = BranchPointType.JointBreak,
+                SplitCause = "DECOUPLE",
+                ParentRecordingIds = new List<string> { ParentRecId }
+            };
+            var node = new ConfigNode("BRANCH_POINT");
+            RecordingTree.SaveBranchPointInto(node, bp);
+            Assert.Null(node.GetValue("parentContinues"));
+            BranchPoint loaded = RecordingTree.LoadBranchPointFrom(node);
+            Assert.False(loaded.ParentContinues);
+            tree.BranchPoints.Add(loaded);
+            parent.ChildBranchPointId = loaded.Id;
+
+            Assert.False(tree.IsVesselLineEnd(parent));
+        }
+
+        [Fact]
+        public void WireBreakupIntoTree_StampsParentContinues_ForTheFocusedPathToo()
+        {
+            var tree = MakeTree(out Recording parent);
+            var bp = new BranchPoint { Id = "bp_focused", UT = 150.0, Type = BranchPointType.Breakup };
+
+            ParsekFlight.WireBreakupIntoTree(tree, parent.RecordingId, parent, bp);
+
+            Assert.True(bp.ParentContinues);
+            Assert.Equal(bp.Id, parent.ChildBranchPointId);
+        }
+
+        [Fact]
+        public void ScenarioWriterSeparationBranch_AuthorsTheStamp()
+        {
+            Assert.True(ScenarioWriter.SeparationBranch(
+                "bp", "parent", new[] { "child" }, 150.0, parentContinues: true).ParentContinues);
+            Assert.False(ScenarioWriter.SeparationBranch(
+                "bp", "parent", new[] { "child" }, 150.0).ParentContinues);
         }
 
         [Fact]

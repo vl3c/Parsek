@@ -114,6 +114,7 @@ namespace Parsek
                 BreakupDuration = source.BreakupDuration,
                 DebrisCount = source.DebrisCount,
                 CoalesceWindow = source.CoalesceWindow,
+                ParentContinues = source.ParentContinues,
                 MergeCause = source.MergeCause,
                 TargetVesselPersistentId = source.TargetVesselPersistentId,
                 TargetVesselGuid = source.TargetVesselGuid,
@@ -590,10 +591,12 @@ namespace Parsek
 
             // Closed AT the split: BackgroundRecorder.CloseParentRecording (a background
             // undock) writes ExplicitEndUT = branch UT synchronously, and its "parent vessel
-            // destroyed" path adds no same-PID child and stamps no terminal. A recording that
-            // keeps flying past the branch (a focused or background decouple / breakup, whose
-            // samples after the split move its end past the branch UT) is not closed here.
+            // destroyed" path adds no same-PID child and stamps no terminal. A branch point
+            // stamped ParentContinues (WireBreakupIntoTree) says the parent keeps recording
+            // past it, so the end UT is not read: a background parent's end equals the branch
+            // UT until its next sample (the joint break's structural point), seconds later.
             if (!allowClosedAtBranch
+                && !bp.ParentContinues
                 && !double.IsNaN(rec.ExplicitEndUT) && rec.ExplicitEndUT <= bp.UT)
                 return false;
 
@@ -764,6 +767,8 @@ namespace Parsek
                 bpNode.AddValue("debrisCount", bp.DebrisCount.ToString(ic));
             if (bp.CoalesceWindow != 0)
                 bpNode.AddValue("coalesceWindow", bp.CoalesceWindow.ToString("R", ic));
+            if (bp.ParentContinues)
+                bpNode.AddValue("parentContinues", "True");
 
             // MERGE metadata
             if (bp.MergeCause != null)
@@ -792,6 +797,7 @@ namespace Parsek
                 (bp.MergeCause != null ? $" mergeCause={bp.MergeCause}" : "") +
                 (bp.TargetVesselPersistentId != 0 ? $" targetVesselPid={bp.TargetVesselPersistentId}" : "") +
                 (!string.IsNullOrEmpty(bp.TargetVesselGuid) ? $" targetVesselGuid={bp.TargetVesselGuid}" : "") +
+                (bp.ParentContinues ? " parentContinues=True" : "") +
                 (bp.TerminalCause != null ? $" terminalCause={bp.TerminalCause}" : ""));
         }
 
@@ -858,6 +864,10 @@ namespace Parsek
                 if (double.TryParse(coalesceWindowStr, inv, ic, out coalesceWindow))
                     bp.CoalesceWindow = coalesceWindow;
             }
+            // Optional; absent or unparsable -> false.
+            bool parentContinues;
+            bp.ParentContinues = bool.TryParse(bpNode.GetValue("parentContinues"), out parentContinues)
+                && parentContinues;
 
             // MERGE metadata
             bp.MergeCause = bpNode.GetValue("mergeCause");
@@ -890,6 +900,7 @@ namespace Parsek
                 (bp.MergeCause != null ? $" mergeCause={bp.MergeCause}" : "") +
                 (bp.TargetVesselPersistentId != 0 ? $" targetVesselPid={bp.TargetVesselPersistentId}" : "") +
                 (!string.IsNullOrEmpty(bp.TargetVesselGuid) ? $" targetVesselGuid={bp.TargetVesselGuid}" : "") +
+                (bp.ParentContinues ? " parentContinues=True" : "") +
                 (bp.TerminalCause != null ? $" terminalCause={bp.TerminalCause}" : ""));
 
             return bp;
