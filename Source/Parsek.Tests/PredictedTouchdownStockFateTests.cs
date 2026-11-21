@@ -18,12 +18,12 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class PredictedTouchdownStockFateTests : IDisposable
     {
-        private const string Jeb = "Jebediah Kerman";
-        private const string TreeId = "tree-touchdown";
-        private const string CoreId = "rec-core";
-        private const string BoosterId = "rec-booster";
-        private const uint BoosterPid = 4242u;
-        private const string BoosterGuid = "0123456789abcdef0123456789abcdef";
+        internal const string Jeb = "Jebediah Kerman";
+        internal const string TreeId = "tree-touchdown";
+        internal const string CoreId = "rec-core";
+        internal const string BoosterId = "rec-booster";
+        internal const uint BoosterPid = 4242u;
+        internal const string BoosterGuid = "0123456789abcdef0123456789abcdef";
         private readonly List<string> logLines = new List<string>();
 
         public PredictedTouchdownStockFateTests()
@@ -77,7 +77,7 @@ namespace Parsek.Tests
 
         // ------------------------------------------------------------------ fixtures
 
-        private static ConfigNode CrewSnapshot(params string[] crew)
+        internal static ConfigNode CrewSnapshot(params string[] crew)
         {
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("sit", "FLYING");
@@ -94,7 +94,7 @@ namespace Parsek.Tests
 
         // A crewed booster recorded down to 770 m under open chutes, its touchdown predicted
         // through the production applier (Landed at ~1100, a Predicted descent section).
-        private static Recording PredictedTouchdownBooster(string id = BoosterId, string guid = BoosterGuid)
+        internal static Recording PredictedTouchdownBooster(string id = BoosterId, string guid = BoosterGuid)
         {
             var rec = new Recording
             {
@@ -176,7 +176,7 @@ namespace Parsek.Tests
             return rec;
         }
 
-        private static Recording Core()
+        internal static Recording Core()
         {
             var rec = new Recording
             {
@@ -189,7 +189,7 @@ namespace Parsek.Tests
             return rec;
         }
 
-        private static RecordingTree CommitTreeWith(params Recording[] recs)
+        internal static RecordingTree CommitTreeWith(params Recording[] recs)
         {
             var tree = new RecordingTree
             {
