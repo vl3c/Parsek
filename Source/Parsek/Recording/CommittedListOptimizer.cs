@@ -67,9 +67,7 @@ namespace Parsek
                 PendingTreeSlot.SavedPendingTreeDuringActiveRestore,
                 CommittedTreeRestoreAttempt.CommittedTreeRestoreAttemptTreeId);
 
-            int mergeCount = RunOptimizationMergePass(recordings, routeSourceIds);
-            int splitCount = RunOptimizationSplitPass(recordings, routeSourceIds);
-            ReReadRowRoles(recordings, routeSourceIds);
+            RunMergeSplitToFixedPoint(recordings, routeSourceIds, out int mergeCount, out int splitCount);
             // After the split: a split gives the tail the recording's end (terminal state and
             // snapshot), so the spawn stamp goes with it; this also heals saves split earlier.
             RecordingOptimizer.MoveChainSpawnStampsToTip(
@@ -102,6 +100,48 @@ namespace Parsek
             // Flush all dirty recordings to disk so the crash window after
             // commit+optimize is closed (data no longer lives only in RAM).
             RecordingStore.FlushDirtyCommittedFiles();
+        }
+
+        /// <summary>The most merge + split rounds one pass runs (<see cref="RunMergeSplitToFixedPoint"/>).</summary>
+        internal const int MaxMergeSplitRounds = 16;
+
+        /// <summary>
+        /// Review B7: the merge phase, the split phase and the row role re-read
+        /// (<see cref="ReReadRowRoles"/>) repeated until a round changes nothing, so one pass
+        /// leaves the list settled: a split can leave a new piece beside one it may join, which
+        /// the merge phase (run first) would otherwise join only on the next pass, a later load,
+        /// with new ids. Bounded by <see cref="MaxMergeSplitRounds"/> (Warn when hit: a merge and
+        /// a split undoing each other). Totals the merges and splits of every round; Verbose when
+        /// it took more than one round.
+        /// </summary>
+        internal static void RunMergeSplitToFixedPoint(
+            IReadOnlyList<Recording> recordings, HashSet<string> routeSourceIds,
+            out int mergeCount, out int splitCount)
+        {
+            mergeCount = 0;
+            splitCount = 0;
+            int rounds = 0;
+            bool changed = true;
+            while (changed && rounds < MaxMergeSplitRounds)
+            {
+                rounds++;
+                int merges = RunOptimizationMergePass(recordings, routeSourceIds);
+                int splits = RunOptimizationSplitPass(recordings, routeSourceIds);
+                int roles = ReReadRowRoles(recordings, routeSourceIds);
+                mergeCount += merges;
+                splitCount += splits;
+                changed = merges > 0 || splits > 0 || roles > 0;
+            }
+            if (changed)
+                ParsekLog.Warn("RecordingStore",
+                    $"Optimization pass: merge/split did not settle after {rounds.ToString(CultureInfo.InvariantCulture)} " +
+                    $"round(s) (merges={mergeCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"splits={splitCount.ToString(CultureInfo.InvariantCulture)}), the next pass continues");
+            else if (rounds > 1)
+                ParsekLog.Verbose("RecordingStore",
+                    $"Optimization pass: settled after {rounds.ToString(CultureInfo.InvariantCulture)} round(s) " +
+                    $"(merges={mergeCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"splits={splitCount.ToString(CultureInfo.InvariantCulture)})");
         }
 
         private static int RunOptimizationMergePass(

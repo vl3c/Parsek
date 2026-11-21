@@ -973,7 +973,11 @@ registry moves loopability onto roles).
   the airless approach band keep steps 6 and 7.
 - The split summary line appends `passKept=N touchdownKept=N rules=v2` on a version-2 row.
 
-**One pass (ruling Q19).** The split loop runs until no candidate remains, bounded by the
+**One pass (ruling Q19).** The merge phase, the split phase and the role re-read repeat until a
+round changes nothing (`CommittedListOptimizer.RunMergeSplitToFixedPoint`, review B7, at most
+`MaxMergeSplitRounds` = 16 rounds, Warn `merge/split did not settle after N round(s)`): a split
+can leave a piece beside one it may join, which the merge phase, run first, joined only on the
+next pass (a later load, with new ids). Running the pass twice equals running it once. The split loop runs until no candidate remains, bounded by the
 committed list's section plus recording count (`ComputeSplitSafetyBound`, Warn
 `hit split safety bound`); the merge loop is bounded by the list size. This holds for both
 versions.

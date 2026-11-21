@@ -20,6 +20,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~OPTIMIZER-PASS-NOT-A-FIXED-POINT~~: one merge phase then one split phase per pass, so some chains settled only over later loads [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B7), by code reading. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit + mutation; no lane; low (rows and their ids changed again after the next load)]
+
+**Cause:** `CommittedListOptimizer.RunOptimizationPass` ran the merge phase once, then the split phase. A split can leave a new piece next to one it may join (the air half of a cut beside the chain's next air piece); that join waited for the next pass, a later load, which gave the rows new ids again.
+
+**Fix:** `CommittedListOptimizer.RunMergeSplitToFixedPoint` repeats the merge phase, the split phase and the row role re-read (ROW-ROLE-STALE-OR-MISSING) until a round changes nothing, at most `MaxMergeSplitRounds` = 16 rounds: Warn `Optimization pass: merge/split did not settle after N round(s) (merges= splits=), the next pass continues` when hit, Verbose `settled after N round(s)` otherwise. The trim, spawn-stamp move, loop sync, name pass and flush still run once after it. Each phase keeps its own per-round summary lines.
+
+**Tests:** `OptimizerSplitRulesV2Tests.SplitThenJoinableNeighbour_SettlesInOnePass` (version 1 red before the fix: the second pass merged; version 2 is the stability mirror), and every shape cell of that class runs the pass twice.
+
 ## ~~ROW-ROLE-STALE-OR-MISSING~~: a row's role was stamped only at a cut, so a resumed reentry row kept "reentry" after climbing back to orbit and uncut rows had none [FILED 2026-11-21 by the whole-batch review of the split / trim / merge fixes (finding B6), by code reading. FIXED 2026-11-21, branch `rsr-wp10-batch-fixes`; xUnit + mutation; no lane; low (a wrong or mixed label in the Recordings table and the map). OPEN (later, foundation F4): one role registry (role -> phase, loopable, label), roles total along the vessel line, loopability on roles]
 
 **Cause:** `Recording.SegmentRole` was written only by a version-2 split (`CommittedListOptimizer.AssignSplitRoles`) and the RULE 3 fold. A resumed reentry row that climbs back to orbit is never cut (its own pass entry and a braking exit are not cut), so it kept "reentry"; a version-2 row no cut touched had no role, so its label read the phase ("exo") beside rows labelled by role ("space").

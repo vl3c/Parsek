@@ -54,6 +54,9 @@ Not released yet.
 
 ### Fixed
 
+- **A flight's rows settle when it is merged, not over the next loads.** Some rows Parsek split
+  were joined back to their neighbour only on a later load, so the rows changed again after
+  loading the save. (OPTIMIZER-PASS-NOT-A-FIXED-POINT)
 - **Every row of a new flight is named by its part of the mission.** A row Parsek never had to
   split was labelled by its raw phase ("exo") beside rows named "space", and a reentry row that
   flew back up to orbit when you continued it kept the name "reentry". (ROW-ROLE-STALE-OR-MISSING)

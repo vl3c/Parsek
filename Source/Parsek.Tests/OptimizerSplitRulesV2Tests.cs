@@ -648,5 +648,43 @@ namespace Parsek.Tests
             Assert.Equal("aerobraking", rec.SegmentRole);
             Assert.Equal(before, Recording.IsLoopableRecording(rec));
         }
+
+        // ------------------------------------------------------------ fixed point (BATCH-B7)
+
+        // A split can leave a new piece next to one it may join (the cut's air half beside the
+        // chain's next air piece): the merge phase ran before the split phase, so that join waited
+        // for the next pass, a later load, and the ids changed after it. The pass now repeats
+        // merge + split until nothing changes: running it twice equals running it once.
+        // MUTATION NOTE: running the merge and split phases once in RunOptimizationPass reds this.
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void SplitThenJoinableNeighbour_SettlesInOnePass(int version)
+        {
+            var head = Make("fp-x", 0, Exo(2000), Atmo(300));
+            var next = Make("fp-y", 2300, Atmo(200));
+            head.SplitRuleVersion = next.SplitRuleVersion = version;
+            head.TreeId = next.TreeId = "tree-fp";
+            head.ChainId = next.ChainId = "chain-fp";
+            head.ChainIndex = 0;
+            next.ChainIndex = 1;
+            head.SegmentPhase = "exo";
+            next.SegmentPhase = "atmo";
+            head.SegmentBodyName = next.SegmentBodyName = "Kerbin";
+            var tree = new RecordingTree { Id = "tree-fp", TreeName = "fp", RootRecordingId = head.RecordingId };
+            tree.AddOrReplaceRecording(head);
+            tree.AddOrReplaceRecording(next);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(head);
+            RecordingStore.AddRecordingWithTreeForTesting(next);
+
+            CommittedListOptimizer.RunOptimizationPass();
+            string once = Snapshot("tree-fp");
+            CommittedListOptimizer.RunOptimizationPass();
+            Assert.Equal(once, Snapshot("tree-fp"));
+            // Version 1 joins the air half to the next air piece in the same pass; version 2
+            // keeps the reentry row apart from the uncut air piece (different roles).
+            Assert.Equal(version == 1 ? 2 : 3, ChainOf("tree-fp").Count);
+        }
     }
 }
