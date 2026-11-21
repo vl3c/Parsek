@@ -311,5 +311,24 @@ namespace Parsek.Tests
             Assert.Contains("deadband=0.500", bg);
             Assert.Contains("(bg vessel 99)", bg);
         }
+
+        [Fact]
+        public void TrackingLine_IsTheWholeLiteralTheSrvLanesPin()
+        {
+            // SRV-1 / SRV-2 (harness/scenarios) regex these lines whole; reword one and the lane
+            // reds on a missing token instead of here.
+            Assert.Equal(
+                "Robotics: tracking 'rotor.01' pid=7 midx=0 module=ModuleRoboticServoRotor source=servoRateOfMotion "
+                + "deadband=max(0.500,2%rpm) sampleHz=4.0 moving=rotor-rpm stopHold=0.25s stop=signal",
+                FlightRecorder.FormatRoboticTrackingLine(
+                    "rotor.01", 7u, 0, "ModuleRoboticServoRotor", "servoRateOfMotion", 0.5f,
+                    FlightRecorder.RotorRpmMovingSource, SampleIntervalSeconds, null));
+            Assert.Equal(
+                "Robotics: tracking 'hinge.01' pid=8 midx=0 module=ModuleRoboticServoHinge source=servoTransformAngle "
+                + "deadband=0.500 sampleHz=4.0 moving=inferred stopHold=0.25s stop=debounced",
+                FlightRecorder.FormatRoboticTrackingLine(
+                    "hinge.01", 8u, 0, "ModuleRoboticServoHinge", "servoTransformAngle", 0.5f,
+                    "inferred", SampleIntervalSeconds, null));
+        }
     }
 }
