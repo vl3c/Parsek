@@ -2092,6 +2092,12 @@ namespace Parsek
             if (GhostPlaybackLogic.TryFindTailSegment(recording, currentUT, out OrbitSegment tailSegment))
                 return TryResolveRecordingTailWorldPosition(
                     recording, tailSegment, currentUT, out worldPos, out body, out reason);
+            // A predicted tail that starts past the bridge cap: slide to it across the gap.
+            if (GhostPlaybackLogic.TryFindTailSlide(
+                    recording, currentUT, out OrbitSegment slideSegment, out double slideLastPointUT))
+                return TryResolveRecordingTailSlideWorldPosition(
+                    recording, slideSegment, slideLastPointUT, currentUT, bodyFixedShiftSeconds,
+                    out worldPos, out body, out reason);
             if (!TrySelectTrackingStationFocusFrames(
                     recording,
                     currentUT,
@@ -2134,6 +2140,40 @@ namespace Parsek
                 TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(
                     pt.Value.longitude, bodyFixedShiftSeconds, body),
                 pt.Value.altitude);
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool TryResolveRecordingTailSlideWorldPosition(
+            Recording recording,
+            OrbitSegment slideSegment,
+            double lastPointUT,
+            double currentUT,
+            double bodyFixedShiftSeconds,
+            out Vector3d worldPos,
+            out CelestialBody body,
+            out string reason)
+        {
+            worldPos = default(Vector3d);
+            reason = null;
+            body = FlightGlobals.Bodies?.Find(b => b.name == slideSegment.bodyName);
+            if (body == null)
+            {
+                reason = "body-missing";
+                return false;
+            }
+            if (!GhostPlaybackLogic.TryGetTailSlideWorldPosition(
+                    recording, slideSegment, body, lastPointUT, currentUT, bodyFixedShiftSeconds, out worldPos))
+            {
+                reason = "tail-slide-failed";
+                return false;
+            }
+            ParsekLog.VerboseRateLimited(Tag, "ts-tail-slide-" + (recording.RecordingId ?? "(none)"),
+                string.Format(CultureInfo.InvariantCulture,
+                    "TS marker slides to the predicted tail: rec={0} ut={1:F1} lastPointUT={2:F1} tailStartUT={3:F1} body={4}",
+                    recording.RecordingId ?? "(none)", currentUT, lastPointUT, slideSegment.startUT,
+                    slideSegment.bodyName ?? "(null)"),
+                5.0);
             return true;
         }
 

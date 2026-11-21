@@ -18,7 +18,8 @@ namespace Parsek
             out double anchorUT,
             out double blendSeconds,
             out string anchorSource,
-            bool useCache = true)
+            bool useCache = true,
+            GhostPlaybackLogic.TailPlanetTurn planetTurn = default(GhostPlaybackLogic.TailPlanetTurn))
         {
             weightedOffset = Vector3d.zero;
             rawOffset = Vector3d.zero;
@@ -69,7 +70,10 @@ namespace Parsek
                     cacheKey = BuildPredictedOrbitTailContinuityCacheKey(traj, segment, anchorUT);
                 }
 
-                Vector3d orbitAtAnchor = orbit.getPositionAtUT(anchorUT);
+                // A planet-turned tail measures the offset against the conic turned the same way.
+                Vector3d orbitAtAnchor = planetTurn.Apply(
+                    orbit.referenceBody != null ? orbit.referenceBody.position : Vector3d.zero,
+                    orbit.getPositionAtUT(anchorUT));
                 rawOffset = anchorWorld - orbitAtAnchor;
                 if (!ParsekFlight.IsFiniteVector3d(rawOffset))
                     return false;

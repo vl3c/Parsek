@@ -44,7 +44,8 @@ namespace Parsek
                 return false;
             if (ut <= traj.Points[traj.Points.Count - 1].ut)
                 return true;
-            return TryFindTailSegment(traj, ut, out _);
+            return TryFindTailSegment(traj, ut, out _)
+                || TryFindTailSlide(traj, ut, out _, out _);
         }
 
         /// <summary>
@@ -107,6 +108,455 @@ namespace Parsek
                 return false;
             worldPos = body.position + offset;
             return IsFiniteTailVector(worldPos);
+        }
+
+        // ---- Owner ruling L5: the slide across a gap the bridge cap does not cover ----
+        //
+        // When the predicted tail starts more than PredictedOrbitTailBridgeMaxGapSeconds after
+        // the last recorded point, the ghost slides from that point to the start of the
+        // predicted path over the gap. The predicted conic is never evaluated inside the gap
+        // (it may be a later, post-burn orbit), only at its own start. The slide moves along
+        // the great circle between the two body-relative directions with a monotone cubic on
+        // the angle and a separate monotone cubic on the radius, both seeded from the
+        // endpoint velocities: it matches both endpoints, keeps the speed where the inputs
+        // agree, never overshoots either end, and never dips below the lower endpoint's
+        // radius. The slide carries no velocity for the FX readers (no flames from a stale
+        // velocity).
+
+        /// <summary>
+        /// The last recorded point (and the one before it, for the starting velocity) a slide
+        /// starts from. False when the last point cannot anchor one: on another body than the
+        /// segment, or inside a Relative section (its lat/lon/alt are anchor-local metres).
+        /// The previous point is used only on the same body, outside a Relative section and
+        /// within <see cref="GhostSurfaceVelocity.MaxBracketSeconds"/>. Pure.
+        /// </summary>
+        internal static bool TryGetTailSlideAnchorPoints(
+            IPlaybackTrajectory traj, OrbitSegment segment,
+            out TrajectoryPoint last, out TrajectoryPoint previous, out bool hasPrevious)
+        {
+            last = default(TrajectoryPoint);
+            previous = default(TrajectoryPoint);
+            hasPrevious = false;
+            if (traj?.Points == null || traj.Points.Count == 0)
+                return false;
+            last = traj.Points[traj.Points.Count - 1];
+            if (string.IsNullOrEmpty(last.bodyName)
+                || !string.Equals(last.bodyName, segment.bodyName, System.StringComparison.Ordinal))
+                return false;
+            if (IsInRelativeSection(traj, last.ut))
+                return false;
+            if (!IsFiniteTailVector(new Vector3d(last.latitude, last.longitude, last.altitude)))
+                return false;
+
+            if (traj.Points.Count >= 2)
+            {
+                TrajectoryPoint prev = traj.Points[traj.Points.Count - 2];
+                double dt = last.ut - prev.ut;
+                if (dt >= GhostSurfaceVelocity.MinBracketSeconds
+                    && dt <= GhostSurfaceVelocity.MaxBracketSeconds
+                    && string.Equals(prev.bodyName, last.bodyName, System.StringComparison.Ordinal)
+                    && !IsInRelativeSection(traj, prev.ut)
+                    && IsFiniteTailVector(new Vector3d(prev.latitude, prev.longitude, prev.altitude)))
+                {
+                    previous = prev;
+                    hasPrevious = true;
+                }
+            }
+            return true;
+        }
+
+        private static bool IsInRelativeSection(IPlaybackTrajectory traj, double ut)
+        {
+            if (traj.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+            int idx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
+            return idx >= 0 && traj.TrackSections[idx].referenceFrame == ReferenceFrame.Relative;
+        }
+
+        /// <summary>
+        /// The predicted-tail slide at <paramref name="ut"/>, when one applies (see
+        /// <see cref="GhostPlaybackEngine.TryFindPredictedOrbitTailSlide"/>), gated to the
+        /// recording's span. Pure.
+        /// </summary>
+        internal static bool TryFindTailSlide(
+            IPlaybackTrajectory traj, double ut, out OrbitSegment segment, out double lastPointUT)
+        {
+            segment = default(OrbitSegment);
+            lastPointUT = double.NaN;
+            if (traj == null || double.IsNaN(ut) || double.IsInfinity(ut))
+                return false;
+            if (ut > traj.EndUT + 1e-6)
+                return false;
+            return GhostPlaybackEngine.TryFindPredictedOrbitTailSlide(
+                traj, ut, out segment, out _, out lastPointUT);
+        }
+
+        /// <summary>Slide progress in [0, 1] across the gap. Pure.</summary>
+        internal static double ResolveTailSlideFraction(double lastPointUT, double startUT, double ut)
+        {
+            double duration = startUT - lastPointUT;
+            if (!(duration > 1e-9))
+                return 1.0;
+            double s = (ut - lastPointUT) / duration;
+            if (double.IsNaN(s) || s <= 0.0)
+                return 0.0;
+            return s >= 1.0 ? 1.0 : s;
+        }
+
+        /// <summary>Smoothstep weight for blending attitudes across the slide. Pure.</summary>
+        internal static double SmoothStep01(double s)
+        {
+            if (!(s > 0.0)) return 0.0;
+            if (s >= 1.0) return 1.0;
+            return s * s * (3.0 - 2.0 * s);
+        }
+
+        /// <summary>
+        /// Body-relative offset of the slide at fraction <paramref name="s"/>: from
+        /// <paramref name="r0"/> (moving at <paramref name="v0"/> when known) to
+        /// <paramref name="r1"/> (moving at <paramref name="v1"/> when known) over
+        /// <paramref name="durationSeconds"/>. False on degenerate input (non-finite, a radius
+        /// under 1 m, a non-positive duration, or opposite directions with no velocity to pick
+        /// the plane). Pure, allocation-free.
+        /// </summary>
+        internal static bool TryComputeTailSlideOffset(
+            Vector3d r0, Vector3d v0, bool hasV0,
+            Vector3d r1, Vector3d v1, bool hasV1,
+            double durationSeconds, double s, out Vector3d offset)
+        {
+            offset = Vector3d.zero;
+            if (!IsFiniteTailVector(r0) || !IsFiniteTailVector(r1))
+                return false;
+            if (!(durationSeconds > 1e-9) || double.IsInfinity(durationSeconds) || double.IsNaN(s))
+                return false;
+            hasV0 = hasV0 && IsFiniteTailVector(v0);
+            hasV1 = hasV1 && IsFiniteTailVector(v1);
+            double m0 = r0.magnitude;
+            double m1 = r1.magnitude;
+            if (!(m0 > 1.0) || !(m1 > 1.0))
+                return false;
+            if (s <= 0.0) { offset = r0; return true; }
+            if (s >= 1.0) { offset = r1; return true; }
+
+            Vector3d u0 = r0 / m0;
+            Vector3d u1 = r1 / m1;
+            double cos = Vector3d.Dot(u0, u1);
+            if (cos > 1.0) cos = 1.0;
+            else if (cos < -1.0) cos = -1.0;
+            double theta = System.Math.Acos(cos);
+
+            Vector3d w = u1 - u0 * cos;
+            double wMag = w.magnitude;
+            Vector3d t;
+            if (wMag > 1e-9)
+            {
+                t = w / wMag;
+            }
+            else
+            {
+                Vector3d p = hasV0 ? v0 - u0 * Vector3d.Dot(v0, u0) : Vector3d.zero;
+                double pMag = p.magnitude;
+                if (pMag > 1e-9)
+                    t = p / pMag;
+                else if (theta < 1e-6)
+                    t = Vector3d.zero;
+                else
+                    return false;
+            }
+
+            double w0 = hasV0 ? Vector3d.Dot(v0, t) / m0 : double.NaN;
+            Vector3d t1 = u0 * (-System.Math.Sin(theta)) + t * cos;
+            double w1 = hasV1 ? Vector3d.Dot(v1, t1) / m1 : double.NaN;
+            if (theta > 1e-6 && hasV0 && hasV1 && w0 < 0.0 && w1 < 0.0)
+            {
+                // Both ends move away from the short arc: the ghost went the long way round.
+                t = -t;
+                theta = 2.0 * System.Math.PI - theta;
+                w0 = -w0;
+                w1 = -w1;
+            }
+
+            double phi = MonotoneHermite(0.0, theta, w0 * durationSeconds, w1 * durationSeconds, s);
+            double rd0 = hasV0 ? Vector3d.Dot(v0, u0) * durationSeconds : double.NaN;
+            double rd1 = hasV1 ? Vector3d.Dot(v1, u1) * durationSeconds : double.NaN;
+            double radius = MonotoneHermite(m0, m1, rd0, rd1, s);
+
+            Vector3d dir = u0 * System.Math.Cos(phi) + t * System.Math.Sin(phi);
+            offset = dir * radius;
+            return IsFiniteTailVector(offset);
+        }
+
+        /// <summary>
+        /// Cubic Hermite from <paramref name="a"/> to <paramref name="b"/> with endpoint slopes
+        /// (per unit <paramref name="s"/>) limited so the curve stays monotone between the
+        /// ends (Fritsch-Carlson): a slope against the secant becomes 0, one over three times
+        /// the secant is capped there, and a missing (NaN) slope takes the secant. Pure.
+        /// </summary>
+        internal static double MonotoneHermite(double a, double b, double slopeA, double slopeB, double s)
+        {
+            double delta = b - a;
+            slopeA = LimitMonotoneSlope(slopeA, delta);
+            slopeB = LimitMonotoneSlope(slopeB, delta);
+            double s2 = s * s;
+            double s3 = s2 * s;
+            double h00 = 2.0 * s3 - 3.0 * s2 + 1.0;
+            double h10 = s3 - 2.0 * s2 + s;
+            double h01 = -2.0 * s3 + 3.0 * s2;
+            double h11 = s3 - s2;
+            return h00 * a + h10 * slopeA + h01 * b + h11 * slopeB;
+        }
+
+        private static double LimitMonotoneSlope(double slope, double delta)
+        {
+            if (System.Math.Abs(delta) <= 1e-12)
+                return 0.0;
+            if (double.IsNaN(slope) || double.IsInfinity(slope))
+                return delta;
+            if (slope * delta <= 0.0)
+                return 0.0;
+            double cap = 3.0 * delta;
+            return System.Math.Abs(slope) > System.Math.Abs(cap) ? cap : slope;
+        }
+
+        /// <summary>
+        /// World position of the slide: <paramref name="lastWorld"/> (and
+        /// <paramref name="previousWorld"/> <paramref name="previousDt"/> seconds earlier, for
+        /// the starting velocity, when <paramref name="hasPrevious"/>) around a body at
+        /// <paramref name="bodyPos"/>, sliding to the predicted path's start
+        /// <paramref name="startOffset"/> / <paramref name="startVelocity"/> (body-relative,
+        /// world axes). Pure.
+        /// </summary>
+        internal static bool TryComputeTailSlideWorldPosition(
+            Vector3d bodyPos,
+            Vector3d lastWorld, Vector3d previousWorld, bool hasPrevious, double previousDt,
+            Vector3d startOffset, Vector3d startVelocity,
+            double lastPointUT, double startUT, double ut,
+            out Vector3d worldPos, out double fraction)
+        {
+            worldPos = Vector3d.zero;
+            fraction = ResolveTailSlideFraction(lastPointUT, startUT, ut);
+            Vector3d v0 = Vector3d.zero;
+            bool hasV0 = hasPrevious && previousDt > 1e-9
+                && IsFiniteTailVector(previousWorld);
+            if (hasV0)
+                v0 = (lastWorld - previousWorld) / previousDt;
+            if (!TryComputeTailSlideOffset(
+                    lastWorld - bodyPos, v0, hasV0,
+                    startOffset, startVelocity, true,
+                    startUT - lastPointUT, fraction, out Vector3d offset))
+                return false;
+            worldPos = bodyPos + offset;
+            return IsFiniteTailVector(worldPos);
+        }
+
+        /// <summary>
+        /// Live: world position of the slide around <paramref name="body"/>, for the markers
+        /// (flight map, Tracking Station). <paramref name="bodyFixedShiftSeconds"/> is the
+        /// marker's phasing derotation of the recorded points (identity at 0).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static bool TryGetTailSlideWorldPosition(
+            IPlaybackTrajectory traj, OrbitSegment segment, CelestialBody body,
+            double lastPointUT, double ut, double bodyFixedShiftSeconds, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            if (body == null)
+                return false;
+            if (!TryGetTailSlideAnchorPoints(traj, segment,
+                    out TrajectoryPoint last, out TrajectoryPoint prev, out bool hasPrev))
+                return false;
+            if (!TryComputeTailWorldOffset(segment, body.gravParameter, segment.startUT,
+                    out Vector3d startOffset, out Vector3d startVelocity))
+                return false;
+            Vector3d lastWorld = body.GetWorldSurfacePosition(
+                last.latitude,
+                TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(last.longitude, bodyFixedShiftSeconds, body),
+                last.altitude);
+            Vector3d prevWorld = hasPrev
+                ? body.GetWorldSurfacePosition(
+                    prev.latitude,
+                    TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(prev.longitude, bodyFixedShiftSeconds, body),
+                    prev.altitude)
+                : Vector3d.zero;
+            return TryComputeTailSlideWorldPosition(
+                body.position, lastWorld, prevWorld, hasPrev, last.ut - prev.ut,
+                startOffset, startVelocity, lastPointUT, segment.startUT, ut,
+                out worldPos, out _);
+        }
+
+        // ---- Owner ruling R4b: a looped predicted crash turns with the planet ----
+        //
+        // A loop cycle replays its recording at a later UT. Recorded body-fixed points ride the
+        // planet, but an orbit tail is inertial: evaluated at the loop UT it sits where it was
+        // in space, so the planet has turned under it by the rotation between the recorded
+        // epoch and the playback epoch and the ghost hits the ground at a rotated spot (in the
+        // air or under the terrain). A predicted path that ends on the ground is turned with the
+        // planet by that rotation, so each repeat reaches the real crash site. The rotation is
+        // read from the body's own surface frame each frame (never cached across frames: the
+        // world frame turns with Planetarium.Zup) as the turn of the equator point at longitude
+        // 0 under TrajectoryMath.FrameTransform.ShiftLongitudeDegrees, the same longitude shift
+        // the phasing derotation uses. Orbiting tails are unchanged.
+
+        /// <summary>
+        /// True when <paramref name="segment"/> is part of a predicted path that ends on the
+        /// ground: the recording ended Destroyed, Landed or Splashed, the segment is predicted,
+        /// and the recording's final orbit segment is a predicted one around the same body. Pure.
+        /// </summary>
+        internal static bool IsGroundEndingPredictedTail(IPlaybackTrajectory traj, OrbitSegment segment)
+        {
+            if (traj == null || !segment.isPredicted)
+                return false;
+            TerminalState? terminal = traj.TerminalStateValue;
+            if (terminal != TerminalState.Destroyed
+                && terminal != TerminalState.Landed
+                && terminal != TerminalState.Splashed)
+                return false;
+            var segments = traj.OrbitSegments;
+            if (segments == null || segments.Count == 0)
+                return false;
+            int finalIdx = 0;
+            for (int i = 1; i < segments.Count; i++)
+            {
+                if (segments[i].endUT >= segments[finalIdx].endUT)
+                    finalIdx = i;
+            }
+            OrbitSegment final = segments[finalIdx];
+            return final.isPredicted
+                && string.Equals(final.bodyName, segment.bodyName, System.StringComparison.Ordinal);
+        }
+
+        /// <summary>Below this replay offset the tail is not turned (sub-millisecond noise).</summary>
+        internal const double TailPlanetTurnMinSeconds = 1e-3;
+
+        /// <summary>
+        /// The longitude shift (seconds of planet rotation, the
+        /// <see cref="TrajectoryMath.FrameTransform.ShiftLongitudeDegrees"/> argument) that turns
+        /// a ground-ending predicted tail replayed at <paramref name="playbackUT"/> into the
+        /// body-fixed frame it was recorded in: <c>playbackUT - currentUT</c> for a replay
+        /// (<paramref name="isReplay"/>), 0 otherwise or when the tail does not end on the
+        /// ground. <paramref name="bodyFixedShiftSeconds"/> is the replay's phasing derotation
+        /// of its recorded points (identity at 0), added so the turned tail stays on the points
+        /// it continues. Pure.
+        /// </summary>
+        internal static double ResolveTailPlanetTurnSeconds(
+            IPlaybackTrajectory traj, OrbitSegment segment, bool isReplay,
+            double playbackUT, double currentUT, double bodyFixedShiftSeconds = 0.0)
+        {
+            if (!isReplay)
+                return 0.0;
+            double offset = playbackUT - currentUT
+                + (double.IsNaN(bodyFixedShiftSeconds) || double.IsInfinity(bodyFixedShiftSeconds)
+                    ? 0.0 : bodyFixedShiftSeconds);
+            if (double.IsNaN(offset) || double.IsInfinity(offset)
+                || System.Math.Abs(offset) < TailPlanetTurnMinSeconds)
+                return 0.0;
+            return IsGroundEndingPredictedTail(traj, segment) ? offset : 0.0;
+        }
+
+        /// <summary>A rigid turn about the planet's spin axis through its centre.</summary>
+        internal struct TailPlanetTurn
+        {
+            public bool Active;
+            public Vector3d Axis;        // unit spin axis, world
+            public double AngleRad;      // signed, about Axis (right-hand rule on the standard cross)
+            public Quaternion Rotation;  // the same turn for attitudes and velocities
+
+            /// <summary>Turns a world position about the body centre. Pure.</summary>
+            public Vector3d Apply(Vector3d bodyPos, Vector3d worldPos)
+            {
+                if (!Active) return worldPos;
+                return bodyPos + RotateAboutAxis(worldPos - bodyPos, Axis, AngleRad);
+            }
+
+            /// <summary>The inverse of <see cref="Apply"/>. Pure.</summary>
+            public Vector3d Unapply(Vector3d bodyPos, Vector3d worldPos)
+            {
+                if (!Active) return worldPos;
+                return bodyPos + RotateAboutAxis(worldPos - bodyPos, Axis, -AngleRad);
+            }
+
+            /// <summary>Turns a world vector (a velocity). Pure.</summary>
+            public Vector3 ApplyVector(Vector3 v)
+            {
+                return Active ? TrajectoryMath.PureRotateVector(Rotation, v) : v;
+            }
+
+            /// <summary>Turns a world attitude. Pure.</summary>
+            public Quaternion ApplyRotation(Quaternion q)
+            {
+                return Active ? TrajectoryMath.PureMultiply(Rotation, q) : q;
+            }
+        }
+
+        /// <summary>Rodrigues rotation of <paramref name="v"/> about a unit axis. Pure.</summary>
+        internal static Vector3d RotateAboutAxis(Vector3d v, Vector3d unitAxis, double angleRad)
+        {
+            double c = System.Math.Cos(angleRad);
+            double s = System.Math.Sin(angleRad);
+            Vector3d cross = Vector3d.Cross(unitAxis, v);
+            double dot = Vector3d.Dot(unitAxis, v);
+            return v * c + cross * s + unitAxis * (dot * (1.0 - c));
+        }
+
+        /// <summary>
+        /// The signed angle (radians) that turns <paramref name="from"/> onto
+        /// <paramref name="to"/> about <paramref name="unitAxis"/>, measured in the plane normal
+        /// to the axis. Pure.
+        /// </summary>
+        internal static double SignedAngleAboutAxis(Vector3d from, Vector3d to, Vector3d unitAxis)
+        {
+            Vector3d a = from - unitAxis * Vector3d.Dot(from, unitAxis);
+            Vector3d b = to - unitAxis * Vector3d.Dot(to, unitAxis);
+            double sin = Vector3d.Dot(unitAxis, Vector3d.Cross(a, b));
+            double cos = Vector3d.Dot(a, b);
+            return System.Math.Atan2(sin, cos);
+        }
+
+        /// <summary>
+        /// Builds the turn from three body-relative world offsets the body's own surface frame
+        /// gives: its north pole, the equator point at longitude 0, and that point after the
+        /// longitude shift. Inactive when degenerate or the turn is below 1e-9 rad. Pure.
+        /// </summary>
+        internal static bool TryBuildTailPlanetTurn(
+            Vector3d poleOffset, Vector3d equatorOffset, Vector3d turnedEquatorOffset,
+            out TailPlanetTurn turn)
+        {
+            turn = default(TailPlanetTurn);
+            if (!IsFiniteTailVector(poleOffset) || !IsFiniteTailVector(equatorOffset)
+                || !IsFiniteTailVector(turnedEquatorOffset))
+                return false;
+            double poleMag = poleOffset.magnitude;
+            if (!(poleMag > 1e-6) || !(equatorOffset.magnitude > 1e-6))
+                return false;
+            Vector3d axis = poleOffset / poleMag;
+            double angle = SignedAngleAboutAxis(equatorOffset, turnedEquatorOffset, axis);
+            if (double.IsNaN(angle) || System.Math.Abs(angle) < 1e-9)
+                return false;
+            turn.Active = true;
+            turn.Axis = axis;
+            turn.AngleRad = angle;
+            turn.Rotation = TrajectoryMath.PureAngleAxis(
+                (float)(angle * (180.0 / System.Math.PI)), (Vector3)axis);
+            return true;
+        }
+
+        /// <summary>
+        /// Live: the planet turn for a longitude shift of <paramref name="shiftSeconds"/> around
+        /// <paramref name="body"/>, read from the body's surface frame this frame.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static bool TryResolveTailPlanetTurn(
+            CelestialBody body, double shiftSeconds, out TailPlanetTurn turn)
+        {
+            turn = default(TailPlanetTurn);
+            if (body == null || shiftSeconds == 0.0)
+                return false;
+            Vector3d center = body.position;
+            Vector3d pole = body.GetWorldSurfacePosition(90.0, 0.0, 0.0) - center;
+            Vector3d equator = body.GetWorldSurfacePosition(0.0, 0.0, 0.0) - center;
+            Vector3d turned = body.GetWorldSurfacePosition(
+                0.0, TrajectoryMath.FrameTransform.ShiftLongitudeDegrees(0.0, shiftSeconds, body), 0.0) - center;
+            return TryBuildTailPlanetTurn(pole, equator, turned, out turn);
         }
 
         private static bool IsFiniteTailVector(Vector3d v)
