@@ -108,11 +108,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: does the recording end in a prediction a takeover must drop? True for a
-        /// predicted crash (<see cref="Recording.TerminalPredicted"/>), for predicted orbit
-        /// segments past the last real sample, and for a terminal stamped well past the
-        /// last real sample. Never for Recovered / Docked / Boarded, which no prediction
-        /// writes.
+        /// Pure: does the recording end in a prediction a takeover must drop? Decided from
+        /// provenance: a predicted terminal (<see cref="Recording.TerminalPredicted"/>) or
+        /// predicted orbit segments past the last real sample. The one end-UT clue kept is a
+        /// Destroyed terminal stamped well past the last real sample (a background close that
+        /// kept a predicted crash UT with no segment; a confirmed crash leaves no vessel to take
+        /// over). A Landed / Splashed / Orbiting / SubOrbital end past the last sample is NOT a
+        /// prediction: the background recorder moves every member's explicit end to the commit
+        /// UT and a packed landed vessel records no samples, so a lander committed an hour after
+        /// touchdown carries an end an hour past its last sample. Never for Recovered / Docked /
+        /// Boarded, which no prediction writes.
         /// </summary>
         internal static bool HasPredictedEnding(Recording rec)
         {
@@ -126,9 +131,37 @@ namespace Parsek
                 return false;
             if (CountPredictedSegmentsPast(rec, lastRealUT) > 0)
                 return true;
-            return rec.TerminalStateValue.HasValue
+            return rec.TerminalStateValue == TerminalState.Destroyed
                 && IsFinite(rec.ExplicitEndUT)
                 && rec.ExplicitEndUT > lastRealUT + PredictedTerminalUTToleranceSeconds;
+        }
+
+        /// <summary>
+        /// Pure: did the takeover at <paramref name="takeoverUT"/> come at or after the end of
+        /// a predicted ending that leaves the vessel in the game (Landed, Splashed, Orbiting,
+        /// SubOrbital)? Then the replay reached that ending and spawned the vessel there (a chute
+        /// touchdown, a Q8 final orbit), so the predicted tail already happened in the replayed
+        /// timeline. A predicted crash never qualifies: a vessel alive after its predicted crash
+        /// UT means stock contradicted the prediction. <paramref name="predictedEndUT"/> is the
+        /// recording's end (its explicit end or its last payload, predicted data included).
+        /// </summary>
+        internal static bool IsTakeoverAfterPredictedEnd(
+            Recording rec, double takeoverUT, out double predictedEndUT)
+        {
+            predictedEndUT = double.NaN;
+            if (rec == null || !rec.TerminalStateValue.HasValue || !IsFinite(takeoverUT))
+                return false;
+            TerminalState terminal = rec.TerminalStateValue.Value;
+            if (terminal != TerminalState.Landed && terminal != TerminalState.Splashed
+                && terminal != TerminalState.Orbiting && terminal != TerminalState.SubOrbital)
+                return false;
+            double endUT = rec.EndUT;
+            if (!IsFinite(endUT) || endUT <= 0.0)
+                return false;
+            if (TryGetLastRealUT(rec, out double lastRealUT) && !(endUT > lastRealUT + UtEpsilon))
+                return false;
+            predictedEndUT = endUT;
+            return takeoverUT + UtEpsilon >= endUT;
         }
 
         /// <summary>
@@ -181,6 +214,8 @@ namespace Parsek
 
             bool hasLastReal = TryGetLastRealUT(rec, out double lastRealUT);
             result.LastRealUT = hasLastReal ? lastRealUT : double.NaN;
+            if (IsTakeoverAfterPredictedEnd(rec, takeoverUT, out double predictedEndUT))
+                return KeepPredictedTailForTakeoverAfterEnd(rec, takeoverUT, predictedEndUT, context, result);
             double cutUT = hasLastReal ? lastRealUT : takeoverUT;
             if (IsFinite(takeoverUT) && (!IsFinite(cutUT) || takeoverUT < cutUT))
                 cutUT = takeoverUT;
@@ -260,6 +295,77 @@ namespace Parsek
                         ? result.CoastMissMeters.ToString("F1", CultureInfo.InvariantCulture) : "NaN",
                     result.KeptCoastSegmentCount));
             return result;
+        }
+
+        /// <summary>
+        /// The takeover-after-the-end branch of <see cref="DropPredictedEndingForTakeover"/>
+        /// (<see cref="IsTakeoverAfterPredictedEnd"/>): the whole predicted tail stays and
+        /// becomes recorded history (every predicted segment loses <c>isPredicted</c>); only
+        /// the ending goes (terminal, predicted flag, terminal orbit and surface metadata, the
+        /// crew answer it decided), so the flight continues from the spawn and its commit
+        /// stamps the real ending. Logs one Info line.
+        /// </summary>
+        private static PredictedEndingDropResult KeepPredictedTailForTakeoverAfterEnd(
+            Recording rec, double takeoverUT, double predictedEndUT, string context,
+            PredictedEndingDropResult result)
+        {
+            result.CutUT = double.NaN;
+            result.KeptCoastSegmentCount = MarkWholePredictedTailRecorded(rec);
+            rec.StampTerminalState(null, "PredictedEndingTakeover.AfterEnd:" + (context ?? "(none)"));
+            result.TerminalCleared = true;
+            result.CrewEndStatesCleared = ClearDroppedEndingCrewAnswer(rec, result.PreviousTerminal);
+            rec.VesselDestroyed = false;
+            ClearTerminalOrbit(rec);
+            rec.TerminalPosition = null;
+            rec.TerrainHeightAtEnd = double.NaN;
+
+            RecordingEndpointResolver.RefreshEndpointDecision(
+                rec, "PredictedEndingTakeover", logDecision: false);
+            rec.MarkFilesDirty();
+
+            result.Dropped = false;
+            result.Reason = "takeover-after-predicted-end";
+            ParsekLog.Info(LogTag,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Predicted ending kept for takeover after its end: context={0} rec={1} vessel='{2}' pid={3} " +
+                    "takeoverUT={4} lastRealUT={5} predictedEndUT={6} keptSegments={7} previousTerminal={8} " +
+                    "previousTerminalPredicted={9} crewEndStatesCleared={10} (the replay reached the ending " +
+                    "and spawned the vessel; the flight continues from the spawn)",
+                    context ?? "(none)",
+                    rec.RecordingId ?? "(null)",
+                    rec.VesselName ?? "",
+                    rec.VesselPersistentId,
+                    FormatUT(takeoverUT),
+                    FormatUT(result.LastRealUT),
+                    FormatUT(predictedEndUT),
+                    result.KeptCoastSegmentCount,
+                    result.PreviousTerminal.HasValue ? result.PreviousTerminal.Value.ToString() : "null",
+                    result.PreviousTerminalPredicted ? "true" : "false",
+                    result.CrewEndStatesCleared ? "true" : "false"));
+            return result;
+        }
+
+        /// <summary>
+        /// Every predicted segment of <paramref name="rec"/> becomes recorded history (the
+        /// takeover-after-the-end branch). A predicted descent stored outside the orbit
+        /// segments is converted here too where that storage exists. Returns how many
+        /// segments it marked.
+        /// </summary>
+        private static int MarkWholePredictedTailRecorded(Recording rec)
+        {
+            if (rec?.OrbitSegments == null)
+                return 0;
+            int marked = 0;
+            for (int i = 0; i < rec.OrbitSegments.Count; i++)
+            {
+                OrbitSegment seg = rec.OrbitSegments[i];
+                if (!seg.isPredicted)
+                    continue;
+                seg.isPredicted = false;
+                rec.OrbitSegments[i] = seg;
+                marked++;
+            }
+            return marked;
         }
 
         /// <summary>
