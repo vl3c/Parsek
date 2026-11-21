@@ -934,6 +934,15 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     with the applied values and whether stock clamped them. OK `focus= pitch=
     #     heading= distance= pitchClamped= distanceClamped= frames= hold=`.
     "DumpMapGeometry", "MapCamera",
+    # ADDITIVE (62 -> 63 implemented, reserved unchanged at 4), the part ghost parity tool
+    # (docs/dev/design-part-ghost-parity.md section 7).
+    #   PartParitySweep label=<label> [op=reset|run] [filter=] [source=] [skins=] [views=]
+    #     [tile=] [shard=k/n] [limit=] [controls=] [maxSeconds=60..480], FLIGHT with an
+    #     orbiting active vessel, TWO-PHASE, 540 s: one time-boxed step of the sweep (real
+    #     one-part vessels spawned co-orbital, each beside its ghost, photographed and
+    #     removed; files under <KSP root>/parsek-partparity/<label>/). OK `label= done= next=
+    #     cases= complete= crashed= setupFaults= controls= wall=`.
+    "PartParitySweep",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1199,10 +1208,15 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # NewGame joins for LoadGame's reason: its terminal is gated on two scene loads and a save
 # written by CreateNewGame then re-read by the Space Center bootstrap, a whole world load,
 # and its 300 s budget sits under the cap.
+#
+# PartParitySweep joins for WarpToUT's reason: one step holds the FIFO head for minutes of
+# real time (waves of spawns, settles, renders and removals until its maxSeconds time box,
+# at most 480 s, ends), so its 540 s budget sits AT the cap and a spec's step budget must
+# stay under it (design-part-ghost-parity.md section 7).
 DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump",
                                         "EvaChuteDeploy", "StartLoopPlayback",
                                         "InvokeRewindToLaunch", "WarpToUT", "ReFlyRevert",
-                                        "NewGame")
+                                        "NewGame", "PartParitySweep")
 
 # Per-verb seam-side DISPATCH deferral budgets (seconds), mirroring the C#
 # DeferralBudget.BudgetSeconds table (TestCommands/TestCommandDispatcher.cs). A verb
@@ -1314,6 +1328,10 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # a FLIGHT bootstrap that reads no save off disk (the LaunchFromEditor size). Not a
     # DEFERRED_SEAM_VERB: no spec declares a budget over the cap for it.
     "RevertToLaunch": 180.0,
+    # DeferralBudget.PartParitySweepSeconds: the step's own maxSeconds time box (at most
+    # 480 s) plus the last wave's teardown and the case files' write. The WarpToUT size, at
+    # MAX_DEFERRED_STEP_BUDGET_SECONDS.
+    "PartParitySweep": 540.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -1585,6 +1603,12 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # which `inert` ("reads state or stamps the log") does not cover. The fail-safe
     # direction costs nothing: the UNMET tail skips both roles.
     "MapCamera": TAIL_ROLE_WORLD_MUTATING,
+    # PartParitySweep is WORLD-MUTATING, NOT inert, for PickUpFlag's reason and more
+    # strongly: it SPAWNS real vessels into the game, moves and destroys them, and writes
+    # the sweep files. `inert` ("reads state or stamps the log, never changes the game")
+    # cannot hold for a verb whose whole step is a sequence of vessel spawns and removals,
+    # and the C# NonMutatingVerbs list leaves it out for the same fact.
+    "PartParitySweep": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1821,6 +1845,10 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # in-world state.
     "DumpMapGeometry": POST_MISSION_ROLE_RECORDING,
     "MapCamera": POST_MISSION_ROLE_RECORDING,
+    # PartParitySweep is `recording` for DumpMapGeometry's reason: its OK means "a sweep step
+    # wrote N case files", a statement about instrumentation and Parsek's ghosts, never a
+    # kerbal's in-world state.
+    "PartParitySweep": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -5151,6 +5179,176 @@ def validate_map_camera_step(index: int, step_args: Dict) -> List[str]:
     return errors
 
 
+# PartParitySweep: mirrored from TestCommands/TestCommandPartParitySweep.cs and
+# TestCommandPartParitySweepCompletion.cs (PartParitySweepSourceSyncTests, comment-stripped).
+# Contract: docs/dev/design-part-ghost-parity.md section 7. `op` is UiAction's
+# VERB_SCOPED_CLOSED_ARGS row, so validate_spec skips the table's owner check for this
+# verb's own keys and validate_part_parity_sweep_step checks every value here, in the C#
+# parse order. Every present arg that does not parse is a typed REJECTED (never clamped):
+# a widened sweep would overrun its step budget, a narrowed one would read as complete.
+PARTPARITY_VERB = "PartParitySweep"
+PARTPARITY_ARG_KEYS: Tuple[str, ...] = (
+    "label", "op", "filter", "source", "skins", "views", "tile", "shard", "limit",
+    "controls", "maxSeconds",
+)
+PARTPARITY_OP_VALUES: Tuple[str, ...] = ("reset", "run")
+PARTPARITY_SKINS_VALUES: Tuple[str, ...] = ("default", "all")
+PARTPARITY_CONTROLS_VALUES: Tuple[str, ...] = ("true", "false")
+PARTPARITY_VIEWS_TOKENS: Tuple[str, ...] = ("required", "all")
+PARTPARITY_VIEW_VALUES: Tuple[str, ...] = (
+    "side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero",
+)
+PARTPARITY_TILE_RANGE: Tuple[int, int] = (256, 1024)
+PARTPARITY_MAX_SECONDS_RANGE: Tuple[int, int] = (60, 480)
+PARTPARITY_LIMIT_RANGE: Tuple[int, int] = (1, 100000)
+PARTPARITY_MAX_SHARDS = 64
+PARTPARITY_MAX_FILTER_LENGTH = 128
+# The C# default when maxSeconds= is absent (DefaultMaxSeconds).
+PARTPARITY_DEFAULT_MAX_SECONDS = 480
+PARTPARITY_REASONS: Tuple[str, ...] = (
+    "label-arg-missing", "label-arg-invalid", "op-arg-invalid",
+    "filter-arg-invalid", "source-arg-invalid", "skins-arg-invalid",
+    "views-arg-invalid", "tile-arg-invalid", "shard-arg-invalid",
+    "limit-arg-invalid", "controls-arg-invalid", "maxseconds-arg-invalid",
+    "no-active-vessel", "host-not-orbiting",
+)
+# Post-act terminals (ERROR): the step ran and failed or hung. NOT mapped to a refusal
+# subkind (nothing was refused; the runner may already have spawned vessels).
+PARTPARITY_ERROR_REASONS: Tuple[str, ...] = ("partparity-step-failed", "partparity-timeout")
+# The literal the capture engine's per-step summary Info line carries (design 11
+# "Logging"); a lane's logContract anchors on it.
+PARTPARITY_STEP_LINE_LITERAL = "PartParity step"
+_PARTPARITY_DECIMAL_RE = re.compile(r"[0-9]+")
+_PARTPARITY_ID_CHARS_RE = re.compile(r"[A-Za-z0-9._-]+")
+_PARTPARITY_FILTER_RE = re.compile(r"[A-Za-z0-9._*?-]+")
+
+
+def _partparity_int_in_range(text: str, lo: int, hi: int) -> bool:
+    """TestCommandPartParitySweep.TryParseIntInRange: ASCII digits only (no sign, no
+    whitespace), within [lo, hi]."""
+    return bool(_PARTPARITY_DECIMAL_RE.fullmatch(text)) and lo <= int(text) <= hi
+
+
+def _partparity_shard_ok(text: str) -> bool:
+    """TryParseShard: ``k/n``, exactly one slash not at the start, 1 <= n <= 64, 1 <= k <= n."""
+    slash = text.find("/")
+    if slash <= 0 or slash != text.rfind("/"):
+        return False
+    n_text, k_text = text[slash + 1:], text[:slash]
+    if not _partparity_int_in_range(n_text, 1, PARTPARITY_MAX_SHARDS):
+        return False
+    return _partparity_int_in_range(k_text, 1, int(n_text))
+
+
+def _partparity_source_ok(text: str) -> bool:
+    """TryParseSourceCsv: a non-empty csv, every item non-empty and ``[A-Za-z0-9._-]``."""
+    if not text:
+        return False
+    return all(item and _PARTPARITY_ID_CHARS_RE.fullmatch(item) for item in text.split(","))
+
+
+def _partparity_views_ok(text: str) -> bool:
+    """TryParseViews: ``required``, ``all``, or a csv of known view names."""
+    if text in PARTPARITY_VIEWS_TOKENS:
+        return True
+    if not text:
+        return False
+    return all(item in PARTPARITY_VIEW_VALUES for item in text.split(","))
+
+
+def _partparity_filter_ok(text: str) -> bool:
+    """IsValidFilter: 1..128 chars of ``[A-Za-z0-9._-]`` plus the wildcards ``*`` / ``?``."""
+    return (0 < len(text) <= PARTPARITY_MAX_FILTER_LENGTH
+            and bool(_PARTPARITY_FILTER_RE.fullmatch(text)))
+
+
+def validate_part_parity_sweep_step(index: int, step_args: Dict,
+                                    budget: Optional[Any] = None) -> List[str]:
+    """Pre-launch shape checks for one ``PartParitySweep`` step, the C# parse order.
+
+    ``label=`` is REQUIRED and filename-safe (CaptureScreenshot's rule, which the C#
+    delegates to); every other arg is optional and, when present, must parse exactly as
+    ``TestCommandPartParitySweep.TryParseArgs`` parses it: ``op`` reset|run, ``filter`` a
+    1..128-char glob of ``[A-Za-z0-9._-*?]``, ``source`` a csv of ``[A-Za-z0-9._-]`` names,
+    ``skins`` default|all, ``views`` required|all|a csv of view names, ``tile`` 256..1024,
+    ``shard`` k/n (n <= 64), ``limit`` 1..100000, ``controls`` true|false, ``maxSeconds``
+    60..480. No other key is read. When an ``op=run`` step (the default op) declares a
+    ``budget`` it must cover the step's time box (``maxSeconds``, 480 when absent; an
+    ``op=reset`` step only clears the label directory); the 540 s cap is validate_spec's
+    DEFERRED_SEAM_VERBS rule. A value carrying a ``${step.field}`` handle in an open arg
+    is resolved at run time, so its shape is not judged here; the closed args (op, skins,
+    controls) stay fail-closed."""
+    errors: List[str] = []
+    v = PARTPARITY_VERB
+
+    raw = step_args.get(CAPTURE_LABEL_KEY)
+    if raw is None:
+        errors.append(
+            "driver.steps[%d].args.%s: %s REQUIRES it - the label names the sweep "
+            "directory and the verb has no default, so the seam answers REJECTED "
+            "label-arg-missing" % (index, CAPTURE_LABEL_KEY, v))
+    else:
+        text = handle_shape_probe(raw)
+        if text is not None and (not _CAPTURE_LABEL_RE.fullmatch(text)
+                                 or len(text) > CAPTURE_LABEL_MAX_LENGTH):
+            errors.append(
+                "driver.steps[%d].args.%s: %r is not filename-safe (CaptureScreenshot's "
+                "label rule, max %d chars); the seam answers REJECTED label-arg-invalid"
+                % (index, CAPTURE_LABEL_KEY, text, CAPTURE_LABEL_MAX_LENGTH))
+
+    def closed(key, values, reason):
+        if key in step_args and str(step_args.get(key)) not in values:
+            errors.append(
+                "driver.steps[%d].args.%s: %r must be one of %s (case-sensitive string); "
+                "the seam answers REJECTED %s"
+                % (index, key, step_args.get(key), " or ".join(repr(x) for x in values),
+                   reason))
+
+    def shaped(key, ok, what, reason):
+        if key not in step_args:
+            return
+        text = handle_shape_probe(step_args.get(key))
+        if text is not None and not ok(text):
+            errors.append("driver.steps[%d].args.%s: %r must be %s; the seam answers "
+                          "REJECTED %s" % (index, key, text, what, reason))
+
+    closed("op", PARTPARITY_OP_VALUES, "op-arg-invalid")
+    shaped("filter", _partparity_filter_ok,
+           "a 1..%d-char glob of [A-Za-z0-9._-] plus * and ?" % PARTPARITY_MAX_FILTER_LENGTH,
+           "filter-arg-invalid")
+    shaped("source", _partparity_source_ok,
+           "a csv of [A-Za-z0-9._-] source names with no empty item", "source-arg-invalid")
+    closed("skins", PARTPARITY_SKINS_VALUES, "skins-arg-invalid")
+    shaped("views", _partparity_views_ok,
+           "'required', 'all' or a csv of %s" % ", ".join(PARTPARITY_VIEW_VALUES),
+           "views-arg-invalid")
+    shaped("tile", lambda t: _partparity_int_in_range(t, *PARTPARITY_TILE_RANGE),
+           "an integer %d..%d" % PARTPARITY_TILE_RANGE, "tile-arg-invalid")
+    shaped("shard", _partparity_shard_ok,
+           "k/n with 1 <= k <= n <= %d" % PARTPARITY_MAX_SHARDS, "shard-arg-invalid")
+    shaped("limit", lambda t: _partparity_int_in_range(t, *PARTPARITY_LIMIT_RANGE),
+           "an integer %d..%d" % PARTPARITY_LIMIT_RANGE, "limit-arg-invalid")
+    closed("controls", PARTPARITY_CONTROLS_VALUES, "controls-arg-invalid")
+    shaped("maxSeconds", lambda t: _partparity_int_in_range(t, *PARTPARITY_MAX_SECONDS_RANGE),
+           "an integer %d..%d" % PARTPARITY_MAX_SECONDS_RANGE, "maxseconds-arg-invalid")
+
+    if (isinstance(budget, (int, float)) and not isinstance(budget, bool)
+            and str(step_args.get("op", "run")) == "run"):
+        box_text = handle_shape_probe(step_args.get("maxSeconds", PARTPARITY_DEFAULT_MAX_SECONDS))
+        if box_text is not None and _PARTPARITY_DECIMAL_RE.fullmatch(box_text):
+            if budget < int(box_text):
+                errors.append(
+                    "driver.steps[%d].budget: %r is below the step's own time box "
+                    "(maxSeconds=%s); the step would be waited on for less than it runs"
+                    % (index, budget, box_text))
+
+    extra = sorted(str(k) for k in step_args if k not in PARTPARITY_ARG_KEYS)
+    if extra:
+        errors.append("driver.steps[%d].args: %s reads only %s, so %s would be silently "
+                      "ignored" % (index, v, ", ".join(PARTPARITY_ARG_KEYS), ", ".join(extra)))
+    return errors
+
+
 def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
     """Pre-launch shape checks for one ``UiAction`` step.
 
@@ -8145,6 +8343,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             # for op=pointer's true/false); validate_map_camera_step checks it.
             if cmd == MAPCAMERA_VERB and arg_key in MAPCAMERA_KEYS:
                 continue
+            # PartParitySweep reads its own `op=` (reset|run; UiAction owns the table row);
+            # validate_part_parity_sweep_step checks it.
+            if cmd == PARTPARITY_VERB and arg_key in PARTPARITY_ARG_KEYS:
+                continue
             if cmd != owner_verb:
                 errors.append(
                     "driver.steps[%d].args.%s: only the %s verb reads it, but this "
@@ -8182,6 +8384,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_dump_map_geometry_step(i, step_args))
         elif cmd == MAPCAMERA_VERB:
             errors.extend(validate_map_camera_step(i, step_args))
+        elif cmd == PARTPARITY_VERB:
+            errors.extend(validate_part_parity_sweep_step(i, step_args, step.get("budget")))
         elif cmd == STOCKSCREEN_VERB:
             errors.extend(validate_stock_screen_step(i, step_args))
         elif cmd == EDITORROUTE_GO_VERB:
@@ -12836,6 +13040,21 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "mapcamera-hold-out-of-range": "driver-arg",
     "map-view-closed": "driver-gate",
     "not-in-map-scene": "driver-gate",
+    # PartParitySweep (PartParitySweepSourceSyncTests): the arg spellings are the SPEC's
+    # fault; a FLIGHT with no active vessel, or one not in a stable orbit, is a live state
+    # the sweep does not spawn around. Its label refusals are CaptureScreenshot's tokens and
+    # stay unmapped like theirs, and so does `op-arg-invalid`, UiAction's token (one reason
+    # string, one classification for both verbs).
+    "filter-arg-invalid": "driver-arg",
+    "source-arg-invalid": "driver-arg",
+    "skins-arg-invalid": "driver-arg",
+    "views-arg-invalid": "driver-arg",
+    "tile-arg-invalid": "driver-arg",
+    "shard-arg-invalid": "driver-arg",
+    "limit-arg-invalid": "driver-arg",
+    "controls-arg-invalid": "driver-arg",
+    "maxseconds-arg-invalid": "driver-arg",
+    "host-not-orbiting": "driver-gate",
     # NewGame: the six arg refusals are the spec's fault; the rest are a live state the new
     # game would not start from (the wrong scene, another save loaded, stock's main-menu
     # lock, Parsek state a lane must resolve first) (NewGameSourceSyncTests).
@@ -13582,11 +13801,15 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "edit-commit-arg-invalid",
     "edit-field-arg-missing", "edit-key-arg-missing", "expand-key-arg-missing",
     "exittospacecenter-quitwithoutsaving-arg-invalid",
-    "factor-arg-invalid", "find-ctrl-arg-invalid", "find-index-arg-invalid",
+    "factor-arg-invalid", "filter-arg-invalid", "find-ctrl-arg-invalid",
+    "find-index-arg-invalid",
     "find-text-arg-missing", "focus-pid-arg-invalid", "focus-pid-scene-conflict",
     "goeditor-craft-arg-invalid",
     "goeditor-facility-arg-invalid", "goeditor-facility-arg-missing",
     "index-arg-invalid", "interval-arg-invalid", "isolated-arg-invalid",
+    "controls-arg-invalid", "limit-arg-invalid", "maxseconds-arg-invalid",
+    "shard-arg-invalid", "skins-arg-invalid", "source-arg-invalid", "tile-arg-invalid",
+    "views-arg-invalid",
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
     "loop-arg-invalid",

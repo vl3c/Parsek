@@ -324,6 +324,9 @@ namespace Parsek.TestCommands
         // value) -----
         void DumpMapGeometry(ParsedCommand cmd);
         void MapCamera(ParsedCommand cmd);
+        // ----- PartParitySweep (one time-boxed step of the part ghost parity capture: real
+        // one-part vessels and their ghosts photographed side by side) -----
+        void PartParitySweep(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -760,6 +763,10 @@ namespace Parsek.TestCommands
                 // camera settles within a second or two of its stock lerp.
                 ["DumpMapGeometry"] = VerbSceneRequirement.RequiresMapScene,
                 ["MapCamera"] = VerbSceneRequirement.RequiresMapScene,
+                // PartParitySweep: FLIGHT; the orbiting-host check is the executor's typed
+                // REJECTED (no-active-vessel / host-not-orbiting), because the dispatch state
+                // carries no vessel situation.
+                ["PartParitySweep"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -1343,6 +1350,14 @@ namespace Parsek.TestCommands
         /// scene loads and a save written then parsed: the LoadGame size (300 s).</summary>
         internal const double NewGameSeconds = 300.0;
 
+        /// <summary>PartParitySweep: one sweep step. The runner time-boxes itself to the
+        /// step's <c>maxSeconds</c> (at most 480 s) and only starts a wave it expects to
+        /// finish inside the box, so the step ends before this; the 60 s over the largest
+        /// box covers the last wave's teardown (every ghost destroyed, every spawned vessel
+        /// gone) and the case files' write. 540 s is the harness's deferred-step cap
+        /// (hlib MAX_DEFERRED_STEP_BUDGET_SECONDS), the WarpToUT size.</summary>
+        internal const double PartParitySweepSeconds = 540.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -1400,6 +1415,8 @@ namespace Parsek.TestCommands
                     return RevertToLaunchSeconds;
                 case "NewGame":
                     return NewGameSeconds;
+                case "PartParitySweep":
+                    return PartParitySweepSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate). SimulateStockSwitchClick rides it too: it is
                 // SINGLE-phase (the switch and its consume are synchronous inside
