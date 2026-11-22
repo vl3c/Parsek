@@ -442,34 +442,13 @@ namespace Parsek
                     suppressedImmediateParentExitBodyName,
                     suppressedImmediateUT);
 
-                double localCutoffSearchEndUT = horizonUT;
-                if (parentExit.HasValue)
-                    localCutoffSearchEndUT = Math.Min(localCutoffSearchEndUT, parentExit.Value.UT);
-                if (orbit.IsElliptic && !double.IsInfinity(orbit.Period))
-                    localCutoffSearchEndUT = Math.Min(localCutoffSearchEndUT, currentState.ut + orbit.Period);
-
-                EventCandidate? localCutoff = FindLocalCutoff(
+                EventCandidate? localCutoff = FindLocalCutoffWithLaterPasses(
                     orbit,
                     currentBody,
                     currentState.ut,
-                    localCutoffSearchEndUT,
+                    horizonUT,
+                    parentExit,
                     ref result.failureReason);
-
-                if (!localCutoff.HasValue
-                    && orbit.IsElliptic
-                    && !double.IsInfinity(orbit.Period)
-                    && localCutoffSearchEndUT < Math.Min(horizonUT, parentExit.HasValue ? parentExit.Value.UT : horizonUT))
-                {
-                    // A closed conic repeats, but the body turns under it: a low point among
-                    // the peaks that missed the ground on the first pass can meet a mountain
-                    // on a later one.
-                    localCutoff = FindLaterPassTerrainImpact(
-                        orbit,
-                        currentBody,
-                        currentState.ut,
-                        parentExit.HasValue ? Math.Min(horizonUT, parentExit.Value.UT) : horizonUT,
-                        ref result.failureReason);
-                }
 
                 double childSearchEndUT = horizonUT;
                 if (parentExit.HasValue)
@@ -480,22 +459,13 @@ namespace Parsek
                 // Owner ruling Q8: a stable conic is the flight's final orbit unless a child
                 // sphere is entered within one period; an open conic around a body with no
                 // parent (the Sun) is final unless a child sphere is entered before the horizon.
-                bool stableFinalCandidate = stopOnFinalConic
-                    && !parentExit.HasValue
-                    && !localCutoff.HasValue
-                    && orbit.IsElliptic
-                    && IsStableFinalConicShape(
-                        orbit.Eccentricity,
-                        orbit.PeriapsisRadius,
-                        orbit.ApoapsisRadius,
-                        orbit.Period,
-                        currentBody);
-                bool finalEscapeCandidate = stopOnFinalConic
-                    && !stableFinalCandidate
-                    && !parentExit.HasValue
-                    && !localCutoff.HasValue
-                    && !orbit.IsElliptic
-                    && string.IsNullOrEmpty(currentBody.ParentBodyName);
+                ClassifyFinalConicCandidate(
+                    stopOnFinalConic,
+                    parentExit.HasValue || localCutoff.HasValue,
+                    orbit,
+                    currentBody,
+                    out bool stableFinalCandidate,
+                    out bool finalEscapeCandidate);
                 if (stableFinalCandidate)
                     childSearchEndUT = Math.Min(childSearchEndUT, currentState.ut + orbit.Period);
 
@@ -511,41 +481,14 @@ namespace Parsek
 
                 if ((stableFinalCandidate || finalEscapeCandidate) && !childEntry.HasValue)
                 {
-                    double settleEndUT = Math.Min(
+                    EndOnFinalConic(
+                        ref result,
+                        orbit,
+                        currentBody,
+                        currentState,
                         horizonUT,
-                        currentState.ut + ResolveFinalConicSettleSeconds(
-                            stableFinalCandidate ? orbit.Period : double.NaN));
-                    if (settleEndUT > currentState.ut)
-                    {
-                        result.segments.Add(CreateSegment(
-                            orbit,
-                            currentBody.Name,
-                            currentState.ut,
-                            settleEndUT,
-                            currentState.orbitalFrameRotation));
-                    }
-
-                    orbit.GetStateAtUT(settleEndUT, out Vector3d finalPosition, out Vector3d finalVelocity);
-                    result.terminalState = stableFinalCandidate ? TerminalState.Orbiting : TerminalState.SubOrbital;
-                    result.terminalUT = settleEndUT;
-                    result.terminalBodyName = currentBody.Name;
-                    result.terminalPosition = finalPosition;
-                    result.terminalVelocity = finalVelocity;
-                    result.endedOnFinalConic = true;
-                    result.finalConicStartUT = currentState.ut;
-                    ParsekLog.Info(LogTag, string.Format(
-                        CultureInfo.InvariantCulture,
-                        "Terminal reason={0}: body={1} enteredUT={2:F3} ut={3:F3} ecc={4:F5} sma={5:F1} " +
-                        "periapsisAlt={6:F1} floor={7:F1} soiTransitions={8}",
-                        stableFinalCandidate ? TerminalReasonStableConic : TerminalReasonFinalEscape,
-                        currentBody.Name,
-                        currentState.ut,
-                        settleEndUT,
-                        orbit.Eccentricity,
-                        orbit.SemiMajorAxis,
-                        orbit.PeriapsisRadius - currentBody.Radius,
-                        currentBody.PeriapsisFloorAltitude,
-                        soiTransitions));
+                        stableFinalCandidate,
+                        soiTransitions);
                     return result;
                 }
 
@@ -761,6 +704,123 @@ namespace Parsek
                 horizonUT,
                 soiTransitions));
             return result;
+        }
+
+        /// <summary>
+        /// The first surface or deletion event on this conic: the first pass (up to one period,
+        /// the parent exit or the horizon), then, on a closed conic that missed, the later passes
+        /// up to the parent exit or the horizon. A closed conic repeats, but the body turns under
+        /// it: a low point among the peaks that missed the ground on the first pass can meet a
+        /// mountain on a later one.
+        /// </summary>
+        private static EventCandidate? FindLocalCutoffWithLaterPasses(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody currentBody,
+            double startUT,
+            double horizonUT,
+            EventCandidate? parentExit,
+            ref ExtrapolationFailureReason failureReason)
+        {
+            double searchLimitUT = parentExit.HasValue ? Math.Min(horizonUT, parentExit.Value.UT) : horizonUT;
+            bool closedConic = orbit.IsElliptic && !double.IsInfinity(orbit.Period);
+            double firstPassEndUT = closedConic ? Math.Min(searchLimitUT, startUT + orbit.Period) : searchLimitUT;
+
+            EventCandidate? localCutoff = FindLocalCutoff(
+                orbit,
+                currentBody,
+                startUT,
+                firstPassEndUT,
+                ref failureReason);
+
+            if (!localCutoff.HasValue && closedConic && firstPassEndUT < searchLimitUT)
+            {
+                localCutoff = FindLaterPassTerrainImpact(
+                    orbit,
+                    currentBody,
+                    startUT,
+                    searchLimitUT,
+                    ref failureReason);
+            }
+            return localCutoff;
+        }
+
+        /// <summary>
+        /// Owner ruling Q8: a stable conic is the flight's final orbit unless a child sphere is
+        /// entered within one period; an open conic around a body with no parent (the Sun) is
+        /// final unless a child sphere is entered before the horizon.
+        /// </summary>
+        private static void ClassifyFinalConicCandidate(
+            bool stopOnFinalConic,
+            bool hasEarlierEvent,
+            TwoBodyOrbit orbit,
+            ExtrapolationBody currentBody,
+            out bool stableFinal,
+            out bool finalEscape)
+        {
+            bool eligible = stopOnFinalConic && !hasEarlierEvent;
+            stableFinal = eligible
+                && orbit.IsElliptic
+                && IsStableFinalConicShape(
+                    orbit.Eccentricity,
+                    orbit.PeriapsisRadius,
+                    orbit.ApoapsisRadius,
+                    orbit.Period,
+                    currentBody);
+            finalEscape = eligible
+                && !stableFinal
+                && !orbit.IsElliptic
+                && string.IsNullOrEmpty(currentBody.ParentBodyName);
+        }
+
+        /// <summary>
+        /// Ends the extrapolation on its final conic: one segment over the settle span
+        /// (<see cref="FinalConicSettleSeconds"/>), then Orbiting for a stable conic or
+        /// SubOrbital for an open one around a body with no parent.
+        /// </summary>
+        private static void EndOnFinalConic(
+            ref ExtrapolationResult result,
+            TwoBodyOrbit orbit,
+            ExtrapolationBody currentBody,
+            BallisticStateVector currentState,
+            double horizonUT,
+            bool stableFinal,
+            int soiTransitions)
+        {
+            double settleEndUT = Math.Min(
+                horizonUT,
+                currentState.ut + ResolveFinalConicSettleSeconds(
+                    stableFinal ? orbit.Period : double.NaN));
+            if (settleEndUT > currentState.ut)
+            {
+                result.segments.Add(CreateSegment(
+                    orbit,
+                    currentBody.Name,
+                    currentState.ut,
+                    settleEndUT,
+                    currentState.orbitalFrameRotation));
+            }
+
+            orbit.GetStateAtUT(settleEndUT, out Vector3d finalPosition, out Vector3d finalVelocity);
+            result.terminalState = stableFinal ? TerminalState.Orbiting : TerminalState.SubOrbital;
+            result.terminalUT = settleEndUT;
+            result.terminalBodyName = currentBody.Name;
+            result.terminalPosition = finalPosition;
+            result.terminalVelocity = finalVelocity;
+            result.endedOnFinalConic = true;
+            result.finalConicStartUT = currentState.ut;
+            ParsekLog.Info(LogTag, string.Format(
+                CultureInfo.InvariantCulture,
+                "Terminal reason={0}: body={1} enteredUT={2:F3} ut={3:F3} ecc={4:F5} sma={5:F1} " +
+                "periapsisAlt={6:F1} floor={7:F1} soiTransitions={8}",
+                stableFinal ? TerminalReasonStableConic : TerminalReasonFinalEscape,
+                currentBody.Name,
+                currentState.ut,
+                settleEndUT,
+                orbit.Eccentricity,
+                orbit.SemiMajorAxis,
+                orbit.PeriapsisRadius - currentBody.Radius,
+                currentBody.PeriapsisFloorAltitude,
+                soiTransitions));
         }
 
         internal static bool HasOrbitalFrameRotation(Quaternion orbitalFrameRotation)
