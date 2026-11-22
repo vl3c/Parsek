@@ -112,7 +112,7 @@ ENDPOINT_KEYS: Tuple[str, ...] = ("field", "value")
 STATE_EVENT_KEYS: Tuple[str, ...] = ("type", "ut", "pid", "midx")
 START_FIRST_FRAME_KEYS: Tuple[str, ...] = ("atTarget", "trackerDeg")
 SUN_TRACKER_KEYS: Tuple[str, ...] = ("targetDeg", "eventDeg", "startFirstFrameDeg")
-CANOPY_KEYS: Tuple[str, ...] = ("tiltDeg", "wobbleDeg")
+CANOPY_KEYS: Tuple[str, ...] = ("tiltDeg", "wobbleDeg", "transform")
 CONTEXT_NODE_KEYS: Tuple[str, ...] = ("node", "part")
 STRUCTURE_KEYS: Tuple[str, ...] = (
     "realRenderers", "ghostRenderers", "pairs", "missingOnGhost", "extraOnGhost",
@@ -610,8 +610,8 @@ CANOPY_ROTATION_MARGIN_DEG = 1.0
 CANOPY_WINDOW_DEG = 3.0
 CANOPY_ROTATION_CEILING_DEG = CANOPY_WINDOW_DEG + CANOPY_ROTATION_MARGIN_DEG
 # stateProof.canopy's canopy transform name (ModuleParachute.canopyName), written by the
-# air context (S7). Not yet in PartParityJson.CanopyKeys / CANOPY_KEYS: an additive key
-# S7 adds on both sides; until a sidecar carries it, no air case is capped.
+# air context (S7) and listed in PartParityJson.CanopyKeys / CANOPY_KEYS; a sidecar whose
+# value is null or empty is never capped.
 CANOPY_TRANSFORM_KEY = "transform"
 REASON_CANOPY_AIRFLOW = "canopy-airflow:picture differences capped at warn"
 # PartParityStructure.PositionToleranceM / ScaleTolerancePct: a transformDiffers entry

@@ -111,6 +111,24 @@ namespace Parsek.TestCommands
         /// <summary>Four atlas rows (a state case) or two (the stacked stowed context case).</summary>
         internal bool FourRows;
 
+        // ----- the air context (D.4, PartParityAirContext) -----
+
+        /// <summary>A chute case in the air (context <c>air</c>).</summary>
+        internal bool Air;
+
+        /// <summary>The full case raised its <c>deployAltitude</c> after the semi done.</summary>
+        internal bool FullRaised;
+        internal double? SemiDoneSeconds;
+
+        /// <summary>When the case was done (the canopy window starts there).</summary>
+        internal float CanopyDoneRealtime;
+        internal double? CanopyTiltDeg;
+        internal double? CanopyWobbleDeg;
+        internal string CanopyTransform;
+
+        /// <summary><c>canopy-wobble:&lt;deg&gt;</c> when the window's cap forced the capture.</summary>
+        internal string CanopyWobbleTag;
+
         /// <summary>The per-vessel containers the shared pollers keep beside the tracking sets.</summary>
         internal sealed class PollScratch
         {
@@ -208,6 +226,7 @@ namespace Parsek.TestCommands
                 DropEvents = dropEvents,
                 SunTracker = entry != null && HasSunTracker(entry.Info),
                 FourRows = TestCommandPartParitySweep.IsStateCase(key),
+                Air = key.Context == PartParityStateRules.ContextAir,
             };
             return run;
         }
@@ -499,6 +518,7 @@ namespace Parsek.TestCommands
             if (run.Pressed) Poll(wc.Real, run);
             run.FramesSincePress++;
             bool animating = AnyAnimationPlaying(part);
+            if (run.Air && run.Pressed) PartParityAirContext.StepFull(wc, run, part, now, animating);
             if (!run.Reached)
             {
                 PartParityStateObservation o = Observe(part, run.Option, out string field, out string value);
@@ -1246,6 +1266,8 @@ namespace Parsek.TestCommands
                 StartFirstFrameTrackerDeg = run.SunStartFirstFrameDeg,
                 SunTargetDeg = run.SunTargetDeg, SunEventDeg = run.SunEventDeg,
                 SunStartFirstFrameDeg = run.SunStartFirstFrameDeg,
+                CanopyTiltDeg = run.CanopyTiltDeg, CanopyWobbleDeg = run.CanopyWobbleDeg,
+                CanopyTransform = run.CanopyTransform,
                 Nodes = run.Nodes.Count > 0 ? new List<PartParityContextNode>(run.Nodes) : null,
             };
             s.StructureStart = run.StructureStart;
@@ -1258,6 +1280,7 @@ namespace Parsek.TestCommands
                 GhostEvent = run.GhostEvent, GhostStart = run.GhostStart,
                 StartFirstFrameAtTarget = run.StartFirstFrameAtTarget, SunFirstFrameDeltaDeg = sunDelta,
                 StillTracking = run.StillTracking, ContextHidden = run.ContextHidden, DebrisHidden = run.DebrisHidden,
+                CanopyWobbleTag = run.CanopyWobbleTag,
             }))
                 if (!s.Flags.Contains(f)) s.Flags.Add(f);
             ParsekLog.Verbose(Tag, PartParityStateWave.DescribeState(wc.CaseId, s.StateProof, s.Setup?.Status));

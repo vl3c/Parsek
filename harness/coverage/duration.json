@@ -2871,6 +2871,26 @@
         "2026-11-22T17:28:57Z": 652.0
       }
     },
+    "PP-5-part-parity-chutes-stock": {
+      "last": 88.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 88.0,
+      "p95": 88.0,
+      "samples": {
+        "2026-11-22T17:15:21Z": 88.0
+      }
+    },
+    "PP-6-part-parity-chutes-modded": {
+      "last": 89.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 89.0,
+      "p95": 89.0,
+      "samples": {
+        "2026-11-22T17:16:53Z": 89.0
+      }
+    },
     "PPB-1-untouched-career-backup": {
       "last": 49.0,
       "lastVsP50": 1.0,

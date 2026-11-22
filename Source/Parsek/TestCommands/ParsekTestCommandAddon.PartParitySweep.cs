@@ -48,14 +48,14 @@ namespace Parsek.TestCommands
             }
 
             Vessel active = FlightGlobals.ActiveVessel;
-            bool orbiting = active != null && active.situation == Vessel.Situations.ORBITING;
-            string admission = TestCommandPartParitySweep.DecideHostAdmission(active != null, orbiting);
+            // The runner's own admission rule (design D.2, D.4): an orbit run needs an
+            // orbiting host, an air run one PRELAUNCH or LANDED within 500 m of the pad.
+            string admission = PartParityAirContext.DecideAdmission(args, active, out string admissionDetail);
             if (admission != null)
             {
-                string situation = active != null ? active.situation.ToString() : "(none)";
                 ParsekLog.Warn(Tag, $"partparitysweep rejected reason={admission} label={args.Label} "
-                    + $"situation={situation}");
-                SetExecResult("REJECTED", null, $"{admission} situation={situation}");
+                    + admissionDetail);
+                SetExecResult("REJECTED", null, $"{admission} {admissionDetail}");
                 return;
             }
 

@@ -399,8 +399,12 @@ namespace Parsek.TestCommands
         internal const double CanopyCapSeconds = 4.0;
 
         /// <summary>The air case's chute config overrides (D.4): <c>deployAltitude</c> at the
-        /// spawn, then raised for the full case; the spawn altitude and descent rate.</summary>
-        internal const double ChuteDeployAltitudeSemi = 1000.0;
+        /// spawn, then raised for the full case; the spawn altitude and descent rate. Stock
+        /// also opens fully when a raycast of <c>deployAltitude</c> metres down hits the
+        /// terrain (decompiled <c>ModuleParachute.ShouldDeploy</c>), so the semi value is 500 m:
+        /// a semi case falling from about 1530 m above the KSC terrain keeps about 1 km of
+        /// margin before stock would open it fully.</summary>
+        internal const double ChuteDeployAltitudeSemi = 500.0;
         internal const double ChuteDeployAltitudeFull = 5000.0;
         internal const double AirSpawnAltitudeM = 1600.0;
         internal const double AirSpawnDescentMps = 10.0;

@@ -329,14 +329,6 @@ namespace Parsek.TestCommands
         internal const string ControlsArgInvalidReason = "controls-arg-invalid";
         internal const string MaxSecondsArgInvalidReason = "maxseconds-arg-invalid";
 
-        /// <summary>REJECTED: a well-formed <c>contexts=air</c> step while the air context is
-        /// not built (design D.10: S7 builds the pad host, the showcase-band spawn and the chute
-        /// sequence, and lifts this), so an air run never presses a parachute in orbit.</summary>
-        internal const string AirRunsNotBuiltReason = "air-runs-not-built";
-
-        /// <summary>Whether the live engine can run the air context. False until S7.</summary>
-        internal const bool AirRunsBuilt = false;
-
         /// <summary>REJECTED: FLIGHT with no active vessel.</summary>
         internal const string NoActiveVesselReason = "no-active-vessel";
 
@@ -360,7 +352,6 @@ namespace Parsek.TestCommands
             StatesArgInvalidReason, ContextsArgInvalidReason,
             ViewsArgInvalidReason, TileArgInvalidReason, ShardArgInvalidReason,
             LimitArgInvalidReason, ControlsArgInvalidReason, MaxSecondsArgInvalidReason,
-            AirRunsNotBuiltReason,
             NoActiveVesselReason, HostNotOrbitingReason, HostNotAtPadReason,
         };
 
@@ -393,25 +384,15 @@ namespace Parsek.TestCommands
             => args != null && args.TryGetValue(key, out string v) ? v : null;
 
         /// <summary>
-        /// Parses every arg of one step (<see cref="TryParseGrammar"/>), then refuses an air run
-        /// while <see cref="AirRunsBuilt"/> is false (<c>air-runs-not-built</c>, detail
-        /// <c>contexts=air</c>). On a refusal <paramref name="rejectReason"/> is the reason token
-        /// and <paramref name="rejectDetail"/> the offending <c>key=value</c>.
+        /// Parses every arg of one step (<see cref="TryParseGrammar"/>); an air run
+        /// (<c>contexts=air</c>) parses like any other and meets its own host rule at the
+        /// admission (<c>host-not-at-pad</c>). On a refusal <paramref name="rejectReason"/> is
+        /// the reason token and <paramref name="rejectDetail"/> the offending <c>key=value</c>.
         /// </summary>
         internal static bool TryParseArgs(
             IDictionary<string, string> args, out PartParitySweepArgs parsed,
             out string rejectReason, out string rejectDetail)
-        {
-            if (!TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail)) return false;
-            if (!AirRunsBuilt && IsAirRun(parsed))
-            {
-                rejectReason = AirRunsNotBuiltReason;
-                rejectDetail = "contexts=" + FormatContexts(parsed);
-                parsed = null;
-                return false;
-            }
-            return true;
-        }
+            => TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail);
 
         /// <summary>
         /// The arg grammar alone: every arg of one step, each present one that does not parse

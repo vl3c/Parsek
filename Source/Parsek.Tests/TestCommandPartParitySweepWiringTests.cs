@@ -124,7 +124,7 @@ namespace Parsek.Tests
         {
             string text = ApplierSource();
             int parse = text.IndexOf("TestCommandPartParitySweep.TryParseArgs(", System.StringComparison.Ordinal);
-            int admit = text.IndexOf("TestCommandPartParitySweep.DecideHostAdmission(", System.StringComparison.Ordinal);
+            int admit = text.IndexOf("PartParityAirContext.DecideAdmission(args, active,", System.StringComparison.Ordinal);
             int start = text.IndexOf("StartCoroutine(PartParitySweepRoutine(", System.StringComparison.Ordinal);
             int run = text.IndexOf("PartParitySweepRunner.RunStep(", System.StringComparison.Ordinal);
             Assert.True(parse >= 0 && admit > parse && start > admit && run > start,

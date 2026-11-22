@@ -11024,6 +11024,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "FAR-4-gilly-eva-switch-bg-member.toml": "tier=operator by the calibration discipline, NOT debt: CI-1's EVA and map Switch-To in Gilly orbit on `eve-gilly-recorded` (stock-minimal), where the switch target is both the live tree's background member and a committed tree's spawned leaf. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_2324`, third flight, after the Case C fix and a re-pin); owed: the ordinary promotion call",
         "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1639`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1641`, second flight after a spec re-pin); owed: the ordinary promotion call",
+        "PP-5-part-parity-chutes-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's air reading run on stock-minimal (design-part-ghost-parity.md Appendix D.4, D.10 row S7; owner ruling R1): every stock parachute opened for real at semi and full over the KSC showcase band from a pad host (`b1-pad-craft`) beside its event-route, start-route and stowed ghosts in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1713`, PASS attempt 1, branch `part-parity-p6-s7`); nothing owed beyond its status row",
+        "PP-6-part-parity-chutes-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-5's air reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md Appendix D.4, D.10 row S7): every parachute of the install opened for real at semi and full over the KSC showcase band from a pad host in one `contexts=air states=all` PartParitySweep step, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. LIVE-PROVEN 2026-11-22 (`2026-11-22_1715`, PASS attempt 1, branch `part-parity-p6-s7`); nothing owed beyond its status row",
         "PP-1-part-parity-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's full stock reading run (design-part-ghost-parity.md section 10) on `eva2-lko-crewed`: every stock part in every skin beside its Parsek ghost over two PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only until P5 arms them. The P2 shape flew green 2026-11-21 (`2026-11-21_1739`, PASS attempt 1, after four reading flights that reworked the missing-mesh control); the P3 shape flew green 2026-11-22 (`2026-11-22_0033`, PASS attempt 1); nothing owed beyond its status row",
         "PP-2-part-parity-modded.toml": "tier=operator by PURPOSE, NOT debt: PP-1's full reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch; design-part-ghost-parity.md section 10): every part in every skin beside its Parsek ghost over three PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only until P5 arms them. AUTHORED 2026-11-21, LIVE-PROVEN 2026-11-22 (`2026-11-22_0045`, PASS attempt 1, after the 2026-11-21 reading runs); nothing owed beyond its status row",
         "PP-3-part-parity-states-stock.toml": "tier=operator by PURPOSE, NOT debt: the part ghost parity tool's orbit state reading run on stock-minimal (design-part-ghost-parity.md Appendix D, D.10 row S6; owner rulings R2 / R3): every transforming stock part deployed / open / lit / jettisoned beside its event-route, start-route and stowed ghosts over two `states=all` PartParitySweep steps, judged by the partParity verifier row, whose product is a case directory for the owner's viewer; parity verdicts are report-only. AUTHORED 2026-11-22 (branch `part-parity-p6-s6`), LIVE-PROVEN 2026-11-22 (`2026-11-22_1656`, PASS attempt 1, after the reading run `2026-11-22_1627`); nothing owed beyond its status row",
@@ -19211,12 +19213,12 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         self.assertEqual(hlib.PARTPARITY_AIR_CONTEXT, rules["ContextAir"])
         self.assertIn("if (list.Contains(PartParityStateRules.ContextAir) && list.Count > 1) return false;",
                       text)
-        # The air-run gate (until S7): the flag and the reason, refused after the grammar.
-        m = re.search(r"internal const bool AirRunsBuilt = (true|false);", text)
-        self.assertIsNotNone(m, "AirRunsBuilt moved")
-        self.assertEqual(hlib.PARTPARITY_AIR_RUNS_BUILT, m.group(1) == "true")
-        self.assertEqual(hlib.PARTPARITY_AIR_RUNS_NOT_BUILT_REASON, consts["AirRunsNotBuiltReason"])
-        self.assertIn("if (!AirRunsBuilt && IsAirRun(parsed))", parse)
+        # The air context is built (design D.10 S7): no interim air refusal on either side,
+        # an air run parses like any other and meets host-not-at-pad at the admission.
+        self.assertNotIn("AirRunsBuilt", text)
+        self.assertNotIn("air-runs-not-built", text)
+        self.assertNotIn("air-runs-not-built", hlib.PARTPARITY_REASONS)
+        self.assertFalse(hasattr(hlib, "PARTPARITY_AIR_RUNS_BUILT"))
 
     def test_the_ranges_mirror_the_c_sharp(self):
         text, _ = self._pure()
@@ -19278,7 +19280,8 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         applier = self._source("TestCommands", "ParsekTestCommandAddon.PartParitySweep.cs")
         order = [applier.find(c) for c in (
             "TestCommandPartParitySweep.TryParseArgs(",
-            "TestCommandPartParitySweep.DecideHostAdmission(",
+            # The args-aware admission (design D.2, D.4), the runner's own rule.
+            "PartParityAirContext.DecideAdmission(args, active,",
             "StartCoroutine(PartParitySweepRoutine(",
             "PartParitySweepRunner.RunStep(")]
         self.assertNotIn(-1, order, order)
@@ -19310,11 +19313,9 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         self.assertEqual([], v(0, {"label": "pp1", "states": "none", "contexts": "none"}))
         self.assertEqual([], v(0, {"label": "pp3", "states": "all"}))
         self.assertEqual([], v(0, {"label": "pp3", "states": "deployed,lit", "contexts": "alone,stacked"}))
-        # Until S7 builds the air context, a well-formed air run is refused as a whole.
-        self.assertFalse(hlib.PARTPARITY_AIR_RUNS_BUILT)
-        errs = v(0, {"label": "pp5", "contexts": "air", "states": "none"})
-        self.assertEqual(1, len(errs), errs)
-        self.assertIn("air-runs-not-built", errs[0])
+        # The air context is built (S7): a well-formed air run validates.
+        self.assertEqual([], v(0, {"label": "pp5", "contexts": "air", "states": "all"}))
+        self.assertEqual([], v(0, {"label": "pp5", "contexts": "air", "states": "semi,full"}))
         cases = (
             ({"label": "pp1", "states": ""}, "states-arg-invalid"),
             ({"label": "pp1", "states": "Deployed"}, "states-arg-invalid"),
@@ -19413,6 +19414,60 @@ class PartParitySweepSourceSyncTests(unittest.TestCase):
         reset = ("[Parsek][INFO][PartParity] PartParity step label=pp1 op=reset ok=true label=pp1 "
                  "done=false next=0 cases=0 complete=0 crashed=0 setupFaults=0 controls=pending wall=0.0")
         self.assertIsNone(pin.search(reset))
+
+
+class PartParityAirLaneShapeTests(unittest.TestCase):
+    """The two air lanes (design-part-ghost-parity.md D.4 / D.8 / D.10 row S7; owner ruling
+    R1): a pad host fixture, one `contexts=air states=all` run step over the whole install
+    (no `skins=`, which governs stowed cases only), its own label so it never shares another
+    lane's directory, the air control set, the step inside the S8 cap, no warp (the sweep
+    starts on the pad), report-only verdicts and a budget covering every step."""
+
+    LANES = {"PP-5-part-parity-chutes-stock.toml": ("pp5", "stock-minimal"),
+             "PP-6-part-parity-chutes-modded.toml": ("pp6", "modded-compat")}
+
+    def test_each_lane_runs_every_air_case_in_one_step_from_the_pad(self):
+        for name, (label, profile) in self.LANES.items():
+            with self.subTest(lane=name):
+                spec = load_spec(name)
+                self.assertEqual(profile, spec["instanceProfile"])
+                self.assertEqual("operator", spec["tier"])
+                # A host PRELAUNCH on the KSC pad (the admission's host-not-at-pad rule).
+                self.assertEqual("fixtures/saves/b1-pad-craft", spec["fixture"]["saveTemplate"])
+                self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
+                cmds = [s["cmd"] for s in spec["driver"]["steps"]]
+                self.assertNotIn("WarpToUT", cmds)
+                sweeps = [s for s in spec["driver"]["steps"] if s["cmd"] == hlib.PARTPARITY_VERB]
+                # The reset is admitted by its run kind too: an air reset on the pad host.
+                self.assertEqual({"label": label, "op": "reset", "contexts": "air"}, sweeps[0]["args"])
+                run_steps = sweeps[1:]
+                self.assertEqual(1, len(run_steps))
+                a = run_steps[0]["args"]
+                self.assertEqual((label, "run", "air", "all", "true", "480"),
+                                 (a["label"], a["op"], a.get("contexts"), a.get("states"),
+                                  a.get("controls"), a.get("maxSeconds")))
+                for key in ("limit", "filter", "source", "shard", "skins"):
+                    self.assertNotIn(key, a)
+                self.assertEqual(hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS, run_steps[0]["budget"])
+                self.assertEqual(partparity.CONTROL_IDS_AIR,
+                                 partparity.control_set({"states": a["states"], "contexts": a["contexts"]}))
+                self.assertEqual([label], partparity.sweep_labels(spec))
+                self.assertFalse(partparity.gating_armed(spec["expectations"]))
+                total = sum(int(s.get("budget", 0) or 0) for s in spec["driver"]["steps"])
+                self.assertGreaterEqual(spec["runtime"]["budgetSeconds"], total)
+                self.assertEqual("none", spec["retry"]["policy"])
+                self.assertEqual(0, spec["expectations"]["recordings"]["count"]["max"])
+
+    def test_each_lane_pins_its_own_step_line_and_the_air_counts_line(self):
+        for name, (label, _profile) in self.LANES.items():
+            with self.subTest(lane=name):
+                required = load_spec(name)["expectations"]["logContracts"]["required"]
+                pins = [p for p in required if hlib.PARTPARITY_STEP_LINE_LITERAL in p]
+                self.assertEqual(1, len(pins), required)
+                self.assertIn("label=%s op=run ok=true" % label, pins[0])
+                self.assertIn("crashed=0", pins[0])
+                self.assertIn("controls=ok", pins[0])
+                self.assertTrue(any("state cases: states=all contexts=air" in p for p in required), required)
 
 
 class PartParityLaneShapeTests(unittest.TestCase):
