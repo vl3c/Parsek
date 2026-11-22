@@ -773,10 +773,10 @@ namespace Parsek.TestCommands
             double min = PartParityStateRules.PostDoneSettleSeconds(run.Option.Family, run.AnimRate, run.LightBrightenSeconds);
             if (since < min) return;
             // A light's lens fades in over GAME seconds: a physics frame that runs slow must
-            // not cut it short.
+            // not cut it short (bounded by the light settle cap the wave bound reads).
             if (run.Option.Family == PartParityStateRules.FamilyLight && !double.IsNaN(run.ReachedUT)
                 && Planetarium.GetUniversalTime() - run.ReachedUT < min
-                && since < PartParitySweepPlan.MaxSettleSeconds + min) return;
+                && since < PartParityStateRules.LightSettleCapSeconds) return;
             if (animating && since < PartParitySweepPlan.MaxSettleSeconds) return;
             if (animating) wc.StillAnimating = true;
             if (still != null)
