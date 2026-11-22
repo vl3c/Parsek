@@ -2,7 +2,7 @@ schema = 1
 id = "GPOS-2-eva-chute-relative-ghost-position"
 # =====================================================================================
 # GPOS-2: A GHOST ON AN ANCHOR-LOCAL RELATIVE SECTION, READ BY POSITION IN FLIGHT.
-# AUTHORED 2026-11-21, NEVER FLOWN. Host lane for the `relative-anchor` cell of the
+# AUTHORED 2026-11-21; LIVE-PROVEN 2026-11-22 (2026-11-22_1123, PASS attempt 1). Host lane for the `relative-anchor` cell of the
 # FlightGhostPosition category (`RelativeSectionGhostsLandOnTheirRecordedShadow`), which
 # GPOS-1 skips by design (todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: the owner call on the
 # hosts that cannot take the step, decided 2026-11-21 under V's standing delegation of
@@ -88,7 +88,7 @@ id = "GPOS-2-eva-chute-relative-ghost-position"
 # discipline. (9) flight_efficiency.py owed after the first green flight.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-21, NEVER FLOWN (todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: the host for the relative-anchor cell). EVA-4's atmospheric EVA flown verbatim (the Jumping Flea hop, Jebediah's mid-air EVA and chuted landing, whose kerbal recording holds a ~108 s anchor-local Relative section on the pod's recording), committed in flight and Rewound-to-Launch; the stock Mallard is launched onto the Runway and the clock warped to UT 150, inside that Relative section; the FlightGhostPosition category then compares the pod ghost with its Absolute frames and the anchor-placed kerbal ghost with its recorded body-fixed shadow (the parent-anchored cell skips on this subject)."
+description = "LIVE-PROVEN 2026-11-22 (2026-11-22_1123) (todo FLIGHT-GHOST-POSITION-LANES-2026-11-20: the host for the relative-anchor cell). EVA-4's atmospheric EVA flown verbatim (the Jumping Flea hop, Jebediah's mid-air EVA and chuted landing, whose kerbal recording holds a ~108 s anchor-local Relative section on the pod's recording), committed in flight and Rewound-to-Launch; the stock Mallard is launched onto the Runway and the clock warped to UT 150, inside that Relative section; the FlightGhostPosition category then compares the pod ghost with its Absolute frames and the anchor-placed kerbal ghost with its recorded body-fixed shadow (the parent-anchored cell skips on this subject)."
 instanceProfile = "stock-minimal"
 tags = ["GPOS2", "EVA4", "ghost-position", "ghost-render", "rewind-to-launch", "relative-anchor",
         "eva", "ingame-batch"]
@@ -172,9 +172,9 @@ required = [
   # surfaces this subject puts on screen, each compared at least once with no bad sample.
   "MISSIONMARK label=gpos2-sampling ut=[\\s\\S]*?FlightGhostPosition summary: kind=absolute scene=FLIGHT frames=[0-9]+ ghosts=[1-9][0-9]* compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 [^\\r\\n]*bodies=\\[Kerbin\\]",
   "MISSIONMARK label=gpos2-sampling ut=[\\s\\S]*?FlightGhostPosition summary: kind=relative-anchor scene=FLIGHT frames=[0-9]+ ghosts=[1-9][0-9]* compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 [^\\r\\n]*bodies=\\[Kerbin\\]",
-  # Interim pin (INTERIM_PIN_IDS): total literal, split regexed until the reading run
-  # (pre-registered P1: passed=2 skipped=1).
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=FlightGhostPosition scene=FLIGHT",
+  # Pinned whole from the first flight 2026-11-22_1123 (PASS attempt 1): the pre-registered
+  # split, the parent-anchored cell skipping.
+  "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=FlightGhostPosition scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

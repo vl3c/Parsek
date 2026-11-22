@@ -660,6 +660,26 @@
         "2026-10-11T14:51:19Z": 126.0
       }
     },
+    "CT-2-parttest-rebuilt-experimental-part": {
+      "last": 206.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 206.0,
+      "p95": 206.0,
+      "samples": {
+        "2026-11-22T11:35:28Z": 206.0
+      }
+    },
+    "CT-3-vessel-repair-rebuilt-at-space-center": {
+      "last": 172.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 172.0,
+      "p95": 172.0,
+      "samples": {
+        "2026-11-22T11:38:43Z": 172.0
+      }
+    },
     "DECOY": {
       "last": 5.0,
       "lastVsP50": 1.0,
@@ -963,6 +983,16 @@
       "p95": 269.0,
       "samples": {
         "2026-11-20T23:07:16Z": 269.0
+      }
+    },
+    "GPOS-2-eva-chute-relative-ghost-position": {
+      "last": 518.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 518.0,
+      "p95": 518.0,
+      "samples": {
+        "2026-11-22T11:31:38Z": 518.0
       }
     },
     "GS-1-auto-chute-booster": {
