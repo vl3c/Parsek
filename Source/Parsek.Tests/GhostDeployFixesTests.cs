@@ -45,15 +45,30 @@ namespace Parsek.Tests
         #region Animation-group loop driver
 
         [Theory]
-        [InlineData(false, false, false)] // a drill / ISRU: only converters report active
+        [InlineData(false, false, false)] // a drill / ISRU / ground part: no enable-driven module
         [InlineData(false, true, true)]   // the orbital scanner: ModuleResourceScanner / ModuleGPS
         [InlineData(true, false, true)]   // alwaysActive
         [InlineData(true, true, true)]
         public void AnimationGroupLoopFollowsDeploy_MatchesStockCheckForActivity(
-            bool alwaysActive, bool nonConverterModule, bool expected)
+            bool alwaysActive, bool enableDrivenModule, bool expected)
         {
             Assert.Equal(expected,
-                GhostVisualBuilder.AnimationGroupLoopFollowsDeploy(alwaysActive, nonConverterModule));
+                GhostVisualBuilder.AnimationGroupLoopFollowsDeploy(alwaysActive, enableDrivenModule));
+        }
+
+        [Theory]
+        [InlineData("ModuleResourceScanner", true)]
+        [InlineData("ModuleGPS", true)]
+        [InlineData("ModuleOrbitalSurveyor", true)]
+        [InlineData("ModuleResourceHarvester", false)]  // BaseConverter: IsActivated
+        [InlineData("ModuleResourceConverter", false)]
+        [InlineData("ModuleGroundPart", false)]         // isEnabled AND the experiment's Enabled
+        [InlineData("ModuleOrbitalScanner", false)]     // the overlay state
+        [InlineData(null, false)]
+        public void IsEnableDrivenAnimatedModuleName_OnlyThePlainIsEnabledImplementers(
+            string moduleName, bool expected)
+        {
+            Assert.Equal(expected, GhostVisualBuilder.IsEnableDrivenAnimatedModuleName(moduleName));
         }
 
         [Fact]
