@@ -415,7 +415,7 @@ namespace Parsek.TestCommands
                             ? "a previous process died while this case ran alone (isolation rerun, stale inflight.txt)"
                             : "a previous process died while this case was in flight (stale inflight.txt)");
                     // A crashed state case still names its family and state (design D.2).
-                    crashedSidecar.StateProof = PartParityStateWave.CrashedStateProof(k.StateOption);
+                    crashedSidecar.StateProof = PartParityStateWave.CrashedStateProof(k.StateOption, k.State);
                     if (crashedSidecar.StateProof != null) crashedSidecar.StowedCaseId = PartParityStateWave.StowedCaseId(k);
                     WriteSidecar(ctx, crashedSidecar);
                     ParsekLog.Warn(Tag, $"case {d.CrashedCaseId}: setup fault crashed (recorded from the stale inflight.txt, " +

@@ -168,6 +168,12 @@ namespace Parsek.TestCommands
             return Math.Min(1f, Math.Max(0f, closedPosition));
         }
 
+        /// <summary>The <c>ModuleAnimateGeneric.animSwitch</c> consistent with an authored
+        /// <c>animTime</c> (decompiled <c>UpdateAnimSwitch</c>: true plays the clip back toward
+        /// 0, so a module at rest at 0 carries true and one at rest at 1 false); a mismatched
+        /// pair makes the next <c>Toggle</c> play toward the end it already sits at.</summary>
+        internal static bool AnimSwitchAt(float animTime) => animTime < 0.5f;
+
         // ----- the stepped primes (D.5) -----
 
         /// <summary>How many 1 s primes follow a sun tracker's first prime (10 steps cover
@@ -274,12 +280,12 @@ namespace Parsek.TestCommands
         /// <summary>The <c>stateProof</c> of a state or context case that crashed before its
         /// sidecar (design D.2): its option, never reached, no press result; null for a stowed
         /// case (no option).</summary>
-        internal static PartParityStateProof CrashedStateProof(PartParityStateOption o)
+        internal static PartParityStateProof CrashedStateProof(PartParityStateOption o, string caseState = null)
         {
             if (o == null) return null;
             return new PartParityStateProof
             {
-                Family = o.Family, Module = o.Module, ModuleIndex = o.ModuleIndex, State = o.State,
+                Family = o.Family, Module = o.Module, ModuleIndex = o.ModuleIndex, State = caseState ?? o.State,
                 Action = o.Action, Reached = false,
                 Nodes = o.NodeNames != null && o.NodeNames.Count > 0
                     ? o.NodeNames.ConvertAll(n => new PartParityContextNode { Node = n, Part = FillerPartName })

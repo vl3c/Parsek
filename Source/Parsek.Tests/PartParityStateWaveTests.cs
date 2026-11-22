@@ -126,6 +126,17 @@ namespace Parsek.Tests
         public void CargoBayClosedAnimTime_IsTheClampedClosedPosition(float closed, float expected)
             => Assert.Equal(expected, PartParityStateWave.CargoBayClosedAnimTime(closed));
 
+        [Theory]
+        [InlineData(0f, true)]
+        [InlineData(1f, false)]
+        public void AnimSwitchAt_MatchesTheEndTheModuleRestsAt(float animTime, bool expected)
+            => Assert.Equal(expected, PartParityStateWave.AnimSwitchAt(animTime));
+
+        [Fact]
+        public void CrashedStateProof_CarriesTheCaseStateWord()
+            => Assert.Equal("deployed-m3", PartParityStateWave.CrashedStateProof(
+                new PartParityStateOption { Family = "animate-generic", State = "deployed" }, "deployed-m3").State);
+
         [Fact]
         public void GearStowedState_IsTheRetractedStateTheGearClassifierReads()
         {

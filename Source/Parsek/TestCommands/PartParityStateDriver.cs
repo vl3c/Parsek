@@ -294,8 +294,11 @@ namespace Parsek.TestCommands
                 ModuleCargoBay bay = prefab.FindModuleImplementing<ModuleCargoBay>();
                 if (bay == null) return;
                 float closed = PartParityStateWave.CargoBayClosedAnimTime(bay.closedPosition);
+                bool animSwitch = PartParityStateWave.AnimSwitchAt(closed);
                 modules[idx].SetValue("animTime", closed.ToString("R", Ic), true);
-                ParsekLog.Verbose(Tag, $"authored stowed pose {info.name}: {opt.Module}[{idx.ToString(Ic)}] animTime={closed.ToString("0.###", Ic)} (closedPosition={bay.closedPosition.ToString("0.###", Ic)})");
+                modules[idx].SetValue("animSwitch", animSwitch ? "True" : "False", true);
+                ParsekLog.Verbose(Tag, $"authored stowed pose {info.name}: {opt.Module}[{idx.ToString(Ic)}] animTime={closed.ToString("0.###", Ic)} " +
+                    $"animSwitch={(animSwitch ? "True" : "False")} (closedPosition={bay.closedPosition.ToString("0.###", Ic)})");
             }
         }
 
@@ -797,8 +800,12 @@ namespace Parsek.TestCommands
                 if (IsUnderAny(r.transform, run.JettisonTransforms)) run.DebrisHidden++;
                 else run.ContextHidden++;
             }
-            wc.RealRecords = PartParityCaseCapture.Records(partT, realShown, wc.RealLayers, null,
+            var recordRenderers = new List<Renderer>();
+            wc.RealRecords = PartParityCaseCapture.Records(partT, realShown, wc.RealLayers, recordRenderers,
                 GhostVisualBuilder.GetDepthMaskTransformNames(part.partInfo?.partConfig));
+            int rehomed = RehomeJettisonPaths(part, run.JettisonTransforms, wc.RealRecords, recordRenderers);
+            if (rehomed > 0)
+                ParsekLog.Verbose(Tag, $"case {wc.CaseId}: {rehomed.ToString(Ic)} real record path(s) of a reparented shroud read at their prefab path");
 
             uint subjectPid = part.persistentId;
             var events = new List<PartEvent>(run.StowedSeeds);
@@ -1100,6 +1107,39 @@ namespace Parsek.TestCommands
             }
         }
 
+        /// <summary>
+        /// Stock parents a fairing-type shroud to the part on its bottom node
+        /// (<c>ModuleJettison.SetupJettisonState</c>), so the real record path of a stacked
+        /// shroud runs through the filler (<c>fuelTankSmallFlat/fairing</c>) while the ghost keeps
+        /// it at its prefab place (<c>model/liquidEngine/fairing</c>): every record under a
+        /// jettison transform that left the subject is given the transform's prefab path plus
+        /// its own remainder, so the structural diff pairs it. Returns how many were rewritten.
+        /// </summary>
+        private static int RehomeJettisonPaths(Part part, List<Transform> jettison,
+            List<PartParityRendererRecord> records, List<Renderer> renderers)
+        {
+            int n = 0;
+            Part prefab = part.partInfo?.partPrefab;
+            if (prefab == null || records == null || renderers == null) return 0;
+            foreach (Transform jt in jettison)
+            {
+                if (jt == null || jt.GetComponentInParent<Part>() == part) continue;
+                Transform home = prefab.FindModelTransform(jt.name);
+                if (home == null) continue;
+                string prefix = PartParityCaseCapture.RelativePath(prefab.transform, home);
+                for (int i = 0; i < records.Count && i < renderers.Count; i++)
+                {
+                    Renderer r = renderers[i];
+                    if (r == null || !r.transform.IsChildOf(jt)) continue;
+                    string rest = PartParityCaseCapture.RelativePath(jt, r.transform);
+                    records[i].Path = PartParityStructure.NormalizePath(
+                        string.IsNullOrEmpty(rest) ? prefix : prefix + "/" + rest);
+                    n++;
+                }
+            }
+            return n;
+        }
+
         /// <summary>The framing of a state case: the stowed rule over real and the event-route
         /// ghost, the shared box widened to every built ghost's rendered bounds, the culling
         /// mask over every side's layers.</summary>
@@ -1193,7 +1233,8 @@ namespace Parsek.TestCommands
             PartParityStateOption o = run.Option;
             s.StateProof = new PartParityStateProof
             {
-                Family = o.Family, Module = o.Module, ModuleIndex = o.ModuleIndex, State = o.State,
+                Family = o.Family, Module = o.Module, ModuleIndex = o.ModuleIndex,
+                State = wc.Key?.State ?? o.State,
                 Action = o.Action, EventVisible = run.EventVisible,
                 ActionResult = run.ActionResult,
                 Reached = run.Reached,

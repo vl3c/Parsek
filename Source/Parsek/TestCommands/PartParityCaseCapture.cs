@@ -341,7 +341,7 @@ namespace Parsek.TestCommands
             rec.BoundsMax = new double[] { max.x, max.y, max.z };
         }
 
-        private static string RelativePath(Transform root, Transform t)
+        internal static string RelativePath(Transform root, Transform t)
         {
             var segs = new List<string>();
             for (Transform cur = t; cur != null && cur != root; cur = cur.parent) segs.Add(cur.name);
