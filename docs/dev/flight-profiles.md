@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 5 |
 | autopilot (mission) lanes | 164 |
 | seam-only lanes | 508 |
-| LIVE-PROVEN date in status row | 552 |
-| no LIVE-PROVEN date | 120 |
+| LIVE-PROVEN date in status row | 555 |
+| no LIVE-PROVEN date | 117 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -51,7 +51,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | CN | 6 | - | 4 | 2 | - | - | 6 |
 | COM | 1 | - | 1 | - | - | 1 | 1 |
 | CS | 13 | - | - | 13 | - | 8 | 13 |
-| CT | 3 | - | - | 3 | - | - | 1 |
+| CT | 3 | - | - | 3 | - | - | 3 |
 | CTW | 1 | - | - | 1 | - | - | 1 |
 | CX | 6 | - | 6 | - | - | - | 6 |
 | EVA | 16 | 1 | 15 | - | - | 1 | 15 |
@@ -64,7 +64,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | FORGE | 9 | - | - | 9 | - | 9 | 4 |
 | FXR | 1 | - | - | 1 | - | - | 1 |
 | GC | 2 | - | 1 | 1 | - | - | 2 |
-| GPOS | 2 | - | - | 2 | - | 2 | 1 |
+| GPOS | 2 | - | - | 2 | - | 2 | 2 |
 | GS | 11 | - | 4 | 7 | - | 10 | 7 |
 | GUI | 28 | - | - | 28 | - | - | 4 |
 | H | 75 | 5 | 69 | 1 | - | - | 60 |
@@ -340,8 +340,8 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 426 | 133 | 355 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, L 17 +86 |
-| Mun | 68 | 15 | 56 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +13 |
+| Kerbin | 426 | 133 | 358 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, L 17 +86 |
+| Mun | 68 | 15 | 58 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +13 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
 | Eve | 12 | 4 | 6 | V 7, B 4, FAR 1 |
@@ -1060,8 +1060,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | CT-1-contracts-discard-economy | operator | career-pad-craft | seam | - | - | Contracts | LIVE-PROVEN 2026-10-26 |
-| CT-2-parttest-rebuilt-experimental-part | operator | cs-career-mun3 | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +1 | - | NEVER FLOWN. |
-| CT-3-vessel-repair-rebuilt-at-space-center | operator | cs-career-mun4-vessel-repair | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +1 | - | NEVER FLOWN. |
+| CT-2-parttest-rebuilt-experimental-part | operator | cs-career-mun3 | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +1 | - | LIVE-PROVEN 2026-11-22 |
+| CT-3-vessel-repair-rebuilt-at-space-center | operator | cs-career-mun4-vessel-repair | seam | Kerbin, Mun | rewind-to-launch, reload, save, warp +1 | - | LIVE-PROVEN 2026-11-22 |
 
 ### CTW (1)
 
@@ -1179,7 +1179,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | GPOS-1-kerbalx-ascent-ghost-position | operator | gs1-two-stage-pad | kx_rewind_watch | Kerbin | rewind-to-launch, warp, scene-change | FlightGhostPosition | LIVE-PROVEN 2026-11-20 |
-| GPOS-2-eva-chute-relative-ghost-position | operator | b1-pad-craft | eva4_atmo_chute | Kerbin | rewind-to-launch, warp, scene-change | FlightGhostPosition | AUTHORED 2026-11-21, NEVER FLOWN |
+| GPOS-2-eva-chute-relative-ghost-position | operator | b1-pad-craft | eva4_atmo_chute | Kerbin | rewind-to-launch, warp, scene-change | FlightGhostPosition | LIVE-PROVEN 2026-11-22 |
 
 ### GS (11)
 
