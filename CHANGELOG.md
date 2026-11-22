@@ -62,6 +62,8 @@ Not released yet.
 
 ### Fixed
 
+- **Ghost parachutes open the way the real ones do.** An open canopy points into the airflow
+  above the part, instead of turned or hanging upside down. (GHOST-CHUTE-CANOPY-AIM)
 - **RealChute stages are seen under their chutes.** With RealChute, a stage left under open chutes
   comes down under them instead of crashing. (ABANDONED-STAGE-REALCHUTE-LOADED)
 - **Predicted paths show on the map and at the Space Center.** A ghost past its last point moves

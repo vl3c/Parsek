@@ -40,6 +40,38 @@ namespace Parsek
         // animate nothing under the canopy (stock canopies), so those chutes keep the
         // root-only pose. Each entry carries the bone's own local pose per stage.
         public List<CanopyBonePose> canopyBones;
+
+        // Stock aims an open canopy along the airflow every physics tick
+        // (ModuleParachute.FixedUpdate: canopy.rotation = LookRotation(+-dragVectorDir, up),
+        // then a spread tilt for a symmetry group), so the sampled clip rotation is never what
+        // the player sees. These are that rule's inputs, read from the prefab module at build.
+        // partTransform is the ghost stand-in for the part's own transform (stock base.transform).
+        // aimCanopy is false for an EVA chute (ModuleEvaChute poses its canopy kerbal-relative)
+        // and for a module that sets dontRotateParachute.
+        public Transform partTransform;
+        public bool aimCanopy;
+        public bool invertCanopy = true;
+        public float rotationSpeedDegPerSec = 90f;
+        public float spreadAngleDeg;
+        public int symmetryCount;
+        // Runtime aim state: the stage being aimed (Stowed = not aiming), whether the world
+        // rotation below holds a real aim, and the UT of that aim (NaN = snap on the next aim).
+        public CanopyPoseStage canopyAimStage;
+        public bool canopyAimSeeded;
+        public Quaternion canopyAimWorldRot;
+        public double canopyAimUT = double.NaN;
+        public CanopyAimSource canopyAimLastSource;
+    }
+
+    /// <summary>Where a ghost canopy's aim direction came from (see GhostPlaybackLogic.ResolveCanopyAimForward).</summary>
+    internal enum CanopyAimSource
+    {
+        /// <summary>The ghost's own surface-relative velocity (stock's dragVectorDir).</summary>
+        Airflow,
+        /// <summary>No usable velocity: the part is taken to fall straight down the body's gravity.</summary>
+        Gravity,
+        /// <summary>No velocity and no body: the part is taken to fall along its own -Y.</summary>
+        PartUp
     }
 
     internal enum CanopyPoseStage
@@ -97,6 +129,10 @@ namespace Parsek
         public Vector3 dScale;
         public Vector3 dPos;
         public Quaternion dRot;
+        // True when dPos / dRot are the clip's end pose read in the sampled model's frame (the
+        // sdPos / sdRot pair is in that frame whenever semiDeployedSampled). The builder moves
+        // them into the ghost canopy's parent frame, which is what localPosition reads.
+        public bool deployedInModelFrame;
         public List<CanopyBoneSample> bones;
     }
 

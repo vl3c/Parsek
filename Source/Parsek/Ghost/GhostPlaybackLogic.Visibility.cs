@@ -474,6 +474,7 @@ namespace Parsek
                 {
                     ParachuteGhostInfo info = kvp.Value;
                     if (info == null) continue;
+                    StopCanopyAim(info);
                     if (info.canopyTransform != null)
                     {
                         info.canopyTransform.localScale = info.stowedCanopyScale;

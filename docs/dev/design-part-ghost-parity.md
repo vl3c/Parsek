@@ -1434,12 +1434,14 @@ the same.
 Wind and wobble: stock has no wind. The canopy follows the airflow and wobbles: each `FixedUpdate`
 stock aims it at `LookRotation(+-dragVectorDir, upwards)`, rotates it by Perlin noise of
 `Time.time` (up to +-5 deg on each axis) and slews toward that at `rotationSpeedDPS` (decompiled
-`ModuleParachute.FixedUpdate`), while the ghost's canopy holds its sampled part-local pose. The
-comparison handles it in two steps:
+`ModuleParachute.FixedUpdate`). The ghost aims its open canopy by the same rule from its own
+surface velocity, or straight against gravity when it has none (the static parity ghosts), without
+the noise (todo GHOST-CHUTE-CANOPY-AIM). The comparison handles the noise in two steps:
 
 - Capture timing: after done, the case measures each frame the real canopy's airflow tilt (the
-  angle between the part's +Y and the drag direction) and its wobble (the angle between
-  `canopy.forward` and the un-wobbled aim), and captures at the first frame where their sum is
+  angle between the part's +Y and the drag direction) and its wobble (the whole rotation between
+  the canopy and stock's un-wobbled pose `LookRotation(aim, up)`, its roll about the aim included),
+  and captures at the first frame where their sum is
   under 3 deg, within 4 s; otherwise at 4 s, tagged `canopy-wobble:<deg>`. Both angles go into
   `stateProof.canopy`.
 - Verdict tolerance: on an air case the structural diff reports the canopy renderers' rotation
@@ -1478,7 +1480,8 @@ BUILT (S7, 2026-11-22): `Source/Parsek/TestCommands/PartParityAirContext.cs`, th
   semi timeout.
 - Capture. Once done (after the settle), each frame at its end the case measures the canopy
   (`tilt` = angle between the part's +Y and `(invertCanopy ? -1 : 1) * dragVectorDir`, `wobble`
-  = angle between `canopy.forward` and that aim) and captures at the first frame under 3 deg, or
+  = the whole rotation between the canopy and `LookRotation(aim, up)`, `up` stock's: the part's
+  +Z, or `vessel.CurrentCoM - part.transform.localPosition` in a symmetry group) and captures at the first frame under 3 deg, or
   at 4 s tagged `canopy-wobble:<deg>` (a state flag), recording `stateProof.canopy` (`tiltDeg`,
   `wobbleDeg`, `transform` = `canopyName`). The prepare (depth-mask repair included) and every
   view run in that ONE frame, so the structural records, the pictures and the measured angles

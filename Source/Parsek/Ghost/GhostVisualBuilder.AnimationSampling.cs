@@ -170,6 +170,7 @@ namespace Parsek
                                     result.dPos = tempClone.transform.InverseTransformPoint(cloneCanopy.position);
                                     result.dRot = Quaternion.Inverse(tempClone.transform.rotation) * cloneCanopy.rotation;
                                     deployedSampled = true;
+                                    result.deployedInModelFrame = true;
                                 }
                                 if (boneTransforms != null)
                                 {
@@ -200,6 +201,7 @@ namespace Parsek
                 result.dScale = Vector3.one;
                 result.dPos = Vector3.zero;
                 result.dRot = Quaternion.identity;
+                result.deployedInModelFrame = false;
             }
 
             canopyCache[key] = result;
