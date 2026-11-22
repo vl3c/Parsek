@@ -225,7 +225,8 @@ namespace Parsek
             double currentAltitude,
             double periapsisAltitude,
             double apoapsisAltitude,
-            double maxTerrainAltitude = 0.0)
+            double maxTerrainAltitude,
+            double deletionAltitude)
         {
             return TerminalOrbitSpawnSafety.Evaluate(
                 currentAltitude,
@@ -233,14 +234,15 @@ namespace Parsek
                 TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude,
                 apoapsisAltitude,
-                maxTerrainAltitude);
+                maxTerrainAltitude,
+                deletionAltitude);
         }
 
         /// <summary>
         /// Pure resolution applied when a <c>DeferUntilSafe</c> decision finds no future safe UT
         /// (the scan over one period missed the climb above the margin). A deferral is only
         /// reached once the periapsis already clears the periapsis floor, so the vessel is above
-        /// the atmosphere all the way round: it spawns now, carrying
+        /// the deletion altitude all the way round: it spawns now, carrying
         /// <see cref="TerminalOrbitSpawnSafety.ReasonNoFutureSafeUT"/>, rather than being refused.
         /// </summary>
         internal static void ResolveTerminalOrbitDeferralWithNoFutureSafeUT(
@@ -280,7 +282,8 @@ namespace Parsek
                 currentAltitude,
                 periapsisAltitude,
                 apoapsisAltitude,
-                OrbitClearance.ResolveMaxTerrainAltitude(body));
+                OrbitClearance.ResolveMaxTerrainAltitude(body),
+                OrbitClearance.ResolveDeletionAltitude(body));
 
             if (decision.Action == TerminalOrbitSpawnSafetyAction.DeferUntilSafe)
             {

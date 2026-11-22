@@ -757,6 +757,7 @@ namespace Parsek
                 // explosionAlreadyFired=false is safe: preview is one-shot (StopPlayback called immediately after)
                 if (previewRecording != null && host.ghostObject != null
                     && !GhostPlaybackLogic.ShouldSuppressVisualFx(TimeWarp.CurrentRate)
+                    && !GhostPlaybackLogic.IsQuietDestroyedEnd(previewRecording)
                     && GhostPlaybackLogic.ShouldTriggerExplosion(false, previewRecording.TerminalStateValue,
                            true, previewRecording.VesselName, -1))
                 {
@@ -1180,6 +1181,13 @@ namespace Parsek
 
             GhostMapPresence.UpdateGhostOrbit(chain.OriginalVesselPid, seg.Value);
         }
+
+        /// <summary>
+        /// The launch-gated real-vessel check the predicted-tail hide reads, cached so the
+        /// per-frame pass allocates no delegate.
+        /// </summary>
+        private static readonly Func<Recording, bool> RealVesselExistsForRecordingDelegate =
+            GhostPlaybackLogic.RealVesselExistsForRecording;
 
         /// <summary>
         /// The recording the live recorder writes right now (a split in progress keeps it live
@@ -1613,6 +1621,21 @@ namespace Parsek
                         "Anchor",
                         BuildStep2LiveBindSuppressKey(rec.RecordingId),
                         BuildStep2LiveBindSuppressMessage(rec.RecordingId, rec.VesselName),
+                        5.0);
+                }
+                // Owner ruling Q1b: past its last real sample a recording's predicted tail is
+                // not drawn while the vessel it predicts is still in the world (the player
+                // took it over, or the clone that dropped the tail is not committed yet).
+                if (!externalVesselSuppressed
+                    && GhostPlaybackLogic.ShouldHidePredictedTailGhostForScene(
+                        rec, currentUT, loopingLike, RealVesselExistsForRecordingDelegate))
+                {
+                    externalVesselSuppressed = true;
+                    ParsekLog.VerboseRateLimited(
+                        "PredictedTakeover",
+                        "predicted-tail-live-vessel-" + (rec.RecordingId ?? "idx-" + i),
+                        $"Predicted tail ghost hidden: rec={rec.RecordingId ?? "(null)"} " +
+                        $"vessel='{rec.VesselName}' pid={rec.VesselPersistentId} - the vessel it predicts is live",
                         5.0);
                 }
                 TimelineInactiveReason inactiveReason = TimelineInactiveReason.None;

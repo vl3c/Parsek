@@ -53,7 +53,7 @@ namespace Parsek.Tests
         public void TrackSectionSource_ValuesAreContiguous()
         {
             var values = Enum.GetValues(typeof(TrackSectionSource)).Cast<int>().OrderBy(v => v).ToList();
-            Assert.Equal(3, values.Count);
+            Assert.Equal(4, values.Count); // Active, Background, Checkpoint, Predicted
             for (int i = 0; i < values.Count; i++)
                 Assert.Equal(i, values[i]);
         }

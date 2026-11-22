@@ -680,6 +680,44 @@ namespace Parsek.Tests
                 l.Contains("[UnfinishedFlights]") && l.Contains("reason=notControllable"));
         }
 
+        // Gameplay review item 4 (double recovery): the replay spawned the slot's vessel at its
+        // ending and the player recovered the spawned craft (funds, science, crew). Recovering
+        // it is the row's outcome, so the row is no longer offered for a Re-Fly, which would let
+        // the same flight be recovered a second time. The production recovery row
+        // (LedgerOrchestrator.BuildVesselRecoveredRow, tagged to the owner recording) seals the
+        // slot through the recording-scoped world-action gate, the same gate the predicted
+        // touchdown branch (owner ruling Q4c) runs before keeping its row open.
+        [Fact]
+        public void OpenRowWhoseSpawnedVesselWasRecovered_NotMember_RecoverySealsIt()
+        {
+            var rec = Rec("rec_upper", MergeState.CommittedProvisional, TerminalState.SubOrbital,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            rec.VesselSpawned = true;
+            rec.SpawnedVesselPersistentId = 9001u;
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                RpWithFocus("rp_1", "bp_1", 0, "rec_focus", "rec_upper")
+            });
+            Assert.Single(UnfinishedFlightsGroup.ComputeMembers());
+
+            GameAction recovered = LedgerOrchestrator.BuildVesselRecoveredRow(
+                900.0, rec, "rec_upper", 9001u);
+            recovered.ActionId = "act_recover_spawn";
+            Ledger.AddAction(recovered);
+            EffectiveState.ResetCachesForTesting();
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_upper")
+                && l.Contains("reason=recordingAction:VesselRecovered:act_recover_spawn"));
+        }
+
         [Fact]
         public void SubOrbitalNonFocusUnderPostFeatureRP_IsMember()
         {

@@ -904,7 +904,7 @@ namespace Parsek
             if (loadedStates.TryGetValue(pid, out loadedState))
             {
                 SegmentEnvironment nextEnv = ClassifyCurrentBackgroundEnvironment(v, loadedState.cachedEngines);
-                bool willHavePlayableOnRailsPayload = WillInitializeOnRailsWithPlayablePayload(v);
+                bool willHavePlayableOnRailsPayload = WillInitializeOnRailsWithExoOrbitPayload(v);
                 Recording flushRec;
                 if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
                 {
@@ -948,11 +948,13 @@ namespace Parsek
             {
                 int recordedControllerCount = onRailsRec.Controllers?.Count ?? 0;
                 int survivingPartCount = v.parts?.Count ?? 0;
+                bool remnantSurvives = IdentityLossClassifier.RemnantSurvives(v);
                 ParsekLog.Info("BgRecorder",
                     $"Recorded controllable identity lost on go-on-rails: pid={pid} " +
                     $"recordedControllers={recordedControllerCount} survivingParts={survivingPartCount} " +
-                    $"sit={v.situation} rec={recordingId} — classifying as Destroyed");
-                onRailsRec.MarkDestroyedAtTerminal(ut, "BgRecorder.OnBackgroundVesselGoOnRails");
+                    $"sit={v.situation} rec={recordingId} remnantSurvives={remnantSurvives} — classifying as Destroyed");
+                onRailsRec.MarkDestroyedAtTerminal(ut, "BgRecorder.OnBackgroundVesselGoOnRails",
+                    vesselSurvives: remnantSurvives);
                 RetireDestroyedBackgroundEntry(pid, recordingId, ut);
                 return;
             }
@@ -1205,6 +1207,14 @@ namespace Parsek
             {
                 CloseOrbitSegment(state, ut);
             }
+            // The new body's segment opens at the SOI edge, far above any atmosphere: the
+            // atmosphere label of the old span does not carry across a body change.
+            if (state.packedInsideAtmosphere)
+            {
+                state.packedInsideAtmosphere = false;
+                ParsekLog.Verbose("BgRecorder",
+                    $"On-rails atmosphere label cleared at SOI change: pid={pid}");
+            }
             return state;
         }
 
@@ -1337,10 +1347,20 @@ namespace Parsek
                 return;
             }
 
+            Recording destroyRefreshRec = null;
+            if (!string.IsNullOrEmpty(recordingId))
+                tree.Recordings.TryGetValue(recordingId, out destroyRefreshRec);
+            bool hadTerminalBeforeDestroyRefresh =
+                destroyRefreshRec != null && destroyRefreshRec.TerminalStateValue.HasValue;
+
+            // A loaded crash stamps the recording Destroyed eagerly here; a packed airborne
+            // vessel is a stock deletion and caches its predicted fall instead
+            // (RecordingFinalizationCacheProducer.IsStockOnRailsDeletionRefresh).
             RefreshFinalizationCacheForVessel(v, recordingId, v.loaded && !v.packed
                 ? FinalizationCacheOwner.BackgroundLoaded
                 : FinalizationCacheOwner.BackgroundOnRails,
-                "background_destroy", force: true);
+                RecordingFinalizationCacheProducer.BackgroundDestroyRefreshReason, force: true);
+            NoteEagerDestroyStamp(pid, destroyRefreshRec, hadTerminalBeforeDestroyRefresh);
 
             BackgroundOnRailsState railsState;
             if (onRailsStates.TryGetValue(pid, out railsState))

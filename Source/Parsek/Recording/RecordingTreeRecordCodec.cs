@@ -6,6 +6,10 @@ namespace Parsek
 {
     internal static class RecordingTreeRecordCodec
     {
+        // The recovered vessel's crew (Recording.RecoveredCrewNames): one value per kerbal.
+        internal const string RecoveredCrewNodeName = "RECOVERED_CREW";
+        internal const string RecoveredCrewValueName = "kerbal";
+
         // --- Recording serialization helpers ---
 
         internal static void SaveRecordingInto(ConfigNode recNode, Recording rec)
@@ -29,6 +33,28 @@ namespace Parsek
 
             if (rec.TerminalStateValue.HasValue)
                 recNode.AddValue("terminalState", ((int)rec.TerminalStateValue.Value).ToString(ic));
+            // Sparse: only a predicted crash or touchdown carries it, so every other recording
+            // stays byte-identical and an older save reads as confirmed (its crew stay Dead).
+            if (rec.TerminalPredicted)
+                recNode.AddValue("terminalPredicted", "True");
+            // Sparse too: only an identity-loss Destroyed over a surviving remnant carries it.
+            if (rec.TerminalRemnantSurvives)
+                recNode.AddValue("terminalRemnantSurvives", "True");
+            // Sparse too: only a quiet Destroyed end (a chuted craft stock deleted) carries it.
+            if (rec.QuietDestroyedEnd)
+                recNode.AddValue("quietEnd", "True");
+            // Sparse too: only a recovery stamped with the recovered vessel's crew carries it
+            // (an empty node = stock recovered nobody aboard; StampTerminalState keeps the list
+            // only with a Recovered ending, and the crew answer reads it only there).
+            if (rec.RecoveredCrewNames != null)
+            {
+                ConfigNode recoveredCrewNode = recNode.AddNode(RecoveredCrewNodeName);
+                for (int i = 0; i < rec.RecoveredCrewNames.Count; i++)
+                    recoveredCrewNode.AddValue(RecoveredCrewValueName, rec.RecoveredCrewNames[i]);
+            }
+            // Sparse too: only a predicted touchdown whose vessel stock held carries it.
+            if (!double.IsNaN(rec.StockHeldVesselUT) && !double.IsInfinity(rec.StockHeldVesselUT))
+                recNode.AddValue("stockHeldUT", rec.StockHeldVesselUT.ToString("R", ic));
             if (rec.EndpointPhase != RecordingEndpointPhase.Unknown)
                 recNode.AddValue("endpointPhase", ((int)rec.EndpointPhase).ToString(ic));
             if (!string.IsNullOrEmpty(rec.EndpointBodyName))
@@ -666,6 +692,25 @@ namespace Parsek
                             "is unknown to this build (a newer ending kind); held verbatim and written back");
                 }
             }
+            // Read with the terminal it qualifies: kept only beside a Destroyed, Landed or
+            // Splashed ending (an absent key, or any other ending, reads false).
+            rec.TerminalPredicted = Recording.IsPredictableTerminal(rec.TerminalStateValue)
+                && ParseBoolOr(recNode, "terminalPredicted", false);
+            rec.TerminalRemnantSurvives = rec.TerminalStateValue == TerminalState.Destroyed
+                && ParseBoolOr(recNode, "terminalRemnantSurvives", false);
+            rec.QuietDestroyedEnd = rec.TerminalStateValue == TerminalState.Destroyed
+                && ParseBoolOr(recNode, "quietEnd", false);
+            ConfigNode recoveredCrewNode = recNode.GetNode(RecoveredCrewNodeName);
+            rec.RecoveredCrewNames = recoveredCrewNode != null
+                ? Recording.CopyRecoveredCrew(recoveredCrewNode.GetValues(RecoveredCrewValueName))
+                : null;
+            double stockHeldUT;
+            string stockHeldText = recNode.GetValue("stockHeldUT");
+            rec.StockHeldVesselUT = stockHeldText != null
+                && double.TryParse(stockHeldText, NumberStyles.Float, ic, out stockHeldUT)
+                && !double.IsNaN(stockHeldUT) && !double.IsInfinity(stockHeldUT)
+                ? stockHeldUT
+                : double.NaN;
 
             string endpointPhaseStr = recNode.GetValue("endpointPhase");
             if (endpointPhaseStr != null)

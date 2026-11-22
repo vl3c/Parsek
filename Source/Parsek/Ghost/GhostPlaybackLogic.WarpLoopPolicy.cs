@@ -101,6 +101,48 @@ namespace Parsek
             return currentWarpRate > WarpThresholds.FxSuppress;
         }
 
+        /// <summary>
+        /// Distance from the viewer inside which a crash explosion counts as "in view" at high
+        /// warp: the cutoff past which an unwatched ghost mesh is hidden by the distance LOD.
+        /// </summary>
+        internal const double ExplosionInViewMaxMeters = DistanceThresholds.GhostFlight.LoopSimplifiedMeters;
+
+        /// <summary>
+        /// Whether a crash explosion plays (owner ruling L2): at or below the FX-suppress warp
+        /// rate it always plays; above it, only when the ghost is close enough to be seen (a
+        /// watched ghost, or one whose view distance is under <paramref name="maxVisibleMeters"/>).
+        /// A far ghost just ends, which costs nothing. An unknown distance reads as far. Pure.
+        /// </summary>
+        internal static bool ShouldPlayExplosionFx(
+            float warpRate, bool isWatched, double viewDistanceMeters, double maxVisibleMeters)
+        {
+            if (!ShouldSuppressVisualFx(warpRate))
+                return true;
+            if (isWatched)
+                return true;
+            return !double.IsNaN(viewDistanceMeters)
+                && !double.IsInfinity(viewDistanceMeters)
+                && viewDistanceMeters >= 0.0
+                && viewDistanceMeters < maxVisibleMeters;
+        }
+
+        /// <summary>
+        /// The ghost's distance from the viewer as the zone machinery last cached it: the
+        /// render (camera) distance, else the active-vessel distance, else NaN. Pure.
+        /// </summary>
+        internal static double ResolveExplosionViewDistance(GhostPlaybackState state)
+        {
+            if (state == null)
+                return double.NaN;
+            double render = state.lastRenderDistance;
+            if (!double.IsNaN(render) && !double.IsInfinity(render) && render >= 0.0)
+                return render;
+            double anchor = state.lastDistance;
+            if (!double.IsNaN(anchor) && !double.IsInfinity(anchor) && anchor >= 0.0)
+                return anchor;
+            return double.NaN;
+        }
+
         internal static bool ShouldSuppressGhosts(float currentWarpRate)
         {
             return currentWarpRate > WarpThresholds.GhostHide;

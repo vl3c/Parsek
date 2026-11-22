@@ -79,6 +79,28 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Pure: does a remnant whose recorded identity is lost still exist as a vessel KSP
+        /// keeps. A DEAD vessel does not, nor a loaded one with no live part (every part just
+        /// died; the end-of-frame Destroy is pending). An unloaded vessel lives on its proto
+        /// snapshots. A Destroyed ending sealed over a surviving remnant kills only the crew
+        /// whose own part KSP destroyed (owner ruling Q6b).
+        /// </summary>
+        internal static bool RemnantSurvives(bool vesselDead, bool vesselLoaded, int loadedPartCount)
+        {
+            if (vesselDead) return false;
+            if (vesselLoaded) return loadedPartCount > 0;
+            return true;
+        }
+
+        /// <summary>Live wrapper of <see cref="RemnantSurvives(bool, bool, int)"/>; false for null.</summary>
+        internal static bool RemnantSurvives(Vessel v)
+        {
+            if (ReferenceEquals(v, null))
+                return false;
+            return RemnantSurvives(v.state == Vessel.State.DEAD, v.loaded, v.parts?.Count ?? 0);
+        }
+
         /// <summary>Where the identity check read the surviving vessel's parts from.</summary>
         internal enum PartSource
         {

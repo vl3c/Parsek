@@ -21,6 +21,23 @@ namespace Parsek
         internal const string EvaNotSeparationReason = "evaNotSeparation";
 
         /// <summary>
+        /// Classifier reason for a Landed / Splashed ending Parsek predicted (a chute descent
+        /// it extrapolated to touchdown, <see cref="Recording.TerminalPredicted"/>): the
+        /// separation stays an Unfinished Flight until it is flown or dismissed (owner ruling
+        /// Q4c); a landing the player flew closes it as a stable terminal.
+        /// </summary>
+        internal const string PredictedTouchdownReason = "predictedTouchdown";
+
+        /// <summary>Pure: a Landed / Splashed ending that is Parsek's own prediction.</summary>
+        internal static bool IsPredictedTouchdown(Recording rec)
+        {
+            return rec != null
+                && rec.TerminalPredicted
+                && (rec.TerminalStateValue == TerminalState.Landed
+                    || rec.TerminalStateValue == TerminalState.Splashed);
+        }
+
+        /// <summary>
         /// Non-qualifying verdict for a separation slot whose vessel put a crew
         /// member out on EVA after the separation, and that kerbal then joined a
         /// DIFFERENT vessel (boarded it, or his EVA history otherwise merged into a
@@ -375,6 +392,24 @@ namespace Parsek
 
                 reason = "crashed";
                 LogVerdict(true, recId, reason, WithBranchSide("terminal=Destroyed", branchSide));
+                return true;
+            }
+
+            // Owner ruling Q4c: a touchdown Parsek only predicted keeps the slot open, like a
+            // suborbital arc, ahead of the Re-Fly focus override and the stable-terminal close.
+            if (IsPredictedTouchdown(chainTip))
+            {
+                int predictedSlotListIndex = ResolveSlotListIndexByReference(rp, slot);
+                string predictedDetail = WithBranchSide(
+                    $"slot={predictedSlotListIndex} focusSlot={(rp != null ? rp.FocusSlotIndex : -1)} " +
+                    $"terminal={terminal.Value} predicted=True",
+                    branchSide);
+                if (TryRejectRecordingScopedWorldAction(
+                    safetyRec, rp, slot, recId, out reason, predictedDetail))
+                    return false;
+
+                reason = PredictedTouchdownReason;
+                LogVerdict(true, recId, reason, predictedDetail);
                 return true;
             }
 
@@ -1016,6 +1051,8 @@ namespace Parsek
 
             var terminal = terminalRec.TerminalStateValue.Value;
             if (terminal == TerminalState.Destroyed)
+                return true;
+            if (IsPredictedTouchdown(terminalRec))
                 return true;
             return terminal == TerminalState.Orbiting
                 || terminal == TerminalState.SubOrbital;

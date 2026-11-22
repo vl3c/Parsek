@@ -13,8 +13,9 @@ install `test career` save (KSP 1.12.5), reset per the M-B3 operator checklist i
 `docs/dev/todo-and-known-bugs.md`.
 
 Each fixture is `persistent.sfs` + `persistent.loadmeta` + `AddOns/DistantObject/Settings.cfg`
-(the derived-by-construction fixtures `coalescer-pad`, `career-earned-ksc` and
-`mun-escape-probe-stack` carry no `AddOns/`; nothing in the harness reads it).
+(the derived-by-construction fixtures `coalescer-pad`, `career-earned-ksc`,
+`mun-escape-probe-stack`, `graze-high-probe-stack` and `graze-low-probe-stack` carry no
+`AddOns/`; nothing in the harness reads it).
 No craft in flight, no active/offered contracts, no completed milestones, no unlocked
 tech beyond the mode default `start` node, all facilities at level 0, no Parsek footprint
 (no `Parsek/` dir, no `ParsekScenario` SCENARIO node, no `ParsekSettings` custom-param),
@@ -733,6 +734,23 @@ trajectory that leaves an SOI without a burn. Built and drift-gated by
 `harness/lib/test_mun_escape_probe_stack.py`, which also re-derives the exit time from the
 committed elements and checks SOI-3's WarpToUT target against it; no `AddOns/` and no
 `Ships/VAB` overlay (the lane launches nothing). Host of `SOI-3-bg-probe-mun-exit-on-rails`.
+
+## graze-high-probe-stack / graze-low-probe-stack (GAME Mode = SANDBOX, 1 VESSEL + 1 asteroid + pad debris, derived from gs2-orbital-stack)
+
+`gs2-orbital-stack`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except
+that the `Kerbal X` VESSEL (the crewed stack with its probe-cored core under
+`Decoupler.2` partPid 2923926328) reads `sit = SUB_ORBITAL`, the apoapsis altitude as
+`alt`, and an ORBIT whose `SMA` / `ECC` / `MNA` put it on a GRAZING Kerbin orbit: the
+apoapsis radius is the LKO orbit's own (~106 km), the periapsis altitude is 40 km
+(`graze-high`, above the ~22-25 km line where stock deletes an unloaded vessel at 1 kPa)
+or 15 km (`graze-low`, below it), and `MNA = pi` with the source's `EPH` (the save UT
+416.91) starts the stack AT apoapsis, minutes before the descent reaches the atmosphere.
+INC / LPE / LAN / REF are the source's. They exist because no mission can put a stage on
+such an orbit without a deorbit burn the harness has no verb for. Built and drift-gated by
+`harness/tools/build_graze_probe_stacks.py` (`--check`) and
+`harness/lib/test_graze_probe_stacks.py`, which also re-derives both periapses from the
+committed elements; no `AddOns/` and no `Ships/VAB` overlay (the lanes launch nothing).
+Hosts of `ASR-3-graze-above-1kpa-stays-orbiting` / `ASR-4-graze-below-1kpa-destroyed`.
 
 ## pad-runway-pair (GAME Mode = SANDBOX, 2 VESSELS + 1 asteroid, derived from logi-cargo-pad)
 

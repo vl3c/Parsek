@@ -197,10 +197,13 @@ namespace Parsek
             ExtrapolationLimits limits = ExtrapolationLimits.Default;
             // The horizon is the spawn UT itself (plus a hair so the last conic reaches it).
             limits.maxHorizonYears = (spawnUT - startUT + 1.0) / BallisticExtrapolator.SecondsPerYear;
+            // The carry follows the path all the way to the spawn UT: a stable conic reached on
+            // the way is not an ending here, an encounter beyond its first period still counts.
             ExtrapolationResult extrapolated = BallisticExtrapolator.Extrapolate(
                 startState, bodies, limits, warnOnSubSurfaceStart: false,
                 initialSuppressedParentExitParentBodyName: suppressedParentExit,
-                initialSuppressedChildEntryBodyName: suppressedChildEntry);
+                initialSuppressedChildEntryBodyName: suppressedChildEntry,
+                stopOnFinalConic: false);
 
             // PqsUnavailable is a soft fallback (the surface scan used sea level), not a
             // broken chain; every other reason means the path could not be followed.

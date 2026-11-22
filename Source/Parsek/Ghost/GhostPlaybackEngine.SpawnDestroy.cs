@@ -743,26 +743,45 @@ namespace Parsek
         /// Takes warpRate as parameter (engine does not read KSP globals directly).
         /// </summary>
         internal void TriggerExplosionIfDestroyed(GhostPlaybackState state, IPlaybackTrajectory traj,
-            int recIdx, float warpRate)
+            int recIdx, float warpRate, bool isWatched = false)
         {
             if (state == null)
             {
                 ParsekLog.Verbose("Engine", $"TriggerExplosionIfDestroyed: ghost #{recIdx} — skipped (state is null)");
                 return;
             }
+            if (!state.explosionFired && state.ghost != null && GhostPlaybackLogic.IsQuietDestroyedEnd(traj))
+            {
+                state.explosionFired = true;
+                GhostPlaybackLogic.HideAllGhostParts(state);
+                ParsekLog.VerboseRateLimited("Engine", $"quiet-end-{recIdx}",
+                    $"Quiet end for ghost #{recIdx} \"{traj.VesselName}\": stock deleted it under its chutes; " +
+                    "the ghost came down and ends with no explosion");
+                return;
+            }
             if (!GhostPlaybackLogic.ShouldTriggerExplosion(state.explosionFired, traj.TerminalStateValue,
                     state.ghost != null, traj.VesselName, recIdx))
                 return;
 
-            if (GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
+            double viewDistance = GhostPlaybackLogic.ResolveExplosionViewDistance(state);
+            if (!GhostPlaybackLogic.ShouldPlayExplosionFx(
+                    warpRate, isWatched, viewDistance, GhostPlaybackLogic.ExplosionInViewMaxMeters))
             {
                 state.explosionFired = true;
                 GhostPlaybackLogic.HideAllGhostParts(state);
                 ParsekLog.VerboseRateLimited("Engine", $"explosion-suppress-{recIdx}",
-                    $"Explosion suppressed for ghost #{recIdx} \"{traj.VesselName}\": " +
-                    $"warp rate {warpRate.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}x > " +
-                    $"{WarpThresholds.FxSuppress}x");
+                    $"Explosion skipped for ghost #{recIdx} \"{traj.VesselName}\": out of view at warp " +
+                    $"{warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {WarpThresholds.FxSuppress}x " +
+                    $"(viewDist={RenderingZoneManager.FormatDistanceForLog(viewDistance)} " +
+                    $"max={GhostPlaybackLogic.ExplosionInViewMaxMeters.ToString("F0", CultureInfo.InvariantCulture)}m); ghost just ends");
                 return;
+            }
+            if (GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
+            {
+                ParsekLog.VerboseRateLimited("Engine", $"explosion-warp-in-view-{recIdx}",
+                    $"Explosion plays at warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x " +
+                    $"for ghost #{recIdx} \"{traj.VesselName}\": in view " +
+                    $"(watched={isWatched} viewDist={RenderingZoneManager.FormatDistanceForLog(viewDistance)})");
             }
 
             state.explosionFired = true;

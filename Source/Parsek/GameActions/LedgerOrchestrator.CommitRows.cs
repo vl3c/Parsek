@@ -8,6 +8,114 @@ namespace Parsek
     internal static partial class LedgerOrchestrator
     {
         /// <summary>
+        /// Pure: does replacing the committed copy <paramref name="existing"/> with
+        /// <paramref name="incoming"/> (a tree commit's same-id replace) take over a crash Parsek
+        /// only predicted? True when the committed copy ends in a predicted Destroyed
+        /// (<see cref="Recording.TerminalPredicted"/>) and the incoming copy ends differently
+        /// (another ending, a confirmed one, or another end UT): the player flew the stage again
+        /// (owner ruling Q1b) and the forecast that killed the crew (Q6c) was replaced by what
+        /// the vessel did. A predicted chute touchdown (Landed / Splashed, predicted) qualifies
+        /// the same way: its Aboard rows give way when stock deleted the craft (owner ruling Q4d,
+        /// the crew died with it) or contradicted the touchdown, and so does a predicted final
+        /// orbit (Orbiting / SubOrbital, owner ruling Q8) stock destroyed or the player flew on
+        /// from. A confirmed ending is history
+        /// and never qualifies, and an untouched copy (same ending, same end) does not either.
+        /// </summary>
+        internal static bool ShouldRefreshCrewRowsOnReplace(Recording existing, Recording incoming)
+        {
+            if (existing == null || incoming == null || ReferenceEquals(existing, incoming))
+                return false;
+            if (!existing.TerminalPredicted
+                || !Recording.IsPredictableTerminal(existing.TerminalStateValue))
+                return false;
+            if (incoming.TerminalStateValue != existing.TerminalStateValue
+                || incoming.TerminalPredicted != existing.TerminalPredicted)
+                return true;
+            double a = existing.EndUT, b = incoming.EndUT;
+            if (double.IsNaN(a) || double.IsNaN(b))
+                return double.IsNaN(a) != double.IsNaN(b);
+            return Math.Abs(a - b) > 1e-6;
+        }
+
+        /// <summary>
+        /// The ledger half of a predicted-crash takeover: when
+        /// <see cref="ShouldRefreshCrewRowsOnReplace"/> holds, removes the crew rows the
+        /// predicted ending filed for the recording (its KerbalAssignment rows and its
+        /// kerbal-death reputation penalty), so the tree commit that follows files the real
+        /// flight's crew answer instead of having it dropped by the dedup against the stale
+        /// rows (a KerbalAssignment row's dedup key is the recording and the kerbal alone).
+        /// Every other row of the recording stays. Returns the number of rows removed.
+        /// </summary>
+        internal static int RetireTakenOverPredictedCrashCrewRows(
+            Recording existing, Recording incoming, string context)
+        {
+            if (!ShouldRefreshCrewRowsOnReplace(existing, incoming))
+                return 0;
+            string recordingId = existing.RecordingId;
+            if (string.IsNullOrEmpty(recordingId))
+                return 0;
+            int assignments = 0, penalties = 0;
+            List<GameAction> removed = Ledger.RemoveWhere(a =>
+            {
+                if (!string.Equals(a.RecordingId, recordingId, StringComparison.Ordinal))
+                    return false;
+                if (a.Type == GameActionType.KerbalAssignment)
+                    return true;
+                return a.Type == GameActionType.ReputationPenalty
+                    && a.RepPenaltySource == ReputationPenaltySource.KerbalDeath;
+            }, "predicted-crash-takeover");
+            for (int i = 0; i < removed.Count; i++)
+            {
+                if (removed[i].Type == GameActionType.KerbalAssignment) assignments++;
+                else penalties++;
+            }
+            ParsekLog.Info(Tag,
+                $"{context ?? "(none)"}: predicted crash taken over for recording='{recordingId}' " +
+                $"(committed ending {(existing.TerminalStateValue.HasValue ? existing.TerminalStateValue.Value.ToString() : "null")} " +
+                $"predicted endUT={existing.EndUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                $"incoming ending={(incoming.TerminalStateValue.HasValue ? incoming.TerminalStateValue.Value.ToString() : "null")} " +
+                $"predicted={incoming.TerminalPredicted} endUT={incoming.EndUT.ToString("R", CultureInfo.InvariantCulture)}) - " +
+                $"retired {assignments.ToString(CultureInfo.InvariantCulture)} crew assignment row(s) and " +
+                $"{penalties.ToString(CultureInfo.InvariantCulture)} death penalty row(s); the commit files the real flight's crew");
+            return removed.Count;
+        }
+
+        /// <summary>
+        /// The ledger half of a merge-partner take-over (a dock, claw grab or boarding with a
+        /// committed vessel whose predicted ending was dropped,
+        /// <c>TreeCommitService.TakeOverPredictedEndingsOfMergePartners</c>): the partner's
+        /// KerbalAssignment rows are re-derived from its new ending (Docked / Boarded: the crew
+        /// aboard live on), and when the dropped ending was a predicted crash its kerbal-death
+        /// penalty goes with it. No tree commit files that recording's rows again, so they are
+        /// replaced here. Returns the number of crew rows now filed for it.
+        /// </summary>
+        internal static int RefreshTakenOverMergePartnerCrewRows(
+            Recording partner, TerminalState? previousTerminal, bool previousPredicted, string context)
+        {
+            if (partner == null || string.IsNullOrEmpty(partner.RecordingId))
+                return 0;
+            string recordingId = partner.RecordingId;
+            int penalties = 0;
+            if (previousTerminal == TerminalState.Destroyed && previousPredicted)
+            {
+                penalties = Ledger.RemoveWhere(a =>
+                    string.Equals(a.RecordingId, recordingId, StringComparison.Ordinal)
+                    && a.Type == GameActionType.ReputationPenalty
+                    && a.RepPenaltySource == ReputationPenaltySource.KerbalDeath,
+                    "merge-partner-takeover").Count;
+            }
+            List<GameAction> rows = CreateKerbalAssignmentActions(recordingId, partner.StartUT, partner.EndUT);
+            Ledger.ReplaceActionsForRecording(GameActionType.KerbalAssignment, recordingId, rows);
+            ParsekLog.Info(Tag,
+                $"{context ?? "(none)"}: merge partner '{recordingId}' flown again (previous ending " +
+                $"{(previousTerminal.HasValue ? previousTerminal.Value.ToString() : "null")} predicted={previousPredicted}, " +
+                $"now {(partner.TerminalStateValue.HasValue ? partner.TerminalStateValue.Value.ToString() : "null")}) - " +
+                $"re-derived {rows.Count.ToString(CultureInfo.InvariantCulture)} crew assignment row(s), " +
+                $"removed {penalties.ToString(CultureInfo.InvariantCulture)} death penalty row(s)");
+            return rows.Count;
+        }
+
+        /// <summary>
         /// Removes actions from the candidate list that already exist in the ledger.
         /// Matches on Type + occurrence UT (within epsilon) + key field (SubjectId, NodeId,
         /// FacilityId, MilestoneId, or ContractId depending on type). Science dedup compares

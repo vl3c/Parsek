@@ -1,0 +1,139 @@
+schema = 1
+id = "ASR-4-graze-below-1kpa-destroyed"
+tier = "daily"
+# =====================================================================================
+# ASR-4: A STAGE LEFT IN A GRAZING ORBIT WHOSE PERIAPSIS DIPS BELOW THE 1 kPa LINE ENDS
+# DESTROYED ON ITS FIRST PASS; THE CREWED STACK THE PLAYER STILL FLIES KEEPS ITS LIVE
+# SITUATION AND ITS CREW. AUTHORED 2026-11-21; READING RUN `2026-11-21_1843` (PARSEK-FAIL
+# on the spec only, re-pinned the same day). Report-only saveParse blocks. Sibling: ASR-3
+# (periapsis above the line).
+# =====================================================================================
+#
+# WHAT IT PROVES (owner rulings). A periapsis below the line where stock deletes an
+# unloaded vessel (static pressure > 1 kPa, about 22-25 km on Kerbin) means the stage
+# would not survive its first pass, so its recording ends `Destroyed` there, with a
+# predicted tail, instead of `SubOrbital` at the commit. The crewed stack's crew
+# outcome (ruling Q6c: a predicted crash kills the crew; the active vessel on a plain
+# CommitTree keeps its live situation) is read on the first run.
+#
+# THE HOST. `graze-low-probe-stack` (harness/tools/build_graze_probe_stacks.py): ASR-3's
+# derivation with a 15 km periapsis. Drag-free the arc never reaches the ground
+# (periapsis radius 615 km), so the ending is the first-pass destruction, ~14 minutes of
+# game time after the commit (apoapsis at UT 416.91, half a 1796 s period to periapsis,
+# the 1 kPa line a little before it).
+#
+# THE FLIGHT: ASR-3's, step for step (decouple the probe core, 1x dwell to UT 430,
+# CommitTree, FlushAndQuit).
+#
+# THE READING (`2026-11-21_1843`), and why the spec changed. `Kerbal X` is the ACTIVE
+# vessel on a plain in-flight CommitTree, which by design keeps its live situation (the
+# player keeps flying it): `CommitTreeFlight terminal: rec=<stack> terminalState=SubOrbital`,
+# no predicted segment, tail 0, and `PopulateCrewEndStates: recording='Kerbal X' ... crew=2
+# aboard=2 dead=0`. Only the unflown probe gets the predicted crash:
+# `terminalState=Destroyed`, one predicted segment, tail 884.8 s, end altitude 14988 m
+# (the 15 km periapsis: the first-pass cut is the periapsis, not the 1 kPa line).
+#
+# WHAT IS READ. The endings block (harness/lib/endingsq.py): the probe Destroyed with a
+# predicted segment, the end UT at least 600 s past the commit-time last watched datum,
+# and the last predicted segment ending at the periapsis (14-16 km); the stack SubOrbital
+# with no predicted segment. The crewed stack's seats are still filled in the save
+# (`crewAboard`, KSP's own roster of the live vessel).
+#
+# C#-DEPENDENT: the probe's `CommitTreeFlight terminal: ... terminalState=Destroyed` line
+# (Controllers/ParsekFlight.MergeFlow.cs; the line names the recording id only, not the
+# vessel, so the probe is told from the stack by the two lines together: one Destroyed,
+# one SubOrbital, and the forbidden pair of two SubOrbital lines), the stack's crew line
+# (Crew/KerbalsModule.CrewEndStates.cs, dead=0) and the endings block.
+#
+# FAST-LANE CHECKLIST: ASR-3's, item for item.
+# =====================================================================================
+description = "A stage left in a grazing orbit whose periapsis (15 km) dips below the 1 kPa line ends Destroyed on its first pass: on graze-low-probe-stack (gs2-orbital-stack's Kerbal X stack on a 106 x 15 km Kerbin orbit, at apoapsis) the probe core is decoupled, both halves dwell at 1x, CommitTree in flight. The unflown probe commits Destroyed (predicted segment, end ~885 s past the commit, at the 15 km periapsis); the crewed stack is the active vessel and keeps its live SubOrbital situation and its crew (dead=0)."
+instanceProfile = "stock-minimal"
+tags = ["ASR", "ASR-4", "predicted-tail", "grazing-orbit", "controlled-child", "kerbin",
+        "sandbox", "crewed", "crew-loss", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/graze-low-probe-stack"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK" },
+  { cmd = "PartAction",     args = { button = "decouple", part = "Decoupler.2", partPid = "2923926328" }, expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "430", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["controlled-decoupled-child"]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 3 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  "partaction applied button=decouple pid=[0-9]+ part='Decoupler\\.2' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  "committree committed=true",
+  # The unflown probe ends Destroyed on its predicted first pass (one line), and the active
+  # stack keeps its live situation (one SubOrbital line, by design on a plain CommitTree).
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Destroyed ",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=SubOrbital ",
+  # The stack's crew stay aboard and alive (measured on `2026-11-21_1843`).
+  "PopulateCrewEndStates: recording='Kerbal X' \\(id=\\S+\\) crew=2 aboard=2 dead=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The probe left SubOrbital too: two SubOrbital verdict lines (the line carries no vessel
+  # name, so the probe is scoped by count; the tree holds exactly these two recordings).
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=SubOrbital [\\s\\S]*?CommitTreeFlight terminal: rec=\\w+ terminalState=SubOrbital ",
+]
+
+# REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
+# Measured on `2026-11-21_1843`: Destroyed, 1 predicted segment, tail 884.8 s, end
+# altitude 14988 m (the periapsis).
+[expectations.recordings.endings.vessels."Kerbal X Probe"]
+ended             = { min = 1, max = 1 }
+terminalStates    = ["Destroyed"]
+predictedSegments = { min = 1 }
+tailSeconds       = { min = 600 }
+endAltitudeMeters = { min = 14000, max = 16000 }
+
+# The active stack keeps its live situation (measured: SubOrbital, 0 predicted, tail 0).
+[expectations.recordings.endings.vessels."Kerbal X"]
+ended             = { min = 1, max = 1 }
+terminalStates    = ["SubOrbital"]
+predictedSegments = { max = 0 }
+
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+terminalStates = { Destroyed = { min = 1, max = 1 }, SubOrbital = { min = 1, max = 1 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 } }
+# KSP's own roster: the crewed stack still seats both kerbals at the save.
+crewAboard     = { "Valentina Kerman" = { min = 1, max = 1 }, "Bob Kerman" = { min = 1, max = 1 } }
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -45,6 +45,9 @@ namespace Parsek.Tests.Generators
         private float rewindReservedRep;
         private int? terminalState;
         private bool? crewDeathRespawns;
+        private bool terminalPredicted;
+        private bool terminalRemnantSurvives;
+        private bool quietDestroyedEnd;
         private double crewDeathRespawnSeconds = double.NaN;
         private MergeState? mergeState;
         private double terrainHeightAtEnd = double.NaN;
@@ -436,6 +439,42 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder WithTerminalState(int terminalState)
         {
             this.terminalState = terminalState;
+            return this;
+        }
+
+        /// <summary>
+        /// A Destroyed ending Parsek only predicted (Recording.TerminalPredicted; key
+        /// terminalPredicted): its crew die with it like a confirmed crash (owner ruling Q6c).
+        /// </summary>
+        public RecordingBuilder WithPredictedDestroyedTerminal()
+        {
+            terminalState = (int)TerminalState.Destroyed;
+            terminalPredicted = true;
+            return this;
+        }
+
+        /// <summary>
+        /// A Destroyed ending sealed over a remnant KSP still keeps (an identity loss;
+        /// Recording.TerminalRemnantSurvives, key terminalRemnantSurvives): its crew are decided
+        /// per part (owner ruling Q6b).
+        /// </summary>
+        public RecordingBuilder WithRemnantSurvivesDestroyedTerminal()
+        {
+            terminalState = (int)TerminalState.Destroyed;
+            terminalPredicted = true;
+            terminalRemnantSurvives = true;
+            return this;
+        }
+
+        /// <summary>
+        /// A Destroyed ending stock decided for a chuted craft it deleted out of range
+        /// (Recording.QuietDestroyedEnd; key quietEnd): the ghost comes down under its chutes
+        /// and ends with no explosion.
+        /// </summary>
+        public RecordingBuilder WithQuietDestroyedEnd()
+        {
+            terminalState = (int)TerminalState.Destroyed;
+            quietDestroyedEnd = true;
             return this;
         }
 
@@ -993,6 +1032,12 @@ namespace Parsek.Tests.Generators
 
             if (terminalState.HasValue)
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
+            if (terminalPredicted)
+                node.AddValue("terminalPredicted", "True");
+            if (terminalRemnantSurvives)
+                node.AddValue("terminalRemnantSurvives", "True");
+            if (quietDestroyedEnd)
+                node.AddValue("quietEnd", "True");
             if (crewDeathRespawns.HasValue)
             {
                 node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());
@@ -1170,6 +1215,12 @@ namespace Parsek.Tests.Generators
 
             if (terminalState.HasValue)
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
+            if (terminalPredicted)
+                node.AddValue("terminalPredicted", "True");
+            if (terminalRemnantSurvives)
+                node.AddValue("terminalRemnantSurvives", "True");
+            if (quietDestroyedEnd)
+                node.AddValue("quietEnd", "True");
             if (crewDeathRespawns.HasValue)
             {
                 node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());

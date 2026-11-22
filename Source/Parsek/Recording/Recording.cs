@@ -303,6 +303,60 @@ namespace Parsek
         // --- Terminal state ---
         public TerminalState? TerminalStateValue;      // null = not yet terminated (still recording or legacy)
 
+        // True when the terminal is Parsek's own prediction, false when KSP or the player
+        // reached it. Destroyed: an extrapolated crash stamped while KSP still had the vessel,
+        // or one it never saw destroyed. It does NOT spare the crew: a Destroyed ending kills
+        // them whether KSP destroyed the vessel or Parsek predicted the crash (owner ruling
+        // Q6c); the takeover (Q1b) and the playback read it. Landed / Splashed: a chute
+        // descent Parsek predicted to touchdown (owner ruling Q4), which keeps the separation
+        // open for a Re-Fly (Q4c); the crew stay Aboard as on any landing. Orbiting /
+        // SubOrbital: a final orbit a predicted tail reached (owner ruling Q8: an escape
+        // followed to its last body, a coast past a patched-conic change); stock holds the
+        // vessel on rails meanwhile and may still meet what the predictor missed, so the
+        // reconciler squares it with stock (P-STOCK); the crew stay Aboard. Every other
+        // terminal keeps it false (Recording.IsPredictableTerminal). Persisted sparse as
+        // terminalPredicted (written only when true; absent = false). Decided only through
+        // StampTerminalState (the codec and the copy sites carry it).
+        public bool TerminalPredicted;
+
+        // True when the Destroyed terminal sealed an identity loss over a remnant KSP still
+        // keeps (a breakup wreck that lost the recorded controllers, MarkDestroyedAtTerminal
+        // with vesselSurvives). The vessel itself was not destroyed, so its crew are decided
+        // per part (owner ruling Q6b): only a kerbal whose part KSP destroyed, or who is no
+        // longer aboard the remnant, dies. Only with a Destroyed terminal; persisted sparse as
+        // terminalRemnantSurvives. Decided only through StampTerminalState.
+        public bool TerminalRemnantSurvives;
+
+        // True on a Destroyed ending whose replay ends without the destroyed-vessel explosion
+        // (owner ruling 2026-11-21): a chuted craft stock deleted out of range is recorded as
+        // stock decided (vessel gone, crew dead, no spawn), but its ghost comes down under its
+        // canopies to the ground and ends there quietly. A marker, not derived: a chute descent
+        // that ends Destroyed is otherwise a crash (too fast under its canopies, which explodes),
+        // and the stock deletion that tells them apart is not visible in the recorded data.
+        // Persisted sparse as quietEnd (written only when true). Decided only through
+        // StampTerminalState (the codec and the copy sites carry it); kept only with Destroyed.
+        public bool QuietDestroyedEnd;
+
+        // The latest UT at which Parsek saw stock hold this recording's own vessel (its launch
+        // guid) in the current timeline: stamped when a predicted chute touchdown commits while
+        // the vessel is still in the game, and on every reconciler pass that finds it. NaN =
+        // not known in this timeline (an older recording, or a time-travel load to before the
+        // stamp cleared it). PredictedTouchdownStockFate reads it to tell "stock deleted the
+        // vessel" (it was here and is gone) from "this timeline has not reached it yet" (a
+        // rewind: the replay spawns it at its touchdown). Bookkeeping, not recorded content.
+        // Persisted sparse as stockHeldUT (written only when finite).
+        public double StockHeldVesselUT = double.NaN;
+
+        // The kerbals stock actually recovered with the vessel, read from the recovered
+        // ProtoVessel (or, for the flight-scene Recover, the live vessel when the request armed)
+        // at the recovery, before the end snapshot is dropped. A kerbal named here is Recovered
+        // whatever seat he started in (he may have moved by IVA out of a part that later
+        // exploded); null = not known (an older recording, or a recovery stamped without the
+        // vessel's crew), and the per-part rule then reads the start seat. Only with a Recovered
+        // terminal; persisted sparse as a RECOVERED_CREW node. Decided only through
+        // StampTerminalState (the codec and the copy sites carry it).
+        public List<string> RecoveredCrewNames;
+
         // Terminal orbit (for Orbiting/SubOrbital terminal state)
         // Stored as Keplerian elements to avoid runtime Orbit object dependency in tests.
         public double TerminalOrbitInclination;
@@ -870,7 +924,8 @@ namespace Parsek
             Recording recording,
             TerminalState? previous,
             TerminalState? updated,
-            string context);
+            string context,
+            bool predictedChanged);
 
         /// <summary>
         /// The single installed terminal-stamp observer. Owned by the crew-end-state
@@ -880,6 +935,21 @@ namespace Parsek
         /// static constructor). Tests may null it to exercise the uninstalled branch.
         /// </summary>
         internal static TerminalStampObserver OnTerminalStamped;
+
+        /// <summary>
+        /// The endings a prediction can write: a crash (Destroyed), a chute touchdown
+        /// (Landed / Splashed, owner ruling Q4) and a final orbit a predicted tail reached
+        /// (Orbiting / SubOrbital, owner ruling Q8). <see cref="TerminalPredicted"/> is kept
+        /// only with one of them.
+        /// </summary>
+        internal static bool IsPredictableTerminal(TerminalState? value)
+        {
+            return value == TerminalState.Destroyed
+                || value == TerminalState.Landed
+                || value == TerminalState.Splashed
+                || value == TerminalState.Orbiting
+                || value == TerminalState.SubOrbital;
+        }
 
         /// <summary>
         /// THE seam every production site that DECIDES a terminal verdict for a
@@ -912,10 +982,69 @@ namespace Parsek
         ///
         /// Returns true when crew end states were invalidated by this stamp.
         /// </summary>
-        internal bool StampTerminalState(TerminalState? value, string context)
+        /// <para><paramref name="predicted"/> says whether a Destroyed (or chute-touchdown
+        /// Landed / Splashed) verdict is Parsek's own prediction (see
+        /// <see cref="TerminalPredicted"/>). Every stamp sets the flag, so a site that does not
+        /// pass it (every confirmed destruction, every other terminal, a retraction) leaves it
+        /// false; it is kept only with a value <see cref="IsPredictableTerminal"/> accepts. A
+        /// change of the flag alone (a predicted crash later confirmed, or the reverse) is
+        /// handed to the observer too, because the crew end states read it.</para>
+        /// <para><paramref name="remnantSurvives"/> says whether a Destroyed verdict sealed an
+        /// identity loss over a remnant KSP keeps (see <see cref="TerminalRemnantSurvives"/>);
+        /// kept only with a Destroyed value, and a change of it alone is handed to the observer
+        /// as well, because the per-part crew answer reads it.</para>
+        /// <para><paramref name="quietEnd"/> says whether a Destroyed replay ends without the
+        /// explosion (see <see cref="QuietDestroyedEnd"/>); kept only with a Destroyed value.
+        /// It does not touch the crew answer, so a change of it alone is only logged.</para>
+        /// <para><paramref name="recoveredCrew"/> names the kerbals stock recovered with the vessel
+        /// (see <see cref="RecoveredCrewNames"/>); kept only with a Recovered value, null when
+        /// not known. A change of it alone is handed to the observer, because the crew answer
+        /// reads it.</para>
+        internal bool StampTerminalState(TerminalState? value, string context, bool predicted = false,
+            bool remnantSurvives = false, bool quietEnd = false, IEnumerable<string> recoveredCrew = null)
         {
             TerminalState? previous = TerminalStateValue;
+            bool previousPredicted = TerminalPredicted;
+            bool previousRemnant = TerminalRemnantSurvives;
+            List<string> previousRecoveredCrew = RecoveredCrewNames;
+            RecoveredCrewNames = value == TerminalState.Recovered && recoveredCrew != null
+                ? CopyRecoveredCrew(recoveredCrew)
+                : null;
+            bool recoveredCrewChanged = !SameRecoveredCrew(previousRecoveredCrew, RecoveredCrewNames);
+            if (recoveredCrewChanged)
+            {
+                ParsekLog.Verbose("Recording",
+                    "terminal recovered crew " + FormatRecoveredCrew(previousRecoveredCrew) + "->"
+                    + FormatRecoveredCrew(RecoveredCrewNames) + " rec=" + (RecordingId ?? "(null)")
+                    + " context=" + (context ?? "null"));
+            }
             TerminalStateValue = value;
+            TerminalPredicted = predicted && IsPredictableTerminal(value);
+            TerminalRemnantSurvives = remnantSurvives && value == TerminalState.Destroyed;
+            bool previousQuietEnd = QuietDestroyedEnd;
+            QuietDestroyedEnd = quietEnd && value == TerminalState.Destroyed;
+            if (previousQuietEnd != QuietDestroyedEnd)
+            {
+                ParsekLog.Verbose("Recording",
+                    "terminal quiet-end flag " + (previousQuietEnd ? "true" : "false") + "->"
+                    + (QuietDestroyedEnd ? "true" : "false") + " rec=" + (RecordingId ?? "(null)")
+                    + " context=" + (context ?? "null"));
+            }
+            bool predictedChanged = previousPredicted != TerminalPredicted;
+            bool remnantChanged = previousRemnant != TerminalRemnantSurvives;
+            if (predictedChanged || remnantChanged)
+            {
+                ParsekLog.Verbose("Recording",
+                    "terminal predicted flag " + (previousPredicted ? "true" : "false") + "->"
+                    + (TerminalPredicted ? "true" : "false")
+                    + (remnantChanged
+                        ? " remnantSurvives " + (previousRemnant ? "true" : "false") + "->"
+                            + (TerminalRemnantSurvives ? "true" : "false")
+                        : "")
+                    + " rec=" + (RecordingId ?? "(null)")
+                    + " terminal=" + (value.HasValue ? value.Value.ToString() : "null")
+                    + " context=" + (context ?? "null"));
+            }
             TerminalStampObserver observer = OnTerminalStamped;
             if (observer == null)
             {
@@ -933,7 +1062,37 @@ namespace Parsek
                     double.MaxValue);
                 return false;
             }
-            return observer(this, previous, value, context);
+            return observer(this, previous, value, context,
+                predictedChanged || remnantChanged || recoveredCrewChanged);
+        }
+
+        /// <summary>A copy of a recovered-crew list without empty names (never null).</summary>
+        internal static List<string> CopyRecoveredCrew(IEnumerable<string> names)
+        {
+            var copy = new List<string>();
+            if (names == null)
+                return copy;
+            foreach (string name in names)
+                if (!string.IsNullOrEmpty(name) && !copy.Contains(name))
+                    copy.Add(name);
+            return copy;
+        }
+
+        private static bool SameRecoveredCrew(List<string> a, List<string> b)
+        {
+            if (a == null || b == null)
+                return a == null && b == null;
+            if (a.Count != b.Count)
+                return false;
+            for (int i = 0; i < a.Count; i++)
+                if (!b.Contains(a[i]))
+                    return false;
+            return true;
+        }
+
+        private static string FormatRecoveredCrew(List<string> names)
+        {
+            return names == null ? "unknown" : "[" + string.Join(",", names.ToArray()) + "]";
         }
 
         /// <summary>
@@ -945,14 +1104,22 @@ namespace Parsek
         /// terrain height, or endpoint phase). Used by the BG go-on-rails identity-loss
         /// override (and available to any future destruction-detection seam that needs
         /// the same hygiene). Idempotent.
+        /// <para><paramref name="vesselSurvives"/>: KSP still has the vessel (a breakup remnant
+        /// that lost the recorded controllers). The ending is then stamped as one KSP did not
+        /// carry out (<see cref="TerminalPredicted"/>) over a surviving remnant
+        /// (<see cref="TerminalRemnantSurvives"/>), so the crew still sitting in it are not
+        /// killed by it (owner ruling Q6b); only a kerbal whose part KSP destroyed dies.</para>
         /// </summary>
-        internal void MarkDestroyedAtTerminal(double terminalUT, string source)
+        internal void MarkDestroyedAtTerminal(double terminalUT, string source, bool vesselSurvives = false)
         {
             bool wasAlreadyDestroyed = VesselDestroyed
-                && TerminalStateValue == TerminalState.Destroyed;
+                && TerminalStateValue == TerminalState.Destroyed
+                && TerminalPredicted == vesselSurvives
+                && TerminalRemnantSurvives == vesselSurvives;
 
             VesselDestroyed = true;
-            StampTerminalState(TerminalState.Destroyed, "MarkDestroyedAtTerminal:" + (source ?? "(none)"));
+            StampTerminalState(TerminalState.Destroyed, "MarkDestroyedAtTerminal:" + (source ?? "(none)"),
+                predicted: vesselSurvives, remnantSurvives: vesselSurvives);
             ExplicitEndUT = terminalUT;
 
             // Clear surface-terminal data — leaving these set produces contradictory
@@ -992,7 +1159,7 @@ namespace Parsek
                 ParsekLog.Info("Recording",
                     $"MarkDestroyedAtTerminal: rec={RecordingId ?? "(null)"} " +
                     $"terminalUT={terminalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"source={source ?? "(none)"}");
+                    $"source={source ?? "(none)"} vesselSurvives={vesselSurvives}");
             }
         }
 
@@ -1054,6 +1221,13 @@ namespace Parsek
             VesselPersistentId = source.VesselPersistentId;
             RecordedVesselGuid = source.RecordedVesselGuid;
             TerminalStateValue = source.TerminalStateValue;
+            TerminalPredicted = source.TerminalPredicted;
+            TerminalRemnantSurvives = source.TerminalRemnantSurvives;
+            QuietDestroyedEnd = source.QuietDestroyedEnd;
+            StockHeldVesselUT = source.StockHeldVesselUT;
+            RecoveredCrewNames = source.RecoveredCrewNames != null
+                ? new List<string>(source.RecoveredCrewNames)
+                : null;
             TerminalOrbitInclination = source.TerminalOrbitInclination;
             TerminalOrbitEccentricity = source.TerminalOrbitEccentricity;
             TerminalOrbitSemiMajorAxis = source.TerminalOrbitSemiMajorAxis;
@@ -1631,6 +1805,7 @@ namespace Parsek
         double IPlaybackTrajectory.LoopStartUT => LoopStartUT;
         double IPlaybackTrajectory.LoopEndUT => LoopEndUT;
         TerminalState? IPlaybackTrajectory.TerminalStateValue => TerminalStateValue;
+        bool IPlaybackTrajectory.QuietDestroyedEnd => QuietDestroyedEnd;
         SurfacePosition? IPlaybackTrajectory.SurfacePos => SurfacePos;
         double IPlaybackTrajectory.TerrainHeightAtEnd => TerrainHeightAtEnd;
         bool IPlaybackTrajectory.PlaybackEnabled => GhostVisible;

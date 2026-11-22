@@ -52,6 +52,11 @@ namespace Parsek.Tests
             ParsekLog.ClockOverrideForTesting = () => 1000.0;
             RecordingStore.ResetForTesting();
             savedPlanetarium = InstallPlanetarium(200.0);
+            // The live finalization refresh reads the body's deletion altitude, which
+            // OrbitClearance resolves and logs once per process per body name. Resolve the stub
+            // Kerbin here (every stub body gives the same 0 m line) so whether an earlier test
+            // class already did cannot change the transcript.
+            OrbitClearance.ResolveDeletionAltitude(Body("Kerbin", true, 70000.0));
         }
 
         public void Dispose()

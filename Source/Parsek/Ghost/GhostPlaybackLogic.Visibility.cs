@@ -29,6 +29,18 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Pure: a Destroyed ending whose ghost ends without the explosion (owner ruling
+        /// 2026-11-21): a chuted craft stock deleted out of range comes down under its canopies
+        /// to the ground and just ends there.
+        /// </summary>
+        internal static bool IsQuietDestroyedEnd(IPlaybackTrajectory traj)
+        {
+            return traj != null
+                && traj.TerminalStateValue == TerminalState.Destroyed
+                && traj.QuietDestroyedEnd;
+        }
+
         internal static bool TryGetEarlyDestroyedDebrisExplosionUT(
             IPlaybackTrajectory traj, out double explosionUT)
         {
@@ -38,6 +50,12 @@ namespace Parsek
                 return false;
 
             if (traj.PartEvents == null || traj.PartEvents.Count == 0)
+                return false;
+
+            // A predicted tail after the last recorded point means the debris was still flying
+            // when Parsek lost it: a part it shed before that was not its end, so it follows the
+            // tail and explodes at the tail's own end (the ground), not at the first lost part.
+            if (HasPredictedTailPastLastPoint(traj))
                 return false;
 
             double latestEligibleUT = traj.EndUT - LoopTiming.MinEarlyDebrisExplosionLeadSeconds;
@@ -64,6 +82,26 @@ namespace Parsek
 
             explosionUT = earliestEligibleUT;
             return true;
+        }
+
+        /// <summary>
+        /// Pure: does the trajectory carry a predicted orbit segment that ends after its last
+        /// recorded point (the scene-exit tail the finalizer extrapolates)?
+        /// </summary>
+        internal static bool HasPredictedTailPastLastPoint(IPlaybackTrajectory traj)
+        {
+            if (traj?.OrbitSegments == null || traj.OrbitSegments.Count == 0)
+                return false;
+            double lastPointUT = traj.Points != null && traj.Points.Count > 0
+                ? traj.Points[traj.Points.Count - 1].ut
+                : double.NegativeInfinity;
+            for (int i = 0; i < traj.OrbitSegments.Count; i++)
+            {
+                OrbitSegment seg = traj.OrbitSegments[i];
+                if (seg.isPredicted && seg.endUT > lastPointUT + 1e-6)
+                    return true;
+            }
+            return false;
         }
 
         internal static bool ShouldTriggerExplosionAtPlaybackUT(

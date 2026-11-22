@@ -1,0 +1,126 @@
+schema = 1
+id = "ASR-3-graze-above-1kpa-stays-orbiting"
+tier = "daily"
+# =====================================================================================
+# ASR-3: A STAGE LEFT IN A GRAZING ORBIT WHOSE PERIAPSIS STAYS ABOVE THE 1 kPa LINE ENDS
+# ORBITING. AUTHORED 2026-11-21, NEVER FLOWN. Report-only until the predicted-tail C#
+# change merges and a reading run confirms the facets. Sibling: ASR-4 (periapsis below).
+# =====================================================================================
+#
+# WHAT IT PROVES (owner ruling). Stock deletes an unloaded vessel once the static
+# pressure around it passes 1 kPa (about 22-25 km on Kerbin). A stage left on an orbit
+# whose periapsis is inside the 70 km atmosphere but ABOVE that line survives the pass
+# in the drag-free prediction, so its recording ends `Orbiting` (and is spawnable), not
+# `SubOrbital` (today: `RecordingTree.DetermineTerminalState` demotes an Orbiting
+# terminal whose periapsis is inside the atmosphere) and not `Destroyed`.
+#
+# THE HOST. `graze-high-probe-stack`, derived by construction from `gs2-orbital-stack`
+# (harness/tools/build_graze_probe_stacks.py, drift-gated by
+# lib/test_graze_probe_stacks.py): the crewed Kerbal X stack with its probe-cored core,
+# apoapsis the LKO orbit's own (~106 km), periapsis 40 km, AT apoapsis at the save UT
+# 416.91, so the descent is ~10 minutes away and nothing touches the atmosphere during
+# the lane. KSP reads it SUB_ORBITAL.
+#
+# THE FLIGHT (seam only, no mission, no burn; SOI-3's opening): StartRecording, decouple
+# the probe core (`PartAction decouple partPid=2923926328`, RF-21's measured split: a
+# controlled child "Kerbal X Probe"), a 1x dwell to UT 430 so both halves record real
+# post-split samples, then CommitTree in flight (the COMMIT trigger) and FlushAndQuit.
+# Both halves are still loaded at the commit; the prediction is what decides the ending.
+#
+# C#-DEPENDENT (red on today's build by design): the two `CommitTreeFlight terminal:
+# ... terminalState=Orbiting` lines (EXISTING literal, Controllers/ParsekFlight.MergeFlow.cs
+# FormatCommitTerminalVerdict; today they read SubOrbital), the forbidden SubOrbital
+# verdict, and the endings block (save `terminalState`).
+#
+# FAST-LANE CHECKLIST. 1 No host flight puts a stage on a grazing orbit (no deorbit verb),
+# so a by-construction fixture makes it seam only. 2 The one wait is an explicit-UT 1x
+# WarpToUT. 3 ~13 game s of dwell (RF-21's decouple read UT 418.03). 4-5 n/a. 6 every
+# seam step answers or the run is driver INVALID by name; `[retry] none` would also be
+# honest (deterministic), kept `once` for the never-flown seam flake class. 7 count {2,3}
+# (SOI-3's derivation: the two halves, plus the pre-split root if it survives as its
+# own row). 8 daily (SOI-3's seam shape measured 126-129 s). 9 flight_efficiency.py on
+# the first green flight.
+# =====================================================================================
+description = "A stage left in a grazing orbit whose periapsis (40 km) stays above the 1 kPa line ends Orbiting: on graze-high-probe-stack (gs2-orbital-stack's Kerbal X stack moved by construction onto a 106 x 40 km Kerbin orbit, at apoapsis) the probe core is decoupled, both halves dwell at 1x, CommitTree in flight. Both commit terminals read Orbiting, none SubOrbital; report-only endings block."
+instanceProfile = "stock-minimal"
+tags = ["ASR", "ASR-3", "predicted-tail", "grazing-orbit", "controlled-child", "kerbin",
+        "sandbox", "crewed", "reading-run"]
+
+[fixture]
+# By construction from gs2-orbital-stack (harness/tools/build_graze_probe_stacks.py).
+# Nothing is launched, so no `fixtures/shared-ships.toml` row.
+saveTemplate       = "fixtures/saves/graze-high-probe-stack"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK" },
+  # The core decoupler (istg 2; the other Decoupler.2 is the pod's heat-shield stack).
+  { cmd = "PartAction",     args = { button = "decouple", part = "Decoupler.2", partPid = "2923926328" }, expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "430", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["controlled-decoupled-child"]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 3 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  "partaction applied button=decouple pid=[0-9]+ part='Decoupler\\.2' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  "committree committed=true",
+  # C#-DEPENDENT: both halves end Orbiting (stack and probe), in the commit's own
+  # per-recording verdict lines (Controllers/ParsekFlight.MergeFlow.cs).
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Kerbin[\\s\\S]*?CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Kerbin",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # C#-DEPENDENT: today's demoted verdict.
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=SubOrbital",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Destroyed",
+]
+
+# REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
+[expectations.recordings.endings.vessels."Kerbal X Probe"]
+ended          = { min = 1, max = 1 }
+terminalStates = ["Orbiting"]
+
+[expectations.recordings.endings.vessels."Kerbal X"]
+ended          = { min = 1, max = 1 }
+terminalStates = ["Orbiting"]
+
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 2, max = 2 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 } }
+
+[runtime]
+# LoadGame 660; WarpToUT and CommitTree at 120 each = 240; the other 6 steps at 120 = 720
+#   -> 1620. 1800 clears it.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -17,6 +17,8 @@ namespace Parsek
         public TerminalState? terminalState;
         public double terminalUT;
         public List<OrbitSegment> appendedOrbitSegments;
+        // A predicted chute descent to touchdown (owner ruling Q4), null otherwise.
+        public List<TrajectoryPoint> predictedDescentPoints;
         public int patchedSegmentCount;
         public int extrapolatedSegmentCount;
         public ConfigNode vesselSnapshot;
@@ -229,6 +231,28 @@ namespace Parsek
                         cutoffAltitude))
                     return false;
 
+                // Owner ruling Q4: a vessel left under open parachutes descends at chute
+                // speed to touchdown; the drag-free tail below would read it as an impact.
+                if (TryBuildParachuteDescentResult(recording, vessel, commitUT, out result))
+                {
+                    ConfigNode chuteSnapshot = FlightRecorder.TryBackupSnapshot(vessel);
+                    if (chuteSnapshot != null)
+                    {
+                        result.ghostVisualSnapshot = chuteSnapshot.CreateCopy();
+                        if (result.terminalPosition.HasValue)
+                        {
+                            RecordingFinalizationCacheApplier.ApplyPredictedTouchdownToSnapshot(
+                                chuteSnapshot,
+                                result.terminalPosition.Value,
+                                result.terminalState.Value,
+                                recording.RecordingId,
+                                "TryFinalizeRecording");
+                        }
+                        result.vesselSnapshot = chuteSnapshot;
+                    }
+                    return true;
+                }
+
                 if (!TryBuildExtrapolationBodies(recording.RecordingId, commitUT, out var bodies))
                     return false;
 
@@ -248,10 +272,13 @@ namespace Parsek
                         (startState, extrapolationBodies) => BallisticExtrapolator.Extrapolate(
                             startState,
                             extrapolationBodies,
+                            ResolveLiveExtrapolationLimits(),
                             warnOnSubSurfaceStart: false),
                         recordingTree,
                         out result,
-                        warnOnSubSurfaceStart))
+                        warnOnSubSurfaceStart,
+                        IsLiveVesselAlive(vessel),
+                        ReadLiveVesselSpin(vessel)))
                 {
                     return false;
                 }
@@ -507,6 +534,36 @@ namespace Parsek
                 out result);
         }
 
+        /// <param name="liveVesselConfirmedAlive">The production caller's liveness read of the
+        /// vessel the live-orbit fallback samples (<see cref="IsLiveVesselAlive"/>); false
+        /// keeps the unconfirmed no-solver classification.</param>
+        /// <param name="spinAngularVelocityVesselLocal">The live vessel's spin in the
+        /// <see cref="OrbitSegment.angularVelocity"/> contract (zero = not spinning).</param>
+        internal static bool TryCompleteFinalizationFromPatchedSnapshotForTesting(
+            Recording recording,
+            PatchedConicSnapshotResult snapshot,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            TryBuildStartStateProvider buildLiveStartState,
+            ExtrapolateProvider extrapolate,
+            RecordingTree recordingTree,
+            bool liveVesselConfirmedAlive,
+            UnityEngine.Vector3 spinAngularVelocityVesselLocal,
+            out IncompleteBallisticFinalizationResult result)
+        {
+            return TryCompleteFinalizationFromPatchedSnapshot(
+                recording,
+                snapshot,
+                bodies,
+                UnityEngine.Quaternion.identity,
+                buildLiveStartState,
+                extrapolate,
+                recordingTree,
+                out result,
+                warnOnSubSurfaceStart: true,
+                liveVesselConfirmedAlive: liveVesselConfirmedAlive,
+                spinAngularVelocityVesselLocal: spinAngularVelocityVesselLocal);
+        }
+
         private static bool TryCompleteFinalizationFromPatchedSnapshot(
             Recording recording,
             PatchedConicSnapshotResult snapshot,
@@ -516,7 +573,9 @@ namespace Parsek
             ExtrapolateProvider extrapolate,
             RecordingTree recordingTree,
             out IncompleteBallisticFinalizationResult result,
-            bool warnOnSubSurfaceStart = true)
+            bool warnOnSubSurfaceStart = true,
+            bool liveVesselConfirmedAlive = false,
+            UnityEngine.Vector3 spinAngularVelocityVesselLocal = default(UnityEngine.Vector3))
         {
             result = default(IncompleteBallisticFinalizationResult);
             string recordingId = recording?.RecordingId ?? "(null)";
@@ -570,7 +629,8 @@ namespace Parsek
                     recordingId,
                     appendedSegments,
                     frozenWorldRotation,
-                    bodies);
+                    bodies,
+                    spinAngularVelocityVesselLocal);
                 result.patchedSegmentCount = snapshot.CapturedPatchCount;
             }
             else if (snapshot.FailureReason != PatchedConicSnapshotFailureReason.None)
@@ -634,11 +694,17 @@ namespace Parsek
 
             if (snapshot.EncounteredManeuverNode && appendedSegments.Count > 0)
             {
-                ParsekLog.Info("PatchedSnapshot",
-                    $"TryFinalizeRecording: maneuver-node boundary detected for '{recordingId}'; " +
-                    "discarding stock patched-conic tail and falling back to current-state propagation");
-                appendedSegments.Clear();
-                result.patchedSegmentCount = 0;
+                // The snapshot stops at the patch that ends at the node, so the stock coast up
+                // to it is real; a vessel nobody flies never makes the burn, so the tail
+                // continues from the node on the unburned conic (the propagation below starts
+                // at the last kept patch's end).
+                ParsekLog.Info("PatchedSnapshot", string.Format(
+                    CultureInfo.InvariantCulture,
+                    "TryFinalizeRecording: maneuver-node boundary detected for '{0}'; keeping {1} stock " +
+                    "patch(es) up to the node at UT={2:F1} and propagating the unburned coast from there",
+                    recordingId,
+                    appendedSegments.Count,
+                    appendedSegments[appendedSegments.Count - 1].endUT));
             }
 
             if (TryShortCircuitSolverPredictedImpact(
@@ -658,6 +724,9 @@ namespace Parsek
             // propagate from). It is one half of the no-solver destroyed fingerprint - see
             // IsNoSolverDestroyedFallback.
             bool usedLiveOrbitFallback = false;
+            // Set when the propagation starts at the last kept patch's end on that patch's own
+            // conic, so a final-conic ending there can be moved back to the patch start.
+            bool startedAtLastPatchEnd = false;
             if (appendedSegments.Count > 0
                 && BallisticExtrapolator.TryFindAtmosphericReentryClip(
                     (IReadOnlyList<OrbitSegment>)appendedSegments,
@@ -666,12 +735,13 @@ namespace Parsek
                     out double atmosphereEntryUT))
             {
                 // The captured patched-conic tail re-enters an atmospheric body:
-                // its periapsis is below the atmosphere top, so KSP's transition-less
-                // closed ellipse would run underground on playback. Clip the
+                // its periapsis is below the periapsis floor (deletion altitude or
+                // highest terrain), so KSP's transition-less closed ellipse would run
+                // underground or through stock's deletion zone on playback. Clip the
                 // predicted segments at the descending atmosphere-entry crossing and
                 // hand the atmospheric descent to the ballistic extrapolator, which
-                // terminates at the real terrain impact instead of looping the
-                // sub-surface ellipse.
+                // terminates at the ground impact (or at the first low point under the
+                // deletion altitude) instead of looping the ellipse.
                 OrbitSegment clipSegment = appendedSegments[reentryClipIndex];
                 for (int i = appendedSegments.Count - 1; i > reentryClipIndex; i--)
                     appendedSegments.RemoveAt(i);
@@ -718,6 +788,7 @@ namespace Parsek
                         $"(body={lastSegment.bodyName ?? "(null)"}, endUT={lastSegment.endUT:F1})");
                     return false;
                 }
+                startedAtLastPatchEnd = true;
             }
             else if (buildLiveStartState == null || !buildLiveStartState(out startState))
             {
@@ -746,7 +817,48 @@ namespace Parsek
             // BEFORE the segment append keeps the pre-fix shape exactly: no appended
             // segments, terminal at the fallback's own UT, and the same
             // populate -> suppress -> recover machinery downstream.
-            if (IsNoSolverDestroyedFallback(
+            if (usedLiveOrbitFallback
+                && liveVesselConfirmedAlive
+                && snapshot.FailureReason == PatchedConicSnapshotFailureReason.NullSolver
+                && extrapolated.failureReason != ExtrapolationFailureReason.SubSurfaceStart)
+            {
+                // Only the active vessel carries a patched-conic solver (decompiled
+                // Vessel.MakeActive / MakeInactive), so a NullSolver snapshot is every debris
+                // stage, EVA kerbal and undocked craft the player is not flying. Its live orbit
+                // is its real coast; follow it to its natural ending.
+                if (extrapolated.terminalState == TerminalState.Destroyed
+                    && TryFindOpenParachuteAtUT(recording, startState.ut, out uint liveChutePid))
+                {
+                    // No drag model: a descent under canopy would read as a ballistic impact.
+                    ParsekLog.VerboseRateLimited("Extrapolator",
+                        "no-solver-live-chute." + recordingId,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "TryFinalizeRecording: solver-less live vessel '{0}' has an open parachute " +
+                            "(pid={1}) at UT={2:F3}; declining the ballistic tail",
+                            recordingId,
+                            liveChutePid,
+                            startState.ut),
+                        minIntervalSeconds: 30.0);
+                    return false;
+                }
+
+                ParsekLog.VerboseRateLimited("Extrapolator",
+                    "no-solver-live-coast." + recordingId,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "TryFinalizeRecording: solver-less live vessel '{0}' follows its live orbit " +
+                        "(body={1}, startUT={2:F3}, startAlt={3:F1}) -> terminal={4} terminalUT={5:F1} segments={6}",
+                        recordingId,
+                        startState.bodyName ?? "(null)",
+                        startState.ut,
+                        ResolveStartAltitude(startState, bodies),
+                        extrapolated.terminalState,
+                        extrapolated.terminalUT,
+                        extrapolated.segments != null ? extrapolated.segments.Count : 0),
+                    minIntervalSeconds: 30.0);
+            }
+            else if (IsNoSolverDestroyedFallback(
                     snapshot.FailureReason,
                     usedLiveOrbitFallback,
                     extrapolated.failureReason))
@@ -778,6 +890,17 @@ namespace Parsek
                 }
             }
 
+            if (startedAtLastPatchEnd)
+            {
+                TryMoveFinalConicEndingToPatchStart(
+                    recordingId,
+                    appendedSegments,
+                    ref extrapolated,
+                    startState.ut,
+                    bodies,
+                    recording == null ? double.NaN : recording.EndUT);
+            }
+
             if (extrapolated.segments != null)
             {
                 for (int i = 0; i < extrapolated.segments.Count; i++)
@@ -787,6 +910,7 @@ namespace Parsek
                         appendedSegments.Add(segment);
                 }
             }
+            StampPredictedSegmentSpin(recordingId, appendedSegments, spinAngularVelocityVesselLocal);
 
             result.appendedOrbitSegments = appendedSegments.Count > 0 ? appendedSegments : null;
             result.extrapolatedSegmentCount = extrapolated.segments != null
@@ -911,7 +1035,7 @@ namespace Parsek
                             result.terrainHeightAtEnd = null;
                             result.terminalOrbit = null;
 
-                            if (result.terminalState == TerminalState.Orbiting
+                            if (IsTerminalOrbitFromLastSegment(result.terminalState, recovered)
                                 && appendedSegments.Count > 0)
                             {
                                 result.terminalOrbit = RecordingFinalizationTerminalOrbit.FromSegment(
@@ -1001,7 +1125,7 @@ namespace Parsek
                 }
             }
 
-            if (result.terminalState == TerminalState.Orbiting && appendedSegments.Count > 0)
+            if (IsTerminalOrbitFromLastSegment(result.terminalState, extrapolated) && appendedSegments.Count > 0)
                 result.terminalOrbit =
                     RecordingFinalizationTerminalOrbit.FromSegment(appendedSegments[appendedSegments.Count - 1]);
 
@@ -1029,6 +1153,91 @@ namespace Parsek
             }
 
             return applied;
+        }
+
+        /// <summary>
+        /// Pure: does the finalized terminal orbit come from the last appended segment? An
+        /// Orbiting ending always; a SubOrbital one when it is a final-conic ending (owner
+        /// ruling Q8: an open conic around a body with no parent, which spawns on its path
+        /// through <see cref="EscapeTrajectoryTerminal"/>).
+        /// </summary>
+        internal static bool IsTerminalOrbitFromLastSegment(
+            TerminalState? terminalState,
+            ExtrapolationResult extrapolated)
+        {
+            if (!terminalState.HasValue)
+                return false;
+            if (terminalState.Value == TerminalState.Orbiting)
+                return true;
+            return terminalState.Value == TerminalState.SubOrbital && extrapolated.endedOnFinalConic;
+        }
+
+        /// <summary>
+        /// Pure: when the propagation started at the last kept stock patch's end
+        /// (<paramref name="propagationStartUT"/>) and ended at once on that same conic as its
+        /// final conic (owner ruling Q8), the flight entered its final conic at the patch START
+        /// (the sphere-of-influence entry the stock solver already found), not at the patch
+        /// end a period or more later. Trims that patch to the settle span from its start
+        /// (never before <paramref name="recordingEndUT"/>), drops the extrapolator's own
+        /// settle segment and moves the terminal UT there. False (and nothing changed) for
+        /// any other result.
+        /// </summary>
+        internal static bool TryMoveFinalConicEndingToPatchStart(
+            string recordingId,
+            List<OrbitSegment> appendedSegments,
+            ref ExtrapolationResult extrapolated,
+            double propagationStartUT,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            double recordingEndUT)
+        {
+            if (!extrapolated.endedOnFinalConic
+                || appendedSegments == null
+                || appendedSegments.Count == 0
+                || !IsFinite(extrapolated.finalConicStartUT)
+                || Math.Abs(extrapolated.finalConicStartUT - propagationStartUT) > 1e-6)
+            {
+                return false;
+            }
+
+            OrbitSegment last = appendedSegments[appendedSegments.Count - 1];
+            if (!string.Equals(last.bodyName, extrapolated.terminalBodyName, StringComparison.Ordinal))
+                return false;
+
+            double period = double.NaN;
+            if (last.semiMajorAxis > 0.0
+                && last.eccentricity < 1.0
+                && bodies != null
+                && bodies.TryGetValue(last.bodyName, out ExtrapolationBody body)
+                && body != null
+                && body.GravitationalParameter > 0.0)
+            {
+                period = 2.0 * Math.PI * Math.Sqrt(
+                    last.semiMajorAxis * last.semiMajorAxis * last.semiMajorAxis / body.GravitationalParameter);
+            }
+
+            double newEndUT = last.startUT + BallisticExtrapolator.ResolveFinalConicSettleSeconds(period);
+            if (IsFinite(recordingEndUT) && newEndUT < recordingEndUT)
+                newEndUT = recordingEndUT;
+            if (!(newEndUT < last.endUT - 1e-6) || !(newEndUT > last.startUT))
+                return false;
+
+            double oldEndUT = last.endUT;
+            last.endUT = newEndUT;
+            appendedSegments[appendedSegments.Count - 1] = last;
+            extrapolated.segments = new List<OrbitSegment>();
+            extrapolated.terminalUT = newEndUT;
+            extrapolated.finalConicStartUT = last.startUT;
+            ParsekLog.Info("Extrapolator", string.Format(
+                CultureInfo.InvariantCulture,
+                "TryFinalizeRecording: final conic of '{0}' is the last stock patch; ending moved to its " +
+                "entry (body={1} enteredUT={2:F3} terminalUT={3:F3} patchEndUT={4:F3} ecc={5:F5})",
+                recordingId ?? "(null)",
+                last.bodyName ?? "(null)",
+                last.startUT,
+                newEndUT,
+                oldEndUT,
+                last.eccentricity));
+            return true;
         }
 
         /// <summary>
@@ -1064,11 +1273,245 @@ namespace Parsek
         internal static bool IsNoSolverDestroyedFallback(
             PatchedConicSnapshotFailureReason snapshotFailureReason,
             bool usedLiveOrbitFallback,
-            ExtrapolationFailureReason extrapolationFailureReason)
+            ExtrapolationFailureReason extrapolationFailureReason,
+            bool liveVesselConfirmedAlive = false)
         {
             return usedLiveOrbitFallback
+                && !liveVesselConfirmedAlive
                 && snapshotFailureReason == PatchedConicSnapshotFailureReason.NullSolver
                 && extrapolationFailureReason != ExtrapolationFailureReason.SubSurfaceStart;
+        }
+
+        /// <summary>
+        /// Live: the vessel the live-orbit fallback samples is still a living vessel (stock
+        /// <c>Vessel.Die</c> sets <c>State.DEAD</c> before it tears the parts down). Only the
+        /// active vessel has a patched-conic solver, so a missing solver alone says nothing
+        /// about destruction. An UNLOADED vessel (on rails beyond the load range) has no
+        /// loaded parts at all (stock <c>Vessel.Unload</c> clears <c>parts</c>); its parts live
+        /// in its protoVessel, so it counts as alive through them. Kept out of line so callers
+        /// JIT headless.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static bool IsLiveVesselAlive(Vessel vessel)
+        {
+            try
+            {
+                if (vessel == null)
+                    return false;
+                int loadedPartCount = vessel.parts != null ? vessel.parts.Count : 0;
+                int protoPartCount = vessel.protoVessel != null
+                    && vessel.protoVessel.protoPartSnapshots != null
+                    ? vessel.protoVessel.protoPartSnapshots.Count
+                    : 0;
+                return IsVesselAliveCore(
+                    vessel.state == Vessel.State.DEAD,
+                    vessel.loaded,
+                    loadedPartCount,
+                    protoPartCount);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure: the liveness rule <see cref="IsLiveVesselAlive"/> reads. A dead vessel is never
+        /// alive; a loaded one is alive while it still has parts; an unloaded one (no loaded
+        /// parts by construction) is alive while its protoVessel still carries part snapshots.
+        /// </summary>
+        internal static bool IsVesselAliveCore(
+            bool stateDead,
+            bool loaded,
+            int loadedPartCount,
+            int protoPartCount)
+        {
+            if (stateDead)
+                return false;
+            if (loadedPartCount > 0)
+                return true;
+            return !loaded && protoPartCount > 0;
+        }
+
+        /// <summary>
+        /// Live: the vessel's spin in the <see cref="OrbitSegment.angularVelocity"/> contract
+        /// (vessel-local, <see cref="TrajectoryMath.ComputeSpinAngularVelocityVesselLocal"/>),
+        /// or zero when it is not spinning above <see cref="TrajectoryMath.SpinThreshold"/>.
+        /// Kept out of line so callers JIT headless.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static UnityEngine.Vector3 ReadLiveVesselSpin(Vessel vessel)
+        {
+            try
+            {
+                if (vessel == null || vessel.transform == null)
+                    return UnityEngine.Vector3.zero;
+                UnityEngine.Vector3 referenceLocal = vessel.angularVelocity;
+                if (!(referenceLocal.magnitude > TrajectoryMath.SpinThreshold))
+                    return UnityEngine.Vector3.zero;
+                UnityEngine.Transform reference = vessel.ReferenceTransform != null
+                    ? vessel.ReferenceTransform
+                    : vessel.transform;
+                return TrajectoryMath.ComputeSpinAngularVelocityVesselLocal(
+                    vessel.transform.rotation,
+                    reference.rotation,
+                    referenceLocal);
+            }
+            catch
+            {
+                return UnityEngine.Vector3.zero;
+            }
+        }
+
+        /// <summary>
+        /// Pure: stamps <paramref name="spin"/> on every predicted segment that carries no spin
+        /// of its own, so a tumbling stage keeps tumbling through its tail (playback spins a
+        /// segment forward from its boundary attitude, <see cref="TrajectoryMath.IsSpinning"/>).
+        /// A spin at or below <see cref="TrajectoryMath.SpinThreshold"/> stamps nothing.
+        /// Returns the number of segments stamped.
+        /// </summary>
+        internal static int StampPredictedSegmentSpin(
+            string recordingId,
+            IList<OrbitSegment> segments,
+            UnityEngine.Vector3 spin)
+        {
+            if (segments == null || segments.Count == 0)
+                return 0;
+            float magnitude = spin.magnitude;
+            if (float.IsNaN(magnitude) || float.IsInfinity(magnitude) || !(magnitude > TrajectoryMath.SpinThreshold))
+                return 0;
+
+            int stamped = 0;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment segment = segments[i];
+                if (!segment.isPredicted || TrajectoryMath.IsSpinning(segment))
+                    continue;
+                segment.angularVelocity = spin;
+                segments[i] = segment;
+                stamped++;
+            }
+
+            if (stamped > 0)
+            {
+                ParsekLog.VerboseOnChange("Extrapolator",
+                    "predicted-spin|" + (recordingId ?? "(null)"),
+                    string.Format(CultureInfo.InvariantCulture, "stamped={0}|total={1}", stamped, segments.Count),
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "TryFinalizeRecording: stamped live spin |angVel|={0:F4} rad/s on {1}/{2} predicted segments for '{3}'",
+                        magnitude,
+                        stamped,
+                        segments.Count,
+                        recordingId ?? "(null)"));
+            }
+            return stamped;
+        }
+
+        /// <summary>
+        /// Pure: the longitude-of-ascending-node shift (degrees) that moves elements built from
+        /// a recorded body-fixed sample with the body's CURRENT orientation back to the
+        /// orientation it had at the sample's UT: the body turned by 360 * age / rotationPeriod
+        /// since, eastward, so the sample's inertial position then lay that far west
+        /// (body-fixed lon = inertial lon - rotationAngle(ut), rotationAngle growing with UT).
+        /// A rotation about the spin axis moves only the node. 0 for a body that does not
+        /// rotate or unusable inputs.
+        /// </summary>
+        internal static double ComputeHistoricalRotationLanShiftDegrees(
+            double sampleUT,
+            double currentUT,
+            double rotationPeriod,
+            bool bodyRotates)
+        {
+            if (!bodyRotates
+                || !IsFinite(sampleUT)
+                || !IsFinite(currentUT)
+                || !IsFinite(rotationPeriod)
+                || Math.Abs(rotationPeriod) <= double.Epsilon)
+            {
+                return 0.0;
+            }
+            return -((currentUT - sampleUT) * 360.0) / rotationPeriod;
+        }
+
+        /// <summary>Pure: a KSP-native LAN (degrees) shifted and wrapped into [0, 360).</summary>
+        internal static double ShiftLongitudeOfAscendingNodeDegrees(double lanDegrees, double shiftDegrees)
+        {
+            double shifted = (lanDegrees + shiftDegrees) % 360.0;
+            if (shifted < 0.0)
+                shifted += 360.0;
+            return shifted;
+        }
+
+        /// <summary>
+        /// Live: <see cref="ExtrapolationLimits.Default"/> with the horizon counted in the
+        /// game's own calendar year (<c>KSPUtil.dateTimeFormatter.Year</c>: the Kerbin or Earth
+        /// calendar the player chose, or a planet pack's), falling back to the stock home
+        /// body's year when it cannot be read. Kept out of line so callers JIT headless.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static ExtrapolationLimits ResolveLiveExtrapolationLimits()
+        {
+            ExtrapolationLimits limits = ExtrapolationLimits.Default;
+            try
+            {
+                IDateTimeFormatter formatter = KSPUtil.dateTimeFormatter;
+                int year = formatter != null ? formatter.Year : 0;
+                if (year > 0)
+                    limits.calendarSecondsPerYear = year;
+            }
+            catch
+            {
+                limits.calendarSecondsPerYear = 0.0;
+            }
+            return limits;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadCurrentUniversalTime()
+        {
+            return Planetarium.GetUniversalTime();
+        }
+
+        /// <summary>
+        /// Live: shifts a reseeded orbit, built from a recorded sample through this frame's
+        /// <c>GetWorldSurfacePosition</c> (the body as it is NOW), back to the body orientation
+        /// at the sample's UT (<see cref="ComputeHistoricalRotationLanShiftDegrees"/>), and
+        /// logs the shift. Returns the applied shift in degrees.
+        /// </summary>
+        private static double ApplyHistoricalBodyRotationToReseededSegment(
+            ref OrbitSegment segment,
+            CelestialBody body,
+            double sampleUT,
+            string context,
+            string recordingId)
+        {
+            double currentUT = ReadCurrentUniversalTime();
+            double shift = ComputeHistoricalRotationLanShiftDegrees(
+                sampleUT,
+                currentUT,
+                body != null ? body.rotationPeriod : double.NaN,
+                body != null && body.rotates);
+            if (shift != 0.0)
+            {
+                segment.longitudeOfAscendingNode = ShiftLongitudeOfAscendingNodeDegrees(
+                    segment.longitudeOfAscendingNode,
+                    shift);
+            }
+            ParsekLog.VerboseRateLimited("Extrapolator",
+                "historical-rotation." + (context ?? "(null)") + "." + (recordingId ?? "(null)"),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Reseed body rotation: context={0} rec={1} body={2} sampleUT={3:F3} currentUT={4:F3} " +
+                    "lanShift={5:F4}deg",
+                    context ?? "(null)",
+                    recordingId ?? "(null)",
+                    body != null ? body.name : "(null)",
+                    sampleUT,
+                    currentUT,
+                    shift),
+                minIntervalSeconds: 30.0);
+            return shift;
         }
 
         /// <summary>
@@ -2026,6 +2469,15 @@ namespace Parsek
                 reseededSegment.epoch = reseededOrbit.epoch;
                 reseededSegment.bodyName = body.name;
                 reseededSegment.isPredicted = true;
+                // The residual is the reseed's own fit, read in this frame's orientation
+                // (before the shift) against the anchor rebuilt in the same orientation.
+                OrbitSegment unshiftedReseed = reseededSegment;
+                ApplyHistoricalBodyRotationToReseededSegment(
+                    ref reseededSegment,
+                    body,
+                    anchorPoint.ut,
+                    "predicted-tail-reseed",
+                    recording?.RecordingId);
 
                 if (!IsFiniteOrbitElements(reseededSegment))
                 {
@@ -2034,13 +2486,13 @@ namespace Parsek
                 }
 
                 Orbit residualOrbit = new Orbit(
-                    reseededSegment.inclination,
-                    reseededSegment.eccentricity,
-                    reseededSegment.semiMajorAxis,
-                    reseededSegment.longitudeOfAscendingNode,
-                    reseededSegment.argumentOfPeriapsis,
-                    reseededSegment.meanAnomalyAtEpoch,
-                    reseededSegment.epoch,
+                    unshiftedReseed.inclination,
+                    unshiftedReseed.eccentricity,
+                    unshiftedReseed.semiMajorAxis,
+                    unshiftedReseed.longitudeOfAscendingNode,
+                    unshiftedReseed.argumentOfPeriapsis,
+                    unshiftedReseed.meanAnomalyAtEpoch,
+                    unshiftedReseed.epoch,
                     body);
                 Vector3d residualWorld = residualOrbit.getPositionAtUT(anchorPoint.ut);
                 if (IsFinite(residualWorld))
@@ -2079,6 +2531,7 @@ namespace Parsek
                 ? extrapolated.terminalBodyName
                 : startState.bodyName;
             double altitude = double.NaN;
+            double threshold = BallisticExtrapolator.SubSurfaceDestroyedAltitude;
             if (!string.IsNullOrEmpty(bodyName)
                 && bodies != null
                 && bodies.TryGetValue(bodyName, out ExtrapolationBody body)
@@ -2086,11 +2539,14 @@ namespace Parsek
             {
                 bodyName = body.Name ?? bodyName;
                 altitude = Magnitude(extrapolated.terminalPosition) - body.Radius;
+                // The same lowered line the extrapolator's start guard uses on a body without
+                // an ocean, where the ground can sit below the datum.
+                threshold += body.SurfaceFloorAltitude;
             }
 
             result.subSurfaceDestroyedBodyName = bodyName;
             result.subSurfaceDestroyedAltitude = altitude;
-            result.subSurfaceDestroyedThreshold = BallisticExtrapolator.SubSurfaceDestroyedAltitude;
+            result.subSurfaceDestroyedThreshold = threshold;
         }
 
         private static string TryDescribeHeadlessFlightGlobalsFailure(Exception ex)
@@ -2277,6 +2733,9 @@ namespace Parsek
                     Radius = body.Radius,
                     AtmosphereDepth = body.atmosphereDepth,
                     MaxTerrainAltitude = OrbitClearance.ResolveMaxTerrainAltitude(body),
+                    DeletionAltitude = OrbitClearance.ResolveDeletionAltitude(body),
+                    TerrainBelowDatum = ResolveTerrainBelowDatum(body),
+                    MinTerrainAltitude = ResolveMinTerrainAltitude(body),
                     SphereOfInfluence = body.sphereOfInfluence,
                     SurfaceCoordinates = (double ut, Vector3d position, out double latitude, out double longitude) =>
                         ResolveBodyFixedSurfaceCoordinates(body, referenceUT, ut, position, out latitude, out longitude),
@@ -2322,6 +2781,48 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Live: the body's lowest terrain relative to the sea-level datum (PQS
+        /// <c>radiusMin - radius</c>, 0 or negative) when the body has no ocean, so the ground
+        /// below the datum is the surface; 0 for an ocean body (its surface there is the sea),
+        /// a body without PQS, or a value that is not finite. Kept out of line so callers JIT
+        /// headless.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static double ResolveMinTerrainAltitude(CelestialBody body)
+        {
+            try
+            {
+                if (body == null || body.ocean)
+                    return 0.0;
+                PQS pqs = body.pqsController;
+                if (pqs == null)
+                    return 0.0;
+                double depth = pqs.radiusMin - pqs.radius;
+                return !double.IsNaN(depth) && !double.IsInfinity(depth) && depth < 0.0 ? depth : 0.0;
+            }
+            catch
+            {
+                return 0.0;
+            }
+        }
+
+        /// <summary>
+        /// Live: true when the body has no ocean, so its terrain may sit below the datum.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static bool ResolveTerrainBelowDatum(CelestialBody body)
+        {
+            try
+            {
+                return body != null && !body.ocean;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         internal static bool TryShortCircuitSolverPredictedImpact(
@@ -2506,10 +3007,12 @@ namespace Parsek
             string recordingId,
             IList<OrbitSegment> segments,
             UnityEngine.Quaternion frozenWorldRotation,
-            IReadOnlyDictionary<string, ExtrapolationBody> bodies)
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            UnityEngine.Vector3 spinAngularVelocityVesselLocal = default(UnityEngine.Vector3))
         {
             if (segments == null || bodies == null)
                 return;
+            StampPredictedSegmentSpin(recordingId, segments, spinAngularVelocityVesselLocal);
 
             int seededCount = 0;
             UnityEngine.Quaternion currentWorldRotation = frozenWorldRotation;
@@ -2693,6 +3196,116 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The chute descent branch of the live finalizer (owner ruling Q4): reads the live
+        /// vessel's open parachutes and, when one is open in an atmosphere, predicts the
+        /// descent to touchdown. False (with nothing logged) when no chute is open.
+        /// </summary>
+        private static bool TryBuildParachuteDescentResult(
+            Recording recording,
+            Vessel vessel,
+            double commitUT,
+            out IncompleteBallisticFinalizationResult result)
+        {
+            result = default(IncompleteBallisticFinalizationResult);
+            if (!ParachuteDescentLiveReader.TryRead(vessel, commitUT, out ParachuteDescentInput input, out _))
+                return false;
+            return TryBuildParachuteDescentFinalizationResult(
+                recording?.RecordingId, recording != null ? recording.VesselPersistentId : 0u, input, out result);
+        }
+
+        /// <summary>
+        /// Pure: the finalization result of a predicted chute descent: a Landed / Splashed
+        /// terminal at the touchdown UT, the descent points, and the touchdown as the terminal
+        /// surface position (the vessel's attitude kept). False when the planner declines
+        /// (logged, rate-limited), so the caller falls through to the drag-free tail.
+        /// </summary>
+        internal static bool TryBuildParachuteDescentFinalizationResult(
+            string recordingId,
+            uint vesselPid,
+            ParachuteDescentInput input,
+            out IncompleteBallisticFinalizationResult result)
+        {
+            result = default(IncompleteBallisticFinalizationResult);
+            if (!ParachuteDescentPlanner.TryPlan(input, out ParachuteDescentPlan plan, out string declineReason))
+            {
+                ParsekLog.VerboseRateLimited("Extrapolator",
+                    "chute-descent-declined." + (recordingId ?? vesselPid.ToString(CultureInfo.InvariantCulture)),
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Chute descent declined: rec={0} pid={1} canopy={2} reason={3} alt={4:F1} terrain={5:F1}",
+                        recordingId ?? "(pending)", vesselPid, input.Canopy, declineReason ?? "(none)",
+                        input.Altitude, input.TerrainAltitude),
+                    minIntervalSeconds: 30.0);
+                return false;
+            }
+
+            bool splashed = plan.Terminal == TerminalState.Splashed;
+            result.terminalState = plan.Terminal;
+            result.terminalUT = plan.TouchdownUT;
+            result.predictedDescentPoints = plan.Points;
+            result.extrapolationFailureReason = ExtrapolationFailureReason.None;
+            if (!plan.SurvivesTouchdown)
+            {
+                // Owner ruling 2026-11-21: too fast under its canopies, it crashes at the
+                // ground like a fall (no surface ending, no spawn).
+                LogParachuteDescentDecision(recordingId, vesselPid, input, plan);
+                return true;
+            }
+            result.terminalPosition = new SurfacePosition
+            {
+                body = input.BodyName,
+                latitude = input.Latitude,
+                longitude = input.Longitude,
+                altitude = plan.TouchdownAltitude,
+                rotation = input.SurfaceRelativeRotation,
+                rotationRecorded = true,
+                situation = splashed ? SurfaceSituation.Splashed : SurfaceSituation.Landed
+            };
+            result.terrainHeightAtEnd = plan.GroundAltitude;
+            LogParachuteDescentDecision(recordingId, vesselPid, input, plan);
+            return true;
+        }
+
+        private static void LogParachuteDescentDecision(
+            string recordingId,
+            uint vesselPid,
+            ParachuteDescentInput input,
+            ParachuteDescentPlan plan)
+        {
+            ParsekLog.VerboseRateLimited("Extrapolator",
+                "chute-descent." + (recordingId ?? vesselPid.ToString(CultureInfo.InvariantCulture)),
+                string.Format(CultureInfo.InvariantCulture,
+                    "Chute descent predicted: rec={0} pid={1} canopy={2} openChutes={3} chutePid={4} " +
+                    "body={5} startUT={6:F3} startAlt={7:F1} verticalSpeed={8:F2} deployAgl={9} {10} " +
+                    "dragToWeight={11} chuteDragNow={12} chuteDragFull={13} rhoAlt={14} rhoGround={15}",
+                    recordingId ?? "(pending)",
+                    vesselPid,
+                    input.Canopy,
+                    input.OpenChuteCount,
+                    input.ChutePartPersistentId,
+                    input.BodyName,
+                    input.StartUT,
+                    input.Altitude,
+                    input.VerticalSpeed,
+                    double.IsNaN(input.FullDeployAltitudeAgl)
+                        ? "-"
+                        : input.FullDeployAltitudeAgl.ToString("F0", CultureInfo.InvariantCulture),
+                    ParachuteDescentPlanner.Describe(plan),
+                    FormatChuteEstimateInput(input.DragToWeightRatio, "F3"),
+                    FormatChuteEstimateInput(input.OpenChuteDragNow, "F2"),
+                    FormatChuteEstimateInput(input.OpenChuteDragFull, "F2"),
+                    FormatChuteEstimateInput(input.DensityAtAltitude, "F4"),
+                    FormatChuteEstimateInput(input.DensityAtTouchdown, "F4")),
+                minIntervalSeconds: 10.0);
+        }
+
+        private static string FormatChuteEstimateInput(double value, string format)
+        {
+            return double.IsNaN(value) || double.IsInfinity(value)
+                ? "-"
+                : value.ToString(format, CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
         /// Pure: true when the recording's part events leave at least one parachute open
         /// (deployed or semi-deployed, and not since cut, destroyed, repacked or decoupled) at
         /// <paramref name="ut"/>. Events at exactly <paramref name="ut"/> count. The first
@@ -2806,6 +3419,51 @@ namespace Parsek
                 return false;
             }
 
+            if (!TryBuildReseededSegmentFromRecordedPoint(
+                    recording,
+                    point,
+                    "recovery-start",
+                    out OrbitSegment segment,
+                    out failureReason))
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!TryBuildStartStateFromSegment(segment, bodies, out startState))
+                {
+                    failureReason = "segment-propagation-failed";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                failureReason = ex.GetType().Name;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Live: the orbit a recorded above-surface sample was on, reseeded from its body-fixed
+        /// position and recorded velocity (frame resolved through its neighbours,
+        /// <see cref="OrbitReseed.FromLatLonAltAndSameSessionRecordedVelocity"/>) and turned back
+        /// to the body orientation at the sample's UT. The segment starts and ends at the
+        /// sample. False, with the reason, when the sample has no body, a non-finite position
+        /// or velocity, no motion, an unknown body, or the reseed fails.
+        /// </summary>
+        internal static bool TryBuildReseededSegmentFromRecordedPoint(
+            Recording recording,
+            TrajectoryPoint point,
+            string context,
+            out OrbitSegment segment,
+            out string failureReason)
+        {
+            segment = default(OrbitSegment);
+            failureReason = null;
+
             if (string.IsNullOrEmpty(point.bodyName))
             {
                 failureReason = "body-missing";
@@ -2862,13 +3520,13 @@ namespace Parsek
                         ? (TrajectoryPoint?)pointPrevious
                         : null,
                     point,
-                    "recovery-start",
+                    context,
                     recording?.RecordingId,
                     TryFindRecordedPointSuccessor(recording, point, out TrajectoryPoint pointNext)
                         ? (TrajectoryPoint?)pointNext
                         : null);
 
-                OrbitSegment segment = new OrbitSegment
+                segment = new OrbitSegment
                 {
                     startUT = point.ut,
                     endUT = point.ut,
@@ -2882,16 +3540,16 @@ namespace Parsek
                     bodyName = body.name,
                     isPredicted = true
                 };
+                ApplyHistoricalBodyRotationToReseededSegment(
+                    ref segment,
+                    body,
+                    point.ut,
+                    context,
+                    recording?.RecordingId);
 
                 if (!IsFiniteOrbitElements(segment))
                 {
                     failureReason = "orbit-elements-non-finite";
-                    return false;
-                }
-
-                if (!TryBuildStartStateFromSegment(segment, bodies, out startState))
-                {
-                    failureReason = "segment-propagation-failed";
                     return false;
                 }
 
@@ -2934,10 +3592,7 @@ namespace Parsek
                 return terminalState;
             }
 
-            double periapsisFloor = OrbitClearance.ComputePeriapsisFloorAltitude(
-                body.HasAtmosphere,
-                body.AtmosphereDepth,
-                body.MaxTerrainAltitude);
+            double periapsisFloor = body.PeriapsisFloorAltitude;
             double periapsisRadius = last.semiMajorAxis * (1.0 - last.eccentricity);
             if (OrbitClearance.IsBoundOrbitClear(
                     last.eccentricity,
@@ -2960,14 +3615,15 @@ namespace Parsek
             return TerminalState.SubOrbital;
         }
 
+        // The ORBITING-situation extrapolation line is the shared periapsis floor
+        // (OrbitClearance: deletion altitude or highest terrain), not the atmosphere top, so
+        // an orbit whose low point clears it stays a stock Orbiting vessel (owner ruling Q3).
         private static double GetBallisticCutoffAltitude(CelestialBody body)
         {
             if (body == null)
                 return 0.0;
 
-            return body.atmosphere && body.atmosphereDepth > 0.0
-                ? body.atmosphereDepth
-                : 0.0;
+            return OrbitClearance.ResolvePeriapsisFloorAltitude(body);
         }
 
         private static bool IsFinite(Vector3d value)
@@ -3044,12 +3700,23 @@ namespace Parsek
             if (recording == null)
                 return;
 
+            int predictedTailSegments = 0;
             if (result.appendedOrbitSegments != null && result.appendedOrbitSegments.Count > 0)
-                recording.OrbitSegments.AddRange(result.appendedOrbitSegments);
+            {
+                List<OrbitSegment> kept = ClipAppendedSegmentsToLastAuthoredUT(
+                    recording, result.appendedOrbitSegments, logContext);
+                predictedTailSegments = RecordingFinalizationCacheApplier.CountPredicted(kept);
+                recording.OrbitSegments.AddRange(kept);
+            }
+
+            int descentPoints = ApplyPredictedDescent(recording, result, logContext);
 
             recording.StampTerminalState(
                 result.terminalState.Value,
-                (logContext ?? "SceneExitFinalizer") + ".Apply");
+                (logContext ?? "SceneExitFinalizer") + ".Apply",
+                predicted: descentPoints > 0 && result.terminalState != TerminalState.Destroyed);
+            RecordingFinalizationCacheApplier.MarkPredictedFinalOrbit(
+                recording, predictedTailSegments, (logContext ?? "SceneExitFinalizer") + ".Apply");
             recording.ExplicitEndUT = result.terminalUT;
             if (result.terminalOrbit.HasValue)
                 StampTerminalOrbit(recording, result.terminalOrbit.Value);
@@ -3070,6 +3737,107 @@ namespace Parsek
             ApplyTerminalSurfaceMetadata(recording, result, ghostOnlySnapshot, logContext);
 
             recording.MarkFilesDirty();
+        }
+
+        /// <summary>
+        /// The predicted segments the scene-exit apply appends, clipped so none starts
+        /// before the recording's last authored UT (the cache apply does the same,
+        /// <c>RecordingFinalizationCacheApplier.BuildRetainedPredictedSegments</c>). A tail
+        /// reseeded from an earlier recorded point starts inside the recorded payload, and
+        /// the merge's predicted-suffix rule (<c>SessionMerger</c>) drops a suffix that does
+        /// not start at or after the payload end, so the tail would be lost at commit. A
+        /// segment that ends at or before that UT is dropped; one that straddles it starts
+        /// there (its elements are unchanged). Without a last authored UT the list is kept.
+        /// </summary>
+        internal static List<OrbitSegment> ClipAppendedSegmentsToLastAuthoredUT(
+            Recording recording,
+            IList<OrbitSegment> appended,
+            string logContext)
+        {
+            var kept = new List<OrbitSegment>();
+            if (appended == null || appended.Count == 0)
+                return kept;
+            if (recording == null
+                || !RecordingFinalizationCacheApplier.TryGetLastAuthoredUT(recording, out double lastAuthoredUT)
+                || !IsFinite(lastAuthoredUT))
+            {
+                kept.AddRange(appended);
+                return kept;
+            }
+
+            int dropped = 0;
+            int clipped = 0;
+            double firstOriginalStartUT = double.NaN;
+            for (int i = 0; i < appended.Count; i++)
+            {
+                OrbitSegment segment = appended[i];
+                if (!segment.isPredicted)
+                {
+                    kept.Add(segment);
+                    continue;
+                }
+                if (segment.endUT <= lastAuthoredUT + ClipUtEpsilon)
+                {
+                    dropped++;
+                    if (double.IsNaN(firstOriginalStartUT))
+                        firstOriginalStartUT = segment.startUT;
+                    continue;
+                }
+                if (segment.startUT < lastAuthoredUT - ClipUtEpsilon)
+                {
+                    if (double.IsNaN(firstOriginalStartUT))
+                        firstOriginalStartUT = segment.startUT;
+                    segment.startUT = lastAuthoredUT;
+                    clipped++;
+                }
+                kept.Add(segment);
+            }
+
+            if (dropped > 0 || clipped > 0)
+            {
+                ParsekLog.Info("Extrapolator",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "{0}: predicted tail clipped to the last authored UT for '{1}' " +
+                        "(lastAuthoredUT={2:F3}, firstOriginalStartUT={3:F3}, clipped={4}, dropped={5}, kept={6})",
+                        logContext ?? "SceneExitFinalizer",
+                        recording.RecordingId ?? "(null)",
+                        lastAuthoredUT,
+                        firstOriginalStartUT,
+                        clipped,
+                        dropped,
+                        kept.Count));
+            }
+
+            return kept;
+        }
+
+        private const double ClipUtEpsilon = 1e-6;
+
+        /// <summary>
+        /// Appends a predicted chute descent the result carries (a Landed / Splashed touchdown)
+        /// after the recording's last real sample, replacing one an earlier apply left. Returns
+        /// the number of flat points appended (0 when the result carries none).
+        /// </summary>
+        private static int ApplyPredictedDescent(
+            Recording recording,
+            in IncompleteBallisticFinalizationResult result,
+            string logContext)
+        {
+            if (result.predictedDescentPoints == null || result.predictedDescentPoints.Count == 0
+                || (result.terminalState != TerminalState.Landed
+                    && result.terminalState != TerminalState.Splashed
+                    && result.terminalState != TerminalState.Destroyed))
+            {
+                return 0;
+            }
+
+            string context = (logContext ?? "SceneExitFinalizer") + ".Apply";
+            RecordingFinalizationCacheApplier.RemovePredictedDescent(recording, context);
+            if (!RecordingFinalizationCacheApplier.TryGetLastAuthoredUT(recording, out double lastAuthoredUT))
+                lastAuthoredUT = result.predictedDescentPoints[0].ut;
+            return RecordingFinalizationCacheApplier.AppendPredictedDescent(
+                recording, result.predictedDescentPoints, lastAuthoredUT, result.terminalUT, context);
         }
 
         /// <summary>

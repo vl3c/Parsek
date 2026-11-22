@@ -133,6 +133,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -278,6 +279,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -423,6 +425,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -568,6 +571,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -713,6 +717,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -858,6 +863,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -1003,6 +1009,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -1149,6 +1156,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -1298,6 +1306,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -1448,6 +1457,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -1598,6 +1608,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -1748,6 +1759,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -1894,6 +1906,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -2044,6 +2057,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -2190,6 +2204,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -2340,6 +2355,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -2490,6 +2506,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -2639,6 +2656,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -
@@ -2784,6 +2802,7 @@
     hasOpenOrbitSegment=False
     isLanded=False
     lastExplicitEndUpdate=-1
+    packedInsideAtmosphere=False
     recordingId=bg-init-rec
     vesselPid=4201
   pendingInitialTrajectoryPoints: -

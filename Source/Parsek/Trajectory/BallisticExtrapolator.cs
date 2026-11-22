@@ -51,6 +51,9 @@ namespace Parsek
         public double maxHorizonYears;
         public int maxSoiTransitions;
         public double soiSampleStep;
+        // Seconds in one horizon year: the game's calendar (KSPUtil.dateTimeFormatter.Year)
+        // from a live caller; 0 = the stock home body's 426-day year.
+        public double calendarSecondsPerYear;
 
         public static ExtrapolationLimits Default => new ExtrapolationLimits
         {
@@ -81,6 +84,12 @@ namespace Parsek
         public Vector3d terminalVelocity;
         public List<OrbitSegment> segments;
         public ExtrapolationFailureReason failureReason;
+        // Owner ruling Q8: the tail ended on its final conic (a stable orbit, or an open conic
+        // around a body with no parent and nothing ahead). The last entry of `segments` is that
+        // conic's settle span (BallisticExtrapolator.FinalConicSettleSeconds) and
+        // finalConicStartUT is the UT the flight entered it.
+        public bool endedOnFinalConic;
+        public double finalConicStartUT;
     }
 
     internal sealed class ExtrapolationBody
@@ -92,12 +101,36 @@ namespace Parsek
         public double AtmosphereDepth;
         // Highest terrain above sea level (PQS radiusMax - radius); 0 when unknown.
         public double MaxTerrainAltitude;
+        // Altitude where the body's pressure falls to stock's packed-vessel deletion
+        // threshold (OrbitClearance.ResolveDeletionAltitude); 0 when the body has no
+        // atmosphere or the value is unknown. A drag-free arc whose low point is below it
+        // ends Destroyed at that low point (owner ruling Q3).
+        public double DeletionAltitude;
+        // The body has no ocean, so its terrain may sit below the sea-level datum and the
+        // ground (not the datum) is the surface everywhere. False (the default, and every
+        // ocean body): terrain below the datum reads as the sea surface at the datum.
+        public bool TerrainBelowDatum;
+        // Lowest terrain relative to the datum (PQS radiusMin - radius), 0 or negative; read
+        // only when TerrainBelowDatum is set.
+        public double MinTerrainAltitude;
         public double SphereOfInfluence;
         public TerrainAltitudeResolver TerrainAltitude;
         public ParentFrameStateResolver ParentFrameState;
         public SurfaceCoordinatesResolver SurfaceCoordinates;
 
         public bool HasAtmosphere => AtmosphereDepth > 0.0;
+
+        // The shared Orbiting line (OrbitClearance): max(deletion altitude, max terrain).
+        public double PeriapsisFloorAltitude =>
+            OrbitClearance.ComputePeriapsisFloorAltitude(DeletionAltitude, MaxTerrainAltitude);
+
+        // The lowest altitude the surface can have: the datum on an ocean body, else the
+        // lowest terrain (owner principle: a fall ends at the real ground).
+        public double SurfaceFloorAltitude =>
+            TerrainBelowDatum && MinTerrainAltitude < 0.0
+                && !double.IsNaN(MinTerrainAltitude) && !double.IsInfinity(MinTerrainAltitude)
+                ? MinTerrainAltitude
+                : 0.0;
     }
 
     internal static class BallisticExtrapolator
@@ -108,7 +141,11 @@ namespace Parsek
         // every read/write across that boundary converts.
         private const double DegToRad = Math.PI / 180.0;
         private const double RadToDeg = 180.0 / Math.PI;
-        internal const double SecondsPerYear = 365.0 * 24.0 * 60.0 * 60.0;
+        // The stock home body's calendar year (426 six-hour days), the year a horizon is
+        // counted in when the caller does not pass the game's own calendar
+        // (ExtrapolationLimits.calendarSecondsPerYear).
+        internal const double KerbinCalendarSecondsPerYear = 426.0 * 6.0 * 60.0 * 60.0;
+        internal const double SecondsPerYear = KerbinCalendarSecondsPerYear;
         private const double OrbitEpsilon = 1e-9;
         private const double StateVectorEpsilon = 1e-8;
         private const int MaxLocalCutoffSamples = 720;
@@ -117,6 +154,17 @@ namespace Parsek
         private const double DefaultCutoffSampleStep = 30.0;
         private const double LocalCutoffDenseWindowSeconds = MaxLocalCutoffSamples * DefaultCutoffSampleStep;
         private const double ImmediateEventEpsilon = 1e-6;
+        // Terminal reasons of a Destroyed cutoff (the `Terminal reason=` log token).
+        internal const string CutoffReasonSurfaceImpact = "surface-impact";
+        internal const string CutoffReasonDeletionPeriapsis = "deletion-periapsis";
+        // Terminal reasons of a final-conic ending (owner ruling Q8, the `Terminal reason=` token).
+        internal const string TerminalReasonStableConic = "stable-conic";
+        internal const string TerminalReasonFinalEscape = "final-escape";
+        // A final-conic ending keeps this much of the final conic (at most a quarter of a
+        // closed conic's period): a positive span in the final body, so the recording's last
+        // segment, its terminal orbit and its endpoint all name that body, and the spawn sits
+        // clear of the sphere-of-influence boundary just crossed.
+        internal const double FinalConicSettleSeconds = 60.0;
         // Any start-state altitude below this is treated as a destroyed-vessel
         // fingerprint (see `ExtrapolationFailureReason.SubSurfaceStart`).
         // Chosen well below Kerbin's deepest natural terrain (~5 km) so
@@ -142,6 +190,8 @@ namespace Parsek
             public Vector3d Position;
             public Vector3d Velocity;
             public ExtrapolationBody ChildBody;
+            // Destroyed only: CutoffReasonSurfaceImpact or CutoffReasonDeletionPeriapsis.
+            public string CutoffReason;
         }
 
         private struct StateSample
@@ -152,6 +202,56 @@ namespace Parsek
             public double Altitude;
         }
 
+        /// <summary>
+        /// Pure: the seconds in one horizon year: the limits' calendar year when set and
+        /// finite, else the stock home body's (<see cref="KerbinCalendarSecondsPerYear"/>).
+        /// </summary>
+        internal static double ResolveHorizonSecondsPerYear(ExtrapolationLimits limits)
+        {
+            double year = limits.calendarSecondsPerYear;
+            return year > 0.0 && !double.IsInfinity(year) ? year : KerbinCalendarSecondsPerYear;
+        }
+
+        /// <summary>
+        /// Pure: the span of the final conic a final-conic ending keeps
+        /// (<see cref="FinalConicSettleSeconds"/>, at most a quarter of a closed conic's
+        /// period; an open or unknown period keeps the full settle span).
+        /// </summary>
+        internal static double ResolveFinalConicSettleSeconds(double period)
+        {
+            if (period > 0.0 && !double.IsInfinity(period) && !double.IsNaN(period))
+                return Math.Min(FinalConicSettleSeconds, 0.25 * period);
+            return FinalConicSettleSeconds;
+        }
+
+        /// <summary>
+        /// Pure: is this conic the stable final orbit of a tail (owner ruling Q8)? Bound with a
+        /// finite period, periapsis strictly above the body's periapsis floor
+        /// (<see cref="OrbitClearance.IsBoundOrbitClear"/>, the line commit classification and
+        /// spawn safety read), and inside the body's sphere of influence (no parent, or an
+        /// apoapsis within the sphere). The caller adds the event checks (no surface event, no
+        /// sphere-of-influence change within one period).
+        /// </summary>
+        internal static bool IsStableFinalConicShape(
+            double eccentricity,
+            double periapsisRadius,
+            double apoapsisRadius,
+            double period,
+            ExtrapolationBody body)
+        {
+            if (body == null
+                || !(period > 0.0) || double.IsInfinity(period) || double.IsNaN(period)
+                || !OrbitClearance.IsBoundOrbitClear(
+                    eccentricity, periapsisRadius, body.Radius, body.PeriapsisFloorAltitude))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(body.ParentBodyName) && body.SphereOfInfluence > body.Radius)
+                return !double.IsNaN(apoapsisRadius) && apoapsisRadius <= body.SphereOfInfluence;
+            return true;
+        }
+
         internal static bool ShouldExtrapolate(
             Vessel.Situations situation,
             double eccentricity,
@@ -160,10 +260,20 @@ namespace Parsek
         {
             switch (situation)
             {
-                case Vessel.Situations.FLYING:
-                case Vessel.Situations.SUB_ORBITAL:
                 case Vessel.Situations.ESCAPING:
                     return true;
+
+                case Vessel.Situations.FLYING:
+                case Vessel.Situations.SUB_ORBITAL:
+                    // A bound FLYING or SUB_ORBITAL coast whose low point clears the periapsis
+                    // floor (deletion altitude or highest terrain) is a stable orbit stock keeps,
+                    // so it ends Orbiting the same way an ORBITING one does; extrapolating it
+                    // only runs to the horizon.
+                    if (double.IsNaN(periapsisAltitude) || double.IsInfinity(periapsisAltitude))
+                        return true;
+                    if (!(eccentricity < 1.0))
+                        return true;
+                    return periapsisAltitude <= cutoffAltitude;
 
                 case Vessel.Situations.ORBITING:
                     if (double.IsNaN(periapsisAltitude))
@@ -190,13 +300,20 @@ namespace Parsek
         /// <param name="initialSuppressedChildEntryBodyName">When set, an immediate entry into
         /// this child body's sphere at the start UT is not taken (a patch start just outside
         /// the child's sphere it was leaving).</param>
+        /// <param name="stopOnFinalConic">Owner ruling Q8 (default): end at the first stable
+        /// conic (<see cref="IsStableFinalConicShape"/>, no surface event and no
+        /// sphere-of-influence change within one period) as Orbiting, and on an open conic
+        /// around a body with no parent and nothing ahead as SubOrbital, each after
+        /// <see cref="FinalConicSettleSeconds"/> of it. False follows the path to the horizon
+        /// (a caller that carries an orbit to a given UT).</param>
         internal static ExtrapolationResult Extrapolate(
             BallisticStateVector startState,
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
             ExtrapolationLimits? limitsOverride = null,
             bool warnOnSubSurfaceStart = true,
             string initialSuppressedParentExitParentBodyName = null,
-            string initialSuppressedChildEntryBodyName = null)
+            string initialSuppressedChildEntryBodyName = null,
+            bool stopOnFinalConic = true)
         {
             ExtrapolationLimits limits = limitsOverride ?? ExtrapolationLimits.Default;
             var result = new ExtrapolationResult
@@ -207,7 +324,9 @@ namespace Parsek
                 terminalPosition = startState.position,
                 terminalVelocity = startState.velocity,
                 segments = new List<OrbitSegment>(),
-                failureReason = ExtrapolationFailureReason.None
+                failureReason = ExtrapolationFailureReason.None,
+                endedOnFinalConic = false,
+                finalConicStartUT = double.NaN
             };
 
             if (!TryGetBody(bodies, startState.bodyName, out ExtrapolationBody currentBody))
@@ -221,7 +340,8 @@ namespace Parsek
                 return result;
             }
 
-            double horizonUT = startState.ut + Math.Max(0.0, limits.maxHorizonYears) * SecondsPerYear;
+            double horizonUT = startState.ut
+                + Math.Max(0.0, limits.maxHorizonYears) * ResolveHorizonSecondsPerYear(limits);
             var currentState = startState;
             int soiTransitions = 0;
             string suppressedImmediateChildEntryBodyName = initialSuppressedChildEntryBodyName;
@@ -232,6 +352,9 @@ namespace Parsek
                     : double.NaN;
 
             double startAltitude = Magnitude(startState.position) - currentBody.Radius;
+            // Below the datum is legitimate ground on a body without an ocean (a crater floor),
+            // so the destroyed-vessel guard sits that far lower there.
+            double subSurfaceThreshold = SubSurfaceDestroyedAltitude + currentBody.SurfaceFloorAltitude;
             ParsekLog.Info(LogTag, string.Format(
                 CultureInfo.InvariantCulture,
                 "Start: body={0} ut={1:F3} alt={2:F1} horizonUT={3:F3} maxYears={4:F3} maxSoiTransitions={5}",
@@ -252,7 +375,7 @@ namespace Parsek
             // before `horizon-cap` fires, and silently returns Orbiting.
             // Classify the recording as Destroyed and stop immediately so the
             // row enters "Unfinished Flights" where the player can re-fly it.
-            if (startAltitude < SubSurfaceDestroyedAltitude)
+            if (startAltitude < subSurfaceThreshold)
             {
                 result.terminalState = TerminalState.Destroyed;
                 result.terminalUT = startState.ut;
@@ -270,7 +393,7 @@ namespace Parsek
                     currentBody.Name,
                     startState.ut,
                     startAltitude,
-                    SubSurfaceDestroyedAltitude));
+                    subSurfaceThreshold));
                 return result;
             }
 
@@ -319,17 +442,12 @@ namespace Parsek
                     suppressedImmediateParentExitBodyName,
                     suppressedImmediateUT);
 
-                double localCutoffSearchEndUT = horizonUT;
-                if (parentExit.HasValue)
-                    localCutoffSearchEndUT = Math.Min(localCutoffSearchEndUT, parentExit.Value.UT);
-                if (orbit.IsElliptic && !double.IsInfinity(orbit.Period))
-                    localCutoffSearchEndUT = Math.Min(localCutoffSearchEndUT, currentState.ut + orbit.Period);
-
-                EventCandidate? localCutoff = FindLocalCutoff(
+                EventCandidate? localCutoff = FindLocalCutoffWithLaterPasses(
                     orbit,
                     currentBody,
                     currentState.ut,
-                    localCutoffSearchEndUT,
+                    horizonUT,
+                    parentExit,
                     ref result.failureReason);
 
                 double childSearchEndUT = horizonUT;
@@ -337,6 +455,19 @@ namespace Parsek
                     childSearchEndUT = Math.Min(childSearchEndUT, parentExit.Value.UT);
                 if (localCutoff.HasValue)
                     childSearchEndUT = Math.Min(childSearchEndUT, localCutoff.Value.UT);
+
+                // Owner ruling Q8: a stable conic is the flight's final orbit unless a child
+                // sphere is entered within one period; an open conic around a body with no
+                // parent (the Sun) is final unless a child sphere is entered before the horizon.
+                ClassifyFinalConicCandidate(
+                    stopOnFinalConic,
+                    parentExit.HasValue || localCutoff.HasValue,
+                    orbit,
+                    currentBody,
+                    out bool stableFinalCandidate,
+                    out bool finalEscapeCandidate);
+                if (stableFinalCandidate)
+                    childSearchEndUT = Math.Min(childSearchEndUT, currentState.ut + orbit.Period);
 
                 EventCandidate? childEntry = FindChildEntry(
                     orbit,
@@ -347,6 +478,19 @@ namespace Parsek
                     limits,
                     suppressedImmediateChildEntryBodyName,
                     suppressedImmediateUT);
+
+                if ((stableFinalCandidate || finalEscapeCandidate) && !childEntry.HasValue)
+                {
+                    EndOnFinalConic(
+                        ref result,
+                        orbit,
+                        currentBody,
+                        currentState,
+                        horizonUT,
+                        stableFinalCandidate,
+                        soiTransitions);
+                    return result;
+                }
 
                 EventCandidate chosen = ChooseEarliestEvent(
                     localCutoff,
@@ -359,8 +503,13 @@ namespace Parsek
                 bool immediateSoiTransition =
                     (chosen.Kind == EventKind.ParentExit || chosen.Kind == EventKind.ChildEntry)
                     && segmentEndUT <= currentState.ut + ImmediateEventEpsilon;
+                // A deletion periapsis AT the start state (the vessel sits on its low point
+                // below the deletion altitude) ends the flight here: no zero-length segment.
+                bool immediateDestroyed =
+                    chosen.Kind == EventKind.Destroyed
+                    && segmentEndUT <= currentState.ut + ImmediateEventEpsilon;
 
-                if (!immediateSoiTransition)
+                if (!immediateSoiTransition && !immediateDestroyed)
                 {
                     result.segments.Add(CreateSegment(
                         orbit,
@@ -379,10 +528,12 @@ namespace Parsek
                     result.terminalVelocity = chosen.Velocity;
                     ParsekLog.Info(LogTag, string.Format(
                         CultureInfo.InvariantCulture,
-                        "Terminal reason=cutoff: body={0} ut={1:F3} alt={2:F1} failure={3}",
+                        "Terminal reason={0}: body={1} ut={2:F3} alt={3:F1} deletionAlt={4:F1} failure={5}",
+                        chosen.CutoffReason ?? CutoffReasonSurfaceImpact,
                         currentBody.Name,
                         chosen.UT,
                         Magnitude(chosen.Position) - currentBody.Radius,
+                        currentBody.DeletionAltitude,
                         result.failureReason));
                     return result;
                 }
@@ -395,12 +546,19 @@ namespace Parsek
                     result.terminalBodyName = currentBody.Name;
                     result.terminalPosition = horizonPosition;
                     result.terminalVelocity = horizonVelocity;
+                    // Unresolved: no final conic was reached (the stop disabled by the caller,
+                    // or a low point among the peaks the terrain scan budget did not settle).
                     ParsekLog.Warn(LogTag, string.Format(
                         CultureInfo.InvariantCulture,
-                        "Terminal reason=horizon-cap: body={0} ut={1:F3} soiTransitions={2}",
+                        "Terminal reason=horizon-cap: body={0} ut={1:F3} soiTransitions={2} ecc={3:F5} " +
+                        "periapsisAlt={4:F1} floor={5:F1} finalConicStop={6}",
                         currentBody.Name,
                         segmentEndUT,
-                        soiTransitions));
+                        soiTransitions,
+                        orbit.Eccentricity,
+                        orbit.PeriapsisRadius - currentBody.Radius,
+                        currentBody.PeriapsisFloorAltitude,
+                        stopOnFinalConic));
                     return result;
                 }
 
@@ -476,13 +634,14 @@ namespace Parsek
                             chosen.Position + bodyPosition,
                             chosen.Velocity + bodyVelocity)
                     };
-                    suppressedImmediateChildEntryBodyName = immediateSoiTransition
-                        ? currentBody.Name
-                        : null;
+                    // The new state sits on the boundary it just crossed outward; the refined
+                    // crossing can land a hair on either side of it, so the inward crossing
+                    // back into the child AT this instant is noise, never a second transition
+                    // (an unsuppressed one bounced the state across the boundary until the
+                    // transition cap).
+                    suppressedImmediateChildEntryBodyName = currentBody.Name;
                     suppressedImmediateParentExitBodyName = null;
-                    suppressedImmediateUT = immediateSoiTransition
-                        ? chosen.UT
-                        : double.NaN;
+                    suppressedImmediateUT = chosen.UT;
                     currentBody = parentBody;
                     continue;
                 }
@@ -510,13 +669,11 @@ namespace Parsek
                             chosen.Position - childPosition,
                             chosen.Velocity - childVelocity)
                     };
-                    suppressedImmediateParentExitBodyName = immediateSoiTransition
-                        ? currentBody.Name
-                        : null;
+                    // Mirror of the ParentExit case: the exit back to the parent AT the entry
+                    // instant is the same boundary seen from inside.
+                    suppressedImmediateParentExitBodyName = currentBody.Name;
                     suppressedImmediateChildEntryBodyName = null;
-                    suppressedImmediateUT = immediateSoiTransition
-                        ? chosen.UT
-                        : double.NaN;
+                    suppressedImmediateUT = chosen.UT;
                     currentBody = chosen.ChildBody;
                     continue;
                 }
@@ -547,6 +704,123 @@ namespace Parsek
                 horizonUT,
                 soiTransitions));
             return result;
+        }
+
+        /// <summary>
+        /// The first surface or deletion event on this conic: the first pass (up to one period,
+        /// the parent exit or the horizon), then, on a closed conic that missed, the later passes
+        /// up to the parent exit or the horizon. A closed conic repeats, but the body turns under
+        /// it: a low point among the peaks that missed the ground on the first pass can meet a
+        /// mountain on a later one.
+        /// </summary>
+        private static EventCandidate? FindLocalCutoffWithLaterPasses(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody currentBody,
+            double startUT,
+            double horizonUT,
+            EventCandidate? parentExit,
+            ref ExtrapolationFailureReason failureReason)
+        {
+            double searchLimitUT = parentExit.HasValue ? Math.Min(horizonUT, parentExit.Value.UT) : horizonUT;
+            bool closedConic = orbit.IsElliptic && !double.IsInfinity(orbit.Period);
+            double firstPassEndUT = closedConic ? Math.Min(searchLimitUT, startUT + orbit.Period) : searchLimitUT;
+
+            EventCandidate? localCutoff = FindLocalCutoff(
+                orbit,
+                currentBody,
+                startUT,
+                firstPassEndUT,
+                ref failureReason);
+
+            if (!localCutoff.HasValue && closedConic && firstPassEndUT < searchLimitUT)
+            {
+                localCutoff = FindLaterPassTerrainImpact(
+                    orbit,
+                    currentBody,
+                    startUT,
+                    searchLimitUT,
+                    ref failureReason);
+            }
+            return localCutoff;
+        }
+
+        /// <summary>
+        /// Owner ruling Q8: a stable conic is the flight's final orbit unless a child sphere is
+        /// entered within one period; an open conic around a body with no parent (the Sun) is
+        /// final unless a child sphere is entered before the horizon.
+        /// </summary>
+        private static void ClassifyFinalConicCandidate(
+            bool stopOnFinalConic,
+            bool hasEarlierEvent,
+            TwoBodyOrbit orbit,
+            ExtrapolationBody currentBody,
+            out bool stableFinal,
+            out bool finalEscape)
+        {
+            bool eligible = stopOnFinalConic && !hasEarlierEvent;
+            stableFinal = eligible
+                && orbit.IsElliptic
+                && IsStableFinalConicShape(
+                    orbit.Eccentricity,
+                    orbit.PeriapsisRadius,
+                    orbit.ApoapsisRadius,
+                    orbit.Period,
+                    currentBody);
+            finalEscape = eligible
+                && !stableFinal
+                && !orbit.IsElliptic
+                && string.IsNullOrEmpty(currentBody.ParentBodyName);
+        }
+
+        /// <summary>
+        /// Ends the extrapolation on its final conic: one segment over the settle span
+        /// (<see cref="FinalConicSettleSeconds"/>), then Orbiting for a stable conic or
+        /// SubOrbital for an open one around a body with no parent.
+        /// </summary>
+        private static void EndOnFinalConic(
+            ref ExtrapolationResult result,
+            TwoBodyOrbit orbit,
+            ExtrapolationBody currentBody,
+            BallisticStateVector currentState,
+            double horizonUT,
+            bool stableFinal,
+            int soiTransitions)
+        {
+            double settleEndUT = Math.Min(
+                horizonUT,
+                currentState.ut + ResolveFinalConicSettleSeconds(
+                    stableFinal ? orbit.Period : double.NaN));
+            if (settleEndUT > currentState.ut)
+            {
+                result.segments.Add(CreateSegment(
+                    orbit,
+                    currentBody.Name,
+                    currentState.ut,
+                    settleEndUT,
+                    currentState.orbitalFrameRotation));
+            }
+
+            orbit.GetStateAtUT(settleEndUT, out Vector3d finalPosition, out Vector3d finalVelocity);
+            result.terminalState = stableFinal ? TerminalState.Orbiting : TerminalState.SubOrbital;
+            result.terminalUT = settleEndUT;
+            result.terminalBodyName = currentBody.Name;
+            result.terminalPosition = finalPosition;
+            result.terminalVelocity = finalVelocity;
+            result.endedOnFinalConic = true;
+            result.finalConicStartUT = currentState.ut;
+            ParsekLog.Info(LogTag, string.Format(
+                CultureInfo.InvariantCulture,
+                "Terminal reason={0}: body={1} enteredUT={2:F3} ut={3:F3} ecc={4:F5} sma={5:F1} " +
+                "periapsisAlt={6:F1} floor={7:F1} soiTransitions={8}",
+                stableFinal ? TerminalReasonStableConic : TerminalReasonFinalEscape,
+                currentBody.Name,
+                currentState.ut,
+                settleEndUT,
+                orbit.Eccentricity,
+                orbit.SemiMajorAxis,
+                orbit.PeriapsisRadius - currentBody.Radius,
+                currentBody.PeriapsisFloorAltitude,
+                soiTransitions));
         }
 
         internal static bool HasOrbitalFrameRotation(Quaternion orbitalFrameRotation)
@@ -882,18 +1156,21 @@ namespace Parsek
         /// Detects a captured patched-conic tail that re-enters an atmospheric
         /// body. KSP's patched-conic chain for an off-scene / on-rails vessel
         /// carries no atmosphere or IMPACT transition, so a sub-orbital arc whose
-        /// periapsis sits below the atmosphere top is snapshotted as a CLOSED
-        /// ellipse that runs underground. This finds the first segment whose
-        /// periapsis is below the atmosphere top and returns the UT of its
+        /// periapsis sits below the surface is snapshotted as a CLOSED ellipse that
+        /// runs underground. This finds the first segment whose periapsis is below
+        /// the body's periapsis floor (<see cref="ExtrapolationBody.PeriapsisFloorAltitude"/>:
+        /// the deletion altitude or the highest terrain) and returns the UT of its
         /// descending crossing of the atmosphere boundary (or the segment start,
         /// when the segment already begins inside the atmosphere), so the caller
         /// can clip the predicted segments there and hand the atmospheric descent
-        /// to the ballistic extrapolator (which terminates at the real terrain
-        /// impact).
+        /// to the ballistic extrapolator (which terminates at the ground impact or,
+        /// above the ground, at the first low point under the deletion altitude).
+        /// A segment whose periapsis lies between the floor and the atmosphere top
+        /// is a stock orbit and is not clipped (owner ruling Q3).
         /// Airless bodies are intentionally skipped: their patched-conic chain
         /// ends at an IMPACT patch and is handled by the solver-impact
         /// short-circuit, so they never leak a closed sub-surface ellipse here.
-        /// Genuine coasts (periapsis above the atmosphere) return false.
+        /// Genuine coasts (periapsis above the floor) return false.
         /// </summary>
         internal static bool TryFindAtmosphericReentryClip(
             IReadOnlyList<OrbitSegment> segments,
@@ -916,10 +1193,14 @@ namespace Parsek
                     continue;
 
                 double boundaryRadius = body.Radius + body.AtmosphereDepth;
+                double floorRadius = body.Radius + body.PeriapsisFloorAltitude;
                 double periapsisRadius = segment.semiMajorAxis * (1.0 - segment.eccentricity);
+                // Owner ruling Q3: a conic whose low point stays above the periapsis floor
+                // (deletion altitude / highest terrain) keeps orbiting like a stock unloaded
+                // vessel, even when it dips into the upper atmosphere, so it is not clipped.
                 if (double.IsNaN(periapsisRadius)
                     || double.IsInfinity(periapsisRadius)
-                    || periapsisRadius >= boundaryRadius)
+                    || periapsisRadius >= floorRadius)
                     continue;
 
                 if (!TwoBodyOrbit.TryCreateFromSegment(segment, body.GravitationalParameter, out TwoBodyOrbit orbit))
@@ -1023,21 +1304,73 @@ namespace Parsek
             if (endUT <= startUT)
                 return null;
 
-            if (body.HasAtmosphere)
-            {
-                EventCandidate? atmo = FindDescendingAltitudeCrossing(
-                    orbit,
-                    body,
-                    startUT,
-                    endUT);
-                if (atmo.HasValue)
-                    return atmo;
-            }
+            // Owner rulings Q2 / Q3 / Q5: no drag, so the arc is a plain Kepler conic. It ends
+            // at ground / water impact when it reaches the surface; otherwise, when its low
+            // point is below the body's deletion altitude, at that first low point (stock
+            // deletes a packed vessel there). The atmosphere top is not an ending.
+            EventCandidate? surface = FindSurfaceImpact(orbit, body, startUT, endUT, ref failureReason);
+            if (surface.HasValue)
+                return surface;
 
+            return FindDeletionPeriapsis(orbit, body, startUT, endUT);
+        }
+
+        /// <summary>
+        /// The first periapsis pass in [startUT, endUT] when the conic's periapsis is strictly
+        /// below the body's deletion altitude, as a Destroyed event; otherwise null. Called only
+        /// after the surface scan found no impact, so the low point is above the ground.
+        /// </summary>
+        private static EventCandidate? FindDeletionPeriapsis(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody body,
+            double startUT,
+            double endUT)
+        {
+            double deletionAltitude = body.DeletionAltitude;
+            if (!(deletionAltitude > 0.0) || double.IsInfinity(deletionAltitude))
+                return null;
+
+            double periapsisRadius = orbit.PeriapsisRadius;
+            if (double.IsNaN(periapsisRadius)
+                || double.IsInfinity(periapsisRadius)
+                || !(periapsisRadius < body.Radius + deletionAltitude))
+                return null;
+
+            if (!TryGetNextPeriapsisUT(orbit, startUT, endUT, out double periapsisUT))
+                return null;
+
+            orbit.GetStateAtUT(periapsisUT, out Vector3d position, out Vector3d velocity);
+            ParsekLog.Verbose(LogTag, string.Format(
+                CultureInfo.InvariantCulture,
+                "Deletion periapsis: body={0} ut={1:F3} periapsisAlt={2:F1} deletionAlt={3:F1}",
+                body.Name,
+                periapsisUT,
+                periapsisRadius - body.Radius,
+                deletionAltitude));
+            return new EventCandidate
+            {
+                Kind = EventKind.Destroyed,
+                UT = periapsisUT,
+                Position = position,
+                Velocity = velocity,
+                CutoffReason = CutoffReasonDeletionPeriapsis
+            };
+        }
+
+        private static EventCandidate? FindSurfaceImpact(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody body,
+            double startUT,
+            double endUT,
+            ref ExtrapolationFailureReason failureReason)
+        {
             double sampleStartUT = startUT;
             double sampleEndUT = endUT;
             string windowReason = null;
-            if (TryFindDescendingRadiusCrossingUT(orbit, startUT, endUT, body.Radius, out double seaLevelCrossingUT))
+            // The lowest surface the arc can meet: the datum, or the lowest terrain on a body
+            // without an ocean, so the dense window ends past every possible impact.
+            double surfaceFloorRadius = body.Radius + body.SurfaceFloorAltitude;
+            if (TryFindDescendingRadiusCrossingUT(orbit, startUT, endUT, surfaceFloorRadius, out double seaLevelCrossingUT))
             {
                 sampleStartUT = Math.Max(startUT, seaLevelCrossingUT - LocalCutoffDenseWindowSeconds);
                 sampleEndUT = Math.Min(endUT, seaLevelCrossingUT + DefaultCutoffSampleStep);
@@ -1080,30 +1413,6 @@ namespace Parsek
                 ref failureReason);
         }
 
-        private static EventCandidate? FindDescendingAltitudeCrossing(
-            TwoBodyOrbit orbit,
-            ExtrapolationBody body,
-            double startUT,
-            double endUT)
-        {
-            if (!TryFindDescendingRadiusCrossingUT(
-                orbit,
-                startUT,
-                endUT,
-                body.Radius + body.AtmosphereDepth,
-                out double crossingUT))
-                return null;
-
-            orbit.GetStateAtUT(crossingUT, out Vector3d position, out Vector3d velocity);
-            return new EventCandidate
-            {
-                Kind = EventKind.Destroyed,
-                UT = crossingUT,
-                Position = position,
-                Velocity = velocity
-            };
-        }
-
         private static EventCandidate? FindSurfaceCrossing(
             TwoBodyOrbit orbit,
             ExtrapolationBody body,
@@ -1130,11 +1439,124 @@ namespace Parsek
                         Kind = EventKind.Destroyed,
                         UT = crossingUT,
                         Position = position,
-                        Velocity = velocity
+                        Velocity = velocity,
+                        CutoffReason = CutoffReasonSurfaceImpact
                     };
                 }
 
                 previousSurfaceDelta = currentSurfaceDelta;
+            }
+
+            return null;
+        }
+
+        // Budget of terrain samples spent on later periapsis passes of one closed conic.
+        internal const int MaxLaterPassTerrainSamples = 8192;
+        private const int LaterPassSamplesPerWindow = 48;
+
+        /// <summary>
+        /// Ground impact on a periapsis pass AFTER the first orbit of a closed conic whose low
+        /// point dips below the body's highest terrain: each pass samples only the stretch below
+        /// the peaks (<see cref="ExtrapolationBody.MaxTerrainAltitude"/>), and the body-fixed
+        /// coordinates move with the body's rotation, so a later pass reads different ground.
+        /// Bounded by <see cref="MaxLaterPassTerrainSamples"/>; when the budget runs out the
+        /// conic is left to its other events (logged).
+        /// </summary>
+        private static EventCandidate? FindLaterPassTerrainImpact(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody body,
+            double startUT,
+            double endUT,
+            ref ExtrapolationFailureReason failureReason)
+        {
+            if (body == null || body.TerrainAltitude == null || endUT <= startUT)
+                return null;
+            double peakAltitude = body.MaxTerrainAltitude;
+            if (!(peakAltitude > 0.0) || double.IsInfinity(peakAltitude))
+                return null;
+            double peakRadius = body.Radius + peakAltitude;
+            if (!(orbit.PeriapsisRadius < peakRadius))
+                return null;
+
+            double meanMotion = orbit.GetMeanMotion();
+            if (!(meanMotion > 0.0) || double.IsInfinity(orbit.Period) || !(orbit.Period > 0.0))
+                return null;
+
+            // Half-width of the below-the-peaks stretch around periapsis, in mean anomaly.
+            double halfWindowMeanAnomaly;
+            if (orbit.ApoapsisRadius <= peakRadius || orbit.Eccentricity <= OrbitEpsilon)
+            {
+                halfWindowMeanAnomaly = Math.PI;
+            }
+            else
+            {
+                double cosE = Clamp((1.0 - peakRadius / orbit.SemiMajorAxis) / orbit.Eccentricity, -1.0, 1.0);
+                double e = AcosClamped(cosE);
+                halfWindowMeanAnomaly = e - orbit.Eccentricity * Math.Sin(e);
+            }
+            double halfWindowSeconds = halfWindowMeanAnomaly / meanMotion;
+
+            // From the first pass on: the first-orbit scan stops at its low point, so the
+            // climb out of the first pass is read here too.
+            if (!TryGetNextPeriapsisUT(orbit, startUT, double.MaxValue, out double periapsisUT))
+                return null;
+            // A start just past a low point is still inside that pass's stretch under the peaks.
+            if (periapsisUT - orbit.Period + halfWindowSeconds > startUT)
+                periapsisUT -= orbit.Period;
+
+            int samplesUsed = 0;
+            int passes = 0;
+            while (periapsisUT - halfWindowSeconds < endUT)
+            {
+                if (samplesUsed >= MaxLaterPassTerrainSamples)
+                {
+                    ParsekLog.Verbose(LogTag, string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Later-pass terrain scan budget spent: body={0} passes={1} samples={2} lastPeriapsisUT={3:F3} " +
+                        "periapsisAlt={4:F1} peakAlt={5:F1}",
+                        body.Name,
+                        passes,
+                        samplesUsed,
+                        periapsisUT,
+                        orbit.PeriapsisRadius - body.Radius,
+                        peakAltitude));
+                    return null;
+                }
+
+                double windowStart = Math.Max(startUT, periapsisUT - halfWindowSeconds);
+                double windowEnd = Math.Min(endUT, periapsisUT + halfWindowSeconds);
+                if (windowEnd > windowStart)
+                {
+                    double step = Math.Min(DefaultCutoffSampleStep, (windowEnd - windowStart) / LaterPassSamplesPerWindow);
+                    List<StateSample> samples = SampleOrbitWindow(
+                        orbit,
+                        windowStart,
+                        windowEnd,
+                        step,
+                        MaxLocalCutoffSamples);
+                    samplesUsed += samples.Count;
+                    passes++;
+                    if (samples.Count > 1)
+                    {
+                        EventCandidate? hit = FindSurfaceCrossing(orbit, body, samples, ref failureReason);
+                        if (hit.HasValue)
+                        {
+                            ParsekLog.Verbose(LogTag, string.Format(
+                                CultureInfo.InvariantCulture,
+                                "Later-pass terrain impact: body={0} ut={1:F3} pass={2} samples={3} " +
+                                "periapsisAlt={4:F1} peakAlt={5:F1}",
+                                body.Name,
+                                hit.Value.UT,
+                                passes,
+                                samplesUsed,
+                                orbit.PeriapsisRadius - body.Radius,
+                                peakAltitude));
+                            return hit;
+                        }
+                    }
+                }
+
+                periapsisUT += orbit.Period;
             }
 
             return null;
@@ -1244,6 +1666,7 @@ namespace Parsek
                 EventCandidate? hit = FindSingleChildEntry(
                     orbit,
                     candidate,
+                    currentBody.GravitationalParameter,
                     startUT,
                     endUT,
                     limits,
@@ -1263,12 +1686,437 @@ namespace Parsek
         private static EventCandidate? FindSingleChildEntry(
             TwoBodyOrbit orbit,
             ExtrapolationBody childBody,
+            double parentGravitationalParameter,
             double startUT,
             double endUT,
             ExtrapolationLimits limits,
             string suppressedImmediateChildBodyName,
             double suppressedImmediateUT)
         {
+            bool suppressStart =
+                !double.IsNaN(suppressedImmediateUT)
+                && Math.Abs(startUT - suppressedImmediateUT) <= ImmediateEventEpsilon
+                && string.Equals(childBody.Name, suppressedImmediateChildBodyName, StringComparison.Ordinal);
+            if (!suppressStart
+                && GetRelativeDistanceToChild(orbit, childBody, startUT) - childBody.SphereOfInfluence <= ImmediateEventEpsilon)
+            {
+                orbit.GetStateAtUT(startUT, out Vector3d immediatePosition, out Vector3d immediateVelocity);
+                return new EventCandidate
+                {
+                    Kind = EventKind.ChildEntry,
+                    UT = startUT,
+                    Position = immediatePosition,
+                    Velocity = immediateVelocity,
+                    ChildBody = childBody
+                };
+            }
+
+            if (TryFindChildEntryInRadialBand(
+                    orbit,
+                    childBody,
+                    parentGravitationalParameter,
+                    startUT,
+                    endUT,
+                    out EventCandidate? bandHit))
+            {
+                return bandHit;
+            }
+
+            return FindSingleChildEntryCoarse(
+                orbit,
+                childBody,
+                startUT,
+                endUT,
+                limits,
+                suppressedImmediateChildBodyName,
+                suppressedImmediateUT);
+        }
+
+        // Per child, per conic: the distance samples the radial-band search may spend.
+        internal const int MaxChildEntrySamples = 16384;
+        private const int ChildEntryMinimumRefineIterations = 60;
+
+        /// <summary>
+        /// Child sphere-of-influence entry found where it can happen: only while the craft's
+        /// distance from the parent is inside the child's radial band
+        /// [child periapsis - SOI, child apoapsis + SOI] (the child's own conic, from its
+        /// parent-frame state). Inside each band window the craft-to-child distance is sampled
+        /// no further apart than the time to cross one SOI radius at the largest possible
+        /// relative speed, and every local minimum is refined to the closest approach, so a
+        /// grazing pass that never puts a sample inside the sphere is still found. Bounded by
+        /// <see cref="MaxChildEntrySamples"/> (logged when spent). Returns false (the caller
+        /// falls back to the coarse scan) when the band cannot be built.
+        /// </summary>
+        private static bool TryFindChildEntryInRadialBand(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody childBody,
+            double parentGravitationalParameter,
+            double startUT,
+            double endUT,
+            out EventCandidate? hit)
+        {
+            hit = null;
+            double soi = childBody.SphereOfInfluence;
+            if (!(soi > 0.0) || !(parentGravitationalParameter > 0.0) || endUT <= startUT)
+                return false;
+
+            GetBodyStateRelativeToParent(childBody, startUT, out Vector3d childPosition, out Vector3d childVelocity);
+            if (!TwoBodyOrbit.TryCreate(
+                    childPosition,
+                    childVelocity,
+                    parentGravitationalParameter,
+                    startUT,
+                    out TwoBodyOrbit childOrbit)
+                || !childOrbit.IsElliptic)
+            {
+                return false;
+            }
+
+            double bandLow = Math.Max(0.0, childOrbit.PeriapsisRadius - soi);
+            double bandHigh = childOrbit.ApoapsisRadius + soi;
+            var meanAnomalyWindows = new List<KeyValuePair<double, double>>();
+            if (!TryComputeRadialBandMeanAnomalyWindows(
+                    orbit.SemiMajorAxis,
+                    orbit.Eccentricity,
+                    orbit.IsElliptic,
+                    orbit.PeriapsisRadius,
+                    orbit.IsElliptic ? orbit.ApoapsisRadius : double.PositiveInfinity,
+                    bandLow,
+                    bandHigh,
+                    meanAnomalyWindows))
+            {
+                return false;
+            }
+            if (meanAnomalyWindows.Count == 0)
+                return true;
+
+            double meanMotion = orbit.GetMeanMotion();
+            if (!(meanMotion > 0.0))
+                return false;
+
+            // Largest relative speed inside the band: the craft at its lowest band radius plus
+            // the child at its periapsis (vis-viva), so one step never moves the pair a full SOI.
+            double craftLowRadius = Math.Max(orbit.PeriapsisRadius, Math.Max(1.0, bandLow));
+            double craftSpeed = Math.Sqrt(Math.Max(0.0,
+                orbit.GravitationalParameter * (2.0 / craftLowRadius - 1.0 / orbit.SemiMajorAxis)));
+            double childSpeed = Math.Sqrt(Math.Max(0.0,
+                parentGravitationalParameter * (2.0 / childOrbit.PeriapsisRadius - 1.0 / childOrbit.SemiMajorAxis)));
+            double relativeSpeed = Math.Max(1.0, craftSpeed + childSpeed);
+            double maxStep = Math.Max(1.0, soi / relativeSpeed);
+
+            const double twoPi = Math.PI * 2.0;
+            if (orbit.IsElliptic
+                && meanAnomalyWindows.Count == 1
+                && meanAnomalyWindows[0].Key <= 0.0
+                && meanAnomalyWindows[0].Value >= twoPi)
+            {
+                // The whole conic is inside the band: one continuous window, so no crossing or
+                // closest approach is split at a revolution boundary.
+                meanAnomalyWindows.Clear();
+                int fullSamples = 0;
+                bool found = TrySearchChildEntryWindow(
+                    orbit, childBody, startUT, endUT, maxStep, ref fullSamples, out hit);
+                ParsekLog.Verbose(LogTag, string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Child entry search (conic inside band): child={0} found={1} samples={2} step={3:F1}s",
+                    childBody.Name,
+                    found,
+                    fullSamples,
+                    maxStep));
+                return true;
+            }
+            double unwrappedStartMeanAnomaly = orbit.MeanAnomalyAtEpoch + meanMotion * (startUT - orbit.Epoch);
+            double cycleBase = orbit.IsElliptic
+                ? Math.Floor(unwrappedStartMeanAnomaly / twoPi) * twoPi - twoPi
+                : 0.0;
+            int samplesUsed = 0;
+            int windowsSearched = 0;
+            for (int cycle = 0; cycle < 4000000; cycle++)
+            {
+                bool anyWindowAhead = false;
+                for (int w = 0; w < meanAnomalyWindows.Count; w++)
+                {
+                    double windowStartUT = orbit.Epoch
+                        + (cycleBase + meanAnomalyWindows[w].Key - orbit.MeanAnomalyAtEpoch) / meanMotion;
+                    double windowEndUT = orbit.Epoch
+                        + (cycleBase + meanAnomalyWindows[w].Value - orbit.MeanAnomalyAtEpoch) / meanMotion;
+                    if (windowStartUT >= endUT)
+                        continue;
+                    anyWindowAhead = true;
+                    if (windowEndUT <= startUT)
+                        continue;
+
+                    double clippedStart = Math.Max(startUT, windowStartUT);
+                    double clippedEnd = Math.Min(endUT, windowEndUT);
+                    if (clippedEnd <= clippedStart)
+                        continue;
+
+                    windowsSearched++;
+                    if (TrySearchChildEntryWindow(
+                            orbit,
+                            childBody,
+                            clippedStart,
+                            clippedEnd,
+                            maxStep,
+                            ref samplesUsed,
+                            out EventCandidate? windowHit))
+                    {
+                        hit = windowHit;
+                        ParsekLog.Verbose(LogTag, string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Child entry found: child={0} ut={1:F3} windows={2} samples={3} step={4:F1}s band=[{5:F0},{6:F0}]",
+                            childBody.Name,
+                            hit.Value.UT,
+                            windowsSearched,
+                            samplesUsed,
+                            maxStep,
+                            bandLow,
+                            bandHigh));
+                        return true;
+                    }
+
+                    if (samplesUsed >= MaxChildEntrySamples)
+                    {
+                        ParsekLog.Verbose(LogTag, string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Child entry search budget spent: child={0} windows={1} samples={2} reachedUT={3:F3} " +
+                            "endUT={4:F3} step={5:F1}s",
+                            childBody.Name,
+                            windowsSearched,
+                            samplesUsed,
+                            clippedEnd,
+                            endUT,
+                            maxStep));
+                        return true;
+                    }
+                }
+
+                if (!orbit.IsElliptic || !anyWindowAhead)
+                    break;
+                cycleBase += twoPi;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Pure: the mean-anomaly windows in which a conic's distance from its focus lies inside
+        /// [<paramref name="bandLow"/>, <paramref name="bandHigh"/>]. Elliptic windows are in
+        /// one revolution, [0, 2 pi] (a window across periapsis starts negative); hyperbolic
+        /// ones on the real line. False when the inputs are unusable.
+        /// </summary>
+        internal static bool TryComputeRadialBandMeanAnomalyWindows(
+            double semiMajorAxis,
+            double eccentricity,
+            bool isElliptic,
+            double periapsisRadius,
+            double apoapsisRadius,
+            double bandLow,
+            double bandHigh,
+            List<KeyValuePair<double, double>> windows)
+        {
+            windows.Clear();
+            if (double.IsNaN(semiMajorAxis) || double.IsInfinity(semiMajorAxis)
+                || double.IsNaN(eccentricity) || eccentricity < 0.0
+                || double.IsNaN(periapsisRadius) || double.IsNaN(bandLow) || double.IsNaN(bandHigh)
+                || bandHigh <= bandLow)
+            {
+                return false;
+            }
+
+            if (periapsisRadius > bandHigh)
+                return true;
+
+            if (isElliptic)
+            {
+                if (apoapsisRadius < bandLow)
+                    return true;
+                if (eccentricity <= OrbitEpsilon)
+                {
+                    windows.Add(new KeyValuePair<double, double>(0.0, Math.PI * 2.0));
+                    return true;
+                }
+
+                bool lowOpen = bandLow <= periapsisRadius;
+                bool highOpen = bandHigh >= apoapsisRadius;
+                double mLow = lowOpen ? 0.0 : EllipticMeanAnomalyAtRadius(semiMajorAxis, eccentricity, bandLow);
+                double mHigh = highOpen ? Math.PI : EllipticMeanAnomalyAtRadius(semiMajorAxis, eccentricity, bandHigh);
+                if (lowOpen && highOpen)
+                    windows.Add(new KeyValuePair<double, double>(0.0, Math.PI * 2.0));
+                else if (lowOpen)
+                    windows.Add(new KeyValuePair<double, double>(-mHigh, mHigh));
+                else if (highOpen)
+                    windows.Add(new KeyValuePair<double, double>(mLow, Math.PI * 2.0 - mLow));
+                else
+                {
+                    windows.Add(new KeyValuePair<double, double>(mLow, mHigh));
+                    windows.Add(new KeyValuePair<double, double>(Math.PI * 2.0 - mHigh, Math.PI * 2.0 - mLow));
+                }
+                return true;
+            }
+
+            if (eccentricity <= 1.0 || semiMajorAxis >= 0.0)
+                return false;
+
+            double hHigh = HyperbolicMeanAnomalyAtRadius(semiMajorAxis, eccentricity, bandHigh);
+            if (bandLow <= periapsisRadius)
+            {
+                windows.Add(new KeyValuePair<double, double>(-hHigh, hHigh));
+            }
+            else
+            {
+                double hLow = HyperbolicMeanAnomalyAtRadius(semiMajorAxis, eccentricity, bandLow);
+                windows.Add(new KeyValuePair<double, double>(-hHigh, -hLow));
+                windows.Add(new KeyValuePair<double, double>(hLow, hHigh));
+            }
+            return true;
+        }
+
+        private static double EllipticMeanAnomalyAtRadius(double semiMajorAxis, double eccentricity, double radius)
+        {
+            double cosE = Clamp((1.0 - radius / semiMajorAxis) / eccentricity, -1.0, 1.0);
+            double e = AcosClamped(cosE);
+            return e - eccentricity * Math.Sin(e);
+        }
+
+        private static double HyperbolicMeanAnomalyAtRadius(double semiMajorAxis, double eccentricity, double radius)
+        {
+            double coshH = Math.Max(1.0, (radius / -semiMajorAxis + 1.0) / eccentricity);
+            double h = Acosh(coshH);
+            return eccentricity * Math.Sinh(h) - h;
+        }
+
+        /// <summary>
+        /// One band window: the distance is sampled at most <paramref name="maxStep"/> apart;
+        /// a sample inside the sphere brackets the entry, and a local minimum outside it is
+        /// refined (golden section) to the closest approach, whose bracket holds the entry
+        /// when the approach dips inside.
+        /// </summary>
+        private static bool TrySearchChildEntryWindow(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody childBody,
+            double windowStartUT,
+            double windowEndUT,
+            double maxStep,
+            ref int samplesUsed,
+            out EventCandidate? hit)
+        {
+            hit = null;
+            double soi = childBody.SphereOfInfluence;
+            double duration = windowEndUT - windowStartUT;
+            int steps = Math.Max(2, (int)Math.Ceiling(duration / maxStep));
+            double step = duration / steps;
+
+            double tPrev2 = double.NaN;
+            double dPrev2 = double.NaN;
+            double tPrev = windowStartUT;
+            double dPrev = GetRelativeDistanceToChild(orbit, childBody, tPrev);
+            samplesUsed++;
+            for (int i = 1; i <= steps; i++)
+            {
+                if (samplesUsed >= MaxChildEntrySamples)
+                    return false;
+
+                double t = i == steps ? windowEndUT : windowStartUT + step * i;
+                double d = GetRelativeDistanceToChild(orbit, childBody, t);
+                samplesUsed++;
+
+                double crossFrom = double.NaN;
+                double crossTo = double.NaN;
+                if (d - soi <= 0.0 && dPrev - soi > 0.0)
+                {
+                    crossFrom = tPrev;
+                    crossTo = t;
+                }
+                else if (!double.IsNaN(dPrev2) && dPrev <= dPrev2 && dPrev <= d
+                    && dPrev - soi > 0.0 && dPrev < 2.0 * soi)
+                {
+                    // A local minimum close enough that the true closest approach between
+                    // two samples (at most one SOI of relative motion apart) can dip inside.
+                    double tMin = MinimizeChildDistance(orbit, childBody, tPrev2, t, ref samplesUsed);
+                    double dMin = GetRelativeDistanceToChild(orbit, childBody, tMin);
+                    if (dMin - soi <= 0.0)
+                    {
+                        crossFrom = tPrev2;
+                        crossTo = tMin;
+                    }
+                }
+
+                if (!double.IsNaN(crossFrom))
+                {
+                    double entryUT = RefineCrossing(
+                        ut => GetRelativeDistanceToChild(orbit, childBody, ut) - soi,
+                        crossFrom,
+                        crossTo);
+                    orbit.GetStateAtUT(entryUT, out Vector3d position, out Vector3d velocity);
+                    hit = new EventCandidate
+                    {
+                        Kind = EventKind.ChildEntry,
+                        UT = entryUT,
+                        Position = position,
+                        Velocity = velocity,
+                        ChildBody = childBody
+                    };
+                    return true;
+                }
+
+                tPrev2 = tPrev;
+                dPrev2 = dPrev;
+                tPrev = t;
+                dPrev = d;
+            }
+
+            return false;
+        }
+
+        private static double MinimizeChildDistance(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody childBody,
+            double lowUT,
+            double highUT,
+            ref int samplesUsed)
+        {
+            const double invPhi = 0.6180339887498949;
+            double a = lowUT;
+            double b = highUT;
+            double c = b - invPhi * (b - a);
+            double d = a + invPhi * (b - a);
+            double fc = GetRelativeDistanceToChild(orbit, childBody, c);
+            double fd = GetRelativeDistanceToChild(orbit, childBody, d);
+            samplesUsed += 2;
+            for (int i = 0; i < ChildEntryMinimumRefineIterations && (b - a) > 1e-3; i++)
+            {
+                if (fc < fd)
+                {
+                    b = d;
+                    d = c;
+                    fd = fc;
+                    c = b - invPhi * (b - a);
+                    fc = GetRelativeDistanceToChild(orbit, childBody, c);
+                }
+                else
+                {
+                    a = c;
+                    c = d;
+                    fc = fd;
+                    d = a + invPhi * (b - a);
+                    fd = GetRelativeDistanceToChild(orbit, childBody, d);
+                }
+                samplesUsed++;
+            }
+            return fc < fd ? c : d;
+        }
+
+        private static EventCandidate? FindSingleChildEntryCoarse(
+            TwoBodyOrbit orbit,
+            ExtrapolationBody childBody,
+            double startUT,
+            double endUT,
+            ExtrapolationLimits limits,
+            string suppressedImmediateChildBodyName,
+            double suppressedImmediateUT)
+        {
+
             double step = ComputeStep(startUT, endUT, limits.soiSampleStep, MaxEncounterSamples);
             double previousUT = startUT;
             double startValue = GetRelativeDistanceToChild(orbit, childBody, startUT) - childBody.SphereOfInfluence;
@@ -1400,7 +2248,7 @@ namespace Parsek
                 GetSurfaceCoordinates(body, sample, out double latitude, out double longitude);
                 if (body.TerrainAltitude(latitude, longitude, out double sampledAltitude))
                 {
-                    terrainAltitude = Math.Max(0.0, sampledAltitude);
+                    terrainAltitude = ResolveSurfaceAltitude(body, sampledAltitude);
                 }
                 else if (failureReason == ExtrapolationFailureReason.None)
                 {
@@ -1423,6 +2271,18 @@ namespace Parsek
             }
 
             return sample.Altitude - terrainAltitude;
+        }
+
+        /// <summary>
+        /// Pure: the surface altitude a fall stops at over terrain sampled at
+        /// <paramref name="terrainAltitude"/>: the sea surface (the datum) where an ocean body's
+        /// terrain is below it, the terrain itself on a body without an ocean.
+        /// </summary>
+        internal static double ResolveSurfaceAltitude(ExtrapolationBody body, double terrainAltitude)
+        {
+            if (body != null && body.TerrainBelowDatum)
+                return terrainAltitude;
+            return Math.Max(0.0, terrainAltitude);
         }
 
         private static void GetSurfaceCoordinates(

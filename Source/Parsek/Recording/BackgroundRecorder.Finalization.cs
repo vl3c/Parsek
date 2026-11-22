@@ -9,9 +9,112 @@ namespace Parsek
     // Recording finalization: persisting finalized recordings, commit finalization and the per-vessel finalization caches.
     internal partial class BackgroundRecorder
     {
+        // Vessel pid -> recording id whose terminal the "background_destroy" refresh stamped
+        // Destroyed eagerly (a loaded crash). Read by the false-destroy branch of
+        // ParsekFlight.DeferredDestructionCheck, which must take that stamp back when the
+        // vessel turns out to be alive (only unloaded).
+        private readonly Dictionary<uint, string> eagerDestroyStampedRecordings =
+            new Dictionary<uint, string>();
+
         internal void ForgetFinalizationCache(uint vesselPid)
         {
             finalizationCaches.Remove(vesselPid);
+            eagerDestroyStampedRecordings.Remove(vesselPid);
+        }
+
+        /// <summary>
+        /// Notes that the destroy refresh just stamped <paramref name="recording"/> Destroyed
+        /// (its terminal was unset before the refresh and is Destroyed after it).
+        /// </summary>
+        private void NoteEagerDestroyStamp(
+            uint vesselPid,
+            Recording recording,
+            bool hadTerminalBeforeRefresh)
+        {
+            if (recording == null
+                || !ShouldTrackEagerDestroyStamp(hadTerminalBeforeRefresh, recording.TerminalStateValue))
+            {
+                return;
+            }
+
+            eagerDestroyStampedRecordings[vesselPid] = recording.RecordingId;
+            ParsekLog.Verbose("BgRecorder",
+                $"Destroy refresh stamped Destroyed eagerly: pid={vesselPid} rec={recording.RecordingId} " +
+                "(taken back if the destruction turns out false)");
+        }
+
+        internal static bool ShouldTrackEagerDestroyStamp(
+            bool hadTerminalBeforeRefresh,
+            TerminalState? terminalAfterRefresh)
+        {
+            return !hadTerminalBeforeRefresh && terminalAfterRefresh == TerminalState.Destroyed;
+        }
+
+        /// <summary>
+        /// Pure decision for the false-destroy branch: the Destroyed stamp is taken back only
+        /// when the destroy refresh itself wrote it (a stamp from any other source stays) and
+        /// the recording still carries it.
+        /// </summary>
+        internal static bool ShouldClearEagerDestroyStampAfterFalseDestroy(
+            bool stampedByDestroyRefresh,
+            string stampedRecordingId,
+            string recordingId,
+            TerminalState? terminal)
+        {
+            return stampedByDestroyRefresh
+                && !string.IsNullOrEmpty(recordingId)
+                && string.Equals(stampedRecordingId, recordingId, StringComparison.Ordinal)
+                && terminal == TerminalState.Destroyed;
+        }
+
+        /// <summary>
+        /// The false-destroy branch of <c>ParsekFlight.DeferredDestructionCheck</c>: the vessel
+        /// still exists (it was only unloaded), so a Destroyed terminal the destroy refresh
+        /// stamped eagerly is stale. Clears it, drops the destroy refresh's cache (the next
+        /// refresh re-reads the live vessel) and logs. Returns true when a stamp was cleared.
+        /// </summary>
+        internal bool ClearEagerDestroyStampAfterFalseDestroy(uint vesselPid, string recordingId)
+        {
+            string stampedRecordingId;
+            bool stamped = eagerDestroyStampedRecordings.TryGetValue(vesselPid, out stampedRecordingId);
+            eagerDestroyStampedRecordings.Remove(vesselPid);
+
+            Recording rec = null;
+            if (tree != null && tree.Recordings != null && !string.IsNullOrEmpty(recordingId))
+                tree.Recordings.TryGetValue(recordingId, out rec);
+
+            if (!ShouldClearEagerDestroyStampAfterFalseDestroy(
+                    stamped, stampedRecordingId, recordingId, rec?.TerminalStateValue))
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"False destroy: no eager Destroyed stamp to clear pid={vesselPid} " +
+                    $"rec={recordingId ?? "(null)"} stampedByDestroyRefresh={stamped} " +
+                    $"terminal={rec?.TerminalStateValue?.ToString() ?? "(null)"}");
+                return false;
+            }
+
+            rec.StampTerminalState(null, "BackgroundRecorder.FalseDestroyClearEagerStamp");
+            rec.MarkFilesDirty();
+
+            RecordingFinalizationCache cache;
+            bool droppedCache = finalizationCaches.TryGetValue(vesselPid, out cache)
+                && cache != null
+                && string.Equals(
+                    cache.RefreshReason,
+                    RecordingFinalizationCacheProducer.BackgroundDestroyRefreshReason,
+                    StringComparison.Ordinal);
+            if (droppedCache)
+                finalizationCaches.Remove(vesselPid);
+
+            ParsekLog.Info("BgRecorder",
+                $"False destroy: cleared the eager Destroyed stamp pid={vesselPid} rec={recordingId} " +
+                $"droppedDestroyRefreshCache={droppedCache}; the vessel is alive and keeps recording");
+            return true;
+        }
+
+        internal void NoteEagerDestroyStampForTesting(uint vesselPid, Recording recording, bool hadTerminalBeforeRefresh)
+        {
+            NoteEagerDestroyStamp(vesselPid, recording, hadTerminalBeforeRefresh);
         }
 
         /// <summary>
@@ -226,6 +329,35 @@ namespace Parsek
             bool confirmedDestroyed,
             out RecordingFinalizationCacheApplyResult result)
         {
+            return TryApplyFinalizationCacheForBackgroundEnd(
+                recording,
+                vesselPid,
+                endUT,
+                consumerPath,
+                allowStale,
+                requireDestroyedTerminal,
+                confirmedDestroyed,
+                retainPredictedTailPastEnd: true,
+                out result);
+        }
+
+        /// <param name="retainPredictedTailPastEnd">True for every background close that
+        /// stops WATCHING a vessel (debris time limit, unload, parent close, confirmed
+        /// destruction): a predicted Destroyed / Landed / Splashed ending past
+        /// <paramref name="endUT"/> keeps its terminal UT and tail (owner rulings Q1a / Q1b).
+        /// False only where the vessel goes on being recorded by another recording, so a
+        /// predicted tail past the close would overlap it (the switch-close stamp).</param>
+        internal bool TryApplyFinalizationCacheForBackgroundEnd(
+            Recording recording,
+            uint vesselPid,
+            double endUT,
+            string consumerPath,
+            bool allowStale,
+            bool requireDestroyedTerminal,
+            bool confirmedDestroyed,
+            bool retainPredictedTailPastEnd,
+            out RecordingFinalizationCacheApplyResult result)
+        {
             result = default(RecordingFinalizationCacheApplyResult);
             if (recording == null)
                 return false;
@@ -246,6 +378,7 @@ namespace Parsek
                 allowStale,
                 requireDestroyedTerminal,
                 confirmedDestroyed,
+                retainPredictedTailPastEnd,
                 out result);
         }
 
@@ -261,9 +394,8 @@ namespace Parsek
         /// stamp (<c>ParsekFlight.StampTerminalOnSwitchClosedBgOrigin</c>),
         /// which must not seal a provably-alive vessel with a PREDICTED
         /// <see cref="TerminalState.Destroyed"/> from a ballistic-extrapolator
-        /// cache — the scoping clamp pulls such a terminal back to the end UT,
-        /// so the applier's own <c>RejectedTerminalBeforeLastSample</c> guard
-        /// cannot catch it.
+        /// cache. Its terminal UT is at or after the switch UT, so the applier's
+        /// own <c>RejectedTerminalBeforeLastSample</c> guard cannot catch it.
         /// </para>
         /// Returns false (with <paramref name="terminal"/> null) when no cache
         /// resolves or the cache carries no terminal.
@@ -317,6 +449,31 @@ namespace Parsek
             bool confirmedDestroyed,
             out RecordingFinalizationCacheApplyResult result)
         {
+            return TryApplyFinalizationCacheForBackgroundEnd(
+                recording,
+                cache,
+                vesselPid,
+                endUT,
+                consumerPath,
+                allowStale,
+                requireDestroyedTerminal,
+                confirmedDestroyed,
+                retainPredictedTailPastEnd: true,
+                out result);
+        }
+
+        internal bool TryApplyFinalizationCacheForBackgroundEnd(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            uint vesselPid,
+            double endUT,
+            string consumerPath,
+            bool allowStale,
+            bool requireDestroyedTerminal,
+            bool confirmedDestroyed,
+            bool retainPredictedTailPastEnd,
+            out RecordingFinalizationCacheApplyResult result)
+        {
             result = default(RecordingFinalizationCacheApplyResult);
             if (recording == null)
                 return false;
@@ -330,8 +487,10 @@ namespace Parsek
             }
 
             RecordingFinalizationCache scopedCache =
-                ScopeFinalizationCacheToBackgroundEnd(cache, endUT);
+                ScopeFinalizationCacheToBackgroundEnd(cache, endUT, retainPredictedTailPastEnd);
             ApplyFinalizationCacheIdentity(scopedCache, recording);
+            LogBackgroundEndScope(cache, scopedCache, recording, vesselPid, endUT, consumerPath,
+                retainPredictedTailPastEnd);
 
             if (requireDestroyedTerminal && scopedCache.TerminalState != TerminalState.Destroyed)
             {
@@ -354,7 +513,8 @@ namespace Parsek
             var options = new RecordingFinalizationCacheApplyOptions
             {
                 ConsumerPath = consumerPath,
-                AllowStale = allowStale
+                AllowStale = allowStale,
+                DestructionConfirmed = confirmedDestroyed
             };
 
             bool applied = RecordingFinalizationCacheApplier.TryApply(
@@ -523,14 +683,23 @@ namespace Parsek
 
         internal static RecordingFinalizationCache ScopeFinalizationCacheToBackgroundEndForTesting(
             RecordingFinalizationCache cache,
-            double endUT)
+            double endUT,
+            bool retainPredictedTailPastEnd = true)
         {
-            return ScopeFinalizationCacheToBackgroundEnd(cache, endUT);
+            return ScopeFinalizationCacheToBackgroundEnd(cache, endUT, retainPredictedTailPastEnd);
         }
 
         private static RecordingFinalizationCache ScopeFinalizationCacheToBackgroundEnd(
             RecordingFinalizationCache cache,
             double endUT)
+        {
+            return ScopeFinalizationCacheToBackgroundEnd(cache, endUT, retainPredictedTailPastEnd: true);
+        }
+
+        private static RecordingFinalizationCache ScopeFinalizationCacheToBackgroundEnd(
+            RecordingFinalizationCache cache,
+            double endUT,
+            bool retainPredictedTailPastEnd)
         {
             if (cache == null)
                 return null;
@@ -552,7 +721,7 @@ namespace Parsek
                 LastHadMeaningfulThrust = cache.LastHadMeaningfulThrust,
                 LastObservedOrbitDigest = cache.LastObservedOrbitDigest,
                 TailStartsAtUT = cache.TailStartsAtUT,
-                TerminalUT = ResolveBackgroundEndTerminalUT(cache, endUT),
+                TerminalUT = ResolveBackgroundEndTerminalUT(cache, endUT, retainPredictedTailPastEnd),
                 TerminalState = cache.TerminalState,
                 TerminalBodyName = cache.TerminalBodyName,
                 TerminalOrbit = cache.TerminalOrbit,
@@ -560,7 +729,11 @@ namespace Parsek
                 TerrainHeightAtEnd = cache.TerrainHeightAtEnd,
                 PredictedSegments = cache.PredictedSegments != null
                     ? new List<OrbitSegment>(cache.PredictedSegments)
-                    : new List<OrbitSegment>()
+                    : new List<OrbitSegment>(),
+                PredictedDescentPoints = cache.PredictedDescentPoints != null
+                    ? new List<TrajectoryPoint>(cache.PredictedDescentPoints)
+                    : new List<TrajectoryPoint>(),
+                QuietEnd = cache.QuietEnd
             };
 
             if (IsFiniteUT(scoped.TerminalUT)
@@ -570,17 +743,87 @@ namespace Parsek
                 scoped.TailStartsAtUT = scoped.TerminalUT;
             }
 
+            // A predicted orbit ending pulled back to the close time no longer reaches the
+            // conic its TerminalOrbit describes (Q8: often in another sphere of influence).
+            // Drop it so the applier stamps the terminal orbit from the last retained segment.
+            if (scoped.TerminalOrbit.HasValue
+                && IsFiniteUT(scoped.TerminalUT)
+                && IsFiniteUT(cache.TerminalUT)
+                && scoped.TerminalUT + RecordingFinalizationCacheApplier.UtEpsilon < cache.TerminalUT
+                && HasPredictedTailPastEnd(cache, scoped.TerminalUT))
+            {
+                scoped.TerminalOrbit = null;
+                ParsekLog.Verbose("FinalizerCache",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Background end scope: dropped far terminal orbit rec={0} pid={1} " +
+                        "terminal={2} cacheTerminalUT={3:F3} scopedTerminalUT={4:F3} orbitBody={5}",
+                        cache.RecordingId ?? "(null)",
+                        cache.VesselPersistentId,
+                        cache.TerminalState?.ToString() ?? "(null)",
+                        cache.TerminalUT,
+                        scoped.TerminalUT,
+                        cache.TerminalOrbit.Value.bodyName ?? "(null)"));
+            }
+
             return scoped;
         }
 
-        private static double ResolveBackgroundEndTerminalUT(
+        /// <summary>
+        /// True when the cache carries a predicted segment that runs past
+        /// <paramref name="endUT"/>: the ending lies ahead on a predicted path (a fall, a
+        /// touchdown, or the final orbit of an escape, owner ruling Q8), not at the state the
+        /// vessel was observed in.
+        /// </summary>
+        private static bool HasPredictedTailPastEnd(RecordingFinalizationCache cache, double endUT)
+        {
+            if (cache?.PredictedSegments == null || !IsFiniteUT(endUT))
+                return false;
+            for (int i = 0; i < cache.PredictedSegments.Count; i++)
+            {
+                OrbitSegment segment = cache.PredictedSegments[i];
+                if (segment.isPredicted
+                    && IsFiniteUT(segment.endUT)
+                    && segment.endUT > endUT + RecordingFinalizationCacheApplier.UtEpsilon)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The terminal UT a background close writes from a cache (owner rulings Q1a / Q1b,
+        /// 2026-11-21). A predicted ending the vessel is still on its way to (Destroyed at
+        /// impact, Landed / Splashed at touchdown) whose terminal UT is at or after
+        /// <paramref name="endUT"/> keeps that terminal UT, so the predicted tail runs past
+        /// the moment Parsek stopped watching: a debris time limit, an unload, a parent close
+        /// or a stock deletion in the air no longer cuts the fall short. A Destroyed terminal
+        /// before <paramref name="endUT"/> keeps the earlier UT (the applier and the
+        /// confirmed-destroyed clamp judge it against the authored data). Every other ending
+        /// (Orbiting, SubOrbital, Docked, ...) is an observed state and ends at the close
+        /// time. With <paramref name="retainPredictedTailPastEnd"/> false (the vessel goes on
+        /// being recorded elsewhere) a future predicted ending is pulled back to the close.
+        /// </summary>
+        internal static double ResolveBackgroundEndTerminalUT(
             RecordingFinalizationCache cache,
-            double endUT)
+            double endUT,
+            bool retainPredictedTailPastEnd)
         {
             if (!IsFiniteUT(endUT))
                 return cache != null ? cache.TerminalUT : double.NaN;
             if (cache == null || !cache.TerminalState.HasValue)
                 return endUT;
+
+            if (retainPredictedTailPastEnd
+                && IsFiniteUT(cache.TerminalUT)
+                && cache.TerminalUT >= endUT
+                && (IsPredictedEndingTerminal(cache.TerminalState.Value)
+                    || (IsPredictedOrbitEndingTerminal(cache.TerminalState.Value)
+                        && HasPredictedTailPastEnd(cache, endUT))))
+            {
+                return cache.TerminalUT;
+            }
 
             if (cache.TerminalState.Value == TerminalState.Destroyed
                 && IsFiniteUT(cache.TerminalUT))
@@ -589,6 +832,62 @@ namespace Parsek
             }
 
             return endUT;
+        }
+
+        private static bool IsPredictedEndingTerminal(TerminalState terminal)
+        {
+            return terminal == TerminalState.Destroyed
+                || terminal == TerminalState.Landed
+                || terminal == TerminalState.Splashed;
+        }
+
+        // An Orbiting / SubOrbital cache is an observed state unless its ending lies ahead on
+        // a predicted path (the final orbit of an escape, owner ruling Q8); the caller checks
+        // the predicted segments for that.
+        private static bool IsPredictedOrbitEndingTerminal(TerminalState terminal)
+        {
+            return terminal == TerminalState.Orbiting
+                || terminal == TerminalState.SubOrbital;
+        }
+
+        private static void LogBackgroundEndScope(
+            RecordingFinalizationCache cache,
+            RecordingFinalizationCache scopedCache,
+            Recording recording,
+            uint vesselPid,
+            double endUT,
+            string consumerPath,
+            bool retainPredictedTailPastEnd)
+        {
+            if (cache == null || scopedCache == null)
+                return;
+
+            string decision;
+            if (!IsFiniteUT(endUT) || !IsFiniteUT(cache.TerminalUT))
+                decision = "unscoped";
+            else if (scopedCache.TerminalUT > endUT + RecordingFinalizationCacheApplier.UtEpsilon)
+                decision = "kept-predicted-ending-past-end";
+            else if (cache.TerminalUT > endUT + RecordingFinalizationCacheApplier.UtEpsilon)
+                decision = "pulled-back-to-end";
+            else
+                decision = "at-or-before-end";
+
+            ParsekLog.Verbose("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Background end scope: consumer={0} rec={1} pid={2} decision={3} terminal={4} " +
+                    "cacheTerminalUT={5:F3} scopedTerminalUT={6:F3} endUT={7:F3} segments={8} " +
+                    "retainPredictedTailPastEnd={9}",
+                    consumerPath ?? "(null)",
+                    recording != null ? recording.DebugName : "(null)",
+                    vesselPid,
+                    decision,
+                    cache.TerminalState?.ToString() ?? "(null)",
+                    cache.TerminalUT,
+                    scopedCache.TerminalUT,
+                    endUT,
+                    cache.PredictedSegments?.Count ?? 0,
+                    retainPredictedTailPastEnd));
         }
 
         internal RecordingFinalizationCache GetFinalizationCacheForRecording(Recording recording)
@@ -688,7 +987,11 @@ namespace Parsek
                 TerrainHeightAtEnd = source.TerrainHeightAtEnd,
                 PredictedSegments = source.PredictedSegments != null
                     ? new List<OrbitSegment>(source.PredictedSegments)
-                    : new List<OrbitSegment>()
+                    : new List<OrbitSegment>(),
+                PredictedDescentPoints = source.PredictedDescentPoints != null
+                    ? new List<TrajectoryPoint>(source.PredictedDescentPoints)
+                    : new List<TrajectoryPoint>(),
+                QuietEnd = source.QuietEnd
             };
         }
 
@@ -770,6 +1073,18 @@ namespace Parsek
 
             refreshed.RecordingId = recordingId;
             refreshed.VesselPersistentId = vesselPid;
+            if (RecordingFinalizationCacheProducer.IsStockOnRailsDeletionRefresh(
+                    reason, vessel.packed, vessel.loaded, vessel.situation)
+                && !RecordingFinalizationCacheProducer.IsAlreadyClassifiedDestroyedSkip(refreshed))
+            {
+                // Stock is deleting this vessel on rails: keep the best predicted fall
+                // (fresh, else the previous cache's), only then "Destroyed now".
+                finalizationCaches[vesselPid] =
+                    RecordingFinalizationCacheProducer.ResolveStockOnRailsDeletionCache(
+                        previous, refreshed, ut, out string _);
+                return success;
+            }
+
             if (!success
                 && RecordingFinalizationCacheProducer.IsAlreadyClassifiedDestroyedSkip(refreshed))
             {
@@ -809,6 +1124,22 @@ namespace Parsek
                 currentDigest);
         }
 
+        /// <summary>
+        /// Pure: an on-rails span packed below the atmosphere top keeps the cache the live
+        /// vessel produced (the go-on-rails / destroy refreshes) instead of rebuilding it from
+        /// the bare conic, as it did before such conics were recorded. Only a missing, empty or
+        /// failed cache is rebuilt from the conic, so a background end still finds a tail.
+        /// </summary>
+        internal static bool ShouldKeepLiveCacheForAtmosphereConic(
+            bool packedInsideAtmosphere,
+            RecordingFinalizationCache previous)
+        {
+            return packedInsideAtmosphere
+                && previous != null
+                && previous.Status != FinalizationCacheStatus.Failed
+                && previous.Status != FinalizationCacheStatus.Empty;
+        }
+
         private bool RefreshOnRailsFinalizationCache(
             BackgroundOnRailsState state,
             double currentUT,
@@ -822,6 +1153,19 @@ namespace Parsek
                 state.currentOrbitSegment);
             RecordingFinalizationCache previous;
             finalizationCaches.TryGetValue(state.vesselPid, out previous);
+            if (ShouldKeepLiveCacheForAtmosphereConic(state.packedInsideAtmosphere, previous))
+            {
+                // The cache built from the live vessel when it packed (chutes, atmosphere,
+                // the predicted fall) knows more than the bare conic; the conic itself is
+                // being recorded, and the applier starts the cached tail at its end.
+                ParsekLog.VerboseRateLimited("FinalizerCache",
+                    $"on-rails-atmo-keep-live.{state.vesselPid}",
+                    $"On-rails atmosphere conic keeps the live-vessel cache: pid={state.vesselPid} " +
+                    $"rec={state.recordingId} reason={reason} cacheStatus={previous.Status} " +
+                    $"terminal={previous.TerminalState?.ToString() ?? "(none)"}",
+                    30.0);
+                return false;
+            }
             // Failed caches include already-Destroyed skip caches; refresh them on cadence
             // so the rate-limited skip diagnostic and per-refresh summary remain visible.
             bool requiresPeriodicRefresh = previous == null

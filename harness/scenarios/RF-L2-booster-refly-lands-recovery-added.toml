@@ -11,8 +11,10 @@ tier = "operator"
 # with Valentina, the probe booster is still under its canopy at the scene exit, and the exit
 # auto-commits the tree. Every career row the flight earned (FirstLaunch, the altitude
 # records) is tagged to the ACTIVE recording, the pod's, so the booster slot's retire set
-# holds nothing: Rule 1 leaves it open (`stableLeafUnconcluded`, RF-1's verdict on the
-# sandbox twin), and the load-time sweep seals nothing. The player re-flies the booster
+# holds nothing: Rule 1 leaves it open (`crashed` since owner ruling Q14: the booster is
+# still in the air under canopy when the player leaves the flight, so it ends Destroyed at
+# the exit; `predictedTouchdown` under Q4c before that, `stableLeafUnconcluded` /
+# SubOrbital before Q4, RF-1's verdict on the sandbox twin), and the load-time sweep seals nothing. The player re-flies the booster
 # (InvokeRewind slot 1), lets it come down under its chute, merges, exits to the Space
 # Center and recovers it from the Tracking Station: the recovery is a NEW earning
 # (`VesselRecovery funds patched: vessel='GS1 Auto-Chute Booster Probe' amount=N`) and
@@ -156,9 +158,14 @@ required = [
   "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
-  # The booster earned nothing, so Rule 1 leaves its slot open.
-  "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital",
-  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  # The booster earned nothing, so Rule 1 leaves its slot open. It is still in the air under
+  # canopy at the SCENE-EXIT commit, so since owner ruling Q14 (2026-11-21; RE-PINNED, NOT
+  # FLOWN) it ends Destroyed at the exit (probe booster, no crew; quiet ghost end, no spawn)
+  # and the open reason is `crashed` (before Q14: `predictedTouchdown ... terminal=Landed
+  # predicted=True`; before Q4: `stableLeafUnconcluded ... terminal=SubOrbital`). Both ordered
+  # before the re-fly's StartInvoke so the re-fly's own commit cannot meet them.
+  "IsUnfinishedFlight=true rec=\\S+ reason=crashed terminal=Destroyed[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
+  "CommitTree promoted rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' slot=1 rp=\\S+ reason=crashed to CommittedProvisional[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
   "Value-sealed slots \\(section 2\\.12\\): found=[0-9]+ sealed=0",
   # --- ACT 2: the re-fly ---
   "listhandles kind=rewindpoints count=1 truncated=false",
@@ -197,6 +204,8 @@ forbidden = [
   "Resurrected-recovery retirement:",
   # The merge never refuses on this flight.
   "outcome=refused-unflown-provisional",
+  # The pre-Q14 open-slot verdict at the exit commit (owner ruling Q14).
+  "reason=predictedTouchdown [\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
 ]
 
 # REPORT-ONLY until the reading run: supersede rows written, nothing tombstoned; the point

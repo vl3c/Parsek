@@ -55,6 +55,25 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Live: the effective ledger holds a recovery or termination row tagged to this
+        /// recording, whatever its terminal. The predicted-crash reconciler reads it (owner
+        /// ruling Q13b): a vessel the player recovered or terminated is not one stock removed,
+        /// even under a Destroyed terminal (which <see cref="IsRecoveredByLedgerRowLive"/>
+        /// refuses, because a Destroyed ending never left a vessel to spawn).
+        /// </summary>
+        internal static bool HasRecoveryOrTerminationRowLive(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return false;
+            IReadOnlyList<GameAction> els = ComputeELS();
+            lock (indexLock)
+            {
+                EnsureEvidenceIndex(els);
+                return recoveryRowRecordingIds.Contains(rec.RecordingId)
+                    || terminatedRowRecordingIds.Contains(rec.RecordingId);
+            }
+        }
+
         // Caller holds indexLock. Rebuilds both id sets in one pass when the ELS list changed.
         private static void EnsureEvidenceIndex(IReadOnlyList<GameAction> els)
         {

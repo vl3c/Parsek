@@ -253,14 +253,14 @@ namespace Parsek.Tests
             double outbound = VesselSpawner.ResolveEscapeEffectivePeriapsisAltitude(
                 -200000.0, 300000.0, leavesSphereOfInfluence: true, approachingPeriapsis: false);
             TerminalOrbitSpawnSafetyDecision spawn = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
-                true, HomeAtmosphereDepth, 300000.0, outbound, double.PositiveInfinity);
+                true, HomeAtmosphereDepth, 300000.0, outbound, double.PositiveInfinity, 0.0, OrbitClearanceTestValues.KerbinDeletionAltitude);
             Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, spawn.Action);
 
             // The same conic flown inbound dives into the atmosphere: refused.
             double inbound = VesselSpawner.ResolveEscapeEffectivePeriapsisAltitude(
                 -200000.0, 300000.0, leavesSphereOfInfluence: true, approachingPeriapsis: true);
             TerminalOrbitSpawnSafetyDecision refuse = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
-                true, HomeAtmosphereDepth, 300000.0, inbound, double.PositiveInfinity);
+                true, HomeAtmosphereDepth, 300000.0, inbound, double.PositiveInfinity, 0.0, OrbitClearanceTestValues.KerbinDeletionAltitude);
             Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, refuse.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude, refuse.ReasonCode);
         }

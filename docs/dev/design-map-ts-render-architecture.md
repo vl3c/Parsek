@@ -1128,3 +1128,60 @@ published only on an ACTUAL draw, the forward pass is still purely additive and
 publishes nothing, and the icon floor / `ghostsWithSuppressedIcon` /
 `IsIconSuppressed` fallback is untouched. No new `MapRenderTrace` stamp site is
 added.
+
+**The icon and the line past the last recorded point (2026-11-21).** A flight whose
+ending the map-presence terminal gate refuses (Destroyed, Landed, Splashed) never has
+a map ProtoVessel, so two things stock would otherwise do for it did not happen
+during its tail:
+
+- The icon. The flight-map marker (`ParsekFlightMapMarkers.TryComputeGhostWorldPosition`)
+  and the Tracking Station marker (`ParsekTrackingStation.ClassifyAtmosphericMarkerSkip`
+  time gate + `TryResolveRecordingWorldPosition`) read the flat points only and
+  clamped to the last sample, so the icon froze there for the whole tail (or the TS
+  marker vanished with `OutsideTimeRange`). Past the last flat point both now resolve
+  through `GhostPlaybackLogic.TryFindTailSegment` (the segment the flight mesh rides,
+  `GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment`, so icon and mesh agree) and
+  `GhostPlaybackLogic.TryGetTailWorldPosition` (allocation-free `BallisticExtrapolator.TryPropagate`
+  lifted once to world axes). The TS time gate is `GhostPlaybackLogic.IsInsidePointsOrTail`:
+  inside the points, or on a tail up to the recording's end. The tail is inertial, so
+  the loop body-fixed shift does not apply to it. The KSC ghost follows the same tail
+  (`ParsekKSC.TryResolveKscTailPose`, branch `orbit-tail`, eased off the last point
+  with the flight ghost's continuity blend).
+- The line. The forward pass leaves the arc the head sits on to stock's
+  `OrbitRenderer`; with no ProtoVessel nothing drew it. `ShouldForwardDrawCurrentArc`
+  (no map pid AND a terminal the gate refuses) makes `SelectForwardArcSegmentIndices`
+  include the current arc for that member. A member that has or may get a ProtoVessel
+  keeps the old exclusion, so nothing double-draws. Ownership is still unchanged: the
+  forward pass publishes no ownership.
+
+**A predicted tail that starts past the bridge cap: the slide (owner ruling L5, 2026-11-21).**
+When the first segment after the last recorded point is predicted and starts more than
+`GhostPlaybackEngine.PredictedOrbitTailBridgeMaxGapSeconds` (30 s) after it, the gap is not
+bridged (the predicted orbit may be a later, post-burn one and is never run backwards into the
+gap). `GhostPlaybackEngine.TryFindPredictedOrbitTailSlide` names the gap, and every surface that
+rides the tail slides the ghost from the last recorded point to the predicted path's start
+across it: the flight mesh (`ParsekFlightGhostPositioner.PositionGhostOnPredictedTailSlide`,
+reached through `PositionFromOrbit`; `ShouldUseOrbitTailPlayback` includes the slide), the
+flight world-position resolver, the flight-map marker, the Tracking Station marker (the TS time
+gate `IsInsidePointsOrTail` includes the slide) and the KSC ghost (branch `orbit-tail-slide`).
+The shared math is `GhostPlaybackLogic.TryComputeTailSlideWorldPosition`: along the great circle
+between the two body-relative directions, with monotone cubics on the angle and on the radius
+seeded from the endpoint velocities (both ends matched, no overshoot, the radius never below the
+lower end, the long way round when both ends move that way). The predicted conic is evaluated
+only at its own start. The slide writes no velocity to the interpolation result, so no FX runs
+on a stale velocity; the attitude eases from the last recorded one to the tail's. A last point
+in a Relative section, on another body, or a recorded next segment keeps the hold. The flight
+slide re-applies its pose body-fixed (a `SinglePoint` ghost-pos entry), not through the Orbit
+entry that would rebuild the tail start.
+
+**A looped predicted crash turns with the planet (owner ruling R4b, 2026-11-21).** A loop cycle
+evaluates an orbit tail at its loop UT, so the inertial tail sits where it was in space while
+the planet has turned under it by the replay offset. A predicted path that ends on the ground
+(`GhostPlaybackLogic.IsGroundEndingPredictedTail`: Destroyed, Landed or Splashed, the final
+orbit segment predicted on the same body) is turned with the planet by
+`ResolveTailPlanetTurnSeconds` (playback UT minus now, plus the replay's phasing derotation of
+its points), read each frame from the body's surface frame (`TryResolveTailPlanetTurn`: the
+equator probe under `ShiftLongitudeDegrees`, never cached across frames). Position, continuity
+anchor, attitude and surface velocity turn together, and a turned pose re-applies body-fixed.
+Flight mesh (loop states only, `state.loopCycleIndex >= 0`) and the KSC ghost; the map and
+Tracking Station markers read non-loop UTs and are not turned. Orbiting tails are unchanged.

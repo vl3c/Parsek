@@ -314,6 +314,22 @@ type = "int"
 min = 1
 max = 10000
 
+# THE UPPER-STAGE BURN (ASR-1 / ASR-5; OPTIONAL, omitted or 0 = off, RF-9's
+# COAST-EXIT unchanged). Game seconds the top stack burns its Poodle at full
+# throttle, pointed prograde, at the start of COAST-EXIT and before the gate is
+# read: the stage click lights istg 1 (the Poodle; the core's decoupler was istg 2).
+# Its only job is DISTANCE. Without it the discarded probe-cored core and the
+# unpowered stack ride one ballistic arc a few metres apart and the core never
+# leaves the physics bubble; ~10 s (~170 m/s on the ~14.5 t stack) carries the
+# stack past the 2.25 km load range within seconds while the arc stays SUB_ORBITAL.
+# Observed by the `upperStageBurned` row (an engine lit and the throttle read up),
+# never by the command. The ceiling keeps the stack suborbital.
+[params.coastExitUpperBurnSeconds]
+required = false
+type = "number"
+min = 0.0
+max = 30.0
+
 # ---- the GS-6 part-event sweep (OPTIONAL; omitted = the pre-GS-6 lane) --------
 #
 # THE SCRIPTED TIMELINE. `partSweepSteps` is an ordered list of step NAMES from

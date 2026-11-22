@@ -1442,7 +1442,14 @@ namespace Parsek
             }
             if (absorbed.TerminalStateValue.HasValue)
             {
-                target.StampTerminalState(absorbed.TerminalStateValue, "RecordingOptimizer.AbsorbInto");
+                // The predicted-crash flag is part of the verdict and travels with it.
+                target.StampTerminalState(
+                    absorbed.TerminalStateValue, "RecordingOptimizer.AbsorbInto",
+                    predicted: absorbed.TerminalPredicted,
+                    remnantSurvives: absorbed.TerminalRemnantSurvives,
+                    quietEnd: absorbed.QuietDestroyedEnd,
+                    recoveredCrew: absorbed.RecoveredCrewNames);
+                target.StockHeldVesselUT = absorbed.StockHeldVesselUT;
 
                 // Mirror of the split's MergeState carry (see
                 // TransferTerminalFieldsToSecondHalf): open/closed for a Re-Fly slot is
@@ -1901,6 +1908,16 @@ namespace Parsek
                 secondFlatSyncMode = "track-sections-preserved-flat-tail:" +
                     CountPredictedOrbitSegments(second.OrbitSegments).ToString(CultureInfo.InvariantCulture);
             }
+            else if (TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSectionsPreservingPredictedOrbitTail(
+                second, secondFlatTailSource, allowRelativeSections: true, out int preservedPredictedTail))
+            {
+                // The flat list does not match the sections sample for sample (a section
+                // whose first frame precedes its start, an equal-UT seam sample, an
+                // interpolated boundary), but the finalizer's predicted orbit tail past the
+                // sections is the recording's ending and must not be rebuilt away.
+                secondFlatSyncMode = "track-sections-preserved-predicted-orbit-tail:" +
+                    preservedPredictedTail.ToString(CultureInfo.InvariantCulture);
+            }
             else
             {
                 bool syncedSecondFlatTrajectory = TrajectoryTextSidecarCodec.TrySyncFlatTrajectoryFromTrackSections(
@@ -2098,6 +2115,15 @@ namespace Parsek
             TerminalState? carriedTerminal = original.TerminalStateValue;
             second.TerminalStateValue = original.TerminalStateValue;
             original.TerminalStateValue = null;
+            second.TerminalPredicted = original.TerminalPredicted;
+            original.TerminalPredicted = false;
+            second.TerminalRemnantSurvives = original.TerminalRemnantSurvives;
+            original.TerminalRemnantSurvives = false;
+            second.QuietDestroyedEnd = original.QuietDestroyedEnd;
+            original.QuietDestroyedEnd = false;
+            second.RecoveredCrewNames = original.RecoveredCrewNames;
+            original.RecoveredCrewNames = null;
+            second.StockHeldVesselUT = original.StockHeldVesselUT;
 
             // The destroyed flag is part of the terminal verdict and travels with it: left on
             // the first half it would read destroyed with no terminal, and the merge pass

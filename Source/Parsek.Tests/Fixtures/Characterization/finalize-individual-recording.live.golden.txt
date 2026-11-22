@@ -15,6 +15,7 @@ set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
 set f.GhostVisualSnapshot: <null> -> node:VESSEL(sit=LANDED)
 set f.TerminalStateValue: <null> -> Landed
 set f.VesselSnapshot: <null> -> node:VESSEL(sit=LANDED)
+log [Parsek][INFO][Flight] FinalizeIndividualRecording: in-flight commit leaves live vessel pid=5001 of 'v01' unflown - running the lifetime finalizer before the situation stamp
 log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v01 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
 log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v01' sections=0 points=2 maxDist=0m
 log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v01' vessel='Vessel v01' points=2 orbitSegs=0 terminal=Landed maxDist=0m snapshot=True leaf=True
@@ -33,6 +34,7 @@ set f.EndpointPhase: Unknown -> TrajectoryPoint
 set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
 set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
 set f.TerminalStateValue: <null> -> Landed
+log [Parsek][INFO][Flight] FinalizeIndividualRecording: in-flight commit leaves live vessel pid=5002 of 'v02' unflown - running the lifetime finalizer before the situation stamp
 log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v02 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
 log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v02' sections=0 points=2 maxDist=0m
 log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v02' vessel='Vessel v02' points=2 orbitSegs=0 terminal=Landed maxDist=0m snapshot=False leaf=True
@@ -52,6 +54,7 @@ set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
 set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
 set f.TerminalStateValue: <null> -> Landed
 set f.VesselSnapshot: <null> -> node:VESSEL(sit=LANDED)
+log [Parsek][INFO][Flight] FinalizeIndividualRecording: in-flight commit leaves live vessel pid=5003 of 'v03' unflown - running the lifetime finalizer before the situation stamp
 log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v03 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
 log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v03' sections=0 points=2 maxDist=0m
 log [Parsek][VERBOSE][Flight] FinalizeTreeRecordings: rec='v03' vessel='Vessel v03' points=2 orbitSegs=0 terminal=Landed maxDist=0m snapshot=True leaf=True
@@ -95,6 +98,7 @@ set f.EndpointPhase: Unknown -> TrajectoryPoint
 set f.ExplicitEndUT: d:FFF8000000000000 -> d:405E000000000000
 set f.ExplicitStartUT: d:FFF8000000000000 -> d:4059000000000000
 set f.TerminalStateValue: <null> -> Orbiting
+log [Parsek][INFO][Flight] FinalizeIndividualRecording: in-flight commit leaves live vessel pid=5005 of 'v05' unflown - running the lifetime finalizer before the situation stamp
 log [Parsek][WARN][Flight] FinalizeIndividualRecording: terminal orbit refresh declined for 'v05' (terminal=Orbiting, vesselFound=True, orbitSegments=0) — TerminalOrbitBody remains empty
 log [Parsek][VERBOSE][EndpointDecision] RefreshEndpointDecision: context=FinalizeIndividualRecording rec=v05 before=(Unknown,(none)) after=(TrajectoryPoint,Kerbin) status=resolved changed=True
 log [Parsek][VERBOSE][Flight] FinalizeIndividualRecording: maxDist backfill route=flat-points reference=flat-points rec='v05' sections=0 points=2 maxDist=0m

@@ -215,8 +215,12 @@ required = [
   # (MilestonesModule.ProcessAction) and FundsModule counts its funds, both before the F9.
   "Credited milestone 'Kerbin/SurfaceEVA' at UT=(?:149|1[5-9][0-9])\\.[0-9] \\(recording=[0-9a-f]{32}, funds=[1-9][0-9]*, [\\s\\S]*loadgame start save=\\S+ name=quicksave ",
   "Milestone funds: \\+[1-9][0-9.]*, actionId=\\S+, milestoneId=Kerbin/SurfaceEVA, recordingId=[0-9a-f]{32}, [\\s\\S]*loadgame start save=\\S+ name=quicksave ",
-  # The abandoned future's booster ending: committed while still under canopy.
-  "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=SubOrbital",
+  # The abandoned future's booster ending: committed while still under canopy, so since
+  # owner ruling Q4 (2026-11-21) its predicted chute touchdown (Landed / Splashed,
+  # TerminalPredicted; SubOrbital before). Ordered before the F9 (QL-4's reason: the
+  # replay's finalize is Landed too). Owner ruling Q14 (2026-11-21) does not move it: a
+  # plain in-flight CommitTree keeps the predicted touchdown (Q14 is for leaving the flight).
+  "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=(?:Landed|Splashed)[\\s\\S]*loadgame start save=\\S+ name=quicksave ",
 
   # QL-2c: THE STRATEGY'S SHARE OF THE SURFACEEVA REWARD, captured after the F5 and before
   # the F9 at the EVA's UT, tagged to a recording (LedgerOrchestrator

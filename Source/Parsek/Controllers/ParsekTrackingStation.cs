@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using KSP.UI.Screens;
 using KSP.UI.Screens.Mapview;
 using Parsek.Patches;
@@ -1189,7 +1190,10 @@ namespace Parsek
             if (rec.IsDebris) return AtmosphericMarkerSkipReason.Debris;
             if (rec.Points == null || rec.Points.Count == 0)
                 return AtmosphericMarkerSkipReason.NoTrajectoryPoints;
-            if (currentUT < rec.Points[0].ut || currentUT > rec.Points[rec.Points.Count - 1].ut)
+            // Past the last recorded point the ghost rides its orbit tail (a crash or landing
+            // coast has no proto icon, so this marker is its only one): inside the tail the
+            // marker draws, past the recording's end it does not.
+            if (!GhostPlaybackLogic.IsInsidePointsOrTail(rec, currentUT))
                 return AtmosphericMarkerSkipReason.OutsideTimeRange;
             if (suppressedIds != null && suppressedIds.Contains(rec.RecordingId))
                 return AtmosphericMarkerSkipReason.SuppressedByChainFilter;
@@ -2083,6 +2087,17 @@ namespace Parsek
                 reason = "recording-null";
                 return false;
             }
+            // Past the last recorded point: follow the orbit tail instead of clamping to the
+            // last sample (the icon used to freeze there for the whole predicted coast).
+            if (GhostPlaybackLogic.TryFindTailSegment(recording, currentUT, out OrbitSegment tailSegment))
+                return TryResolveRecordingTailWorldPosition(
+                    recording, tailSegment, currentUT, out worldPos, out body, out reason);
+            // A predicted tail that starts past the bridge cap: slide to it across the gap.
+            if (GhostPlaybackLogic.TryFindTailSlide(
+                    recording, currentUT, out OrbitSegment slideSegment, out double slideLastPointUT))
+                return TryResolveRecordingTailSlideWorldPosition(
+                    recording, slideSegment, slideLastPointUT, currentUT, bodyFixedShiftSeconds,
+                    out worldPos, out body, out reason);
             if (!TrySelectTrackingStationFocusFrames(
                     recording,
                     currentUT,
@@ -2111,7 +2126,7 @@ namespace Parsek
             }
 
             sampledPoint = pt.Value;
-            body = FlightGlobals.Bodies?.Find(b => b.name == pt.Value.bodyName);
+            body = FindBodyByNameNoAlloc(pt.Value.bodyName);
             if (body == null)
             {
                 reason = "body-missing";
@@ -2126,6 +2141,141 @@ namespace Parsek
                     pt.Value.longitude, bodyFixedShiftSeconds, body),
                 pt.Value.altitude);
             return true;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool TryResolveRecordingTailSlideWorldPosition(
+            Recording recording,
+            OrbitSegment slideSegment,
+            double lastPointUT,
+            double currentUT,
+            double bodyFixedShiftSeconds,
+            out Vector3d worldPos,
+            out CelestialBody body,
+            out string reason)
+        {
+            worldPos = default(Vector3d);
+            reason = null;
+            body = FindBodyByNameNoAlloc(slideSegment.bodyName);
+            if (body == null)
+            {
+                reason = "body-missing";
+                return false;
+            }
+            if (!GhostPlaybackLogic.TryGetTailSlideWorldPosition(
+                    recording, slideSegment, body, lastPointUT, currentUT, bodyFixedShiftSeconds, out worldPos))
+            {
+                reason = "tail-slide-failed";
+                return false;
+            }
+            if (ParsekLog.IsVerboseEnabled)
+            {
+                ParsekLog.VerboseRateLimitedComposed(Tag,
+                    TailLogKey(tsTailSlideLogKeys, "ts-tail-slide-", recording.RecordingId),
+                    new TailLogState
+                    {
+                        RecordingId = recording.RecordingId,
+                        UT = currentUT,
+                        A = lastPointUT,
+                        B = slideSegment.startUT,
+                        BodyName = slideSegment.bodyName,
+                    },
+                    s => string.Format(CultureInfo.InvariantCulture,
+                        "TS marker slides to the predicted tail: rec={0} ut={1:F1} lastPointUT={2:F1} tailStartUT={3:F1} body={4}",
+                        s.RecordingId ?? "(none)", s.UT, s.A, s.B, s.BodyName ?? "(null)"),
+                    5.0);
+            }
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool TryResolveRecordingTailWorldPosition(
+            Recording recording,
+            OrbitSegment tailSegment,
+            double currentUT,
+            out Vector3d worldPos,
+            out CelestialBody body,
+            out string reason)
+        {
+            worldPos = default(Vector3d);
+            reason = null;
+            body = FindBodyByNameNoAlloc(tailSegment.bodyName);
+            if (body == null)
+            {
+                reason = "body-missing";
+                return false;
+            }
+            if (!GhostPlaybackLogic.TryGetTailWorldPosition(tailSegment, body, currentUT, out worldPos))
+            {
+                reason = "tail-propagation-failed";
+                return false;
+            }
+            if (ParsekLog.IsVerboseEnabled)
+            {
+                ParsekLog.VerboseRateLimitedComposed(Tag,
+                    TailLogKey(tsTailPositionLogKeys, "ts-tail-position-", recording.RecordingId),
+                    new TailLogState
+                    {
+                        RecordingId = recording.RecordingId,
+                        UT = currentUT,
+                        A = tailSegment.startUT,
+                        B = tailSegment.endUT,
+                        Predicted = tailSegment.isPredicted,
+                        BodyName = tailSegment.bodyName,
+                    },
+                    s => string.Format(CultureInfo.InvariantCulture,
+                        "TS marker follows orbit tail: rec={0} ut={1:F1} segment=[{2:F1},{3:F1}] predicted={4} body={5}",
+                        s.RecordingId ?? "(none)", s.UT, s.A, s.B, s.Predicted, s.BodyName ?? "(null)"),
+                    5.0);
+            }
+            return true;
+        }
+
+        // The per-frame tail lines' values, handed to a lambda that captures nothing, so a
+        // call the rate limiter swallows formats nothing.
+        private struct TailLogState
+        {
+            public string RecordingId;
+            public double UT;
+            public double A;
+            public double B;
+            public bool Predicted;
+            public string BodyName;
+        }
+
+        // Rate-limit keys of the per-frame tail lines, composed once per recording id instead
+        // of concatenated every frame. A key depends on the id alone, so an entry never goes
+        // stale; the set is bounded by the recordings the process has drawn.
+        private static readonly Dictionary<string, string> tsTailPositionLogKeys =
+            new Dictionary<string, string>(System.StringComparer.Ordinal);
+        private static readonly Dictionary<string, string> tsTailSlideLogKeys =
+            new Dictionary<string, string>(System.StringComparer.Ordinal);
+
+        private static string TailLogKey(Dictionary<string, string> cache, string prefix, string recordingId)
+        {
+            string id = recordingId ?? "(none)";
+            if (!cache.TryGetValue(id, out string key))
+            {
+                key = ParsekLog.ComposeKey(Tag, prefix + id);
+                cache[id] = key;
+            }
+            return key;
+        }
+
+        // Runs per frame for every drawn TS marker: a plain loop, no predicate closure.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static CelestialBody FindBodyByNameNoAlloc(string bodyName)
+        {
+            List<CelestialBody> bodies = FlightGlobals.Bodies;
+            if (bodies == null || string.IsNullOrEmpty(bodyName))
+                return null;
+            for (int i = 0; i < bodies.Count; i++)
+            {
+                CelestialBody candidate = bodies[i];
+                if (candidate != null && candidate.name == bodyName)
+                    return candidate;
+            }
+            return null;
         }
 
         internal static bool TrySelectTrackingStationFocusFrames(

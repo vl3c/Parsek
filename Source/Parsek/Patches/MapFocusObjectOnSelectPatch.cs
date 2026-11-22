@@ -947,10 +947,11 @@ namespace Parsek.Patches
                 RecordingTree committedTreeRef = flight.ActiveTreeForSerialization;
                 try
                 {
-                    flight.CommitTreeFlight();
+                    bool leavesFlightScene = PreSwitchMergeLeavesFlightScene(target != null && target.loaded);
+                    flight.CommitTreeFlightAbandoningActiveVessel(leavesFlightScene);
                     ParsekLog.Info("SwitchIntentPatch",
                         $"pre-switch-dialog committed-prior-segment " +
-                        $"priorSessionId={priorSessionIdStr}");
+                        $"priorSessionId={priorSessionIdStr} leavesFlightScene={leavesFlightScene}");
                 }
                 catch (Exception ex)
                 {
@@ -1139,11 +1140,13 @@ namespace Parsek.Patches
                 RecordingTree committedTreeRef = flight.ActiveTreeForSerialization;
                 try
                 {
-                    flight.CommitTreeFlight();
+                    bool leavesFlightScene = PreSwitchMergeLeavesFlightScene(target != null && target.loaded);
+                    flight.CommitTreeFlightAbandoningActiveVessel(leavesFlightScene);
                     ParsekLog.Info("SwitchIntentPatch",
                         $"pre-switch-dialog-merge-chosen-no-session " +
                         $"priorTreeId={priorTreeIdStr} " +
-                        $"newTargetPid={(target != null ? target.persistentId : 0u)}");
+                        $"newTargetPid={(target != null ? target.persistentId : 0u)} " +
+                        $"leavesFlightScene={leavesFlightScene}");
                 }
                 catch (Exception ex)
                 {
@@ -1460,6 +1463,17 @@ namespace Parsek.Patches
         internal static bool ShouldArmIntentForSwitchTarget(bool targetLoaded)
         {
             return targetLoaded;
+        }
+
+        /// <summary>
+        /// Pure: whether the pre-switch dialog's Merge takes the player out of the flight scene.
+        /// A switch to an unloaded target reloads FLIGHT (<c>FlightDriver.StartAndFocusVessel</c>),
+        /// so the commit finalizes like a scene exit (owner ruling Q14: a chuted craft still in
+        /// the air is lost); a loaded target keeps the player in this scene.
+        /// </summary>
+        internal static bool PreSwitchMergeLeavesFlightScene(bool targetLoaded)
+        {
+            return !targetLoaded;
         }
 
         /// <summary>

@@ -110,7 +110,8 @@ namespace Parsek
             RecordingTree tree,
             bool isSceneExit = false,
             double commitUT = double.NaN,
-            RecordingFinalizationCache finalizationCache = null)
+            RecordingFinalizationCache finalizationCache = null,
+            bool abandonActiveVessel = false)
         {
             if (string.IsNullOrEmpty(tree.ActiveRecordingId))
                 return false;
@@ -137,15 +138,37 @@ namespace Parsek
                     vesselMissing: v == null,
                     out string restoredSceneExitReason);
 
-            if (isSceneExit && !preserveRestoredSceneExitTerminalState)
+            bool runLifetimeFinalizer = !preserveRestoredSceneExitTerminalState
+                && ShouldRunLifetimeFinalizerForLeaf(
+                    isSceneExit, vesselFound: v != null, isActiveRecording: true, abandonActiveVessel);
+            if (runLifetimeFinalizer)
             {
+                if (!isSceneExit)
+                    LogAbandonLifetimeFinalizer(activeRec, "EnsureActiveRecordingTerminalState");
                 if (ApplyActiveRecordingSceneExitLifetime(
                     activeRec,
                     v,
                     commitUT,
                     tree,
                     out bool sceneExitSuppliedSnapshots))
+                {
+                    MarkLifetimeFinalizerCrashPredicted(activeRec, "EnsureActiveRecordingTerminalState");
                     return sceneExitSuppliedSnapshots;
+                }
+            }
+
+            if (runLifetimeFinalizer
+                && v != null
+                && !activeRec.TerminalStateValue.HasValue
+                && IsPredictedCrashCacheForLiveVessel(finalizationCache)
+                && ParsekFlightMergeFlow.TryApplyFinalizationCacheFallback(
+                    activeRec,
+                    finalizationCache,
+                    "EnsureActiveRecordingTerminalState.liveVesselPredictedCrash",
+                    allowStale: false,
+                    out _))
+            {
+                return false;
             }
 
             if (v != null)
@@ -171,6 +194,11 @@ namespace Parsek
                     allowStale: v == null,
                     out _))
             {
+                ConfirmObservedDestruction(
+                    activeRec,
+                    destroyedDuringRecording: false,
+                    vesselMissingOnInFlightCommit: !isSceneExit && v == null,
+                    "EnsureActiveRecordingTerminalState");
                 return false;
             }
 
@@ -322,6 +350,7 @@ namespace Parsek
             private readonly Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot;
             private readonly Func<Recording, Vessel, Recording> findLaterSpawnOwner;
             private readonly Func<Recording, Vessel, bool> isRecordedIdentityLost;
+            private readonly Func<Vessel, bool> remnantSurvives;
 
             internal FinalizationLiveVesselAccess(
                 Func<Vessel, bool> isFound = null,
@@ -331,8 +360,10 @@ namespace Parsek
                 Func<Vessel, ConfigNode> tryBackupSnapshot = null,
                 Func<Recording, Vessel, bool, string, bool> tryRefreshStableTerminalSnapshot = null,
                 Func<Recording, Vessel, Recording> findLaterSpawnOwner = null,
-                Func<Recording, Vessel, bool> isRecordedIdentityLost = null)
+                Func<Recording, Vessel, bool> isRecordedIdentityLost = null,
+                Func<Vessel, bool> remnantSurvives = null)
             {
+                this.remnantSurvives = remnantSurvives ?? IdentityLossClassifier.RemnantSurvives;
                 this.isRecordedIdentityLost = isRecordedIdentityLost
                     ?? ParsekFlight.IsRecordedIdentityLostAtFinalization;
                 this.findLaterSpawnOwner = findLaterSpawnOwner
@@ -373,6 +404,8 @@ namespace Parsek
 
             internal bool IsRecordedIdentityLost(Recording rec, Vessel vessel) =>
                 isRecordedIdentityLost(rec, vessel);
+
+            internal bool RemnantSurvives(Vessel vessel) => remnantSurvives(vessel);
         }
 
         /// <summary>
@@ -439,7 +472,7 @@ namespace Parsek
                     || other.ChainBranch != 0
                     || other.ChainIndex <= rec.ChainIndex)
                     continue;
-                if (endUT > other.StartUT + NonFinalChainSegmentBoundaryToleranceSeconds)
+                if (endUT > ChainSuccessorBoundaryUT(other) + NonFinalChainSegmentBoundaryToleranceSeconds)
                     continue;
                 successorId = other.RecordingId;
                 return true;
@@ -447,8 +480,151 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Where a chain successor begins for <see cref="IsNonFinalChainSegmentInTree"/>: its
+        /// first section's start (the optimizer's cut UT) when that is later than its first
+        /// sample. A section can open on the previous section's closing sample, before its own
+        /// start (flight asr-final3: the probe's space section opens at 168.4 and starts at the
+        /// cut, 173.74), so the successor's StartUT reads earlier than the head's end (its
+        /// trimmed section ends at the cut) and the head would read as recorded past it.
+        /// </summary>
+        internal static double ChainSuccessorBoundaryUT(Recording successor)
+        {
+            double startUT = successor.StartUT;
+            if (successor.TrackSections != null && successor.TrackSections.Count > 0
+                && successor.TrackSections[0].startUT > startUT)
+            {
+                return successor.TrackSections[0].startUT;
+            }
+            return startUT;
+        }
+
+        // A continuation segment starts where the recorder flushed the row it continues; the
+        // two can differ by the switch frame's sampling step.
+        internal const double SameVesselContinuationToleranceSeconds = 1.0;
+
+        /// <summary>
+        /// True when the tree holds another recording of the same launch as
+        /// <paramref name="rec"/> that continues it: the tree's active recording (the vessel the
+        /// player is flying), or a recording that starts after <paramref name="rec"/> starts and
+        /// no earlier than its end. Such a row is not an abandoned vessel: its vessel lives on
+        /// in the continuation (flight asr-final3 ASR-6: a takeover row whose Tracking Station
+        /// Fly opened a standalone continuation segment on the same pid), so an in-flight
+        /// commit must not give it the lifetime finalizer's predicted ending. Pure.
+        /// </summary>
+        internal static bool HasSameVesselContinuationInTree(
+            Recording rec,
+            RecordingTree tree,
+            out string continuationId)
+        {
+            continuationId = null;
+            if (rec == null || tree?.Recordings == null || rec.VesselPersistentId == 0)
+                return false;
+            double startUT = rec.StartUT;
+            double endUT = rec.EndUT;
+            foreach (Recording other in tree.Recordings.Values)
+            {
+                if (other == null || ReferenceEquals(other, rec)
+                    || string.Equals(other.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    continue;
+                if (!VesselLaunchIdentity.RecordingsShareLaunch(rec, other))
+                    continue;
+                double otherStartUT = other.StartUT;
+                if (otherStartUT <= startUT)
+                    continue;
+                bool flown = IsTreeActiveRecording(other, tree);
+                if (!flown && otherStartUT + SameVesselContinuationToleranceSeconds < endUT)
+                    continue;
+                continuationId = other.RecordingId;
+                return true;
+            }
+            return false;
+        }
+
         // The optimizer cut stamps the first half's end at the second half's start.
         internal const double NonFinalChainSegmentBoundaryToleranceSeconds = 1e-3;
+
+        /// <summary>
+        /// Whether a leaf with no terminal yet runs the lifetime finalizer (the predicted tail
+        /// and its terminal) before the live-vessel situation stamp. A scene exit always does,
+        /// as before. An in-flight commit does for a leaf whose live vessel still exists when
+        /// the player is not flying it: every non-active leaf, and the active one only when
+        /// the commit abandons it (the pre-switch dialog's Merge, which switches away). A
+        /// plain in-flight commit keeps the active vessel's situation stamp. Pure.
+        /// </summary>
+        internal static bool ShouldRunLifetimeFinalizerForLeaf(
+            bool isSceneExit,
+            bool vesselFound,
+            bool isActiveRecording,
+            bool abandonActiveVessel)
+        {
+            if (isSceneExit)
+                return true;
+            if (!vesselFound)
+                return false;
+            return !isActiveRecording || abandonActiveVessel;
+        }
+
+        /// <summary>
+        /// A cache the abandon path may apply to a live vessel the finalizer declined: a fresh
+        /// one predicting a crash. Every other terminal keeps the live situation stamp, whose
+        /// re-snapshot a cache apply would skip. Pure.
+        /// </summary>
+        internal static bool IsPredictedCrashCacheForLiveVessel(RecordingFinalizationCache cache)
+        {
+            return cache != null
+                && cache.Status == FinalizationCacheStatus.Fresh
+                && cache.TerminalState == TerminalState.Destroyed;
+        }
+
+        private static void LogAbandonLifetimeFinalizer(Recording rec, string context)
+        {
+            ParsekLog.Info("Flight",
+                $"{context}: in-flight commit leaves live vessel pid={rec?.VesselPersistentId ?? 0} " +
+                $"of '{rec?.RecordingId ?? "(null)"}' unflown - running the lifetime finalizer " +
+                "before the situation stamp");
+        }
+
+        /// <summary>
+        /// The lifetime finalizer extrapolates from a vessel KSP still has, so a Destroyed
+        /// ending it wrote is a prediction (the takeover and the playback read the flag; the crew
+        /// still die with it, owner ruling Q6c).
+        /// </summary>
+        internal static void MarkLifetimeFinalizerCrashPredicted(Recording rec, string context)
+        {
+            if (rec == null || rec.TerminalStateValue != TerminalState.Destroyed || rec.TerminalPredicted)
+                return;
+            rec.StampTerminalState(
+                TerminalState.Destroyed, context + ".lifetimeFinalizerPredicted", predicted: true);
+            ParsekLog.Info("Flight",
+                $"{context}: lifetime finalizer predicted a crash for '{rec.RecordingId ?? "(null)"}' " +
+                $"pid={rec.VesselPersistentId} - marked predicted (a takeover drops it)");
+        }
+
+        /// <summary>
+        /// Turns a predicted Destroyed ending into a confirmed one when the commit itself
+        /// observed the destruction: the active recorder saw the vessel destroyed, or an
+        /// in-flight commit found no live vessel (KSP removed it). Returns true when it
+        /// confirmed.
+        /// </summary>
+        internal static bool ConfirmObservedDestruction(
+            Recording rec,
+            bool destroyedDuringRecording,
+            bool vesselMissingOnInFlightCommit,
+            string context)
+        {
+            if (rec == null || !rec.TerminalPredicted
+                || rec.TerminalStateValue != TerminalState.Destroyed)
+                return false;
+            if (!destroyedDuringRecording && !vesselMissingOnInFlightCommit)
+                return false;
+            rec.StampTerminalState(TerminalState.Destroyed, context + ".destructionConfirmed");
+            ParsekLog.Info("Flight",
+                $"{context}: predicted crash of '{rec.RecordingId ?? "(null)"}' confirmed " +
+                $"(destroyedDuringRecording={destroyedDuringRecording}, " +
+                $"vesselMissingOnInFlightCommit={vesselMissingOnInFlightCommit})");
+            return true;
+        }
 
         internal static bool FinalizeIndividualRecording(
             Recording rec,
@@ -458,7 +634,8 @@ namespace Parsek
             RecordingTree treeContext = null,
             bool vesselDestroyedDuringRecording = false,
             Func<uint, Vessel> findVesselByPid = null,
-            FinalizationLiveVesselAccess liveVesselAccess = null)
+            FinalizationLiveVesselAccess liveVesselAccess = null,
+            bool abandonActiveVessel = false)
         {
             var vesselAccess = liveVesselAccess ?? FinalizationLiveVesselAccess.Default;
 
@@ -499,11 +676,31 @@ namespace Parsek
                     $"{restoredSceneExitReason}");
             }
 
-            if (isLeaf
-                && isSceneExit
+            bool runLifetimeFinalizer = isLeaf
                 && !preserveRestoredSceneExitTerminalState
-                && !rec.TerminalStateValue.HasValue)
+                && !rec.TerminalStateValue.HasValue
+                && ShouldRunLifetimeFinalizerForLeaf(
+                    isSceneExit,
+                    finalizeVesselFound,
+                    IsTreeActiveRecording(rec, treeContext),
+                    abandonActiveVessel);
+            // An in-flight commit leaves a vessel unflown only when nothing in the tree carries
+            // it on; a row whose vessel continues in a later recording of the same launch keeps
+            // the live situation stamp below.
+            if (runLifetimeFinalizer
+                && !isSceneExit
+                && HasSameVesselContinuationInTree(rec, treeContext, out string continuationId))
             {
+                runLifetimeFinalizer = false;
+                ParsekLog.Info("Flight",
+                    $"FinalizeIndividualRecording: live vessel pid={rec.VesselPersistentId} of " +
+                    $"'{rec.RecordingId}' continues in '{continuationId}' - in-flight commit keeps " +
+                    "the situation stamp, no lifetime finalizer");
+            }
+            if (runLifetimeFinalizer)
+            {
+                if (!isSceneExit)
+                    LogAbandonLifetimeFinalizer(rec, "FinalizeIndividualRecording");
                 sceneExitLifetimeExtended = ApplySceneExitLifetimeFinalizer(
                     rec,
                     finalizeVessel,
@@ -511,6 +708,27 @@ namespace Parsek
                     treeContext,
                     out sceneExitSuppliedSnapshots,
                     out sceneExitSuppliedTerminalOrbit);
+                if (sceneExitLifetimeExtended)
+                    MarkLifetimeFinalizerCrashPredicted(rec, "FinalizeIndividualRecording");
+            }
+
+            // The finalizer declined a live vessel that the player is leaving: a fresh cache
+            // that already predicts its crash stands in (owner ruling Q1b), before the
+            // situation stamp below would end it as a coasting vessel.
+            if (runLifetimeFinalizer
+                && finalizeVesselFound
+                && !sceneExitLifetimeExtended
+                && !rec.TerminalStateValue.HasValue
+                && IsPredictedCrashCacheForLiveVessel(finalizationCache)
+                && ParsekFlightMergeFlow.TryApplyFinalizationCacheFallback(
+                    rec,
+                    finalizationCache,
+                    "FinalizeIndividualRecording.liveVesselPredictedCrash",
+                    allowStale: false,
+                    out _))
+            {
+                cacheFinalizationApplied = true;
+                cacheSuppliedTerminalOrbit = false;
             }
 
             if (isLeaf
@@ -565,7 +783,15 @@ namespace Parsek
             }
 
             if (isLeaf && !preserveRestoredSceneExitTerminalState)
+            {
                 ApplyDestroyedFallback(vesselDestroyedDuringRecording, rec);
+                ConfirmObservedDestruction(
+                    rec,
+                    vesselDestroyedDuringRecording,
+                    vesselMissingOnInFlightCommit:
+                        !isSceneExit && rec.VesselPersistentId != 0 && !finalizeVesselFound,
+                    "FinalizeIndividualRecording");
+            }
 
             // #289: Re-snapshot the vessel whenever the recording has reached a stable terminal
             // state (Landed/Splashed/Orbiting) AND the live vessel is still findable. Without
@@ -753,8 +979,10 @@ namespace Parsek
         /// <summary>
         /// Stamps the terminal state of a leaf from its live vessel, captures the terminal
         /// orbit and position, and on a commit (not a scene exit) re-snapshots the vessel.
+        /// The predicted-crash reconciler's scene host stamps a contradicted prediction's ending
+        /// through it too.
         /// </summary>
-        private static void StampTerminalStateFromLiveVessel(
+        internal static void StampTerminalStateFromLiveVessel(
             Recording rec,
             Vessel finalizeVessel,
             bool isSceneExit,
@@ -771,12 +999,15 @@ namespace Parsek
             if (vesselAccess.IsRecordedIdentityLost(rec, finalizeVessel))
             {
                 double terminalUT = rec.EndUT;
+                bool remnantSurvives = vesselAccess.RemnantSurvives(finalizeVessel);
                 ParsekLog.Info("Flight",
                     $"FinalizeTreeRecordings: recorded controllable identity lost for " +
                     $"'{rec.RecordingId ?? "(null)"}' pid={rec.VesselPersistentId} " +
                     $"recordedControllers={rec.Controllers?.Count ?? 0} sceneExit={isSceneExit} " +
-                    $"- classifying as Destroyed at UT={terminalUT.ToString("F2", CultureInfo.InvariantCulture)}");
-                rec.MarkDestroyedAtTerminal(terminalUT, "FinalizeTreeRecordings.identityLost");
+                    $"- classifying as Destroyed at UT={terminalUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"remnantSurvives={remnantSurvives}");
+                rec.MarkDestroyedAtTerminal(terminalUT, "FinalizeTreeRecordings.identityLost",
+                    vesselSurvives: remnantSurvives);
                 return;
             }
 

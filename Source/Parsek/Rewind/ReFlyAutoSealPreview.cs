@@ -336,17 +336,17 @@ namespace Parsek
                     if (orbit == null) return;
                     CelestialBody body = orbit.referenceBody;
                     if (body == null) return;
-                    bool stable = RecordingTree.IsBoundOrbitAboveAtmosphere(
+                    bool stable = RecordingTree.IsBoundOrbitClearOfFloor(
                         orbit.eccentricity,
                         orbit.PeR,
                         body.Radius,
-                        body.atmosphere,
-                        body.atmosphereDepth,
+                        OrbitClearance.ResolveDeletionAltitude(body),
                         OrbitClearance.ResolveMaxTerrainAltitude(body));
-                    // A bound orbit with periapsis inside the atmosphere (or
-                    // any unbound / sub-atmospheric orbit) is still in flight
-                    // under the new contract: it will decay or crash, not
-                    // conclude. Only the stable case adds a reason.
+                    // A bound orbit with periapsis under the periapsis floor
+                    // (deletion altitude or highest terrain), or any unbound
+                    // orbit, is still in flight under the new contract: it will
+                    // be deleted or crash, not conclude. Only the stable case
+                    // adds a reason.
                     if (stable)
                         AddIfMissing(reasons, ReFlyAutoSealReason.StableOrbit);
                     break;

@@ -58,7 +58,7 @@ namespace Parsek.Tests
             {
                 TerminalOrbitSpawnSafetyDecision decision =
                     VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
-                        true, KerbinAtmosphereDepth, alt, periapsis, apoapsis);
+                        true, KerbinAtmosphereDepth, alt, periapsis, apoapsis, 0.0, OrbitClearanceTestValues.KerbinDeletionAltitude);
                 switch (decision.Action)
                 {
                     case TerminalOrbitSpawnSafetyAction.CannotSpawnSafely:

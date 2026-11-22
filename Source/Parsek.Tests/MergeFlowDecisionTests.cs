@@ -779,5 +779,71 @@ namespace Parsek.Tests
             Assert.Null(flow.LiveRecordingIdForVessel(0u));
             Assert.Equal("a", flow.LiveRecordingIdForVessel(55u));
         }
+
+        // ================= B7: the background recorder after an in-flight commit =================
+
+        // catches: Commit Flight nulling the background recorder without tearing it down, so its
+        // part-event handlers stay on GameEvents holding the committed tree (a committed
+        // recording can still gain part events; one recorder leaks per commit).
+        [Fact]
+        public void InFlightCommit_ReleasesTheBackgroundRecorder_Unsubscribed()
+        {
+            var tree = Tree(Rec("a"));
+            var (host, flow) = Flow(tree);
+            var bg = new BackgroundRecorder(tree);
+            bg.InjectLoadedStateForTesting(77u, "a");
+            bg.SubscribePartEvents();
+            host.backgroundRecorder = bg;
+            try
+            {
+                flow.ReleaseBackgroundRecorderAfterInFlightCommit("Decision Tree");
+
+                Assert.Null(host.backgroundRecorder);
+                Assert.False(bg.IsPartEventsSubscribed);
+                Assert.Equal(0, bg.LoadedStateCount);
+                Assert.True(Logged("BgRecorder", "DiscardWithoutPersist: cleared background states without flushing")
+                    && Logged("BgRecorder", "in-flight commit of tree 'Decision Tree'"));
+                Assert.True(Logged("Flight", "background recorder released after commit"));
+            }
+            finally
+            {
+                bg.UnsubscribePartEvents();
+            }
+        }
+
+        [Fact]
+        public void InFlightCommit_NoBackgroundRecorder_IsANoOp()
+        {
+            var (host, flow) = Flow(Tree(Rec("a")));
+            flow.ReleaseBackgroundRecorderAfterInFlightCommit("Decision Tree");
+            Assert.Null(host.backgroundRecorder);
+            Assert.False(Logged("Flight", "background recorder released after commit"));
+        }
+
+        // Every place the merge flow drops its background recorder tears it down first
+        // (Shutdown or DiscardWithoutPersist), so no recorder stays subscribed to GameEvents.
+        [Fact]
+        public void EveryBackgroundRecorderDrop_TearsTheRecorderDownFirst()
+        {
+            string path = System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
+                "Source", "Parsek", "Controllers", "ParsekFlightMergeFlow.cs");
+            string[] lines = System.IO.File.ReadAllLines(path);
+            int drops = 0;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (!lines[i].Contains("host.backgroundRecorder = null;"))
+                    continue;
+                drops++;
+                bool tornDown = false;
+                for (int j = Math.Max(0, i - 4); j < i && !tornDown; j++)
+                    tornDown = lines[j].Contains("DiscardWithoutPersist(") || lines[j].Contains(".Shutdown(");
+                Assert.True(tornDown, "ParsekFlightMergeFlow.cs line " + (i + 1)
+                    + " drops the background recorder without a teardown");
+            }
+            Assert.True(drops >= 4, "expected the four drop sites, found " + drops);
+            string text = System.IO.File.ReadAllText(path);
+            Assert.Contains("ReleaseBackgroundRecorderAfterInFlightCommit(treeName);", text);
+        }
     }
 }

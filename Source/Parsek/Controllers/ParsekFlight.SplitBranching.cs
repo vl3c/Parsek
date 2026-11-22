@@ -226,15 +226,25 @@ namespace Parsek
             if (v == null) return false;
             int partCount = v.parts?.Count ?? 0;
             float mass = (float)v.totalMass;
-            return ShouldRecordDebris(partCount, mass);
+            int crewCount = v.GetCrewCount();
+            bool record = ShouldRecordDebris(partCount, mass, crewCount);
+            if (crewCount > 0)
+                ParsekLog.Info("Coalescer",
+                    $"ShouldRecordDebris: pid={v.persistentId} carries {crewCount} kerbal(s) " +
+                    $"(parts={partCount}) - recorded so the crew keep a recording of their own");
+            return record;
         }
 
         /// <summary>
         /// Pure testable overload: debris is significant if it has at least
-        /// 3 parts OR at least 0.5 tons of mass.
+        /// 3 parts OR at least 0.5 tons of mass, and always when it carries crew: a kerbal in a
+        /// piece that survived a breakup lives on with that piece (owner ruling Q6b), so the
+        /// piece needs its own recording to carry him.
         /// </summary>
-        internal static bool ShouldRecordDebris(int partCount, float mass)
+        internal static bool ShouldRecordDebris(int partCount, float mass, int crewCount = 0)
         {
+            if (crewCount > 0)
+                return true;
             const int MinPartCount = 3;
             const float MinMassTons = 0.5f;
             return partCount >= MinPartCount || mass >= MinMassTons;

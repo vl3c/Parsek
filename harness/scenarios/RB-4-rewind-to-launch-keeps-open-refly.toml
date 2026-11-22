@@ -131,9 +131,13 @@ count = { min = 2, max = 12 }
 [expectations.logContracts]
 required = [
   # RF-4's preconditions: a two-controllable split authored a point, the non-focus slot was
-  # promoted open, the re-fly started and completed.
+  # promoted open, the re-fly started and completed. The booster is still in the air under
+  # canopy at the SCENE-EXIT commit, so since owner ruling Q14 (2026-11-21; RE-PINNED, NOT
+  # FLOWN) it ends Destroyed at the exit and is promoted as `crashed` (before Q14:
+  # `predictedTouchdown`, rulings Q4 / Q4c; before Q4: `stableLeafUnconcluded`). Ordered
+  # before the re-fly's StartInvoke so the re-fly's own commit cannot meet it.
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
-  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  "CommitTree promoted rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' slot=1 rp=\\S+ reason=crashed to CommittedProvisional[\\s\\S]*Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
   "listhandles kind=rewindpoints count=1 truncated=false",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
   "Invocation complete",

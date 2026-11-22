@@ -63,7 +63,10 @@ namespace Parsek.InGameTests
                     radius,
                     atmosphereDepth: 70000.0,
                     terrainAltitude: FlatTerrain,
-                    surfaceCoordinates: ZeroSurfaceCoordinates)
+                    surfaceCoordinates: ZeroSurfaceCoordinates,
+                    // The 15 km low point is above the ground: the arc ends at its first
+                    // periapsis below the deletion altitude (owner ruling Q3).
+                    deletionAltitude: 22000.0)
             };
 
             BallisticStateVector start = MakeApoapsisState(
@@ -1279,7 +1282,8 @@ namespace Parsek.InGameTests
             string parentBodyName = null,
             TerrainAltitudeResolver terrainAltitude = null,
             ParentFrameStateResolver parentFrameState = null,
-            SurfaceCoordinatesResolver surfaceCoordinates = null)
+            SurfaceCoordinatesResolver surfaceCoordinates = null,
+            double deletionAltitude = 0.0)
         {
             return new ExtrapolationBody
             {
@@ -1288,6 +1292,7 @@ namespace Parsek.InGameTests
                 GravitationalParameter = gravParameter,
                 Radius = radius,
                 AtmosphereDepth = atmosphereDepth,
+                DeletionAltitude = deletionAltitude,
                 SphereOfInfluence = sphereOfInfluence,
                 TerrainAltitude = terrainAltitude,
                 ParentFrameState = parentFrameState,

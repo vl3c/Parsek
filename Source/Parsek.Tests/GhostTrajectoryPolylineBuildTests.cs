@@ -1824,6 +1824,43 @@ namespace Parsek.Tests
             Assert.Equal(new[] { 1 }, picked.ToArray());
         }
 
+        // A crash / landing flight has no map vessel, so no stock line draws the coast its head sits
+        // on: the selector must then include the current arc (predicted-tail render, R2).
+        [Fact]
+        public void SelectForwardArcSegmentIndices_IncludeCurrentArc_SelectsHeadSegment()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                CleanDunaSegment(0.0, 100.0),    // current: head brackets this
+                CleanDunaSegment(100.0, 200.0),  // future arc
+            };
+            var picked = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                segs, forwardWindowStartUT: 0.0, forwardStopUT: 200.0, headUT: 50.0,
+                surface: DunaSurface(), includeCurrentArc: true);
+            Assert.Equal(new[] { 0, 1 }, picked.ToArray());
+        }
+
+        [Theory]
+        [InlineData(0u, TerminalState.Destroyed, true)]
+        [InlineData(0u, TerminalState.Landed, true)]
+        [InlineData(0u, TerminalState.Splashed, true)]
+        [InlineData(0u, TerminalState.Orbiting, false)]
+        [InlineData(0u, TerminalState.SubOrbital, false)]
+        [InlineData(4242u, TerminalState.Destroyed, false)]
+        public void ShouldForwardDrawCurrentArc_OnlyWhenNoStockLineCanExist(
+            uint ghostPid, TerminalState terminal, bool expected)
+        {
+            Assert.Equal(expected,
+                GhostTrajectoryPolylineRenderer.ShouldForwardDrawCurrentArc(ghostPid, terminal));
+        }
+
+        [Fact]
+        public void ShouldForwardDrawCurrentArc_NoTerminal_LeavesItToStock()
+        {
+            // An unfinished recording is map-presence eligible: a proto may still appear.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldForwardDrawCurrentArc(0u, null));
+        }
+
         // A below-surface descent segment is NOT selected as a forward ARC (it draws as a forward LEG B').
         [Fact]
         public void SelectForwardArcSegmentIndices_BelowSurfaceSegment_ExcludedFromArcs()

@@ -593,7 +593,90 @@ namespace Parsek
         internal static bool ShouldUseOrbitTailPlayback(
             IPlaybackTrajectory traj, double playbackUT)
         {
-            return TryFindOrbitTailPlaybackSegment(traj, playbackUT, out _, out _);
+            return TryFindOrbitTailPlaybackSegment(traj, playbackUT, out _, out _)
+                || TryFindPredictedOrbitTailSlide(traj, playbackUT, out _, out _, out _);
+        }
+
+        /// <summary>
+        /// Owner ruling L5: when the predicted tail starts more than
+        /// <see cref="PredictedOrbitTailBridgeMaxGapSeconds"/> after the last recorded point, a
+        /// UT inside that gap slides the ghost from the last recorded point to the start of the
+        /// predicted path (it is not bridged: the predicted orbit may be a later, post-burn one
+        /// and is never run backwards into the gap). True when <paramref name="playbackUT"/> is
+        /// inside such a gap, no segment covers it, the first usable segment after the last
+        /// point is predicted, and the last point can anchor a slide
+        /// (<see cref="GhostPlaybackLogic.TryGetTailSlideAnchorPoints"/>). Pure.
+        /// </summary>
+        internal static bool TryFindPredictedOrbitTailSlide(
+            IPlaybackTrajectory traj,
+            double playbackUT,
+            out OrbitSegment segment,
+            out int segmentIndex,
+            out double lastPointUT)
+        {
+            segment = default(OrbitSegment);
+            segmentIndex = -1;
+            lastPointUT = double.NaN;
+            if (traj?.Points == null
+                || traj.Points.Count == 0
+                || traj.OrbitSegments == null
+                || traj.OrbitSegments.Count == 0
+                || double.IsNaN(playbackUT)
+                || double.IsInfinity(playbackUT))
+            {
+                return false;
+            }
+
+            double lastUT = traj.Points[traj.Points.Count - 1].ut;
+            if (playbackUT <= lastUT + 1e-6)
+                return false;
+
+            int firstAfter = -1;
+            for (int i = 0; i < traj.OrbitSegments.Count; i++)
+            {
+                OrbitSegment candidate = traj.OrbitSegments[i];
+                if (!TrajectoryMath.HasUsableOrbitSegmentElements(candidate))
+                    continue;
+                bool covers = i == traj.OrbitSegments.Count - 1
+                    ? playbackUT >= candidate.startUT && playbackUT <= candidate.endUT
+                    : playbackUT >= candidate.startUT && playbackUT < candidate.endUT;
+                if (covers)
+                    return false;
+                if (candidate.startUT <= lastUT + 1e-6)
+                    continue;
+                if (firstAfter < 0 || candidate.startUT < traj.OrbitSegments[firstAfter].startUT)
+                    firstAfter = i;
+            }
+
+            if (firstAfter < 0)
+                return false;
+            OrbitSegment next = traj.OrbitSegments[firstAfter];
+            if (!next.isPredicted)
+                return false;
+            if (next.startUT - lastUT <= PredictedOrbitTailBridgeMaxGapSeconds + 1e-6)
+                return false;
+            if (playbackUT >= next.startUT - 1e-6)
+                return false;
+            if (!GhostPlaybackLogic.TryGetTailSlideAnchorPoints(traj, next, out _, out _, out _))
+                return false;
+
+            segment = next;
+            segmentIndex = firstAfter;
+            lastPointUT = lastUT;
+            return true;
+        }
+
+        /// <summary>
+        /// Loop-path twin of the non-loop orbit-tail dispatch: a loop cycle past the last
+        /// recorded point rides the orbit tail through <c>PositionFromOrbit</c> (the path that
+        /// carries the trajectory, and so the tail continuity blend), unless the authored frame
+        /// gap has a body-fixed shadow. Pure.
+        /// </summary>
+        internal static bool ShouldPositionLoopFromOrbitTail(
+            IPlaybackTrajectory traj, double loopUT)
+        {
+            return !AuthoredFrameGapHasShadowCoverage(traj, loopUT)
+                && ShouldUseOrbitTailPlayback(traj, loopUT);
         }
 
         internal static bool AuthoredFrameGapHasShadowCoverage(

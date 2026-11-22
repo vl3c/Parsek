@@ -25,6 +25,41 @@ Not released yet.
 
 ### Changed
 
+- **Abandoned stages fall to the ground in replays.** A stage you drop and stop watching used to
+  explode in mid-air or at the edge of space on its replay. It now keeps falling along its path and
+  explodes where it hits the ground or the sea. A stage left on an orbit that only grazes thin air
+  stays in orbit and appears as a real vessel; one that dips deeper crashes on its first pass.
+  (ABANDONED-STAGE-D1)
+- **Stages left under open parachutes come down and land.** The replay shows the stage descending
+  under its chutes; it appears where it touches down, Landed or Splashed, still offered for Re-Fly.
+  Its landing speed is worked out from its chutes and the air: faster than about 12 m/s, or with
+  its chutes staged but still closed, it crashes. (ABANDONED-STAGE-CHUTES)
+- **A stage still under its chutes when you leave the flight is lost.** Going to the Space Center,
+  the Tracking Station or the main menu, or switching to a far vessel, while a stage is still
+  coming down ends it the way the game does: lost with its crew, its ghost coming down to the
+  ground with no explosion, nothing left there. If you keep flying, it lands as predicted.
+  (ABANDONED-STAGE-Q14)
+- **A stage the game deleted is never brought back.** When the game deletes a stage Parsek said
+  would land or settle in orbit, the replay no longer recreates it at its end: it ends lost with
+  its crew, the ghost coming down quietly. If the game keeps it flying instead, Parsek follows the
+  real stage. (ABANDONED-STAGE-STOCK-FATE)
+- **The crew of a crashed stage are lost, as the game would have it.** A crewed stage whose replay
+  ends in a crash loses its crew, whether the game destroyed it or Parsek worked the crash out. In a
+  breakup only kerbals whose part was destroyed die, and no reputation is taken that the game did
+  not take. Flying the stage again keeps them alive. (ABANDONED-STAGE-C1)
+- **Recovering a stage Parsek said would crash brings it home.** Recover it from the Tracking
+  Station, the Space Center or in flight, before or after its predicted crash, and it ends Recovered
+  with its crew, each kerbal counted by the seat he was really in. A crash the game itself carried
+  out stays final. (ABANDONED-STAGE-RECOVERY)
+- **A stage on its way to the Sun settles into its final orbit.** A stage on an escape path is
+  followed until it settles on an orbit around the last body it reaches, and appears there as a real
+  vessel, crew aboard, when the replay gets there. It used to fly on for 50 years and never appear.
+  (ABANDONED-STAGE-L9)
+- **Flying an abandoned stage again takes it back.** Switching to, docking with, grabbing or
+  boarding a stage Parsek predicted a crash for drops the prediction, keeps the coast up to that
+  moment and records the stage for real from there; its ghost no longer shows beside the real stage.
+  If the game keeps a stage alive that Parsek said would crash, Parsek follows the game.
+  (ABANDONED-STAGE-P1)
 - **High time warp stays smooth with many supply routes in a long career.** A route's run used to
   read through every route event the career had logged, several times, so warp slowed as the
   career grew. It now reads only its own route's rows, and a tick where no route runs makes no
@@ -62,6 +97,23 @@ Not released yet.
 
 ### Fixed
 
+- **Predicted paths are drawn on the map, in the Tracking Station and at the Space Center.** A
+  ghost past its last recorded point used to freeze there; it now moves along its predicted path
+  with a line under it, slides across a long gap instead of jumping, and explodes at the ground,
+  at any warp when it is in view. Looped replays reach the real crash site every time.
+  (ABANDONED-STAGE-R1)
+- **Predicted paths follow the real coast more closely.** A path no longer starts sideways or
+  lands off by about a degree per minute of age. It catches grazing moon passes and mountains on
+  airless moons, keeps the coast before a planned maneuver node, and a tumbling stage keeps
+  tumbling. An EVA kerbal or undocked craft you leave keeps its path instead of vanishing.
+  (ABANDONED-STAGE-B2)
+- **Quickload keeps the predicted paths of stages you left.** After an F9 or a save load during a
+  flight, the stages Parsek was following keep their predicted endings, and one the game removed
+  meanwhile follows its recorded fall instead of stopping in mid-air. (ABANDONED-STAGE-L8)
+- **Commit Flight no longer leaves stages hanging.** A stage still falling when you commit a flight,
+  switch far away or merge after a crash gets its predicted fall instead of freezing, a probe still
+  beside its parent no longer ends Landed at a wrong spot, and committed flights no longer pick up
+  part events afterwards. (ABANDONED-STAGE-B4)
 - **Ghosts no longer knock nearby craft.** The first replay of some parts, such as the Clydesdale
   booster, could shove a real vessel parked close by, break it apart or lower its orbit. Building
   those ghosts no longer touches the physics of anything around them.

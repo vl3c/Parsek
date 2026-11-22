@@ -17,7 +17,9 @@ namespace Parsek
             out double weight,
             out double anchorUT,
             out double blendSeconds,
-            out string anchorSource)
+            out string anchorSource,
+            bool useCache = true,
+            GhostPlaybackLogic.TailPlanetTurn planetTurn = default(GhostPlaybackLogic.TailPlanetTurn))
         {
             weightedOffset = Vector3d.zero;
             rawOffset = Vector3d.zero;
@@ -39,7 +41,8 @@ namespace Parsek
 
             string cacheKey = BuildPredictedOrbitTailContinuityCacheKey(traj, segment, anchorUT);
             bool cacheHit = false;
-            if (predictedOrbitTailContinuityCache.TryGetValue(
+            if (useCache
+                && predictedOrbitTailContinuityCache.TryGetValue(
                     cacheKey, out ParsekFlight.PredictedOrbitTailContinuityCacheEntry cacheEntry)
                 && ParsekFlight.IsFiniteVector3d(cacheEntry.rawOffset))
             {
@@ -67,7 +70,10 @@ namespace Parsek
                     cacheKey = BuildPredictedOrbitTailContinuityCacheKey(traj, segment, anchorUT);
                 }
 
-                Vector3d orbitAtAnchor = orbit.getPositionAtUT(anchorUT);
+                // A planet-turned tail measures the offset against the conic turned the same way.
+                Vector3d orbitAtAnchor = planetTurn.Apply(
+                    orbit.referenceBody != null ? orbit.referenceBody.position : Vector3d.zero,
+                    orbit.getPositionAtUT(anchorUT));
                 rawOffset = anchorWorld - orbitAtAnchor;
                 if (!ParsekFlight.IsFiniteVector3d(rawOffset))
                     return false;
@@ -76,12 +82,13 @@ namespace Parsek
                 if (candidateRawMeters <= 0.01)
                     return false;
 
-                predictedOrbitTailContinuityCache[cacheKey] =
-                    new ParsekFlight.PredictedOrbitTailContinuityCacheEntry
-                    {
-                        rawOffset = rawOffset,
-                        anchorSource = anchorSource
-                    };
+                if (useCache)
+                    predictedOrbitTailContinuityCache[cacheKey] =
+                        new ParsekFlight.PredictedOrbitTailContinuityCacheEntry
+                        {
+                            rawOffset = rawOffset,
+                            anchorSource = anchorSource
+                        };
             }
 
             weightedOffset = rawOffset * weight;
@@ -110,7 +117,7 @@ namespace Parsek
                     weight,
                     blendSeconds,
                     GhostRenderTrace.FormatVector3d(weightedOffset)
-                    + " cache=" + (cacheHit ? "hit" : "miss")),
+                    + " cache=" + (!useCache ? "off" : cacheHit ? "hit" : "miss")),
                 5.0);
             return true;
         }

@@ -69,7 +69,8 @@ id = "QL-2b-quickload-booster-career-reward-not-paid"
 #      recordings' kerbal-assignment summaries.
 #   5. From the retire on, no recalc credits Kerbin/SurfaceEVA, so the final commit's
 #      patch leaves KSP's funds (the quicksave's, which never saw the EVA) unchanged.
-#   The booster half is QL-4's unchanged: its abandoned SubOrbital ending is cleared, it is
+#   The booster half is QL-4's unchanged: its abandoned ending (a predicted chute touchdown
+#   since owner ruling Q4, 2026-11-21; SubOrbital before) is not in the save, it is
 #   re-registered with the background recorder, recorded down to the ground and commits
 #   Landed at the scene exit.
 #
@@ -103,7 +104,7 @@ id = "QL-2b-quickload-booster-career-reward-not-paid"
 # BEFORE-FIX CONVENTION: the fixes are merged (PR #2025 + the committed-copy restore), so
 # this is a plain regression lane with no [expectedFail]. On a build without the reconcile
 # the prediction is PARSEK-FAIL(expectation): the reconcile and retire lines missing, the
-# booster committing SubOrbital, and `Credited milestone 'Kerbin/SurfaceEVA'` after the F9.
+# booster keeping its abandoned ending (bg=0), and `Credited milestone 'Kerbin/SurfaceEVA'` after the F9.
 #
 # PRE-REGISTERED READINGS (what to check first if the first flight reds):
 #   - `evaexit refused reason=no-airlock` / `eva-refused` or `evaexit timeout`: the pod's
@@ -291,8 +292,12 @@ required = [
   # (MilestonesModule.ProcessAction) and FundsModule counts its funds, both before the F9.
   "Credited milestone 'Kerbin/SurfaceEVA' at UT=(?:149|1[5-9][0-9])\\.[0-9] \\(recording=[0-9a-f]{32}, funds=[1-9][0-9]*, [\\s\\S]*loadgame start save=\\S+ name=quicksave ",
   "Milestone funds: \\+[1-9][0-9.]*, actionId=\\S+, milestoneId=Kerbin/SurfaceEVA, recordingId=[0-9a-f]{32}, [\\s\\S]*loadgame start save=\\S+ name=quicksave ",
-  # The abandoned future's booster ending: committed while still under canopy.
-  "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=SubOrbital",
+  # The abandoned future's booster ending: committed while still under canopy, so since
+  # owner ruling Q4 (2026-11-21) its predicted chute touchdown (Landed / Splashed,
+  # TerminalPredicted; SubOrbital before). Ordered before the F9 (QL-4's reason: the
+  # replay's finalize is Landed too). Owner ruling Q14 (2026-11-21) does not move it: a
+  # plain in-flight CommitTree keeps the predicted touchdown (Q14 is for leaving the flight).
+  "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=(?:Landed|Splashed)[\\s\\S]*loadgame start save=\\S+ name=quicksave ",
 
   # GROUP 3 - THE F9 IS A SAVE-FILE LOAD (design 4.1).
   "loadgame start save=\\S+ name=quicksave scene=FLIGHT requestedScene=Unspecified allowLiveRecorder=\\(none\\) recorderLive=false playerLoad=true",

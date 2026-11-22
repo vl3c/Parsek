@@ -1383,6 +1383,32 @@ namespace Parsek
         /// The plain rewind (Rewind-to-Launch, Warp-to-game-start): keeps memory's recordings and
         /// ledger and loads the rewind save's stock state. Returns before the refined classification.
         /// </summary>
+        /// <summary>
+        /// A time-travel load (<see cref="StockShadowTakeBack.IsTimeTravelLoad"/>) loads a stock
+        /// state from <paramref name="loadedWorldUT"/>: every recording's stock-held stamp
+        /// (<see cref="Recording.StockHeldVesselUT"/>) later than that describes a stock state
+        /// the game no longer holds and is cleared (<see cref="PredictedTouchdownStockFate"/>).
+        /// Reads every recording in memory, committed (superseded ones included: the stamp is
+        /// bookkeeping on the object, not an effective-state question) and pending.
+        /// </summary>
+        private static void ForgetStockHeldVesselsAfterTimeTravel(LoadKind kind, double loadedWorldUT)
+        {
+            if (!StockShadowTakeBack.IsTimeTravelLoad(kind))
+                return;
+            var recordings = new List<Recording>(RecordingStore.CommittedRecordings);
+            for (int i = 0; i < RecordingStore.CommittedTrees.Count; i++)
+            {
+                RecordingTree tree = RecordingStore.CommittedTrees[i];
+                if (tree?.Recordings != null)
+                    recordings.AddRange(tree.Recordings.Values);
+            }
+            RecordingTree pending = PendingTreeSlot.PendingTree;
+            if (pending?.Recordings != null)
+                recordings.AddRange(pending.Recordings.Values);
+            PredictedTouchdownStockFate.ForgetStockHeldAfterTimeTravel(
+                recordings, loadedWorldUT, kind.ToString());
+        }
+
         private void OnLoadFlowPlainRewind(OnLoadContext ctx)
         {
             ConfigNode node = ctx.Node;
@@ -1406,6 +1432,8 @@ namespace Parsek
             // A flag the player removed after the rewind save's UT stands in its world
             // again (or replay plants it at its moment).
             ReconcileRemovedReplayFlagsAtLoad(LoadKind.PlainRewind, rewindWorldUT);
+            // The rewind save's stock state predates every later stock-held stamp.
+            ForgetStockHeldVesselsAfterTimeTravel(LoadKind.PlainRewind, rewindWorldUT);
 
             ctx.Phase = "rewind";
             HandleRewindOnLoad(node, recordings);
@@ -1589,6 +1617,9 @@ namespace Parsek
             LiveOnlyIncome.DropAfterTimeTravelLoad(refinedLoadKind, loadedWorldUT);
             // The same load forgets the player's flag removals after the loaded UT.
             ReconcileRemovedReplayFlagsAtLoad(refinedLoadKind, loadedWorldUT);
+            // And it forgets every vessel stock held after the loaded UT (a predicted
+            // touchdown's craft is then not in this timeline yet; its replay spawns it).
+            ForgetStockHeldVesselsAfterTimeTravel(refinedLoadKind, loadedWorldUT);
 
             // Vessel names (design 7.6, ruling 5): a stock revert or Discard Re-fly cancels
             // the current flight epoch, and with it the stock renames made inside it.

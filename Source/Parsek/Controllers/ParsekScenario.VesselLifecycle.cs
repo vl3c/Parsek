@@ -184,9 +184,30 @@ namespace Parsek
                 ParsekLog.Warn("Scenario",
                     $"Recovery request: reading lab science for '{v.vesselName}' threw: {ex.Message}");
             }
+            List<string> crewNames = null;
+            try
+            {
+                var crew = v.GetVesselCrew();
+                crewNames = new List<string>();
+                if (crew != null)
+                {
+                    for (int i = 0; i < crew.Count; i++)
+                    {
+                        if (crew[i] != null && !string.IsNullOrEmpty(crew[i].name))
+                            crewNames.Add(crew[i].name);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                crewNames = null;
+                ParsekLog.Warn("Scenario",
+                    $"Recovery request: reading the crew of '{v.vesselName}' threw: {ex.Message} - " +
+                    "the recording's crew fall back to their start seats");
+            }
             InFlightRecoveryRequest.Arm(
                 v.persistentId, guid, v.vesselName, Planetarium.GetUniversalTime(),
-                boundRecordingId, labStoredScience);
+                boundRecordingId, labStoredScience, crewNames);
 
             if (PendingTreeSlot.HasPendingTree
                 && PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Finalized)
@@ -239,10 +260,22 @@ namespace Parsek
                 now,
                 out RecoveryPayoutContext payoutContext);
 
+            // The crew stock recovers with the vessel, read before anything drops the end
+            // snapshot: a kerbal named here reads Recovered whatever seat he started in.
+            List<string> recoveredCrew = ReadRecoveredCrewNames(pv, identity);
             bool updated = UpdateRecordingsForTerminalEvent(
-                identity, TerminalState.Recovered, now, pv.persistentId);
+                identity, TerminalState.Recovered, now, pv.persistentId, recoveredCrew);
             if (updated)
                 ParsekLog.Info("Scenario", $"Vessel '{identity.DisplayName}' recovered — recording(s) updated with Recovered terminal state");
+
+            // Owner rulings Q13 / Q13b: a COMMITTED recording of this launch that ends in a
+            // crash Parsek only predicted (at any UT), or a predicted chute touchdown recovered
+            // before the touchdown, follows the recovery (stock still had the vessel). Before
+            // the ledger rows below, so the funds pick, the crew close and the VesselRecovered
+            // row read the Recovered ending. Parsek's own programmatic recoveries are not the
+            // player's outcome.
+            if (!GameStateRecorder.SuppressCrewEvents)
+                ReconcileRecoveredCommittedPredictions(VesselLaunchIdentity.ReadLaunchGuid(pv), now, recoveredCrew);
 
             // #444: when recovery happens outside the Flight scene (tracking station or
             // post-flight summary at KSC), KSP's FundsChanged(VesselRecovery) event lies
@@ -299,6 +332,36 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// The names of the kerbals aboard the recovered vessel (the crew stock recovers), or
+        /// null when the vessel's crew cannot be read (the recording then falls back to the
+        /// per-part rule over the start seats).
+        /// </summary>
+        private static List<string> ReadRecoveredCrewNames(ProtoVessel pv, RecoveredVesselIdentity identity)
+        {
+            try
+            {
+                var crew = pv.GetVesselCrew();
+                var names = new List<string>();
+                if (crew != null)
+                {
+                    for (int i = 0; i < crew.Count; i++)
+                    {
+                        if (crew[i] != null && !string.IsNullOrEmpty(crew[i].name))
+                            names.Add(crew[i].name);
+                    }
+                }
+                return names;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"Recovered crew read: GetVesselCrew threw for '{identity.DisplayName}': {ex.Message} - " +
+                    "the recording's crew fall back to their start seats");
+                return null;
+            }
+        }
+
         private static void CloseCrewReservationsForRecoveredVessel(
             ProtoVessel pv,
             RecoveredVesselIdentity identity,
@@ -331,6 +394,111 @@ namespace Parsek
                 VesselLaunchIdentity.ReadLaunchGuid(pv),
                 identity.DisplayName,
                 names);
+        }
+
+        /// <summary>
+        /// Owner ruling Q13, the live shell of <see cref="ApplyRecoveryOfCommittedPredictions"/>:
+        /// the trees a live session owns (the flight's active tree, the pending tree) are left
+        /// to that session's commit, and nothing is touched while a Re-Fly session runs (its
+        /// Merge / Discard decide). Matches by launch guid only.
+        /// </summary>
+        private void ReconcileRecoveredCommittedPredictions(
+            string launchGuid, double now, IEnumerable<string> recoveredCrew)
+        {
+            if (string.IsNullOrEmpty(launchGuid))
+                return;
+            if (ActiveReFlySessionMarker != null)
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"Committed predicted-ending recovery skipped for guid={launchGuid}: a Re-Fly session is active");
+                return;
+            }
+            var flight = ParsekFlight.Instance;
+            string activeTreeId = flight != null ? flight.ActiveTreeForSerialization?.Id : null;
+            string pendingTreeId = PendingTreeSlot.PendingTree?.Id;
+            Func<Recording, bool> ownedElsewhere = rec =>
+                (activeTreeId != null && string.Equals(rec.TreeId, activeTreeId, StringComparison.Ordinal))
+                || (pendingTreeId != null && string.Equals(rec.TreeId, pendingTreeId, StringComparison.Ordinal));
+            int converted;
+            try
+            {
+                converted = ApplyRecoveryOfCommittedPredictions(
+                    EffectiveState.ComputeERS(), launchGuid, now, ownedElsewhere,
+                    "OnVesselRecovered:" + HighLogic.LoadedScene, recoveredCrew);
+            }
+            catch (Exception ex)
+            {
+                // The recovery's own ledger rows below must still be written.
+                ParsekLog.Warn("Scenario",
+                    $"Committed predicted-ending recovery threw for guid={launchGuid}: " +
+                    $"{ex.GetType().Name}: {ex.Message}");
+                return;
+            }
+            if (converted > 0)
+                ParsekLog.Info("Scenario",
+                    $"Recovery of guid={launchGuid} at ut={now.ToString("F1", CultureInfo.InvariantCulture)}: " +
+                    $"{converted.ToString(CultureInfo.InvariantCulture)} committed predicted ending(s) now end Recovered");
+        }
+
+        /// <summary>
+        /// The committed-history half of owner ruling Q13: for every recording
+        /// <see cref="PredictedEndingRecovery.SelectRecoveryTargets"/> picks, deep-clones its
+        /// committed tree, converts the recording on the clone
+        /// (<see cref="PredictedEndingRecovery.ConvertToRecovered"/>), commits the clone over the
+        /// committed tree (same-id replace, which retires the forecast's crew rows and death
+        /// penalty, <see cref="LedgerOrchestrator.ShouldRefreshCrewRowsOnReplace"/>) and files
+        /// the tree's ledger rows (the crew Recovered). <paramref name="recoveredCrew"/> is the
+        /// recovered vessel's crew (null: not known). A committed tree is untouched when
+        /// anything before its commit refuses. Returns the recordings converted.
+        /// </summary>
+        internal static int ApplyRecoveryOfCommittedPredictions(
+            IReadOnlyList<Recording> effectiveRecordings, string launchGuid, double recoveryUT,
+            Func<Recording, bool> ownedElsewhere, string context, IEnumerable<string> recoveredCrew = null)
+        {
+            List<Recording> targets = PredictedEndingRecovery.SelectRecoveryTargets(
+                effectiveRecordings, launchGuid, recoveryUT, ownedElsewhere, context);
+            int applied = 0;
+            for (int i = 0; i < targets.Count; i++)
+            {
+                Recording target = targets[i];
+                RecordingTree committedTree = RecordingStore.FindCommittedTreeById(target.TreeId);
+                if (committedTree?.Recordings == null
+                    || !committedTree.Recordings.TryGetValue(target.RecordingId, out Recording committedRec)
+                    || committedRec == null)
+                {
+                    PredictedEndingRecovery.LogRefused(context, target.TreeId, target.RecordingId, "tree-not-found");
+                    continue;
+                }
+                TerminalState? previous = committedRec.TerminalStateValue;
+                bool touchdown = PredictedTouchdownStockFate.IsPredictedTouchdown(committedRec);
+                double predictedEndUT = committedRec.EndUT;
+
+                RecordingTree clone = RecordingTree.DeepClone(committedTree);
+                if (clone?.Recordings == null
+                    || !clone.Recordings.TryGetValue(target.RecordingId, out Recording rec) || rec == null)
+                {
+                    PredictedEndingRecovery.LogRefused(context, committedTree.Id, target.RecordingId, "clone-failed");
+                    continue;
+                }
+                if (!PredictedEndingRecovery.ConvertToRecovered(
+                        rec, recoveryUT, context, out PredictedEndingDropResult drop, out string reason,
+                        recoveredCrew))
+                {
+                    PredictedEndingRecovery.LogRefused(context, committedTree.Id, target.RecordingId, reason);
+                    continue;
+                }
+                if (!TreeCommitService.CommitTree(clone))
+                {
+                    PredictedEndingRecovery.LogRefused(context, committedTree.Id, target.RecordingId, "commit-refused");
+                    continue;
+                }
+                RecordingTree committed = TreeCommitService.ResolveCommittedTreeAfterCommit(clone, context);
+                LedgerOrchestrator.NotifyLedgerTreeCommitted(committed);
+                applied++;
+                PredictedEndingRecovery.LogApplied(
+                    context, committedTree.Id, rec, previous, touchdown, predictedEndUT, recoveryUT, drop.CutUT);
+            }
+            return applied;
         }
 
         private void OnVesselTerminated(ProtoVessel pv)
@@ -388,7 +556,8 @@ namespace Parsek
             RecoveredVesselIdentity identity,
             TerminalState state,
             double ut,
-            uint vesselPid = 0)
+            uint vesselPid = 0,
+            IEnumerable<string> recoveredCrew = null)
         {
             bool anyUpdated = false;
 
@@ -407,7 +576,7 @@ namespace Parsek
                 {
                     VesselMatchKind matchKind = ClassifyVesselMatch(rec, identity, vesselPid);
                     if (matchKind == VesselMatchKind.None
-                        || !CanOverwriteTerminalState(rec.TerminalStateValue, state))
+                        || !CanOverwriteTerminalState(rec.TerminalStateValue, state, rec.TerminalPredicted))
                         continue;
 
                     // An earlier segment of the same vessel (split parent, dock dominant
@@ -430,7 +599,7 @@ namespace Parsek
                     if (matchKind == VesselMatchKind.LaunchIdentity
                         && !identity.MatchesName(rec.VesselName))
                         stampedRenamedCount++;
-                    ApplyTerminalEventStamp(rec, state, ut, "UpdateRecordingsForTerminalEvent");
+                    ApplyTerminalEventStamp(rec, state, ut, "UpdateRecordingsForTerminalEvent", recoveredCrew);
                     anyUpdated = true;
                     stampedCount++;
                     ParsekLog.Verbose("Scenario", $"Updated pending tree recording '{rec.VesselName}' with {state}");
@@ -475,12 +644,26 @@ namespace Parsek
         /// recording: end at the event UT, release the snapshot's crew, drop the vessel
         /// snapshot, stamp the terminal. Shared by the pending-tree path above and the
         /// in-flight Recover path (<see cref="InFlightRecoveryRequest"/>), so a recording
-        /// committed after either reads exactly the same.
+        /// committed after either reads exactly the same. <paramref name="recoveredCrew"/> (a
+        /// recovery only) is the recovered vessel's crew, carried on the stamp because the
+        /// snapshot that names the kerbals' last seats is dropped here.
         /// </summary>
         internal static void ApplyTerminalEventStamp(
-            Recording rec, TerminalState state, double ut, string source)
+            Recording rec, TerminalState state, double ut, string source,
+            IEnumerable<string> recoveredCrew = null)
         {
             if (rec == null) return;
+            if (state == TerminalState.Recovered
+                && rec.TerminalStateValue == TerminalState.Destroyed && rec.TerminalPredicted)
+            {
+                // The vessel a predicted ending gave up on was recovered: it was never
+                // destroyed, and the Recovered stamp below re-infers its crew as recovered.
+                rec.VesselDestroyed = false;
+                ParsekLog.Info("Scenario",
+                    $"{source ?? "(none)"}: predicted Destroyed of '{rec.RecordingId ?? "(null)"}' " +
+                    $"overwritten by Recovered at ut={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"(remnantSurvives={rec.TerminalRemnantSurvives}; KSP still had the vessel and the player recovered it)");
+            }
             rec.ExplicitEndUT = ut;
             CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
             // Snapshot first, stamp second: CanOverwriteTerminalState
@@ -490,7 +673,8 @@ namespace Parsek
             // re-derivability against the surface that survives this block
             // (the ghost snapshot), not the snapshot being dropped here.
             rec.VesselSnapshot = null;
-            rec.StampTerminalState(state, source);
+            rec.StampTerminalState(state, source,
+                recoveredCrew: state == TerminalState.Recovered ? recoveredCrew : null);
         }
 
         /// <summary>
@@ -605,13 +789,19 @@ namespace Parsek
         /// from the Tracking Station delete confirm, never after a recovery). Disassembled,
         /// Docked and Boarded are final too.
         /// </summary>
-        internal static bool CanOverwriteTerminalState(TerminalState? existing, TerminalState incoming)
+        internal static bool CanOverwriteTerminalState(
+            TerminalState? existing, TerminalState incoming, bool existingPredicted = false)
         {
             if (!existing.HasValue) return true;
 
             // Recovered and Destroyed are "final" — only Recovered blocks further overwrite
             if (existing.Value == TerminalState.Recovered) return false;
-            if (existing.Value == TerminalState.Destroyed) return false;
+            // A Destroyed Parsek only predicted (Recording.TerminalPredicted: a crash forecast
+            // while KSP still had the vessel, or an identity loss over a remnant KSP keeps) is
+            // not final against a recovery: KSP still had the vessel and the player recovered
+            // it, so the recovery is what happened and the crew come home.
+            if (existing.Value == TerminalState.Destroyed)
+                return existingPredicted && incoming == TerminalState.Recovered;
 
             // Disassembled is final for the same reason, and has to be named separately
             // because the caller's match (MatchesVessel) still falls back to the VESSEL NAME

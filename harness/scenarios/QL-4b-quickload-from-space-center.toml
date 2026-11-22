@@ -118,7 +118,10 @@ id = "QL-4b-quickload-from-space-center"
 #   - `action=Unchanged` on the decision line names its reason (`tree-committed-in-quicksave`,
 #     `revert-pending`, `load-kind-*`): a premise miss unless the reason is wrong.
 #   - The abandoned-future booster terminal at the first exit is NOT pinned: the scene-exit
-#     finalizer may extrapolate the descending booster (SubOrbital, Landed or Destroyed);
+#     finalizer may extrapolate the descending booster (since owner ruling Q14, 2026-11-21,
+#     leaving the flight with the booster in the air under canopy ends it Destroyed at the
+#     exit with a quiet ghost end; a predicted Landed / Splashed under Q4 before that;
+#     SubOrbital or Destroyed before Q4);
 #     the reconcile clears it whatever it is (endStatesCleared >= 1).
 #   - TA-3 (ledger rows) is not exercised: sandbox, no recovery.
 #   - READ THE FIRST LOG FOR AN OPTIMIZER SPLIT OF THE POD'S RECORDING. The exit auto-merge
