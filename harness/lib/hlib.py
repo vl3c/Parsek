@@ -1128,8 +1128,10 @@ ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
     # TracedPath-handoff exemption (V15M-LINEBLINK-IS-TRACEDPATH-HANDOFF-CADENCE)
     # landed above it in the same file. Nothing about the seam instrument changed;
     # the new number was re-derived from the scan, not shifted by arithmetic.
+    # It moved 2376 -> 2445 on 2026-11-22: the faithful-seed PhaseLock tolerance
+    # (todo SEAM-ENDPOINT-LENS-FORBID-ON-PHASE-LOCKED-MOON-LOOPS) landed above it.
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-    ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2376"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2445"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS
@@ -5274,9 +5276,22 @@ PARTPARITY_STEP_LINE_LITERAL = "PartParity step"
 #                      complete sidecar nor a recorded setup fault
 #   parity-host-damaged  the C# host-integrity guard stopped the sweep: the host vessel
 #                      lost parts, left its orbit or vanished, so the unrun cases are the
-#                      instrument's fault (partparity ranks it ahead of the other three)
+#                      instrument's fault (partparity ranks it ahead of the other four)
+#   parity-state-press a state run (design-part-ghost-parity.md D.6) where more than half
+#                      of one family's state cases ended action-failed or state-timeout:
+#                      that family's press / wait / poll path is broken, so its `error`
+#                      cases say nothing about its ghosts
+# When one run trips several, partparity.combine names one, in the order host-damaged >
+# controls > state-press > instrument > incomplete (the D.6 order: the press gate after
+# the controls, before the recompute); classify_verdict takes that subkind as given.
 PARTPARITY_INVALID_SUBKINDS: Tuple[str, ...] = (
     "parity-controls", "parity-instrument", "parity-incomplete", "parity-host-damaged",
+    "parity-state-press",
+)
+# partparity.combine's ranking of the subkinds above, first wins.
+PARTPARITY_INVALID_SUBKIND_ORDER: Tuple[str, ...] = (
+    "parity-host-damaged", "parity-controls", "parity-state-press", "parity-instrument",
+    "parity-incomplete",
 )
 PARTPARITY_PARSEK_FAIL_SUBKIND = "part-parity"
 
@@ -13815,7 +13830,8 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
       analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
       post-mission outcome step unmet -> PARSEK-FAIL(mission-outcome)
-      part-parity instrument (controls / recompute / completeness) -> INVALID (no retry)
+      part-parity instrument (host-damaged > controls > state-press > recompute >
+          completeness, the row names one) -> INVALID (no retry)
       log-contract / results / anomaly / unity-exception / expectation /
           save-structure / render-composition / ghost-lifecycle / part-parity /
           ledger -> PARSEK-FAIL
@@ -13886,8 +13902,10 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                          "analyzer red topRule=%s" % (analyzer.top_rule,))
         if base is None and verifiers.get("part_parity_invalid", False):
             # The part ghost parity instrument did not prove itself (a control not
-            # `ok`, a Python recompute that disagrees with the C# measures, a sweep
-            # that did not finish, or a host the integrity guard found damaged). Nothing the row measured is evidence about the
+            # `ok`, a family whose state press mostly failed, a Python recompute that
+            # disagrees with the C# measures, a sweep that did not finish, or a host
+            # the integrity guard found damaged; the row has already picked one by
+            # PARTPARITY_INVALID_SUBKIND_ORDER). Nothing the row measured is evidence about the
             # ghost, and the lane's step-line pins would read the same fault as a
             # log-contract red, so this INVALID is placed ahead of every contract
             # verifier. Terminal: a retry re-runs `op=reset` and discards the sweep.

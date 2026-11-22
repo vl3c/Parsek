@@ -699,6 +699,37 @@ same numbering.
    population of raises with their ratios attributed, and the manifests now carry
    per-raise `ANOMALY_ECHO` records with `ut` stamps to build it from offline.
 
+7. **The ratio tolerance has a phase-lock allowance for faithful loop replays
+   (2026-11-22, PR #2759, todo SEAM-ENDPOINT-LENS-FORBID-ON-PHASE-LOCKED-MOON-LOOPS).**
+   The single 1.005 ratio (`SeamEndpointOracle.DefaultRatioTolerance`) was
+   calibrated on re-aimed arcs. A faithful (not re-aimed) loop replay draws the
+   recorded conic with its epoch moved by the loop shift, and PhaseLock keeps the
+   destination's phase error inside `MissionPeriodicity.ToleranceSecondsFor`
+   (SOI radius / mean orbital speed), not at zero
+   (`docs/dev/done/plans/zero-drift-reschedule.md`). So a same-parent moon cadence
+   leaves a bounded miss by design. GS-13's Mun loop shift is 280142.5 s, two Mun
+   periods plus 2173.8 s (5.63 deg, about 1179 km, 0.485 of the SOI), and it read
+   ratio 1.0526. That reading only became reachable once split rule version 3
+   started the transfer piece before the SOI seam.
+   `SeamEndpointOracle.ResolveRatioTolerance` (primitive-only; its caller
+   `MapRenderProbe.ResolveSeamRatioTolerance` reads the destination's period,
+   mean speed and SOI through `IBodyInfo` and the band through
+   `ToleranceSecondsFor`) decides per sample:
+   - faithful seed on the shifted (`baked`) clock, residual inside the band:
+     `1.005 + residual x speed / SOI` (source `phase-lock`; a zero residual is
+     exactly the default). The residual is the circular phase error of the loop
+     shift against the destination's own orbit period about its parent.
+   - every other case keeps 1.005: a re-aimed or seedless sample (`default`); a
+     `raw` or `assumed-live` clock (`faithful-unshifted-clock`); a residual
+     outside the band (`faithful-unlocked`); missing body data
+     (`faithful-no-body-data`).
+   The `seam-endpoint-outside-soi` line carries `tolSource=` and
+   `phaseResidual=`, and a reading the allowance absorbs prints
+   `seam-endpoint phase-lock allowance: ...` (Verbose, rate-limited per pid).
+   GS-13 requires that allowance line and forbids `outsideSoi=[1-9]` again; V6M,
+   V7M, V14M and V21M keep their forbids. V8F's required raises (ratios 4.80 to
+   203.2) sit far above any allowance and are unchanged.
+
 Two further facts a reader of this design needs about what shipped:
 
 - **The manifest is `schemaVersion = 1` and stayed there.** The v1.1 pass added

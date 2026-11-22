@@ -59,8 +59,7 @@ id = "EX-2-single-point-held-ghost"
 #   box) grazed the Mainsail at 13.4 m, cleared on the 1 s retry and spawned the vessel.
 #
 # SPEC CHANGED 2026-11-21 (owner ruling 2026-11-21, todo
-# SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS, branch `rsr-wp9-orbit-spawn-clear`), NOT
-# RE-FLOWN: a blocked recorded-terminal-orbit spawn now moves along its own orbit (up to
+# SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS, branch `rsr-wp9-orbit-spawn-clear`): a blocked recorded-terminal-orbit spawn now moves along its own orbit (up to
 # 1000 m, `OrbitSpawnClearance`) before it gives up, so the old 155 m box would clear at
 # about 230 m and SPAWN, losing this lane's D13 / D18 reading. The lane now injects its own
 # preset `single-point-hold-wide`: the `single-point-hold` shape with the outriggers at 1300 m
@@ -74,6 +73,10 @@ id = "EX-2-single-point-held-ghost"
 # loaded non-active vessel on the ground outside the KSC circles. The single-point branch of
 # `CheckSpawnCollisions` itself (no terminal orbit, one point) moved to the in-game cell
 # `OrbitSpawnClearance` / `SinglePointSpawnWithNoTerminalOrbit_KeepsTheSinglePointRetry`.
+# RE-FLOWN PASS 2026-11-22 on that shape: `2026-11-22_1139_EX-2-single-point-held-ghost` attempt 1
+# (automation DLL sha256 prefix d1e3e2bf, origin/main c01fe82f8 build): `outcome=Blocked attempts=30`
+# against 'Kerbal X Probe', `held=5.0s`, `destroyed (held-spawn-timeout)`, after-hold pid 0 spawned-false.
+# The single-point cell flew green the same day on `OSC-1-orbit-spawn-clearance-lko`.
 # -------------------------------------------------------------------------------------
 tier = "nightly"
 description = "D18 ghost-extension-past-endut, SCOPED TO THE SINGLE-POINT COLLISION HOLD (design 13.5): an injected one-point recording with an orbit tail (single-point-hold preset) ends on eva2-lko-crewed's loaded, non-active Kerbal X Probe in LKO. At EndUT the orbit spawn is collision-blocked with no clear spot along its own orbit (the preset's widened box covers every orbit phase candidate; the single-point branch until 2026-11-21), ParsekPlaybackPolicy holds the live ghost, retries every 1 s and times out at 5 s, and the release destroys the ghost with held-spawn-timeout. Asserts the ghost survives the hold (the engine keeps it after the completion reaches the policy, no stale past-end destroy before the timeout) and no vessel spawns."

@@ -175,7 +175,8 @@ namespace Parsek
                 ut, now, ownedElsewhere, lookup, () => liveByGuid, out int tdDeleted, out int tdContradicted,
                 out int tdFailed);
 
-            nextDueUT = pass.NextDueUT;
+            // A held final orbit is worth a look again when its prediction changes conic.
+            nextDueUT = Math.Min(pass.NextDueUT, touchdown.NextDueUT);
             bool awaiting = pass.Count(PredictedCrashReconcileOutcome.AwaitingConfirmation) > 0
                 || touchdown.AwaitingConfirmation;
             nextRecheckRealtime = pass.NeedsRecheck || touchdown.NeedsRecheck
@@ -194,8 +195,8 @@ namespace Parsek
         /// <summary>
         /// The predicted-touchdown and final-orbit half of a pass (owner rulings P-STOCK / Q4c / Q4d / Q8,
         /// <see cref="PredictedTouchdownStockFate"/>): stamps every candidate stock holds now,
-        /// records stock's deletion of a craft it held in this timeline, and drops a touchdown
-        /// stock contradicted. A live tree that docked with or boarded the craft owns it (the
+        /// records stock's deletion of a craft it held in this timeline, and drops a touchdown or
+        /// a final orbit stock contradicted (held on another body or orbit). A live tree that docked with or boarded the craft owns it (the
         /// commit takes the predicted ending over); a recovery or termination row explains a
         /// disappearance (Q13).
         /// </summary>
@@ -221,7 +222,7 @@ namespace Parsek
             PredictedTouchdownPassResult pass = PredictedTouchdownStockFate.EvaluatePass(
                 EffectiveState.ComputeERS(), ownedElsewhere, removedByPlayer, lookup, ut,
                 sceneSettled: true, realtimeNow: now, firstObserved: touchdownFirstObserved,
-                skipIds: touchdownFailedIds);
+                skipIds: touchdownFailedIds, gravParameterOfBody: ReadBodyGravParameterCore);
 
             int stamped = 0;
             for (int i = 0; i < pass.Sighted.Count; i++)
@@ -372,6 +373,7 @@ namespace Parsek
                 facts.Descending = Vector3d.Dot(pos, vel) < 0.0;
                 facts.StockRemovalAltitude = OrbitClearance.ResolveDeletionAltitude(orbit.referenceBody);
             }
+            facts.LiveOrbit = ParsekFlight.ReadTakeoverCoastEvidence(v, ut);
             return facts;
         }
 
@@ -397,6 +399,13 @@ namespace Parsek
         private static List<Vessel> ReadFlightGlobalsVesselsCore()
         {
             return FlightGlobals.Vessels;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static double ReadBodyGravParameterCore(string bodyName)
+        {
+            CelestialBody body = string.IsNullOrEmpty(bodyName) ? null : FlightGlobals.GetBodyByName(bodyName);
+            return ReferenceEquals(body, null) ? double.NaN : body.gravParameter;
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

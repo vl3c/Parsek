@@ -226,7 +226,8 @@ namespace Parsek
             double periapsisAltitude,
             double apoapsisAltitude,
             double maxTerrainAltitude,
-            double deletionAltitude)
+            double deletionAltitude,
+            bool groundScanEndOrbit = false)
         {
             return TerminalOrbitSpawnSafety.Evaluate(
                 currentAltitude,
@@ -235,7 +236,8 @@ namespace Parsek
                 periapsisAltitude,
                 apoapsisAltitude,
                 maxTerrainAltitude,
-                deletionAltitude);
+                deletionAltitude,
+                groundScanEndOrbit);
         }
 
         /// <summary>
@@ -283,7 +285,8 @@ namespace Parsek
                 periapsisAltitude,
                 apoapsisAltitude,
                 OrbitClearance.ResolveMaxTerrainAltitude(body),
-                OrbitClearance.ResolveDeletionAltitude(body));
+                OrbitClearance.ResolveDeletionAltitude(body),
+                rec != null && rec.GroundScanEndOrbit);
 
             if (decision.Action == TerminalOrbitSpawnSafetyAction.DeferUntilSafe)
             {

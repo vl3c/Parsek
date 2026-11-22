@@ -930,6 +930,17 @@ verbatim: the split scan skips it before any normalization, `CanAutoMerge` refus
 boring-tail trim holds it (`newer-split-rules`) and the RULE 3 fold refuses it; the codec writes
 its version back. A rule version 3 can therefore ship without an older build re-cutting its rows.
 
+**A live Re-Fly attempt is never cut (2026-11-22).** For every version, the split scan skips a
+`NotCommitted` recording (`FindSplitCandidatesForOptimizer`, summary `kept N NotCommitted
+recording(s) whole`). The Re-Fly provisional is stamped at `AddProvisional`, so the current rules
+apply to it as soon as it exists. The merge-journal finisher clears the session marker before its
+own optimizer pass, so the marker deferral no longer covered it there. Lane RF-12W then cut the
+provisional at its atmosphere exit, and its terminal state, crew ends and destruction moved onto a
+fresh-id half that neither the marker nor the supersede commit names (todo
+OPTIMIZER-SPLITS-LIVE-REFLY-PROVISIONAL). The attempt is cut on a later pass, once its merge has
+committed it. This mirrors `MergeInto`'s `NotCommitted` refusal; `RecordingTreeSplitter`'s HEAD /
+TIP cut calls `SplitAtUT` directly and is unaffected.
+
 **Row roles.** Version-2 splits stamp `Recording.SegmentRole` on both halves: `ascent`, `space`,
 `aerobraking`, `reentry`, `approach`, `surface`, `atmosphere` (`RecordingOptimizer.SegmentRoles`;
 the orbit-kind cuts of a later version add more). The first half keeps its role or gets the role

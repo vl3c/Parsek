@@ -2304,13 +2304,13 @@ class SpecValidationRejectTests(unittest.TestCase):
     # roster lives HERE rather than in a doc, so arming costs a deliberate edit in
     # the file whose test reds when someone arms without one.
     #
-    # THE NAME AVOIDS THE SUBSTRING `ARMED_ALLOWLIST` ON PURPOSE, and a future
-    # sibling roster must do the same. `Cl3SpecArmedTests
-    # .test_it_is_on_the_save_structure_armed_allowlist` reads the save-structure
-    # roster OUT OF THIS FILE'S SOURCE with `re.search(r"ARMED_ALLOWLIST\s*=\s*\{
-    # ([^}]*)\}")`, which takes the FIRST match - so a second constant whose name
-    # ended in `ARMED_ALLOWLIST` and sat above it would silently hand CL-3 the wrong
-    # list. It did exactly that on the first draft of this roster.
+    # THE NAME AVOIDS `ARMED_ALLOWLIST` ON PURPOSE, and a future sibling roster
+    # must too. `Cl3SpecArmedTests.test_it_is_on_the_save_structure_armed_allowlist`
+    # reads the save-structure roster OUT OF THIS FILE'S SOURCE through the parser
+    # (`_read_armed_allowlist`: the set literal assigned to exactly that name), and
+    # reds when two such assignments exist. Its first form, a regex, took the first
+    # name ENDING in it (which this roster's first draft was) and stopped at the
+    # first `}`, so a braced comment inside the roster hid every entry after it.
     RUNTESTS_STRICT_ARMED_SPECS = {
         # career-ledger B.4, ARMED 2026-08-20 (wave C). Subject:
         # `career-earned-pad` - the save harness run
@@ -5066,6 +5066,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # split regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its
     # `total=`. LEFT on its first flight 2026-11-22_1123 (PASS attempt 1; passed=2 failed=0
     # skipped=1, the pre-registered split; pinned whole).
+    # OSC-1-orbit-spawn-clearance-lko was authored on 2026-11-22 (the owed live proof of
+    # todos SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS / SPAWN-RESTING-ON-ROCK) and LEFT on
+    # its first flight, run 2026-11-22_1141 (PASS attempt 1; passed=4 failed=0 skipped=0;
+    # pinned whole) before it was committed.
     INTERIM_PIN_IDS: set = {
         "FGV-1-fairing-ghost-visual",
     }
@@ -5689,6 +5693,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # `miner-rover-landed` with the drills deployed by the lane's own seam steps.
         # Authored 2026-11-06, never flown, INTERIM.
         "MINE-5a-rover-live-drill-harvest-cap": ("MiningHarvest", 2),
+        # The orbit-route spawn clearance's live proof (todos
+        # SPAWN-ORBITAL-WALKBACK-NOT-WHERE-IT-SPAWNS / SPAWN-RESTING-ON-ROCK) on
+        # `eva2-lko-crewed`: four FLIGHT cells, two of them isolated-only (the rock
+        # push-out and the spawn gate's live lookup spawn vessels). Authored 2026-11-22 and
+        # flown green the same day (run 2026-11-22_1141, 4 of 4), pinned whole.
+        "OSC-1-orbit-spawn-clearance-lko": ("OrbitSpawnClearance", 4),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -5720,6 +5730,9 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     INJECTED_SUBJECT_IDS = {"HV-1-harvest-route-analysis": ("drill-harvest-route", 2)}
 
     PARTLY_BATCH_DISABLED_IDS = {"R7a-rewind-session-absent",
+                                 # OSC-1: ordinary 2 of the 4 OrbitSpawnClearance
+                                 # cells, isolated 4 (the rock and live-lookup cells).
+                                 "OSC-1-orbit-spawn-clearance-lko",
                                  # HV-1: H38's host and category, same 8-vs-46.
                                  "HV-1-harvest-route-analysis",
                                  "H38-logistics-isolated",
@@ -7028,6 +7041,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # needs. `loaded-vessel` and `logistics` are both silent about the situation.
         # Hence `orbiting`, implemented below beside `staging`.
         "AutoMergeCommit": "orbiting",
+        # Three of the four cells skip unless the active vessel is ORBITING, loaded and
+        # unpacked with part colliders (`RequireOrbitingActiveVessel`: the orbit-route
+        # clearance moves a spawn along an orbit, and the rock cell parks a PotatoRoid on
+        # the active vessel's orbit); a PRELAUNCH or LANDED host skips them all. Hence
+        # `orbiting`, the class `AutoMergeCommit` added.
+        "OrbitSpawnClearance": "orbiting",
     }
 
     # spec id -> the requirement THAT LANE's host is held to, consulted BEFORE
@@ -12528,6 +12547,12 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # pin (body -> Eeloo), V15M `2026-09-10_1914` and V15T `2026-09-10_1917`, each
     # red on exactly the inverted element, drift gate met.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml",
+                       # CT-3: `structure` armed 2026-11-22 off its two reading runs
+                       # `2026-11-22_1135` / `_1242` (vesselNames: Damaged Kerbin AS-P
+                       # Satellite NV5SQ 1 on both, mismatches 0): the rebuilt repair
+                       # contract's satellite re-spawned exactly once (todo
+                       # CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4).
+                       "CT-3-vessel-repair-rebuilt-at-space-center.toml",
                        # PWR-1/2/3: `recordings.sampling` armed 2026-10-02 (branch
                        # `physwarp-recording`) off the reading runs `2026-10-02_2102` /
                        # `_2057` / `_2108`; offline negative control in the status row.
@@ -15668,7 +15693,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         self.assertEqual(
             [("unaccounted-drawn-recording", "Source/Parsek/MapRender/MapRenderProbe.cs:544"),
              ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-             ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2376")],
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2445")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")

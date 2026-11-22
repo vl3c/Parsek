@@ -41,6 +41,7 @@ that drifted would otherwise be caught only by a flight) and cover the CL-3
 specific wiring. Each cell names the mutation it dies under.
 """
 
+import ast
 import copy
 import math
 import os
@@ -1613,6 +1614,33 @@ class Cl3SpecStepListTests(unittest.TestCase):
             self.assertNotIn(cmd, _cmds(self.spec))
 
 
+def _read_armed_allowlist(text):
+    """The string members of the one set literal assigned to a name that is
+    exactly ``ARMED_ALLOWLIST`` in ``text``, read through the parser. A regex over
+    the source stopped at the first ``}`` and so dropped every entry after a
+    comment that held a brace (``rewindPoints {1,1}``). None when no such
+    assignment exists; AssertionError when there are several, because the cell
+    could not tell which roster is the guard."""
+    found = []
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets, value = [node.target], node.value
+        else:
+            continue
+        if not isinstance(value, ast.Set):
+            continue
+        if any(isinstance(t, ast.Name) and t.id == "ARMED_ALLOWLIST" for t in targets):
+            found.append({e.value for e in value.elts
+                          if isinstance(e, ast.Constant) and isinstance(e.value, str)})
+    if not found:
+        return None
+    if len(found) > 1:
+        raise AssertionError("%d set literals named ARMED_ALLOWLIST" % len(found))
+    return found[0]
+
+
 class Cl3SpecArmedTests(unittest.TestCase):
     """THE ARMING GUARD, now on the far side of it.
 
@@ -1691,10 +1719,9 @@ class Cl3SpecArmedTests(unittest.TestCase):
         src = os.path.join(_HARNESS, "lib", "test_hlib.py")
         with open(src, "r", encoding="utf-8") as fh:
             text = fh.read()
-        m = re.search(r"ARMED_ALLOWLIST\s*=\s*\{([^}]*)\}", text)
-        self.assertIsNotNone(m, "test_hlib.py no longer defines ARMED_ALLOWLIST - "
-                                "the save-structure arming guard moved or was removed")
-        allowlist = set(re.findall(r'"([^"]+)"', m.group(1)))
+        allowlist = _read_armed_allowlist(text)
+        self.assertIsNotNone(allowlist, "test_hlib.py no longer defines ARMED_ALLOWLIST - "
+                                        "the save-structure arming guard moved or was removed")
         # Flipped by the arming commit: BOTH sides had to change, which is the
         # deliberateness the allowlist exists to force.
         self.assertIn(os.path.basename(SPEC_PATH), allowlist)

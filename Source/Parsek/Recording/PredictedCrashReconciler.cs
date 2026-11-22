@@ -65,6 +65,9 @@ namespace Parsek
         public double PeriapsisAltitude;
         public bool Descending;
         public double StockRemovalAltitude;
+        // The live vessel's orbit as a segment (null on the ground or unreadable): the
+        // stock-fate pass compares a held predicted final orbit with it.
+        public TakeoverCoastEvidence? LiveOrbit;
     }
 
     /// <summary>
@@ -308,7 +311,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The committed-history half of a contradiction: deep-clones
+        /// The committed-history half of a contradiction (a predicted crash, a predicted
+        /// touchdown, or a predicted final orbit stock holds on another orbit): deep-clones
         /// <paramref name="committedTree"/>, drops the predicted ending of
         /// <paramref name="recordingId"/> on the clone as a takeover at
         /// <paramref name="nowUT"/> does (coast rule included), stamps the ending the live vessel
@@ -334,7 +338,8 @@ namespace Parsek
                 return LogRefused(result, committedTree, recordingId, context);
             }
             bool predictedTouchdown = PredictedTouchdownStockFate.IsPredictedTouchdown(committedRec);
-            if (!predictedTouchdown
+            bool predictedFinalOrbit = PredictedTouchdownStockFate.IsPredictedFinalOrbit(committedRec);
+            if (!predictedTouchdown && !predictedFinalOrbit
                 && (committedRec.TerminalStateValue != TerminalState.Destroyed || !committedRec.TerminalPredicted))
             {
                 result.Reason = "not-a-predicted-crash";
@@ -350,9 +355,11 @@ namespace Parsek
             }
 
             // A touchdown stock contradicted (the craft still in the air past it) never keeps
-            // the predicted descent the way a takeover after the touchdown does.
+            // the predicted descent the way a takeover after the touchdown does, and a final
+            // orbit stock holds elsewhere never keeps the predicted tail past its end.
             result.Drop = PredictedEndingTakeover.DropPredictedEndingForTakeover(
-                rec, nowUT, context, coastEvidence, predictionContradicted: predictedTouchdown);
+                rec, nowUT, context, coastEvidence,
+                predictionContradicted: predictedTouchdown || predictedFinalOrbit);
             if (!result.Drop.Dropped)
             {
                 result.Reason = "drop-refused:" + (result.Drop.Reason ?? "(none)");
@@ -387,7 +394,7 @@ namespace Parsek
                     FormatUT(result.Drop.CutUT),
                     result.Drop.CoastKeptToTakeover ? "kept-to-takeover" : "cut-at-last-real",
                     result.NewTerminal.HasValue ? result.NewTerminal.Value.ToString() : "null",
-                    predictedTouchdown ? "touchdown" : "crash"));
+                    predictedTouchdown ? "touchdown" : predictedFinalOrbit ? "final orbit" : "crash"));
             return result;
         }
 

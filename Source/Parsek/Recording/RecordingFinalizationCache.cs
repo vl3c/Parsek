@@ -89,5 +89,10 @@ namespace Parsek
         // A chute touchdown stock deleted the vessel ahead of: its Destroyed ending replays the
         // descent and ends without the explosion (Recording.QuietDestroyedEnd).
         public bool QuietEnd;
+
+        // Owner ruling 2026-11-22: an Orbiting ending where the ground scan stopped checking
+        // (ExtrapolationResult.endedAtGroundScanEnd); the applier stamps it as
+        // Recording.GroundScanEndOrbit. In memory only, like the rest of the cache.
+        public bool GroundScanEnd;
     }
 }

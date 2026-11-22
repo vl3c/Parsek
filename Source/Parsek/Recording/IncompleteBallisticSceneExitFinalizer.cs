@@ -30,6 +30,9 @@ namespace Parsek
         public string subSurfaceDestroyedBodyName;
         public double subSurfaceDestroyedAltitude;
         public double subSurfaceDestroyedThreshold;
+        // Owner ruling 2026-11-22: an Orbiting ending where the ground scan stopped checking
+        // (ExtrapolationResult.endedAtGroundScanEnd); stamped as Recording.GroundScanEndOrbit.
+        public bool groundScanEndOrbit;
     }
 
     internal struct PredictedTailReseedDiagnostics
@@ -920,7 +923,9 @@ namespace Parsek
                 extrapolated.terminalState,
                 appendedSegments,
                 bodies,
-                recordingId);
+                recordingId,
+                extrapolated.endedAtGroundScanEnd);
+            result.groundScanEndOrbit = IsGroundScanEndOrbit(result.terminalState, extrapolated);
             result.terminalUT = extrapolated.terminalUT;
             result.extrapolationFailureReason = extrapolated.failureReason;
             if (IsDestroyedVesselStartFingerprint(extrapolated.failureReason))
@@ -1021,7 +1026,9 @@ namespace Parsek
                                 recovered.terminalState,
                                 appendedSegments,
                                 bodies,
-                                recordingId);
+                                recordingId,
+                                recovered.endedAtGroundScanEnd);
+                            result.groundScanEndOrbit = IsGroundScanEndOrbit(result.terminalState, recovered);
                             result.terminalUT = recovered.terminalUT;
                             result.extrapolationFailureReason = recovered.failureReason;
                             // Recovery replaces the sub-surface-Destroyed verdict
@@ -3276,7 +3283,8 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "Chute descent predicted: rec={0} pid={1} canopy={2} openChutes={3} chutePid={4} " +
                     "body={5} startUT={6:F3} startAlt={7:F1} verticalSpeed={8:F2} deployAgl={9} {10} " +
-                    "dragToWeight={11} chuteDragNow={12} chuteDragFull={13} rhoAlt={14} rhoGround={15}",
+                    "dragToWeight={11} chuteDragNow={12} chuteDragFull={13} rhoAlt={14} rhoGround={15} " +
+                    "chuteDragSource={16}",
                     recordingId ?? "(pending)",
                     vesselPid,
                     input.Canopy,
@@ -3294,7 +3302,8 @@ namespace Parsek
                     FormatChuteEstimateInput(input.OpenChuteDragNow, "F2"),
                     FormatChuteEstimateInput(input.OpenChuteDragFull, "F2"),
                     FormatChuteEstimateInput(input.DensityAtAltitude, "F4"),
-                    FormatChuteEstimateInput(input.DensityAtTouchdown, "F4")),
+                    FormatChuteEstimateInput(input.DensityAtTouchdown, "F4"),
+                    input.OpenChuteDragSource ?? "-"),
                 minIntervalSeconds: 10.0);
         }
 
@@ -3568,19 +3577,34 @@ namespace Parsek
         /// flight, so it becomes SubOrbital. The extrapolator can end Orbiting at its horizon or
         /// SOI cap on an airless-body orbit whose periapsis sits under the highest terrain but
         /// whose sampled ground track missed it; commit classification and spawn safety read the
-        /// same floor, so every Orbiting verdict produced here spawns.
+        /// same floor, so every Orbiting verdict produced here spawns. The one exception is an
+        /// ending where the ground scan stopped checking (<paramref name="groundScanEnd"/>,
+        /// owner ruling 2026-11-22): its low point sits among the peaks by construction, it
+        /// stays Orbiting and spawns there, and stock decides from then on.
         /// </summary>
         internal static TerminalState ApplyPeriapsisFloorToExtrapolatedTerminal(
             TerminalState terminalState,
             List<OrbitSegment> appendedSegments,
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
-            string recordingId)
+            string recordingId,
+            bool groundScanEnd = false)
         {
             if (terminalState != TerminalState.Orbiting
                 || appendedSegments == null
                 || appendedSegments.Count == 0
                 || bodies == null)
             {
+                return terminalState;
+            }
+
+            if (groundScanEnd)
+            {
+                ParsekLog.Info("Extrapolator", string.Format(
+                    CultureInfo.InvariantCulture,
+                    "TryFinalizeRecording: extrapolated Orbiting for '{0}' kept - the tail ends where the " +
+                    "ground scan stopped checking (reason={1}); it spawns there and stock decides",
+                    recordingId ?? "(null)",
+                    BallisticExtrapolator.TerminalReasonGroundScanEnd));
                 return terminalState;
             }
 
@@ -3613,6 +3637,15 @@ namespace Parsek
                 periapsisFloor,
                 last.eccentricity));
             return TerminalState.SubOrbital;
+        }
+
+        /// <summary>
+        /// Pure: is the finalized ending the ground-scan-end Orbiting ending (owner ruling
+        /// 2026-11-22)? Only when the extrapolator ended there and the verdict stayed Orbiting.
+        /// </summary>
+        internal static bool IsGroundScanEndOrbit(TerminalState? terminalState, ExtrapolationResult extrapolated)
+        {
+            return extrapolated.endedAtGroundScanEnd && terminalState == TerminalState.Orbiting;
         }
 
         // The ORBITING-situation extrapolation line is the shared periapsis floor
@@ -3714,7 +3747,9 @@ namespace Parsek
             recording.StampTerminalState(
                 result.terminalState.Value,
                 (logContext ?? "SceneExitFinalizer") + ".Apply",
-                predicted: descentPoints > 0 && result.terminalState != TerminalState.Destroyed);
+                predicted: (descentPoints > 0 && result.terminalState != TerminalState.Destroyed)
+                    || result.groundScanEndOrbit,
+                groundScanEnd: result.groundScanEndOrbit);
             RecordingFinalizationCacheApplier.MarkPredictedFinalOrbit(
                 recording, predictedTailSegments, (logContext ?? "SceneExitFinalizer") + ".Apply");
             recording.ExplicitEndUT = result.terminalUT;

@@ -1476,6 +1476,93 @@ composition). The stacked stowed context case builds only its event-route ghost 
 - The other gates (host, completeness) are unchanged; the host guard reads the run's host baseline,
   ORBITING for an orbit run, PRELAUNCH / LANDED for an air run (`PartParityHostIntegrity`, S1).
 
+BUILT (S4, `harness/lib/partparity.py`; Python only, no flight). What the judge reads and how:
+
+- Routes. A case is a state case when its sidecar `state` is not `stowed` (`is_state_case`; a
+  sidecar with no `state` reads as stowed). `judge_route` judges one route: the event route is
+  the view measures plus `structure`, the start route each view's `start` block (named after its
+  view) plus `structureStart`. Caps per route, in this order: `context-dependent` tag, a skipped
+  depth mask in that route's `missingOnGhost`, then the canopy cap. The case takes the worse
+  route, the event route on a tie; `worstView` reads `<route>:<view>`, every reason
+  `<route>:<reason>`, and `maxShapeBlobPx` / `maxShapeBlobPct` / `maxColorBlobPx` are the max
+  over both routes. A state case with views but a view whose `start` is not an object is
+  `error` (`start:no-views`). The skin proof and the setup-fault rule stay case-level. A stowed
+  case's verdict and its verdicts-file entry are byte-identical to before P6.
+- Canopy cap (D.4): only for an air case (sidecar `context == "air"`) whose capture found its
+  window: numeric `stateProof.canopy.tiltDeg` and `wobbleDeg` with `|tilt| + |wobble| < 3`
+  (`CanopyWindowDeg`, source-synced) and no `canopy-wobble:<deg>` marker in `tags` or `flags` (both mark the 4 s
+  timeout capture, which is never capped), and a non-empty `stateProof.canopy.transform`, the
+  module's `canopyName` (an ADDITIVE key S7 writes and adds to `CanopyKeys` / `CANOPY_KEYS`;
+  until then no air case is capped). A canopy renderer is a structure key one of whose `/`
+  segments (the `#k` suffix dropped) equals that name: the canopy transform or a renderer under
+  it. A route's picture fail caps at `warn` (`canopy-airflow`) when its structure has at least
+  one `transformDiffers` entry and every entry is a canopy renderer with `|rotationDeltaDeg| <=
+  min(|tilt| + |wobble| + 1, 4)`, `positionDeltaM <= 0.001` and `scaleDeltaPct <= 1.0` (the C#
+  tolerances of `PartParityStructure`), with no `materialDiffers` / `meshDiffers` /
+  `renderedDiffers` entry and no rendered missing or extra renderer. The diff compares LOCAL
+  transforms, so S7 must make the airflow rotation visible as a `transformDiffers` entry keyed at
+  or under the canopy transform (a wobble on an ancestor only shows in the pictures and is
+  never capped).
+- Press proof (a writer contradiction, design decision of S4): on a case whose setup is not a
+  fault (`ok`, `still-animating`), a state case must carry a `stateProof` with a non-null
+  `action`, and any proof with a non-null `action` must read `actionResult == "invoked"` and
+  `reached == true` (a failed press is `action-failed`, a run-out wait `state-timeout`, by the
+  C# contract). A contradiction makes the case `error` (reason `press-proof:...` first) AND is a
+  recompute mismatch, INVALID(parity-instrument), checked over every part case. A proof with a
+  null `action` on a stowed-state case is the stacked stowed context case (no press required:
+  `actionResult` null, `reached` true, endpoint `context` / `stowed`, two atlas rows, no `start` /
+  `stowedRef`): it is judged as a stowed case; any other stowed-state proof with a null `action`
+  (context not `stacked`, or `reached` not true) is the contradiction above.
+- Writer cross-checks, each INVALID(parity-instrument): for every planned row that is a state or
+  context case on either side (state not `stowed`, or context not `alone`), the row's and the
+  sidecar's `state` and `context` must be equal (null on one side included); a sidecar whose
+  `stateProof.action` is non-null while its `state` is stowed or null; a `stateProof.state` that
+  differs from the sidecar's `state`; a run that holds any such
+  case while its `settings` recompute the stowed control set (`states` / `contexts` absent or
+  `none`). A stowed sweep compares nothing.
+- Flags. The judge reads the union of the sidecar's `flags` and the flags it derives from
+  `stateProof`, so a flag the writer drops cannot hide: `ghostEvent` / `ghostStart` a string
+  other than `applied` -> `state-not-modelled:event|start:<outcome>`; `reached == true` with
+  `events == []` -> `state-not-recorded`; `startFirstFrame.atTarget == false` ->
+  `start-pose-not-first-frame`. A null value derives nothing. `state-invisible` is derived when
+  every view has a `stowedRef` and none reaches a warn line on its shape keys. Each raising flag
+  adds the reason `flag:<flag>`. `sun-tracker-first-frame:<deg>` passes through as a report-only
+  flag; tags never become flags.
+- Recompute of a state case: `atlas.rows` must be the four state rows and the atlas `4 x tile`
+  high. Row 1 is compared with the view, row 2 with its `start` block (diffs named
+  `<view>/start.<key>`), both with today's recomputed key set; row 3 with the `stowedRef` counts
+  exactly, and its two blob percentages are null exactly when the view's are, 0 for a zero blob,
+  else equal to `100 x blob / area` for the box area the view's other non-zero blobs imply (the
+  sidecar carries no area, so a view whose only non-zero blob is the `stowedRef` one checks only
+  that the percentage is a number). Block shape (`start` with every `StartKeys` key, `stowedRef`
+  with every `StowedRefKeys` key) is checked on EVERY state case with views, sampled or not.
+- Press gate: every planned state case counts (row or sidecar `state` not `stowed`; the
+  stacked stowed case and the controls do not). Its family is the manifest row's `family`, else
+  the sidecar's `stateProof.family`, else `unknown` (a crashed case's sidecar may carry no
+  proof); its status the sidecar's `setup.status`, else the row's `setupStatus`. `failed x 2 > cases` trips it; the problem
+  reads `family=<f> <k>/<n> case(s) action-failed|state-timeout: first <caseId> <status>:
+  <detail>`. A run with no planned state case has no press check.
+- Controls. `check_controls` requires the set `control_set(settings)` recomputes, and with the
+  sidecars re-judges each state control the manifest records `ok` (`judge_state_control`, the
+  mirror of `PartParitySweepPlan.JudgeStateControl` over the sidecar's `setup.status`,
+  `stateProof.reached`, `len(stateProof.events)`, the view shape lines and each `stowedRef`); a
+  disagreement is INVALID(parity-controls). A written `settings.controlSet` (comma-joined ids)
+  that differs from the recomputed set is a recompute mismatch, INVALID(parity-instrument); a
+  manifest without the key is not compared.
+- Order: host-damaged > controls > state-press > instrument > incomplete
+  (`partparity._SUBKIND_ORDER`, mirrored as `hlib.PARTPARITY_INVALID_SUBKIND_ORDER`);
+  `parity-state-press` is terminal and not flake-exempt like the other four.
+- Verdicts file: a state case adds `state`, `family`, `context`, `routes` (`event` / `start`, each
+  `verdict`, `reasons`, `worstView`, the three max measures) and `stateFlags`; a sweep with a press
+  check adds `statePress` (`ok`, `families: {<f>: {cases, pressFailed}}`, `problems`) and
+  `stateFlags` (cases per flag kind). The summary line gains ` press=ok|bad` only then.
+- Proof that stowed sweeps judge as before: the archived PP-1 `2026-11-22_0033` and PP-2
+  `2026-11-22_1157_run2` sweeps (manifests and sidecars from the results archive, and the same two
+  harvested label dirs with their atlases) re-judged with this code and with `origin/main`'s and
+  S1's `partparity.py`: per-case verdicts, verdicts document, summary line, detail record,
+  controls and completeness are byte-identical (800 / 1518 sidecars; recompute 24 / 39 cases, 0
+  mismatches).
+
 ### D.7 Viewer
 
 - Grouping part > skin > state > view. Inside a skin, one sub-block per state in the order stowed,
@@ -1492,6 +1579,54 @@ composition). The stacked stowed context case builds only its event-route ghost 
 - Filters: state (stowed / each state word), family, and "state flags" (`state-not-modelled`,
   `state-not-recorded`, `start-pose-not-first-frame`, `state-invisible`), beside verdict, source and
   search. Regression mode pairs by case id and route.
+
+BUILT (S5, `harness/tools/part_parity_view.py`; Python only, no flight). Every verdict, route,
+flag and gate on the page is partparity's (`judge_case`, `judge_view`, `start_views`,
+`check_controls` with the sidecars, `check_state_press`, `case_row_problems`,
+`run_shape_problem`, `control_set_disagreement`, `state_flag_counts`); the viewer derives none.
+
+- Rows. A case row carries `isState` / `isRest` (`stowed` / `alone`), `stateLabel` (the state,
+  with the context when it is not `alone`), `family`, `routes` (`event` / `start`: each
+  `RouteJudgement` plus its trigger line and minimum IoU), `stateFlags`, `stateProof`,
+  `stowedCaseId`, and per view the `start` block and the `stowedRef` counts, each with its
+  `judge_view` verdict. A reason `<route>:<reason>` reads `<route> route: <phrase>`, a flag
+  reason in words; a shape blob's px and % collapse per view and per route.
+- Grouping. A part's skins are its stowed (`stowed` / `alone`) cases, ordered as before; a
+  state or context case joins the skin of its paired stowed case, else the skin of the same
+  name, else a skin of its own (a state sweep loaded alone). Inside a skin the stowed case
+  comes first, then the context cases, then the families in the D.1 order, each family's
+  states in the `KNOWN_STATES` order. A skin holding only its stowed case renders exactly as
+  before P6, so a stowed sweep's page is unchanged.
+- The view row of a state case: STOWED | REAL | GHOST event route | GHOST start route |
+  DIFFERENCE (real vs the event ghost), each caption naming its row. STOWED is the paired
+  stowed case's REAL tile (`stowedPair`, same profile) when its sweep is loaded, else the
+  case's own `ghost-stowed` row with a dashed border and the caption "reference, not judged".
+  The 1:1 dialog adds the start-route difference and, when paired, the stowed ghost too.
+- Merge. Sweeps of one profile merge into one part list. Each loaded sweep has a key (its
+  label, `-<n>` on a repeat); a control's row id is `<profile>/<sweep>/<control>`, so the
+  controls of a stowed sweep and its state sweeps never collide, and the controls section
+  lists them per sweep with the set kind (`stowed`, `orbit`, `air`). A part case id loaded
+  twice in one profile keeps the first and is the sweep box's duplicates line (bad). Until
+  S3's profile fix (8) every manifest records the profile `..`, which the viewer replaces by
+  the sweep's label (pp1, pp3, ...), so a stowed sweep and its state sweeps merge only when
+  passed as `NAME=DIR` with one name (`stock=<pp1> stock=<pp3> stock=<pp5>`); the sweep box
+  and the console say so for every sweep named after its label.
+- Header per sweep: the control set and its gate (state controls re-judged from their
+  sidecars), the press gate per family, the state flag counts, the writer cross-checks. A
+  state control recorded `ok` that `judge_state_control` judges bad reads `control BAD`
+  (chip, counter, controls box) with the judged detail as its trigger, and a failed controls
+  gate marks the sweep box bad.
+- Filters: State (the word, the tiebreak dropped), Family and State flags (the four kinds),
+  shown only when a state case is loaded.
+- Regression: rows pair by profile and key (the case id; for a control the set kind and
+  id); a state case adds `event.` / `start.` changes (verdict, shape and colour blob, IoU)
+  and the state flags added or dropped.
+- Proof: the PP-1 `2026-11-22_0033` and PP-2 `2026-11-22_1157_run2` stowed sites rebuilt
+  with this viewer equal the S4-branch viewer's on every verdict count, the part list, each
+  group's verdict, trigger and case order, and each case's verdict, reasons, trigger,
+  measures and view verdicts (2318 cases, 1080 parts, 16 controls); only the control row ids
+  gain the sweep key. A synthetic stowed + orbit state + air state set (the S4 test helpers)
+  shows each part's states side by side with no duplicate line (`test_part_parity_view`).
 
 ### D.8 Wall-time budget
 

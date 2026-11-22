@@ -337,6 +337,17 @@ namespace Parsek
         // StampTerminalState (the codec and the copy sites carry it); kept only with Destroyed.
         public bool QuietDestroyedEnd;
 
+        // True on a predicted Orbiting ending whose low point sits among the body's peaks and
+        // whose ground scan found no crash in the passes it checked (owner ruling 2026-11-22):
+        // the replay ends where Parsek stopped checking the ground and the stage spawns there on
+        // its orbit with its crew aboard; from then on stock decides. The spawn safety check
+        // lets this one ending through its periapsis floor; every other reader keeps the floor.
+        // A marker, not derived: an Orbiting verdict below the floor is otherwise a defect.
+        // Persisted sparse as groundScanEnd (written only when true). Decided only through
+        // StampTerminalState (the codec and the copy sites carry it); kept only with a
+        // predicted Orbiting ending.
+        public bool GroundScanEndOrbit;
+
         // The latest UT at which Parsek saw stock hold this recording's own vessel (its launch
         // guid) in the current timeline: stamped when a predicted chute touchdown commits while
         // the vessel is still in the game, and on every reconciler pass that finds it. NaN =
@@ -1001,7 +1012,8 @@ namespace Parsek
         /// not known. A change of it alone is handed to the observer, because the crew answer
         /// reads it.</para>
         internal bool StampTerminalState(TerminalState? value, string context, bool predicted = false,
-            bool remnantSurvives = false, bool quietEnd = false, IEnumerable<string> recoveredCrew = null)
+            bool remnantSurvives = false, bool quietEnd = false, IEnumerable<string> recoveredCrew = null,
+            bool groundScanEnd = false)
         {
             TerminalState? previous = TerminalStateValue;
             bool previousPredicted = TerminalPredicted;
@@ -1028,6 +1040,15 @@ namespace Parsek
                 ParsekLog.Verbose("Recording",
                     "terminal quiet-end flag " + (previousQuietEnd ? "true" : "false") + "->"
                     + (QuietDestroyedEnd ? "true" : "false") + " rec=" + (RecordingId ?? "(null)")
+                    + " context=" + (context ?? "null"));
+            }
+            bool previousGroundScanEnd = GroundScanEndOrbit;
+            GroundScanEndOrbit = groundScanEnd && TerminalPredicted && value == TerminalState.Orbiting;
+            if (previousGroundScanEnd != GroundScanEndOrbit)
+            {
+                ParsekLog.Verbose("Recording",
+                    "terminal ground-scan-end flag " + (previousGroundScanEnd ? "true" : "false") + "->"
+                    + (GroundScanEndOrbit ? "true" : "false") + " rec=" + (RecordingId ?? "(null)")
                     + " context=" + (context ?? "null"));
             }
             bool predictedChanged = previousPredicted != TerminalPredicted;
@@ -1224,6 +1245,7 @@ namespace Parsek
             TerminalPredicted = source.TerminalPredicted;
             TerminalRemnantSurvives = source.TerminalRemnantSurvives;
             QuietDestroyedEnd = source.QuietDestroyedEnd;
+            GroundScanEndOrbit = source.GroundScanEndOrbit;
             StockHeldVesselUT = source.StockHeldVesselUT;
             RecoveredCrewNames = source.RecoveredCrewNames != null
                 ? new List<string>(source.RecoveredCrewNames)
