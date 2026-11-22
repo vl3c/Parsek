@@ -2956,6 +2956,16 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                         "kind=%s: %s; the command line is NOT written -> INVALID"
                         % (i, step_id, verb, miss["arg"], miss["ref"], miss["kind"],
                            miss["reason"]))
+            if hold_plan is not None:
+                # Attended: never kill the owner's game; hold with the setup incomplete.
+                result.hold_unmet_step = {"id": step_id, "cmd": verb,
+                                          "verdict": "UNRESOLVED-HANDLE",
+                                          "reason": miss["reason"]}
+                result.hold_reached = True
+                logger.warn("Hold", "setup step id=%s cmd=%s has an unresolved handle; "
+                                    "holding now with the setup incomplete (no kill)"
+                            % (step_id, verb))
+                return result
             result.killed_pids = runtime.kill_tree(proc)
             logger.info("Drive", "kill complete pids=%s" % result.killed_pids)
             return result
@@ -4858,9 +4868,17 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                 spec, profile, attempt, started, start_wall, runtime, verdict,
                 admission=admission, logger=lg, run_id=run_id),
                 fail=lambda lg, exc: _post_quit_failure(lg, exc, admission))
+        # A hold refused before launch is still a hold run: tagged, so no flake /
+        # coverage / index reader counts its INVALID.
+        hold_extra = None
+        if hold is not None:
+            hold_extra = {hlib.RESULT_MODE_KEY: hlib.RESULT_MODE_HOLD,
+                          "hold": watchlane.build_hold_block(
+                              hold.plan, watchlane.END_REFUSED_BEFORE_LAUNCH, False,
+                              None, None, hold.max_minutes)}
         return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
                                 verdict, admission=admission, logger=logger,
-                                run_id=run_id)
+                                run_id=run_id, result_extra=hold_extra)
 
     def _post_quit_failure(lg, exc, admission):
         # The pipelined worker raised. The lane still gets a result row, INVALID and
@@ -5311,10 +5329,11 @@ def _verify_classify_finish(spec: Dict, profile, attempt: int, started: str,
 
 
 def _terminal_result(spec, profile, attempt, started, start_wall, runtime, verdict,
-                     admission, logger, run_id, drive=None, facts=None):
+                     admission, logger, run_id, drive=None, facts=None, result_extra=None):
     """Build + write a result for an early-refusal path (no launch / no verify)."""
     return _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict,
-                          admission, drive, facts, None, None, logger, run_id=run_id)
+                          admission, drive, facts, None, None, logger, run_id=run_id,
+                          result_extra=result_extra)
 
 
 # ---------------------------------------------------------------------------

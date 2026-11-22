@@ -436,6 +436,32 @@ class HoldSmokeTests(unittest.TestCase):
         self.assertEqual("OBSERVED", result["verdict"])
         self.assertEqual(wl.END_CEILING, result["hold"]["endReason"])
 
+    def test_a_refusal_before_launch_is_tagged_and_not_counted(self):
+        run = self.run
+        spec = self._spec()
+        spec["fixture"]["saveTemplate"] = os.path.join(self.tmp, "no-such-template")
+        hold = run.HoldContext(wl.plan_hold(spec), 1.0, None, "--id SMOKE-fake")
+        result = run.run_attempt(spec, self.instance, self.tmp, self._runtime(4.0), 1, False,
+                                 self.logger, hold=hold)
+        self.assertEqual("INVALID", result["verdict"])
+        self.assertEqual("hold", result["mode"])
+        self.assertEqual(wl.END_REFUSED_BEFORE_LAUNCH, result["hold"]["endReason"])
+        self.assertEqual([], run.load_all_results(run.RESULTS_DIR))
+
+    def test_an_unresolved_handle_holds_instead_of_killing(self):
+        run = self.run
+        spec = self._spec()
+        spec["driver"]["steps"].insert(1, {"cmd": "SetSetting", "args": {
+            "name": "x", "value": "${nope.field+5}"}, "expect": "OK"})
+        hold = run.HoldContext(wl.plan_hold(spec), 1.0, None, "--id SMOKE-fake")
+        result = run.run_attempt(spec, self.instance, self.tmp, self._runtime(4.0), 1, False,
+                                 self.logger, hold=hold)
+        self.assertEqual(("OBSERVED", wl.SUBKIND_SETUP_INCOMPLETE),
+                         (result["verdict"], result["subkind"]))
+        self.assertEqual(wl.END_OWNER_CLOSED, result["hold"]["endReason"])
+        self.assertEqual("UNRESOLVED-HANDLE", result["hold"]["unmetStep"]["verdict"])
+        self.assertFalse(result["kspExit"]["killed"])
+
     def test_boot_crash_is_invalid(self):
         run = self.run
         spec = self._spec()

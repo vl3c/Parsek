@@ -66,6 +66,9 @@ END_CEILING = "hold-ceiling"             # --hold-max-minutes ran out
 END_CLOSED_DURING_SETUP = "closed-during-setup"  # KSP exited before the hold point
 END_BOOT_CRASH = "boot-crash"
 END_BOOT_HANG = "boot-hang"
+# Admission / preflight / staging refused the run before KSP launched. The result
+# keeps the refusal's own INVALID verdict; this tag only keeps it out of the counts.
+END_REFUSED_BEFORE_LAUNCH = "refused-before-launch"
 
 HOLD_END_REASONS: Tuple[str, ...] = (
     END_OWNER_CLOSED, END_STOP_REQUEST, END_CEILING, END_CLOSED_DURING_SETUP,

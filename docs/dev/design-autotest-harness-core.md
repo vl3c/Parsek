@@ -1735,9 +1735,9 @@ slot. The run takes the machine lock as any run does, admits, stages and launche
 usual, and drives the steps before the HOLD POINT (`watchlane.plan_hold`: the step labelled
 by the optional `[watch] holdBefore = "<label>"`, else the first `FlushAndQuit`, else the
 end of the list). Steps from the hold point on are not written to the channel. During the
-setup the run budget is not enforced; a step that misses its `expect` or outwaits its step
-wait starts the hold at once instead of killing the game (the owner sees the state it
-stopped in). The boot-stall watchdog stays on. Then it HOLDS: no verifier chain, no budget,
+setup the run budget is not enforced; a step that misses its `expect`, outwaits its step
+wait or carries an unresolved `${...}` reference starts the hold at once instead of killing
+the game (the owner sees the state it stopped in). The boot-stall watchdog stays on. Then it HOLDS: no verifier chain, no budget,
 only `poll_exit`, until KSP exits (the owner closes it: `owner-closed`), a stop request is
 dropped (`stop-request`, the harness closes KSP) or `--hold-max-minutes` (default 240; 0 =
 none) runs out (`hold-ceiling`). The hold heartbeats the machine and slot locks every 60 s
@@ -1745,7 +1745,9 @@ and logs a status line every 5 min.
 
 **The result.** `watchlane.classify_hold`: `OBSERVED`, never `PASS` (the run asserted
 nothing), with subkind `setup-incomplete` when a setup step did not come back as expected;
-`INVALID(boot-crash | boot-hang)` when the boot never reached the seam. OBSERVED is
+`INVALID(boot-crash | boot-hang)` when the boot never reached the seam. A hold refused
+before launch (admission, preflight, staging, seed) keeps the refusal's own INVALID
+verdict and is tagged like any hold record (`hold.endReason = refused-before-launch`). OBSERVED is
 deliberately not a member of `hlib.VERDICTS`. The record carries `mode = "hold"` and a
 `hold` block (hold index and source, setup complete, the unmet step, end reason, held
 seconds, the ceiling, the skipped steps), collect-logs runs (as on every non-PASS run), and
