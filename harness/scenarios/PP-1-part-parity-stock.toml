@@ -62,9 +62,10 @@ tier = "operator"
 # flight: tier by measured p50 and a flight_efficiency.py check.
 #
 # LIVE-PROVEN 2026-11-21 in its P2 shape on its fifth flight (`2026-11-21_1739`, PASS attempt
-# 1, 134 s wall, 19.0 s of sweep wall over 4 waves, controls=ok). THIS P3 SHAPE (all parts,
-# all skins, two steps, the partParity row) has not flown: a re-flight is owed.
-description = "LIVE-PROVEN 2026-11-21 in its P2 shape; P3 shape (all stock parts, skins=all, two PartParitySweep steps, the partParity row) owes a re-flight: every stock part photographed beside its Parsek ghost in LKO, judged by the partParity verifier row (controls, completeness and the Python recompute gate; part verdicts report-only)."
+# 1, 134 s wall, 19.0 s of sweep wall over 4 waves, controls=ok). LIVE-PROVEN 2026-11-22 in
+# THIS P3 SHAPE (all parts, all skins, two steps, the partParity row): `2026-11-22_0033`, PASS
+# attempt 1, 660 s wall, 792 cases, controls ok, complete, recompute 24 / 0 mismatches.
+description = "LIVE-PROVEN 2026-11-22 in its P3 shape (all stock parts, skins=all, two PartParitySweep steps, the partParity row): every stock part photographed beside its Parsek ghost in LKO, judged by the partParity verifier row (controls, completeness and the Python recompute gate; part verdicts report-only)."
 instanceProfile = "stock-minimal"
 tags = ["part-parity", "ghost-visual", "flown", "PP-1"]
 

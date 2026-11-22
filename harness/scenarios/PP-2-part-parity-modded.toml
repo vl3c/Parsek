@@ -53,10 +53,12 @@ tier = "operator"
 # reading run exists to keep. (7) Recording count pinned at 0. (8)/(9) after the first
 # flight: tier by measured p50 and a flight_efficiency.py check.
 #
-# AUTHORED 2026-11-21, NEVER FLOWN (tag `pending-flight`).
-description = "AUTHORED, NEVER FLOWN: the part ghost parity tool's full reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch) - every part in every skin photographed beside its Parsek ghost in LKO over three PartParitySweep steps, judged by the partParity verifier row (controls, completeness and the Python recompute gate; part verdicts report-only)."
+# LIVE-PROVEN 2026-11-22 (`2026-11-22_0045`, PASS attempt 1, 963 s wall, after the reading
+# runs of 2026-11-21; three steps were enough: 1510 cases, controls ok, complete, recompute
+# 39 / 0 mismatches, 3 report-only fails).
+description = "LIVE-PROVEN 2026-11-22: the part ghost parity tool's full reading run on modded-compat (ReStock, ReStock+, Waterfall, B9PartSwitch) - every part in every skin photographed beside its Parsek ghost in LKO over three PartParitySweep steps, judged by the partParity verifier row (controls, completeness and the Python recompute gate; part verdicts report-only)."
 instanceProfile = "modded-compat"
-tags = ["part-parity", "ghost-visual", "modded-compat", "pending-flight", "PP-2"]
+tags = ["part-parity", "ghost-visual", "modded-compat", "flown", "PP-2"]
 
 [fixture]
 saveTemplate = "fixtures/saves/eva2-lko-crewed"

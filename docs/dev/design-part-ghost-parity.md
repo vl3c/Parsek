@@ -838,8 +838,8 @@ summary; per-case Verbose lines; Warn for a setup fault.
 | P0 (DONE 2026-11-21, Appendix B) | Capture spike on both harness installs, stock and ReStock / ReStock+ parts: `Camera.Render` into an MSAA target, resolve, double clear, ortho with KSP shaders, light rig, `pixelLightCount`, `masterTextureLimit`, `forceRenderingOff`. | Pictures read by eye; every unknown in 4.4 answered and written into this doc. |
 | P1 | Pure halves + xUnit (measures on synthetic masks incl. shifted / rotated / missing-blob shapes, structural diff, sharding, case ids, resume decision, JSON writer, args); `GhostCoOrbitalRig` extraction; D2 seam extraction with the IL fold proof. | `dotnet test` green; FGV-1 flown green on the refactor. |
 | P2 (DONE 2026-11-21, Appendix C) | Capture engine + verb + in-game test + files; controls; default skins; a 20-part dev run. | Controls behave; per-wave wall time measured; chunk size set from it. |
-| P3 | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. C# half BUILT (not flown): `skins=all` enumerates every `ModulePartVariants` VARIANT and every `ModuleB9PartSwitch` SUBTYPE one module at a time (3.2), B9 authored as `moduleID` + `currentSubtype`, the full skin proof (`requested` / `real` / `snapshot` / `ghost`) through the new `GhostBuildResult.TryGetAppliedSkin` record (IL proof: insertions only, 11), flags `skin-mismatch` / `skin-not-modelled:b9`, per-step `skin cases:` counts. Finding: the ghost builder applies no B9 subtype, so every B9 case reads `skin-not-modelled:b9`. Harness half (verifier row, lanes) separate. Harness half BUILT 2026-11-21 (5.1, 6, 10: the harvest leg, the row with its three instrument gates and the Python recompute, PP-1 widened and PP-2 authored); status in `autotest-status.md`. | First full reading run on both installs; thresholds re-pinned; findings filed. |
-| P4 | Viewer (8). BUILT 2026-11-21, not yet read by the owner on a full sweep: one continuous page grouped part > skin > view, REAL / GHOST / DIFFERENCE per view with fixed identity colours, verdicts and trigger lines from `partparity.py` only, flagged parts first, filters verdict / source / search, controls in their own section, the sweep header with partparity's gates, regression mode, cross-profile links, a lazy build for about 1500 cases; run on the P2 directory `pp1-2026-11-21-p2`. Finding: the manifest's `profile` reads `..` (8). | Owner reads the full stock + ReStock site. |
+| P3 (DONE 2026-11-22, Appendix C) | All skins, tags, skin proof, structural diff; harvest leg; `partparity.py` row; lanes PP-1 / PP-2 report-only. C# half BUILT (not flown): `skins=all` enumerates every `ModulePartVariants` VARIANT and every `ModuleB9PartSwitch` SUBTYPE one module at a time (3.2), B9 authored as `moduleID` + `currentSubtype`, the full skin proof (`requested` / `real` / `snapshot` / `ghost`) through the new `GhostBuildResult.TryGetAppliedSkin` record (IL proof: insertions only, 11), flags `skin-mismatch` / `skin-not-modelled:b9`, per-step `skin cases:` counts. Finding: the ghost builder applies no B9 subtype, so every B9 case reads `skin-not-modelled:b9`. Harness half (verifier row, lanes) separate. Harness half BUILT 2026-11-21 (5.1, 6, 10: the harvest leg, the row with its three instrument gates and the Python recompute, PP-1 widened and PP-2 authored); status in `autotest-status.md`. Flown 2026-11-22: PP-1 `2026-11-22_0033` and PP-2 `2026-11-22_0045` PASS attempt 1 after two reading pairs; 16 ghost defects fixed (PRs #2745, #2749), the detector re-ruled, 4 report-only fails left (todo GHOST-PARITY-RESIDUALS-2026-11-22). | First full reading run on both installs; thresholds re-pinned; findings filed. |
+| P4 | Viewer (8). BUILT 2026-11-21, not yet read by the owner on a full sweep: one continuous page grouped part > skin > view, REAL / GHOST / DIFFERENCE per view with fixed identity colours, verdicts and trigger lines from `partparity.py` only, flagged parts first, filters verdict / source / search, controls in their own section, the sweep header with partparity's gates, regression mode, cross-profile links, a lazy build for about 1500 cases; run on the P2 directory `pp1-2026-11-21-p2`. Finding: the manifest's `profile` reads `..` (8). The full sweeps it is meant for exist since 2026-11-22 (`2026-11-22_0033` / `_0045`, Appendix C). | Owner reads the full stock + ReStock site. |
 | P5 | Baseline + accepted list; gate armed after a second matching reading run. | A deliberately broken ghost (mutation) reds the armed lane. |
 | P6 | States and contexts (9.1); FGV configurations migrated. | Chute and deployables covered. |
 | P7 | Animation strips + GIF / APNG (9.2). | Antennas, panels, robotics scrubbed in lock-step. |
@@ -936,7 +936,7 @@ Findings:
    4.2 step 1 (frame from the part's model renderers only); P2 logs which renderers it dropped.
 3. **Installs run at 1/8 texture resolution** (finding behind 4.4).
 
-## Appendix C. P2 first flights (2026-11-21)
+## Appendix C. Flights: P2 (2026-11-21), P3 / P4 (2026-11-21 to 2026-11-22)
 
 Lane `PP-1-part-parity-stock` on stock-minimal, branch `part-parity-p2`. Five flights, the fifth
 green (`2026-11-21_1739`, PASS attempt 1, 134 s run wall, automation DLL sha256 prefix a46e8133):
@@ -970,3 +970,40 @@ The control now plants a small cube (0.3 % of the `side-a` box projection, at le
 real `fuelTankSmallFlat` only (4.5). On flight 5 it failed a local measure, kept IoU >= 0.99 and
 listed the cube as missing on the ghost, as required.
 
+### P3 / P4 flights (2026-11-21 to 2026-11-22)
+
+PP-1 (stock-minimal, 2 run steps) and PP-2 (modded-compat, 3 run steps), `skins=all`, branches
+`part-parity-p3` then `part-parity-p4`, flown as pairs:
+
+| Pair | PP-1 | PP-2 |
+| --- | --- | --- |
+| `2026-11-21_2011` / `_2021` | INVALID(parity-incomplete), 668 cases | INVALID(parity-incomplete), 671 of 1511, 496 `spawn-timeout` |
+| `2026-11-21_2111` / `_2123` | PASS, 792 cases, fail 116 | PASS, 1511 cases, fail 422, error 1 |
+| `2026-11-21_2306` / `_2317` | PASS, fail 19 | PASS, fail 218, error 1 |
+| `2026-11-22_0004` / `_0015` | PASS, fail 10 | PASS, fail 146, error 1 |
+| `2026-11-22_0033` / `_0045` | PASS, 792 cases: pass 766, warn 25, fail 1, error 0 | PASS, 1510 cases: pass 1392, warn 115, fail 3, error 0 |
+
+The first pair broke its host: the clone the ghost builder instantiates to sample a part's heat
+animation kept its collider into the next physics step and pushed the host apart (fixed, PR #2744;
+the host guard of 4.1 followed). The reading pair `_2111` / `_2123` traced to 10 ghost defects
+(PR #2745), the later pairs to 6 more (PR #2749), plus the detector rulings: depth masks and
+Waterfall plumes are non-visual, parts whose look depends on context and depth-mask parts cap at
+warn, and the colour line threshold is re-pinned 64 -> 256 px. The one `error` (`launchclamp1`,
+`died-settling`) went when the `ground-only` exclusion learned to match a mod's subclass of the
+launch clamp module.
+
+Both final runs: PASS attempt 1 (660 s / 963 s run wall), automation DLL sha256 prefix 0da811c9,
+controls ok, complete, recompute 24 / 39 with 0 mismatches. Every pair from `_2111` on read controls
+ok and complete.
+
+The 4 fails left are report-only and low priority (todo GHOST-PARITY-RESIDUALS-2026-11-22):
+
+- `grapplingdevice--basic` (stock): colour blob 477 px `side-a` (479 `side-b`), thin outline lines.
+- `heatshield3--red` (modded): colour blob 158017 px `top`, a uniform tint offset over the whole top
+  face, though it looks the same to the eye; its black and classic variants pass.
+- `mediumdishantenna--default` (modded): colour blob 756 px `top`, seam lines.
+- `rotor.01--gray` (modded): colour blob 329 px `side-b`, one line.
+
+Known non-defects: ReStock depth masks throw a NullReferenceException in `OnStart` on the real part
+(InfraredTelescope's cyan lens), and the ghost skipping masks stays (owner ruling 2026-11-22);
+suspension droop is left by ruling.
