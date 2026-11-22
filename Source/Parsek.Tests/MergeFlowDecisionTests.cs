@@ -166,6 +166,10 @@ namespace Parsek.Tests
             NoSaveSceneExit.ResetForTesting();
             RevertDetector.ResetForTesting();
             ParsekSettings.CurrentOverrideForTesting = null;
+            // ParsekScenario.IsAutoMerge latches the last settings read into its process-
+            // lifetime cache, so an AutoMerge(true) fact would leave autoMerge reading ON
+            // for every later class that runs with no settings installed.
+            ParsekScenario.SetCachedAutoMergeForTesting(false);
             ParsekFlight.restoringActiveTree = false;
             Patches.PhysicsFramePatch.ActiveRecorder = null;
         }

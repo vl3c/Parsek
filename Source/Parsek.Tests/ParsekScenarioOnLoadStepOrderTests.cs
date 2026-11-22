@@ -558,6 +558,9 @@ namespace Parsek.Tests
             RevertDetector.ResetForTesting();
             SaveFileLoadIntent.ResetForTesting();
             InSessionStagedStateHandoff.ResetForTesting();
+            // Headless loads run with no settings, so autoMerge reads this cache; the
+            // LimboSchedule facts pin the ghost-only commit route, which needs it off.
+            ParsekScenario.SetCachedAutoMergeForTesting(false);
         }
 
         // ---- the seams ----
