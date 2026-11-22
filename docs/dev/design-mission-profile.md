@@ -24,6 +24,30 @@ exception bullet goes into `.claude/CLAUDE.md` next to the Route History one (th
 `cp .claude/CLAUDE.md AGENTS.md` and refresh the umbrella mirrors by hand if the merge is docs-only),
 and `docs/dev/design-gui-inventory.md` gains the window (14 windows).
 
+## 0.1 What earlier plans and rulings already decided
+
+A sweep of the roadmap, the design docs, `docs/dev/research/`, `docs/dev/done/` plans, the open and
+archived todo volumes, `docs/dev/autotest-roadmap.md` and the umbrella `docs/handoff/` folders for
+"mission profile", "profile", "Phase 17", "profile generator" and related terms (2026-11-22). The
+todo volumes and autotest docs use "mission profile" only for harness flight scripts, and
+`docs/parsek-logistics-supply-routes-design.md:1668` only in passing; neither decides anything
+here. What does decide something:
+
+| Source | Decision | Used here |
+|---|---|---|
+| `docs/roadmap.md:651-662` (Phase 17, PR #2717) | Read every recording of a mission from launch to its last ending; a NASA / Apollo-style profile, first as a text report, later as a graph with a phase diagram. Contents: phases in order, a mission-elapsed-time sequence of events (staging, engine start / cutoff, fairing and decoupler separations, docking, EVAs, parachutes, crashes), burns (time, duration, engine, delta-v, orbit before / after), a delta-v budget (planned versus used), the vessel and stage tree with how each piece ended, key numbers (max altitude, speed, max-Q / heating if recorded, duration). | The window is the text report; the graph is P4. Phases, burns, orbit before / after, the vessel tree, the mission clock and the duration are in. Where this design narrows the roadmap list (engine start / cutoff and fairings as rows, the planned budget, debris outcomes, speed and max-Q) it says so in the open questions (Q3, Q8-Q10), not silently. |
+| `docs/dev/research/mission-profile-foundation-notes-2026-11-21.md:26-38` (F1) | Optimizer rows cannot be the profile elements: route sources, loop ranges, superseded / held / version-1 rows are never cut; no rendezvous row; the capture burn sits inside the transfer row. Phase 17 must classify a whole vessel line from sections, branch points and part events. | Section 4: the analyzer never reads rows or roles. |
+| same file `:42-44` (F1), `:45-48` (F2), `:57-60` (F4) | One pure analyzer returning the ordered elements, the cut list and the role per piece; one vessel-line walker on `VesselIdentity` / `EffectiveState` (ReaimClassifier to use it); one role registry, `space` kept as "unclassified space". | Sections 4.1, 5, 10 (`ProfileElementKinds` seeds F4; `In space` is the unclassified phase). |
+| same file `:49-56` (F3), `:61-62` (F5), `:63-64` (F6) | Burns with delta-v and orbit before / after are not derivable from today's data near a planet; one sidecar format bump with an extension block is the fix; aerobraking vs aerocapture naming can wait. | P1 stays derived-only with an estimated delta-v (Q2); F3 is P2; the profile names aerocapture itself (rows keep `aerobraking`). |
+| same file `:66-83` (orbit-kind model) | Stock's own situations (falling / in orbit / leaving), judge a burn in the body where it ends, never cut at an SOI line, staging gaps up to 10 s, unknown means no claim, lookahead changes rows when a flight is flown again. | Section 4.3 stage 1 kinds; the hindsight note in 4.2. |
+| `docs/handoff/recording-split-review/atmosphere-pass-analysis.md:95-98` (owner, 2026-11-20) | Rows must read like the elements of a mission profile, in the Phase 17 vocabulary (ascent, coast, capture, descent + landing). | The phase names match the row roles where both exist. |
+| same file `:46-70` and `docs/dev/done/plans/optimizer-persistence-split.md:989-998` (version 2) | An atmosphere pass is classified by how it ENDS: on the ground = final descent from its first entry; back in space for over 2 minutes = a braking pass; hops out under 2 minutes belong to the same pass (a skip). An aerobraking campaign is one element; aerocapture is arrival / capture. | Section 4.3's atmosphere-pass rules use the same 2-minute hop and the same "how it ends" reading. |
+| same file `:99-127` and `:128-167`, answered `:121-127`, `:219-221` (owner, 2026-11-20) | Ascent ends at the atmosphere exit, then a distinct circularization element; a departure burn opens the transfer, the capture burn closes it (transfer = departure burn + coast + capture burn); deorbit element on every body ("Yes, deorbit row"); airless descent from the deorbit burn; reentry from the first atmosphere touch; an SOI change is never a boundary (ruling Q9). | Phase kinds 3.1 (`Circularization`, `Transfer`, `Deorbit`, `Descent`, `Reentry`), SOI changes as events. |
+| same file `:197-198` (Fable second opinion) | Drag cannot lift the low point out of the atmosphere, so an aerocapture or aerobraking element runs until the raise burn ends. | The aerocapture / aerobraking rules end at the raise burn (4.3). |
+| `docs/dev/done/plans/optimizer-persistence-split.md:1010-1047` (version 3) | Orbit kind evidence order (the coast's own SOI change, on-rails checkpoint elements or the terminal orbit, an SOI crossed with no burn, atmosphere / ground boundaries); point velocities never read; a burn with no evidence on both sides is never judged. | Stage 1 orbit facts and the evidence order in stage 2. |
+| `.claude/CLAUDE.md` "No new player-facing UI surfaces" and its Route History exception | New windows need an owner ruling; the Route History reuses the Log's template and is not a precedent. | Section 0: the owner's 2026-11-22 request is that ruling, recorded the same way. |
+| `docs/handoff/recording-split-review/STATUS.md:122-126` (owner, 2026-11-21) | The profile feature, its analyzer, line walker and format bump were deferred out of the split task into this feature. | This doc owns them; P1 builds the analyzer and walker, P2 the format bump. |
+
 ## 1. Goal and non-goals
 
 Goal: for one mission, show WHAT THE FLIGHT DID as a short tree of named elements, the way a real
@@ -100,7 +124,7 @@ InvariantCulture (a unit test reads them).
 Every row carries a one-line tooltip shown in the strip: the full sentence behind the clipped
 cells, for example
 
-- burn: `Trans-Mun injection: 34 s burn at 82 km, about 862 m/s (estimated from the orbits before and after). Orbit after: Ap 11,524 km, Pe 82 km, 0.9 deg; Mun encounter.`
+- burn: `Trans-Mun injection: 29 s burn at 82 km on the LV-T45, about 862 m/s (estimated from the orbits before and after). Orbit after: Ap 11,524 km, Pe 82 km, 0.9 deg; Mun encounter.`
 - phase: `Mun orbit: 2h 26m, 229 x 229 km then 45 x 30 km, 2 burns (131 m/s), 2 EVAs.`
 - data gap: `Orbit after the burn is unknown: the vessel stayed in physics range until it landed, and no orbit sample was recorded.`
 - vessel header: `Kerbal X Probe: separated at T+0:05:01 (decoupled); 1 phase; ends Orbiting Kerbin.`
@@ -137,7 +161,7 @@ the Missions tab).
 |---|---|---|---|
 | Prelaunch | (folded into Launch) | recording start on a launch site | liftoff |
 | Ascent | `Ascent` | liftoff (surface -> air / approach) | atmosphere exit (atmosphere body) or the burn that reaches orbit (airless) |
-| Orbit insertion | `Orbit insertion` | atmosphere exit with a falling orbit | end of the burn that reaches orbit |
+| Circularization | `Circularization` | atmosphere exit with a falling orbit | end of the burn that reaches orbit |
 | Direct ascent to escape | `Injection` | atmosphere exit | end of the burn that leaves the SOI with no parking orbit (v3 role `injection`) |
 | Orbit | `<Body> orbit` | an orbit is reached (insertion, capture, after a rendezvous) | the burn that leaves it, or the line's end |
 | Transfer | `Transfer to <Body>` / `Return to <Body>` | start of the departure burn (out of an orbit) or end of an injection | the capture burn's end, the atmosphere entry, or the landing approach |
@@ -249,16 +273,26 @@ both sides, like a pattern matcher over tokens, not a state machine fed one span
 - Each rule is a named pattern over a window of spans: what must hold before (orbit kind, body,
   the previous interpretation), the core spans it claims, and what must hold after (the next
   orbit kind, the next boundary, a later dock, the line's outcome). Example, the atmosphere-pass
-  family, all claiming one `Air` run entered from space:
+  family. A PASS is an atmosphere stretch entered from space; hops back out under 2 minutes belong
+  to the same pass (the version-2 rule, so a skip is one pass); a run of passes with only coasts
+  between them and no burn is a GROUP. Drag cannot lift the low point out of the atmosphere, so
+  after a braking pass the orbit stays falling until a burn raises it. The group is read by how it
+  ENDS, and by the orbit kind before its first pass:
 
-  | Rule | Before | After the Air run | Reads as |
+  | Rule | Before the first pass | How the group ends | Reads as |
   |---|---|---|---|
-  | direct-entry | any | no exit: touchdown, splashdown or destruction | Reentry (or Impact) |
-  | skip-entry | falling or open | exit, then a new entry on the same body with no burn and no closed-orbit evidence between | Reentry; the pass becomes a `Skip` event inside it |
-  | aerocapture | open (hyperbolic / escape) | exit with a closed orbit (from a checkpoint, or from the next pass recurring with no burn, or from a periapsis-raise burn that closes it) | Capture (`Aerocapture`), then `<Body> orbit` |
-  | aerobraking | closed | exit with a closed orbit, Ap lower | `Aerobraking pass`, grouped with its neighbours in stage 3 |
-  | braking-flyby | open | exit, still open | `Atmospheric flyby` inside the transfer |
-  | unknown-pass | any | exit, orbit after unknown and nothing later decides | `Atmosphere pass` (neutral; the hover says why) |
+  | direct-entry | any | one pass, no exit: touchdown, splashdown or destruction | Reentry (or Impact) from the first entry |
+  | skip-entry | any | passes whose hops out are all under 2 minutes, then the ground | Reentry from the first entry, each hop a `Skip` event |
+  | aerocapture | open (hyperbolic / escape) | out of the atmosphere on a closed path, then a burn that raises the low point (or the line ends in space) | `Aerocapture` from the first entry to the end of the raise burn, then `<Body> orbit` |
+  | aerobraking | falling-closed (a capture burn or an earlier pass left the low point in the air) | as aerocapture | `Aerobraking` (one event per pass) to the end of the raise burn, then `<Body> orbit` |
+  | brake-then-land | open or falling-closed | one or more passes with long hops out, then the ground | `Aerocapture` / `Aerobraking` for the passes before the last, then Reentry from the last entry |
+  | braking-flyby | open | out of the atmosphere still open | `Atmospheric flyby` inside the transfer |
+  | unknown-pass | any | out of the atmosphere with the orbit after unknown and nothing later deciding | `Atmosphere pass` (neutral; the hover says why) |
+
+  The owner's example (2026-11-22): the first touch coming from deep space is a capture
+  (aerocapture), an adjustment (braking-flyby, or aerobraking when the orbit was already closed),
+  the start of a skip (skip-entry) or of a direct descent (direct-entry), and only the end of its
+  group tells which.
 
 - Patterns are tried in priority order per span; the longest consistent match wins, and a span
   claimed by a higher rule is not re-claimed. Evidence order is fixed: stored elements
@@ -285,7 +319,7 @@ What each phase is, once interpreted:
 - Ascent: liftoff to the atmosphere exit on an atmosphere body; on an airless body to the end of
   the burn that reaches an orbit. A line that starts in flight (a separated child, an undock, a
   resumed switch segment) has no Launch and starts in whatever its first spans interpret as.
-- Orbit insertion after a falling atmosphere exit, until the burn that reaches orbit ends; or
+- Circularization after a falling atmosphere exit, until the burn that reaches orbit ends; or
   Injection when that burn leaves the SOI; or Suborbital flight when no burn comes.
 - Orbit: burns that keep the orbit closed are events inside it (orbit change, plane change,
   phasing); a burn whose coast leads to an encounter or escape opens a Transfer at its start; a
@@ -333,7 +367,10 @@ the partner named in the hover.
 
 - Orbit: Ap and Pe above the body's surface (equatorial radius), inclination, from checkpoint
   elements (`OrbitSegment` semi-major axis, eccentricity, inclination) or the terminal orbit.
-- Burn duration: first to last burning sample of the merged run.
+- Burn duration: from the first engine ignite to the last shutdown part event of the merged run
+  (cs-career-mun4's Trans-Mun injection: 28.7 s of engine time inside a 34 s `ExoPropulsive`
+  section span); the section span only when the burn has no engine events (RCS-only, or old data).
+  The burn's hover names the engines that fired (part titles from the engine events).
 - Delta-v (estimate, first build): when the orbit just before and just after a burn are both known
   from checkpoints / terminal orbit and the burn is shorter than 120 s, propagate both conics to
   the burn's midpoint UT through `TwoBodyOrbit` and take the magnitude of the velocity difference
@@ -343,7 +380,7 @@ the partner named in the hover.
   mass and specific impulse, which are not recorded (F3); with F3's per-section stamps (P2) the
   column shows the expended delta-v without `~`.
 - Mission summary (the root header's hover): total duration, total delta-v (with how much is
-  known), bodies visited, landing sites, EVA count and total time, outcome per line.
+  known), maximum altitude per body (from the stored per-section maximum), bodies visited, landing sites, EVA count and total time, outcome per line.
 
 ### 4.7 Data gaps
 
@@ -555,6 +592,20 @@ follow-ups), `docs/dev/design-gui-inventory.md` (14 windows, the button, the too
 - Q7 Phase names: `Trans-Mun injection` / `Mun orbit insertion` (Apollo vocabulary, this doc), or
   plainer `Transfer burn` / `Capture burn`?
 
+- Q8 Roadmap Phase 17 (`docs/roadmap.md:660`) lists a delta-v budget "planned versus used, with
+  remaining margin". Parsek records no plan and no remaining fuel, so P1 shows used delta-v only
+  (estimated). Keep "planned / margin" for a later phase, or drop it from the roadmap?
+- Q9 The roadmap's "Vessels and stages" (`docs/roadmap.md:661`) wants which stage became what and how
+  each piece ended; this design hides debris (as the Missions tab does) and shows only
+  `Stage separation (n pieces)`. Add each debris piece's ending (crashed / burned up / landed) to that
+  event's hover, or keep debris out entirely?
+- Q10 The roadmap's sequence of events and key numbers (`docs/roadmap.md:658`, `:662`) include
+  engine start / cutoff, fairing separation, maximum speed, max-Q and heating. This design keeps
+  engine start / cutoff inside burn rows (the hover names the engines), leaves fairings and lights to
+  the Log, shows the maximum altitude in the summary, and omits speed, max-Q and heating (not
+  recorded reliably: the point velocity is surface-relative near the planet, and no dynamic pressure
+  or heat is recorded). Accept that cut, or record them in P2 with F3?
+
 ## Appendix A. Worked profiles from committed fixtures
 
 Numbers read from the fixtures' `.prec.txt` mirrors (section UTs, checkpoint elements, part events);
@@ -569,12 +620,12 @@ applies.
 | T+0:00:01 | Ascent | Kerbin | 3m 52s | - | to 70 km, Ap 80 km |
 | T+0:01:10 | Stage separation (1 piece) | Kerbin | | | |
 | T+0:02:40 | Stage separation (1 piece) | Kerbin | | | |
-| T+0:03:54 | Orbit insertion | Kerbin | 1m 48s | ~362 | 83 x 77 km, 0.1 deg |
+| T+0:03:54 | Circularization | Kerbin | 1m 48s | ~362 | 83 x 77 km, 0.1 deg |
 | T+0:05:24 | Circularization burn | Kerbin | 18s | ~362 | 83 x 77 km |
 | T+0:05:42 | Kerbin orbit | Kerbin orbit | 4m 1s | | 83 x 77 km, 0.1 deg |
-| T+0:09:44 | Transfer to Mun | Kerbin -> Mun | 8h 37m | ~1,096 | Mun orbit |
-| T+0:09:44 | Trans-Mun injection | Kerbin | 34s | ~862 | Ap 11,524 km, Pe 82 km |
-| T+2:29:23 | Course correction | Kerbin | 8s | ~14 | Ap 11,046 km, Pe 178 km |
+| T+0:09:43 | Transfer to Mun | Kerbin -> Mun | 8h 37m | ~1,096 | Mun orbit |
+| T+0:09:43 | Trans-Mun injection | Kerbin | 28s | ~862 | Ap 11,524 km, Pe 82 km |
+| T+2:29:22 | Course correction | Kerbin | 3s | ~14 | Ap 11,046 km, Pe 178 km |
 | T+7:03:27 | Entered Mun SOI | Mun | | | Pe 229 km |
 | T+8:46:35 | Mun orbit insertion | Mun | 11s | ~220 | 229 x 229 km, 1.0 deg |
 | T+8:46:46 | Mun orbit | Mun orbit | 2h 26m | ~131 | 45 x 30 km |
@@ -597,7 +648,7 @@ applies.
 |---|---|---|---|---|---|
 | Y1, D01, 00:00 | Kerbal X | Kerbin, Launch Pad | 6h 27m | ~1,998 | Landed, Mun |
 | T+0:00:04 | Ascent (3 stage separations) | Kerbin | 2m 52s | - | to 70 km, Ap 80 km |
-| T+0:02:57 | Orbit insertion | Kerbin | 1m 27s | ~736 | 84 x 76 km, 0.1 deg |
+| T+0:02:57 | Circularization | Kerbin | 1m 27s | ~736 | 84 x 76 km, 0.1 deg |
 | T+0:04:25 | Kerbin orbit | Kerbin orbit | 26m 12s | | 84 x 76 km |
 | T+0:30:37 | Transfer to Mun | Kerbin -> Mun | 5h 28m | ~1,262 | |
 | T+0:30:37 | Trans-Mun injection | Kerbin | 25s | ~856 | Ap 11,480 km, Pe 77 km |
@@ -618,7 +669,7 @@ applies.
 |---|---|---|---|---|---|
 | Y1, D01, 00:06 | Kerbal X (Bill, Bob, Valentina) | Kerbin, Launch Pad | 2h 22m | ~610 | Orbiting Kerbin |
 | T+0:00:00 | Ascent (3 stage separations) | Kerbin | 2m 56s | - | to 70 km, Ap 90 km |
-| T+0:02:57 | Orbit insertion | Kerbin | 2m 4s | ~592 | 95 x 84 km |
+| T+0:02:57 | Circularization | Kerbin | 2m 4s | ~592 | 95 x 84 km |
 | T+0:05:01 | Separated: Kerbal X Probe | Kerbin orbit | | | |
 | T+0:05:01 | (child) Kerbal X Probe | Kerbin orbit | 2h 17m | | End: Orbiting Kerbin, 95 x 84 km |
 | T+0:05:01 | Kerbin orbit | Kerbin orbit | 1h 57m | | 95 x 84 km |
