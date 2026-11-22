@@ -1524,9 +1524,16 @@ flag and gate on the page is partparity's (`judge_case`, `judge_view`, `start_vi
   label, `-<n>` on a repeat); a control's row id is `<profile>/<sweep>/<control>`, so the
   controls of a stowed sweep and its state sweeps never collide, and the controls section
   lists them per sweep with the set kind (`stowed`, `orbit`, `air`). A part case id loaded
-  twice in one profile keeps the first and is the sweep box's duplicates line (bad).
+  twice in one profile keeps the first and is the sweep box's duplicates line (bad). Until
+  S3's profile fix (8) every manifest records the profile `..`, which the viewer replaces by
+  the sweep's label (pp1, pp3, ...), so a stowed sweep and its state sweeps merge only when
+  passed as `NAME=DIR` with one name (`stock=<pp1> stock=<pp3> stock=<pp5>`); the sweep box
+  and the console say so for every sweep named after its label.
 - Header per sweep: the control set and its gate (state controls re-judged from their
-  sidecars), the press gate per family, the state flag counts, the writer cross-checks.
+  sidecars), the press gate per family, the state flag counts, the writer cross-checks. A
+  state control recorded `ok` that `judge_state_control` judges bad reads `control BAD`
+  (chip, counter, controls box) with the judged detail as its trigger, and a failed controls
+  gate marks the sweep box bad.
 - Filters: State (the word, the tiebreak dropped), Family and State flags (the four kinds),
   shown only when a state case is loaded.
 - Regression: rows pair by profile and key (the case id; for a control the set kind and

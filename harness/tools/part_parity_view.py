@@ -47,7 +47,10 @@ Usage::
     python harness/tools/part_parity_view.py <dir> [<dir> ...] [--baseline <dir>]
         [--out <dir>] [--images auto|copy|in-place]
 
-A ``<dir>`` may be written ``NAME=<dir>`` to name its profile explicitly. Default output:
+A ``<dir>`` may be written ``NAME=<dir>`` to name its profile explicitly. Sweeps merge by
+profile; a manifest whose recorded profile is ``..`` (every sweep before S3's profile fix)
+is named after its label, so a stowed sweep and its state sweeps merge only when passed as
+``stock=<pp1> stock=<pp3> stock=<pp5>``. Default output:
 ``<first dir>/viewer/``. The tool refuses to write into the repository tree (except the
 gitignored ``harness/results/``). Stdlib only; ASCII only.
 """
@@ -168,8 +171,10 @@ def profile_name(manifest: Optional[Dict], dir_name: str,
         return recorded, None
     label = manifest.get("label") if isinstance(manifest, dict) else None
     fallback = label if isinstance(label, str) and label.strip() else dir_name
-    return sanitize_name(fallback), "profile recorded as %r; named after the %s" % (
-        recorded, "label" if fallback is label else "directory")
+    return sanitize_name(fallback), ("profile recorded as %r; named after the %s, so this "
+                                     "sweep merges with no other: pass a stowed sweep and its "
+                                     "state sweeps as NAME=DIR with one NAME to merge them" % (
+                                         recorded, "label" if fallback is label else "directory"))
 
 
 def ordered_case_ids(manifest: Optional[Dict], sidecar_ids: Iterable[str]) -> List[Tuple[str, bool]]:
@@ -413,9 +418,16 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
         worst_view, blob_px, blob_pct = None, int(summ.get("maxShapeBlobPx") or 0), None
         color_px = int(summ.get("maxColorBlobPx") or 0)
     part_verdict = verdict
+    judged = judged_detail = None
     if is_control:
         outcome = (control or {}).get("outcome")
         verdict = VERDICT_CONTROL_OK if outcome == pp.CONTROLS_OK else VERDICT_CONTROL_BAD
+        if outcome == pp.CONTROLS_OK and case_id in pp.STATE_CONTROL_IDS:
+            # check_controls re-judges a state control recorded ok from its sidecar; the
+            # chip follows that judgement, so a contradicted control never reads ok.
+            judged, judged_detail = pp.judge_state_control(sc)
+            if judged != pp.CONTROLS_OK:
+                verdict = VERDICT_CONTROL_BAD
     views = []
     for i, v in enumerate(views_raw):
         row = _measure_row(v)
@@ -444,6 +456,8 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
     if is_control:
         c = control or {}
         trigger = ("outcome %s: %s" % (c.get("outcome") or "absent", c.get("required") or "-"))
+        if judged is not None and judged != pp.CONTROLS_OK:
+            trigger = "recorded ok, judged %s from its sidecar: %s" % (judged, judged_detail)
     else:
         trigger = trigger_line(reasons)
     index = summ.get("index") if isinstance(summ.get("index"), int) else None
@@ -495,8 +509,9 @@ def case_row(profile: str, case_id: str, sidecar: Any, summary: Optional[Dict],
         "extraRendered": len(extra),
         "setupStatus": status,
         "setupDetail": setup.get("detail"),
-        "control": None if not is_control else {
-            k: (control or {}).get(k) for k in ("subject", "required", "outcome", "detail")},
+        "control": None if not is_control else dict(
+            {k: (control or {}).get(k) for k in ("subject", "required", "outcome", "detail")},
+            judged=judged, judgedDetail=judged_detail),
         "atlas": image_url(atlas_file) if image_url else None,
         "tile": atlas.get("tile"),
         "atlasRows": list(atlas.get("rows") or pp.atlas_rows_for(is_state)),
@@ -1523,7 +1538,7 @@ dialog .tile { cursor: default; }
       var compOk = h.completeness ? h.completeness.ok : false;
       var hostDamaged = h.progress && h.progress.hostDamaged === true;
       var pressBad = h.statePress && !h.statePress.ok;
-      if (!compOk || h.manifestError || hostDamaged || pressBad || h.instrumentProblems.length || h.duplicates.length) bad = true;
+      if (!compOk || h.manifestError || hostDamaged || pressBad || (h.controls && !h.controls.ok) || h.instrumentProblems.length || h.duplicates.length) bad = true;
       row("profile", h.profile + (h.profileNote ? " (" + h.profileNote + ")" : "") + (perProfile[h.profile] > 1 ? " - merged with " + (perProfile[h.profile] - 1) + " other sweep(s) of this profile" : ""));
       row("label / dir", fmt(h.label) + " - " + h.dir);
       if (h.manifestError) row("manifest", h.manifestError, "bad-text");
@@ -1696,7 +1711,8 @@ dialog .tile { cursor: default; }
     var headKids;
     if (isControl) {
       headKids = [el("span", {cls: "skname", text: c.caseId}), el("span", {cls: "vc " + (c.verdict === "control-ok" ? "pass" : "fail"), text: c.verdict === "control-ok" ? "control ok" : "control BAD"}),
-        el("span", {cls: "note", text: (c.control.subject || "") + ". Required: " + (c.control.required || "-") + "."})];
+        el("span", {cls: "note", text: (c.control.subject || "") + ". Required: " + (c.control.required || "-") + "."}),
+        c.control.judged && c.control.judged !== "ok" ? el("span", {cls: "trig tr-fail", text: c.trigger}) : null];
     } else if (opts.sub) {
       headKids = [el("span", {cls: "skname", text: c.stateLabel}), c.family ? el("span", {cls: "chip", text: c.family}) : null, vchip(c.verdict, c.reasons.join("\n") || null)]
         .concat(routeChips(c)).concat(flags).concat([setup, reg, c.trigger ? el("span", {cls: "trig tr-" + c.verdict, text: c.trigger}) : null]);

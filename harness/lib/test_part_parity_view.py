@@ -824,6 +824,47 @@ class StateGroupingTests(_StateSetMixin, unittest.TestCase):
         self.assertTrue(any("recorded-ok-judged-bad" in p for p in h["controls"]["problems"]),
                         h["controls"]["problems"])
 
+    def test_a_state_control_recorded_ok_but_judged_bad_reads_bad_everywhere(self):
+        # Review of PR #2770: zero the blob counts in pp3's ctl-state-events-dropped
+        # stowedRef; the manifest outcome stays ok.
+        path = os.path.join(self.dirs[1], pp.CONTROL_STATE_EVENTS_DROPPED + pp.SIDECAR_SUFFIX)
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        for v in doc["views"]:
+            for k in v["stowedRef"]:
+                if "Blob" in k:
+                    v["stowedRef"][k] = 0
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        outcome, detail = pp.judge_state_control(doc)
+        self.assertEqual(pp.CONTROLS_BAD, outcome)
+        data = self.data()
+        row = [c for c in data["cases"]
+               if c["id"] == "%s/pp3/%s" % (PROFILE, pp.CONTROL_STATE_EVENTS_DROPPED)][0]
+        self.assertEqual("ok", row["control"]["outcome"])
+        self.assertEqual(ppv.VERDICT_CONTROL_BAD, row["verdict"])
+        self.assertEqual((pp.CONTROLS_BAD, detail),
+                         (row["control"]["judged"], row["control"]["judgedDetail"]))
+        self.assertIn(detail, row["trigger"])
+        self.assertEqual({"ok": 20, "bad": 1}, data["counts"]["controls"])
+        # The Controls box is bad when any control row is not control-ok; the Sweeps box
+        # is bad when a sweep's controls gate failed (the header the page reads).
+        heads = {h["sweep"]: h for h in data["sweeps"]}
+        self.assertFalse(heads["pp3"]["controls"]["ok"])
+        self.assertTrue(heads["pp1"]["controls"]["ok"] and heads["pp5"]["controls"]["ok"])
+        self.assertIn("(h.controls && !h.controls.ok)", ppv.INDEX_HTML)
+        self.assertIn('bad = ids.filter(function (id) { return CASE[id].verdict !== "control-ok"; })',
+                      ppv.INDEX_HTML)
+        # an untouched state control recorded ok stays ok, judged ok
+        air = [c for c in data["cases"] if c["caseId"] == pp.CONTROL_STATE_EVENTS_DROPPED_AIR][0]
+        self.assertEqual((ppv.VERDICT_CONTROL_OK, pp.CONTROLS_OK),
+                         (air["verdict"], air["control"]["judged"]))
+
+    def test_a_label_named_profile_says_how_to_merge(self):
+        name, note = ppv.profile_name({"profile": "..", "label": "pp3"}, "d")
+        self.assertEqual("pp3", name)
+        self.assertIn("NAME=DIR", note)
+
     def test_state_filters(self):
         f = self.data()["facets"]
         self.assertEqual(["stowed", "deployed", "open", "lit", "semi", "full", "jettisoned"],
