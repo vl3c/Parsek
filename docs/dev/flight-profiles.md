@@ -1983,7 +1983,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V20K-jool-kerbin-ksc-arrival | operator | kerbin-return-recorded | seam | Kerbin, Jool, Sun | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V20M-jool-kerbin-player-loop | nightly | kerbin-return-recorded | seam | Kerbin, Jool, Sun | warp, time-jump | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V20T-jool-kerbin-ts-arrival | nightly | kerbin-return-recorded | seam | Kerbin, Jool, Sun | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
-| V21M-mun-minmus-player-loop | operator | mun-minmus-recorded | seam | Kerbin, Mun, Minmus | warp, time-jump | - | RE-FLOWN GREEN 2026-11-11 ON THE 1.0.2 MO... |
+| V21M-mun-minmus-player-loop | operator | mun-minmus-recorded | seam | Kerbin, Mun, Minmus | warp, time-jump | - | RE-FLOWN GREEN 2026-11-22 ON THE FAITHFUL... |
 | V21T-mun-minmus-ts-arrival | operator | mun-minmus-recorded | seam | Kerbin, Mun, Minmus | reload, save, warp, time-jump, scene-change | - | RE-FLOWN GREEN 2026-11-11 ON THE 1.0.2 MO... |
 | V22K-kerbin-splashdown-ksc-arrival | operator | kerbin-splashdown-recorded | seam | Kerbin | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V22M-kerbin-splashdown-player-loop | operator | kerbin-splashdown-recorded | seam | Kerbin | warp, time-jump | - | LIVE-PROVEN 2026-07-20 |
@@ -2012,19 +2012,19 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V3C-flight-arrival-companion | nightly | b17-duna-pad +inj looped-interp... | b17_duna_direct | Duna | time-jump | - | LIVE-PROVEN 2026-09-07 |
 | V3F-flight-arrival-faithful | operator | duna-direct-recorded | m3_loop_arrival_dwell | Duna | - | - | LIVE-PROVEN 2026-08-07 |
 | V3R-flight-arrival-reaim | operator | duna-direct-recorded | m3_loop_arrival_dwell | Duna | - | - | LIVE-PROVEN 2026-08-07 |
-| V4-player-loop-workflow | operator | duna-direct-recorded | seam | Duna | time-jump | - | FLOWN 2026-08-08, run 2026-08-08_1135, PA... |
+| V4-player-loop-workflow | operator | duna-direct-recorded | seam | Duna | time-jump | - | RE-FLOWN GREEN 2026-11-22 ON THE FAITHFUL... |
 | V43M-vall-tylo-player-loop | operator | vall-tylo-recorded | seam | Jool, Vall, Tylo | - | - | LIVE-PROVEN 2026-11-16 |
 | V44M-laythe-tylo-player-loop | operator | laythe-tylo-recorded | seam | Jool, Laythe, Tylo | - | - | LIVE-PROVEN 2026-11-16 |
 | V45M-tylo-bop-player-loop | operator | tylo-bop-recorded | seam | Jool, Tylo, Bop | - | - | LIVE-PROVEN 2026-11-16 |
 | V46M-minmus-mun-player-loop | operator | minmus-mun-recorded | seam | Kerbin, Mun, Minmus | - | - | LIVE-PROVEN 2026-11-16 |
 | V5-ts-loop-arrival | operator | duna-direct-recorded | seam | Duna | reload, save, time-jump, scene-change | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |
-| V6M-mun-player-loop | operator | mun-orbit-recorded | seam | Mun | time-jump | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |
+| V6M-mun-player-loop | operator | mun-orbit-recorded | seam | Mun | time-jump | - | RE-FLOWN GREEN 2026-11-22 ON THE FAITHFUL... |
 | V6T-mun-ts-arrival | operator | mun-orbit-recorded | seam | Mun | reload, save, time-jump, scene-change | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |
-| V7M-minmus-player-loop | operator | minmus-orbit-recorded | seam | Minmus | time-jump | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |
+| V7M-minmus-player-loop | operator | minmus-orbit-recorded | seam | Minmus | time-jump | - | RE-FLOWN GREEN 2026-11-22 ON THE FAITHFUL... |
 | V7T-minmus-ts-arrival | operator | minmus-orbit-recorded | seam | Minmus | reload, save, time-jump, scene-change | - | 2026-09-27: FLOWN GREEN (2026-09-27_1230,... |
 | V7W-minmus-physics-warp | nightly | minmus-orbit-recorded | seam | Minmus | warp, physics-warp, time-jump | - | LIVE-PROVEN 2026-09-26 |
 | V8-eve-player-loop | operator | eve-orbit-recorded | seam | Eve | time-jump | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |
-| V8F-eve-loop-faithful | operator | eve-orbit-recorded | seam | Eve | time-jump | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |
+| V8F-eve-loop-faithful | operator | eve-orbit-recorded | seam | Eve | time-jump | - | RE-FLOWN GREEN 2026-11-22 ON THE FAITHFUL... |
 | V8T-eve-ts-arrival | operator | eve-orbit-recorded | seam | Eve | reload, save, time-jump, scene-change | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |
 | V9-dres-player-loop | operator | dres-orbit-recorded | seam | Dres | - | - | calibration discipline |
 
