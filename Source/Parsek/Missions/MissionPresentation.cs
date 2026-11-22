@@ -67,11 +67,6 @@ namespace Parsek
             "Loop this mission as one unit. At most one looping mission per recording tree - " +
             "enabling this clears the loop on any mission that shares its recordings.";
 
-        internal const string CloneButtonTooltip =
-            "Duplicate this mission as a second selection over the same recordings " +
-            "(its own include set, loop period, and Archive flag). A looping mission's copy " +
-            "starts with Loop off.";
-
         // The mission's collapse caret (line 2 of the Missions tab's # column, under the index):
         // the house expand-caret glyphs, down while the mission's vessel rows show and right
         // while they are hidden, and a hover naming what the click does.

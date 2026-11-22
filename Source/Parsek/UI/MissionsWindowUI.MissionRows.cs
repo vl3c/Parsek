@@ -15,10 +15,9 @@ namespace Parsek
         //   Line 2: the collapse caret under the index | the summary, then (Advanced) the loop
         //           group right-aligned in the name cell | four blank data cells | Interact:
         //           Rewind / Forward (a reserved slot when neither applies).
-        // Clone/Delete mutate MissionStore; the draw loop iterates a snapshot so that is safe. The
-        // loop toggle goes through MissionStore.SetLoopEnabled, which allows concurrent looping
-        // across trees but at most one looping mission per tree (it only flips bools on same-tree
-        // siblings, never adds/removes, so it is safe to call from inside the draw loop).
+        // The loop toggle goes through MissionStore.SetLoopEnabled, which allows concurrent
+        // looping across trees but at most one looping mission per spanned tree set (it only
+        // flips bools, never adds/removes, so it is safe to call from inside the draw loop).
         private void DrawMissionHeader(Mission mission, int index, MissionThroughLineView view,
             MissionPeriodicityDisplay periodicity, MissionPresentation.MissionSummaryFacts summary,
             string startEvent, bool collapsed)
@@ -42,7 +41,7 @@ namespace Parsek
             // First column = blank enable slot + the index number, totalling the recordings tab's
             // [enable+index] width so the title lines up with the recordings "Name" column.
             GUILayout.Label("", missionHeaderTextStyle, GUILayout.Width(ColW_Enable));
-            // Index cell: the per-tree number, non-modifiable. Shared by clones. Bold transparent
+            // Index cell: the per-tree number, non-modifiable. Bold transparent
             // text on the row bubble (no box of its own). Shown in BOTH modes: T1.7 originally
             // hid it in Basic as a support ordinal, but a numberless first column read as a
             // rendering gap (owner playtest 2026-08-20), and with the # header sortable in both
@@ -74,9 +73,9 @@ namespace Parsek
         }
 
         // The name cell of line 1: the bold title (double-click renames), which expands, then (in
-        // Advanced) the loop grid's first row - Clone in column A, "Warp to..." in column B - and
-        // Log right-aligned at the Interact single-button width. See LoopGridColumnAWidth for
-        // how the grid lines up with its second row on line 2.
+        // Advanced) the loop grid's first row - "Warp to..." in column B - and Log right-aligned
+        // at the Interact single-button width. See LoopGridColumnBWidth for how the grid lines up
+        // with its second row on line 2.
         private void DrawMissionNameCell(Mission mission, MissionPeriodicityDisplay periodicity)
         {
             bool loopAuthoring = ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode);
@@ -85,13 +84,6 @@ namespace Parsek
 
             if (loopAuthoring)
             {
-                // Column A, line 1: Clone. Loop AUTHORING (a clone exists to carry a second
-                // include set / loop period over the same recordings), so Advanced-only.
-                if (GUILayout.Button(new GUIContent("Clone", MissionPresentation.CloneButtonTooltip),
-                        loopGridButtonStyle, GUILayout.Width(LoopGridColumnAWidth)))
-                    MissionStore.Clone(mission);
-                GUILayout.Space(LoopGridGap);
-
                 // Column B, line 1: "Warp to...". Jumps the game clock to this mission's next
                 // relaunch (the countdown target = periodicity.NextRelaunchUT) through the
                 // in-place forward jump the Forward button uses. ALWAYS drawn in Advanced
@@ -143,10 +135,9 @@ namespace Parsek
 
         // The name cell of line 2: the summary on the left (it expands and wraps), then:
         //   Basic:    [Run by route], right-aligned, when route-bound.
-        //   Advanced: the loop grid's second row - Delete in column A, and the loop row
-        //             spanning column B plus the Log slot above it: "Loop [x] every" under
-        //             Warp and the period under Log, or "Looped by route" across the whole
-        //             row when route-bound.
+        //   Advanced: the loop grid's second row, the loop row spanning column B plus the
+        //             Log slot above it: "Loop [x] every" under Warp and the period under
+        //             Log, or "Looped by route" across the whole row when route-bound.
         private void DrawMissionSummaryNameCell(Mission mission, MissionThroughLineView view,
             MissionPeriodicityDisplay periodicity, MissionPresentation.MissionSummaryFacts summary)
         {
@@ -159,19 +150,6 @@ namespace Parsek
 
             if (loopAuthoring)
             {
-                // Column A, line 2: Delete. It removes a clone, so it has nothing to act on
-                // without one (CanDelete keeps the tree's first mission safe either way);
-                // Advanced-only with Clone above it (owner ruling 2026-09-29).
-                bool canDeleteMission = MissionStore.CanDelete(mission);
-                GUI.enabled = canDeleteMission;
-                bool deleteClicked = GUILayout.Button("Delete", loopGridButtonStyle,
-                    GUILayout.Width(LoopGridColumnAWidth));
-                DisabledHoverEcho.CarryLastControl(canDeleteMission, MissionDeleteDisabledReason(mission));
-                if (deleteClicked)
-                    MissionStore.Delete(mission);
-                GUI.enabled = true;
-                GUILayout.Space(LoopGridGap);
-
                 DrawMissionLoopRow(mission, view, periodicity, missionRouteBound, bindingRoute);
             }
             else if (missionRouteBound)
@@ -341,11 +319,8 @@ namespace Parsek
 
             // Bold transparent text on the row bubble (clickable for rename); no box of its own,
             // since the row's missionHeaderRowStyle already supplies the dark background.
-            // A main mission's name is its Recordings folder's name, so it takes the folder rules.
-            string renameHover = MissionStore.IsOriginalMission(mission)
-                ? MissionHeaderRenameHoverOriginal
-                : MissionHeaderRenameHoverClone;
-            if (GUILayout.Button(new GUIContent(display, renameHover), missionHeaderTextStyle, GUILayout.ExpandWidth(true)))
+            // A mission's name is its Recordings folder's name, so it takes the folder rules.
+            if (GUILayout.Button(new GUIContent(display, MissionHeaderRenameHoverOriginal), missionHeaderTextStyle, GUILayout.ExpandWidth(true)))
             {
                 float t = Time.realtimeSinceStartup;
                 if (lastClickedMissionId == mission.Id && t - lastMissionClickTime < DoubleClickThreshold)
@@ -379,26 +354,18 @@ namespace Parsek
             string newName = (renamingMissionText ?? "").Trim();
             if (!string.IsNullOrEmpty(newName) && newName != mission.Name)
             {
-                if (MissionStore.IsOriginalMission(mission))
+                // The mission IS the tree's Recordings-window folder. Rename both (and the auto
+                // subgroups) atomically; on a group-name collision the rename is refused and the
+                // mission keeps its old name, so the two views never drift.
+                RecordingTree tree = FindTree(RecordingStore.CommittedTrees, mission.TreeId);
+                if (tree != null)
                 {
-                    // The main mission IS the tree's Recordings-window folder. Rename both (and the
-                    // auto subgroups) atomically; on a group-name collision the rename is refused and
-                    // the mission keeps its old name, so the two views never drift.
-                    RecordingTree tree = FindTree(RecordingStore.CommittedTrees, mission.TreeId);
-                    if (tree != null)
-                    {
-                        if (!MissionGroupLink.RenameMissionGroup(tree, newName, out string reason))
-                            ParsekLog.Warn("Mission", $"Mission rename rejected: '{newName}' ({reason})");
-                    }
-                    else
-                    {
-                        // No committed tree (unexpected for a main mission) - rename the mission only.
-                        MissionStore.RenameMission(mission, newName);
-                    }
+                    if (!MissionGroupLink.RenameMissionGroup(tree, newName, out string reason))
+                        ParsekLog.Warn("Mission", $"Mission rename rejected: '{newName}' ({reason})");
                 }
                 else
                 {
-                    // A clone is a variant selection that does not own the folder; rename it alone.
+                    // No committed tree (unexpected) - rename the mission only.
                     MissionStore.RenameMission(mission, newName);
                 }
             }

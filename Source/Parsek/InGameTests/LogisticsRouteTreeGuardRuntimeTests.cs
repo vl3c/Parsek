@@ -151,9 +151,8 @@ namespace Parsek.InGameTests
         {
             if (addedMissionIds == null || addedMissionIds.Count == 0)
                 return;
-            // The default mission of a tree is non-deletable via MissionStore.Delete
-            // (CanDelete guards the original). Since we are also removing the trees,
-            // PruneOrphans drops the now-orphaned default missions for us.
+            // The store has no delete; since we are also removing the trees, PruneOrphans
+            // drops the now-orphaned default missions for us.
             var liveTrees = RecordingStore.CommittedTrees;
             MissionStore.PruneOrphans(liveTrees);
         }

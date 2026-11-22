@@ -501,12 +501,12 @@ describes the first row under it:
 |---|---|---|---|---|---|
 | 1 | (blank enable slot) | `ColW_Enable` 20 | blank | blank | blank |
 | 2 | `#` (sortable) | `ColW_Index` 30 | per-TREE index | the collapse caret (down / right) | include checkbox (Advanced) or blank |
-| 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames), then right-aligned (Advanced) `Clone` and `Warp to...`, then `Log` (`DrawMissionNameCell`) | the summary, then (Advanced) `Delete` and the loop row, right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
+| 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames), then right-aligned (Advanced) `Warp to...`, then `Log` (`DrawMissionNameCell`) | the summary, then (Advanced) the loop row, right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
 | 4 | `Start time` (sortable) | `ColW_StartTime` 120 | the mission span's start date | blank | `PrintDateCompact` |
 | 5 | `Start event` | `ColW_StartEvent` 110 | the first vessel row's start event (`MissionPresentation.MissionStartEventText`) | blank | event word |
 | 6 | `End event` | `ColW_EndEvent` 85 | the primary vessel's outcome | blank | terminal word |
 | 7 | `End time` | `ColW_EndTime` 120 | the mission span's end date | blank | date |
-| 8 | `Interact` (centred plain label) | `ColW_Interact` 116 | `Watch` / `W*` | `Rewind` or `Forward` when one applies, else a reserved button-sized slot | `Stash` + `Seal` or `Fly` + `Seal` (vessel and interval rows), `Go to` (Docked partner rows), blank (chapter rows) |
+| 8 | `Interact` (centred plain label) | `ColW_Interact` 116 | `Watch` / `W*` | `Rewind` or `Forward` when one applies, else a reserved button-sized slot | `Stash` + `Seal` or `Fly` + `Seal` (vessel rows), `Go to` (Docked partner rows), blank (chapter and partner-journey rows, and an interval detail row whose recording is its vessel row's own target: owner decision 2026-11-22, it repeated that button; `IntervalRowDrawsReFly`) |
 
 `MissionsTabColumnSequenceTests` pins the column sequence of the header against both bar
 lines, the vessel row, the interval row, the chapter header row and both Docked partner row
@@ -528,8 +528,8 @@ the column is the single plus an 8 px inset each side (`InteractCellInset`). The
 is the Recordings tab's own cell drawn at that geometry
 (`RecordingsTableUI.DrawReFlyColumnCell`).
 
-The Advanced loop controls form a fixed 2x2 grid in the name cell, right-aligned beside `Log`:
-column A (`LoopGridColumnAWidth` 70) holds `Clone` over `Delete`; column B
+The Advanced loop controls form a fixed grid in the name cell, right-aligned beside `Log`
+(no Clone / Delete column since 2026-11-22): column B
 (`LoopGridColumnBWidth` 92) holds `Warp to...` on line 1 and, on line 2, `Loop` (28) + the
 checkbox slot (22) + `every` (42), so `Loop` starts at Warp's left edge; under `Log` the value
 field (56) + 4 + the unit button (40) fill the 100 px Log slot, so the period ends at Log's
@@ -589,13 +589,11 @@ Mission bar controls, with their gates:
 
 | control | where | backend | disabled / hidden |
 |---|---|---|---|
-| title double-click | line 1 name cell | `CommitMissionRename` -> `MissionGroupLink.RenameMissionGroup` for an original, `MissionStore.RenameMission` for a clone | a group-name collision refuses the whole rename, Warn-only |
+| title double-click | line 1 name cell | `CommitMissionRename` -> `MissionGroupLink.RenameMissionGroup` (`MissionStore.RenameMission` alone when the tree is not committed) | a group-name collision refuses the whole rename, Warn-only |
 | `Log` | line 1 name cell, right-aligned (right of the Advanced loop grid) | `ParsekUI.OpenStructureWindowForMission` | never |
 | `Watch` / `W*` | line 1 Interact, single width | `flight.EnterWatchMode` / `ExitWatchMode` | greyed with one of two reasons (`MissionWatchDisabledReason`: `Watching only works while you are flying`, `Nothing from this mission is flying right now`). Both modes |
 | `Rewind` / `Forward` | line 2 Interact, single width, under Watch | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greyed on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (a button-sized rect is reserved instead, so line 2 keeps its height), and not drawn at all when the mission's root recording owns no launch save (`RecordingStore.GetRewindRecording` null), the same rule as the Recordings tab's blank Rewind cell. Both modes |
 | collapse caret (down / right) | line 2 `#` cell, under the index | writes `Mission.Collapsed` | never. Both modes |
-| `Clone` | loop grid column A, line 1 | `MissionStore.Clone` | HIDDEN in Basic |
-| `Delete` | loop grid column A, line 2 | `MissionStore.Delete` | greyed by `CanDelete` (`A flight always keeps its first mission`); HIDDEN in Basic |
 | `Warp to...` | loop grid column B, line 1 | confirm dialog, then an in-place forward jump to 15 s before the next relaunch | HIDDEN in Basic; in Advanced always drawn, greyed with the first failing reason in order (`MissionWarpToDisabledReason`): `Warping works in flight or at the Space Center`; `Turn Loop on to warp to the next launch` (on a route-bound tree `A supply route repeats this mission, not Loop`); `This mission does not repeat on a schedule yet`; `The next launch is not ahead of you` |
 | `Loop` + toggle + `every` | loop row column B, line 2 | `CommitMissionLoopToggle` -> `MissionStore.SetLoopEnabled` | HIDDEN in Basic; not drawn on a route-bound tree |
 | `Looped by route` (Advanced) / `Run by route` (Basic) | line 2: across the whole loop row (Advanced) or right-aligned after the summary (Basic) | label; hover `Looped by route: <name>` / `Run on the schedule of route '<name>'.` | only on a route-bound tree |
@@ -637,8 +635,8 @@ composition's intervals, so every interval key names the same stretch as before;
 it is drawn in differs. Vessel and interval rows' single-line data cells use
 `compositionCellLabel.clipping = Overflow`, so descenders are not clipped in a 22 px row.
 
-What `MissionsLoopControls` hides in Basic: the include checkboxes, the loop grid (`Clone`,
-`Delete`, `Warp to...`, `Loop`, the period cell), the summary's `Next launch T- ...` piece, the
+What `MissionsLoopControls` hides in Basic: the include checkboxes, the loop grid
+(`Warp to...`, `Loop`, the period cell), the summary's `Next launch T- ...` piece, the
 per-vessel interval rows, the vessel caret, the foreign partner-journey rows and the
 loop-selection styling (dimmed excluded vessels, the `(partial)` suffix, the chapter header's
 toggle, dimming and `[~]` marker). Basic keeps the title and rename, the summary, `Log`,
@@ -1547,7 +1545,7 @@ frame can never disagree about the control count. Every draw site reads
 | `MainButtonSettings` | `UiComplexityMode.cs` | KEEP | `ParsekUI.DrawWindow` | nothing |
 | `TabRecordings` | `UiComplexityMode.cs` | HIDE | `RecordingsTableUI.VisibleTabCount` | the tab bar, the Recordings tab and its whole body |
 | `TabMissions` | `UiComplexityMode.cs` | KEEP | `TimelineWindowUI` (the `Go to` button) | nothing; `Go to` is gated by its TARGET's key, so re-pointing it at a hidden surface would hide it |
-| `MissionsLoopControls` | `UiComplexityMode.cs` | HIDE | `MissionsWindowUI.ShowsLoopAuthoringControls` (read at each draw site) | the loop grid (`Clone`, `Delete`, `Warp to...`, `Loop`, the period cell), the summary's `Next launch` piece, the include checkboxes, the per-vessel interval rows, the foreign partner-journey rows and the loop-selection styling. NOT the route label (`Run by route` in Basic), `Watch`, `Rewind` / `Forward`, `Log`, the collapse caret, `Fly` / `Stash` / `Seal` or `Go to` |
+| `MissionsLoopControls` | `UiComplexityMode.cs` | HIDE | `MissionsWindowUI.ShowsLoopAuthoringControls` (read at each draw site) | the loop grid (`Warp to...`, `Loop`, the period cell), the summary's `Next launch` piece, the include checkboxes, the per-vessel interval rows, the foreign partner-journey rows and the loop-selection styling. NOT the route label (`Run by route` in Basic), `Watch`, `Rewind` / `Forward`, `Log`, the collapse caret, `Fly` / `Stash` / `Seal` or `Go to` |
 | `SettingsSectionLooping` | `:110` | HIDE (`:185`) | `UI/SettingsWindowUI.cs:345`, `:378` | the Looping section |
 | `LogisticsRouteTuning` | `UI/UiComplexityMode.cs` | HIDE | `UI/LogisticsRoutePresentation.cs` (`ShowsRouteTuning`, latched once per pass in `LogisticsWindowUI.DrawWindow`) | the Every stepper (Basic reads the interval), the Runs column, Priority, Link round-trip and its picker, Flights used, the manual-looping clause |
 | `SettingsSectionDiagnostics` | `:113` | HIDE (`:186`) | `UI/SettingsWindowUI.cs:393` | the Diagnostics section, and with it the only reopen path to `TestRunnerUI` |

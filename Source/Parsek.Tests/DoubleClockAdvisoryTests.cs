@@ -235,20 +235,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Silent_ForASameTreeLoopingSibling()
-        {
-            // SetLoopEnabled cleared same-tree siblings one line before the advisory is evaluated,
-            // so naming one would describe a state that no longer exists. Regression: reporting it
-            // would make the hard rule's own effect look like an unresolved warning.
-            Mission[] m = Seed(
-                ("m1", "ta", "AB", false),
-                ("m1b", "ta", "AB (variant)", true));
-
-            Assert.Null(MissionStore.TryDescribeDoubleClockAdvisory(
-                m[0], MissionStore.Missions, TwoTreeGraph()));
-        }
-
-        [Fact]
         public void Silent_ForNullOrTreelessInputs()
         {
             // Draw-path total-ness: every argument shape must return, never throw.
@@ -268,9 +254,10 @@ namespace Parsek.Tests
         [Fact]
         public void SetLoopEnabled_ClearingBehavior_IsUnchanged_OnThePinnedShapes()
         {
-            // Re-assert the three pinned outcomes of ClearLoopsConflictingWith so a future
-            // temptation to "just also clear the connected tree" reds here first:
-            //   same tree            -> cleared (the one-loop-per-tree rule)
+            // Re-assert the two pinned cross-tree outcomes of ClearLoopsConflictingWith so a
+            // future temptation to "just also clear the connected tree" reds here first (a tree
+            // holds one mission since MissionStore.Load drops legacy clones, so the same-tree
+            // shape no longer exists):
             //   cross-tree, link ON  -> cleared (the spanned-set rule)
             //   cross-tree, link OFF -> NOT cleared (the pinned concurrent-loop behavior the
             //                           advisory exists to talk about instead of preventing)
@@ -278,15 +265,6 @@ namespace Parsek.Tests
             {
                 CrossTreeDockFixture.PartnerTree(), CrossTreeDockFixture.ControllerTree(),
             };
-
-            Mission[] sameTree = Seed(
-                ("m1", "ta", "AB", false),
-                ("m1b", "ta", "AB (variant)", true));
-            MissionStore.ClearLoopsConflictingWith(
-                sameTree[0], trees, out int sameCleared, out int sameCross, "test");
-            Assert.Equal(1, sameCleared);
-            Assert.Equal(0, sameCross);
-            Assert.False(sameTree[1].LoopPlayback);
 
             Mission[] linkOff = Seed(
                 ("m1", "ta", "AB", false),

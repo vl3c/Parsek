@@ -137,18 +137,6 @@ namespace Parsek.Tests
             Assert.Equal("Station (mission 'Station Group')", Names(b, null, a)["b2"]);
         }
 
-        // catches: a clone's name read instead of the original (main) mission's.
-        [Fact]
-        public void DisplayNameForTree_ReadsTheOriginalMissionNotAClone()
-        {
-            RecordingTree tree = OneRecTree("t1", "Kerbal X", "r1", "Kerbal X");
-            RenameMissionOf(tree, "Main");
-            Mission clone = MissionStore.Clone(MissionStore.FindOriginalMission("t1"));
-            Assert.NotNull(clone);
-            MissionStore.RenameMission(clone, "Clone");
-            Assert.Equal("Main", MissionStore.DisplayNameForTree(tree));
-        }
-
         // ---------------------------------------------------------------- merge dialog
 
         // catches: the merge dialog body naming the raw launch TreeName after a mission rename.
