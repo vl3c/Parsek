@@ -84,21 +84,26 @@ namespace Parsek.Tests
         [Fact]
         public void AdmitWave_StowedReadsTheLastWave_StateTheWorstCase()
         {
-            Assert.True(PartParityStateWave.AdmitWave("stowed", 0.0, 480, 1000.0, 8, false));
-            Assert.True(PartParityStateWave.AdmitWave("stowed", 470.0, 480, 5.0, 8, false));
-            Assert.False(PartParityStateWave.AdmitWave("stowed", 470.0, 480, 20.0, 8, false));
+            Assert.True(PartParityStateWave.AdmitWave("stowed", 0.0, 480, 1000.0, 8, 0.0));
+            Assert.True(PartParityStateWave.AdmitWave("stowed", 470.0, 480, 5.0, 8, 0.0));
+            Assert.False(PartParityStateWave.AdmitWave("stowed", 470.0, 480, 20.0, 8, 0.0));
             // Long, 4 cases, a sun tracker: 71.7 s.
-            Assert.True(PartParityStateWave.AdmitWave("state:Long", 408.0, 480, 1.0, 4, true));
-            Assert.False(PartParityStateWave.AdmitWave("state:Long", 409.0, 480, 1.0, 4, true));
-            // The airbrake raises a quick wave's settle to its 5 s cap.
-            Assert.True(PartParityStateWave.AdmitWave("state:Quick", 447.0, 480, 1.0, 4, false, new[] { "light" }));
-            Assert.False(PartParityStateWave.AdmitWave("state:Quick", 447.0, 480, 1.0, 4, false, new[] { "airbrake" }));
-            Assert.True(PartParityStateWave.AdmitWave("state:Quick", 0.0, 480, 1.0, 4, false, new[] { "airbrake" }));
+            Assert.True(PartParityStateWave.AdmitWave("state:Long", 408.0, 480, 1.0, 4, PartParityStateRules.SunTrackerCapSeconds));
+            Assert.False(PartParityStateWave.AdmitWave("state:Long", 409.0, 480, 1.0, 4, PartParityStateRules.SunTrackerCapSeconds));
+            // The airbrake and a light's lens fade raise a quick wave's settle to their 5 s cap.
+            Assert.True(PartParityStateWave.AdmitWave("state:Quick", 447.0, 480, 1.0, 4, 0.0, new[] { "jettison" }));
+            Assert.False(PartParityStateWave.AdmitWave("state:Quick", 447.0, 480, 1.0, 4, 0.0, new[] { "light" }));
+            Assert.True(PartParityStateWave.AdmitWave("state:Quick", 443.0, 480, 1.0, 4, 0.0, new[] { "light" }));
+            // A folding radiator's 62.5 s tracking cap: 109.2 s for a long wave of four.
+            Assert.True(PartParityStateWave.AdmitWave("state:Long", 370.0, 480, 1.0, 4, PartParityStateRules.SunTrackerCapSecondsFor(0.1)));
+            Assert.False(PartParityStateWave.AdmitWave("state:Long", 371.0, 480, 1.0, 4, PartParityStateRules.SunTrackerCapSecondsFor(0.1)));
+            Assert.False(PartParityStateWave.AdmitWave("state:Quick", 447.0, 480, 1.0, 4, 0.0, new[] { "airbrake" }));
+            Assert.True(PartParityStateWave.AdmitWave("state:Quick", 0.0, 480, 1.0, 4, 0.0, new[] { "airbrake" }));
             // The first wave of a step starts whatever the box (planning makes elapsed > 0).
-            Assert.False(PartParityStateWave.AdmitWave("state:Long", 4.0, 60, 0.0, 4, true));
-            Assert.True(PartParityStateWave.AdmitWave("state:Long", 4.0, 60, 0.0, 4, true, null, firstWaveOfStep: true));
+            Assert.False(PartParityStateWave.AdmitWave("state:Long", 4.0, 60, 0.0, 4, PartParityStateRules.SunTrackerCapSeconds));
+            Assert.True(PartParityStateWave.AdmitWave("state:Long", 4.0, 60, 0.0, 4, PartParityStateRules.SunTrackerCapSeconds, null, firstWaveOfStep: true));
             // The stowed rule never reads the flag.
-            Assert.False(PartParityStateWave.AdmitWave("stowed", 470.0, 480, 20.0, 8, false, null, firstWaveOfStep: true));
+            Assert.False(PartParityStateWave.AdmitWave("stowed", 470.0, 480, 20.0, 8, 0.0, null, firstWaveOfStep: true));
         }
 
         // ----- press -----

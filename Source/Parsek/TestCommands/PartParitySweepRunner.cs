@@ -506,8 +506,8 @@ namespace Parsek.TestCommands
             {
                 if (CheckHost(ctx, "before wave " + (ctx.WavesDone + 1).ToString(Ic))) yield break;
                 double elapsed = Time.realtimeSinceStartup - ctx.StartRealtime;
-                List<int> picked = PickWave(queue, cursor, air, out string kind, out bool anySun);
-                if (!PartParityStateWave.AdmitWave(kind, elapsed, ctx.Args.MaxSeconds, lastWave, picked.Count, anySun,
+                List<int> picked = PickWave(queue, cursor, air, out string kind, out double trackerCap);
+                if (!PartParityStateWave.AdmitWave(kind, elapsed, ctx.Args.MaxSeconds, lastWave, picked.Count, trackerCap,
                         FamiliesOf(queue, picked), ctx.WavesDone == 0))
                 {
                     ParsekLog.Info(Tag, $"time box: elapsed={elapsed.ToString("0.0", Ic)}s lastWave={lastWave.ToString("0.0", Ic)}s " +
@@ -593,17 +593,19 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>The queue positions the next wave takes (design D.3): a stowed wave as
-        /// today, a state wave one bucket from the cursor on; the kind and whether it holds a
-        /// sun tracker come back for the admission.</summary>
-        private static List<int> PickWave(List<WaveCase> queue, int cursor, bool air, out string kind, out bool anySun)
+        /// today, a state wave one bucket from the cursor on; the kind and the slowest sun
+        /// tracker's cap (0 for none) come back for the admission.</summary>
+        private static List<int> PickWave(List<WaveCase> queue, int cursor, bool air, out string kind, out double trackerCap)
         {
             var kinds = queue.ConvertAll(c => PartParityStateWave.WaveKind(c.Key));
             var solo = queue.ConvertAll(c => c.Solo);
             List<int> picked = PartParityStateWave.PickWave(kinds, solo, cursor,
                 PartParitySweepPlan.MaxWaveCases, air ? PartParitySweepPlan.MaxAirWaveCases : PartParitySweepPlan.MaxStateWaveCases);
             kind = kinds[cursor];
-            anySun = false;
-            foreach (int i in picked) anySun |= queue[i].State != null && queue[i].State.SunTracker;
+            trackerCap = 0.0;
+            foreach (int i in picked)
+                if (queue[i].State != null && queue[i].State.SunTracker)
+                    trackerCap = Math.Max(trackerCap, queue[i].State.TrackerCapSeconds);
             return picked;
         }
 

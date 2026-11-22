@@ -139,13 +139,16 @@ namespace Parsek.TestCommands
         /// The worst-case wall time of one state wave (design D.3), the bound a wave is admitted
         /// against: the spawn cap, the bucket's state wait, the longest settle cap of the wave's
         /// families (<see cref="PartParityStateRules.SettleCapSeconds"/>: a cabin light or an
-        /// airbrake 5 s, a light 1 s, else 0.5 s), the sun-tracking cap when the wave holds a sun
-        /// tracker, the capture of every case and the teardown. Long:
-        /// <c>20 + 20 + 0.5 (+ 10) + 0.3 n + 5</c>; quick: <c>20 + 5 + settle + 0.3 n + 5</c>;
+        /// airbrake or a light 5 s, else 0.5 s), the slowest tracker's cap when the wave holds
+        /// a sun tracker (<paramref name="trackerCapSeconds"/>, 0 for none: 25 s for a solar
+        /// panel, 62.5 s for a folding radiator,
+        /// <see cref="PartParityStateRules.SunTrackerCapSecondsFor"/>), the capture of every case
+        /// and the teardown. Long: <c>20 + 20 + 0.5 (+ tracker cap) + 0.3 n + 5</c>; quick:
+        /// <c>20 + 5 + settle + 0.3 n + 5</c>;
         /// air: the spawn cap, the 0.5 s settle, semi (10 s) and full (15 s) each followed by the
         /// 4 s canopy window, then the capture and the teardown (60 s for a wave of five).
         /// </summary>
-        internal static double WaveWorstCaseSeconds(PartParityStateBucket bucket, int cases, bool anySunTracker,
+        internal static double WaveWorstCaseSeconds(PartParityStateBucket bucket, int cases, double trackerCapSeconds,
             IEnumerable<string> families = null)
         {
             double capture = StateCaptureSecondsPerCase * Math.Max(0, cases);
@@ -164,7 +167,7 @@ namespace Parsek.TestCommands
                         + capture + StateTeardownSeconds;
                 default:
                     return SpawnTimeoutSeconds + PartParityStateRules.LongStateTimeoutSeconds + settle
-                        + (anySunTracker ? PartParityStateRules.SunTrackerCapSeconds : 0.0)
+                        + (double.IsNaN(trackerCapSeconds) || trackerCapSeconds < 0.0 ? 0.0 : trackerCapSeconds)
                         + capture + StateTeardownSeconds;
             }
         }

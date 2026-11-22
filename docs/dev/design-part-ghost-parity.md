@@ -1105,11 +1105,11 @@ this order: `deployable`, `gear`, `ladder`, `animation-group`, `cargo-bay`, `ani
 | Deployable panel, antenna, radiator | `FindModuleImplementing<ModuleDeployablePart>` and `DeployableHasNoPoseAnimation` false (`PollDeployables`) | `deployed` | KSPEvent `Extend` | `deployState == EXTENDED`; sun trackers also settle (D.3) | `DeployableExtended` | 19 / 22 |
 | Landing gear, legs, deploying wheels | `as ModuleWheels.ModuleWheelDeployment`, first per part (`PollGear`) | `deployed` | KSPEvent `EventToggle` (when retracted) | `FlightRecorder.ClassifyGearState(stateString)` deployed | `GearDeployed` | 8 / 9 |
 | Ladder | `moduleName == "RetractableLadder"`, first per part (`PollLadders`) | `deployed` | KSPEvent `Extend` | `TryClassifyRetractableLadderState` deployed | `DeployableExtended` midx | 2 / 2 |
-| Animation group, in-orbit parts | `moduleName == "ModuleAnimationGroup"`, every module (`PollAnimationGroups`), not on a `ModuleGroundPart` part | `deployed` | KSPEvent `DeployModule` | `TryClassifyAnimationGroupState` deployed | `DeployableExtended` midx | 5 / 4 |
+| Animation group, in-orbit parts | `moduleName == "ModuleAnimationGroup"`, every module (`PollAnimationGroups`), not on a `ModuleGroundPart` part, not `autoDeploy` | `deployed` | KSPEvent `DeployModule` | `TryClassifyAnimationGroupState` deployed AND the module's own deploy clip finished (D.3) | `DeployableExtended` midx | 4 / 4 |
 | Cargo and service bay | `FindModuleImplementing<ModuleCargoBay>` whose `DeployModuleIndex` (default 0) is a `ModuleAnimateGeneric` (`PollCargoBays`) | `open` | the linked module's KSPEvent `Toggle` | `ClassifyCargoBayState` open | `CargoBayOpened` | 8 / 9 |
 | Standalone animate generic (doors, inflatables, port shields, Klaw, science doors) | `as ModuleAnimateGeneric` with an `animationName` (default `default`), on a part where `FlightRecorder.HasDedicatedAnimateHandler` is false (`PollAnimateGeneric`) | `deployed` | KSPEvent `Toggle` (a hidden event too; the proof records `eventVisible`) | `TryClassifyAnimateGenericState` deployed | `DeployableExtended` midx | 12 / 17 |
 | Airbrake | `moduleName == "ModuleAeroSurface"`, every module (`PollAeroSurfaces`) | `deployed` | KSPAction `ActionToggleBrakes` (Activate) | `TryClassifyAeroSurfaceState` deployed, then the surface transform still for 0.5 s (D.3) | `DeployableExtended` midx | 1 / 1 |
-| Light | `FindModuleImplementing<ModuleLight>` (the recorder's light check, D.10 S2) | `lit` | KSPEvent `LightsOn`, with electric charge authored (D.3) | `isOn`, then 1 s | `LightOn` | 15 / 18 |
+| Light | `FindModuleImplementing<ModuleLight>` (the recorder's light check, D.10 S2) | `lit` | KSPEvent `LightsOn`, with electric charge authored (D.3) | `isOn`, then the lens fade: `lightBrightenSpeed` + 0.5 s in game time (3 s at stock's 2.5 s; at least 1 s, cap 5 s) | `LightOn` | 15 / 18 |
 | Cabin light (colour changer) | `as ModuleColorChanger` with `toggleInFlight` (default true), the first on a part with no `ModuleLight` (same check) | `lit` | KSPEvent `ToggleEvent` | `animState` true, then `1 / animRate` s plus 0.5 s (cap 5 s) | `LightOn` | 26 / 37 |
 | Parachute | `FindModuleImplementing<ModuleParachute>` (`PollParachutes`) | `semi`, `full`, context `air` | KSPEvent `Deploy` in the air, then the in-flight `deployAltitude` tweak for `full` (D.4) | `deploymentState` SEMIDEPLOYED / DEPLOYED (`ClassifyParachuteState`) and the deploy animation finished | `ParachuteSemiDeployed`, then `ParachuteDeployed` | 10 / 10 |
 | Engine shroud and other jettisons | every `as ModuleJettison` module (`PollJettisons`), one case set per part | `jettisoned`, context by node rule (D.3) | KSPEvent `Jettison` on every jettison module of the part | `isJettisoned` on every module | `ShroudJettisoned` | 37 / 60 parts, 66 / 108 cases |
@@ -1187,7 +1187,7 @@ Totals (each step logs the exact ones, D.2):
 
 | Lane | Single-part states | Shroud cases | FGV contexts | Chute cases (air) | Controls | Cases |
 | --- | --- | --- | --- | --- | --- | --- |
-| PP-3 (stock, orbit) | 96 | 66 | 13 (S8) | - | 9 | 184 |
+| PP-3 (stock, orbit) | 95 | 66 | 13 (S8) | - | 9 | 183 |
 | PP-4 (modded, orbit) | 119 | 108 | 13 (S8) | - | 9 | 249 |
 | PP-5 (stock, air) | - | - | - | 10 | 4 | 14 |
 | PP-6 (modded, air) | - | - | - | 10 | 4 | 14 |
@@ -1227,6 +1227,11 @@ in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUS
   `ModuleRCS` module); light blink is part of the light case.
 - `fairing-no-context`: a fairing part no FGV context names (3 stock, 6 modded; S8 replaced the
   interim `fairing-contexts-pending`).
+- `auto-deploy`: an animation group with `autoDeploy = true` (the stock ISRU, 1 / 0: ReStock's ISRU
+  carries no `ModuleAnimationGroup`). Stock deploys it itself and hides both events and the three
+  actions (decompiled `ModuleAnimationGroup.OnLoad`: `isDeployed = true`), so the player never
+  sees it stowed and there is nothing to press; its stowed case judges the only pose it has
+  (todo PARTPARITY-ANIMATION-GROUP-PRESS; the first flight read it `action-failed`).
 - Not module exclusions, named here only: `broken` (a broken solar panel or wheel: stock breaks a
   panel into free debris and a wheel only under load; not a pose the part keeps) and decouple (a
   decoupler looks the same after it fires; the split is a recording-tree matter).
@@ -1345,12 +1350,33 @@ One case, in order (the 4.2 steps keep their order; new steps marked):
 
 Per family:
 
-- Sun-tracking solar panels (9 per install): the done rule adds "pivot rotation changed by less
-  than 0.1 deg over 0.5 s", cap 25 s (re-pinned from 10 s by S6: stock's slew is an exponential
-  approach at `trackingSpeed` 0.25, so the worst 180 deg needs about 21.4 s to meet the still rule;
-  at 10 s every tracking panel of PP-3's first full flight was 1 to 14 deg short), else captured and
-  tagged `still-tracking` (judged, like `still-animating`). Both sides see the same Sun. The ghost
-  side is D.5.
+- Sun trackers (the ghost's own rule, `GhostVisualBuilder.TryBuildSunTrackingInfo`: any
+  `ModuleDeployablePart` with `isTracking` whose `pivotName` transform resolves, which is also when
+  stock tracks, `hasPivot`; the 9 tracking solar panels and the 3 folding radiators per install,
+  whose `isTracking` is the `ModuleDeployablePart` default): the done rule adds "pivot rotation
+  changed by less than the tracker's still threshold over 0.5 s", with a cap from the part's
+  slowest tracker's own `trackingSpeed`. The threshold is the turn the slew makes in 0.5 s with
+  0.85 deg still to go, `0.85 (1 - exp(-0.5 trackingSpeed))` (`SunTrackerStillDegFor`): 0.1 deg
+  at 0.25, 0.04 deg at 0.1, so every tracker is captured within 0.85 deg of its aim. The window
+  angle is computed exactly (`PreciseAngleDeg`, `2 atan2(|v|, |w|)` in double): Unity's
+  `Quaternion.Angle` reads 0 below about 0.16 deg (its `IsEqualUsingDot`), which let a radiator
+  read still while 3 deg short of its aim (PP-3 `2026-11-22_1946`: real 104.6 deg, ghost 107.9). Stock slews by `Lerp(current, aim, deltaTime * trackingSpeed)` (decompiled
+  `CalculateTracking`), an exponential approach with time constant `1 / trackingSpeed`, so the
+  cap is `25 s x 0.25 / trackingSpeed` (`SunTrackerCapSecondsFor`, at most 90 s): 25 s for a
+  solar panel at 0.25 (re-pinned from 10 s by S6: the worst 180 deg needs about 21.4 s to meet the
+  still rule; at 10 s every tracking panel of PP-3's first full flight was 1 to 14 deg short),
+  62.5 s for a radiator at 0.1 (todo PARTPARITY-RADIATOR-TRACKING: before, only
+  `ModuleDeployableSolarPanel` counted, so a radiator was captured about 1.3 s after its done
+  signal with the real pivot mid-slew). A tracker still moving at the cap is captured and tagged
+  `still-tracking` (judged, like `still-animating`). Both sides see the same Sun. The ghost side is
+  D.5 (the stepped primes cover 180 deg at the ghost's 20 deg/s, so a radiator's event route ends
+  at the aim too).
+- Animation groups: the classifier reads `isDeployed`, which `DeployModule` sets before its clip
+  plays, so the done signal also waits for the module's own deploy clip (`DeployAnimation`, not
+  playing or at its end; `PartParityStateObservation.DeployClipDone`), and the timeout reads that
+  clip at speed 1 (the part's longest clip was parked at the snap speed -1000 on the drills, which
+  gave a 2 s timeout). ReStock's radial drill (10.7 s clip) was captured half out before (todo
+  PARTPARITY-ANIMATION-GROUP-PRESS). An `autoDeploy` group is excluded (D.1).
 - Airbrake: no Animation (`Mathf.MoveTowards` at `actuatorSpeed`), so done = the classifier reads
   deployed AND the surface transform's local rotation moved less than 0.05 deg over 0.5 s, cap 5 s.
 - Jettison context, by each module's own config (decompiled `ModuleJettison.SetupJettisonState`
@@ -1372,15 +1398,38 @@ Per family:
 - Gear and legs: deployed in free fall at full suspension droop, already `context-dependent`, so
   the 6 cap at `warn` (`context-pose`) applies unchanged.
 - Lights: the light rig (D5) switches every scene light off, the part's own `Light` included, so
-  a `lit` case compares the lens and window emission, not the beam.
+  a `lit` case compares the lens and window emission, not the beam. Stock fades the lens in over
+  `lightBrightenSpeed` GAME seconds (decompiled `ModuleLight.FixedUpdate`: `_EmissiveColor =
+  Lerp(black, lightColor, currentTime / lightBrightenSpeed)`; 2.5 on every stock and ReStock light
+  cfg), so a light settles for its own `lightBrightenSpeed` + 0.5 s, at least 1 s and at most 5 s
+  (`LightSettleFor`), measured in game time as well as real time. The old 1 s settle photographed
+  the real lens mid-fade (PP-3 `_1656`: the ghost / real lens ratio 1.87 on `spotlight1` captured
+  1.34 s after the press, 2.35 on `spotlight2`, 1.0 on lights captured 5 to 7 s after).
+- Colour-changer leak on the real part (`PartParityColorChangerLeakRepair`, todo
+  PARTPARITY-STACKED-SHROUD-TOP-COLOR): stock `ModuleColorChanger.UpdateColor` writes its colour
+  into the part's shared `Part.mpb` and applies it to its own renderer list only (the one its
+  `excludedRenderer` / `includedRenderer` keys filter), but `Part.SetOpacity` and the part
+  highlight apply that same block to EVERY renderer of the part (decompiled), so an excluded
+  renderer shows the colour once one of those writes runs after the colour changer's, and not
+  before, and which came last differs run to run. ReStock's heat shields exclude their jettison
+  fairing from the ablation char; the stacked stowed case (the fairing shown) photographed the
+  real fairing at the full-ablator char (0.85 of its texture, the top face 153k to 161k px) in some
+  runs and plain in others, while the ghost honours the exclusion every time. Before the real
+  renderers are read (both preparation branches), every real mesh renderer (the set the capture
+  records) outside a colour changer's
+  list whose property block holds exactly that module's current colour (the value `Part.mpb`
+  holds) and whose material's own value differs gets the property set back to its material's
+  value, the look the module's own filter gives; the case carries `colorchanger-leak-repaired:<n>`
+  (report-only) and one Info line names the renderers.
 - Slots: a deployed part reaches past its stowed bounds and the slot plan reads stowed bounds, so
   an orbit state wave uses every other slot (up to 4 cases, 80 m apart, 60 m or more from the host).
 - Step time box: a wave starts only when `elapsed + worstCase(bucket) <= maxSeconds` (480, under the
   540 s seam cap), where `worstCase` is the wave's bound, not the last wave's wall: spawn cap 20 s +
   the bucket's state timeout (20 s long, 5 s quick) + the longest settle cap of the wave's families
-  (0.5 s, a light 1 s, an airbrake or a cabin light 5 s) + the tracking cap (25 s, sun trackers
-  only) + capture (4 rows x 4 views x 2 clears, about 0.3 s per case, x 4) + teardown (5 s). Long
-  bucket about 47 s (about 72 s with a sun tracker), quick about 32 s (about 36 s with an airbrake
+  (0.5 s, an airbrake, a light or a cabin light 5 s) + the slowest tracker's cap of the wave (25 s
+  for a solar panel, 62.5 s for a radiator, none without a tracker) + capture (4 rows x 4 views x 2
+  clears, about 0.3 s per case, x 4) + teardown (5 s). Long bucket about 47 s (about 72 s with a
+  solar panel, about 109 s with a radiator), quick about 32 s (about 36 s with an airbrake, a light
   or a cabin light), air (D.4) about 60 s (spawn 20 s, settle 0.5 s, semi 10 s and full 15 s each
   followed by the 4 s canopy window, capture, teardown). Pure,
   `PartParitySweepPlan.WaveWorstCaseSeconds`.
@@ -1658,14 +1707,30 @@ BUILT (S4, `harness/lib/partparity.py`; Python only, no flight). What the judge 
   module's `canopyName` (an ADDITIVE key S7 writes, listed in `CanopyKeys` / `CANOPY_KEYS`; a
   null or empty value is never capped). A canopy renderer is a structure key one of whose `/`
   segments (the `#k` suffix dropped) equals that name: the canopy transform or a renderer under
-  it. A route's picture fail caps at `warn` (`canopy-airflow`) when its structure has at least
-  one `transformDiffers` entry and every entry is a canopy renderer with `|rotationDeltaDeg| <=
-  min(|tilt| + |wobble| + 1, 4)`, `positionDeltaM <= 0.001` and `scaleDeltaPct <= 1.0` (the C#
-  tolerances of `PartParityStructure`), with no `materialDiffers` / `meshDiffers` /
-  `renderedDiffers` entry and no rendered missing or extra renderer. The diff compares LOCAL
-  transforms, so S7 must make the airflow rotation visible as a `transformDiffers` entry keyed at
-  or under the canopy transform (a wobble on an ancestor only shows in the pictures and is
-  never capped).
+  it. With the bound `b = min(|tilt| + |wobble| + 1, 4)`, a route's picture fail caps at `warn`
+  (`canopy-airflow`) when its structure has no `materialDiffers` / `meshDiffers` /
+  `renderedDiffers` entry and no rendered missing or extra renderer, and either (1) every
+  `transformDiffers` entry is a canopy renderer with `|rotationDeltaDeg| <= b`, `scaleDeltaPct <=
+  1.0` and `positionDeltaM <= 0.001 + 2 d sin(t / 2)`, with `t = min(|rotationDeltaDeg| + 0.5, b)`
+  (the entry's own turn plus the structure's rotation tolerance: the records are part-relative,
+  so a rigid turn shows on every canopy renderer as that rotation, and a canopy moved without
+  turning gets no arc) and `d` the entry's
+  `canopyPivotDistanceM` (the real renderer's distance from the canopy transform's pivot, an
+  ADDITIVE `TransformDiffKeys` key the air context writes on canopy renderers only,
+  `PartParityStructure.StampCanopyPivotDistances`; null elsewhere and on older sidecars, which
+  leaves the 1 mm tolerance alone): a rigid turn of the canopy subtree about its pivot
+  moves a renderer at distance `d` by at most the chord of its turn, and ReStock's canopy renderers sit metres
+  from the pivot (0.1 to 0.6 m of travel at 0.6 to 3 deg, todo PARTPARITY-CANOPY-CAP-LEVER-ARM);
+  or (2) the route's structure was measured (`transformDiffers` is a list; a route whose ghost was
+  not built writes null and is never capped) and no transform differs at all, so every canopy
+  renderer turned under the structure's own
+  0.5 deg rotation tolerance, and the measured turn `|tilt| + |wobble|` is at least 0.1 deg
+  (`CANOPY_MIN_TURN_DEG`: below it even a 5 m lever arm sweeps under 1 cm, under a pixel at the
+  air tiles' scale, so a canopy that did not turn explains no picture difference). The diff
+  compares LOCAL transforms, so S7 must make the airflow rotation visible as a `transformDiffers`
+  entry keyed at or under the canopy transform (a wobble on an ancestor only shows in the
+  pictures and is never capped). The C# tolerances, the key table and the key test are
+  source-synced (`test_the_structure_tolerances_are_the_csharp_ones`, the JSON key table cell).
 - Press proof (a writer contradiction, design decision of S4): on a case whose setup is not a
   fault (`ok`, `still-animating`), a state case must carry a `stateProof` with a non-null
   `action`, and any proof with a non-null `action` must read `actionResult == "invoked"` and
@@ -1824,6 +1889,17 @@ controls ok, press ok, complete, recompute 0 mismatches. Findings: `docs/dev/tod
 (PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22 and the entries it names). S8 (D.1 "FGV contexts")
 adds the 13 FGV cases to both orbit lanes' plans (`contexts=none` includes the `fgv` class), about
 45 s more per lane at the measured rate; PP-3 / PP-4 have not flown with them yet.
+
+Instrument round (2026-11-22, branch `parity-instrument-fixes`: the tracker cap and still rule per
+`trackingSpeed`, the animation-group clip wait and `auto-deploy`, the light fade settle, the canopy
+lever arm, the colour-changer leak repair): PP-3 plans 172 cases (93 single-part states, 66
+shrouds, 13 FGV; the ISRU is excluded) and PP-4 238 (117, 108, 13), each plus the 9 controls. The
+final flights `2026-11-22_2014` (PP-3, 457 s + 176 s of sweep, 727 s wall; the radiators'
+tracking settle adds about 80 s) and `_2026` (PP-4, 444 s + 246 s + 0.2 s, 784 s wall), PP-5 `_2039` and
+PP-6 `_2041`, all PASS attempt 1, controls ok, complete: PP-3 139 pass / 21 warn / 12 fail / 0
+error, PP-4 193 / 24 / 21 / 0, PP-5 and PP-6 10 warn each. The first FGV flight in the orbit lanes
+reads 12 pass and 1 warn on each install (`fairingsize2--white--stowed--fgv-3-open-top`, colour
+blobs of 140 px). Per-fix readings: the todo entries the findings entry names.
 
 ### D.9 What P6 leaves ready for P7
 

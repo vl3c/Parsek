@@ -373,7 +373,7 @@ namespace Parsek.TestCommands
 
         internal static readonly string[] TransformDiffKeys =
         {
-            "key", "positionDeltaM", "rotationDeltaDeg", "scaleDeltaPct",
+            "key", "positionDeltaM", "rotationDeltaDeg", "scaleDeltaPct", "canopyPivotDistanceM",
         };
 
         internal static readonly string[] FieldDiffKeys = { "key", "field", "real", "ghost" };
@@ -667,7 +667,8 @@ namespace Parsek.TestCommands
             foreach (var t in d.TransformDiffers)
                 transform.Add(Obj(
                     M("key", Str(t.Key)), M("positionDeltaM", Num(t.PositionDeltaM)),
-                    M("rotationDeltaDeg", Num(t.RotationDeltaDeg)), M("scaleDeltaPct", Num(t.ScaleDeltaPct))));
+                    M("rotationDeltaDeg", Num(t.RotationDeltaDeg)), M("scaleDeltaPct", Num(t.ScaleDeltaPct)),
+                    M("canopyPivotDistanceM", Num(t.CanopyPivotDistanceM))));
             return Obj(
                 M("realRenderers", Int(d.RealRenderers)), M("ghostRenderers", Int(d.GhostRenderers)),
                 M("pairs", Int(d.Pairs)),

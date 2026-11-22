@@ -5,6 +5,8 @@
 # Only parts carrying a module the state rules read are listed (234); every module of such a
 # part is listed in prefab order. P <part> <stack nodes>; M <index> <moduleName> <type chain or ->
 # <the config keys the rules read, key=value|...>. Tab-separated. Never hand-edited.
+# autoDeploy (read since 2026-11-22) is the stock ISRU's alone on both installs (Squad ISRU.cfg; ReStock's ISRU
+# carries no ModuleAnimationGroup).
 P	AdvancedCanard	
 M	0	ModuleControlSurface	ModuleControlSurface,ModuleLiftingSurface,PartModule	-
 M	1	ModuleCargoPart	-	-
@@ -208,7 +210,7 @@ M	1	ModuleResourceConverter	-	-
 M	2	ModuleResourceConverter	-	-
 M	3	ModuleResourceConverter	-	-
 M	4	ModuleResourceConverter	-	-
-M	5	ModuleAnimationGroup	-	-
+M	5	ModuleAnimationGroup	-	autoDeploy=true
 M	6	ModuleCoreHeat	-	-
 M	7	KOSNameTag	-	-
 P	InflatableAirlock	bottom
