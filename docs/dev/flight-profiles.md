@@ -830,7 +830,7 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 230 lan
 
 | gating table | lanes |
 |---|---|
-| recordings.structure | 100 |
+| recordings.structure | 101 |
 | rewind | 87 |
 | routes | 19 |
 | ghostLifecycle | 9 |

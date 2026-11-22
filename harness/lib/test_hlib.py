@@ -12547,6 +12547,12 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # pin (body -> Eeloo), V15M `2026-09-10_1914` and V15T `2026-09-10_1917`, each
     # red on exactly the inverted element, drift gate met.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml",
+                       # CT-3: `structure` armed 2026-11-22 off its two reading runs
+                       # `2026-11-22_1135` / `_1242` (vesselNames: Damaged Kerbin AS-P
+                       # Satellite NV5SQ 1 on both, mismatches 0): the rebuilt repair
+                       # contract's satellite re-spawned exactly once (todo
+                       # CONTRACT-REBUILD-SKIPS-ACCEPT-WORLD-EFFECTS item 4).
+                       "CT-3-vessel-repair-rebuilt-at-space-center.toml",
                        # PWR-1/2/3: `recordings.sampling` armed 2026-10-02 (branch
                        # `physwarp-recording`) off the reading runs `2026-10-02_2102` /
                        # `_2057` / `_2108`; offline negative control in the status row.
