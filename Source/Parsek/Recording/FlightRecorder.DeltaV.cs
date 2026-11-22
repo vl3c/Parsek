@@ -41,9 +41,6 @@ namespace Parsek
         /// </summary>
         internal DeltaVTrigger DeltaVStartTrigger { get; set; } = DeltaVTrigger.SwitchIn;
 
-        /// <summary>The tree recording this recorder writes its snapshots into.</summary>
-        internal string DeltaVTargetRecordingId => deltaVTargetRecordingId;
-
         /// <summary>Pure: the start trigger of the focused child a branch point binds.</summary>
         internal static DeltaVTrigger DeltaVTriggerForBranch(BranchPointType branchType)
         {
