@@ -3214,12 +3214,6 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     # the per-op branch in validate_uiaction_step below (mirroring the seam, which checks
     # it in the applier for the same reason).
     "mock",
-    # Coverage wave 6 (D11 `clone`): `clone` is the Missions tab's Clone button body,
-    # MissionStore.Clone - a new Mission over the same tree carrying the source's include
-    # set and loop configuration. Like `select` it writes MISSION state that persists with
-    # the save, so a lane using it runs on a throwaway staged fixture. `window=missions`
-    # only, plus the OPTIONAL `mission=` selector op=select takes.
-    "clone",
     # `warp` presses the Real Spawn Control table's FIRST row warp button through the
     # button's own click body (SpawnControlUI.ExecuteRowWarp), and refuses when the table
     # has no row or the button is drawn disabled. Takes `window=` (only `spawncontrol`,
@@ -3612,7 +3606,7 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
 # three take `popup=` instead (UIACTION_POPUP_KEY).
 UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
     "open", "close", "tab", "rect", "find", "expand", "target", "picker", "run",
-    "state", "sort", "select", "edit", "clone", "warp")
+    "state", "sort", "select", "edit", "warp")
 
 # The windows `op=warp` is defined for, mirroring TestCommandUiAction.WindowHasWarpButton:
 # the Real Spawn Control table (its first row's warp button) and the Timeline ("Warp to
@@ -6050,20 +6044,11 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
     # 6, op=select's OPTIONAL one - so this is its own rule rather than an arm of the
     # include chain above. It was an arm of it once, which made an op=select step carrying
     # no mission= fall through to "only op=select reads it, but this step is op=select".
-    if op not in ("target", "select", "clone") and "mission" in step_args:
+    if op not in ("target", "select") and "mission" in step_args:
         errors.append(
-            "driver.steps[%d].args.mission: only op=target, op=select and op=clone read "
-            "it, but this step is op=%s -- the arg would be silently ignored"
+            "driver.steps[%d].args.mission: only op=target and op=select read it, but "
+            "this step is op=%s -- the arg would be silently ignored"
             % (index, op))
-
-    if op == "clone":
-        window_name = str(window) if window is not None else None
-        if window_name in UIACTION_WINDOW_VALUES and window_name != "missions":
-            errors.append(
-                "driver.steps[%d].args.%s: only the 'missions' window has a Clone "
-                "button, so op=clone against %r answers REJECTED "
-                "clone-unsupported-window"
-                % (index, UIACTION_WINDOW_KEY, window_name))
 
     if op == "edit":
         window_name = str(window) if window is not None else None

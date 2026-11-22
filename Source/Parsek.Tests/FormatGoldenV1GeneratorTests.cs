@@ -290,12 +290,19 @@ namespace Parsek.Tests
             TreeCommitService.CommitTree(rover);
 
             // Missions: the default per tree, the lander's renamed, plus a clone with a selection.
+            // Parsek no longer creates clones and MissionStore.Load drops them, so the frozen v1
+            // folder's clone (the 1.0 shape) is reproduced here by placing it in the store's list
+            // directly, right after its source, where the removed Clone button put it.
             MissionStore.EnsureDefaultsForTrees(new[] { lander, rover });
             Mission landerMission = MissionStore.Missions.First(m => m.TreeId == LanderTreeId);
             MissionStore.RenameMission(landerMission, LanderMissionName);
-            Mission clone = MissionStore.Clone(landerMission);
-            clone.Name = LanderMissionName + " (no debris)";
+            var clone = new Mission(Guid.NewGuid().ToString("N"), LanderTreeId,
+                LanderMissionName + " (no debris)");
             clone.ExcludedIntervalKeys.Add(DebrisId + "@160");
+            var missionList = (List<Mission>)typeof(MissionStore)
+                .GetField("missions", BindingFlags.Static | BindingFlags.NonPublic)
+                .GetValue(null);
+            missionList.Insert(missionList.IndexOf(landerMission) + 1, clone);
             Mission roverMission = MissionStore.Missions.First(m => m.TreeId == RoverTreeId);
             roverMission.LoopPlayback = true;
             roverMission.LoopIntervalSeconds = 600.0;

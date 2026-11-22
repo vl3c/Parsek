@@ -21,6 +21,8 @@ Not released yet.
 
 ### Changed
 
+- **Missions: Clone and Delete are gone.** Each flight keeps one mission (an old copy is dropped
+  on load), and interval rows no longer repeat their vessel's Fly / Seal.
 - **Abandoned stages fall to the ground in replays.** A stage you drop and stop watching keeps
   falling and explodes where it hits ground or sea, not in mid-air. (ABANDONED-STAGE-D1)
 - **Stages left under open parachutes come down and land.** The replay shows the stage under its

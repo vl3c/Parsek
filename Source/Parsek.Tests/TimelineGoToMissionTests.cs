@@ -125,22 +125,6 @@ namespace Parsek.Tests
                 l.Contains("[UI]") && l.Contains("Cross-link: selecting Missions tab"));
         }
 
-        // A tree can carry several missions (clones). The pick must be the deterministic
-        // original - the same one MissionGroupLink name-links to the tree's root group - not
-        // "whichever clone happened to sort first".
-        [Fact]
-        public void GoToPicksTheTreesOriginalMissionNotAClone()
-        {
-            Mission original = CommitTreeWithMission("tree-1", "Munshot", "rec-1");
-            Mission clone = MissionStore.Clone(original);
-            Assert.NotEqual(original.Id, clone.Id);
-
-            var ui = ParsekWindowSet.BuildUI(UIMode.KSC);
-            ParsekWindowSet.Of(ui).GetRecordingsTableUI().ShowMissionForRecording("rec-1");
-
-            Assert.Equal(original.Id, ParsekWindowSet.Of(ui).GetMissionsUI().PendingRevealMissionIdForTesting);
-        }
-
         // --- Collapse ---
 
         // A collapsed mission still lists its bar but hides the rows the player navigated to

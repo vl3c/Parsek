@@ -13,7 +13,7 @@ namespace Parsek
     /// groups individual recordings (groups -> chains -> recordings), this groups the higher
     /// mission abstraction: it lists saved <see cref="Mission"/>s (from <see cref="MissionStore"/>),
     /// and renders each tree's continuous-vessel composition over time with the offshoots that left
-    /// each vessel as children. Per Mission: a name + Loop/period + Watch + Clone/Delete + Archive,
+    /// each vessel as children. Per Mission: a name + Loop/period + Warp to... + Watch + Log + Archive,
     /// and include checkboxes bound to that Mission's selection (persisted). A Mission loops as a
     /// single unit. See docs/dev/design-mission-abstractions.md.
     /// </summary>
@@ -463,25 +463,19 @@ namespace Parsek
         private const float ColW_StartEvent = 110f;
         private const float ColW_EndEvent = 85f;
         private const float ColW_EndTime = 120f;
-        // Width of the Advanced loop buttons (Clone, Delete, Warp to...): the old Clone width
-        // (60) + 10 px, so they read as one group.
-        private const float ColW_HeaderButton = 70f;
-
         // ----- the Advanced loop grid (owner mock-up 2026-09-30, aligned 2026-10-01) -----
         //
-        // Clone, Delete, Warp to... and the Loop row sit as a 2x2 grid across the mission bar's
-        // two lines, inside the name cell, right-aligned, so the summary keeps the width they
-        // used to take in one row after it:
-        //   line 1: title ...  [A: Clone ] [B: Warp to...        ] [Log           ]
-        //   line 2: summary .. [A: Delete] [B: Loop [x] every    ] [period: [10][sec]]
+        // Warp to... and the Loop row sit as a two-column grid across the mission bar's two
+        // lines, inside the name cell, right-aligned, so the summary keeps the width they would
+        // take in one row after it:
+        //   line 1: title ...  [B: Warp to...        ] [Log           ]
+        //   line 2: summary .. [B: Loop [x] every    ] [period: [10][sec]]
         // Every grid control has zero horizontal margin (loopGridButtonStyle, interactButtonStyle
         // and the loopCell* styles), so each column is exactly its constant wide on both lines:
         // the line-2 loop row starts at Warp's left edge and ends at Log's right edge, its
         // "Loop [x] every" part fills column B under Warp, and its period part fills the Log slot
         // under Log. Warp is always drawn in Advanced (greyed with its reason when it cannot
         // act) and every width is fixed, so the grid never shifts between states.
-        internal const float LoopGridColumnAWidth = ColW_HeaderButton;
-        internal const float LoopGridGap = 4f;
         internal const float LoopGridColumnBWidth = 92f;
         // The loop row spans column B plus the Log slot above it.
         internal const float LoopCellWidth = LoopGridColumnBWidth + InteractButtonWidth;
@@ -531,8 +525,7 @@ namespace Parsek
         // The pickers' entry rows reuse it (PickerWindowLayout.RowMinHeight).
         internal const float CompositionRowMinHeight = 22f;
 
-        // How a Mission row list is ordered. Index = the per-tree index number (clones of a
-        // tree share it); Name = alphabetic mission name; StartTime = the mission span start.
+        // How a Mission row list is ordered. Index = the per-tree index number; Name = alphabetic mission name; StartTime = the mission span start.
         internal enum MissionSortColumn { Index, Name, StartTime }
         private MissionSortColumn sortColumn = MissionSortColumn.Index;
         private bool sortAscending = true;
@@ -725,7 +718,7 @@ namespace Parsek
         private GUIStyle indexHeaderEnableStyle;
         private GUIStyle indexHeaderLabelStyle;
         // Mission-header ROW bubble: the dark section-header box used as the background of the
-        // WHOLE mission header row (index, title, Loop, period, Watch, Clone, Delete, Archive),
+        // WHOLE mission header row (index, title, Warp to..., Log, Loop, period, Watch, Archive),
         // so the bubble spans the full row width with every control sitting on it. Cloned from
         // the shared section-header box with left/right margin + padding zeroed so the bubble
         // reaches the row edges and the contents are not inset (keeps the Archive checkbox under
@@ -755,7 +748,6 @@ namespace Parsek
         // glyph and hover go with which state), allocated once.
         internal const string MissionHeaderRenameHoverOriginal =
             "Double-click to rename (a name in use, or one with = { }, is refused).";
-        internal const string MissionHeaderRenameHoverClone = "Double-click to rename.";
 
         private static readonly GUIContent MissionCaretExpandedContent = new GUIContent(
             MissionPresentation.MissionCollapseCaretGlyph(false),
@@ -841,7 +833,7 @@ namespace Parsek
                 margin = new RectOffset(
                     0, 0, GUI.skin.button.margin.top, GUI.skin.button.margin.bottom)
             };
-            // The loop grid's buttons (Clone, Delete, Warp to...): the same zero horizontal
+            // The loop grid's button (Warp to...): the same zero horizontal
             // margin, so the grid's columns are exactly their constants wide on both lines.
             loopGridButtonStyle = new GUIStyle(interactButtonStyle);
             // The loop row: see LoopGridColumnBWidth. The labels are centred on the line
@@ -996,9 +988,9 @@ namespace Parsek
         /// (design `docs/dev/design-ui-basic-advanced.md` section 4.1a), which is exactly why
         /// the cross-link targets it instead of the raw Recordings tab.</para>
         /// <para>Resolution is recording -> <see cref="Recording.TreeId"/> -> that tree's
-        /// ORIGINAL mission (<see cref="MissionStore.FindOriginalMission"/>). A tree may carry
-        /// several missions (clones); the original is the deterministic, name-linked one, the
-        /// same pick <see cref="MissionGroupLink"/> makes. Every failure warns and lands the
+        /// ORIGINAL mission (<see cref="MissionStore.FindOriginalMission"/>). A tree carries one
+        /// mission (MissionStore.Load drops any legacy clone); the original is the
+        /// deterministic, name-linked one, the same pick <see cref="MissionGroupLink"/> makes. Every failure warns and lands the
         /// player on the tab unscrolled rather than dangling a pending id.</para>
         /// </summary>
         internal void RevealMissionForRecording(string recordingId)
@@ -1125,15 +1117,14 @@ namespace Parsek
         /// <summary>
         /// True when the tab draws its manual-loop surfaces: the per-mission "Loop" toggle,
         /// the loop-period cell beside it, the include checkboxes that pick which intervals
-        /// / partner journeys the loop replays, Clone, Delete, "Warp to...", the summary
+        /// / partner journeys the loop replays, "Warp to...", the summary
         /// line's "Next launch T-" piece, and the loop-selection styling
         /// (dimmed excluded rows, the "(partial)" suffix, the chapter "[~]" marker and the
         /// partner-journey rows an include pulls in) - design
         /// `docs/dev/design-ui-basic-advanced.md` section 4.5.
         /// <para>Basic returns false. Manually looping a mission is a presentation choice
-        /// with no career consequence; everything above only exists because of it (Delete
-        /// and Warp to... included: a mission has something to delete only once it was
-        /// cloned, and a next launch only once it loops), and a Basic player reaches the
+        /// with no career consequence; everything above only exists because of it (Warp
+        /// to... included: a mission has a next launch only once it loops), and a Basic player reaches the
         /// same flights through Watch, the Log, the Timeline and Logistics without it.</para>
         /// <para>Scope, stated positively so a later reader does not widen it by accident:
         /// the "Looped by route" status label, Watch, Rewind / Forward, Log, Archive,
@@ -1294,12 +1285,12 @@ namespace Parsek
             // horizontal padding so columns align with the header above.
             GUILayout.BeginVertical(tableBodyBoxStyle);
 
-            // Per-tree index numbers (1-based, in committed-tree order). Clones share a
-            // tree, so they share its index; renaming a mission never changes it.
+            // Per-tree index numbers (1-based, in committed-tree order); renaming a mission
+            // never changes it.
             Dictionary<string, int> treeIndex = BuildTreeIndexMap(trees);
 
-            // Snapshot + sort for display. Clone / Delete (which mutate the store) are
-            // invoked from within the draw loop; the change takes effect next frame.
+            // Snapshot + sort for display, so a store change made from inside the draw loop
+            // takes effect next frame.
             var ordered = BuildSortedMissionRows(missions, trees, treeIndex);
             int missionCount = 0;
             int rowCount = 0;

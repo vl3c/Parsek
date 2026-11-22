@@ -212,7 +212,12 @@ its core, then install that beside Parsek and check looping and rendering there.
 
 1. Remove Clone and Delete from the Advanced Missions tab (the least useful for verification and
    debugging). The store API and the `UiAction op=clone` seam op are re-checked by that task; saves
-   with existing clones must still load.
+   with existing clones must still load. DONE 2026-11-22 (branch `mission-clone-removal`): both
+   buttons, the store API (`MissionStore.Clone` / `Delete` / `CanDelete`; `Mission.Clone` stays for transient in-game probes) and
+   `UiAction op=clone` are deleted; owner answer to the legacy-clone question (10.6): remove Delete
+   entirely and drop clones from the list on load (`MissionStore.DropLegacyClones`, run by
+   `MissionStore.Load`). Lanes MS-1 (leg-trim half kept) and GUI-4 lost their clone steps; both
+   owe a re-flight.
 2. Build the harness watch-lane extension so the owner can ask an agent "take this mission, make a
    test out of it, I want to verify it visually": an attended hold mode, a map / camera preamble, a
    tree handle that works on any save, and the authoring path from a mission to a lane.
@@ -226,6 +231,6 @@ its core, then install that beside Parsek and check looping and rendering there.
 - Is "exclude part of a mission" a mission feature (Log / Watch / Profile trimming) or only loop
   authoring? It decides whether the include checkboxes can ever go.
 - Is a harness watch lane enough, or is looping a just-flown flight by eye in the dev session needed?
-- When player loops are removed: one ScreenMessage on load, or silence? Legacy clones deletable or
-  inert?
+- When player loops are removed: one ScreenMessage on load, or silence? (Legacy clones: answered
+  2026-11-22, dropped on load, see 10.5 item 1.)
 - Does lifting the hold, when it comes, cover PR 3 (the per-recording engine path) or the UI only?

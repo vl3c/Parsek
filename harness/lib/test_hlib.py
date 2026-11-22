@@ -21427,22 +21427,14 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
             0, {"op": "select", "window": "missions", "key": "leg:", "include": "true"})
         self.assertTrue(any("<prefix>:<value>" in e for e in errors), errors)
 
-    def test_uiaction_clone_takes_the_missions_window_and_an_optional_mission(self):
-        """Coverage wave 6 (D11 `clone`): the Missions tab's Clone button."""
-        self.assertIn("clone", hlib.UIACTION_OP_VALUES)
-        self.assertIn("clone", hlib.UIACTION_OPS_NEEDING_WINDOW)
-        self.assertEqual([], hlib.validate_ui_action_step(
-            0, {"op": "clone", "window": "missions"}))
-        self.assertEqual([], hlib.validate_ui_action_step(
-            0, {"op": "clone", "window": "missions", "mission": "${m.copy}"}))
-        errors = hlib.validate_ui_action_step(0, {"op": "clone"})
-        self.assertTrue(any("window-arg-missing" in e for e in errors), errors)
-        errors = hlib.validate_ui_action_step(
-            0, {"op": "clone", "window": "timeline"})
-        self.assertTrue(any("clone-unsupported-window" in e for e in errors), errors)
+    def test_uiaction_mission_arg_is_read_only_by_target_and_select(self):
+        """`mission=` has two owner ops; on any other op it would be silently ignored."""
+        self.assertNotIn("clone", hlib.UIACTION_OP_VALUES)
+        self.assertNotIn("clone", hlib.UIACTION_OPS_NEEDING_WINDOW)
         errors = hlib.validate_ui_action_step(
             0, {"op": "open", "window": "missions", "mission": "x"})
-        self.assertTrue(any("op=clone read it" in e for e in errors), errors)
+        self.assertTrue(
+            any("only op=target and op=select read it" in e for e in errors), errors)
 
     def test_uiaction_include_arg_is_flagged_on_other_ops(self):
         errors = hlib.validate_ui_action_step(
