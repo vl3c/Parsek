@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel + ReadVesselResources + CrewTransfer + CycleVessel + the EvaSeatBoard / EvaSeatLeave pair + AlarmJump + LaunchSiteProbe + NewGame + PickUpFlag + the map-geometry pair DumpMapGeometry / MapCamera): 62 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot + the D18 RealSpawn / Recover pair + TrackingStationRecover + KscMarkerRecover + ReFlyRevert + RenameVessel + PartAction / RevertToLaunch + DriveVessel + ReadVesselResources + CrewTransfer + CycleVessel + the EvaSeatBoard / EvaSeatLeave pair + AlarmJump + LaunchSiteProbe + NewGame + PickUpFlag + the map-geometry pair DumpMapGeometry / MapCamera + PartParitySweep): 63 verbs (DeleteRecording removed 2026-09-26; the Gloops pair 2026-10-05). The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -423,6 +423,16 @@ namespace Parsek.TestCommands
             // map camera, so it is not.
             "DumpMapGeometry",
             "MapCamera",
+            // PartParitySweep. ADDITIVE (62 -> 63 implemented, reserved unchanged at 4): the
+            // part ghost parity tool's capture step (docs/dev/design-part-ghost-parity.md
+            // section 7). Spawns real one-part vessels co-orbital with the active vessel,
+            // builds each one's ghost, photographs both side by side and removes them, then
+            // writes the case files under <KSP root>/parsek-partparity/<label>/. Contract on
+            // TestCommandPartParitySweep / PartParitySweepCompletion; TWO-PHASE,
+            // RequiresFlight (an orbiting active vessel, the executor's typed REJECTED),
+            // 540 s (a step time-boxes itself to maxSeconds <= 480). State-mutating (it spawns
+            // and removes vessels), so absent from NonMutatingVerbs.
+            "PartParitySweep",
         };
 
         // Reserved (recognized, not implemented in v1): 4 verbs.

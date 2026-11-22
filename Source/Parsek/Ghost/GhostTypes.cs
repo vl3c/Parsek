@@ -785,6 +785,8 @@ namespace Parsek
         public List<ColorChangerGhostInfo> colorChangerInfos = new List<ColorChangerGhostInfo>();
         public List<CompoundPartGhostInfo> compoundPartInfos = new List<CompoundPartGhostInfo>();
         public List<AudioGhostInfo> audioInfos = new List<AudioGhostInfo>();
+        /// <summary>The skin each variant part's visuals were built with, keyed by persistentId.</summary>
+        public Dictionary<uint, GhostAppliedSkin> appliedSkins = new Dictionary<uint, GhostAppliedSkin>();
         /// <summary>
         /// Per-part module state read out of the snapshot PART nodes as the build walks
         /// them (M1). Keyed by persistentId; only parts with something readable get an
@@ -825,5 +827,39 @@ namespace Parsek
         public Dictionary<uint, SnapshotPartBaseline> snapshotBaselines;
         /// <summary>Which ghost parts ride which servo's moving half. Null when the ghost has no servo.</summary>
         public ServoFollowerPlan servoFollowerPlan;
+        /// <summary>
+        /// The skin the builder applied to each part that has a <c>ModulePartVariants</c>, keyed
+        /// by persistentId. A read-only record of what <c>AddPartVisuals</c> resolved; nothing in
+        /// the build or in playback reads it. Null when no part of the snapshot has variants.
+        /// Read it through <see cref="TryGetAppliedSkin"/>.
+        /// </summary>
+        public Dictionary<uint, GhostAppliedSkin> appliedSkins;
+
+        /// <summary>The skin the builder applied to part <paramref name="persistentId"/>; false
+        /// when the part has no variant module or the build drew no visuals for it. The builder
+        /// models no other part switcher (B9PartSwitch subtypes are not applied), so a false here
+        /// for such a part is the answer, not a missing record.</summary>
+        internal bool TryGetAppliedSkin(uint persistentId, out GhostAppliedSkin skin)
+        {
+            skin = null;
+            return appliedSkins != null && appliedSkins.TryGetValue(persistentId, out skin) && skin != null;
+        }
+    }
+
+    /// <summary>
+    /// What <c>GhostVisualBuilder.AddPartVisuals</c> resolved for one part's
+    /// <c>ModulePartVariants</c> skin: the VARIANT whose GAMEOBJECTS and TEXTURE rules it used and
+    /// how it found it (<c>GhostVisualBuilder.MatchVariantNode</c>'s resolution path).
+    /// </summary>
+    internal sealed class GhostAppliedSkin
+    {
+        /// <summary>The variant name; on the <c>base-implicit</c> path the snapshot's name, for
+        /// which the builder keeps the prefab's default look. Null when the part config has no
+        /// variant module node or no VARIANT.</summary>
+        public string variantName;
+
+        /// <summary><c>snapshot</c>, <c>runtime</c>, <c>base</c>, <c>first-fallback</c>,
+        /// <c>base-implicit</c>, or null when no variant was resolved.</summary>
+        public string variantResolutionPath;
     }
 }

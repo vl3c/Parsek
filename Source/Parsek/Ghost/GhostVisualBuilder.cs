@@ -218,12 +218,13 @@ namespace Parsek
                         SynthesizedMotionGhostInfos partSynthesizedMotionInfos;
                         List<ColorChangerGhostInfo> partColorChangerInfos;
                         CompoundPartGhostInfo compoundPartInfo;
+                        GhostAppliedSkin appliedSkin;
                         bool partVisualAdded = AddPartVisuals(build.visualsRoot, partNode, ap.partPrefab,
                             persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
                             out partEngineInfos, out deployableInfo, out wheelDamageInfo,
                             out heatInfo, out lightInfo, out fairingInfo,
                             out partRcsInfos, out partRoboticInfos, out partSynthesizedMotionInfos,
-                            out partColorChangerInfos, out compoundPartInfo,
+                            out partColorChangerInfos, out compoundPartInfo, out appliedSkin,
                             build.raiseLightVisualOnly, build.raiseRcsVisualOnly);
                         if (partVisualAdded)
                             build.visualCount++;
@@ -260,6 +261,10 @@ namespace Parsek
                             build.colorChangerInfos.AddRange(partColorChangerInfos);
                         if (compoundPartInfo != null)
                             build.compoundPartInfos.Add(compoundPartInfo);
+                        // Read-only record of the skin the visuals were built with (the part
+                        // parity sweep's skin proof); nothing in the build or playback reads it.
+                        if (appliedSkin != null)
+                            build.appliedSkins[persistentId] = appliedSkin;
 
                         // Build audio sources for engines and RCS on this part
                         var partAudioInfos = TryBuildAudioFX(ap.partPrefab, persistentId, partName, build.root);
@@ -376,6 +381,7 @@ namespace Parsek
                 snapshotBaselines =
                     build.snapshotBaselines.Count > 0 ? build.snapshotBaselines : null,
                 servoFollowerPlan = ResolveServoFollowerPlan(build, rec),
+                appliedSkins = build.appliedSkins.Count > 0 ? build.appliedSkins : null,
             };
         }
 
@@ -1094,9 +1100,11 @@ namespace Parsek
             out List<RcsGhostInfo> rcsInfos, out List<RoboticGhostInfo> roboticInfos,
             out SynthesizedMotionGhostInfos synthesizedMotionInfos,
             out List<ColorChangerGhostInfo> colorChangerInfos, out CompoundPartGhostInfo compoundPartInfo,
+            out GhostAppliedSkin appliedSkin,
             bool raiseLightVisualOnly, bool raiseRcsVisualOnly)
         {
             meshCount = 0;
+            appliedSkin = null;
             synthesizedMotionInfos = null;
             parachuteInfo = null;
             jettisonInfo = null;
@@ -1181,6 +1189,12 @@ namespace Parsek
                 hasPartVariants, hasVariantGameObjectRules, partName,
                 selectedVariantName, variantResolutionPath, selectedVariantGameObjects,
                 filterInactiveVariantRenderers, activeMR, activeSMR);
+            if (hasPartVariants)
+                appliedSkin = new GhostAppliedSkin
+                {
+                    variantName = selectedVariantName,
+                    variantResolutionPath = variantResolutionPath,
+                };
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name
             string partLabel = persistentId != 0

@@ -48,6 +48,20 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   ceiling, `minSweepDeg` rendered-rotation floor, `resolvedLines` window, per
   `rotRef` `refs`); REPORT-ONLY unless armed via
   `GHOSTLIFE_ARMED_SPECS` - empty as shipped),
+  + `partparity.py`, the pure part ghost parity verifier behind the
+  `partParity` row (docs/dev/design-part-ghost-parity.md sections 5, 6, 10):
+  run.py's harvest leg MOVES each `<instance>/parsek-partparity/<label>/` a
+  lane's `PartParitySweep` steps name into `results/<runId>_partparity/`
+  right after the drive, inside the lock (own retention pass; only the
+  manifest and the sidecars reach the results archive), and the row judges it
+  there: a bad control, a Python recompute of the shape measures that
+  disagrees with the C# sidecar, an unfinished sweep, or a sweep the C#
+  host-integrity guard stopped (the host broke, deorbited or vanished) is a
+  terminal `INVALID(parity-controls | parity-instrument | parity-incomplete |
+  parity-host-damaged)` from the
+  start; the per-part verdicts are REPORT-ONLY unless armed via
+  `[expectations.partParity] gating = true` (`PARTPARITY_ARMED_SPECS` - empty
+  as shipped), then `PARSEK-FAIL(part-parity)`,
   `provision/` (`provlib.py` pure, `provision.py`
   shell), `missions/` (M-B1: mission shells + `lib/mlib.py` pure mission
   decisions + `bootstrap_venv.py`), and their `test_*.py`. run.py drives
@@ -787,6 +801,24 @@ directory the retention pass bounds (`hlib.select_shots_dirs_to_prune`: newest 4
 dirs / 2 GiB), and a 20-PNG census is not small. The sheet lives inside that
 directory, so pruning takes the page with the pictures; the V3 `_contact.html`
 survives and then points at images that are gone.
+
+### The part parity viewer (`tools/part_parity_view.py`)
+
+The page over a part ghost parity sweep (`results/<runId>_partparity/<label>/`, or a copy of
+one): every part of the install, real against ghost, one continuous scroll grouped part >
+skin > view, each view a REAL | GHOST | DIFFERENCE row, flagged parts first. Verdicts and their
+trigger lines are `lib/partparity.py`'s, never typed on the page. It writes `index.html` +
+`data.js` (all sidecars as one JS literal, so it opens from `file://`), by default into
+`<sweep>/viewer/` with the images referenced in place; `--out <dir>` copies them. Two sweep
+directories show two profiles with cross links (`stock=<dir> restock=<dir>`), and
+`--baseline <dir>` marks the cases that moved. It refuses to write into the repository tree
+outside `results/`. Contract: `docs/dev/design-part-ghost-parity.md` section 8; tests
+`lib/test_part_parity_view.py`.
+
+```
+python tools/part_parity_view.py results/<runId>_partparity/pp1
+python tools/part_parity_view.py stock=<dir> restock=<dir> --baseline <older dir> --out ../../logs/partparity/<name>
+```
 
 ### The GUI mirror (`tools/gui_mirror.py`)
 

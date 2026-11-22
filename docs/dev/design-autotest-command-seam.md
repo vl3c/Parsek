@@ -5676,6 +5676,45 @@ and whether each differs from the request; logged `mapcamera ok ...` with stock'
 settling or holding) or `mapcamera-not-settled`. Pure half `TestCommandMapCamera`, applier
 `ParsekTestCommandAddon.MapCamera.cs`, mirrored by `MapGeometrySeamVerbSourceSyncTests`.
 
+#### PartParitySweep (additive; one time-boxed step of the part ghost parity capture)
+
+**Why.** A ghost part that draws differently from the real part (a missing mesh, a wrong skin, a
+shroud the real part hides) is only seen today when someone happens to look. The part ghost
+parity tool spawns every part as a real one-part vessel beside its Parsek ghost, photographs the
+pair and measures the difference. Full contract (cases, capture, files, measures, lanes):
+`docs/dev/design-part-ghost-parity.md`, section 7 for the verb.
+
+**Grammar.** `cmd=PartParitySweep label=<label> [op=reset|run] [filter=<glob>] [source=<csv>]
+[skins=default|all] [views=required|all|<csv>] [tile=256..1024] [shard=<k>/<n>] [limit=<n>]
+[controls=true|false] [maxSeconds=60..480]`. `label` is REQUIRED and filename-safe,
+`CaptureScreenshot`'s rule by delegation. Every present arg that does not parse is REJECTED with
+its own token, never clamped: `label-arg-missing`, `label-arg-invalid`, `op-arg-invalid`,
+`filter-arg-invalid`, `source-arg-invalid`, `skins-arg-invalid`, `views-arg-invalid`,
+`tile-arg-invalid`, `shard-arg-invalid`, `limit-arg-invalid`, `controls-arg-invalid`,
+`maxseconds-arg-invalid` (the parse order).
+
+**Behavior.** Dispatcher class `RequiresFlight` (other scenes DEFER `not-in-flight`). After the
+arg parse the applier admits the host (`TestCommandPartParitySweep.DecideHostAdmission`):
+REJECTED `no-active-vessel` or `host-not-orbiting` (the active vessel's situation is not
+`ORBITING`; the co-orbital spawns need an orbiting host). On admission it starts the capture
+engine's step coroutine (`PartParitySweepRunner.RunStep`), driving its enumerator by hand so a
+throw inside it ends the step at once. `op=reset` clears `<KSP root>/parsek-partparity/<label>/`;
+`op=run` processes cases in the stable order until its `maxSeconds` time box ends and resumes
+from the files on the next step.
+
+**Phases.** TWO-PHASE, 540 s budget (`DeferralBudget.PartParitySweepSeconds`, the largest time
+box plus the last wave's teardown), a `DEFERRED_SEAM_VERB` (a spec's step budget stays at or under
+540 s), `world-mutating` tail role (it spawns and removes vessels; absent from `NonMutatingVerbs`,
+so FlushAndQuit saves after it), `recording` post-mission role. OK `label= done=true|false next=
+cases= complete= crashed= setupFaults= controls=ok|bad|pending|off wall=`, the engine's payload,
+logged `partparitysweep complete label= elapsed= ...`. ERROR `partparity-step-failed
+reason=<token>[ detail=<detail>]` (the engine reported a failure, threw `threw-<ExceptionType>`,
+or ended without reporting, `no-result`) or `partparity-timeout` (the budget ran out; the
+coroutine is stopped and fenced). Pure halves `TestCommandPartParitySweep` (args, refusals,
+admission, payload) and `PartParitySweepCompletion` (poll decision, ERROR vocabulary), applier
+`ParsekTestCommandAddon.PartParitySweep.cs`; mirrored by `PartParitySweepSourceSyncTests`
+(`validate_part_parity_sweep_step` pre-launch).
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -5843,6 +5882,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `EvaSeatBoard` / `EvaSeatLeave` | (default) 60 s | TWO-PHASE: stock's board and leave land within a frame and the completion holds 10 polls past Parsek's dock merge; each ends ERROR `-timeout` rather than letting the pump convert it |
 | `NewGame` | 300 s | TWO-PHASE, the `ReFlyRevert` size: the pause menu's save and the main menu load, a 5-poll menu settle, the delete and stock's create, then the Space Center load from the new `persistent.sfs`; a `DEFERRED_SEAM_VERB` |
 | `LaunchSiteProbe` | (default) 60 s | TWO-PHASE: no scene load on the designed path; the picker list wait, the dialog wait (each up to 10 s) and a 1 s settle; a settle that never ends is ERROR `-not-settled` |
+| `PartParitySweep` | 540 s | TWO-PHASE, the `WarpToUT` size: the engine time-boxes a step to `maxSeconds` (at most 480 s) and starts a wave only when it expects to finish inside the box, so the 60 s over the box covers the last wave's teardown and the case files' write; a `DEFERRED_SEAM_VERB` |
 | `ReFlyRevert` | 300 s | TWO-PHASE, the `InvokeRewind` / `InvokeRewindToLaunch` size: the resume settle (up to 30 s) and the stock menus, then Discard's quicksave `LoadGame` plus the Space Center / editor load or Retry's flight reload; a `DEFERRED_SEAM_VERB` |
 | `AnswerMergeDialog` | 60 s | MEASURED 2026-10-06 over 859 collected runs (2026-09-10 to 2026-10-05): OK n=65, p50 3.3 s, p99 6.6 s, max 7.2 s. 4x the OK max is 29 s; the floor is twice `TestCommandMergeAnswer.ReFlyResumeSettleBudgetSeconds` (30 s), which the re-fly fallback spends before the driven exit (unit-guarded). Was 120 s; all 6 non-OK outcomes (4 `no-refly-dialog` TIMEOUT, 2 `answer-timeout` ERROR) waited the full 120 s and none was a slow success |
 | `EvaGroundScience` | 60 s | MEASURED 2026-10-06 over the same corpus: OK n=412, p50 0.9 s, p99 5.5 s, max 5.5 s (step 3.3, take 0.5, place 3.6, pickup 5.5). Each action is its own command, so the budget bounds one action. 4x the OK max is only 22 s, but the place ladder counts frames (about 1,000 worst case), so 60 s keeps it inside the budget down to about 17 fps. Was 120 s (the EvaExit size); all 37 timeouts (27 `step-timeout`, 5 `placement-timeout`, 3 `place-gate-timeout`, 2 `pickup-timeout`) waited the full 120 s, 4,440 s in all |

@@ -1,0 +1,29 @@
+{
+  "schema": "parsek-part-parity-case/1",
+  "caseId": "ctl-ghost-absent",
+  "part": "fuelTankSmallFlat",
+  "title": "FL-T100 Fuel Tank",
+  "source": "Squad",
+  "partUrl": "Squad/Parts/FuelTank/Size1_Tanks/fuelTankT100/fuelTankSmallFlat",
+  "modelUrls": ["Squad/Parts/FuelTank/Size1_Tanks/Size1Tank_01"],
+  "category": "FuelTank",
+  "tags": ["unknown-module:KOSNameTag","control"],
+  "skin": {"module":"ModulePartVariants","moduleId":null,"requested":"Basic","real":"Basic","snapshot":null,"ghost":null},
+  "state": "stowed",
+  "context": "alone",
+  "measure": {"coverageAlpha":0.5,"tolerancePx":1,"blobConnectivity":4,"colorMetric":"euclidean-rgb-premultiplied","colorThreshold":24,"colorBlockGrid":16,"minBlockOverlapFraction":0.25},
+  "atlas": {"file":"ctl-ghost-absent.png","thumb":"ctl-ghost-absent.thumb.png","tile":512,"rows":["real","ghost"],"cols":["side-a","side-b","top","bottom"]},
+  "framing": {"real":{"center":[3.5464763641357422E-06,1.1086463928222656E-05,-2.9802322387695313E-07],"extents":[0.62500879168510437,0.34001815319061279,0.62500697374343872]},"ghost":null,"shared":{"center":[3.5464763641357422E-06,1.1086463928222656E-05,-2.9802322387695313E-07],"extents":[0.62500879168510437,0.34001815319061279,0.62500697374343872]},"orthoSize":0.68750967085361492},
+  "ghostRootOffsetM": null,
+  "layers": {"real":[0],"ghost":null},
+  "flags": [],
+  "views": [
+    {"view":"side-a","width":512,"height":512,"realPx":117591,"ghostPx":0,"andPx":0,"orPx":117591,"realOnlyPx":117591,"ghostOnlyPx":0,"realOnlyTolPx":117591,"ghostOnlyTolPx":0,"realOnlyBlobPx":117591,"ghostOnlyBlobPx":0,"realOnlyBlobPct":99.770476598184089,"ghostOnlyBlobPct":0,"bbox":{"real":[23,129,466,254],"ghost":null},"centroid":{"real":[255.989467731374,256.02490411681168],"ghost":null},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":0,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":0,"matte":{"real":{"opaque":116624,"edge":1370,"inverted":0},"ghost":{"opaque":0,"edge":0,"inverted":0}}},
+    {"view":"side-b","width":512,"height":512,"realPx":117553,"ghostPx":0,"andPx":0,"orPx":117553,"realOnlyPx":117553,"ghostOnlyPx":0,"realOnlyTolPx":117553,"ghostOnlyTolPx":0,"realOnlyBlobPx":117553,"ghostOnlyBlobPx":0,"realOnlyBlobPct":99.737499512800824,"ghostOnlyBlobPct":0,"bbox":{"real":[23,129,466,254],"ghost":null},"centroid":{"real":[255.99045111566699,256.04842496576015],"ghost":null},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":0,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":0,"matte":{"real":{"opaque":116624,"edge":1370,"inverted":0},"ghost":{"opaque":0,"edge":0,"inverted":0}}},
+    {"view":"top","width":512,"height":512,"realPx":168214,"ghostPx":0,"andPx":0,"orPx":168214,"realOnlyPx":168214,"ghostOnlyPx":0,"realOnlyTolPx":168214,"ghostOnlyTolPx":0,"realOnlyBlobPx":168214,"ghostOnlyBlobPx":0,"realOnlyBlobPct":77.643766076542107,"ghostOnlyBlobPct":0,"bbox":{"real":[23,23,466,466],"ghost":null},"centroid":{"real":[256.02148453755336,256.01240087031994],"ghost":null},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":0,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":0,"matte":{"real":{"opaque":167695,"edge":1041,"inverted":0},"ghost":{"opaque":0,"edge":0,"inverted":0}}},
+    {"view":"bottom","width":512,"height":512,"realPx":168215,"ghostPx":0,"andPx":0,"orPx":168215,"realOnlyPx":168215,"ghostOnlyPx":0,"realOnlyTolPx":168215,"ghostOnlyTolPx":0,"realOnlyBlobPx":168215,"ghostOnlyBlobPx":0,"realOnlyBlobPct":77.64441276971958,"ghostOnlyBlobPct":0,"bbox":{"real":[23,23,466,466],"ghost":null},"centroid":{"real":[256.022283981809,256.01128615165118],"ghost":null},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":0,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":0,"matte":{"real":{"opaque":167694,"edge":1042,"inverted":0},"ghost":{"opaque":0,"edge":0,"inverted":0}}}
+  ],
+  "structure": {"realRenderers":1,"ghostRenderers":0,"pairs":0,"missingOnGhost":[{"key":"model/Squad/Parts/FuelTank/Size1_Tanks/Size1Tank_01/125_1","mesh":" Instance","rendered":true}],"extraOnGhost":[],"transformDiffers":[],"materialDiffers":[],"meshDiffers":[],"renderedDiffers":[]},
+  "setup": {"status":"ok","detail":null},
+  "log": []
+}
