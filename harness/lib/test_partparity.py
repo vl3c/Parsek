@@ -22,6 +22,7 @@ Run: ``cd harness && python -m unittest discover -s lib -q``.
 import copy
 import gzip
 import json
+import math
 import os
 import random
 import re
@@ -896,6 +897,7 @@ class PartParitySourceSyncTests(unittest.TestCase):
                            ("AtlasKeys", pp.ATLAS_KEYS), ("ViewKeys", pp.VIEW_KEYS),
                            ("StructureKeys", pp.STRUCTURE_KEYS),
                            ("RendererRefKeys", pp.RENDERER_REF_KEYS),
+                           ("TransformDiffKeys", pp.TRANSFORM_DIFF_KEYS),
                            ("SetupKeys", pp.SETUP_KEYS), ("ManifestKeys", pp.MANIFEST_KEYS),
                            ("ControlKeys", pp.CONTROL_KEYS),
                            ("CaseSummaryKeys", pp.CASE_SUMMARY_KEYS),
@@ -1388,11 +1390,13 @@ class StateCaseJudgeTests(unittest.TestCase):
         self.assertFalse(any("depth-mask" in r or "missing-rendered" in r for r in cv.reasons))
 
     def _air(self, rot=2.5, pos=0.0, scl=0.0, context="air", tilt=1.0, wobble=1.0,
-             transform="canopy", tags=(), key="chute/canopy", **extra):
+             transform="canopy", tags=(), key="chute/canopy", arm=None, **extra):
+        entry = {"key": key, "positionDeltaM": pos, "rotationDeltaDeg": rot, "scaleDeltaPct": scl}
+        if arm != "absent":
+            entry["canopyPivotDistanceM"] = arm
         structure = {"missingOnGhost": [], "extraOnGhost": [], "meshDiffers": [],
                      "renderedDiffers": [], "materialDiffers": [],
-                     "transformDiffers": [{"key": key, "positionDeltaM": pos,
-                                           "rotationDeltaDeg": rot, "scaleDeltaPct": scl}]}
+                     "transformDiffers": [entry]}
         structure.update(extra)
         doc, _ = _state_case("chute--default--semi--air--1", part="parachuteSingle",
                              family="parachute", state="semi", context=context,
@@ -1412,9 +1416,82 @@ class StateCaseJudgeTests(unittest.TestCase):
                           ("a scale delta", {"scl": 5.0}),
                           ("no canopy angles", {"tilt": None}),
                           ("a mesh difference", {"meshDiffers": [{"key": "chute/canopy"}]}),
-                          ("no transform difference", {"transformDiffers": []})):
+                          ("no transform difference and no measured turn",
+                           {"transformDiffers": [], "tilt": 0.03, "wobble": 0.05})):
             with self.subTest(label):
                 self.assertEqual(pp.VERDICT_FAIL, self._air(**kw).verdict)
+
+    def test_the_canopy_cap_allows_the_arc_of_its_rotation_at_the_lever_arm(self):
+        # PARTPARITY-CANOPY-CAP-LEVER-ARM shape 1 (ReStock): a renderer metres from the canopy
+        # pivot moves with the turn. Bound 1 + 1 + 1 = 3 deg; at d = 5 m the chord is
+        # 2 * 5 * sin(1.5 deg) = 0.2617 m, plus the 1 mm tolerance.
+        allowance = pp.canopy_position_allowance_m({"canopyPivotDistanceM": 5.0}, 3.0)
+        self.assertAlmostEqual(0.001 + 10.0 * math.sin(math.radians(1.5)), allowance, places=9)
+        self.assertEqual(pp.VERDICT_WARN, self._air(pos=0.25, arm=5.0).verdict)
+        self.assertEqual(pp.VERDICT_WARN, self._air(pos=allowance - 1e-6, arm=5.0).verdict)
+        for label, kw in (
+                ("just past the arc", {"pos": allowance + 1e-6, "arm": 5.0}),
+                ("the arc of a short arm", {"pos": 0.25, "arm": 0.5}),
+                ("no lever arm: the tolerance alone", {"pos": 0.25, "arm": None}),
+                ("an old sidecar without the key", {"pos": 0.25, "arm": "absent"}),
+                ("a negative arm", {"pos": 0.25, "arm": -5.0}),
+                ("the arm does not lift the rotation bound", {"pos": 0.0, "rot": 3.5, "arm": 5.0}),
+                ("the arm does not excuse a scale delta", {"pos": 0.1, "scl": 5.0, "arm": 5.0}),
+                ("the arm does not excuse a mesh difference",
+                 {"pos": 0.1, "arm": 5.0, "meshDiffers": [{"key": "chute/canopy"}]}),
+                ("an arm on a non-canopy renderer", {"pos": 0.1, "arm": 5.0, "key": "chute/housing"})):
+            with self.subTest(label):
+                self.assertEqual(pp.VERDICT_FAIL, self._air(**kw).verdict)
+
+    def test_a_clean_structure_is_a_sub_tolerance_canopy_turn(self):
+        # PARTPARITY-CANOPY-CAP-LEVER-ARM shape 2 (stock): the turn stayed under the
+        # structure's 0.5 deg rotation tolerance, so no entry exists; a measured turn of at
+        # least CANOPY_MIN_TURN_DEG explains the picture, a canopy that did not turn does not,
+        # and the cap's other conditions still hold.
+        self.assertEqual(pp.VERDICT_WARN,
+                         self._air(transformDiffers=[], tilt=0.08, wobble=0.49).verdict)
+        self.assertEqual(pp.VERDICT_WARN,
+                         self._air(transformDiffers=[], tilt=0.0, wobble=pp.CANOPY_MIN_TURN_DEG).verdict)
+        for label, kw in (
+                ("under the floor", {"tilt": 0.0, "wobble": 0.099}),
+                ("a material difference", {"materialDiffers": [
+                    {"key": "chute/canopy", "field": "mainTextures", "real": "a", "ghost": "b"}]}),
+                ("a rendered difference", {"renderedDiffers": [
+                    {"key": "chute/canopy", "field": "rendered", "real": "true", "ghost": "false"}]}),
+                ("a missing rendered mesh", {"missingOnGhost": [
+                    {"key": "chute/canopy", "mesh": "m", "rendered": True, "nonVisual": None}]}),
+                ("a timeout capture", {"tags": ("canopy-wobble:3.1",)}),
+                ("not an air case", {"context": "alone"})):
+            with self.subTest(label):
+                kw = dict(kw)
+                kw.setdefault("tilt", 0.1)
+                kw.setdefault("wobble", 0.4)
+                self.assertEqual(pp.VERDICT_FAIL, self._air(transformDiffers=[], **kw).verdict)
+
+    def test_the_structure_tolerances_are_the_csharp_ones(self):
+        path = os.path.join(CS_DIR, "PartParityStructure.cs")
+        with open(path, encoding="utf-8") as fh:
+            text = _strip_cs_comments(fh.read())
+        for name, mirror in (("PositionToleranceM", pp.STRUCTURE_POSITION_TOLERANCE_M),
+                             ("RotationToleranceDeg", pp.STRUCTURE_ROTATION_TOLERANCE_DEG),
+                             ("ScaleTolerancePct", pp.STRUCTURE_SCALE_TOLERANCE_PCT)):
+            with self.subTest(name):
+                m = re.search(r"const double %s\s*=\s*([0-9.]+)\s*;" % name, text)
+                self.assertIsNotNone(m, "%s not found in %s" % (name, path))
+                self.assertEqual(float(m.group(1)), mirror)
+        # The floor sits under the tolerance: a clean structure means every canopy renderer
+        # turned less than the tolerance, so a floor over it could never be met.
+        self.assertLess(pp.CANOPY_MIN_TURN_DEG, pp.STRUCTURE_ROTATION_TOLERANCE_DEG)
+        # The C# key test splits the same way: a path segment equal to the canopy name, the
+        # #k suffix dropped (PartParityStructure.IsCanopyRendererKey).
+        self.assertIn("IndexOf('#')", text)
+        self.assertIn("Split('/')", text)
+        self.assertIn('M("canopyPivotDistanceM", Num(t.CanopyPivotDistanceM))',
+                      self._json_source())
+
+    def _json_source(self):
+        with open(os.path.join(CS_DIR, "PartParityJson.cs"), encoding="utf-8") as fh:
+            return fh.read()
 
     def test_the_canopy_cap_is_limited_to_the_canopy_and_a_settled_capture(self):
         # Fix 3 of the PR #2766 review: the cap was too wide against D.4.

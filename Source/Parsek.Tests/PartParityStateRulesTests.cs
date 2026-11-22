@@ -91,6 +91,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AutoDeployAnimationGroup_IsExcluded_NotPressed()
+        {
+            // The stock ISRU: autoDeploy = true, no deploy clip; stock deploys it itself and
+            // hides Deploy / Retract, so there is no stowed pose to press from.
+            var r = Enumerate(Part("ISRU", "",
+                Mod(0, "ModuleAnimationGroup", "", "autoDeploy", "true"), Mod(1, "ModuleAnimationGroup")));
+            Assert.Equal(new[] { "deployed/alone" }, r.Cases.Select(Pair));
+            Assert.Equal(1, r.Cases[0].StateOption.ModuleIndex);
+            var e = Assert.Single(r.Exclusions);
+            Assert.Equal("auto-deploy", e.Reason);
+            Assert.Equal("animation-group", e.Family);
+            Assert.Equal(0, e.ModuleIndex);
+            Assert.Contains("auto-deploy", PartParityStateRules.ExclusionReasons);
+            var off = Enumerate(Part("Drill", "", Mod(0, "ModuleAnimationGroup", "", "autoDeploy", "False")));
+            Assert.Equal(new[] { "deployed/alone" }, off.Cases.Select(Pair));
+        }
+
+        [Fact]
         public void GearAndLight_OnOnePart_AreTwoCases_NeverTheCrossProduct()
         {
             var r = Enumerate(Part("GearSmall", "",
@@ -329,18 +347,19 @@ namespace Parsek.Tests
             var r = EnumerateFixture("stock-minimal");
             var expected = new Dictionary<string, int>
             {
-                ["deployable"] = 19, ["gear"] = 8, ["ladder"] = 2, ["animation-group"] = 5,
+                ["deployable"] = 19, ["gear"] = 8, ["ladder"] = 2, ["animation-group"] = 4,
                 ["cargo-bay"] = 8, ["animate-generic"] = 10, ["airbrake"] = 1, ["light"] = 15,
                 ["cabin-light"] = 26, ["parachute"] = 10, ["jettison"] = 66 + 4, ["fairing"] = 9,
             };
             Assert.Equal(expected.OrderBy(p => p.Key), ByFamily(r).OrderBy(p => p.Key));
-            Assert.Equal(94, r.Cases.Count(k => k.StateOption.Family != "parachute" && k.StateOption.Family != "jettison"
+            Assert.Equal(93, r.Cases.Count(k => k.StateOption.Family != "parachute" && k.StateOption.Family != "jettison"
                 && k.StateOption.Fgv == null));
             AssertFgvCases(r);
             Assert.Equal(37, r.Cases.Where(k => k.StateOption.Family == "jettison").Select(k => k.Part).Distinct().Count());
             Dictionary<string, int> reasons = ByReason(r);
             Assert.Equal(9, reasons["ground-deploy"]);
             Assert.Equal(2, reasons["no-pose"]);
+            Assert.Equal(1, reasons["auto-deploy"]);
             Assert.Equal(5, reasons["fairing-bay"]);
             Assert.Equal(3, reasons["fairing-no-context"]);
             Assert.Equal(3, reasons["bay-deploy-not-animated"]);
@@ -372,6 +391,8 @@ namespace Parsek.Tests
             Assert.Equal(5, reasons["bay-deploy-not-animated"]);
             Assert.Equal(7, reasons["jettison-blocked-by-node"]);
             Assert.Equal(2, reasons["not-polled"]);
+            // ReStock's ISRU carries no ModuleAnimationGroup, so no auto-deploy exclusion here.
+            Assert.False(reasons.ContainsKey("auto-deploy"));
             Assert.False(reasons.ContainsKey("jettison-node-missing"));
             AssertIdsUnique(r);
         }
@@ -476,6 +497,17 @@ namespace Parsek.Tests
             Assert.False(PartParityStateRules.StateReached(Opt("deployable"), new PartParityStateObservation { DeployState = "EXTENDING" }));
             Assert.True(PartParityStateRules.StateReached(Opt("gear"), new PartParityStateObservation { GearState = "Deployed" }));
             Assert.False(PartParityStateRules.StateReached(Opt("gear"), new PartParityStateObservation { GearState = "Deploying" }));
+            // An animation group is done only once its own deploy clip finished as well (a
+            // ReStock drill's clip outlasted the settle cap); a group with no clip reads null.
+            Assert.False(PartParityStateRules.StateReached(Opt("animation-group"),
+                new PartParityStateObservation { ClassifierDeployed = true, DeployClipDone = false }));
+            Assert.True(PartParityStateRules.StateReached(Opt("animation-group"),
+                new PartParityStateObservation { ClassifierDeployed = true, DeployClipDone = true }));
+            Assert.False(PartParityStateRules.StateReached(Opt("animation-group"),
+                new PartParityStateObservation { ClassifierDeployed = false, DeployClipDone = true }));
+            foreach (string f in new[] { "ladder", "animate-generic", "airbrake" })
+                Assert.True(PartParityStateRules.StateReached(Opt(f),
+                    new PartParityStateObservation { ClassifierDeployed = true, DeployClipDone = false }), f);
             foreach (string f in new[] { "ladder", "animation-group", "animate-generic", "airbrake" })
             {
                 Assert.True(PartParityStateRules.StateReached(Opt(f), new PartParityStateObservation { ClassifierDeployed = true }), f);
@@ -512,7 +544,21 @@ namespace Parsek.Tests
             Assert.Equal(5.0, PartParityStateRules.StateTimeoutSeconds(Opt("airbrake"), 3.0, 1.0));
             Assert.Equal(10.0, PartParityStateRules.StateTimeoutSeconds(Opt("parachute", "semi"), 3.0, 1.0));
             Assert.Equal(15.0, PartParityStateRules.StateTimeoutSeconds(Opt("parachute", "full"), 3.0, 1.0));
-            Assert.Equal(1.0, PartParityStateRules.PostDoneSettleSeconds("light", 1.0));
+            // A light waits for its lens fade: stock's 2.5 s + 0.5 s; never under 1 s, never over
+            // 5 s, and the 5 s cap when the speed is unreadable.
+            Assert.Equal(3.0, PartParityStateRules.PostDoneSettleSeconds("light", 1.0, 2.5));
+            Assert.Equal(1.0, PartParityStateRules.PostDoneSettleSeconds("light", 1.0, 0.3));
+            Assert.Equal(5.0, PartParityStateRules.PostDoneSettleSeconds("light", 1.0, 9.0));
+            Assert.Equal(5.0, PartParityStateRules.PostDoneSettleSeconds("light", 1.0));
+            Assert.Equal(5.0, PartParityStateRules.PostDoneSettleSeconds("light", 1.0, -1.0));
+            // A tracker's cap follows its own trackingSpeed (time constant 1 / speed): a solar
+            // panel's 0.25 keeps 25 s, a folding radiator's 0.1 needs 62.5 s; capped at 90 s, an
+            // unreadable speed reads as 0.25.
+            Assert.Equal(25.0, PartParityStateRules.SunTrackerCapSecondsFor(0.25), 9);
+            Assert.Equal(62.5, PartParityStateRules.SunTrackerCapSecondsFor(0.1), 9);
+            Assert.Equal(90.0, PartParityStateRules.SunTrackerCapSecondsFor(0.01), 9);
+            Assert.Equal(25.0, PartParityStateRules.SunTrackerCapSecondsFor(0.0), 9);
+            Assert.Equal(25.0, PartParityStateRules.SunTrackerCapSecondsFor(double.NaN), 9);
             Assert.Equal(2.5, PartParityStateRules.PostDoneSettleSeconds("cabin-light", 0.5));
             Assert.Equal(5.0, PartParityStateRules.PostDoneSettleSeconds("cabin-light", 0.1));
             Assert.Equal(0.5, PartParityStateRules.PostDoneSettleSeconds("deployable", 1.0));
@@ -527,22 +573,27 @@ namespace Parsek.Tests
         [Fact]
         public void WaveWorstCase_IsTheBucketsBound()
         {
-            Assert.Equal(71.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4, true), 6);
-            Assert.Equal(46.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4, false,
+            Assert.Equal(71.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4, PartParityStateRules.SunTrackerCapSeconds), 6);
+            Assert.Equal(46.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4, 0.0,
                 new[] { "deployable", "gear" }), 6);
-            Assert.Equal(31.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, false,
+            Assert.Equal(31.7, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, 0.0,
                 new[] { "jettison" }), 6);
-            Assert.Equal(32.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, false,
+            // A light's lens fade (lightBrightenSpeed + 0.5 s, capped at 5 s) bounds a light wave.
+            Assert.Equal(36.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, 0.0,
                 new[] { "light", "light" }), 6);
+            // A folding radiator (trackingSpeed 0.1) holds the long wave for its 62.5 s cap.
+            Assert.Equal(109.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Long, 4,
+                PartParityStateRules.SunTrackerCapSecondsFor(0.1)), 6);
             // The airbrake's and the cabin light's 5 s settle caps bound a quick wave holding one.
-            Assert.Equal(36.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, false,
+            Assert.Equal(36.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, 0.0,
                 new[] { "light", "airbrake" }), 6);
-            Assert.Equal(36.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, false,
+            Assert.Equal(36.2, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Quick, 4, 0.0,
                 new[] { "cabin-light" }), 6);
-            Assert.Equal(60.0, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Air, 5, false,
+            Assert.Equal(60.0, PartParitySweepPlan.WaveWorstCaseSeconds(PartParityStateBucket.Air, 5, 0.0,
                 new[] { "parachute" }), 6);
             Assert.Equal(5.0, PartParityStateRules.SettleCapSeconds("airbrake"));
             Assert.Equal(5.0, PartParityStateRules.SettleCapSeconds("cabin-light"));
+            Assert.Equal(5.0, PartParityStateRules.SettleCapSeconds("light"));
             Assert.True(PartParitySweepPlan.ShouldStartStateWave(0.0, 480, 1000.0));
             Assert.True(PartParitySweepPlan.ShouldStartStateWave(400.0, 480, 56.7));
             Assert.False(PartParitySweepPlan.ShouldStartStateWave(430.0, 480, 56.7));

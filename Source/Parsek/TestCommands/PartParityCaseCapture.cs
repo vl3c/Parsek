@@ -44,6 +44,7 @@ namespace Parsek.TestCommands
                 // The real part's depth masks are repaired before the state branch reads its
                 // renderers, the same repair, line, flags and setup fault as a stowed case.
                 RepairDepthMasks(wc, wc.Real.rootPart);
+                RepairColorChangerLeaks(wc, wc.Real.rootPart, wc.State.JettisonTransforms);
                 PartParityStateDriver.Prepare(ctx, wc);
                 return;
             }
@@ -55,6 +56,7 @@ namespace Parsek.TestCommands
 
             if (wc.ControlId == TestCommandPartParitySweep.ControlGhostMissingMesh) PlantCube(ctx, wc, part);
             RepairDepthMasks(wc, part);
+            RepairColorChangerLeaks(wc, part, null);
 
             var realRenderers = new List<Renderer>(part.GetComponentsInChildren<Renderer>(true));
             wc.RealRecords = Records(partT, realRenderers, wc.RealLayers, null,
@@ -97,6 +99,29 @@ namespace Parsek.TestCommands
             if (unrepaired > 0) ParsekLog.Warn(PartParitySweepRunner.Tag, line);
             else if (repaired > 0) ParsekLog.Info(PartParitySweepRunner.Tag, line);
             else ParsekLog.Verbose(PartParitySweepRunner.Tag, line);
+        }
+
+        /// <summary>
+        /// Resets the real part's colour-changer leaks (<see cref="PartParityColorChangerLeakRepair"/>)
+        /// on its own renderers and on its jettison transforms wherever they live (stock reparents
+        /// a stacked shroud under the part below), before anything reads the real renderers. One
+        /// Info line and the flag <c>colorchanger-leak-repaired:&lt;n&gt;</c> when it reset any.
+        /// </summary>
+        private static void RepairColorChangerLeaks(WaveCase wc, Part part, List<Transform> jettisonTransforms)
+        {
+            var candidates = new List<Renderer>();
+            foreach (Renderer r in part.GetComponentsInChildren<Renderer>(true))
+                if (r != null && r.GetComponentInParent<Part>() == part) candidates.Add(r);
+            if (jettisonTransforms != null)
+                foreach (Transform t in jettisonTransforms)
+                    if (t != null)
+                        foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true))
+                            if (r != null && !candidates.Contains(r)) candidates.Add(r);
+            int n = PartParityColorChangerLeakRepair.Repair(part, candidates, out string detail);
+            if (n == 0) return;
+            wc.Flags.Add(PartParityColorChangerLeakRepair.Flag(n));
+            ParsekLog.Info(PartParitySweepRunner.Tag, $"case {wc.CaseId}: colour-changer leak repaired n={n} " +
+                $"part={part.partInfo?.name} renderers=[{detail}] candidates={candidates.Count}");
         }
 
         /// <summary>The three controls that photograph no ghost.</summary>
@@ -268,6 +293,7 @@ namespace Parsek.TestCommands
         internal static void Frame(WaveCase wc)
         {
             wc.Framing = PartParityFramingRule.Decide(wc.RealRecords, wc.GhostRecords);
+            PartParityStateDriver.StampCanopy(wc, wc.Framing.Structure, "event");
             foreach (var d in wc.Framing.Dropped) wc.Flags.Add(PartParityFramingRule.DroppedFlag(d));
             if (wc.Framing.GhostOutsideReal) wc.Flags.Add(PartParityFramingRule.FlagGhostOutsideRealBounds);
             if (wc.Ghost != null && !wc.RealLayers.SetEquals(wc.GhostLayers)) wc.Flags.Add(FlagGhostLayerDiffers);

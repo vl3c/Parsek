@@ -45,9 +45,23 @@ namespace Parsek.TestCommands
         /// ghost is built WITHOUT the polled events (design D.6).</summary>
         internal bool DropEvents;
 
-        /// <summary>The prefab carries a sun-tracking solar panel (the tracking settle and the
-        /// stepped primes apply).</summary>
+        /// <summary>The prefab carries a sun tracker (a tracking deployable whose pivot
+        /// resolves: solar panels and folding radiators; the tracking settle and the stepped
+        /// primes apply).</summary>
         internal bool SunTracker;
+
+        /// <summary>The slowest tracker's <c>trackingSpeed</c> (NaN for none) and the cap of the
+        /// tracking settle it gives (<see cref="PartParityStateRules.SunTrackerCapSecondsFor"/>,
+        /// 0 for none).</summary>
+        internal double TrackingSpeed = double.NaN;
+        internal double TrackerCapSeconds;
+
+        /// <summary>A light's own <c>ModuleLight.lightBrightenSpeed</c> (the lens fade, game
+        /// seconds); NaN when not a light case or unreadable.</summary>
+        internal double LightBrightenSeconds = double.NaN;
+
+        /// <summary>The game UT the done signal was read at (a light's fade runs in game time).</summary>
+        internal double ReachedUT = double.NaN;
 
         // ----- context (stacked) -----
         internal readonly List<PartParityContextNode> Nodes = new List<PartParityContextNode>();
@@ -139,6 +153,11 @@ namespace Parsek.TestCommands
         internal double? CanopyWobbleDeg;
         internal string CanopyTransform;
 
+        /// <summary>The real canopy transform's position in the real part's frame at the
+        /// capture (the pivot the canopy cap's lever arms are measured from); null when not
+        /// measured.</summary>
+        internal double[] CanopyPivotLocal;
+
         /// <summary><c>canopy-wobble:&lt;deg&gt;</c> when the window's cap forced the capture.</summary>
         internal string CanopyWobbleTag;
 
@@ -221,14 +240,27 @@ namespace Parsek.TestCommands
             return sp;
         }
 
-        /// <summary>The prefab carries a tracking solar panel (the 9 sun trackers per install).</summary>
-        internal static bool HasSunTracker(AvailablePart info)
+        /// <summary>The prefab carries a sun tracker: the ghost's own rule
+        /// (<c>GhostVisualBuilder.TryBuildSunTrackingInfo</c>), any
+        /// <see cref="ModuleDeployablePart"/> with <c>isTracking</c> whose <c>pivotName</c>
+        /// transform resolves (stock tracks only then, <c>hasPivot</c>): the 9 tracking solar
+        /// panels and the 3 folding radiators per install.</summary>
+        internal static bool HasSunTracker(AvailablePart info) => !double.IsNaN(SlowestTrackingSpeed(info));
+
+        /// <summary>The smallest <c>trackingSpeed</c> of the prefab's trackers; NaN for none.</summary>
+        internal static double SlowestTrackingSpeed(AvailablePart info)
         {
             Part prefab = info?.partPrefab;
-            if (prefab == null) return false;
+            double slowest = double.NaN;
+            if (prefab == null) return slowest;
             foreach (PartModule m in prefab.Modules)
-                if (m is ModuleDeployableSolarPanel sp && sp.isTracking) return true;
-            return false;
+            {
+                if (!(m is ModuleDeployablePart dp) || !dp.isTracking || string.IsNullOrEmpty(dp.pivotName)) continue;
+                if (prefab.FindModelTransform(dp.pivotName) == null) continue;
+                double speed = dp.trackingSpeed;
+                if (double.IsNaN(slowest) || speed < slowest) slowest = speed;
+            }
+            return slowest;
         }
 
         internal static PartParityStateRun NewRun(PartParityCaseKey key, PartParityPartEntry entry, bool dropEvents)
@@ -237,10 +269,12 @@ namespace Parsek.TestCommands
             {
                 Option = key.StateOption,
                 DropEvents = dropEvents,
-                SunTracker = entry != null && HasSunTracker(entry.Info),
+                TrackingSpeed = entry != null ? SlowestTrackingSpeed(entry.Info) : double.NaN,
                 FourRows = TestCommandPartParitySweep.IsStateCase(key),
                 Air = key.Context == PartParityStateRules.ContextAir,
             };
+            run.SunTracker = !double.IsNaN(run.TrackingSpeed);
+            run.TrackerCapSeconds = run.SunTracker ? PartParityStateRules.SunTrackerCapSecondsFor(run.TrackingSpeed) : 0.0;
             return run;
         }
 
@@ -460,16 +494,34 @@ namespace Parsek.TestCommands
             run.ReachedBeforePress = run.Option.Action != null
                 && PartParityStateRules.StateReached(run.Option, Observe(part, run.Option, out _, out _));
             ReadAnimation(part, out double clip, out double speed);
+            // An animation group's done signal waits for its own deploy clip, which plays
+            // forward at speed 1 (decompiled SetDeployedState); the part's longest clip may be
+            // another one, or this one parked at a snap speed (-1000 on the drills).
+            if (run.Option.Family == PartParityStateRules.FamilyAnimationGroup
+                && run.Option.ModuleIndex >= 0 && run.Option.ModuleIndex < part.Modules.Count)
+            {
+                AnimationState deploy = DeployClipState(part.Modules[run.Option.ModuleIndex] as ModuleAnimationGroup);
+                if (deploy != null && deploy.length > 0f) { clip = deploy.length; speed = 1.0; }
+            }
             run.TimeoutSeconds = PartParityStateRules.StateTimeoutSeconds(run.Option, clip, speed);
             if (run.Option.Family == PartParityStateRules.FamilyCabinLight
                 && run.Option.ModuleIndex >= 0 && run.Option.ModuleIndex < part.Modules.Count
                 && part.Modules[run.Option.ModuleIndex] is ModuleColorChanger cc)
                 run.AnimRate = cc.animRate;
+            if (run.Option.Family == PartParityStateRules.FamilyLight)
+            {
+                ModuleLight light = run.Option.ModuleIndex >= 0 && run.Option.ModuleIndex < part.Modules.Count
+                    ? part.Modules[run.Option.ModuleIndex] as ModuleLight : null;
+                if (light == null) light = part.FindModuleImplementing<ModuleLight>();
+                if (light != null) run.LightBrightenSeconds = light.lightBrightenSpeed;
+            }
             ParsekLog.Verbose(Tag, $"case {wc.CaseId}: stowed inputs snapshot={(run.StowedSnapshot != null ? "true" : "false")} " +
                 $"seeds={run.StowedSeeds.Count.ToString(Ic)} t0={run.SeedUT.ToString("0.00", Ic)} " +
                 $"jettisonTransforms={run.JettisonTransforms.Count.ToString(Ic)} fillers={run.FillerPids.Count.ToString(Ic)} " +
                 $"clip={clip.ToString("0.00", Ic)}s speed={speed.ToString("0.00", Ic)} timeout={run.TimeoutSeconds.ToString("0.0", Ic)}s " +
-                $"sunTracker={(run.SunTracker ? "true" : "false")}");
+                $"sunTracker={(run.SunTracker ? "true" : "false")}" +
+                (run.SunTracker ? $" trackingSpeed={run.TrackingSpeed.ToString("0.###", Ic)} trackerCap={run.TrackerCapSeconds.ToString("0.0", Ic)}s" : string.Empty) +
+                (!double.IsNaN(run.LightBrightenSeconds) ? $" lightBrightenSpeed={run.LightBrightenSeconds.ToString("0.###", Ic)}" : string.Empty));
         }
 
         private static Dictionary<uint, string> PartNames(Vessel v)
@@ -539,7 +591,9 @@ namespace Parsek.TestCommands
                 run.AirbrakeSurface = FindNamedTransform(part, part.Modules[run.Option.ModuleIndex], "transformName");
             if (run.SunTracker)
             {
-                var dep = part.FindModuleImplementing<ModuleDeployablePart>();
+                ModuleDeployablePart dep = null;
+                foreach (PartModule pm in part.Modules)
+                    if (pm is ModuleDeployablePart dp && dp.isTracking && dp.panelRotationTransform != null) { dep = dp; break; }
                 run.RealPivot = dep != null ? dep.panelRotationTransform : null;
             }
         }
@@ -671,6 +725,7 @@ namespace Parsek.TestCommands
                     KillSeparatedVessel(wc, run, "reached");
                     run.Reached = true;
                     run.ReachedRealtime = now;
+                    run.ReachedUT = Planetarium.GetUniversalTime();
                     run.WaitSeconds = now - run.PressRealtime;
                     run.EndpointField = field;
                     run.EndpointValue = value;
@@ -706,22 +761,28 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>The settle after the done signal (D.1, D.3): the family's minimum (lights
-        /// 1 s, cabin lights 1 / animRate + 0.5 s, else 0.5 s) with no Animation playing (capped
-        /// at the stowed settle cap, tagged still-animating); a sun tracker's pivot still for
-        /// 0.5 s (cap 25 s, tagged still-tracking); an airbrake's surface still for 0.5 s (cap 5 s).</summary>
+        /// its lens fade lightBrightenSpeed + 0.5 s in game time, cabin lights 1 / animRate + 0.5 s,
+        /// else 0.5 s) with no Animation playing (capped at the stowed settle cap, tagged
+        /// still-animating); a sun tracker's pivot still for 0.5 s (cap from its trackingSpeed,
+        /// 25 s at 0.25, tagged still-tracking); an airbrake's surface still for 0.5 s (cap 5 s).</summary>
         private static void Settle(WaveCase wc, PartParityStateRun run, Part part, float now, bool animating)
         {
             double since = now - run.ReachedRealtime;
             Transform still = run.SunTracker ? run.RealPivot : run.AirbrakeSurface;
             if (still != null) run.Samples.Add(new KeyValuePair<float, Quaternion>(now, still.localRotation));
-            double min = PartParityStateRules.PostDoneSettleSeconds(run.Option.Family, run.AnimRate);
+            double min = PartParityStateRules.PostDoneSettleSeconds(run.Option.Family, run.AnimRate, run.LightBrightenSeconds);
             if (since < min) return;
+            // A light's lens fades in over GAME seconds: a physics frame that runs slow must
+            // not cut it short.
+            if (run.Option.Family == PartParityStateRules.FamilyLight && !double.IsNaN(run.ReachedUT)
+                && Planetarium.GetUniversalTime() - run.ReachedUT < min
+                && since < PartParitySweepPlan.MaxSettleSeconds + min) return;
             if (animating && since < PartParitySweepPlan.MaxSettleSeconds) return;
             if (animating) wc.StillAnimating = true;
             if (still != null)
             {
                 double window = run.SunTracker ? PartParityStateRules.SunTrackerWindowSeconds : PartParityStateRules.AirbrakeWindowSeconds;
-                double cap = run.SunTracker ? PartParityStateRules.SunTrackerCapSeconds : PartParityStateRules.AirbrakeCapSeconds;
+                double cap = run.SunTracker ? run.TrackerCapSeconds : PartParityStateRules.AirbrakeCapSeconds;
                 double delta = WindowDelta(run.Samples, now, window);
                 bool settled = run.SunTracker ? PartParityStateRules.SunTrackerSettled(delta) : PartParityStateRules.AirbrakeSettled(delta);
                 if (!settled && since < cap) return;
@@ -807,6 +868,11 @@ namespace Parsek.TestCommands
                     o.ClassifierDeployed = Classify(opt.Family, m);
                     field = "classifier";
                     value = o.ClassifierDeployed.HasValue ? (o.ClassifierDeployed.Value ? "deployed" : "not-deployed") : "unclassified";
+                    if (opt.Family == PartParityStateRules.FamilyAnimationGroup)
+                    {
+                        o.DeployClipDone = DeployClipDone(m as ModuleAnimationGroup);
+                        if (o.DeployClipDone == false) value += "+clip-playing";
+                    }
                     break;
                 case PartParityStateRules.FamilyCargoBay:
                     var cargo = part.FindModuleImplementing<ModuleCargoBay>();
@@ -853,6 +919,22 @@ namespace Parsek.TestCommands
                     break;
             }
             return o;
+        }
+
+        /// <summary>An animation group's deploy clip has finished: not playing (a clip with
+        /// wrap mode Once stops and rewinds) or at or past its end (ClampForever keeps
+        /// playing there). Null when the module has no deploy clip.</summary>
+        internal static bool? DeployClipDone(ModuleAnimationGroup ag)
+        {
+            AnimationState st = DeployClipState(ag);
+            if (st == null) return null;
+            return !ag.DeployAnimation.IsPlaying(ag.deployAnimationName) || st.normalizedTime >= 1f;
+        }
+
+        private static AnimationState DeployClipState(ModuleAnimationGroup ag)
+        {
+            if (ag == null || string.IsNullOrEmpty(ag.deployAnimationName) || ag.DeployAnimation == null) return null;
+            return ag.DeployAnimation[ag.deployAnimationName];
         }
 
         private static bool? Classify(string family, PartModule m)
@@ -1057,6 +1139,17 @@ namespace Parsek.TestCommands
             SplitGhost(g, run.FillerPids, run.StartShown, run.GhostHidden);
             run.StartRecords = PartParityCaseCapture.Records(partT, run.StartShown, run.StartLayers, null);
             run.StructureStart = PartParityStructure.Diff(wc.RealRecords, run.StartRecords);
+            StampCanopy(wc, run.StructureStart, "start");
+        }
+
+        /// <summary>An air case's canopy lever arms on one route's structure (design D.4).</summary>
+        internal static void StampCanopy(WaveCase wc, PartParityStructureDiff diff, string route)
+        {
+            PartParityStateRun run = wc?.State;
+            if (run == null || !run.Air || diff == null || run.CanopyPivotLocal == null) return;
+            int n = PartParityStructure.StampCanopyPivotDistances(diff, wc.RealRecords, run.CanopyTransform, run.CanopyPivotLocal);
+            ParsekLog.Verbose(Tag, $"case {wc.CaseId}: canopy lever arms route={route} transform={run.CanopyTransform} " +
+                $"entries={n.ToString(Ic)} of transformDiffers={diff.TransformDiffers.Count.ToString(Ic)}");
         }
 
         private static void BuildStowedGhost(WaveCase wc, PartParityStateRun run, Transform partT, uint subjectPid, string name)

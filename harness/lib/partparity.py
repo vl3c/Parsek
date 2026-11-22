@@ -119,6 +119,13 @@ STRUCTURE_KEYS: Tuple[str, ...] = (
     "transformDiffers", "materialDiffers", "meshDiffers", "renderedDiffers",
 )
 RENDERER_REF_KEYS: Tuple[str, ...] = ("key", "mesh", "rendered", "nonVisual")
+# One structure.transformDiffers entry (PartParityJson.TransformDiffKeys). The canopy lever
+# arm is written on an air case's canopy renderers only (null elsewhere, and absent from
+# sidecars written before it existed).
+TRANSFORM_DIFF_KEYS: Tuple[str, ...] = (
+    "key", "positionDeltaM", "rotationDeltaDeg", "scaleDeltaPct", "canopyPivotDistanceM",
+)
+CANOPY_PIVOT_DISTANCE_KEY = "canopyPivotDistanceM"
 SETUP_KEYS: Tuple[str, ...] = ("status", "detail")
 CONTROL_KEYS: Tuple[str, ...] = ("id", "subject", "required", "outcome", "detail")
 CASE_SUMMARY_KEYS: Tuple[str, ...] = (
@@ -251,7 +258,7 @@ PRESS_GATE_STATUSES: Tuple[str, ...] = (SETUP_ACTION_FAILED, SETUP_STATE_TIMEOUT
 STATE_EXCLUSION_REASONS: Tuple[str, ...] = (
     "ground-deploy", "no-pose", "fairing-bay", "bay-deploy-not-animated", "cs-deploy-sign",
     "jettison-blocked-by-node", "jettison-node-missing", "p7-robotics", "p8-heat", "p8-fx",
-    "not-polled", "no-animation", "fairing-no-context",
+    "not-polled", "no-animation", "fairing-no-context", "auto-deploy",
 )
 # stateProof.actionResult and the two ghost routes' outcomes (design D.2, D.5).
 ACTION_RESULTS: Tuple[str, ...] = ("invoked", "missing", "threw", "refused")
@@ -637,10 +644,19 @@ CANOPY_ROTATION_CEILING_DEG = CANOPY_WINDOW_DEG + CANOPY_ROTATION_MARGIN_DEG
 # value is null or empty is never capped.
 CANOPY_TRANSFORM_KEY = "transform"
 REASON_CANOPY_AIRFLOW = "canopy-airflow:picture differences capped at warn"
-# PartParityStructure.PositionToleranceM / ScaleTolerancePct: a transformDiffers entry
-# exceeds at least one tolerance; the canopy cap needs position and scale inside theirs.
+# PartParityStructure.PositionToleranceM / RotationToleranceDeg / ScaleTolerancePct: a
+# transformDiffers entry exceeds at least one tolerance; the canopy cap needs scale inside its
+# tolerance and position inside its tolerance plus the arc the allowed rotation sweeps at the
+# entry's lever arm (canopy_position_allowance_m).
 STRUCTURE_POSITION_TOLERANCE_M = 0.001
+STRUCTURE_ROTATION_TOLERANCE_DEG = 0.5
 STRUCTURE_SCALE_TOLERANCE_PCT = 1.0
+# A clean structure (no transformDiffers at all) on an air case in its window is a canopy
+# turn under the structure's own 0.5 deg rotation tolerance; it explains a picture fail only
+# when the measured turn (|tilt| + |wobble|) is at least this. Below it, even a 5 m lever arm
+# sweeps under 1 cm, under a pixel at the air tiles' scale, so the pictures cannot differ
+# because of it.
+CANOPY_MIN_TURN_DEG = 0.1
 
 
 @dataclass(frozen=True)
@@ -649,6 +665,8 @@ class CanopyCap:
     renderers under the canopy transform ``transform`` only."""
     bound_deg: float
     transform: str
+    # The measured turn |tilt| + |wobble| (the bound without its margin).
+    turn_deg: float = 0.0
 
 
 def canopy_cap_for(sidecar: Dict) -> Optional[CanopyCap]:
@@ -673,8 +691,9 @@ def canopy_cap_for(sidecar: Dict) -> Optional[CanopyCap]:
     transform = canopy.get(CANOPY_TRANSFORM_KEY)
     if not isinstance(transform, str) or not transform:
         return None
-    bound = min(abs(tilt) + abs(wobble) + CANOPY_ROTATION_MARGIN_DEG, CANOPY_ROTATION_CEILING_DEG)
-    return CanopyCap(bound, transform)
+    turn = abs(tilt) + abs(wobble)
+    bound = min(turn + CANOPY_ROTATION_MARGIN_DEG, CANOPY_ROTATION_CEILING_DEG)
+    return CanopyCap(bound, transform, turn)
 
 
 def is_canopy_renderer_key(key: Any, transform: str) -> bool:
@@ -686,15 +705,30 @@ def is_canopy_renderer_key(key: Any, transform: str) -> bool:
     return transform in key.split("#", 1)[0].split("/")
 
 
+def canopy_position_allowance_m(entry: Dict, bound_deg: float) -> float:
+    """How far a canopy renderer may sit from its ghost under the canopy cap: the position
+    tolerance plus the chord a rigid turn of the canopy subtree by the cap's whole allowed
+    rotation sweeps at the renderer's lever arm, ``2 d sin(bound / 2)``, where ``d`` is the
+    entry's ``canopyPivotDistanceM`` (its distance from the canopy pivot, written by the C#
+    air context). An entry without a readable, non-negative lever arm gets the tolerance
+    alone (a renderer AT the pivot, or a sidecar written before the key existed)."""
+    arm = _num(entry.get(CANOPY_PIVOT_DISTANCE_KEY)) if isinstance(entry, dict) else None
+    if arm is None or arm < 0.0:
+        return STRUCTURE_POSITION_TOLERANCE_M
+    return STRUCTURE_POSITION_TOLERANCE_M + 2.0 * arm * math.sin(math.radians(bound_deg) / 2.0)
+
+
 def _canopy_cap_applies(structure: Dict, cap: Optional[CanopyCap]) -> bool:
-    """True when the route's structural diff differs ONLY by canopy renderer rotations
-    within the cap's bound: at least one transform differs, every one on a canopy renderer
-    (``is_canopy_renderer_key``) and by rotation alone (position and scale inside the C#
-    tolerances), and no material, mesh, rendered, missing or extra difference."""
+    """True when the route's structural diff is explained by the canopy's airflow turn
+    within the cap's bound, and nothing else differs (no material, mesh, rendered, missing
+    or extra difference). Two shapes: (1) every transform difference is on a canopy renderer
+    (``is_canopy_renderer_key``), its rotation within the bound, its scale inside the C#
+    tolerance and its position inside ``canopy_position_allowance_m`` (a renderer metres
+    from the pivot moves with the turn); (2) no transform differs at all, so every canopy
+    renderer turned under the structure's 0.5 deg tolerance, and the measured turn
+    (|tilt| + |wobble|, the cap's bound minus its margin) is at least
+    ``CANOPY_MIN_TURN_DEG`` (a canopy that did not turn explains nothing)."""
     if cap is None or not isinstance(structure, dict):
-        return False
-    transforms = [t for t in structure.get("transformDiffers") or [] if isinstance(t, dict)]
-    if not transforms:
         return False
     if _rendered_entries(structure.get("missingOnGhost")) or \
             _rendered_entries(structure.get("extraOnGhost")):
@@ -702,6 +736,9 @@ def _canopy_cap_applies(structure: Dict, cap: Optional[CanopyCap]) -> bool:
     if structure.get("materialDiffers") or structure.get("meshDiffers") \
             or structure.get("renderedDiffers"):
         return False
+    transforms = [t for t in structure.get("transformDiffers") or [] if isinstance(t, dict)]
+    if not transforms:
+        return cap.turn_deg >= CANOPY_MIN_TURN_DEG
     for t in transforms:
         if not is_canopy_renderer_key(t.get("key"), cap.transform):
             return False
@@ -709,7 +746,7 @@ def _canopy_cap_applies(structure: Dict, cap: Optional[CanopyCap]) -> bool:
                          _num(t.get("scaleDeltaPct")))
         if rot is None or abs(rot) > cap.bound_deg:
             return False
-        if pos is None or pos > STRUCTURE_POSITION_TOLERANCE_M:
+        if pos is None or pos > canopy_position_allowance_m(t, cap.bound_deg):
             return False
         if scl is None or scl > STRUCTURE_SCALE_TOLERANCE_PCT:
             return False
