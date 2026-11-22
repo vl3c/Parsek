@@ -734,9 +734,10 @@ class SpecArithmeticTests(unittest.TestCase):
                    if os.path.isdir(rec_dir) else 0)
         window = self.spec["expectations"]["recordings"]["count"]
         self.assertEqual(0, carried)
-        # carried + this lane's single-piece product, with one slot of headroom
-        # for a load-time optimizer split at the Jool->Laythe boundary.
-        self.assertEqual({"min": carried + 1, "max": carried + 2}, window)
+        # carried + this lane's product, three pieces under split rule version 3 (orbit,
+        # transfer from the departure burn start, orbit from the capture burn end; the
+        # 2026-11-22 run logs exactly those two cuts), with one slot of headroom.
+        self.assertEqual({"min": carried + 3, "max": carried + 4}, window)
 
     def test_every_crossed_moon_shell_is_a_named_poison_token(self):
         """THE B17 NAMED-POISON PATTERN, and the list is derived rather than
