@@ -329,14 +329,13 @@ namespace Parsek.TestCommands
         internal const string ControlsArgInvalidReason = "controls-arg-invalid";
         internal const string MaxSecondsArgInvalidReason = "maxseconds-arg-invalid";
 
-        /// <summary>REJECTED: a step names <c>states=</c> or <c>contexts=</c> (other than
-        /// <c>none</c>) while the live state engine is not built (design D.10: S3 lifts it), so
-        /// a state run is refused rather than silently running a stowed sweep.</summary>
-        internal const string StateRunsNotBuiltReason = "state-runs-not-built";
+        /// <summary>REJECTED: a well-formed <c>contexts=air</c> step while the air context is
+        /// not built (design D.10: S7 builds the pad host, the showcase-band spawn and the chute
+        /// sequence, and lifts this), so an air run never presses a parachute in orbit.</summary>
+        internal const string AirRunsNotBuiltReason = "air-runs-not-built";
 
-        /// <summary>Whether the live engine can run state and context cases. False until the
-        /// state driver lands (design D.10 S3), which flips it and drops the refusal.</summary>
-        internal const bool StateRunsBuilt = false;
+        /// <summary>Whether the live engine can run the air context. False until S7.</summary>
+        internal const bool AirRunsBuilt = false;
 
         /// <summary>REJECTED: FLIGHT with no active vessel.</summary>
         internal const string NoActiveVesselReason = "no-active-vessel";
@@ -361,7 +360,7 @@ namespace Parsek.TestCommands
             StatesArgInvalidReason, ContextsArgInvalidReason,
             ViewsArgInvalidReason, TileArgInvalidReason, ShardArgInvalidReason,
             LimitArgInvalidReason, ControlsArgInvalidReason, MaxSecondsArgInvalidReason,
-            StateRunsNotBuiltReason,
+            AirRunsNotBuiltReason,
             NoActiveVesselReason, HostNotOrbitingReason, HostNotAtPadReason,
         };
 
@@ -394,21 +393,20 @@ namespace Parsek.TestCommands
             => args != null && args.TryGetValue(key, out string v) ? v : null;
 
         /// <summary>
-        /// Parses every arg of one step (<see cref="TryParseGrammar"/>), then refuses a state
-        /// or context run while <see cref="StateRunsBuilt"/> is false
-        /// (<c>state-runs-not-built</c>, detail <c>states=.. contexts=..</c>). On a refusal
-        /// <paramref name="rejectReason"/> is the reason token and <paramref name="rejectDetail"/>
-        /// the offending <c>key=value</c>.
+        /// Parses every arg of one step (<see cref="TryParseGrammar"/>), then refuses an air run
+        /// while <see cref="AirRunsBuilt"/> is false (<c>air-runs-not-built</c>, detail
+        /// <c>contexts=air</c>). On a refusal <paramref name="rejectReason"/> is the reason token
+        /// and <paramref name="rejectDetail"/> the offending <c>key=value</c>.
         /// </summary>
         internal static bool TryParseArgs(
             IDictionary<string, string> args, out PartParitySweepArgs parsed,
             out string rejectReason, out string rejectDetail)
         {
             if (!TryParseGrammar(args, out parsed, out rejectReason, out rejectDetail)) return false;
-            if (!StateRunsBuilt && IsStateRun(parsed))
+            if (!AirRunsBuilt && IsAirRun(parsed))
             {
-                rejectReason = StateRunsNotBuiltReason;
-                rejectDetail = "states=" + FormatStates(parsed) + " contexts=" + FormatContexts(parsed);
+                rejectReason = AirRunsNotBuiltReason;
+                rejectDetail = "contexts=" + FormatContexts(parsed);
                 parsed = null;
                 return false;
             }

@@ -39,6 +39,14 @@ namespace Parsek.TestCommands
 
         internal static void Prepare(StepContext ctx, WaveCase wc)
         {
+            if (wc.State != null)
+            {
+                // The real part's depth masks are repaired before the state branch reads its
+                // renderers, the same repair, line, flags and setup fault as a stowed case.
+                RepairDepthMasks(wc, wc.Real.rootPart);
+                PartParityStateDriver.Prepare(ctx, wc);
+                return;
+            }
             Part part = wc.Real.rootPart;
             Transform partT = part.transform;
             wc.Skin = PartParitySkinRules.NewProof(wc.SkinOption, wc.RealVariant, wc.Entry?.B9Modules);
@@ -145,7 +153,7 @@ namespace Parsek.TestCommands
         /// snapshot PART's persistentId); then the ghost-defect flags. One Verbose line names
         /// every value and the live member the real side was read from.
         /// </summary>
-        private static void RecordSkinProof(WaveCase wc, ConfigNode snapPart, GhostBuildResult build)
+        internal static void RecordSkinProof(WaveCase wc, ConfigNode snapPart, GhostBuildResult build)
         {
             PartParitySkinProof proof = wc.Skin;
             proof.Snapshot = PartParitySkinRules.SnapshotSkin(snapPart, proof);
@@ -257,7 +265,7 @@ namespace Parsek.TestCommands
                 $"tile={ctx.Capture.Tile.ToString(Ic)}");
         }
 
-        private static void Frame(WaveCase wc)
+        internal static void Frame(WaveCase wc)
         {
             wc.Framing = PartParityFramingRule.Decide(wc.RealRecords, wc.GhostRecords);
             foreach (var d in wc.Framing.Dropped) wc.Flags.Add(PartParityFramingRule.DroppedFlag(d));
@@ -359,7 +367,7 @@ namespace Parsek.TestCommands
             rec.BoundsMax = new double[] { max.x, max.y, max.z };
         }
 
-        private static string RelativePath(Transform root, Transform t)
+        internal static string RelativePath(Transform root, Transform t)
         {
             var segs = new List<string>();
             for (Transform cur = t; cur != null && cur != root; cur = cur.parent) segs.Add(cur.name);
@@ -371,6 +379,11 @@ namespace Parsek.TestCommands
 
         internal static void CaptureView(StepContext ctx, WaveCase wc, string view)
         {
+            if (wc.State != null)
+            {
+                PartParityStateDriver.CaptureView(ctx, wc, view);
+                return;
+            }
             Part part = wc.Real.rootPart;
             Transform ghostRoot = wc.Ghost != null && wc.Ghost.Build != null && wc.Ghost.Build.root != null
                 ? wc.Ghost.Build.root.transform : null;
@@ -445,6 +458,7 @@ namespace Parsek.TestCommands
             if (e != null) { s.ModelUrls.AddRange(e.ModelUrls); s.Tags.AddRange(e.Tags); }
             if (wc.ControlId != null) s.Tags.Add(TagControl);
             s.Flags.AddRange(wc.Flags);
+            if (wc.State != null) PartParityStateDriver.FillSidecar(wc, s);
             if (wc.Ghost != null)
             {
                 s.Flags.Add(FlagSeedEventsPrefix + wc.SeedEvents.ToString(Ic));
@@ -465,7 +479,7 @@ namespace Parsek.TestCommands
                     File = TestCommandPartParitySweep.AtlasFileName(wc.CaseId),
                     Thumb = TestCommandPartParitySweep.ThumbFileName(wc.CaseId),
                     Tile = ctx.Capture.Tile,
-                    Rows = PartParityJson.AtlasRowsFor(false),
+                    Rows = PartParityJson.AtlasRowsFor(wc.State != null && wc.State.FourRows),
                     Cols = wc.CapturedViews.ToArray(),
                 };
             }
@@ -484,8 +498,10 @@ namespace Parsek.TestCommands
         internal static void WritePictures(StepContext ctx, WaveCase wc, PartParityCaseSidecar s)
         {
             int tile = ctx.Capture.Tile;
-            byte[] atlas = PartParityImage.BuildAtlas(
-                new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() }, wc.CapturedViews.Count, tile, out int w, out int h);
+            byte[][][] rows = wc.State != null && wc.State.FourRows
+                ? new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray(), wc.GhostStartTiles.ToArray(), wc.GhostStowedTiles.ToArray() }
+                : new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() };
+            byte[] atlas = PartParityImage.BuildAtlas(rows, wc.CapturedViews.Count, tile, out int w, out int h);
             FileIOUtils.SafeWriteBytes(PartParityPng.EncodeRgba(w, h, atlas),
                 Path.Combine(ctx.LabelDir, TestCommandPartParitySweep.AtlasFileName(wc.CaseId)), PartParitySweepRunner.Tag);
             int thumbView = Math.Max(0, wc.CapturedViews.IndexOf(TestCommandPartParitySweep.ViewSideA));
@@ -567,10 +583,14 @@ namespace Parsek.TestCommands
                 Tile = ctx.Args.Tile,
                 Views = new List<string>(ctx.Args.Views),
                 Controls = controls,
-                Exclusions = ctx.Exclusions,
+                Exclusions = new List<PartParityExclusion>(ctx.Exclusions),
             };
+            // A state run's exclusions (design D.1), each with its reason.
+            foreach (PartParityStateExclusion x in ctx.StateExclusions)
+                mf.Exclusions.Add(new PartParityExclusion { Part = x.Part, Reason = x.Reason });
             mf.GameDataMods.AddRange(GameDataMods());
             AddSettings(ctx, mf.Settings);
+            mf.Settings.AddRange(TestCommandPartParitySweep.StateSettings(ctx.Args));
             var crashed = new List<string>();
             foreach (var p in ctx.Planned)
             {
@@ -593,7 +613,7 @@ namespace Parsek.TestCommands
             mf.Progress = new PartParityProgress
             {
                 Complete = done, Cases = ctx.Planned.Count, CompleteCases = complete, SetupFaults = faults,
-                Controls = TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, OutcomesOf(controls)),
+                Controls = TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, OutcomesOf(controls), ctx.ControlSet),
                 Crashed = crashed,
                 HostDamaged = ctx.HostDamage != null,
                 HostDamage = ctx.HostDamage?.Reason,
@@ -613,10 +633,29 @@ namespace Parsek.TestCommands
             return o;
         }
 
-        private static string ProfileName()
+        /// <summary>The install's directory name (design 8): the KSP root path ends in
+        /// <c>KSP_x64_Data/../</c>, so it is resolved to its full path first (the last segment
+        /// of the raw path was <c>..</c>).</summary>
+        private static string ProfileName() => ProfileNameOf(KSPUtil.ApplicationRootPath);
+
+        internal static string ProfileNameOf(string rootPath)
         {
-            string root = (KSPUtil.ApplicationRootPath ?? string.Empty).TrimEnd('/', '\\');
-            return Path.GetFileName(root);
+            // Resolves "." and ".." itself over both separators: KSP's root path is
+            // "<install>/KSP_x64_Data/../" and Path.GetFullPath only understands the host's
+            // own separator, so a Windows path would not resolve on a mono host.
+            if (string.IsNullOrEmpty(rootPath)) return string.Empty;
+            var segments = new List<string>();
+            foreach (string seg in rootPath.Split('/', '\\'))
+            {
+                if (seg.Length == 0 || seg == ".") continue;
+                if (seg == "..")
+                {
+                    if (segments.Count > 0) segments.RemoveAt(segments.Count - 1);
+                    continue;
+                }
+                segments.Add(seg);
+            }
+            return segments.Count > 0 ? segments[segments.Count - 1] : string.Empty;
         }
 
         private static List<string> GameDataMods()

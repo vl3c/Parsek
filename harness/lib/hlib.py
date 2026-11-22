@@ -5235,10 +5235,10 @@ PARTPARITY_STATE_VALUES: Tuple[str, ...] = (
 )
 PARTPARITY_CONTEXT_VALUES: Tuple[str, ...] = ("alone", "stacked", "air")
 PARTPARITY_AIR_CONTEXT = "air"
-# TestCommandPartParitySweep.StateRunsBuilt: until the live state engine lands (design D.10
-# S3) a step naming states= / contexts= other than `none` is REJECTED state-runs-not-built.
-PARTPARITY_STATE_RUNS_BUILT = False
-PARTPARITY_STATE_RUNS_NOT_BUILT_REASON = "state-runs-not-built"
+# TestCommandPartParitySweep.AirRunsBuilt: until the air context lands (design D.10 S7) a
+# well-formed contexts=air step is REJECTED air-runs-not-built.
+PARTPARITY_AIR_RUNS_BUILT = False
+PARTPARITY_AIR_RUNS_NOT_BUILT_REASON = "air-runs-not-built"
 PARTPARITY_VIEW_VALUES: Tuple[str, ...] = (
     "side-a", "side-b", "top", "bottom", "side-c", "side-d", "hero",
 )
@@ -5255,7 +5255,7 @@ PARTPARITY_REASONS: Tuple[str, ...] = (
     "states-arg-invalid", "contexts-arg-invalid",
     "views-arg-invalid", "tile-arg-invalid", "shard-arg-invalid",
     "limit-arg-invalid", "controls-arg-invalid", "maxseconds-arg-invalid",
-    "state-runs-not-built",
+    "air-runs-not-built",
     "no-active-vessel", "host-not-orbiting", "host-not-at-pad",
 )
 # Post-act terminals (ERROR): the step ran and failed or hung. NOT mapped to a refusal
@@ -5528,14 +5528,11 @@ def validate_part_parity_sweep_step(index: int, step_args: Dict,
     shaped("maxSeconds", lambda t: _partparity_int_in_range(t, *PARTPARITY_MAX_SECONDS_RANGE),
            "an integer %d..%d" % PARTPARITY_MAX_SECONDS_RANGE, "maxseconds-arg-invalid")
 
-    if not PARTPARITY_STATE_RUNS_BUILT and not errors:
-        named = [k for k in ("states", "contexts")
-                 if k in step_args and str(step_args.get(k)) != PARTPARITY_NONE_TOKEN]
-        if named:
-            errors.append(
-                "driver.steps[%d].args.%s: a state or context run is not built yet (design "
-                "D.10 S3); the seam answers REJECTED %s"
-                % (index, named[0], PARTPARITY_STATE_RUNS_NOT_BUILT_REASON))
+    if (not PARTPARITY_AIR_RUNS_BUILT and not errors
+            and str(step_args.get("contexts", PARTPARITY_NONE_TOKEN)) == PARTPARITY_AIR_CONTEXT):
+        errors.append(
+            "driver.steps[%d].args.contexts: the air context is not built yet (design D.10 S7); "
+            "the seam answers REJECTED %s" % (index, PARTPARITY_AIR_RUNS_NOT_BUILT_REASON))
 
     if (isinstance(budget, (int, float)) and not isinstance(budget, bool)
             and str(step_args.get("op", "run")) == "run"):
@@ -13329,7 +13326,7 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "limit-arg-invalid": "driver-arg",
     "controls-arg-invalid": "driver-arg",
     "maxseconds-arg-invalid": "driver-arg",
-    "state-runs-not-built": "driver-arg",
+    "air-runs-not-built": "driver-arg",
     "host-not-orbiting": "driver-gate",
     "host-not-at-pad": "driver-gate",
     # NewGame: the six arg refusals are the spec's fault; the rest are a live state the new
@@ -14115,7 +14112,8 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "index-arg-invalid", "interval-arg-invalid", "isolated-arg-invalid",
     "controls-arg-invalid", "limit-arg-invalid", "maxseconds-arg-invalid",
     "shard-arg-invalid", "skins-arg-invalid", "source-arg-invalid", "tile-arg-invalid",
-    "views-arg-invalid", "states-arg-invalid", "contexts-arg-invalid", "state-runs-not-built",
+    "views-arg-invalid", "states-arg-invalid", "contexts-arg-invalid",
+    "air-runs-not-built",
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
     "loop-arg-invalid",

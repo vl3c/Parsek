@@ -37,22 +37,25 @@ namespace Parsek.Tests
         // ----- args -----
 
         [Fact]
-        public void TheLiveVerb_RefusesAStateRun_UntilTheStateEngineIsBuilt()
+        public void TheLiveVerb_AcceptsAnOrbitStateRun_AndRefusesTheAirContextUntilS7()
         {
-            Assert.False(TestCommandPartParitySweep.StateRunsBuilt);
-            foreach (string[] kv in new[] { new[] { "states", "all" }, new[] { "contexts", "air" },
+            foreach (string[] kv in new[] { new[] { "states", "all" },
                 new[] { "states", "deployed", "contexts", "stacked" } })
             {
-                Assert.False(TestCommandPartParitySweep.TryParseArgs(Args(kv), out var a, out string reason, out string detail));
-                Assert.Null(a);
-                Assert.Equal("state-runs-not-built", reason);
-                Assert.StartsWith("states=", detail);
+                PartParitySweepArgs a = Parse(kv);
+                Assert.True(TestCommandPartParitySweep.IsStateRun(a));
             }
-            // A bad value keeps its own reason; `none` is a stowed run and passes.
-            Assert.False(TestCommandPartParitySweep.TryParseArgs(Args("states", "bogus"), out _, out string bad, out _));
-            Assert.Equal("states-arg-invalid", bad);
-            Assert.True(TestCommandPartParitySweep.TryParseArgs(Args("states", "none", "contexts", "none"), out _, out _, out _));
-            Assert.Contains("state-runs-not-built", TestCommandPartParitySweep.Reasons);
+            Assert.False(TestCommandPartParitySweep.AirRunsBuilt);
+            Assert.False(TestCommandPartParitySweep.TryParseArgs(Args("contexts", "air"), out var air, out string reason, out string detail));
+            Assert.Null(air);
+            Assert.Equal("air-runs-not-built", reason);
+            Assert.Equal("contexts=air", detail);
+            // A bad value keeps its own reason; `none` is a stowed run.
+            Assert.Equal("states-arg-invalid", Reject("states", "bogus"));
+            Assert.Equal("contexts-arg-invalid", Reject("contexts", "air,alone"));
+            Assert.False(TestCommandPartParitySweep.IsStateRun(Parse("states", "none", "contexts", "none")));
+            Assert.DoesNotContain("state-runs-not-built", TestCommandPartParitySweep.Reasons);
+            Assert.Contains("air-runs-not-built", TestCommandPartParitySweep.Reasons);
         }
 
         [Fact]

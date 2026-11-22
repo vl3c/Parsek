@@ -198,10 +198,66 @@ namespace Parsek.TestCommands
             var flags = Arr(root, "flags");
             if (flags != null)
                 foreach (object f in flags) if (f is string) c.Flags.Add((string)f);
+            var proof = Obj(root, "stateProof");
+            if (proof != null) c.StateProof = ReadStateProof(proof);
+            var structureStart = Obj(root, "structureStart");
+            if (structureStart != null) c.StructureStart = ReadStructure(structureStart);
+            c.StowedCaseId = Str(root, "stowedCaseId");
             return c;
         }
 
+        /// <summary>The parts of a <c>stateProof</c> block the manifest summary and the state
+        /// control judge read (design D.2, D.6): what was pressed, the result, whether the state
+        /// was reached, the wait, the recorded events and both ghost routes' outcomes.</summary>
+        private static PartParityStateProof ReadStateProof(Dictionary<string, object> p)
+        {
+            var proof = new PartParityStateProof
+            {
+                Family = Str(p, "family"), Module = Str(p, "module"),
+                ModuleIndex = Num(p, "moduleIndex").HasValue ? (int?)Int(p, "moduleIndex") : null,
+                State = Str(p, "state"), Action = Str(p, "action"),
+                ActionResult = Str(p, "actionResult"),
+                Reached = Get(p, "reached") is bool r ? (bool?)r : null,
+                WaitS = Num(p, "waitS"),
+                GhostEvent = Str(p, "ghostEvent"), GhostStart = Str(p, "ghostStart"),
+            };
+            var endpoint = Obj(p, "endpoint");
+            if (endpoint != null)
+            {
+                proof.EndpointField = Str(endpoint, "field");
+                proof.EndpointValue = Str(endpoint, "value");
+            }
+            var events = Arr(p, "events");
+            if (events != null)
+            {
+                proof.Events = new List<PartParityStateEvent>();
+                foreach (object e in events)
+                    proof.Events.Add(new PartParityStateEvent
+                    {
+                        Type = Str(e, "type"), Ut = Num(e, "ut"),
+                        Pid = Num(e, "pid").HasValue ? (uint?)(uint)Math.Round(Num(e, "pid").Value) : null,
+                        Midx = Num(e, "midx").HasValue ? (int?)Int(e, "midx") : null,
+                    });
+            }
+            return proof;
+        }
+
         private static PartParityViewRecord ReadView(object v)
+        {
+            PartParityViewRecord record = ReadMeasures(v);
+            var start = Obj(v, "start");
+            if (start != null)
+            {
+                PartParityViewRecord s = ReadMeasures(start);
+                s.View = null;
+                record.Start = s;
+            }
+            var stowedRef = Obj(v, "stowedRef");
+            if (stowedRef != null) record.StowedRef = ReadMeasures(stowedRef).Measures;
+            return record;
+        }
+
+        private static PartParityViewRecord ReadMeasures(object v)
         {
             var m = new PartParityViewMeasures
             {

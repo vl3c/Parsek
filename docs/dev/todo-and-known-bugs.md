@@ -352,6 +352,30 @@ Seen, to check whether pre-existing: ASR-4's probe logs `[WARN][RecordingStore] 
 
 ## ~~GHOST-HEAT-CLONE-PUSHES-NEARBY-VESSEL~~: building a ghost of a heat-animated part could push or break a real vessel near it [FILED 2026-11-21 from the part ghost parity sweep (harness run `2026-11-21_2011_PP-1-part-parity-stock`, branch `part-parity-p3`; the same break in the P2 flight `<umbrella>/logs/flights/pp1-ladder-evidence-2026-11-21/KSP.log` line 12432); FIXED 2026-11-21, branch `ghost-heat-clone-destroy`; xUnit `GhostTempCloneDestroyGateTests` (mutation: reverting the fix reds it); NOT FLOWN; medium (physics damage to a real vessel, first ghost build of a part type per session)]
 
+## GHOST-AIRBRAKE-START-NOT-DEPLOYED: a recording that starts with an airbrake deployed shows it stowed at its first frame [FILED 2026-11-22 from the P6 state engine's first live runs (branch `part-parity-p6-s3`, harness runs `2026-11-22_1411` / `_1419` / `_1428_S3L-part-parity-states-local`, a local uncommitted acceptance spec; design `docs/dev/design-part-ghost-parity.md` D.5); OPEN; low]
+
+What: `airbrake1--default--deployed`: the event route (stowed snapshot + the polled `DeployableExtended midx=0`) matches the real part (iou 1.0 in every view), but the start route (the deployed snapshot + its start seeds) reads `not-reached` with `startFirstFrame.atTarget = false` (start iou 0.39 `side-a`, 0.06 `top`). The log shows why: `Spawn baseline: stowed 1/1 deployable(s)` for the deployed snapshot, then the seed `DeployableExtended (aeroSurface)` starts the deploy transition at the first frame, so a recording that starts with the brakes out (a split TIP, a Re-Fly, a station) draws them folding out over the clip. The snapshot baseline reads no `ModuleAeroSurface.deploy`.
+
+Fix: not started. The likely shape is the deployable snapshot baseline reading the aero surface's `deploy` (as it reads `ModuleDeployablePart.deployState`), so the start seed answers `AlreadyInState`.
+
+## GHOST-LIT-SPOTLIGHT-LENS: a lit spot light's lens is drawn in a different colour on its ghost [FILED 2026-11-22 from the same P6 runs; OPEN; low]
+
+What: `spotlight1--default--lit` (stock-minimal): both judged routes reach `lit` (`lightPlaybackStates.isOn`), shape matches (iou 0.9998), but S4's judge reads colour fails `color-blob-px side-a=17070`, `bottom=48844` on both routes; the stowed case and `mk1pod.v2` cabin light pass. The capture rig switches every scene light off (design D3), so this is the lens / flare emission. Evidence: `<umbrella>/logs/flights/s3-2026-11-22_1428/` (atlas and sidecar under `s3st6/`).
+
+Fix: not started; read the atlas first (real vs ghost lens colour), then `LightGhostInfo.lensOnColor`.
+
+## PARTPARITY-STOWED-POSE-NOT-STOWED: the stowed sweep photographs a lone landing gear deployed and a Mk2 cargo bay open [FILED 2026-11-22 from the same P6 runs; OPEN; low]
+
+What: a one-part vessel authored with no persistent module values starts at each field's initial value: `ModuleWheelDeployment` starts Deployed (the seed logs `Seeded already-deployed gear: 'GearSmall'`) and a `ModuleCargoBay` whose `closedPosition = 1` (the Mk2 / Mk3 bays) starts open at `animTime = 0`. The P6 state cases author the stowed pose (`PartParityStateDriver.AuthorStowedPose`: `stateString = Retracted`; `animTime = closedPosition` with the matching `animSwitch`) and refuse a press whose target already reads reached, but the stowed PP-1 / PP-2 cases (`PartParityCaseAuthoring.AuthorVesselNode`) still photograph those parts in the target pose, so their "stowed" rows are not stowed.
+
+Fix: not started. Author the same stowed pose in the stowed case authoring (S8 owns `PartParityCaseAuthoring.cs`), then re-read PP-1 / PP-2.
+
+## PARTPARITY-SUN-TRACKER-CAP: a real sun-tracking panel is still slewing at the 10 s tracking cap [FILED 2026-11-22 from the same P6 runs; OPEN; low]
+
+What: `solarpanels4--default--deployed` captures tagged `still-tracking` on every run: the real pivot still turns about 2.4 deg per 0.5 s at the cap (`sun tracker still moving at the cap`), so it sits 17 to 20 deg short of the ghost's aim (the ghost slews at 20 deg/s) and the views read warn / fail on the panel's edge. The cap is S1's `SunTrackerCapSeconds` (design D.3).
+
+Fix: re-pin the cap (or the tracking-settle rule) from a reading run when PP-3 / PP-4 first fly (D.10 S6), not before.
+
 ## THRUST-REVERSER-NOT-RECORDED: a jet engine's thrust reverser is never recorded, so its ghost never shows it [FILED 2026-11-22 from the P6 state-rules enumeration (branch `part-parity-p6-s1`, design `docs/dev/design-part-ghost-parity.md` D.1); OPEN; low]
 
 What: `JetEngine` (J-33 "Wheesley") and `turboFanSize2` (J-90 "Goliath") carry their thrust reverser as a standalone `ModuleAnimateGeneric` (`TF1ThrustReverser`, `TF2ThrustReverser`). Both parts also carry `ModuleAnimateHeat`, so `FlightRecorder.HasDedicatedAnimateHandler` is true and `PartStatePoller.PollAnimateGeneric` skips the whole part: a reverser the player deploys is never recorded and the ghost always shows it stowed. Found on both harness installs (stock-minimal and modded-compat); the P6 sweep lists the two modules as excluded `not-polled`, so the gap stays visible.
