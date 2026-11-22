@@ -1225,7 +1225,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | GUI-29-census-wide-windows-1280 | operator | c1-gui | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-27 on main after #1... |
 | GUI-3-census-logistics-routes | operator | interbody-route-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-24 at 1920x1080 |
 | GUI-30-census-stock-screens-sandbox | operator | fresh-sandbox | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-29 on the post-main... |
-| GUI-4-census-missions-docked | operator | bdock-recorded | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-24 at 1920x1080 |
+| GUI-4-census-missions-docked | operator | bdock-recorded | seam | Kerbin | - | - | CLONE CAPTURES REMOVED 2026-11-22 WITH TH... |
 | GUI-5-census-career-ksc | operator | career-earned-ksc | seam | Kerbin | - | - | RE-FLOWN PASS 2026-09-27 for the Career w... |
 | GUI-6-census-flight-playback | operator | gloops-airshow +inj part-showcase | seam | - | time-jump | - | RESHAPED AND RE-FLOWN PASS 2026-10-06 |
 | GUI-7-census-flight-recording | operator | b1-pad-craft | seam | Kerbin | - | - | RE-FLOWN PASS 2026-10-04 |

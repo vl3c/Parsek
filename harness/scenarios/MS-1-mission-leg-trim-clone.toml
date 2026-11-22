@@ -6,7 +6,7 @@ tier = "nightly"
 #
 # The lane id keeps its `-clone` suffix because the results archive keys on it: the
 # clone half was removed with the mission-clone feature (2026-11-22), and the remaining
-# pins were re-cut from source at that point. A re-flight is owed.
+# pins were re-cut from source at that point; re-flown green `2026-11-22_2215`.
 #
 # Leg-trim is a loop AUTHORING affordance of the Missions tab (hidden in Basic), and was
 # not reachable by any seam before this lane:

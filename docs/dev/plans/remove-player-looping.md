@@ -217,7 +217,7 @@ its core, then install that beside Parsek and check looping and rendering there.
    `UiAction op=clone` are deleted; owner answer to the legacy-clone question (10.6): remove Delete
    entirely and drop clones from the list on load (`MissionStore.DropLegacyClones`, run by
    `MissionStore.Load`). Lanes MS-1 (leg-trim half kept) and GUI-4 lost their clone steps; both
-   owe a re-flight.
+   re-flown green 2026-11-22.
 2. Build the harness watch-lane extension so the owner can ask an agent "take this mission, make a
    test out of it, I want to verify it visually": an attended hold mode, a map / camera preamble, a
    tree handle that works on any save, and the authoring path from a mission to a lane.

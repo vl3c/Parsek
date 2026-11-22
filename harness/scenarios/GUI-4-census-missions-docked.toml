@@ -130,7 +130,7 @@ tier = "operator"
 #     (`op=clone`, the copy's probe exclusion and the two Structure captures) is gone, the
 #     pins were re-cut from source, and the lane is back to 16 PNGs + 16 dumps over 80
 #     steps. The Missions tab's Advanced captures no longer draw the Clone / Delete buttons,
-#     so those pictures change too. A re-flight is owed.
+#     so those pictures change too; re-flown green `2026-11-22_2216`.
 #
 # WHAT THE RUN REFUTED, and this header claimed it: the THREE `REWIND_POINTS/POINT` entries
 # do NOT populate `Rewind/FF`. They are SEPARATION RewindPoints and they populate `Re-Fly`
