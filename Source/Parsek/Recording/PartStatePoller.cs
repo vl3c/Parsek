@@ -788,5 +788,82 @@ namespace Parsek
                 }
             }
         }
+
+        /// <summary>
+        /// The active recorder's light poll: ModuleLight on / off and blink edges, and on a part
+        /// with no ModuleLight the first toggleable ModuleColorChanger (cabin lights) as
+        /// LightOn / LightOff. The background recorder keeps its own ModuleLight-only loop.
+        /// <paramref name="eventBuffer"/> is the caller's scratch list for the blink edges.
+        /// </summary>
+        internal static void PollLights(Vessel v, HashSet<uint> lightsOn, HashSet<uint> blinkingLights,
+            Dictionary<uint, float> lightBlinkRates, List<PartEvent> eventBuffer, double ut,
+            PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                bool hasModuleLight = false;
+                var light = p.FindModuleImplementing<ModuleLight>();
+                if (light != null)
+                {
+                    hasModuleLight = true;
+                    var evt = FlightRecorder.CheckLightTransition(
+                        p.persistentId, p.partInfo?.name ?? "unknown", light.isOn, lightsOn, ut);
+                    if (evt.HasValue)
+                    {
+                        sink.Events.Add(evt.Value);
+                        ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId}{sink.EventSuffix()}");
+                    }
+
+                    eventBuffer.Clear();
+                    FlightRecorder.CheckLightBlinkTransition(
+                        p.persistentId, p.partInfo?.name ?? "unknown",
+                        light.isBlinking, light.blinkRate,
+                        blinkingLights, lightBlinkRates, ut, eventBuffer);
+                    for (int e = 0; e < eventBuffer.Count; e++)
+                    {
+                        sink.Events.Add(eventBuffer[e]);
+                        ParsekLog.Verbose(sink.Tag, $"Part event: {eventBuffer[e].eventType} '{eventBuffer[e].partName}' " +
+                            $"pid={eventBuffer[e].partPersistentId} val={eventBuffer[e].value.ToString("F2", CultureInfo.InvariantCulture)}{sink.EventSuffix()}");
+                    }
+                }
+
+                // Also check ModuleColorChanger with toggleInFlight=true (cabin lights).
+                // Parts with both ModuleLight and ModuleColorChanger toggle together via the
+                // Light action group, so the lightsOn HashSet deduplicates via partPersistentId.
+                // For parts with ONLY ModuleColorChanger, this produces the LightOn/LightOff events.
+                if (!hasModuleLight)
+                {
+                    bool foundToggleableColorChanger = false;
+                    var modules = p.Modules;
+                    for (int mi = 0; mi < modules.Count; mi++)
+                    {
+                        var cc = modules[mi] as ModuleColorChanger;
+                        if (cc == null) continue;
+                        if (!cc.toggleInFlight) continue;
+
+                        foundToggleableColorChanger = true;
+                        var ccEvt = FlightRecorder.CheckLightTransition(
+                            p.persistentId, p.partInfo?.name ?? "unknown", cc.animState, lightsOn, ut);
+                        if (ccEvt.HasValue)
+                        {
+                            sink.Events.Add(ccEvt.Value);
+                            ParsekLog.Verbose(sink.Tag,
+                                $"ColorChanger state change: pid={p.persistentId} animState={cc.animState} " +
+                                $"event={ccEvt.Value.eventType} '{ccEvt.Value.partName}'");
+                        }
+                        break; // Only one toggleable ColorChanger per part matters
+                    }
+
+                    if (!foundToggleableColorChanger)
+                        continue;
+                }
+            }
+        }
     }
 }

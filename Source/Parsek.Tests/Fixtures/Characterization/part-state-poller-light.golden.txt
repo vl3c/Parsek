@@ -1,0 +1,113 @@
+# CheckLightState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev LightOn pid=1205 name=twoColorChangers ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] ColorChanger state change: pid=1205 animState=True event=LightOn 'twoColorChangers'
+  lightsOn=[1205]
+  blinkingLights=[]
+  lightBlinkRates=[]
+step A-on-cabin-on ut=1020: ok
+  ev LightOn pid=1201 name=lightA ut=1020 val=0 midx=0
+  ev LightOn pid=1202 name=cabinColorChanger ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: LightOn 'lightA' pid=1201
+  log [Parsek][VERBOSE][Recorder] ColorChanger state change: pid=1202 animState=True event=LightOn 'cabinColorChanger'
+  lightsOn=[1201,1202,1205]
+  blinkingLights=[]
+  lightBlinkRates=[]
+step A-on-again ut=1030: ok
+  lightsOn=[1201,1202,1205]
+  blinkingLights=[]
+  lightBlinkRates=[]
+step A-blink ut=1040: ok
+  ev LightBlinkEnabled pid=1201 name=lightA ut=1040 val=2.5 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: LightBlinkEnabled 'lightA' pid=1201 val=2.50
+  lightsOn=[1201,1202,1205]
+  blinkingLights=[1201]
+  lightBlinkRates=[1201:2.5]
+step A-rate ut=1050: ok
+  ev LightBlinkRate pid=1201 name=lightA ut=1050 val=0.5 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: LightBlinkRate 'lightA' pid=1201 val=0.50
+  lightsOn=[1201,1202,1205]
+  blinkingLights=[1201]
+  lightBlinkRates=[1201:0.5]
+step A-blink-off ut=1060: ok
+  ev LightBlinkDisabled pid=1201 name=lightA ut=1060 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: LightBlinkDisabled 'lightA' pid=1201 val=0.00
+  lightsOn=[1201,1202,1205]
+  blinkingLights=[]
+  lightBlinkRates=[]
+step A-off-cabin-off ut=1070: ok
+  ev LightOff pid=1201 name=lightA ut=1070 val=0 midx=0
+  ev LightOff pid=1202 name=cabinColorChanger ut=1070 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: LightOff 'lightA' pid=1201
+  log [Parsek][VERBOSE][Recorder] ColorChanger state change: pid=1202 animState=False event=LightOff 'cabinColorChanger'
+  lightsOn=[1205]
+  blinkingLights=[]
+  lightBlinkRates=[]
+step A-blink-zero-rate ut=1080: ok
+  ev LightBlinkEnabled pid=1201 name=lightA ut=1080 val=1 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: LightBlinkEnabled 'lightA' pid=1201 val=1.00
+  lightsOn=[1205]
+  blinkingLights=[1201]
+  lightBlinkRates=[1201:1]
+step withCC-light-on ut=1090: ok
+  ev LightOn pid=1204 name=lightWithColorChanger ut=1090 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: LightOn 'lightWithColorChanger' pid=1204
+  lightsOn=[1204,1205]
+  blinkingLights=[1201]
+  lightBlinkRates=[1201:1]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  lightsOn=[]
+  blinkingLights=[]
+  lightBlinkRates=[]
+step A-on-cabin-on ut=1020: ok
+  ev LightOn pid=1201 name=lightA ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: LightOn 'lightA' pid=1201 (bg vessel 7)
+  lightsOn=[1201]
+  blinkingLights=[]
+  lightBlinkRates=[]
+step A-on-again ut=1030: ok
+  lightsOn=[1201]
+  blinkingLights=[]
+  lightBlinkRates=[]
+step A-blink ut=1040: ok
+  ev LightBlinkEnabled pid=1201 name=lightA ut=1040 val=2.5 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: LightBlinkEnabled 'lightA' pid=1201 val=2.50 (bg vessel 7)
+  lightsOn=[1201]
+  blinkingLights=[1201]
+  lightBlinkRates=[1201:2.5]
+step A-rate ut=1050: ok
+  ev LightBlinkRate pid=1201 name=lightA ut=1050 val=0.5 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: LightBlinkRate 'lightA' pid=1201 val=0.50 (bg vessel 7)
+  lightsOn=[1201]
+  blinkingLights=[1201]
+  lightBlinkRates=[1201:0.5]
+step A-blink-off ut=1060: ok
+  ev LightBlinkDisabled pid=1201 name=lightA ut=1060 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: LightBlinkDisabled 'lightA' pid=1201 val=0.00 (bg vessel 7)
+  lightsOn=[1201]
+  blinkingLights=[]
+  lightBlinkRates=[]
+step A-off-cabin-off ut=1070: ok
+  ev LightOff pid=1201 name=lightA ut=1070 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: LightOff 'lightA' pid=1201 (bg vessel 7)
+  lightsOn=[]
+  blinkingLights=[]
+  lightBlinkRates=[]
+step A-blink-zero-rate ut=1080: ok
+  ev LightBlinkEnabled pid=1201 name=lightA ut=1080 val=1 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: LightBlinkEnabled 'lightA' pid=1201 val=1.00 (bg vessel 7)
+  lightsOn=[]
+  blinkingLights=[1201]
+  lightBlinkRates=[1201:1]
+step withCC-light-on ut=1090: ok
+  ev LightOn pid=1204 name=lightWithColorChanger ut=1090 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: LightOn 'lightWithColorChanger' pid=1204 (bg vessel 7)
+  lightsOn=[1204]
+  blinkingLights=[1201]
+  lightBlinkRates=[1201:1]
