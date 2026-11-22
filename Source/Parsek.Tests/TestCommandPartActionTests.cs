@@ -593,6 +593,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FormatState_ReadsTheChuteDeploymentState_ArmedApartFromOpen()
+        {
+            // ASR-8 tells an ARMED chute (ACTIVE: staged, waiting for its pressure) from an
+            // open one off this field; a chute reading carries the stock state name verbatim.
+            Assert.Equal("chute:state=ACTIVE", TestCommandPartAction.FormatState(
+                new[] { PartActionModuleReading.Chute("ACTIVE") }));
+            Assert.Equal("chute:state=SEMIDEPLOYED;deployed=0", TestCommandPartAction.FormatState(
+                new[] { PartActionModuleReading.Chute("SEMIDEPLOYED"), PartActionModuleReading.AnimationGroup(false) }));
+            Assert.Equal("chute:state=", TestCommandPartAction.FormatState(
+                new[] { PartActionModuleReading.Chute(null) }));
+        }
+
+        [Fact]
         public void IsRadiatorKind_IsTheOnOffPair()
         {
             foreach (string token in TestCommandPartAction.ButtonValues)

@@ -1,0 +1,192 @@
+schema = 1
+id = "ASR-8-armed-chute-stage-falls-drag-free"
+# =====================================================================================
+# ASR-8: A CRAFT WHOSE PARACHUTES ARE ARMED BUT NOT YET OPEN WHEN PARSEK STOPS WATCHING IT
+# IS NOT CHUTED: ITS PREDICTED TAIL IS THE DRAG-FREE FALL TO IMPACT, DESTROYED, CREW DEAD.
+# AUTHORED 2026-11-22; LIVE-PROVEN 2026-11-22 (`2026-11-22_1150`, `2026-11-22_1154`, both
+# PASS attempt 1). The saveParse blocks stay report-only until a second matching green.
+# =====================================================================================
+#
+# WHAT IT PROVES (owner ruling Q10b, design `parsek-recording-finalization-design.md`
+# "Chute descent" and edge case 27). Only an OPEN canopy (DEPLOYED / SEMIDEPLOYED) gives a
+# chute-speed descent and a landing (12 m/s or less); a chute staged but still ARMED
+# (`ModuleParachute.deploymentState = ACTIVE`, waiting for its pressure) counts for
+# nothing: `ParachuteDescentLiveReader.Classify` maps ACTIVE to None, so the finalizer
+# skips the chute branch (`TryBuildParachuteDescentResult` false, nothing logged) and
+# predicts the drag-free fall like any unchuted stage. The open-chute side of the rule is
+# already flown: ASR-2 (open canopies at a scene exit: Destroyed, QUIET end, a chute
+# descent ghost, `Chute descent at scene exit: ... outcome=mission-lost`) and ASR-7 (open
+# canopies at an in-flight commit: a predicted touchdown, Landed). Here every one of those
+# chute verdicts is forbidden and the endings read as a fall.
+#
+# THE HOST. `gs1-armed-chute-drop` (harness/tools/build_gs1_armed_chute_drop.py): the
+# GS1 Auto-Chute Booster of `gs1-two-stage-pad` (root `mk1pod.v2` crewed by Valentina
+# Kerman with a Mk16, `Decoupler.1` partPid 1500054019, then the probe-cored booster with
+# six Mk2-R) lifted 62 km straight above the pad, at the top of a near-vertical drop, at
+# rest relative to the air. Every chute opens only at 0.04 atm (about 16-18 km) and, with
+# `automateSafeDeploy = 0`, only while SAFE, so at ~62 km an armed chute stays armed:
+# a drag-free drop from the apex needs ~100 s of game time to reach the opening line,
+# and this flight leaves in seconds. No committed host could do it: on the GS1 hop the
+# Mk2-R canopies open within a physics step of the 700 m staging apex (ASR-2 / ASR-7
+# measured `canopy=Deployed openChutes=6` at the commit).
+#
+# THE FLIGHT (seam only). StartRecording; two `PartAction chute` presses (the Mk16, then
+# the six Mk2-R with `all=true`) arm all seven chutes (the PAW "Deploy Chute", stock `ModuleParachute.Deploy`: STOWED -> ACTIVE, the
+# same state a staged chute waits in); `PartAction decouple` drops the booster (the
+# probe-cored `GS1 Auto-Chute Booster Probe`, a CONTROLLED child) with its six armed
+# Mk2-R; ExitToSpaceCenter commits the tree with both halves high in the air, chutes
+# still armed. The exit is the commit trigger because it finalizes BOTH halves (the
+# active pod too, ASR-1's crewed case), so the crewed half gives the crew outcome.
+#
+# GATES.
+#   - OBSERVED armed, not commanded: the chute press answers each part's
+#     `ModuleParachute.deploymentState` read after the press
+#     (`state='chute:state=ACTIVE' count=1`, then `state='<flightID>:chute:state=ACTIVE
+#     | ...' count=6`, TestCommandPartAction
+#     FormatState's chute reading); and no canopy opened while Parsek watched either half:
+#     the recorders log every canopy transition (`Part event: ParachuteSemiDeployed` /
+#     `ParachuteDeployed`, PartStatePoller / FlightRecorder), forbidden here.
+#   - C#-DEPENDENT, the verdict: no chute descent was planned or declined for either half
+#     (`[Extrapolator] Chute descent predicted:` / `Chute descent declined:` /
+#     `Chute descent at scene exit:` forbidden, Recording/IncompleteBallisticSceneExitFinalizer.cs
+#     and Recording/PredictedTouchdownStockFate.cs), no `predictedTouchdown` slot; the pod's
+#     crew are dead (`PopulateCrewEndStates: recording='GS1 Auto-Chute Booster' ... dead=1`,
+#     ruling Q6c) and the booster's slot stays open as a crash (ASR-2's promotion line with
+#     `reason=crashed`).
+#   - save side (report-only): both halves end Destroyed with a predicted (two-body)
+#     segment, the end UT a minute or more past the last watched datum, the last predicted
+#     segment ending at the ground, and NO quiet end (`quietEnd` is the chute-descent
+#     ghost's flag, ASR-2's).
+#
+# C#-DEPENDENT: the chute reading in the press answer (this branch), every forbidden chute
+# verdict, the crew line, the crash promotion and the endings block. NOT C#-dependent: the
+# load, the presses, the split and the exit tokens.
+#
+# FAST-LANE CHECKLIST. 1 No committed host leaves a chuted craft above the opening line
+# (see THE HOST), so a by-construction fixture, no ascent. 2 One explicit-UT 1x wait of
+# ~5 s (the split's RewindPoint must land before the exit). 3 No other dwell. 4-5 n/a (no burn, no coast). 6 Fail fast: a press
+# refusal is the step's own reply. 7 count {2,3} (two vessels; one optimizer cut of slack).
+# 8 daily (seam-only, ASR-3 / ASR-4 / ASR-9's shape). 9 flight_efficiency.py on the first
+# green flight.
+# =====================================================================================
+tier = "daily"
+description = "Owner ruling Q10b: chutes ARMED but not yet open when Parsek stops watching do not count. On gs1-armed-chute-drop (the GS1 Auto-Chute Booster at rest 62 km above the pad, far above the 0.04 atm opening line) all seven chutes are armed (observed ACTIVE), the probe-cored booster is decoupled, and ExitToSpaceCenter commits. Both halves end Destroyed on a drag-free predicted fall to the ground (no chute descent planned, no quiet end), Valentina dead, the booster's slot open as a crash; no canopy ever opened. Report-only endings block."
+instanceProfile = "stock-minimal"
+tags = ["ASR", "ASR-8", "Q10b", "predicted-tail", "parachute", "armed-chute", "staging",
+        "controlled-child", "scene-exit", "crewed", "crew-loss", "kerbin", "sandbox",
+        "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-armed-chute-drop"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                             expect = "OK" },
+  # Arm every chute while the air is far too thin to open one: the pod's Mk16, then the
+  # booster's six Mk2-R.
+  { cmd = "PartAction",        args = { button = "chute", part = "parachuteSingle" },   expect = "OK" },
+  { cmd = "PartAction",        args = { button = "chute", part = "parachuteRadial", all = "true" }, expect = "OK" },
+  { cmd = "PartAction",        args = { button = "decouple", part = "Decoupler.1", partPid = "1500054019" }, expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  # A 1x dwell of ~5 s past the decouple (UT ~26.7 on flight 1) so the split leaves the
+  # crash-coalescer window and its RewindPoint quicksave is written before the exit (flight
+  # 1 left at once: the RP was authored inside the exit's own OnSave and lost, todo
+  # RP-QUICKSAVE-LOST-ON-IMMEDIATE-SCENE-EXIT). The chutes stay armed: ~150 m of fall.
+  { cmd = "WarpToUT",          args = { ut = "32", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D5  = ["controlled-decoupled-child"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 3 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  # OBSERVED armed: every chute reads ACTIVE right after its press (the pod's Mk16, then
+  # the booster's six Mk2-R in vessel part order).
+  "partaction applied button=chute pid=[0-9]+ part='parachuteSingle' partId=[0-9]+ event=Deploy [^\\r\\n]*state='chute:state=ACTIVE' count=1 ",
+  "partaction applied button=chute pid=[0-9]+ part='parachuteRadial' partId=[0-9]+ event=Deploy [^\\r\\n]*state='[0-9]+:chute:state=ACTIVE(?: \\| [0-9]+:chute:state=ACTIVE){5}' count=6 ",
+  "partaction applied button=decouple pid=[0-9]+ part='Decoupler\\.1' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+  # The dwell lets the split's quicksave land before the exit (Rewind/RewindPointAuthor.cs).
+  "\\[RewindSave\\] Wrote rp=\\S+ path=",
+  # The commit (ASR-2's tokens).
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+  # C#-DEPENDENT (Q10b + Q6c): the crewed pod falls drag-free and its crew die.
+  "PopulateCrewEndStates: recording='GS1 Auto-Chute Booster' \\(id=\\S+\\) crew=1 aboard=[0-9]+ dead=1 ",
+  # C#-DEPENDENT: the booster's slot stays open as a crash (ASR-2's promotion line).
+  "CommitTree promoted rec=\\S+ vessel='GS1 Auto-Chute Booster Probe' slot=1 rp=\\S+ reason=crashed to CommittedProvisional",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # No canopy opened while either half was watched (both recorders' poll lines).
+  "Part event: Parachute(?:SemiDeployed|Deployed) ",
+  # C#-DEPENDENT: no chute verdict of any kind for either half (an armed chute is not read
+  # as a canopy, Q10b).
+  "\\[Extrapolator\\] Chute descent predicted: ",
+  "\\[Extrapolator\\] Chute descent declined: ",
+  "\\[Extrapolator\\] Chute descent at scene exit: ",
+  "reason=predictedTouchdown",
+  # Flight 1's shape (todo RP-QUICKSAVE-LOST-ON-IMMEDIATE-SCENE-EXIT), kept out by the dwell.
+  "Cleaned missing rewind-point quicksave:",
+]
+
+# REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
+[expectations.recordings.endings.vessels."GS1 Auto-Chute Booster"]
+ended             = { min = 1, max = 1 }
+terminalStates    = ["Destroyed"]
+quietEnd          = false
+predictedSegments = { min = 1 }
+tailSeconds       = { min = 60 }
+endAltitudeMeters = { min = -500, max = 5000 }
+
+[expectations.recordings.endings.vessels."GS1 Auto-Chute Booster Probe"]
+ended             = { min = 1, max = 1 }
+terminalStates    = ["Destroyed"]
+quietEnd          = false
+predictedSegments = { min = 1 }
+tailSeconds       = { min = 60 }
+endAltitudeMeters = { min = -500, max = 5000 }
+
+# REPORT-ONLY: the crash keeps the booster's slot open (Q14's shape for a crash), so the
+# RewindPoint the split authored is not reaped; no supersede, so no tombstone.
+[expectations.rewind]
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+terminalStates = { Destroyed = { min = 2 }, Landed = { max = 0 }, Splashed = { max = 0 }, SubOrbital = { max = 0 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 } }
+
+[runtime]
+# LoadGame 660 + SetSetting x3 360 + StartRecording 120 + PartAction x3 360
+#   + RecordingState 120 + WarpToUT 240 + ExitToSpaceCenter 240 + SaveGame 120
+#   + FlushAndQuit 120 = 2340. Flight 1 (no dwell) walled 95 s.
+budgetSeconds = 2500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
