@@ -1705,6 +1705,21 @@ reading flight, and the step count is set from its `wall=`, as P2 did. The ids P
 on `origin/main` and on every open PR branch (checked 2026-11-22). The four lanes need no parallel
 slot: they run on the installs PP-1 / PP-2 use, one slot each, and two installs can fly at once.
 
+As flown (S6, 2026-11-22, branch `part-parity-p6-s6`): PP-3 plans 160 orbit cases (94
+single-part states plus 66 shroud cases; the 10 chute cases are air, the 5 fairing parts are
+excluded `fairing-contexts-pending`) and PP-4 225 (117 plus 108), each plus the 9 controls. A
+`limit=20` reading flight per lane (`2026-11-22_1627`, `_1631`: about 65 s for 20 cases and the
+controls) and then the full lanes: PP-3 `2026-11-22_1634` (426 s + 86 s of sweep, 622 s wall) and,
+after the sun-tracker cap re-pin (D.3), `2026-11-22_1656` (414 s + 123 s, 638 s wall); PP-4
+`2026-11-22_1644` (449 s + 87 s + 0.2 s, 649 s wall) and `2026-11-22_1718` at the 25 s cap (452 s +
+106 s + 0.2 s, 652 s wall). About 3.3 s per case, against the planning
+estimate of about 2.2 s (350 s for PP-3), so the sweeps run about 50 % over the estimate and still
+fit: PP-3 keeps its 2 steps (960 s against about 540 s), PP-4 its 3 (the third answers
+`done=true` at once). `budgetSeconds` is 1800 / 2400, PP-1's and PP-2's, not the table's 1500 /
+2100: the run budget must cover every step budget, LoadGame's 300 s included (1620 / 2160 s). All four full flights PASS attempt 1:
+controls ok, press ok, complete, recompute 0 mismatches. Findings: `docs/dev/todo-and-known-bugs.md`
+(PARTPARITY-STATE-SWEEP-FINDINGS-2026-11-22 and the entries it names).
+
 ### D.9 What P6 leaves ready for P7
 
 The P7 strips (9.2) reuse D.1's table (family, module, done signal as t = 1), the event route's
