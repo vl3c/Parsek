@@ -1,0 +1,29 @@
+{
+  "schema": "parsek-part-parity-case/1",
+  "caseId": "ctl-empty",
+  "part": "fuelTankSmallFlat",
+  "title": "FL-T100 Fuel Tank",
+  "source": "Squad",
+  "partUrl": "Squad/Parts/FuelTank/Size1_Tanks/fuelTankT100/fuelTankSmallFlat",
+  "modelUrls": ["Squad/Parts/FuelTank/Size1_Tanks/Size1Tank_01"],
+  "category": "FuelTank",
+  "tags": ["unknown-module:KOSNameTag","control"],
+  "skin": {"module":"ModulePartVariants","moduleId":null,"requested":"Basic","real":"Basic","snapshot":null,"ghost":null},
+  "state": "stowed",
+  "context": "alone",
+  "measure": {"coverageAlpha":0.5,"tolerancePx":1,"blobConnectivity":4,"colorMetric":"euclidean-rgb-premultiplied","colorThreshold":24,"colorBlockGrid":16,"minBlockOverlapFraction":0.25},
+  "atlas": {"file":"ctl-empty.png","thumb":"ctl-empty.thumb.png","tile":512,"rows":["real","ghost"],"cols":["side-a","side-b","top","bottom"]},
+  "framing": {"real":{"center":[3.5166740417480469E-06,1.0311603546142578E-05,5.9604644775390625E-08],"extents":[0.62500911951065063,0.34001833200454712,0.62500745058059692]},"ghost":null,"shared":{"center":[3.5166740417480469E-06,1.0311603546142578E-05,5.9604644775390625E-08],"extents":[0.62500911951065063,0.34001833200454712,0.62500745058059692]},"orthoSize":0.68751003146171574},
+  "ghostRootOffsetM": null,
+  "layers": {"real":[0],"ghost":null},
+  "flags": [],
+  "views": [
+    {"view":"side-a","width":512,"height":512,"realPx":0,"ghostPx":0,"andPx":0,"orPx":0,"realOnlyPx":0,"ghostOnlyPx":0,"realOnlyTolPx":0,"ghostOnlyTolPx":0,"realOnlyBlobPx":0,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0,"ghostOnlyBlobPct":0,"bbox":{"real":null,"ghost":null},"centroid":{"real":null,"ghost":null},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":0,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":1,"matte":{"real":{"opaque":0,"edge":0,"inverted":0},"ghost":{"opaque":0,"edge":0,"inverted":0}}},
+    {"view":"side-b","width":512,"height":512,"realPx":0,"ghostPx":0,"andPx":0,"orPx":0,"realOnlyPx":0,"ghostOnlyPx":0,"realOnlyTolPx":0,"ghostOnlyTolPx":0,"realOnlyBlobPx":0,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0,"ghostOnlyBlobPct":0,"bbox":{"real":null,"ghost":null},"centroid":{"real":null,"ghost":null},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":0,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":1,"matte":{"real":{"opaque":0,"edge":0,"inverted":0},"ghost":{"opaque":0,"edge":0,"inverted":0}}},
+    {"view":"top","width":512,"height":512,"realPx":0,"ghostPx":0,"andPx":0,"orPx":0,"realOnlyPx":0,"ghostOnlyPx":0,"realOnlyTolPx":0,"ghostOnlyTolPx":0,"realOnlyBlobPx":0,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0,"ghostOnlyBlobPct":0,"bbox":{"real":null,"ghost":null},"centroid":{"real":null,"ghost":null},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":0,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":1,"matte":{"real":{"opaque":0,"edge":0,"inverted":0},"ghost":{"opaque":0,"edge":0,"inverted":0}}},
+    {"view":"bottom","width":512,"height":512,"realPx":0,"ghostPx":0,"andPx":0,"orPx":0,"realOnlyPx":0,"ghostOnlyPx":0,"realOnlyTolPx":0,"ghostOnlyTolPx":0,"realOnlyBlobPx":0,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0,"ghostOnlyBlobPct":0,"bbox":{"real":null,"ghost":null},"centroid":{"real":null,"ghost":null},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":0,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":1,"matte":{"real":{"opaque":0,"edge":0,"inverted":0},"ghost":{"opaque":0,"edge":0,"inverted":0}}}
+  ],
+  "structure": {"realRenderers":1,"ghostRenderers":0,"pairs":0,"missingOnGhost":[{"key":"model/Squad/Parts/FuelTank/Size1_Tanks/Size1Tank_01/125_1","mesh":" Instance","rendered":true}],"extraOnGhost":[],"transformDiffers":[],"materialDiffers":[],"meshDiffers":[],"renderedDiffers":[]},
+  "setup": {"status":"ok","detail":null},
+  "log": []
+}

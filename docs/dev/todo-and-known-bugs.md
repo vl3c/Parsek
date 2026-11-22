@@ -20,13 +20,28 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~GHOST-HEAT-CLONE-PUSHES-NEARBY-VESSEL~~: building a ghost of a heat-animated part could push or break a real vessel near it [FILED 2026-11-21 from the part ghost parity sweep (harness run `2026-11-21_2011_PP-1-part-parity-stock`, branch `part-parity-p3`; the same break in the P2 flight `<umbrella>/logs/flights/pp1-ladder-evidence-2026-11-21/KSP.log` line 12432); FIXED 2026-11-21, branch `ghost-heat-clone-destroy`; xUnit `GhostTempCloneDestroyGateTests` (mutation: reverting the fix reds it); NOT FLOWN; medium (physics damage to a real vessel, first ghost build of a part type per session)]
+## GHOST-PARITY-RESIDUALS-2026-11-22: four report-only colour fails left after the part ghost parity flights [FILED 2026-11-22 from the final P3/P4 flights `2026-11-22_0033_PP-1-part-parity-stock` and `2026-11-22_0045_PP-2-part-parity-modded` (both PASS attempt 1, branch `part-parity-p4`, automation DLL sha256 prefix 0da811c9); OPEN; low (each reads the same or nearly the same to the eye; part verdicts are report-only until P5 arms them)]
+
+What: after the two ghost-fix rounds (PRs #2745, #2749) the sweeps read PP-1 792 cases (pass 766, warn 25, fail 1, error 0) and PP-2 1510 cases (pass 1392, warn 115, fail 3, error 0), controls ok, complete, recompute 0 mismatches. The four fails, each a colour blob over the 256 px line:
+
+1. `grapplingdevice--basic--6564c9b1` (stock, PP-1): 477 px `side-a`, 479 px `side-b`; thin outline lines. The `dark` variant reads warn (79 px a side).
+2. `heatshield3--red--ac0230f4` (modded, PP-2): 158017 px `top`; a uniform tint offset over the whole top face, though it looks the same to the eye. Its `black` and `classic` variants pass, so the offset is specific to the red variant, not the char state GHOST-HEATSHIELD-BLACK fixed.
+3. `mediumdishantenna--default--976b5db0` (modded, PP-2): 756 px `top`; seam lines. The same case passes on stock (PP-1), so the difference comes with ReStock's model.
+4. `rotor.01--gray--d4b107c3` (modded, PP-2): 329 px `side-b`; one line. The same case passes on stock (PP-1).
+
+Evidence: the case atlases and sidecars (`<caseId>.png`, `<caseId>.part.json`) and `partparity-verdicts.json` in `harness/results/2026-11-22_0033_PP-1-part-parity-stock_partparity/pp1/` and `harness/results/2026-11-22_0045_PP-2-part-parity-modded_partparity/pp2/` of the `part-parity-p4` worktree (the results folder dies with the worktree); the sidecars and manifests are kept in `<umbrella>/automation/results-archive/<runId>/partparity/<label>/`, the run consoles in `<umbrella>/logs/console/2026-11-22/p4fix4-PP-1.log` / `p4fix4-PP-2.log`. Design `docs/dev/design-part-ghost-parity.md` Appendix C.
+
+Known non-defects, not to be filed again: ReStock's depth masks throw a NullReferenceException in `OnStart` on the REAL part (InfraredTelescope's cyan lens shows the result); the ghost skipping depth masks stays by owner ruling 2026-11-22, and the detector treats depth masks as non-visual. Suspension droop is left by ruling.
+
+Fix: none planned. Each case is a candidate for P5's accepted list (`harness/partparity/accepted.toml`, design section 10) or a small ghost fix if one turns out to be real when the owner reads the viewer.
+
+## ~~GHOST-HEAT-CLONE-PUSHES-NEARBY-VESSEL~~: building a ghost of a heat-animated part could push or break a real vessel near it [FILED 2026-11-21 from the part ghost parity sweep (harness run `2026-11-21_2011_PP-1-part-parity-stock`, branch `part-parity-p3`; the same break in the P2 flight `<umbrella>/logs/flights/pp1-ladder-evidence-2026-11-21/KSP.log` line 12432); FIXED 2026-11-21, branch `ghost-heat-clone-destroy`; xUnit `GhostTempCloneDestroyGateTests` (mutation: reverting the fix reds it); FLOWN 2026-11-21: every PP-1 / PP-2 sweep from `2026-11-21_2111` on kept its host whole and read complete; medium (physics damage to a real vessel, first ghost build of a part type per session)]
 
 What: the sweep's host Kerbal X lost its `Decoupler.2` and `dockingPort2` and dropped from pe 93 km to pe 63 km in the same frame (6 ms) that the ghost of a `Clydesdale` case was built, 160 m away; the P2 flight shows the identical break at the same case. `GhostVisualBuilder.SampleHeatAnimation3State` instantiates the part prefab's model, colliders included, to sample its heat animation, and freed it with a deferred `Object.Destroy`, so the clone lived into the next physics step with a full-size collider and pushed whatever real vessel overlapped it. The three sibling samplers in `GhostVisualBuilder.AnimationSampling.cs` already used `DestroyImmediate`. The heat sample is cached per part name, so it bites only the first ghost of each heat-animated part type.
 
 Fix: `Object.DestroyImmediate(tempClone)`, like the siblings. `GhostTempCloneDestroyGateTests` scans `Source/Parsek/Ghost/` (line comments stripped) and reds on a deferred `Destroy(tempClone)` or on a `tempClone = Object.Instantiate(...)` count that differs from the `DestroyImmediate(tempClone)` count.
 
-Proof owed: the next PP-1 flight on a build with this fix; the host must stay in one piece and in orbit across the sweep (the second step answers instead of `host-not-orbiting`).
+Proof: PP-1 `2026-11-21_2111` and every later PP-1 / PP-2 flight answered every step with the host in one piece and in orbit, through the final pair `2026-11-22_0033` / `_0045` (GHOST-PARITY-RESIDUALS-2026-11-22).
 
 ## TEST-GAPS-BATCH3-FLIGHTS-2026-11-21: the batch 3 re-flights, every owed lane green, 14 report-only save blocks armed [FILED 2026-11-21, branch `test-gaps-batch3`; one seam fix (C#, automation-only `PartAction`); OPEN: nothing; the operator / nightly promotion calls of the new lanes are the ordinary ones]
 

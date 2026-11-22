@@ -1,0 +1,29 @@
+{
+  "schema": "parsek-part-parity-case/1",
+  "caseId": "ctl-ghost-flip",
+  "part": "mk1pod.v2",
+  "title": "Mk1 Command Pod",
+  "source": "Squad",
+  "partUrl": "Squad/Parts/Command/mk1pod_v2/mk1Pod_v2/mk1pod_v2",
+  "modelUrls": ["Squad/Parts/Command/mk1pod_v2/Mk1Pod_v2"],
+  "category": "Pods",
+  "tags": ["unknown-module:KOSNameTag","control"],
+  "skin": {"module":"ModulePartVariants","moduleId":null,"requested":"Basic","real":"Basic","snapshot":"Basic","ghost":null},
+  "state": "stowed",
+  "context": "alone",
+  "measure": {"coverageAlpha":0.5,"tolerancePx":1,"blobConnectivity":4,"colorMetric":"euclidean-rgb-premultiplied","colorThreshold":24,"colorBlockGrid":16,"minBlockOverlapFraction":0.25},
+  "atlas": {"file":"ctl-ghost-flip.png","thumb":"ctl-ghost-flip.thumb.png","tile":512,"rows":["real","ghost"],"cols":["side-a","side-b","top","bottom"]},
+  "framing": {"real":{"center":[-1.4603137969970703E-06,0.0914866030216217,-2.9802322387695313E-08],"extents":[0.62500312924385071,0.56953796744346619,0.62500026822090149]},"ghost":{"center":[1.4603137969970703E-06,-0.0914866030216217,2.9802322387695313E-08],"extents":[0.62500312924385071,0.56953796744346619,0.62500026822090149]},"shared":{"center":[0,0,0],"extents":[0.62500458955764771,0.66102457046508789,0.62500029802322388]},"orthoSize":0.72712702751159675},
+  "ghostRootOffsetM": 0,
+  "layers": {"real":[0],"ghost":[0]},
+  "flags": ["ghost-outside-real-bounds","seed-events:0","seed-applied:0"],
+  "views": [
+    {"view":"side-a","width":512,"height":512,"realPx":131667,"ghostPx":131665,"andPx":101666,"orPx":161666,"realOnlyPx":30001,"ghostOnlyPx":29999,"realOnlyTolPx":29296,"ghostOnlyTolPx":29294,"realOnlyBlobPx":15503,"ghostOnlyBlobPx":15506,"realOnlyBlobPct":7.5681147806936764,"ghostOnlyBlobPct":7.5695792936487223,"bbox":{"real":[36,23,440,401],"ghost":[36,88,440,401]},"centroid":{"real":[256.00444682418527,243.30030683466623],"ghost":[255.99188470740137,268.69908100102532]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":100252,"colorOverPx":65074,"colorBlobPx":55620,"colorP99":210.73443002983637,"colorBlockMax":194.22143127278093,"iou":0.62886444892556259,"matte":{"real":{"opaque":131015,"edge":1116,"inverted":0},"ghost":{"opaque":131016,"edge":1116,"inverted":0}}},
+    {"view":"side-b","width":512,"height":512,"realPx":131101,"ghostPx":131066,"andPx":100443,"orPx":161724,"realOnlyPx":30658,"ghostOnlyPx":30623,"realOnlyTolPx":29958,"ghostOnlyTolPx":29923,"realOnlyBlobPx":15506,"ghostOnlyBlobPx":15508,"realOnlyBlobPct":7.5697301827029539,"ghostOnlyBlobPct":7.5707065441350068,"bbox":{"real":[36,23,440,401],"ghost":[36,88,440,401]},"centroid":{"real":[256.72034156871422,243.55144888292233],"ghost":[255.30792120000609,268.45432835365386]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":99043,"colorOverPx":60354,"colorBlobPx":56314,"colorP99":358.53451716675761,"colorBlockMax":228.30915564032065,"iou":0.62107664910588412,"matte":{"real":{"opaque":130413,"edge":1133,"inverted":36},"ghost":{"opaque":130413,"edge":1133,"inverted":0}}},
+    {"view":"top","width":512,"height":512,"realPx":150393,"ghostPx":150407,"andPx":150297,"orPx":150503,"realOnlyPx":96,"ghostOnlyPx":110,"realOnlyTolPx":0,"ghostOnlyTolPx":0,"realOnlyBlobPx":0,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0,"ghostOnlyBlobPct":0,"bbox":{"real":[36,36,440,440],"ghost":[36,36,440,440]},"centroid":{"real":[256.00804891185095,255.97927762595333],"ghost":[256.010282101232,256.00012964822116]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":148519,"colorOverPx":130401,"colorBlobPx":114020,"colorP99":221.12666053644458,"colorBlockMax":208.6242372778278,"iou":0.99863125651980356,"matte":{"real":{"opaque":149889,"edge":982,"inverted":0},"ghost":{"opaque":149889,"edge":983,"inverted":0}}},
+    {"view":"bottom","width":512,"height":512,"realPx":150406,"ghostPx":150389,"andPx":150293,"orPx":150502,"realOnlyPx":113,"ghostOnlyPx":96,"realOnlyTolPx":0,"ghostOnlyTolPx":0,"realOnlyBlobPx":0,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0,"ghostOnlyBlobPct":0,"bbox":{"real":[36,36,440,440],"ghost":[36,36,440,440]},"centroid":{"real":[256.00343071420025,255.9929125167879],"ghost":[256.01144033140724,255.97676359308193]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":148517,"colorOverPx":130407,"colorBlobPx":114022,"colorP99":221.12666053644458,"colorBlockMax":208.6242372778278,"iou":0.99861131413536031,"matte":{"real":{"opaque":149890,"edge":982,"inverted":0},"ghost":{"opaque":149890,"edge":982,"inverted":0}}}
+  ],
+  "structure": {"realRenderers":2,"ghostRenderers":2,"pairs":2,"missingOnGhost":[],"extraOnGhost":[],"transformDiffers":[{"key":"model/Squad/Parts/Command/mk1pod_v2/Mk1Pod_v2/Mk1_New","positionDeltaM":0,"rotationDeltaDeg":179.9999941891659,"scaleDeltaPct":1.1920928955078125E-05},{"key":"model/Squad/Parts/Command/mk1pod_v2/Mk1Pod_v2/Mk1_New/Flag","positionDeltaM":0.0019999231428564248,"rotationDeltaDeg":179.9999941891659,"scaleDeltaPct":1.1920928955078125E-05}],"materialDiffers":[],"meshDiffers":[],"renderedDiffers":[]},
+  "setup": {"status":"ok","detail":null},
+  "log": ["[Parsek][VERBOSE][PartParity] Initial state seeding complete: fairings=0 shrouds=0 parachutes=0 deployables=0 brokenDeployables=0 lights=0 blinks=0 gear=0 cargo=0 ladders=0 animGroups=0 animGeneric=0 heat=0 engines=0 rcs=0 converters=0 damagedWheels=0 evaJetpack=0 evaRagdoll=0","[Parsek][INFO][PartParity] Seed events emitted: 0 events at UT=1901.60","[Parsek][VERBOSE][GhostVisual] Ghost built: 1/1 parts with visuals","[Parsek][VERBOSE][GhostVisual] Snapshot baseline applied: parts=1 deployables=0 brokenDeployables=0 brokenWheels=0 parachutes=0 lights=0 servos=0 servosSkipped=0 (vessel='PartParity ctl-ghost-flip')"]
+}

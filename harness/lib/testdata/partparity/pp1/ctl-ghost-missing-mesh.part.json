@@ -1,0 +1,29 @@
+{
+  "schema": "parsek-part-parity-case/1",
+  "caseId": "ctl-ghost-missing-mesh",
+  "part": "fuelTankSmallFlat",
+  "title": "FL-T100 Fuel Tank",
+  "source": "Squad",
+  "partUrl": "Squad/Parts/FuelTank/Size1_Tanks/fuelTankT100/fuelTankSmallFlat",
+  "modelUrls": ["Squad/Parts/FuelTank/Size1_Tanks/Size1Tank_01"],
+  "category": "FuelTank",
+  "tags": ["unknown-module:KOSNameTag","control"],
+  "skin": {"module":"ModulePartVariants","moduleId":null,"requested":"Basic","real":"Basic","snapshot":"Basic","ghost":null},
+  "state": "stowed",
+  "context": "alone",
+  "measure": {"coverageAlpha":0.5,"tolerancePx":1,"blobConnectivity":4,"colorMetric":"euclidean-rgb-premultiplied","colorThreshold":24,"colorBlockGrid":16,"minBlockOverlapFraction":0.25},
+  "atlas": {"file":"ctl-ghost-missing-mesh.png","thumb":"ctl-ghost-missing-mesh.thumb.png","tile":512,"rows":["real","ghost"],"cols":["side-a","side-b","top","bottom"]},
+  "framing": {"real":{"center":[0.02525484561920166,1.0594725608825684E-05,-2.0861625671386719E-07],"extents":[0.65026640892028809,0.34002064168453217,0.62500736117362976]},"ghost":{"center":[2.0861625671386719E-06,1.0594725608825684E-05,-2.0861625671386719E-07],"extents":[0.62501364946365356,0.34002064168453217,0.62500736117362976]},"shared":{"center":[0.02525484561920166,1.0594725608825684E-05,-2.0861625671386719E-07],"extents":[0.65026640892028809,0.34002064168453217,0.62500736117362976]},"orthoSize":0.715293049812317},
+  "ghostRootOffsetM": 0,
+  "layers": {"real":[0],"ghost":[0]},
+  "flags": ["control-planted:edge=0.0505;local=0.6503,0.0000,0.0000","seed-events:0","seed-applied:0"],
+  "views": [
+    {"view":"side-a","width":512,"height":512,"realPx":109271,"ghostPx":108947,"andPx":108947,"orPx":109271,"realOnlyPx":324,"ghostOnlyPx":0,"realOnlyTolPx":306,"ghostOnlyTolPx":0,"realOnlyBlobPx":306,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0.2701054901363939,"ghostOnlyBlobPct":0,"bbox":{"real":[23,134,466,244],"ghost":[23,134,448,244]},"centroid":{"real":[247.69672191157764,256.005303328422],"ghost":[247.00586982661295,256.0053191001129]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":107567,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0.24188886957416306,"iou":0.99703489489434527,"matte":{"real":{"opaque":107974,"edge":1326,"inverted":20},"ghost":{"opaque":107642,"edge":1334,"inverted":0}}},
+    {"view":"side-b","width":512,"height":512,"realPx":108944,"ghostPx":108944,"andPx":108944,"orPx":108944,"realOnlyPx":0,"ghostOnlyPx":0,"realOnlyTolPx":0,"ghostOnlyTolPx":0,"realOnlyBlobPx":0,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0,"ghostOnlyBlobPct":0,"bbox":{"real":[32,134,448,244],"ghost":[32,134,448,244]},"centroid":{"real":[255.99608055514759,255.99992656777795],"ghost":[255.99608055514759,255.99992656777795]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":107564,"colorOverPx":241,"colorBlobPx":221,"colorP99":0,"colorBlockMax":12.127026694768389,"iou":1,"matte":{"real":{"opaque":107636,"edge":1340,"inverted":24},"ghost":{"opaque":107648,"edge":1328,"inverted":0}}},
+    {"view":"top","width":512,"height":512,"realPx":155723,"ghostPx":155396,"andPx":155396,"orPx":155723,"realOnlyPx":327,"ghostOnlyPx":0,"realOnlyTolPx":318,"ghostOnlyTolPx":0,"realOnlyBlobPx":318,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0.15271074460868977,"ghostOnlyBlobPct":0,"bbox":{"real":[23,32,466,448],"ghost":[23,32,448,448]},"centroid":{"real":[247.46751924892277,256.01262819236723],"ghost":[246.97838425699504,256.01263867795825]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":153585,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":0.99790011751635921,"matte":{"real":{"opaque":155211,"edge":1028,"inverted":0},"ghost":{"opaque":154904,"edge":1001,"inverted":0}}},
+    {"view":"bottom","width":512,"height":512,"realPx":155716,"ghostPx":155389,"andPx":155389,"orPx":155716,"realOnlyPx":327,"ghostOnlyPx":0,"realOnlyTolPx":318,"ghostOnlyTolPx":0,"realOnlyBlobPx":318,"ghostOnlyBlobPx":0,"realOnlyBlobPct":0.15271212995657435,"ghostOnlyBlobPct":0,"bbox":{"real":[23,32,466,448],"ghost":[23,32,448,448]},"centroid":{"real":[247.45701790439006,256.01539340851292],"ghost":[246.96783877880674,256.01540971368632]},"touchesBorder":{"real":false,"ghost":false},"colorOverlapPx":153580,"colorOverPx":0,"colorBlobPx":0,"colorP99":0,"colorBlockMax":0,"iou":0.99790002311901149,"matte":{"real":{"opaque":155210,"edge":1029,"inverted":0},"ghost":{"opaque":154903,"edge":1002,"inverted":0}}}
+  ],
+  "structure": {"realRenderers":2,"ghostRenderers":1,"pairs":1,"missingOnGhost":[{"key":"PartParityPlantedCube","mesh":"Cube","rendered":true}],"extraOnGhost":[],"transformDiffers":[],"materialDiffers":[],"meshDiffers":[],"renderedDiffers":[]},
+  "setup": {"status":"ok","detail":null},
+  "log": ["[Parsek][INFO][PartParity] case ctl-ghost-missing-mesh: planted cube edge=0.0505m local=(0.6503,0.0000,0.0000) box=1.250x0.680x1.250 material=125_D (Instance) (Instance) layer=0 tile=512","[Parsek][VERBOSE][PartParity] Initial state seeding complete: fairings=0 shrouds=0 parachutes=0 deployables=0 brokenDeployables=0 lights=0 blinks=0 gear=0 cargo=0 ladders=0 animGroups=0 animGeneric=0 heat=0 engines=0 rcs=0 converters=0 damagedWheels=0 evaJetpack=0 evaRagdoll=0","[Parsek][INFO][PartParity] Seed events emitted: 0 events at UT=1901.72","[Parsek][VERBOSE][GhostVisual] Ghost built: 1/1 parts with visuals"]
+}
