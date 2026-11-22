@@ -470,8 +470,8 @@ namespace Parsek.TestCommands
         internal static void WritePictures(StepContext ctx, WaveCase wc, PartParityCaseSidecar s)
         {
             int tile = ctx.Capture.Tile;
-            byte[][][] rows = wc.State != null
-                ? PartParityStateDriver.AtlasRows(wc)
+            byte[][][] rows = wc.State != null && wc.State.FourRows
+                ? new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray(), wc.GhostStartTiles.ToArray(), wc.GhostStowedTiles.ToArray() }
                 : new[] { wc.RealTiles.ToArray(), wc.GhostTiles.ToArray() };
             byte[] atlas = PartParityImage.BuildAtlas(rows, wc.CapturedViews.Count, tile, out int w, out int h);
             FileIOUtils.SafeWriteBytes(PartParityPng.EncodeRgba(w, h, atlas),
@@ -555,10 +555,14 @@ namespace Parsek.TestCommands
                 Tile = ctx.Args.Tile,
                 Views = new List<string>(ctx.Args.Views),
                 Controls = controls,
-                Exclusions = ctx.Exclusions,
+                Exclusions = new List<PartParityExclusion>(ctx.Exclusions),
             };
+            // A state run's exclusions (design D.1), each with its reason.
+            foreach (PartParityStateExclusion x in ctx.StateExclusions)
+                mf.Exclusions.Add(new PartParityExclusion { Part = x.Part, Reason = x.Reason });
             mf.GameDataMods.AddRange(GameDataMods());
             AddSettings(ctx, mf.Settings);
+            mf.Settings.AddRange(TestCommandPartParitySweep.StateSettings(ctx.Args));
             var crashed = new List<string>();
             foreach (var p in ctx.Planned)
             {
@@ -581,7 +585,7 @@ namespace Parsek.TestCommands
             mf.Progress = new PartParityProgress
             {
                 Complete = done, Cases = ctx.Planned.Count, CompleteCases = complete, SetupFaults = faults,
-                Controls = TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, OutcomesOf(controls)),
+                Controls = TestCommandPartParitySweep.ControlsState(ctx.Args.Controls, OutcomesOf(controls), ctx.ControlSet),
                 Crashed = crashed,
                 HostDamaged = ctx.HostDamage != null,
                 HostDamage = ctx.HostDamage?.Reason,
@@ -601,10 +605,18 @@ namespace Parsek.TestCommands
             return o;
         }
 
-        private static string ProfileName()
+        /// <summary>The install's directory name (design 8): the KSP root path ends in
+        /// <c>KSP_x64_Data/../</c>, so it is resolved to its full path first (the last segment
+        /// of the raw path was <c>..</c>).</summary>
+        private static string ProfileName() => ProfileNameOf(KSPUtil.ApplicationRootPath);
+
+        internal static string ProfileNameOf(string rootPath)
         {
-            string root = (KSPUtil.ApplicationRootPath ?? string.Empty).TrimEnd('/', '\\');
-            return Path.GetFileName(root);
+            if (string.IsNullOrEmpty(rootPath)) return string.Empty;
+            string full;
+            try { full = Path.GetFullPath(rootPath); }
+            catch (Exception) { full = rootPath; }
+            return Path.GetFileName(full.TrimEnd('/', '\\'));
         }
 
         private static List<string> GameDataMods()

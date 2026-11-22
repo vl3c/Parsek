@@ -1151,11 +1151,8 @@ in `PartParityStateRules.ExclusionReasons`, mirrored as `partparity.STATE_EXCLUS
   air>` (refused `contexts-arg-invalid`; `air` stands alone, since the air cases need a host at the
   pad and the orbit cases an orbiting one). Both default to `none`. An air run (`contexts=air`) is
   admitted only with a host PRELAUNCH or LANDED within 500 m of the pad, else REJECTED
-  `host-not-at-pad`; every other run keeps `host-not-orbiting`. Until the live state engine lands
-  (S3 flips `TestCommandPartParitySweep.StateRunsBuilt` and drops the refusal, with its hlib
-  mirror), a well-formed step naming either arg other than `none` is REJECTED
-  `state-runs-not-built` (after the grammar, so a bad value keeps its own reason), never run as a
-  stowed sweep; the pure planning rules read `TryParseGrammar`.
+  `host-not-at-pad`; every other run keeps `host-not-orbiting`. (S1's interim
+  `state-runs-not-built` refusal was dropped with its hlib mirror when S3 built the live engine.)
 - What a run plans (pure, `TestCommandPartParitySweep.PlanCases(stowedKeys, stateKeys, args)`):
   - Without `states=` and `contexts=` (both `none`): exactly `SelectCases` over the stowed keys,
     today's list in today's order, so PP-1 / PP-2, their shards, resume `next=` and recompute sample
