@@ -530,16 +530,28 @@ Owner: "we should record how much delta-V the vessel and stages had at every ste
 burn, after burn etc.) and use the real figures provided by the game". So the recorder stores the
 game's own delta-v readout (the stock Delta-V app, `Vessel.VesselDeltaV`) as snapshots:
 
-- When: at recording start (prelaunch or the first frame of a continuation), at each burn start and
-  end (the burn definition of 4.3, from the engine ignite / shutdown part events the recorder already
-  polls), at each staging (`onStageActivate`), at each separation, dock and undock (the branch points),
+- When: at recording start (prelaunch, or the first frame of a continuation, which names the split,
+  merge, switch or resume that started it), at each burn start and end (the recorder's own
+  any-engine-thrusting edge, read from the engine set its ignite / shutdown polling keeps; the
+  Profile groups these edges into burns by the definition of 4.3), at each staging
+  (`onStageActivate`), at each separation, dock, undock, EVA and board (the focused child's start),
   and at the recording's end. Event-driven, a few dozen per flight, never per frame (the recording
   design principle). The game recomputes delta-v a few frames after a change, and after a vessel
-  event only once `GameSettings.DELTAV_VESSEL_EVENT_DELAY_SECS` has passed, so a snapshot request waits
-  for that delay and `VesselDeltaV.IsReady` before it reads (members checked with `ilspycmd`:
-  `TotalDeltaVVac`, `TotalDeltaVASL`, `TotalDeltaVActual`, `OperatingStageInfo` of `DeltaVStageInfo`
-  with `stage`, `deltaVinVac`, `stageBurnTime`), records the UT it was taken, and is written as unknown
-  after a short timeout. `GameSettings.DELTAV_CALCULATIONS_ENABLED` off means no snapshots.
+  event only once `GameSettings.DELTAV_VESSEL_EVENT_DELAY_SECS` (of `Time.time`) has passed, so a
+  snapshot that describes the vessel AFTER an event waits that delay plus 0.25 s and then for
+  `VesselDeltaV.IsReady` with no simulation running before it reads (members checked with
+  `ilspycmd`: `TotalDeltaVVac`, `TotalDeltaVASL`, `TotalDeltaVActual`, `SimulationRunning`,
+  `OperatingStageInfo` of `DeltaVStageInfo` with `stage`, `deltaVinVac`, `stageBurnTime`), records
+  the UT it was taken, and is written as unknown 3 s after that wait. A burn start describes the
+  vessel BEFORE the burn, so it reads on the first ready tick, before the new figures replace the
+  old; the end reads at once (there is no later frame). A request of a kind already pending keeps the
+  first. `GameSettings.DELTAV_CALCULATIONS_ENABLED` off means no snapshots. As built (P1a): an end
+  written at a chain-boundary stop that resumes as a false alarm (a debris-only split) is removed
+  again, and requests still pending at that stop complete after the resume; a vessel switch or the
+  move to the background recorder ends the focused span with no end snapshot (stock has no figures
+  for a vessel the player is not flying; the switch back starts a new span); at most 400 snapshots per
+  recording (one Warn when reached). Code: `Recording/DeltaVSnapshot*.cs`,
+  `Recording/FlightRecorder.DeltaV.cs`.
 - What: UT, the trigger kind, total vacuum delta-v, total delta-v at the current pressure, and per
   stage the stage number with its vacuum delta-v (and burn time). Vacuum figures drive Spent and Left,
   because the at-pressure figure changes with altitude while no fuel is spent; the at-pressure total
@@ -556,7 +568,8 @@ game's own delta-v readout (the stock Delta-V app, `Vessel.VesselDeltaV`) as sna
   `Stage separation` row shows that drop in its hover. The stock Delta-V app can be switched off in
   the game settings; then no figures exist and the Profile falls back to the estimate of 4.6.
 - Storage: an optional `DELTAV` child node of each recording's metadata node, one `SNAPSHOT` value
-  line per snapshot. A new optional child node is ADDITIVE under
+  line per snapshot (`ut,trigger,Ok,vacuum,seaLevel,actual,stage:vacuum:burnTime;...` or
+  `ut,trigger,Unknown`, invariant culture). A new optional child node is ADDITIVE under
   `docs/dev/design-save-format-policy.md` (no format bump, no golden folder; older builds ignore it and
   drop it on their next save, which is acceptable for display data). It is small (a few dozen short
   lines per recording), which keeps the `.sfs` metadata light. Optimizer splits and merges carry the

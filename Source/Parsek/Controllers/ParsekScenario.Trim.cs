@@ -26,6 +26,7 @@ namespace Parsek
             mutated |= RemoveItemsPastUT(rec.FlagEvents, cutoffUT, e => e.ut);
             mutated |= RemoveItemsPastUT(rec.SegmentEvents, cutoffUT, e => e.ut);
             mutated |= TrimTrackSectionsPastUT(rec.TrackSections, cutoffUT);
+            mutated |= DeltaVSnapshotList.TrimPastUT(rec.DeltaVSnapshots, cutoffUT);
 
             if (!double.IsNaN(rec.ExplicitStartUT) && rec.ExplicitStartUT > cutoffUT)
             {

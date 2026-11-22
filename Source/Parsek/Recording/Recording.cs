@@ -496,6 +496,14 @@ namespace Parsek
         internal List<RouteConnectionWindow> RouteConnectionWindows;
         internal RouteOriginProof RouteOriginProof;
 
+        // The game's own delta-v readout at launch, burns, staging, separations and the end
+        // (design-mission-profile.md section 8.1), in UT order; null = none (an old flight,
+        // a background-only recording, or the stock Delta-V calculation off). Display data
+        // only: playback, spawning, the ledger and the optimizer's decisions never read it.
+        // The focused recorder writes it straight into the tree recording; saved as the
+        // optional DELTAV metadata node (DeltaVSnapshotCodec).
+        internal List<DeltaVSnapshot> DeltaVSnapshots;
+
         // Full-run transport-scoped cargo manifest (M2 / plan D3). null = no
         // data (pre-M2 recording, BG-voided leg, or optimizer-split half) -
         // the analysis presence gate degrades such trees to legacy behavior.
@@ -1289,6 +1297,10 @@ namespace Parsek
             RouteRunManifest = source.RouteRunManifest != null ? source.RouteRunManifest.DeepClone() : null;
             RunManifestVoided = source.RunManifestVoided;
             RouteHarvestWindows = RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
+            // Snapshots are immutable, so a list copy is a full copy.
+            DeltaVSnapshots = source.DeltaVSnapshots != null && source.DeltaVSnapshots.Count > 0
+                ? new List<DeltaVSnapshot>(source.DeltaVSnapshots)
+                : null;
             // WARNING: this copies the resolved FLAG but NOT the CrewEndStates dictionary
             // (only DeepClone carries both). Today's callers copy from sources whose end
             // states are still unresolved, so nothing is transferred; a future consumer
