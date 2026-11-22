@@ -47,7 +47,6 @@ namespace Parsek.Tests
         {
             Assert.Contains("in use", MissionsWindowUI.MissionHeaderRenameHoverOriginal);
             Assert.Contains("= { }", MissionsWindowUI.MissionHeaderRenameHoverOriginal);
-            Assert.Contains("Double-click to rename", MissionsWindowUI.MissionHeaderRenameHoverClone);
 
             // RecordingsTableUI is a partial class: the whole-file needle reads every file of it.
             string tableSource = RecordingsTableUISourceFiles.ReadAll(

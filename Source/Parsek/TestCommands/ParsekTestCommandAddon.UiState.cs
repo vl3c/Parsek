@@ -455,9 +455,8 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// Resolves a <c>mission=</c> value to the TREE ID and the Mission the Log's opener
-        /// takes. Four rungs, in this order: the Mission's own id (the R10 capture of an
-        /// <c>op=clone</c> payload's <c>copy=</c>, the only way to name a clone, whose name
-        /// may repeat its source's), the tree id (its first, original mission), the Mission's
+        /// takes. Four rungs, in this order: the Mission's own id (an R10 capture of a
+        /// payload's <c>mission=</c>), the tree id (its first, original mission), the Mission's
         /// display NAME, then the tree's own name (no Mission: the whole tree). A census spec
         /// names what a reviewer can read off the window, which is the mission name; the id
         /// rungs exist so a <c>${step.field}</c> chain works unchanged.

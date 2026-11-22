@@ -265,10 +265,12 @@ namespace Parsek.Tests
             Assert.NotNull(scenario.ActiveMergeJournal);
             Assert.Equal(G.LanderTreeId, scenario.ActiveMergeJournal.TreeId);
 
+            // The frozen 1.0 save carries a clone of the lander's mission; the clone feature is
+            // gone and the load drops it (owner ruling 2026-11-22), keeping each tree's first.
             var names = MissionStore.Missions.Select(m => m.Name).ToList();
-            Assert.Equal(3, names.Count);
+            Assert.Equal(2, names.Count);
             Assert.Contains(G.LanderMissionName, names);
-            Assert.Contains(G.LanderMissionName + " (no debris)", names);
+            Assert.DoesNotContain(G.LanderMissionName + " (no debris)", names);
             Assert.Contains(G.RoverTreeName, names);
             Mission roverMission = MissionStore.Missions.Single(m => m.TreeId == G.RoverTreeId);
             Assert.True(roverMission.LoopPlayback);

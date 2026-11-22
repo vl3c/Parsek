@@ -5,9 +5,9 @@ using System.Globalization;
 namespace Parsek
 {
     // Static store of player-defined Missions, surviving scene changes and persisted
-    // through ParsekScenario OnSave/OnLoad. Every committed tree always has at least
-    // one Mission (a default, all-included), and Delete is blocked on a tree's last
-    // Mission, so a tree is never left without one. See Mission / MissionsWindowUI.
+    // through ParsekScenario OnSave/OnLoad. Every committed tree has exactly one Mission
+    // (a default, all-included, seeded by EnsureDefaultsForTrees); Load drops any further
+    // mission of a tree a save still carries (a legacy clone). See Mission / MissionsWindowUI.
     internal static class MissionStore
     {
         private static readonly List<Mission> missions = new List<Mission>();
@@ -690,108 +690,10 @@ namespace Parsek
             return cleared;
         }
 
-        internal static Mission Clone(Mission source)
-        {
-            if (source == null)
-                return null;
-            Mission copy = source.Clone(Guid.NewGuid().ToString("N"));
-            // One loop per tree: the copy shares its source's tree, so a looping source would
-            // leave two looping missions over the same committed indices (the builder skips the
-            // second unit with a WRN on every rebuild until NormalizeOneLoopPerTree at the next
-            // load). The copy starts with its loop OFF; the source keeps looping. The period,
-            // unit and anchor stay copied: arming the copy is a separate SetLoopEnabled click,
-            // which re-stamps the anchor and clears the source's loop, so the copy then loops
-            // with the source's period.
-            bool loopDisarmed = copy.LoopPlayback;
-            if (loopDisarmed)
-                copy.LoopPlayback = false;
-            // Insert the copy directly after its source so a clone sits next to the
-            // original it was made from (and shares its tree index in the UI). Falls
-            // back to append if the source is somehow not in the list.
-            int srcIdx = missions.IndexOf(source);
-            if (srcIdx >= 0)
-                missions.Insert(srcIdx + 1, copy);
-            else
-                missions.Add(copy);
-            if (!SuppressLogging)
-                ParsekLog.Info("Mission",
-                    $"Cloned mission '{source.Name}' -> '{copy.Name}' (tree={source.TreeId})");
-            if (loopDisarmed && !SuppressLogging)
-                ParsekLog.Info("Mission",
-                    $"Clone: copy '{copy.Name}' (tree={source.TreeId}) created with loop OFF " +
-                    $"because source '{source.Name}' loops (one loop per tree); period=" +
-                    copy.LoopIntervalSeconds.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
-                    $" unit={copy.LoopTimeUnit} kept for a later enable");
-            return copy;
-        }
-
-        /// <summary>
-        /// Why <see cref="CanDelete"/> said no. Three distinct answers hide behind that one
-        /// bool, and the UI's greyed-out hover text used to state only the middle one as a
-        /// constant, so it could not tell the player which case they were in (finding from
-        /// the GUI census's "always the same" list).
-        /// </summary>
-        internal enum MissionDeleteRefusal
-        {
-            /// <summary>Deletable: not a refusal.</summary>
-            None,
-
-            /// <summary>No mission to act on.</summary>
-            NoMission,
-
-            /// <summary>The tree's ORIGINAL mission - what its recordings hang off.</summary>
-            TreeOriginal,
-
-            /// <summary>Not in the mission list at all (already deleted, or never added).</summary>
-            NotInStore,
-        }
-
-        // Only a COPY can be deleted; the original mission of a tree is never deletable. The
-        // original is the first mission in list order for the tree (the auto-created default;
-        // clones are inserted after it). So a mission is deletable iff it is NOT the first mission
-        // of its tree. This also keeps every tree with at least its original.
-        internal static bool CanDelete(Mission m)
-        {
-            return ClassifyDeleteRefusal(m) == MissionDeleteRefusal.None;
-        }
-
-        /// <summary>
-        /// <see cref="CanDelete"/>'s decision, with the REASON kept. Same traversal and same
-        /// verdict - `CanDelete` is now a one-line wrapper over this - so the two cannot
-        /// disagree about whether a mission is deletable.
-        /// </summary>
-        internal static MissionDeleteRefusal ClassifyDeleteRefusal(Mission m)
-        {
-            if (m == null)
-                return MissionDeleteRefusal.NoMission;
-            for (int i = 0; i < missions.Count; i++)
-            {
-                if (missions[i] == null || missions[i].TreeId != m.TreeId)
-                    continue;
-                // First same-tree mission found: it is the original. Deletable only if it is not m.
-                return ReferenceEquals(missions[i], m)
-                    ? MissionDeleteRefusal.TreeOriginal
-                    : MissionDeleteRefusal.None;
-            }
-            // No same-tree mission at all, so m is not in the list: nothing to remove.
-            return MissionDeleteRefusal.NotInStore;
-        }
-
-        internal static bool Delete(Mission m)
-        {
-            if (!CanDelete(m))
-                return false;
-            missions.Remove(m);
-            if (!SuppressLogging)
-                ParsekLog.Info("Mission", $"Deleted mission '{m.Name}' (tree={m.TreeId})");
-            return true;
-        }
-
-        // The "main" mission of a tree: the first mission in list order for that tree (the
-        // auto-created default / original, never a clone). This is the mission whose name is
+        // The mission of a tree: the first mission in list order for that tree (the
+        // auto-created default; Load keeps only that one). This is the mission whose name is
         // linked to the tree's Recordings-window root group (see MissionGroupLink). Returns null
-        // when the tree has no mission yet. Mirrors CanDelete's "first same-tree mission is the
-        // original" rule.
+        // when the tree has no mission yet.
         internal static Mission FindOriginalMission(string treeId)
         {
             if (string.IsNullOrEmpty(treeId))
@@ -828,16 +730,9 @@ namespace Parsek
                 : DisplayNameForTree(tree.Id, tree.TreeName, tree.AutoGeneratedRootGroupName);
         }
 
-        // True when m is its tree's original (main) mission, i.e. not a clone. Clones are inserted
-        // after the original, so the original is always the first same-tree mission in list order.
-        internal static bool IsOriginalMission(Mission m)
-        {
-            return m != null && ReferenceEquals(FindOriginalMission(m.TreeId), m);
-        }
-
         // Sets a mission's display name. Used by the rename flows (including the linked
         // main-mission <-> group rename in MissionGroupLink). No-op when the name is blank or
-        // unchanged. Mission names need not be unique (clones / different trees may share one),
+        // unchanged. Mission names need not be unique (different trees may share one),
         // so there is no collision check here; the group side enforces uniqueness.
         internal static void RenameMission(Mission m, string newName)
         {
@@ -883,6 +778,7 @@ namespace Parsek
                 unknownKeys += m.UnknownValues.Count + m.UnknownNodes.Count;
                 missions.Add(m);
             }
+            DropLegacyClones();
             if (newerSelection > 0)
                 ParsekLog.Warn("Mission",
                     $"{newerSelection.ToString(CultureInfo.InvariantCulture)} mission(s) carry a newer " +
@@ -892,6 +788,36 @@ namespace Parsek
             if (!SuppressLogging)
                 ParsekLog.Info("Mission",
                     $"Loaded {missions.Count} mission(s); unknownKeysKeptVerbatim={unknownKeys.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Keeps one mission per tree: the first in list order (the tree's default; a clone was
+        /// always inserted after its source), and removes every later mission of the same tree.
+        /// Older builds let the player clone a mission onto the same tree; the clone feature is
+        /// gone (owner ruling 2026-11-22: drop clones from the list on load), so a save that
+        /// still carries one loads without it and the next save writes it out. Missions with no
+        /// tree id are left to <see cref="PruneOrphans"/>. Returns the number removed.
+        /// </summary>
+        internal static int DropLegacyClones()
+        {
+            var seenTrees = new HashSet<string>(StringComparer.Ordinal);
+            var dropped = new List<string>();
+            int removed = missions.RemoveAll(m =>
+            {
+                if (m == null || string.IsNullOrEmpty(m.TreeId))
+                    return false;
+                if (seenTrees.Add(m.TreeId))
+                    return false;
+                if (dropped.Count < 10)
+                    dropped.Add("'" + (m.Name ?? "") + "' (tree=" + m.TreeId + ")");
+                return true;
+            });
+            if (removed > 0 && !SuppressLogging)
+                ParsekLog.Info("Mission",
+                    $"DropLegacyClones: removed {removed.ToString(CultureInfo.InvariantCulture)} " +
+                    "legacy clone mission(s), keeping each tree's first mission: " +
+                    string.Join(", ", dropped.ToArray()) + (removed > dropped.Count ? ", ..." : ""));
+            return removed;
         }
     }
 }

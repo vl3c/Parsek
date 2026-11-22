@@ -63,197 +63,86 @@ namespace Parsek.Tests
             Assert.Equal(2, MissionStore.Missions.Count);
         }
 
-        [Fact]
-        public void Clone_CopiesSelection_IntoAnIndependentMission()
+        private static ConfigNode MissionNode(string id, string treeId, string name, bool loop = false)
         {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            Mission original = First();
-            original.ExcludedIntervalKeys.Add("legA");
-            original.LoopPlayback = true;
-            original.LoopIntervalSeconds = 42.5;
-            original.LoopTimeUnit = LoopTimeUnit.Min;
-            original.LoopAnchorUT = 9876.5;
-
-            Mission clone = MissionStore.Clone(original);
-
-            Assert.Equal("t1", clone.TreeId);
-            Assert.Equal(original.Name + " copy", clone.Name);
-            Assert.NotEqual(original.Id, clone.Id);
-            Assert.Contains("legA", clone.ExcludedIntervalKeys);
-            Assert.Equal(2, MissionStore.CountForTree("t1"));
-
-            // Clone copies the loop settings (period, unit, anchor) but starts with its loop OFF:
-            // the source loops, and two looping missions may not share a tree.
-            Assert.False(clone.LoopPlayback);
-            Assert.True(original.LoopPlayback);
-            Assert.Equal(42.5, clone.LoopIntervalSeconds);
-            Assert.Equal(LoopTimeUnit.Min, clone.LoopTimeUnit);
-            Assert.Equal(9876.5, clone.LoopAnchorUT);
-
-            clone.ExcludedIntervalKeys.Add("legB");
-            Assert.DoesNotContain("legB", original.ExcludedIntervalKeys); // independent sets
+            var n = new ConfigNode("MISSION");
+            n.AddValue("id", id);
+            n.AddValue("treeId", treeId ?? "");
+            n.AddValue("name", name);
+            n.AddValue("loopPlayback", loop);
+            return n;
         }
 
-        // catches: MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE. Cloning a looping
-        // mission used to copy LoopPlayback verbatim, leaving two looping missions on one tree
-        // (the loop-unit builder then warned "already owned by another looping unit" on every
-        // rebuild until NormalizeOneLoopPerTree ran at the next load).
+        // catches: a legacy clone surviving a load. Older builds let the player clone a mission
+        // onto the same tree (a clone was inserted after its source); the clone feature is gone
+        // and a save that still holds one loads without it (owner ruling 2026-11-22), keeping
+        // each tree's FIRST mission, looping or not, and writing the clones out on the next save.
         [Fact]
-        public void Clone_OfLoopingMission_LeavesExactlyOneLoopOnTheTree_AndLogsTheDisarm()
+        public void Load_DropsLegacyClones_KeepsEachTreesFirstMission_AndLogs()
         {
             var logLines = new List<string>();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            ParsekLog.VerboseOverrideForTesting = true;
             MissionStore.SuppressLogging = false;
 
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            Mission original = First();
-            MissionStore.SetLoopEnabled(original, true, 1500.0);
-            original.LoopIntervalSeconds = 90.0;
-            original.LoopTimeUnit = LoopTimeUnit.Min;
+            var node = new ConfigNode("PARSEK");
+            node.AddNode(MissionNode("m1", "t1", "Kerbal X"));
+            node.AddNode(MissionNode("m1c", "t1", "Kerbal X copy", loop: true));
+            node.AddNode(MissionNode("m2", "t2", "Mun Lander", loop: true));
+            node.AddNode(MissionNode("m1c2", "t1", "Kerbal X copy 2"));
 
-            Mission clone = MissionStore.Clone(original);
+            MissionStore.Load(node);
 
-            // The invariant holds immediately, with no load-time normalization.
-            int looping = 0;
+            var ids = new List<string>();
             foreach (Mission m in MissionStore.Missions)
-                if (m.TreeId == "t1" && m.LoopPlayback)
-                    looping++;
-            Assert.Equal(1, looping);
-            Assert.Equal(0, MissionStore.NormalizeOneLoopPerTree());
-
-            // The original is untouched; the copy is disarmed but keeps the loop settings.
-            Assert.True(original.LoopPlayback);
-            Assert.Equal(1500.0, original.LoopAnchorUT);
-            Assert.Equal(90.0, original.LoopIntervalSeconds);
-            Assert.False(clone.LoopPlayback);
-            Assert.Equal(90.0, clone.LoopIntervalSeconds);
-            Assert.Equal(LoopTimeUnit.Min, clone.LoopTimeUnit);
-
+                ids.Add(m.Id);
+            Assert.Equal(new[] { "m1", "m2" }, ids);
+            Assert.False(MissionStore.FindById("m1").LoopPlayback); // the clone's loop goes with it
+            Assert.True(MissionStore.FindById("m2").LoopPlayback);
             Assert.Contains(logLines, l => l.Contains("[Mission]")
-                && l.Contains("Clone: copy 'Kerbal X copy' (tree=t1) created with loop OFF")
-                && l.Contains("because source 'Kerbal X' loops (one loop per tree)")
-                && l.Contains("period=90 unit=Min"));
+                && l.Contains("DropLegacyClones: removed 2 legacy clone mission(s)")
+                && l.Contains("'Kerbal X copy' (tree=t1)")
+                && l.Contains("'Kerbal X copy 2' (tree=t1)"));
+            Assert.Contains(logLines, l => l.Contains("Loaded 2 mission(s)"));
 
-            // Arming the copy later is the ordinary one-loop-per-tree switch.
-            MissionStore.SetLoopEnabled(clone, true, 2000.0);
-            Assert.True(clone.LoopPlayback);
-            Assert.False(original.LoopPlayback);
-            Assert.Equal(90.0, clone.LoopIntervalSeconds);
+            // The next save writes the clones out for good.
+            var saved = new ConfigNode("PARSEK");
+            MissionStore.Save(saved);
+            Assert.Equal(2, saved.GetNodes("MISSION").Length);
         }
 
         [Fact]
-        public void Clone_OfNonLoopingMission_CopiesSettings_AndLogsNoDisarm()
+        public void Load_WithOneMissionPerTree_DropsNothing_AndLogsNoDrop()
         {
             var logLines = new List<string>();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            ParsekLog.VerboseOverrideForTesting = true;
             MissionStore.SuppressLogging = false;
 
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            Mission original = First();
-            original.LoopIntervalSeconds = 30.0;
-            original.LoopTimeUnit = LoopTimeUnit.Hour;
+            var node = new ConfigNode("PARSEK");
+            node.AddNode(MissionNode("m1", "t1", "Kerbal X"));
+            node.AddNode(MissionNode("m2", "t2", "Mun Lander"));
 
-            Mission clone = MissionStore.Clone(original);
+            MissionStore.Load(node);
 
-            Assert.False(original.LoopPlayback);
-            Assert.False(clone.LoopPlayback);
-            Assert.Equal(30.0, clone.LoopIntervalSeconds);
-            Assert.Equal(LoopTimeUnit.Hour, clone.LoopTimeUnit);
-            Assert.Contains(logLines, l => l.Contains("[Mission]")
-                && l.Contains("Cloned mission 'Kerbal X' -> 'Kerbal X copy' (tree=t1)"));
-            Assert.DoesNotContain(logLines, l => l.Contains("created with loop OFF"));
+            Assert.Equal(2, MissionStore.Missions.Count);
+            Assert.Equal(0, MissionStore.DropLegacyClones());
+            Assert.DoesNotContain(logLines, l => l.Contains("DropLegacyClones"));
         }
 
+        // Missions with no tree id are not clones of anything: DropLegacyClones leaves them for
+        // PruneOrphans, so each pass keeps its own reason in the log.
         [Fact]
-        public void Clone_InsertsCopyDirectlyAfterSource()
+        public void Load_LeavesTreelessMissionsForPruneOrphans()
         {
-            // Two trees so there is a mission after the source to displace; the clone must land
-            // between the source and the next mission, not at the end of the list.
-            MissionStore.EnsureDefaultsForTrees(
-                new List<RecordingTree> { Tree("t1", "Kerbal X"), Tree("t2", "Mun Lander") });
-            var before = new List<Mission>(MissionStore.Missions);
-            Mission source = before.Find(m => m.TreeId == "t1");
+            var node = new ConfigNode("PARSEK");
+            node.AddNode(MissionNode("m1", "t1", "Kerbal X"));
+            node.AddNode(MissionNode("n1", null, "Stray A"));
+            node.AddNode(MissionNode("n2", null, "Stray B"));
 
-            Mission clone = MissionStore.Clone(source);
+            MissionStore.Load(node);
 
-            var after = new List<Mission>(MissionStore.Missions);
-            int srcPos = after.IndexOf(source);
-            Assert.Equal(srcPos + 1, after.IndexOf(clone)); // directly after the source
-            Assert.Equal(before.Count + 1, after.Count);
-        }
-
-        [Fact]
-        public void Delete_BlockedOnOriginal_AllowedOnCopy()
-        {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            Mission only = First();
-
-            Assert.False(MissionStore.CanDelete(only));
-            Assert.False(MissionStore.Delete(only));
-            Assert.Equal(1, MissionStore.CountForTree("t1"));
-
-            Mission clone = MissionStore.Clone(only);
-            Assert.True(MissionStore.CanDelete(clone));
-            Assert.True(MissionStore.Delete(clone));
-            Assert.Equal(1, MissionStore.CountForTree("t1"));
-        }
-
-        [Fact]
-        public void Delete_OriginalNeverDeletable_EvenWithCopies()
-        {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            Mission original = First();
-            Mission copy = MissionStore.Clone(original);
-            Mission copy2 = MissionStore.Clone(original);
-
-            // The original (first mission of the tree) is never deletable, even with copies present;
-            // only the copies are.
-            Assert.False(MissionStore.CanDelete(original));
-            Assert.True(MissionStore.CanDelete(copy));
-            Assert.True(MissionStore.CanDelete(copy2));
-            Assert.False(MissionStore.Delete(original));
-            Assert.Equal(3, MissionStore.CountForTree("t1"));
-        }
-
-        // catches: the delete refusal collapsing back into one answer. CanDelete says no for
-        // three distinct reasons, and the UI's greyed-out hover text used to state only the
-        // middle one, as a constant, for every mission including deletable ones (GUI census,
-        // "UI information with no backend truth"). Also pins that CanDelete and the
-        // classifier cannot disagree - CanDelete is now a wrapper over it.
-        [Fact]
-        public void ClassifyDeleteRefusal_NamesTheRealReason()
-        {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            Mission original = First();
-            Mission clone = MissionStore.Clone(original);
-            var strayMission = new Mission { TreeId = "no-such-tree" };
-
-            Assert.Equal(MissionStore.MissionDeleteRefusal.NoMission,
-                MissionStore.ClassifyDeleteRefusal(null));
-            Assert.Equal(MissionStore.MissionDeleteRefusal.TreeOriginal,
-                MissionStore.ClassifyDeleteRefusal(original));
-            Assert.Equal(MissionStore.MissionDeleteRefusal.None,
-                MissionStore.ClassifyDeleteRefusal(clone));
-            Assert.Equal(MissionStore.MissionDeleteRefusal.NotInStore,
-                MissionStore.ClassifyDeleteRefusal(strayMission));
-
-            foreach (Mission m in new Mission[] { null, original, clone, strayMission })
-            {
-                Assert.Equal(
-                    MissionStore.ClassifyDeleteRefusal(m) == MissionStore.MissionDeleteRefusal.None,
-                    MissionStore.CanDelete(m));
-            }
-
-            // ...and each refusal reaches the player as its own sentence.
-            Assert.Equal(string.Empty, MissionsWindowUI.MissionDeleteDisabledReason(clone));
-            Assert.Contains("first mission",
-                MissionsWindowUI.MissionDeleteDisabledReason(original));
-            Assert.Contains("no longer in the mission list",
-                MissionsWindowUI.MissionDeleteDisabledReason(strayMission));
-            Assert.Contains("no mission selected",
-                MissionsWindowUI.MissionDeleteDisabledReason((Mission)null));
+            Assert.Equal(3, MissionStore.Missions.Count);
+            Assert.Equal(2, MissionStore.PruneOrphans(new List<RecordingTree> { Tree("t1", "Kerbal X") }));
+            Assert.Equal("m1", First().Id);
         }
 
         [Fact]
@@ -378,19 +267,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SaveLoad_AndClone_RoundTripExcludedIntervalKeys()
+        public void SaveLoad_RoundTripsExcludedIntervalKeys()
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
             Mission m = First();
             m.ExcludedIntervalKeys.Add("L");        // dropped launch interval
             m.ExcludedIntervalKeys.Add("L/seg1");   // dropped survivor too
-
-            // Clone copies the interval-trim selection independently.
-            Mission copy = m.Clone("m-copy");
-            Assert.Equal(2, copy.ExcludedIntervalKeys.Count);
-            Assert.Contains("L", copy.ExcludedIntervalKeys);
-            copy.ExcludedIntervalKeys.Add("extra");
-            Assert.DoesNotContain("extra", m.ExcludedIntervalKeys); // independent set
 
             var node = new ConfigNode("PARSEK");
             MissionStore.Save(node);
@@ -401,18 +283,6 @@ namespace Parsek.Tests
             Assert.Equal(2, loaded.ExcludedIntervalKeys.Count);
             Assert.Contains("L", loaded.ExcludedIntervalKeys);
             Assert.Contains("L/seg1", loaded.ExcludedIntervalKeys);
-        }
-
-        [Fact]
-        public void Clone_CopiesCollapsedFlag()
-        {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            First().Collapsed = true;
-            MissionStore.Clone(First());
-
-            var all = new List<Mission>(MissionStore.Missions);
-            Assert.Equal(2, all.Count);
-            Assert.True(all[1].Collapsed); // the copy (inserted right after the source) carries it
         }
 
         [Fact]
@@ -430,31 +300,6 @@ namespace Parsek.Tests
             MissionStore.Load(node);
 
             Assert.True(double.IsNaN(First().LoopAnchorUT));
-        }
-
-        [Fact]
-        public void SetLoopEnabled_On_TurnsTargetOn_AndSameTreeOthersOff()
-        {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X") });
-            Mission a = First();
-            Mission b = MissionStore.Clone(a); // same tree t1
-            Mission c = MissionStore.Clone(a); // same tree t1
-
-            // Pre-set two same-tree variants on to prove one-loop-per-tree clears them.
-            b.LoopPlayback = true;
-            c.LoopPlayback = true;
-
-            MissionStore.SetLoopEnabled(a, true, 1000.0);
-
-            Assert.True(a.LoopPlayback);
-            Assert.False(b.LoopPlayback);
-            Assert.False(c.LoopPlayback);
-
-            // Turning a different variant of the SAME tree on clears the previous selection.
-            MissionStore.SetLoopEnabled(b, true, 1000.0);
-            Assert.False(a.LoopPlayback);
-            Assert.True(b.LoopPlayback);
-            Assert.False(c.LoopPlayback);
         }
 
         [Fact]
@@ -479,9 +324,11 @@ namespace Parsek.Tests
         [Fact]
         public void SetLoopEnabled_Off_TurnsOnlyTargetOff()
         {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X") });
-            Mission a = First();
-            Mission b = MissionStore.Clone(a);
+            MissionStore.EnsureDefaultsForTrees(
+                new List<RecordingTree> { Tree("t1", "X"), Tree("t2", "Y") });
+            var all = new List<Mission>(MissionStore.Missions);
+            Mission a = all.Find(m => m.TreeId == "t1");
+            Mission b = all.Find(m => m.TreeId == "t2");
             a.LoopPlayback = true;
             b.LoopPlayback = true;
 
@@ -514,29 +361,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NormalizeOneLoopPerTree_ClearsExtraSameTreeLoops_KeepsFirstPerTree()
-        {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X") });
-            Mission a = First();
-            Mission b = MissionStore.Clone(a); // same tree t1
-            Mission c = MissionStore.Clone(a); // same tree t1
-            // Simulate a hand-edited save where several same-tree missions loop at once.
-            a.LoopPlayback = true;
-            b.LoopPlayback = true;
-            c.LoopPlayback = true;
-
-            int cleared = MissionStore.NormalizeOneLoopPerTree();
-
-            Assert.Equal(2, cleared);
-            Assert.True(a.LoopPlayback);   // first in list order for the tree is kept
-            Assert.False(b.LoopPlayback);
-            Assert.False(c.LoopPlayback);
-
-            // Idempotent: a second pass clears nothing.
-            Assert.Equal(0, MissionStore.NormalizeOneLoopPerTree());
-        }
-
-        [Fact]
         public void NormalizeOneLoopPerTree_KeepsOneLoopPerDistinctTree()
         {
             MissionStore.EnsureDefaultsForTrees(
@@ -561,15 +385,14 @@ namespace Parsek.Tests
             // A corrupt save could carry missions with no tree id. NormalizeOneLoopPerTree maps a
             // null TreeId to "" so all null-tree missions share ONE logical loop slot, while a
             // real-tree mission stays independent.
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X") });
-            Mission real = First();                // tree t1
-            Mission n1 = MissionStore.Clone(real); // inserted after its source
-            Mission n2 = MissionStore.Clone(real); // inserted after its source
-            n1.TreeId = null;
-            n2.TreeId = null;
-            real.LoopPlayback = true;
-            n1.LoopPlayback = true;
-            n2.LoopPlayback = true;
+            var node = new ConfigNode("PARSEK");
+            node.AddNode(MissionNode("real", "t1", "X", loop: true));
+            node.AddNode(MissionNode("n1", null, "Stray A", loop: true));
+            node.AddNode(MissionNode("n2", null, "Stray B", loop: true));
+            MissionStore.Load(node);
+            Mission real = MissionStore.FindById("real");
+            Mission n1 = MissionStore.FindById("n1");
+            Mission n2 = MissionStore.FindById("n2");
 
             int cleared = MissionStore.NormalizeOneLoopPerTree();
 

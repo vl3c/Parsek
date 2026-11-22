@@ -36,8 +36,8 @@ namespace Parsek
     /// (they are not in the map) and debris is never a leg.</item>
     /// </list>
     ///
-    /// <para>Numbering is per TREE, not per Mission: clones of a mission share the tree, and
-    /// a vessel keeps the same name in every one of them whatever each clone includes. No
+    /// <para>Numbering is per TREE, not per Mission: a vessel keeps the same name whatever
+    /// the mission's include set leaves out. No
     /// Unity calls; the only shared state read is the mission names (the partner phrase's
     /// fallback when the caller passes no mission-name resolver).</para>
     /// </summary>

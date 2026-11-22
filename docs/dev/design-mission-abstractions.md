@@ -216,15 +216,14 @@ A Mission is a persisted, named object that wraps a selection:
 - loop on/off and a loop period,
 - a name.
 
-Multiple Missions may target the same tree with different selections. CLONE
-duplicates the Mission DEFINITION (leg references + included state + settings),
-never the recording data, so variants are cheap. A Mission is the persistence
-answer for the abstraction: it is what gets saved, listed, cloned, and looped.
+A Mission is the persistence answer for the abstraction: it is what gets saved,
+listed and looped.
 
-Invariant: every recorded tree always has at least one Mission. A default Mission
-(everything included) is auto-created when the tree is first recorded, and DELETE
-is blocked on the last remaining Mission for a tree, so the tree can never be left
-without a Mission. Extra (cloned, reconfigured) Missions are freely deletable.
+Invariant: every recorded tree has exactly one Mission. A default Mission
+(everything included) is auto-created when the tree is first recorded. Older builds
+let the player CLONE a Mission onto the same tree and DELETE a clone; both were
+removed on 2026-11-22 (owner decision), and `MissionStore.Load` drops every Mission
+after a tree's first (`DropLegacyClones`).
 
 ### 6. Supply run / supply route (deferred)
 
@@ -245,9 +244,8 @@ is `docs/dev/design-ui-basic-advanced.md` section 4.5; `docs/parsek-missions-des
 section 9 summarizes it. What it renders, in terms of this hierarchy:
 
 - One two-line BAR per Mission (layer 5): its name, a summary line, and the Mission-level
-  controls - `Log`, `Watch`, `Rewind` / `Forward` and `Collapse` in both modes; `Clone`,
-  `Delete` (greyed on a tree's first Mission, so every tree keeps at least one), `Warp to...`
-  and the `Loop [x] every [N] [unit]` row in Advanced.
+  controls - `Log`, `Watch`, `Rewind` / `Forward` and `Collapse` in both modes; `Warp to...` and the
+  `Loop [x] every [N] [unit]` row in Advanced.
 - Under it, one row per physical vessel or EVA kerbal of the mission tree (layers 2-3,
   `MissionVesselRowBuilder.Build` over the composition trees). Indentation increases ONLY at a
   separation, so depth = separation lineage, never time or event count; debris is not a row
@@ -620,8 +618,7 @@ into stack "AB" and later undock:
 - A selection is a contiguous interval per path; uncheck = drop it and everything
   downstream.
 - Selections may overlap freely.
-- A Mission is a saved, named selection + loop settings; Clone copies the
-  definition, not the recording data.
+- A Mission is a saved, named selection + loop settings, one per tree.
 - Loop is a Mission-level property (the whole mission loops as a unit), reusing
   the span-clock playback mechanism.
 
@@ -647,8 +644,8 @@ into stack "AB" and later undock:
    unchecking from the top down. Confirm there is no need for a separate "hole in
    the middle" state (there should not be: the spine must stay contiguous).
 2. Default Mission creation. RESOLVED: each recorded tree auto-spawns a default
-   Mission (everything included) and always keeps at least one (Delete is blocked
-   on the last remaining Mission for a tree).
+   Mission (everything included) and keeps exactly that one (clone and delete were
+   removed on 2026-11-22).
 3. Selection vs a changing tree. Persistence stores the set of EXCLUDED through-line
    head ids; the included set is DERIVED live from current topology. That split the
    problem into a robust part and a residual.
