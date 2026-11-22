@@ -90,7 +90,7 @@ namespace Parsek.Tests
 
         // A crewed stage recorded to UT 1000 on an escape, its tail predicted to a final orbit
         // around the Mun through the production applier (Orbiting at 3000, predicted segments).
-        private static Recording PredictedFinalOrbitStage(bool predictedTail = true)
+        internal static Recording PredictedFinalOrbitStage(bool predictedTail = true)
         {
             var rec = new Recording
             {
@@ -347,9 +347,13 @@ namespace Parsek.Tests
             {
                 Found = true, Eccentricity = 1.2, PeriapsisAltitude = 50000.0, StockRemovalAltitude = 37000.0,
             };
-            // still held, before or after the predicted end: never contradicted (orbits are not compared)
-            Assert.Equal(PredictedTouchdownOutcome.FinalOrbitHeld, DecideConfirmed(OrbitCandidate(), held, 2000.0));
-            Assert.Equal(PredictedTouchdownOutcome.FinalOrbitHeld, DecideConfirmed(OrbitCandidate(), held, 9000.0));
+            // still held, before or after the predicted end: left alone unless the comparison
+            // with stock's orbit (HeldFinalOrbitReconcileTests) says it differs
+            Assert.Equal(PredictedTouchdownOutcome.FinalOrbitNotCompared, DecideConfirmed(OrbitCandidate(), held, 2000.0));
+            Assert.Equal(PredictedTouchdownOutcome.FinalOrbitNotCompared, DecideConfirmed(OrbitCandidate(), held, 9000.0));
+            var agrees = new HeldFinalOrbitResult { Verdict = HeldFinalOrbitVerdict.Agrees };
+            Assert.Equal(PredictedTouchdownOutcome.FinalOrbitHeld,
+                PredictedTouchdownStockFate.Decide(OrbitCandidate(), held, 2000.0, true, true, 5.0, agrees));
             var active = held;
             active.IsActiveVessel = true;
             Assert.Equal(PredictedTouchdownOutcome.VesselIsActive, DecideConfirmed(OrbitCandidate(), active));
@@ -372,7 +376,11 @@ namespace Parsek.Tests
         {
             Recording rec = PredictedFinalOrbitStage();
             var recs = new List<Recording> { rec };
-            var held = new PredictedCrashLiveFacts { Found = true, Eccentricity = 1.2, PeriapsisAltitude = 50000.0 };
+            var held = new PredictedCrashLiveFacts
+            {
+                Found = true, Eccentricity = 0.01, PeriapsisAltitude = 93000.0,
+                LiveOrbit = HeldFinalOrbitReconcileTests.LiveOn(rec.OrbitSegments[0]),
+            };
             PredictedTouchdownPassResult pass = PredictedTouchdownStockFate.EvaluatePass(
                 recs, null, null, r => held, 1500.0, true, 1.0, new Dictionary<string, double>());
             Assert.Equal(1, pass.Candidates);
