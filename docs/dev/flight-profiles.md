@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 5 |
 | autopilot (mission) lanes | 164 |
 | seam-only lanes | 508 |
-| LIVE-PROVEN date in status row | 551 |
-| no LIVE-PROVEN date | 121 |
+| LIVE-PROVEN date in status row | 552 |
+| no LIVE-PROVEN date | 120 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -37,7 +37,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | AIR | 3 | - | - | 3 | - | 3 | 3 |
 | AJ | 1 | - | - | 1 | - | - | 1 |
 | AP | 1 | - | 1 | - | - | - | 1 |
-| ASR | 9 | 4 | 5 | - | - | 5 | 8 |
+| ASR | 9 | 4 | 5 | - | - | 5 | 9 |
 | AST | 4 | - | 4 | - | - | 4 | 4 |
 | AT | 1 | - | 1 | - | - | - | 1 |
 | B | 41 | 1 | 12 | 23 | 5 | 40 | 31 |
@@ -340,7 +340,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 426 | 133 | 354 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, L 17 +85 |
+| Kerbin | 426 | 133 | 355 | RF 29, V 26, RW 25, B 24, QL 22, GUI 19, LAB 18, L 17 +85 |
 | Mun | 68 | 15 | 56 | RW 22, V 8, B 5, CS 5, RSQ 4, TP 4, SOI 3, CT 2, MC 2 +13 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -370,7 +370,7 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 | revert | 23 | QL 4, RW 4, IR 3, VN 3, LAB 2, FAR 1, FXR 1, LX 1, REV 1, RF 1 +2 |
 | reload | 183 | V 30, QL 21, RF 17, LAB 10, SPW 9, EVA 8, MINE 7, RW 6, VN 6, RB 5 +37 |
 | save | 294 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +62 |
-| warp | 270 | RW 25, V 21, LAB 18, MINE 14, QL 12, EVA 11, SPW 11, CI 8, VN 8 +66 |
+| warp | 271 | RW 25, V 21, LAB 18, MINE 14, QL 12, EVA 11, SPW 11, ASR 8, CI 8 +66 |
 | physics-warp | 20 | QL 5, ASR 4, PWR 3, RF 2, CA 1, FAR 1, L 1, SPW 1, STR 1, V 1 |
 | time-jump | 128 | V 44, RVR 14, RF 9, TP 8, QL 6, S 6, GUI 5, H 5, IR 4, MINE 4 +19 |
 | scene-change | 197 | V 30, RW 25, QL 14, RF 13, CS 11, LAB 8, S 5, ASR 4, CI 4, CX 4 +52 |
@@ -384,7 +384,7 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 426 | 112 | 52 | 17 | 151 | 223 | 220 | 18 | 51 | 161 | 20 | - |
+| Kerbin | 426 | 112 | 52 | 17 | 151 | 223 | 221 | 18 | 51 | 161 | 20 | - |
 | Mun | 68 | 33 | 7 | 6 | 18 | 47 | 47 | - | 13 | 42 | - | 1 |
 | Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
@@ -413,7 +413,7 @@ Lanes per family (rows) per timeline operation (columns).
 | AIR | 3 | 2 | - | - | - | - | 2 | - | - | 1 | - | - |
 | AJ | 1 | - | 1 | - | - | - | - | - | 1 | - | 1 | - |
 | AP | 1 | - | - | - | - | - | 1 | - | 1 | - | - | - |
-| ASR | 9 | - | - | - | 1 | 4 | 7 | 4 | - | 4 | 2 | - |
+| ASR | 9 | - | - | - | 1 | 4 | 8 | 4 | - | 4 | 2 | - |
 | AST | 4 | 2 | 1 | - | 3 | 4 | 4 | - | 1 | 1 | - | - |
 | AT | 1 | - | - | - | - | - | - | - | 1 | - | - | - |
 | B | 41 | - | - | - | - | 5 | - | - | - | - | - | - |
@@ -594,7 +594,7 @@ Lanes per family (rows) per timeline operation (columns).
 | SetSetting | 663 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, QL 23, L 22, S 20, RVR 19 +100 |
 | StopRecording | 382 | V 65, RF 25, RW 24, RVR 19, LAB 17, EVA 16, H 15, B 14, MINE 14 +66 |
 | SaveGame | 294 | RW 25, QL 22, V 21, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +62 |
-| WarpToUT | 270 | RW 25, V 21, LAB 18, MINE 14, QL 12, EVA 11, SPW 11, CI 8, VN 8 +66 |
+| WarpToUT | 271 | RW 25, V 21, LAB 18, MINE 14, QL 12, EVA 11, SPW 11, ASR 8, CI 8 +66 |
 | DiscardTree | 255 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, SPW 9, TP 9 +41 |
 | RecordingState | 252 | RF 27, V 21, QL 16, LAB 14, MINE 12, VN 12, CS 11, EVA 11, L 11 +51 |
 | RunTests | 229 | H 71, RW 25, V 13, CS 10, SPW 9, L 8, CN 6, LT 5, S 5, FAR 4, RF 4 +44 |
@@ -901,7 +901,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | ASR-5-far-switch-commits-predicted-fall | nightly | eva2-lko-crewed | kx_rewind_watch | Kerbin | warp, physics-warp, vessel-switch | - | LIVE-PROVEN 2026-11-22 |
 | ASR-6-takeover-drops-predicted-fall | nightly | gs1-two-stage-pad | kx_rewind_watch | Kerbin | reload, save, warp, physics-warp +2 | - | LIVE-PROVEN 2026-11-22 |
 | ASR-7-chute-stage-lands-after-in-flight-commit | nightly | gs1-two-stage-pad | gs1_auto_chute_booster | Kerbin | warp, physics-warp | - | LIVE-PROVEN 2026-11-22 |
-| ASR-8-armed-chute-stage-falls-drag-free | daily | gs1-armed-chute-drop | seam | Kerbin | save, scene-change | - | AUTHORED 2026-11-22, NEVER FLOWN |
+| ASR-8-armed-chute-stage-falls-drag-free | daily | gs1-armed-chute-drop | seam | Kerbin | save, warp, scene-change | - | LIVE-PROVEN 2026-11-22 |
 | ASR-9-escape-stage-ends-orbiting-sun | daily | kerbin-escape-probe-stack | seam | Kerbin, Sun | warp | - | LIVE-PROVEN 2026-11-22 |
 
 ### AST (4)

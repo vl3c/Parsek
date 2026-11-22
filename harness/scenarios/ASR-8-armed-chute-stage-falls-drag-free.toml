@@ -62,8 +62,8 @@ id = "ASR-8-armed-chute-stage-falls-drag-free"
 # load, the presses, the split and the exit tokens.
 #
 # FAST-LANE CHECKLIST. 1 No committed host leaves a chuted craft above the opening line
-# (see THE HOST), so a by-construction fixture, no ascent. 2 No waits at all: the exit
-# follows the presses. 3 No dwells. 4-5 n/a (no burn, no coast). 6 Fail fast: a press
+# (see THE HOST), so a by-construction fixture, no ascent. 2 One explicit-UT 1x wait of
+# ~5 s (the split's RewindPoint must land before the exit). 3 No other dwell. 4-5 n/a (no burn, no coast). 6 Fail fast: a press
 # refusal is the step's own reply. 7 count {2,3} (two vessels; one optimizer cut of slack).
 # 8 daily (seam-only, ASR-3 / ASR-4 / ASR-9's shape). 9 flight_efficiency.py on the first
 # green flight.
@@ -94,6 +94,11 @@ steps = [
   { cmd = "PartAction",        args = { button = "chute", part = "parachuteRadial", all = "true" }, expect = "OK" },
   { cmd = "PartAction",        args = { button = "decouple", part = "Decoupler.1", partPid = "1500054019" }, expect = "OK" },
   { cmd = "RecordingState",                                                             expect = "OK" },
+  # A 1x dwell of ~5 s past the decouple (UT ~26.7 on flight 1) so the split leaves the
+  # crash-coalescer window and its RewindPoint quicksave is written before the exit (flight
+  # 1 left at once: the RP was authored inside the exit's own OnSave and lost, todo
+  # RP-QUICKSAVE-LOST-ON-IMMEDIATE-SCENE-EXIT). The chutes stay armed: ~150 m of fall.
+  { cmd = "WarpToUT",          args = { ut = "32", maxRate = "1" },                     expect = "OK", budget = 120 },
   { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
   { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK" },
   { cmd = "FlushAndQuit",                                                               expect = "OK" },
@@ -119,6 +124,8 @@ required = [
   "partaction applied button=decouple pid=[0-9]+ part='Decoupler\\.1' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
   "Controllable split children: \\[[0-9]+,[0-9]+\\]",
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+  # The dwell lets the split's quicksave land before the exit (Rewind/RewindPointAuthor.cs).
+  "\\[RewindSave\\] Wrote rp=\\S+ path=",
   # The commit (ASR-2's tokens).
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
   "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
@@ -137,6 +144,8 @@ forbidden = [
   "\\[Extrapolator\\] Chute descent declined: ",
   "\\[Extrapolator\\] Chute descent at scene exit: ",
   "reason=predictedTouchdown",
+  # Flight 1's shape (todo RP-QUICKSAVE-LOST-ON-IMMEDIATE-SCENE-EXIT), kept out by the dwell.
+  "Cleaned missing rewind-point quicksave:",
 ]
 
 # REPORT-ONLY (gating absent). C#-dependent; arm after the first reading run.
@@ -171,8 +180,9 @@ branchPoints   = { JointBreak = { min = 1, max = 1 } }
 
 [runtime]
 # LoadGame 660 + SetSetting x3 360 + StartRecording 120 + PartAction x3 360
-#   + RecordingState 120 + ExitToSpaceCenter 240 + SaveGame 120 + FlushAndQuit 120 = 2100.
-budgetSeconds = 2250
+#   + RecordingState 120 + WarpToUT 240 + ExitToSpaceCenter 240 + SaveGame 120
+#   + FlushAndQuit 120 = 2340. Flight 1 (no dwell) walled 95 s.
+budgetSeconds = 2500
 
 [retry]
 policy = "once"
