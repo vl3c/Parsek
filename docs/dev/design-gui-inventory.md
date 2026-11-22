@@ -175,7 +175,7 @@ structure:
 
 | grep over `Source/Parsek` | result |
 |---|---|
-| `ClickThruBlocker.GUILayoutWindow(` / `GUILayout.Window(` / `GUI.Window(` | 14 sites since the Gloops removal (2026-10-05): 13 player-facing hosts drawing **13 distinct windows** (the main window has two hosts, and `StructureListWindowUI`'s one site draws both the Log and the Route History), 1 test-only probe at `InGameTests/GuiTreeDumpImguiTest.cs:484`. 16 sites and 14 windows at `4eb427e9e` |
+| `ClickThruBlocker.GUILayoutWindow(` / `GUILayout.Window(` / `GUI.Window(` | 14 sites since the Gloops removal (2026-10-05): 13 player-facing hosts drawing **14 distinct windows** since the Mission Profile (2026-11-23; the main window has two hosts, and `LogTableWindowFrame`'s one site draws the Log, the Route History and the Profile), 1 test-only probe at `InGameTests/GuiTreeDumpImguiTest.cs:484`. 16 sites and 14 windows at `4eb427e9e` |
 | `PopupDialog.SpawnPopupDialog(` excluding `InGameTests/` + `TestCommands/` | **19** modal dialogs (21 at `4eb427e9e`; the two Settings wipe confirmations were removed 2026-09-26) |
 | `void OnGUI()` in production | **5** hosts: `ParsekFlight.cs:2087`, `ParsekKSC.cs:227`, `ParsekTrackingStation.cs:350`, `CurrencyReservationOverlay.cs:87`, `InGameTests/TestRunnerShortcut.cs:177` (`OverlayBadge.cs` was the sixth until 2026-09-25, when the stock-UI badges moved to stock mechanisms and the file was deleted) |
 | IMGUI draw calls outside `UI/` | 6 files: `CurrencyReservationOverlay.cs`, `MapMarkerRenderer.cs`, `ParsekFlight.cs`, `ParsekKSC.cs`, `ParsekUI.cs`, `WatchModeController.cs` (`OverlayBadge.cs` deleted 2026-09-25) |
@@ -372,10 +372,11 @@ not these lines.
 
 ### 3.0 Window index
 
-The 13 IMGUI windows Parsek draws, in the main window's own button order (the order
+The 14 IMGUI windows Parsek draws, in the main window's own button order (the order
 `TestCommands/TestCommandUiAction.cs` pins for the same reason). Rows 5 and 11 are unused
 numbers kept so the rows other sections cite keep their numbers; the Route History is row 8b,
-the second instance of row 8's class.
+the second instance of row 8's class, and the Mission Profile row 8c (owner ruling 2026-11-22,
+`docs/dev/design-mission-profile.md` section 0).
 
 | # | title | class + host line | scenes | seam token | census labels |
 |---|---|---|---|---|---|
@@ -388,6 +389,7 @@ the second instance of row 8's class.
 | 7 | Logistics round-trip link picker (`Link round-trip partner`) | `UI/LogisticsWindowUI.cs` (`DrawLinkPicker`) | as its host | excluded `TestCommandUiAction.cs:374-377`; reached by `op=picker picker=link` | `ib-logistics-linkpicker-advanced` (GUI-3, 198 nodes, `windows=4`) |
 | 8 | `Parsek - Log: <mission>` (bare `Parsek - Log` untargeted) | `UI/StructureListWindowUI.cs` (`BuildWindowTitle`) | FLIGHT, SPACECENTER | `structure` (`op=target mission=`) | `ib-structure-route-log-advanced`, `ib-structure-mission-advanced` (GUI-3), `ksc-structure-advanced` (GUI-1) |
 | 8b | `Parsek - Route History: <route>` | `UI/StructureListWindowUI.cs` (second instance, `RouteHistoryWindowIdKey`) | FLIGHT, SPACECENTER | `routehistory` (`op=target route=`) | `ib-routehistory-advanced` (GUI-3) |
+| 8c | `Parsek - Profile: <mission>` (bare `Parsek - Profile` untargeted) | `UI/MissionProfileWindowUI.cs` (frame `UI/LogTableWindowFrame.cs`) | FLIGHT, SPACECENTER | `profile` (`op=target mission=`; `op=mock` states `profile.mission.mun-return`, `profile.mission.empty`) | `ksc-profile-mission-advanced/basic` (GUI-1), `bd-profile-mission-advanced/basic`, `mock-profile-mission-mun-return-advanced`, `mock-profile-mission-empty-advanced` (GUI-4); none flown yet |
 | 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs:128` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
 | 10 | `Parsek - Real Spawn Control` | `UI/SpawnControlUI.cs` | FLIGHT only | `spawncontrol` | `rsc-spawncontrol-before-warp` (RSC-1, one candidate row) |
 | 11 | (unused number) | - | - | - | - |
@@ -501,7 +503,7 @@ describes the first row under it:
 |---|---|---|---|---|---|
 | 1 | (blank enable slot) | `ColW_Enable` 20 | blank | blank | blank |
 | 2 | `#` (sortable) | `ColW_Index` 30 | per-TREE index | the collapse caret (down / right) | include checkbox (Advanced) or blank |
-| 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames), then right-aligned (Advanced) `Warp to...`, then `Log` (`DrawMissionNameCell`) | the summary, then (Advanced) the loop row, right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
+| 3 | `Missions and vessels` (sortable) | expand | bold title (double-click renames), then right-aligned (Advanced) `Warp to...`, then `Profile` (`DrawMissionNameCell`) | the summary, then (Advanced) the loop row, or (Basic) the route label, then `Log`, right-aligned (`DrawMissionSummaryNameCell`) | connector + caret + name + `EventPhrase` |
 | 4 | `Start time` (sortable) | `ColW_StartTime` 120 | the mission span's start date | blank | `PrintDateCompact` |
 | 5 | `Start event` | `ColW_StartEvent` 110 | the first vessel row's start event (`MissionPresentation.MissionStartEventText`) | blank | event word |
 | 6 | `End event` | `ColW_EndEvent` 85 | the primary vessel's outcome | blank | terminal word |
@@ -521,21 +523,23 @@ right padding (`IndexHeaderRightPadding`), so the cell keeps its width and no ot
 
 The Interact column carries every per-row action, on one width system:
 `InteractButtonWidth` 100 for a single button (`Watch` on line 1 and `Rewind` / `Forward` on
-line 2 at the same x, `Go to`, and `Log` in the name cell), `InteractPairButtonWidth` 48 for
+line 2 at the same x, `Go to`), `InteractPairButtonWidth` 48 for
 each half of a pair (`Fly` / `Stash` + `Seal`), `InteractButtonGap` 4, so
 `2 * pair + gap == single`;
 the column is the single plus an 8 px inset each side (`InteractCellInset`). The Re-Fly pair
 is the Recordings tab's own cell drawn at that geometry
 (`RecordingsTableUI.DrawReFlyColumnCell`).
 
-The Advanced loop controls form a fixed grid in the name cell, right-aligned beside `Log`
-(no Clone / Delete column since 2026-11-22): column B
-(`LoopGridColumnBWidth` 92) holds `Warp to...` on line 1 and, on line 2, `Loop` (28) + the
-checkbox slot (22) + `every` (42), so `Loop` starts at Warp's left edge; under `Log` the value
-field (56) + 4 + the unit button (40) fill the 100 px Log slot, so the period ends at Log's
-right edge (`LoopCellWidth` 192 = column B + the Log slot). The line reads
+The mission bar's buttons form a fixed two-column grid in the name cell, right-aligned
+(owner layout A, 2026-11-22; no Clone / Delete column since 2026-11-22): column C
+(`LoopGridColumnCWidth` 72, BOTH modes) holds `Profile` on line 1 and `Log` under it on line 2,
+so the two modes put them in the same place; column B (`LoopGridColumnBWidth` 150, Advanced
+only), 4 px (`LoopGridGap`) to its left, holds `Warp to...` on line 1 and on line 2 the whole
+loop row (`LoopCellWidth` 150): `Loop` (28) + the checkbox slot (20) + `every` (34) + the period
+slot (`LoopPeriodSlotWidth` 68: value field 26 + 4 + unit button 38), so the period ends at
+Warp's right edge. The line reads
 `Loop [x] every [10] [sec]`. A locked period (phase-locked or re-aim) is one value-only label
-in the Log slot (`Loop [x] every ~13d-19d`); its qualifier (`Mun window, varies`,
+of the period slot (`Loop [x] every ~13d-19d`); its qualifier (`Mun window, varies`,
 `Kerbin rot`) and the locked-state sentence ride its hover
 (`MissionPresentation.BuildLockedPeriodTooltip`). Every control is fixed-width, has zero
 horizontal margin and is centred on its 22 px line (the checkbox, field and unit button each in
@@ -545,8 +549,9 @@ cannot act. A route-bound tree draws `Looped by route` across the whole loop row
 the toggle and period (the route owns the repeats; the hover `Looped by route: <name>` names
 the route).
 `MissionsTabColumnSequenceTests.TheLoopGridColumnsAreFixedAndLineUpAcrossBothLines` pins those
-edges and the zero margins. Basic draws no grid: the summary takes the whole name cell, `Log`
-sits right-aligned on line 1, and the route label sits right-aligned after the summary in
+edges, the zero margins and that Profile and Log draw outside the Advanced branch. Basic draws
+no column B: the summary takes the rest of the name cell, `Profile` sits right-aligned on line 1
+and `Log` under it, and the route label sits before `Log` on line 2 in
 Basic's words, `Run by route` with the hover `Run on the schedule of route '<name>'.` (Basic
 reads no loop word). The label's words follow the frame-latched mode
 (`MissionsWindowUI.RouteBoundLabel` / `RouteBoundTooltip`).
@@ -590,14 +595,15 @@ Mission bar controls, with their gates:
 | control | where | backend | disabled / hidden |
 |---|---|---|---|
 | title double-click | line 1 name cell | `CommitMissionRename` -> `MissionGroupLink.RenameMissionGroup` (`MissionStore.RenameMission` alone when the tree is not committed) | a group-name collision refuses the whole rename, Warn-only |
-| `Log` | line 1 name cell, right-aligned (right of the Advanced loop grid) | `ParsekUI.OpenStructureWindowForMission` | never |
+| `Profile` | line 1 name cell, right-aligned, column C (right of the Advanced `Warp to...`); hover `The mission's phases: orbits, burns, transfers, landings, docking and EVA, with the numbers.` (`MissionPresentation.ProfileButtonTooltip`) | `ParsekUI.OpenProfileWindowForMission` (3.7b) | never. Both modes |
+| `Log` | line 2 name cell, right-aligned, column C under `Profile` (right of the Advanced loop row) | `ParsekUI.OpenStructureWindowForMission` | never. Both modes |
 | `Watch` / `W*` | line 1 Interact, single width | `flight.EnterWatchMode` / `ExitWatchMode` | greyed with one of two reasons (`MissionWatchDisabledReason`: `Watching only works while you are flying`, `Nothing from this mission is flying right now`). Both modes |
 | `Rewind` / `Forward` | line 2 Interact, single width, under Watch | `RecordingsTableUI.DrawMissionRewindForwardButton` over the mission root recording | greyed on `CanRewind` / `CanFastForward` with the store's reason; not drawn when neither applies (a button-sized rect is reserved instead, so line 2 keeps its height), and not drawn at all when the mission's root recording owns no launch save (`RecordingStore.GetRewindRecording` null), the same rule as the Recordings tab's blank Rewind cell. Both modes |
 | collapse caret (down / right) | line 2 `#` cell, under the index | writes `Mission.Collapsed` | never. Both modes |
 | `Warp to...` | loop grid column B, line 1 | confirm dialog, then an in-place forward jump to 15 s before the next relaunch | HIDDEN in Basic; in Advanced always drawn, greyed with the first failing reason in order (`MissionWarpToDisabledReason`): `Warping works in flight or at the Space Center`; `Turn Loop on to warp to the next launch` (on a route-bound tree `A supply route repeats this mission, not Loop`); `This mission does not repeat on a schedule yet`; `The next launch is not ahead of you` |
 | `Loop` + toggle + `every` | loop row column B, line 2 | `CommitMissionLoopToggle` -> `MissionStore.SetLoopEnabled` | HIDDEN in Basic; not drawn on a route-bound tree |
 | `Looped by route` (Advanced) / `Run by route` (Basic) | line 2: across the whole loop row (Advanced) or right-aligned after the summary (Basic) | label; hover `Looped by route: <name>` / `Run on the schedule of route '<name>'.` | only on a route-bound tree |
-| loop-period cell | loop row, Log slot, line 2 | `CommitMissionLoopPeriod`, four states (locked / auto / manual / editing) | HIDDEN in Basic; not drawn on a route-bound tree; an open edit is DROPPED uncommitted on a Basic switch |
+| loop-period cell | loop row, period slot, line 2 | `CommitMissionLoopPeriod`, four states (locked / auto / manual / editing) | HIDDEN in Basic; not drawn on a route-bound tree; an open edit is DROPPED uncommitted on a Basic switch |
 
 The rows under the bar: one row per vessel with a caret (Advanced) that opens its per-vessel
 interval rows (`Kerbal X (pod x1, probe x1, crew x3)`, `after decouple: Kerbal X Probe left -
@@ -639,7 +645,7 @@ What `MissionsLoopControls` hides in Basic: the include checkboxes, the loop gri
 (`Warp to...`, `Loop`, the period cell), the summary's `Next launch T- ...` piece, the
 per-vessel interval rows, the vessel caret, the foreign partner-journey rows and the
 loop-selection styling (dimmed excluded vessels, the `(partial)` suffix, the chapter header's
-toggle, dimming and `[~]` marker). Basic keeps the title and rename, the summary, `Log`,
+toggle, dimming and `[~]` marker). Basic keeps the title and rename, the summary, `Profile`, `Log`,
 `Watch`, `Rewind` / `Forward`, the collapse caret, `Fly` / `Stash` / `Seal`, `Go to`, the
 chapter headers, the Docked partner rows and the route label (`Run by route` in Basic).
 
@@ -1203,6 +1209,30 @@ no row here.
 Pictures: Mission Log `ib-structure-route-log-advanced` (the Mun route's source mission) and
 `ib-structure-mission-advanced` (GUI-3); Route History `ib-routehistory-advanced` (GUI-3, the
 Mun route; this fixture's routes carry no runs of their own, so it shows the empty state).
+
+### 3.7b Parsek - Profile (the Mission Profile window)
+
+`UI/MissionProfileWindowUI.cs`, one instance owned by `ParsekUI` (`IMissionProfileWindow`),
+opened by a mission's `Profile` button (`ParsekUI.OpenProfileWindowForMission` ->
+`OpenForMission`); reopening it from another mission retargets it. Its frame is the Log's
+(`LogTableWindowFrame`: rect seed, resize, scaled draw, position log `MissionProfile`, input lock
+`Parsek_MissionProfileWindow`); it first opens 80 px right of and below where the Mission Log
+first opens, 960 x 420, floor 480 x 160. Read-only, no complexity gate (both modes), drawn by
+`ParsekUI.DrawStructureWindowIfOpen` after the two Log instances, released in `ParsekUI.Cleanup`,
+not in the Basic close set. Design: `docs/dev/design-mission-profile.md` sections 2 and 10.2.
+
+Columns: `Time` 100 (the launch date on the first line row, `T+h:mm:ss` after), `Element` expand
+(depth indent, then a caret on phases and vessel lines, then the label; the Summary block and
+the line headers bold), `Location` 150, `Duration` 80, `Spent` 74 (in the house orange
+`StatusColorKind.Orange` #ff9940 when it holds a figure, the `~` estimate included), `Left` 74,
+`Orbit / result` 190. Rows are `MissionProfileBuilder.BuildProfile`'s: the Summary block, then
+one vessel line per vessel with its phases and events. Every cell carries the row's hover
+sentence, read in the single-line strip above `Close`. Carets: `Collapse this element.` /
+`Expand this element.`; collapse state lives in the window per mission, cleared on open. Empty
+state: one muted row `This mission has no recorded flight.` under the headers. It rebuilds on a
+Layout pass when the committed recordings, the supersede rows, the mission's name or include set
+or the display names move, and closes when its tree is gone (`Profile window closed: tree=...
+no longer exists`).
 
 ### 3.8 Parsek - Settings
 

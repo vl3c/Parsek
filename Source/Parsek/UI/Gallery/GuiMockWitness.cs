@@ -102,7 +102,7 @@ namespace Parsek.UI.Gallery
                     AppendStructureBoolCovered(payload.Structure, cover, found);
                 }
                 if (payload.Profile != null)
-                    AppendProfileCovered(payload.Profile, enumName, member, found);
+                    AppendProfileCovered(payload.Profile, cover, found);
             }
             return found;
         }
@@ -376,22 +376,27 @@ namespace Parsek.UI.Gallery
 
         // ----- profile -----
 
-        // The row a covered kind names: a phase kind's row label, or the Empty row's
-        // sentence. The Element cell is what the window draws for it.
-        private static void AppendProfileCovered(GuiMockProfile mock, string enumName,
-                                                 string member, List<string> into)
+        // The row a covered bool branch names: the first row whose Spent the window draws in
+        // the house orange (its Element and Spent cells), or the Empty row's sentence.
+        private static void AppendProfileCovered(GuiMockProfile mock, string cover,
+                                                 List<string> into)
         {
             List<MissionProfileRow> rows = mock.Profile != null ? mock.Profile.Rows : null;
             if (rows == null) return;
             for (int i = 0; i < rows.Count; i++)
             {
                 MissionProfileRow row = rows[i];
-                bool hit = (enumName == "ProfilePhaseKind" && row.PhaseKind.HasValue
-                            && row.PhaseKind.Value.ToString() == member)
-                    || (enumName == "MissionProfileRowKind" && row.Kind.ToString() == member);
-                if (!hit) continue;
-                Add(into, row.Element);
-                return;
+                if (cover == "MissionProfileRow.SpentOrange"
+                    && MissionProfileWindowUI.DrawsSpentInOrange(row))
+                {
+                    Add(into, row.Element);
+                    return;
+                }
+                if (cover == "MissionProfileRow.Empty" && row.Kind == MissionProfileRowKind.Empty)
+                {
+                    Add(into, row.Element);
+                    return;
+                }
             }
         }
 

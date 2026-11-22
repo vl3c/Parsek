@@ -1,7 +1,8 @@
 # Mission Profile window (design)
 
 Status: P1a built and live-proven; the P1b core (analyzer, lines, builder, row model) built
-2026-11-22 (section 10.1); the window and its seams are next. Roadmap Phase 17, first
+2026-11-22 and the window, buttons, seam op, gallery states and census captures built 2026-11-23
+(sections 10.1, 10.2); the census captures and the mirror epochs owe their flights. Roadmap Phase 17, first
 deliverable. Mockup: the "Parsek Profile Mockup" HTML page published with this doc (three missions
 from committed fixtures). Inputs: `docs/dev/research/mission-profile-foundation-notes-2026-11-21.md`
 (Fable review F1-F6), the split rule versions 2 / 3 (`RecordingOptimizer.SplitRules.cs`,
@@ -92,14 +93,17 @@ the same width, and Warp to... can be larger so Loop .. fits under it".
   (owner decision 2026-11-22, "for the basic view, i think we can place Log button under Profile
   also"), both at the column C width (72 px), so the two modes put the buttons in the same place.
   Line 2 of a Basic bar keeps `[Run by route]` (when route-bound) to the left of Log.
-- Advanced (layout A): the loop grid keeps three columns, re-sized:
-  - line 1: `[A: Clone] [B: Warp to...] [C: Profile]`
-  - line 2: `[A: Delete] [B: Loop [x] every [10] sec] [C: Log]`
-  - columns A and C share one width (72 px; `LoopGridColumnAWidth` and a new
-    `LoopGridColumnCWidth`), column B widens to 150 px so the whole loop row ("Loop", the checkbox,
-    "every", the period field, "sec") fits under Warp; 4 px gaps; 302 px in all, 36 px wider than
-    today's 266. "Looped by route" fills column B. `LoopCellWidth` becomes column B alone;
-    `MissionsTabColumnSequenceTests` and the loop-grid width constants move with it.
+- Advanced (layout A, as built 2026-11-23 after the Clone / Delete removal of PR #2781 took
+  column A): two columns,
+  - line 1: `[B: Warp to...] [C: Profile]`
+  - line 2: `[B: Loop [x] every [10] sec] [C: Log]`
+  - column C is 72 px (`LoopGridColumnCWidth`, the same in Basic), column B 150 px
+    (`LoopGridColumnBWidth` = `LoopCellWidth`) so the whole loop row fits under Warp: "Loop" 28,
+    the checkbox slot 20, "every" 34, then the period slot (`LoopPeriodSlotWidth` 68: value field
+    26, gap 4, unit button 38); a locked period is one label of the period slot. 4 px gap
+    (`LoopGridGap`); 226 px in all. "Looped by route" fills column B.
+    `MissionsTabColumnSequenceTests` pins the widths and that Profile and Log are drawn outside
+    the Advanced branch.
 
 Tooltip (an existing-tooltip-shaped addition, budgeted by `TooltipEchoBudgetTests`):
 "The mission's phases: orbits, burns, transfers, landings, docking and EVA, with the numbers."
@@ -750,6 +754,40 @@ Correction (~35 m/s against the hand ~14: the burn has a radial part). A.2's fir
 `Ap 11,100 km, Pe -201 km` (the encounter belongs to the coast after the second Correction). A.3's
 approach burns and final orbit read the stored terminal orbit (`117 x 102 km`) instead of `-` /
 `about 117 km`, and its final Kerbin orbit is 0.9 s (`0s`). The fixture tests pin the rows as built.
+
+### 10.2 As built: the window, buttons, seam and gallery (2026-11-23)
+
+- Window: `UI/MissionProfileWindowUI.cs`, one instance in `ParsekWindowSet`, reached by `ParsekUI`
+  through `IMissionProfileWindow` (`UI/ParsekUIWindowContracts.cs`), drawn from
+  `DrawStructureWindowIfOpen` after the two Log instances. The frame (rect seed, resize, opaque
+  style, `ParsekUiScale.Window`, position log, camera lock while hovered) is
+  `UI/LogTableWindowFrame.cs`, which the Mission Log / Route History now draw through too; each
+  window keeps its own table, hover strip and Close. Not in the Basic close set, like the Log.
+- Rebuild: on open and on a Layout event when `ComputeChangeSignature` moves (the Log's signature
+  over `StateVersion`, the mission, its name and include set and `DisplayNames.Version`, plus
+  `ParsekScenario.SupersedeStateVersion`); a deleted tree closes the window with an Info line. The
+  per-line `PhasePlan` cache of section 6 is not built: a rebuild re-analyses (one `[Profile]`
+  summary per rebuild, never per frame).
+- The request the window fills: structure, vessel names and partner legs the Log's way, the
+  effective ids as the tree's visible recordings with the session suppression ignored
+  (`EffectiveRecordingIdsOf` over `EffectiveState.IsVisible`), the scenario's supersede rows, live
+  body facts (`RecordingOptimizer.ResolveBodyFacts`), the Log's date formatter, part-title and
+  dock-partner resolvers, the committed trees and their mission names, and the career totals summed
+  from ELS rows tagged to the effective ids (`SumCareer`: science, funds and reputation earnings,
+  spendings, penalties, milestones and contract results).
+- Draw: seven columns of 2.3; the Element cell carries the depth indent and a caret slot (a
+  clickable glyph on phases and line headers); Summary and line headers bold, the Empty row muted,
+  Spent in `StatusColorKind.Orange` whenever the row has a figure (`DrawsSpentInOrange`, the `~`
+  included); every cell carries the row's hover for the single-line strip. Collapse state per
+  mission id + row key, cleared on open, kept across rebuilds.
+- Seam: `UiAction op=target window=profile mission=<name or id>` (`TestCommandUiAction.ProfileWindow`,
+  table row after `routehistory`; `steps=` is the row count), plus open / close / rect / find on
+  the window like the Log. Gallery: `UI/Gallery/GuiMock.Profile.cs`, states
+  `profile.mission.mun-return` (one detached recording through the real builder with recorded
+  delta-v snapshots) and `profile.mission.empty`, installed by `op=mock window=profile`.
+- Census: GUI-1 and GUI-4 capture the Profile in Advanced and Basic; GUI-4 also photographs the
+  two gallery states; the mirror's `missions` and `profile` epochs are placeholders until those
+  flights.
 
 ## 11. Tests
 

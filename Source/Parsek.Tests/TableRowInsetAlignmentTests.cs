@@ -97,6 +97,16 @@ namespace Parsek.Tests
                 HeaderPinnedOutsideScrollView = true,
                 BoxedTableMethod = "DrawStepTable",
             },
+            // The Mission Profile: the Log's table shape with seven columns and a tree in
+            // the expanding Element cell.
+            new TableSite
+            {
+                File = Path.Combine("UI", "MissionProfileWindowUI.cs"),
+                HeaderMethod = "DrawColumnHeader",
+                RowMethod = "DrawProfileRows",
+                HeaderPinnedOutsideScrollView = true,
+                BoxedTableMethod = "DrawProfileTable",
+            },
             // The Kerbals window's two tabs, rebuilt as column tables 2026-09-15. Both
             // headers are drawn INSIDE the window scroll view that holds their rows, so
             // they take the body row container rather than the gutter-reserving header
@@ -211,6 +221,7 @@ namespace Parsek.Tests
                      {
                          Path.Combine("UI", "SpawnControlUI.cs"),
                          Path.Combine("UI", "StructureListWindowUI.cs"),
+                         Path.Combine("UI", "MissionProfileWindowUI.cs"),
                          Path.Combine("UI", "KerbalsWindowUI.cs"),
                          Path.Combine("UI", "RecordingsTableUI.cs"),
                      })
@@ -266,7 +277,7 @@ namespace Parsek.Tests
                     body.IndexOf(';', scroll) - scroll);
                 Assert.Contains("parentUI.GetTableScrollViewStyle()", scrollCall);
             }
-            Assert.Equal(2, boxed);
+            Assert.Equal(3, boxed);
         }
 
         /// <summary>

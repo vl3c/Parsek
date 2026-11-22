@@ -44,7 +44,7 @@ namespace Parsek.UI.Gallery
 
         // Stock Kerbin / Mun shapes (radius 600 km / 200 km).
         private const double LkoSma = 680000, LkoEcc = 0.005;
-        private const double FallingSma = 450000, FallingEcc = 0.5;
+        private const double FallingSma = 590000, FallingEcc = 0.1525;
         private const double MunTransferSma = 6400000, MunTransferEcc = 0.894;
 
         internal static void Append(List<GuiMockState> into)
@@ -52,13 +52,13 @@ namespace Parsek.UI.Gallery
             into.Add(New(MunReturnStateId,
                 "A crewed Mun return in one recording: launch, Kerbin orbit, transfer, Mun "
                 + "capture and orbit, return burn, reentry under parachutes and recovery, with "
-                + "the estimated burn delta-v drawn in the house orange.",
-                new[] { "ProfilePhaseKind.Transfer", "ProfilePhaseKind.Reentry" },
+                + "the recorded delta-v spent per burn in the house orange and the delta-v left.",
+                new[] { "MissionProfileRow.SpentOrange" },
                 "Mun Return", BuildMunReturn));
 
             into.Add(New(EmptyStateId,
                 "A mission with no recorded flight: the one muted sentence under the headers.",
-                new[] { "MissionProfileRowKind.Empty" },
+                new[] { "MissionProfileRow.Empty" },
                 "Empty Mission", BuildEmpty));
         }
 
@@ -108,6 +108,14 @@ namespace Parsek.UI.Gallery
                 .Sec(SegmentEnvironment.SurfaceStationary, 40300, 40330, "Kerbin", 70, 70)
                 .Launch("Launch Pad")
                 .Ends(TerminalState.Recovered, "Shores")
+                // The game's own delta-v readout at each step (design 8.1), so Spent and Left
+                // show recorded figures rather than the estimate.
+                .Dv(0, DeltaVTrigger.Start, 5200).Dv(4, DeltaVTrigger.BurnStart, 5200)
+                .Dv(150, DeltaVTrigger.BurnEnd, 1990).Dv(269, DeltaVTrigger.BurnStart, 1990)
+                .Dv(289, DeltaVTrigger.BurnEnd, 1810).Dv(1999, DeltaVTrigger.BurnStart, 1810)
+                .Dv(2029, DeltaVTrigger.BurnEnd, 950).Dv(8999, DeltaVTrigger.BurnStart, 950)
+                .Dv(9019, DeltaVTrigger.BurnEnd, 640).Dv(19999, DeltaVTrigger.BurnStart, 640)
+                .Dv(20029, DeltaVTrigger.BurnEnd, 330).Dv(40330, DeltaVTrigger.End, 330)
                 .Build();
             return BuildOver(rec, "Mun Return");
         }
@@ -120,7 +128,7 @@ namespace Parsek.UI.Gallery
             {
                 Mission = new Mission("gallery-profile-empty-m", tree.Id, "Empty Mission"),
                 Tree = tree,
-                BodyFacts = RecordingOptimizer.StockBodyFacts,
+                BodyFacts = MissionProfileBuilder.StockBodyFacts,
             });
         }
 
@@ -137,7 +145,7 @@ namespace Parsek.UI.Gallery
             {
                 Mission = new Mission("gallery-profile-m", tree.Id, name),
                 Tree = tree,
-                BodyFacts = RecordingOptimizer.StockBodyFacts,
+                BodyFacts = MissionProfileBuilder.StockBodyFacts,
             });
         }
 
@@ -227,6 +235,14 @@ namespace Parsek.UI.Gallery
                     ut = ut, partPersistentId = 900, eventType = PartEventType.ParachuteDeployed,
                     partName = "parachuteSingle",
                 });
+                return this;
+            }
+
+            internal PieceInputs Dv(double ut, DeltaVTrigger trigger, double vacuum)
+            {
+                if (rec.DeltaVSnapshots == null) rec.DeltaVSnapshots = new List<DeltaVSnapshot>();
+                rec.DeltaVSnapshots.Add(new DeltaVSnapshot(ut, trigger, DeltaVSnapshotStatus.Ok,
+                    vacuum, vacuum, vacuum, new[] { new DeltaVStageReading(0, vacuum, 0.0) }));
                 return this;
             }
 

@@ -650,6 +650,8 @@ All prior phases target stock KSP (including Making History DLC). This phase add
 
 ## Phase 17: Mission Profile (future: analyze, design, build)
 
+Status (2026-11-23): designed (`docs/dev/design-mission-profile.md`); P1a (recorded delta-v snapshots) built and live-proven, P1b (the phase analyzer, the Profile button and the Profile window, the text report below as a tree of phases and events) built on branch `mission-profile`, its census captures owed a flight; P2 (recorder orbit stamps), P3 (optimizer boundary layer) and P4 (the graphic profile) not started.
+
 Read every recording of a mission from launch to its last ending and produce a NASA / Apollo-style mission profile: first as a text report, later as a graph with visuals (a phase diagram of the flight path with numbered events, like the classic Apollo mission profile charts). Not designed yet; analysis comes first. Foundation notes from the 2026-11 recording split / merge review (why optimizer rows cannot be the profile elements, a recommended shared phase analyzer, vessel-line walker, recorder stamps and role table, orbit-kind model): `docs/dev/research/mission-profile-foundation-notes-2026-11-21.md`.
 
 Typical contents of a real mission profile, all derivable from Parsek recordings:
@@ -657,7 +659,7 @@ Typical contents of a real mission profile, all derivable from Parsek recordings
 - **Phases** in order (launch, ascent, orbit insertion, transfer, capture, descent, landing, surface stay, ascent, rendezvous and docking, return, reentry, splashdown or landing), each with start / end time and body.
 - **Sequence of events**: a mission-elapsed-time table (staging, engine start / cutoff, fairing and decoupler separations, docking / undocking, EVAs, parachutes, crashes).
 - **Burns**: each maneuver with time, duration, engine, delta-v, and the orbit before and after (Ap / Pe / inclination).
-- **Delta-v budget**: per-phase and total delta-v planned versus used, with remaining margin.
+- **Delta-v budget**: per-phase and total delta-v spent and left (no planned figure, owner decision 2026-11-22).
 - **Vessels and stages**: the vessel tree (separations, which stage became what), parts and crew per vessel, and how each piece ended (recovered, landed, crashed, in orbit).
 - **Key numbers**: maximum altitude, speed, max-Q / reentry heating peaks if recorded, mission duration.
 

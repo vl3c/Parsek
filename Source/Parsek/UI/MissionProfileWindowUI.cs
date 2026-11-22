@@ -102,20 +102,12 @@ namespace Parsek
             set { frame.WindowRect = value; }
         }
 
-        internal bool HasInputLock => frame.HasInputLock;
-
         /// <summary>How many rows the last open or rebuild produced, Summary included (the
         /// seam's <c>op=target</c> reports it as <c>steps=</c>).</summary>
         internal int StepCountForTesting => rows != null ? rows.Count : 0;
 
         /// <summary>The target kind for the same report: Mission once opened on one.</summary>
         internal string TargetModeForTesting => profile != null ? "Mission" : "None";
-
-        internal string WindowTitleForTesting => BuildWindowTitle(title);
-
-        internal IReadOnlyList<MissionProfileRow> RowsForTesting => rows;
-
-        internal int VisibleRowCountForTesting => visibleRows.Count;
 
         /// <summary>The window title: <c>"Parsek - Profile: Kerbal X"</c>, the bare prefix
         /// with no name. Pure; the Log's title builder.</summary>
@@ -350,8 +342,6 @@ namespace Parsek
             collapsedKeys.RemoveWhere(k => k.StartsWith(prefix, StringComparison.Ordinal));
         }
 
-        internal bool IsCollapsedForTesting(string rowKey) => collapsedKeys.Contains(CollapseKey(missionId, rowKey));
-
         /// <summary>Flips one row's caret, as its click does. Returns the new collapsed state.</summary>
         internal bool ToggleCollapsed(string rowKey)
         {
@@ -396,13 +386,15 @@ namespace Parsek
         private static bool HiddenByAncestor(string parentKey, Dictionary<string, string> parentOf,
             Func<string, bool> isCollapsed)
         {
-            // Bounded by the row count, so a malformed cycle cannot spin.
+            // Bounded by the row count, so a malformed cycle cannot spin. A parent key that
+            // names no row hides nothing: there would be no caret to open it again.
             for (int guard = 0; !string.IsNullOrEmpty(parentKey) && guard <= parentOf.Count; guard++)
             {
+                if (!parentOf.TryGetValue(parentKey, out string grandParent))
+                    return false;
                 if (isCollapsed != null && isCollapsed(parentKey))
                     return true;
-                if (!parentOf.TryGetValue(parentKey, out parentKey))
-                    return false;
+                parentKey = grandParent;
             }
             return false;
         }
@@ -564,45 +556,51 @@ namespace Parsek
 
         private void DrawProfileRows()
         {
+            GUIStyle cellStyle = bodyCellLabel;
             for (int v = 0; v < visibleRows.Count; v++)
             {
                 MissionProfileRow row = rows[visibleRows[v]];
+                string hover = row.Hover ?? "";
                 // Same shared row container as the header row above (one inset).
                 GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-                string hover = row.Hover ?? "";
-                GUIStyle text = row.Kind == MissionProfileRowKind.Empty ? emptyBodyCellLabel
-                    : IsStrongRow(row) ? strongCellLabel : bodyCellLabel;
-                GUILayout.Label(new GUIContent(row.Time ?? "", hover), bodyCellLabel, GUILayout.Width(ColW_Time));
-                DrawElementCell(row, hover, text);
-                GUILayout.Label(new GUIContent(row.Location ?? "", hover), bodyCellLabel, GUILayout.Width(ColW_Location));
-                GUILayout.Label(new GUIContent(row.Duration ?? "", hover), bodyCellLabel, GUILayout.Width(ColW_Duration));
-                GUILayout.Label(new GUIContent(row.Spent ?? "", hover), SpentStyleFor(row), GUILayout.Width(ColW_Spent));
-                GUILayout.Label(new GUIContent(row.Left ?? "", hover), bodyCellLabel, GUILayout.Width(ColW_Left));
-                GUILayout.Label(new GUIContent(row.Result ?? "", hover), bodyCellLabel, GUILayout.Width(ColW_Result));
+                GUILayout.Label(new GUIContent(row.Time ?? "", hover), cellStyle, GUILayout.Width(ColW_Time));
+                // The Element cell expands like the Log's Event cell: the tree indent, the
+                // caret (phases and line headers) or its empty slot, then the label.
+                GUILayout.BeginHorizontal(GUILayout.ExpandWidth(true));
+                GUILayout.Space(Mathf.Max(0, row.Depth) * IndentPerDepth);
+                DrawCaretSlot(row);
+                GUILayout.Label(new GUIContent(row.Element ?? "", hover), ElementStyleFor(row, cellStyle));
+                GUILayout.EndHorizontal();
+                GUILayout.Label(new GUIContent(row.Location ?? "", hover), cellStyle, GUILayout.Width(ColW_Location));
+                GUILayout.Label(new GUIContent(row.Duration ?? "", hover), cellStyle, GUILayout.Width(ColW_Duration));
+                GUILayout.Label(new GUIContent(row.Spent ?? "", hover),
+                    DrawsSpentInOrange(row) ? spentCellLabel : cellStyle, GUILayout.Width(ColW_Spent));
+                GUILayout.Label(new GUIContent(row.Left ?? "", hover), cellStyle, GUILayout.Width(ColW_Left));
+                GUILayout.Label(new GUIContent(row.Result ?? "", hover), cellStyle, GUILayout.Width(ColW_Result));
                 GUILayout.EndHorizontal();
             }
         }
 
-        // The Element cell: the tree indent, the caret (phases and line headers) or its empty
-        // slot, then the label. The cell expands like the Log's Event cell.
-        private void DrawElementCell(MissionProfileRow row, string hover, GUIStyle text)
+        private void DrawCaretSlot(MissionProfileRow row)
         {
-            GUILayout.BeginHorizontal(GUILayout.ExpandWidth(true));
-            GUILayout.Space(Mathf.Max(0, row.Depth) * IndentPerDepth);
-            if (row.HasCaret)
-            {
-                bool collapsed = collapsedKeys.Contains(CollapseKey(missionId, row.Key));
-                var caret = new GUIContent(collapsed ? CaretRight : CaretDown,
-                    collapsed ? CaretCollapsedTooltip : CaretExpandedTooltip);
-                if (GUILayout.Button(caret, caretStyle, GUILayout.Width(CaretSlotWidth)))
-                    ToggleCollapsed(row.Key);
-            }
-            else
+            if (!row.HasCaret)
             {
                 GUILayout.Space(CaretSlotWidth);
+                return;
             }
-            GUILayout.Label(new GUIContent(row.Element ?? "", hover), text, GUILayout.ExpandWidth(true));
-            GUILayout.EndHorizontal();
+            bool collapsed = collapsedKeys.Contains(CollapseKey(missionId, row.Key));
+            var caret = new GUIContent(collapsed ? CaretRight : CaretDown,
+                collapsed ? CaretCollapsedTooltip : CaretExpandedTooltip);
+            if (GUILayout.Button(caret, caretStyle, GUILayout.Width(CaretSlotWidth)))
+                ToggleCollapsed(row.Key);
+        }
+
+        // The Empty row reads in the house muted grey, the Summary and line headers bold,
+        // every other element in the body cell style.
+        private GUIStyle ElementStyleFor(MissionProfileRow row, GUIStyle cellStyle)
+        {
+            if (row.Kind == MissionProfileRowKind.Empty) return emptyBodyCellLabel;
+            return IsStrongRow(row) ? strongCellLabel : cellStyle;
         }
 
         /// <summary>The Summary block and the vessel-line headers read bold. Pure.</summary>
@@ -613,9 +611,6 @@ namespace Parsek
         /// orange; an empty or <c>-</c> cell keeps the normal colour (design 2.3). Pure.</summary>
         internal static bool DrawsSpentInOrange(MissionProfileRow row)
             => row != null && row.HasSpent && !string.IsNullOrEmpty(row.Spent);
-
-        private GUIStyle SpentStyleFor(MissionProfileRow row)
-            => DrawsSpentInOrange(row) ? spentCellLabel : bodyCellLabel;
 
         private void Close()
         {

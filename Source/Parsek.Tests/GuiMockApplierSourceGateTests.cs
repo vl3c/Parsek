@@ -279,6 +279,7 @@ namespace Parsek.Tests
             {
                 case "KerbalsWindow": return GuiMockSession.KerbalsWindow;
                 case "StructureWindow": return GuiMockSession.StructureWindow;
+                case "ProfileWindow": return GuiMockSession.ProfileWindow;
                 default:
                     throw new InvalidOperationException(
                         "install arm names an unknown window constant: " + constantName);

@@ -40,8 +40,6 @@ namespace Parsek
             this.minHeight = minHeight;
         }
 
-        internal bool HasInputLock => hasInputLock;
-
         /// <summary>
         /// Draws the window around <paramref name="drawBody"/>: seeds the rect, fits it,
         /// draws through <see cref="ParsekUiScale.Window"/> with the opaque style, logs a

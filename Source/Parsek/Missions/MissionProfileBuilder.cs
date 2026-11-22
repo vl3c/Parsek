@@ -67,6 +67,11 @@ namespace Parsek
 
         private static CultureInfo Ic => CultureInfo.InvariantCulture;
 
+        /// <summary>The stock body table (radius, atmosphere, SOI, parent), for a caller that
+        /// builds a profile with no live bodies: the GUI state gallery and the tests.</summary>
+        internal static RecordingOptimizer.BodyFacts StockBodyFacts(string name)
+            => RecordingOptimizer.StockBodyFacts(name);
+
         /// <summary>Builds the profile of one mission. Never throws on malformed data.</summary>
         internal static MissionProfile BuildProfile(MissionProfileRequest req)
         {
